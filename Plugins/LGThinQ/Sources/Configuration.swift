@@ -17,7 +17,8 @@ extension LGThinQPlugin {
         public var thinq1: Bool?
         /// Seconds between ThinQ v1 polls; 5 when absent, as in the Homebridge plugin.
         public var refresh_interval: Double?
-        /// The devices to add; empty or absent adds all of them.
+        /// The Homebridge plugin's devices to add, with their options; empty or absent adds all of them. Read where
+        /// `_accessories` says nothing, until `canonicalSettings` moves it there (LGSettings.swift).
         public var devices: [DeviceConfiguration]?
 
         public init(
@@ -80,6 +81,11 @@ struct DeviceSettings: Sendable {
 
     init(type: String, block: [String: JSONValue]?) {
         values = DeviceRegistry.defaults(type).merging(block ?? [:]) { $1 }
+    }
+
+    /// The options as they are, without a type's defaults.
+    init(values: [String: JSONValue]) {
+        self.values = values
     }
 
     subscript(key: String) -> JSONValue? { values[key] }

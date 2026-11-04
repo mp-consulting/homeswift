@@ -16,8 +16,8 @@ Pairing is done on the web UI's **Add accessories** page (Setup), or by an AI ag
 `discover_devices`, `start_setup` and `continue_setup`; the plugin's page leads there.
 
 1. Add accessories lists the Wingman apps Bonjour finds (`_homeswift-wingman._tcp`). For one Bonjour does not reach
-   (another network, a container without multicast), add an entry to `devices` with only its `host` (and `port`, when it
-   is not 8619) and a `name`: Add accessories lists it by that address.
+   (another network, a container without multicast), add it to **Wingmen by Address** (`devices`) in the plugin's
+   Settings with its `host` (and `port`, when it is not 8619) and a `name`: Add accessories lists it by that address.
 2. In Wingman's menu, choose **Pair a Homeswift Bridge**: it shows a 6-digit code for ten minutes. Check that the
    certificate Setup shows starts as the one in Wingman's window (Bridges tab), then type the code.
 3. The token and the pinned certificate go in the bridge's vault under the Wingman's id, its address in its Accessory
@@ -26,29 +26,41 @@ Pairing is done on the web UI's **Add accessories** page (Setup), or by an AI ag
 The certificate is pinned from the pairing on; the token is Wingman's to revoke (its Paired Bridges). Pairing trusts
 the network for those ten minutes, as a first connection does: the fingerprint check is what guards it.
 
-## Configuration
+## Settings
 
 ```json
 {
   "platform": "Wingman",
   "name": "Wingman",
-  "devices": [
-    { "id": "…", "name": "Mac mini", "host": "192.168.1.20" }
-  ],
   "homes": ["Home"],
-  "exclude": ["Christmas Lights"],
-  "excludeBridges": ["Old Hub"],
-  "refreshMinutes": 10
+  "refreshMinutes": 10,
+  "_accessories": {
+    "wm-1": { "host": "192.168.1.20" },
+    "7A1C…": { "excluded": true },
+    "bridge:Old Hub": { "excluded": true }
+  }
 }
 ```
 
-| Key | What it does |
+| Plugin Setting | What it does |
 |---|---|
-| `devices` | Wingmen paired before Setup: `id` (Wingman's), `host` and `port` (Bonjour moves them); a `token` and `fingerprint` (pinned) written there before move into the vault. An entry with a `host` and no `id` is a Wingman for Add accessories to pair |
 | `homes` | Only these homes, by name; all of them without it |
-| `exclude` | Accessories left out, by name or HomeKit id |
-| `excludeBridges` | Bridges whose accessories are left out, by name; Homeswift's own are always left out |
 | `refreshMinutes` | How often the whole home is read again, in case a change was missed; value changes, and accessories, rooms or names changed in the Home app, arrive at once |
+| `devices` | Wingmen by address, for Add accessories to pair: `host`, `port` and `name`, no `id` |
+
+The plugin's devices, each with its Accessory Settings in `_accessories` and listed under Devices on its Settings page:
+
+- **Wingmen** (Device Kind `wingman`), by Wingman's id: their `host` and `port` (Bonjour moves them); the token and
+  the pinned certificate are in the vault.
+- **Mirrored accessories** (`mirroredAccessory`), by their HomeKit id (the accessory is `Wingman:<HomeKit id>`):
+  Excluded, one is not mirrored.
+- **Apple Home's bridges** (`bridge`), as `bridge:<name>`: Excluded, none of their accessories is mirrored.
+  Homeswift's own bridges are always left out.
+
+A Homebridge-shaped block still loads: `exclude` (accessories by name or HomeKit id), `excludeBridges` (bridges by
+name) and a `devices` entry with an `id` (a Wingman paired before Setup; its `token` and `fingerprint` move into the
+vault). At the next settings change the bridge moves them into `_accessories` (a name to each accessory of that name the
+Wingmen see), leaving what no device answers to.
 
 ## How it works
 
@@ -94,7 +106,7 @@ app reaches Homeswift at once (Wingman's `scenes` and `automations` events). An 
 Wingman accessories can join [dashboard groups](../../docs/widgets.md#accessory-groups) with compatible native
 accessories. Only controls shared by every member appear; a group does not create another HomeKit accessory.
 Use No Response to find unavailable members. Removing a mirrored cached entry does not delete its device from
-Apple Home: the next Wingman discovery can bring it back. Use `exclude` to keep it out of Homeswift.
+Apple Home: the next Wingman discovery can bring it back. Exclude it (its Settings) to keep it out of Homeswift.
 
 ## Limits
 

@@ -223,7 +223,7 @@ struct TapoTests {
     @Test func aP110ShowsItsPower() async throws {
         let host = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21", "type": "PowerPlug"]])
         let outlet = try #require(try await accessory(host, kitchenID).service(.outlet))
-        #expect(await eventually { outlet[TapoEve.currentConsumption]?.value == .double(15.3) })
+        #expect(await eventually { outlet[TapoEve.currentConsumption]?.value == .double(15.3) && outlet[TapoEve.totalConsumption]?.value == .double(0.25) })
         #expect(outlet[TapoEve.totalConsumption]?.value == .double(0.25))
         #expect(outlet[.outletInUse]?.value == .bool(true))
         // One energy request per poll.
@@ -236,7 +236,7 @@ struct TapoTests {
         environment.network.update { $0.info.merge(["device_on": true, "brightness": 50, "color_temp": 2700]) { $1 } }
         let host = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21", "type": "Colorlight"]])
         let bulb = try #require(try await accessory(host, kitchenID).service(.lightbulb))
-        #expect(await eventually { bulb[TapoEve.currentConsumption]?.value == .double(9) })
+        #expect(await eventually { bulb[TapoEve.currentConsumption]?.value == .double(9) && bulb[TapoEve.totalConsumption]?.value == .double(0.018) })
         #expect(bulb[TapoEve.totalConsumption]?.value == .double(0.018))
         // Every ten minutes, not every poll.
         #expect(await eventually { environment.network.device().methods.filter { $0 == "get_device_info" }.count > 3 })
@@ -273,6 +273,40 @@ struct TapoTests {
         #expect(environment.network.device().handshakes == 0)
         #expect(environment.network.device().methods.isEmpty)
         await second.stop()
+    }
+
+    /// `devices` moves into `_accessories` under the same Device Id; the plugin runs from either shape alike.
+    @Test func theCanonicalShapeKeepsTheIdentity() async throws {
+        let block: JSONValue = [
+            "platform": "TapoP100",
+            "devices": [["name": "Kitchen", "host": "192.168.1.21", "type": "PowerPlug", "updateInterval": "10"], ["name": "No host"]],
+            "_accessories": ["192.168.1.21Kitchen": ["type": "Plug"]],
+        ]
+        let canonical = TapoPlugin.canonical(block)
+        #expect(canonical["devices"] == [["name": "No host"]])
+        #expect(canonical["_accessories"] == ["192.168.1.21Kitchen": ["name": "Kitchen", "host": "192.168.1.21", "type": "Plug", "updateInterval": "10"]])
+        #expect(TapoPlugin.canonical(canonical) == canonical)
+
+        // Renamed once canonical: the same accessory, its new name.
+        let host = try await environment.start(
+            devices: [],
+            settings: TestEnvironment.account.merging(["_accessories": ["192.168.1.21Kitchen": ["name": "Hob", "host": "192.168.1.21", "type": "PowerPlug"]]]) { $1 })
+        let plug = try await accessory(host, kitchenID)
+        #expect(plug.name == "Hob")
+        #expect(plug.service(.outlet)?[TapoEve.currentConsumption] != nil)
+        #expect(await environment.plugin?.deviceKind(of: "192.168.1.21Kitchen") == "powerPlug")
+        await host.stop()
+    }
+
+    /// A Homebridge block's account moves into the vault, and the block loses it.
+    @Test func theBlocksAccountMovesIntoTheVault() async throws {
+        let host = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21"]])
+        let plugin = try #require(environment.plugin)
+        let canonical = await plugin.canonicalSettings(["platform": "TapoP100", "username": "user@example.com", "password": "password123"])
+        #expect(canonical == ["platform": "TapoP100"])
+        #expect(plugin.credentials == TapoCredentials(username: "user@example.com", password: "password123"))
+        #expect(await plugin.context.credentials(as: TapoCredentials.self) == TapoCredentials(username: "user@example.com", password: "password123"))
+        await host.stop()
     }
 
     @Test func anExcludedDeviceIsNotPolled() async throws {

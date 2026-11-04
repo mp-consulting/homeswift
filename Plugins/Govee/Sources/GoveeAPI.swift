@@ -58,10 +58,6 @@ struct GoveeAPI: Sendable {
     static let devicesURL = "https://app2.govee.com/device/rest/devices/v1/list"
     static let iotKeyURL = "https://app2.govee.com/app/v1/account/iot/key"
     static let leakWarningURL = "https://app2.govee.com/leak/rest/device/v1/warnMessage"
-    static let settingsCodeRequired = "Govee needs to verify this login. A verification code has been emailed to your Govee account address. "
-        + "Enter that code in the \"Verification Code\" field and test the connection again."
-    static let settingsCodeInvalid = "The Govee verification code was not accepted. Please double-check the code from your email, "
-        + "or clear the code field and test again to have a new one sent."
     /// The status Govee answers a login from a client it has not seen with.
     static let statusNewDevice = 454
     /// The `type` the app sends when it asks for a login verification code.
@@ -160,21 +156,18 @@ struct GoveeAPI: Sendable {
         var topic: String
     }
 
-    /// Who reads the challenge messages: the log, or the settings page (which has a Test Connection button).
-    enum Audience: Sendable { case log, settingsPage }
-
     /// Logs in. A new-device challenge requests the email code and throws `twoFactorRequired`; a refused
     /// code throws `twoFactorInvalid`.
-    func login(username: String, password: String, code: String?, audience: Audience = .log) async throws -> Login {
+    func login(username: String, password: String, code: String?) async throws -> Login {
         var body: [String: JSONValue] = ["email": .string(username), "password": .string(password), "client": .string(clientId)]
         if let code, !code.isEmpty { body["code"] = .string(code) }
         let (status, answer) = try await send("POST", Self.loginURL, token: nil, body: .object(body))
         if answer?["status"]?.intValue == Self.statusNewDevice {
             if let code, !code.isEmpty {
-                throw GoveeAPIError.twoFactorInvalid(audience == .log ? Lang.twoFACodeInvalid : Self.settingsCodeInvalid)
+                throw GoveeAPIError.twoFactorInvalid(Lang.twoFACodeInvalid)
             }
             try await requestVerificationCode(username: username)
-            throw GoveeAPIError.twoFactorRequired(audience == .log ? Lang.twoFARequired : Self.settingsCodeRequired)
+            throw GoveeAPIError.twoFactorRequired(Lang.twoFARequired)
         }
         guard let client = answer?["client"], let token = client["token"]?.stringValue, !token.isEmpty else {
             throw Self.loginFailure(status: status, body: answer)

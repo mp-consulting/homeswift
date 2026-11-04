@@ -42,8 +42,9 @@ struct SetupTests {
             SetupRequest(target: .account, answers: ["username": "a@b.c", "password": "good", "countryCode": "44"])) else {
             Issue.record("expected done"); return
         }
-        #expect(outcome.credentials == ["password": "good"])
-        #expect(outcome.settings == ["username": "a@b.c", "password": .null, "countryCode": "+44"])
+        // The whole account is the vault's: the block's username and password go.
+        #expect(outcome.credentials == ["password": "good", "username": "a@b.c"])
+        #expect(outcome.settings == ["username": .null, "password": .null, "countryCode": "+44"])
         #expect(TokenStorage(context: try context(host)).load()?.accessToken == "access-token-1")
     }
 
@@ -74,6 +75,7 @@ struct SetupTests {
         let found = try await #require(environment.plugin).discover()
         #expect(found.map(\.deviceID) == ["1000aaaaaa", "1000bbbbbb", "1000cccccc", "group-1"])
         #expect(found.map(\.excludedBySettings) == [false, true, false, false])
+        #expect(found.map(\.kind) == ["single", "single", "single", "group"])
         #expect(EWeLinkPlugin.deviceID(ofAccessory: "1000ccccccSW1") == "1000cccccc" && EWeLinkPlugin.deviceID(ofAccessory: "1000cccccc") == nil)
         #expect(found.allSatisfy { $0.isSetUp && $0.authorization == AuthorizationMethod.none })
         #expect(found.last?.name == "Downstairs" && found.last?.model == "Group")

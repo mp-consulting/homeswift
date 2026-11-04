@@ -3,20 +3,23 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 
-// Setup (GLOSSARY.md, "Setup"): each controller is a device whose Device Id is its MAC (`001122334455`, as Protect
-// gives it and its own accessories carry it: `<MAC>.NVRSystemInfo`, `<MAC>.Security`), authorized with an Account Login:
-// a local account of the console. The instance has no account of its own: one block runs several controllers, each with
-// its own login, and the Homebridge plugin already treats a controller as a device (`Disable.Device.<NVR MAC>` turns it
-// off). The login goes in the vault under the controller's MAC and its address in its Accessory Settings, as Philips
-// Ambilight's TVs; the block's `controllers` still work as they were, their passwords sealed in config.json. Cameras,
-// lights, sensors, chimes and viewers come with their controller and need nothing more; `Disable.Device.<MAC>` is their
-// exclusion of the block's own, and an Excluded device is one more `Disable.Device.<MAC>` before the block's options
-// (docs/adr/0001-canonical-accessory-settings.md). UniFi Access does the same in AccessSetup.swift.
+// Setup (GLOSSARY.md, "Setup"): each controller is a device of the Device Kind `nvr` whose Device Id is its MAC
+// (`001122334455`, as Protect gives it and its own accessories carry it: `<MAC>.NVRSystemInfo`, `<MAC>.Security`),
+// authorized with an Account Login: a local account of the console. The instance has no account of its own: one block
+// runs several controllers, each with its own login, and the Homebridge plugin already treats a controller as a device
+// (`Disable.Device.<NVR MAC>` turns it off). The login goes in the vault under the controller's MAC and its address in its
+// Accessory Settings, as Philips Ambilight's TVs; the `controllers` of a Homebridge block still work as they were, and
+// `canonicalSettings` moves a running one there (ProtectCanonicalSettings.swift). Cameras (`camera`,
+// `thirdPartyCamera`), lights, sensors, chimes and viewers come with their controller and need nothing more; an Excluded
+// device is one more `Disable.Device.<MAC>` before the block's options, and `Disable.Device.<MAC>` in a Homebridge block
+// their exclusion of the block's own (docs/adr/0001-canonical-accessory-settings.md). UniFi Access does the same in
+// AccessSetup.swift.
 extension UniFiProtectPlugin {
-    /// A controller's local account, kept in the vault under its MAC.
+    /// A controller's local account, kept in the vault under its MAC, with its M3U playlist's token.
     struct ControllerLogin: Codable, Sendable, Equatable {
         var username: String
         var password: String
+        var playlistToken: String? = nil
     }
 
     /// A `Disable.Device.<MAC>` for each Excluded device, to go before the block's options.
@@ -73,8 +76,10 @@ extension UniFiProtectPlugin {
     func controllerEntries() -> [Configuration.Controller] {
         var setUp: [Configuration.Controller] = []
         for (_, settings, login) in context.setUpDevices(credentials: ControllerLogin.self) {
+            var fields: [String: JSONValue] = ["username": .string(login.username), "password": .string(login.password)]
+            if let token = login.playlistToken { fields["playlistToken"] = .string(token) }
             guard settings.plugin["address"]?.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == false,
-                  let controller = settings.decode(Configuration.Controller.self, adding: ["username": .string(login.username), "password": .string(login.password)]) else { continue }
+                  let controller = settings.decode(Configuration.Controller.self, adding: fields) else { continue }
             setUp.append(controller)
         }
         func key(_ controller: Configuration.Controller) -> String { controller.address.trimmingCharacters(in: .whitespaces).lowercased() }
@@ -83,17 +88,42 @@ extension UniFiProtectPlugin {
             var entry = entry
             entry.username = kept.username
             entry.password = kept.password
+            if let token = kept.playlistToken { entry.playlistToken = token }
             return entry
         }
         let listed = Set(entries.map(key))
         entries += setUp.filter { !listed.contains(key($0)) }
+        // Each third-party camera's own URLs, before a controller's camera overrides: overrides match by MAC.
+        let overrides = cameraOverrides()
+        if !overrides.isEmpty {
+            entries = entries.map { entry in
+                var entry = entry
+                entry.cameraOverrides = overrides + entry.cameraOverrides
+                return entry
+            }
+        }
         return entries
+    }
+
+    /// The third-party cameras' URLs from their Accessory Settings, as camera overrides.
+    func cameraOverrides() -> [Configuration.CameraOverride] {
+        context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { mac, settings in
+            guard settings.plugin["rtspUrl"] != nil || settings.plugin["snapshotUrl"] != nil else { return nil }
+            return settings.decode(Configuration.CameraOverride.self, adding: ["mac": .string(mac)])
+        }
+    }
+
+    /// The feature options the plugin runs with: the Excluded devices (with `excluding`), the Parts and the settings, then
+    /// the block's own `options`; the first of conflicting entries wins.
+    func canonicalOptions(excluding: Bool) -> [String] {
+        (excluding ? Self.exclusions(context) : []) + Self.partChoices(context)
+            + Self.settingOptions(plugin: configuration.settings, accessories: context.allAccessorySettings) + configuration.options
     }
 
     /// The block's feature options, with the Excluded devices (`exclusions`) or without them.
     func featureOptions(excluding: Bool) -> FeatureOptions {
         FeatureOptions(categories: FeatureOptionCatalog.categories, options: FeatureOptionCatalog.options,
-                       configuredOptions: (excluding ? Self.exclusions(context) : []) + configuration.options + Self.partChoices(context), dottedIdentifiers: controllerEntries().map(\.address))
+                       configuredOptions: canonicalOptions(excluding: excluding), dottedIdentifiers: controllerEntries().map(\.address))
     }
 
     /// The controllers, those running with their devices, and the UniFi consoles on the network that are not set up,
@@ -113,7 +143,8 @@ extension UniFiProtectPlugin {
                     guard let deviceMAC = device.string("mac")?.nonEmpty else { continue }
                     var discovered = DiscoveredDevice(
                         deviceID: deviceMAC, name: device.string("name") ?? device.string("marketName") ?? deviceMAC, model: device.string("marketName"),
-                        isSetUp: isSetUp(deviceMAC, scopes), excludedBySettings: !configured.test("Device", device: deviceMAC, controllers: scopes))
+                        isSetUp: isSetUp(deviceMAC, scopes), excludedBySettings: !configured.test("Device", device: deviceMAC, controllers: scopes),
+                        kind: Self.kind(category: category, device: device))
                     discovered.parts = Self.parts(of: device, category: category) { configured.test($0, device: deviceMAC, controllers: scopes) }
                     found.append(discovered)
                 }
@@ -150,7 +181,7 @@ extension UniFiProtectPlugin {
             let deviceID = console.mac.isEmpty ? "address:\(console.ip)" : Self.normalizedMAC(console.mac)
             guard !known.contains(deviceID) else { continue }
             found.append(DiscoveredDevice(deviceID: deviceID, name: console.name.isEmpty ? console.ip : console.name, model: console.modelLong.nonEmpty,
-                                          address: console.ip, authorization: .accountLogin))
+                                          address: console.ip, authorization: .accountLogin, kind: Self.nvrKind))
         }
         return found
     }
@@ -167,7 +198,7 @@ extension UniFiProtectPlugin {
 
     private func controllerDevice(mac: String?, name: String, address: String, isSetUp: Bool, excludedBySettings: Bool) -> DiscoveredDevice {
         DiscoveredDevice(deviceID: mac ?? setUpDeviceID(address: address) ?? "address:\(address)", name: name, model: "UniFi Protect", address: address, authorization: .accountLogin,
-                         isSetUp: isSetUp, excludedBySettings: excludedBySettings)
+                         isSetUp: isSetUp, excludedBySettings: excludedBySettings, kind: Self.nvrKind)
     }
 
     /// A controller: the user name and password of a local account of its console, checked with a login and a bootstrap

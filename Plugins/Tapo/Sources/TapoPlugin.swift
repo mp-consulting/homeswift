@@ -79,17 +79,27 @@ public actor TapoPlugin: HomeswiftPlugin {
         return TapoCredentials(username: username, password: password)
     }
 
-    /// The block's devices with an address, the first of each Device Id, Excluded ones included (Setup lists them).
-    func configuredDevices() -> [(deviceID: String, device: Configuration.Device)] {
+    /// The devices: those of `_accessories` with a `host` (by their Device Id, the canonical shape), then those of the
+    /// Homebridge-shaped `devices` with an address, the first of each Device Id; Excluded ones included (Setup lists them).
+    /// `log` says what is left out.
+    func configuredDevices(log: Bool = false) -> [(deviceID: String, device: Configuration.Device)] {
         var seen = Set<String>()
         var devices: [(String, Configuration.Device)] = []
+        for (deviceID, settings) in context.allAccessorySettings.sorted(by: { $0.key < $1.key }) where settings.plugin["host"] != nil {
+            guard let device = settings.decode(Configuration.Device.self, adding: [:]), device.trimmedHost != nil else {
+                if log { logger.warning("The settings of \(deviceID) have no usable host: it is left out") }
+                continue
+            }
+            seen.insert(deviceID)
+            devices.append((deviceID, device))
+        }
         for device in configuration.devices ?? [] {
             guard let deviceID = device.deviceID else {
-                logger.warning("A device has no host: it is left out")
+                if log { logger.warning("A device has no host: it is left out") }
                 continue
             }
             guard seen.insert(deviceID).inserted else {
-                logger.warning("Two devices have the same host and name (\(device.trimmedHost ?? "")): only the first is used")
+                if log { logger.warning("Two devices have the same host and name (\(device.trimmedHost ?? "")): only the first is used") }
                 continue
             }
             devices.append((deviceID, device))
@@ -98,7 +108,7 @@ public actor TapoPlugin: HomeswiftPlugin {
     }
 
     public func start() async throws {
-        let configured = configuredDevices()
+        let configured = configuredDevices(log: true)
         if credentials == nil, !configured.isEmpty {
             logger.error("No Tapo account: set username and password, or sign in through Add accessories")
         }

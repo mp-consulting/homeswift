@@ -402,6 +402,47 @@ struct PluginHostTests {
         await host.stop()
     }
 
+    /// Name, room, Hidden and Not in Home in `_accessories` never reach the plugin: they leave its JSON, a change to them
+    /// reloads nothing, Not in Home keeps the accessory out of HomeKit, and so does Room Sync in the bridge block.
+    @Test func liveAccessorySettingsDoNotReloadThePlugin() async throws {
+        func configuration(_ settings: String, roomSync: Bool = false) throws -> HomeswiftConfiguration {
+            try HomeswiftConfiguration.decode(Data(#"""
+                { "bridge": { "port": 0, "roomSync": \#(roomSync) }, "platforms": [
+                  { "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1", "lamp-2"], "_accessories": \#(settings) }
+                ] }
+                """#.utf8))
+        }
+        let first = try configuration(#"{ "lamp-1": { "room": "Office", "hidden": true, "excluded": false, "offset": 2 }, "lamp-2": { "name": "Shelf" } }"#)
+        let block = try #require(first.platforms.first)
+        #expect(block.accessoryRooms == ["lamp-1": "Office"] && block.hiddenOnWall == ["lamp-1"])
+        // An entry of live settings only leaves the plugin's JSON, but the plugin still has the device (a Setup that gave it a
+        // Name only).
+        #expect(try JSONValue(data: block.json)["_accessories"] == ["lamp-1": ["excluded": false, "offset": 2]])
+        #expect(block.accessorySettings["lamp-1"]?.plugin == ["offset": 2])
+        #expect(block.accessorySettings["lamp-2"] == AccessorySettings(name: "Shelf") && block.accessoryNames == ["lamp-2": "Shelf"])
+        #expect(block.accessorySettings["lamp-1"]?.room == "Office" && block.accessorySettings["lamp-1"]?.hidden == true)
+        // A block built in code reads the same way.
+        let built = try HomeswiftConfiguration.Platform(platform: "Recording", name: "Lamps", settings: ["_accessories": ["lamp-2": ["name": "Shelf", "room": "Hall"]]])
+        #expect(try JSONValue(data: built.json)["_accessories"] == nil && built.accessorySettings["lamp-2"] == AccessorySettings(name: "Shelf", room: "Hall"))
+        #expect(built.accessoryNames == ["lamp-2": "Shelf"] && built.accessoryRooms == ["lamp-2": "Hall"])
+        #expect(first.roomSync == false)
+        for bad in [#"{ "lamp-1": { "room": 3 } }"#, #"{ "lamp-1": { "hidden": "yes" } }"#, #"{ "lamp-1": { "notInHome": 1.5 } }"#] {
+            #expect(throws: ConfigurationError.self) { try configuration(bad) }
+        }
+        let host = try PluginHost(configuration: first, registry: environment.registry, storageDirectory: environment.directory, options: environment.options)
+        try await host.start()
+        let server = host.mainBridge.server
+        let report = await host.apply(try configuration(#"{ "lamp-1": { "room": "Hall", "name": "Desk", "excluded": false, "offset": 2 }, "lamp-2": { "notInHome": true }, "lamp-3": { "name": "Spare" } }"#, roomSync: true))
+        #expect(report == PluginHost.ReloadReport())
+        #expect(environment.createdPlugins.count == 1)
+        // A device given its first setting, a live one, is among the plugin's Accessory Settings at once.
+        #expect(Set(host.context(platform: "Recording", name: "Lamps")?.allAccessorySettings.keys ?? [:].keys) == ["lamp-1", "lamp-2", "lamp-3"])
+        #expect(server.isHiddenFromHomeKit("Recording:lamp-2") && !server.isHiddenFromHomeKit("Recording:lamp-1"))
+        #expect(server.accessory(id: "Recording:lamp-1")?.name == "Desk")
+        #expect(host.configuration.roomSync == true)
+        await host.stop()
+    }
+
     /// Blocks with the same platform and name pair up with their instances in order: a change to the second
     /// reloads the second, not the first.
     @Test func reloadsTheDuplicateBlockThatChanged() async throws {

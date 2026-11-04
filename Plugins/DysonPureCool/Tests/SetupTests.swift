@@ -60,7 +60,7 @@ struct SetupTests {
         #expect(try await plugin.discover().isEmpty)
         try context(host).saveCredentials(["token": "token-1"])
         let found = try await plugin.discover()
-        #expect(found == [DiscoveredDevice(deviceID: serial, name: "Living Room", model: DeviceCatalog.modelName("438"), authorization: .accountLogin)])
+        #expect(found == [DiscoveredDevice(deviceID: serial, name: "Living Room", model: DeviceCatalog.modelName("438"), authorization: .accountLogin, kind: "purifier")])
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(found[0]))) else { Issue.record("expected done"); return }
         #expect(outcome.credentials == ["localCredentials": "local-hash"])
         #expect(outcome.settings == ["productType": "438", "name": "Living Room"])

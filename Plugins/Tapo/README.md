@@ -70,14 +70,17 @@ sees a new service, so the automations and scenes that used it as an outlet need
 
 | Option | Default | |
 |---|---|---|
-| `username` | | The Tapo account's email. Setup (Add accessories) can keep it in the vault instead |
-| `password` | | The Tapo account's password: sealed in config.json, or a `vault:`, `env:` or `file:` reference (docs/plugins.md, "Secrets") |
+| `username`, `password` | | A Homebridge block's Tapo account: read, and moved into the vault at the next settings save. Setup (Add accessories) signs in instead; the settings form has no field for them |
 | `waitTimeUpdate` | 100 | Milliseconds a change from HomeKit waits for the ones made with it (unused by the Homebridge plugin) |
 | `devices[].name` | | The name in HomeKit, and part of the Device Id |
 | `devices[].host` | | The device's IP address or host name; HTTP on port 80 |
 | `devices[].type` | `Plug` | See [In HomeKit](#in-homekit) |
 | `devices[].updateInterval` | 10 | Seconds between polls (0 is the default) |
 | `devices[].timeout` | 2 | Seconds a securePassthrough request waits; KLAP waits 5 |
+
+Each `devices` entry moves into the block's `_accessories` the first time the settings are saved, under its Device Id
+(the host and name as before), with its name as the accessory's Name and `host`, `type`, `updateInterval` and `timeout`
+as its own settings; from then on a rename or a new address keeps the accessory. A Homebridge block works in either shape.
 
 Numbers may be written as strings (`"10"`), as the Homebridge plugin's form wrote them. `pollingInterval`, `timeout` at
 the top and `devices[].port` are read and unused, as there.

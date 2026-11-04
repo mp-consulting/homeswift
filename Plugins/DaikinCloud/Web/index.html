@@ -25,7 +25,6 @@
 
   <div class="group tabs" role="tablist" id="tabs">
     <button role="tab" aria-controls="tab-devices" data-tab="devices" class="on" aria-selected="true" data-i18n>Devices</button>
-    <button role="tab" aria-controls="tab-settings" data-tab="settings" aria-selected="false" data-i18n data-action-icon="sliders">Settings</button>
     <button role="tab" aria-controls="tab-auth" data-tab="auth" aria-selected="false" data-i18n data-action-icon="key">Authentication</button>
     <button role="tab" aria-controls="tab-help" data-tab="help" aria-selected="false" data-i18n>Help</button>
   </div>
@@ -36,56 +35,6 @@
     <p id="session-line" class="muted note hidden"></p>
     <div id="devices-list" class="grid"></div>
     <div id="devices-problem"></div>
-  </section>
-
-  <!-- Settings -->
-  <section class="tab-pane hidden" id="tab-settings" role="tabpanel">
-    <div class="section-head"><h2 data-i18n>Plugin settings</h2></div>
-    <div class="card settings-card">
-      <div class="group tabs subtabs" role="tablist" id="subtabs">
-        <button role="tab" data-subtab="features" class="on" aria-selected="true" data-i18n>Features</button>
-        <button role="tab" data-subtab="polling" aria-selected="false" data-i18n>Polling</button>
-        <button role="tab" data-subtab="network" aria-selected="false" data-i18n>Network</button>
-        <button role="tab" data-subtab="devices" aria-selected="false" data-i18n>Devices</button>
-      </div>
-
-      <div class="subtab" id="subtab-features">
-        <p class="muted note" data-i18n>Switches for additional modes in HomeKit. A switch appears only when the unit supports the feature.</p>
-        <div id="feature-toggles"></div>
-      </div>
-
-      <div class="subtab hidden" id="subtab-polling">
-        <div class="fields">
-          <label class="field"><span class="field-title" data-i18n>Update interval (minutes)</span>
-            <input type="number" id="updateIntervalInMinutes" min="1" max="60" step="1" placeholder="15 (recommended)">
-            <span class="help" data-i18n>Developer Portal: 15+ min · Mobile App: 1-5 min</span></label>
-          <label class="field"><span class="field-title" data-i18n>Force update delay (seconds)</span>
-            <input type="number" id="forceUpdateDelay" min="5" max="300" step="1" placeholder="60 (recommended)">
-            <span class="help" data-i18n>Developer Portal: 60 s · Mobile App: 10 s</span></label>
-        </div>
-        <label class="toggle hidden" id="websocket-setting-row"><span class="switch"><input type="checkbox" id="enableWebSocket"><span></span></span>
-          <span><span class="field-title" data-i18n>Enable WebSocket</span><span class="help" data-i18n>Real-time updates (Mobile App only)</span></span></label>
-      </div>
-
-      <div class="subtab hidden" id="subtab-network">
-        <div class="fields">
-          <label class="field"><span class="field-title" data-i18n>OIDC callback bind address</span>
-            <input type="text" id="oidcCallbackServerBindAddr" placeholder="0.0.0.0" spellcheck="false" autocomplete="off">
-            <span class="help" data-i18n>The IPv4 address of the OAuth callback server (0.0.0.0 for all interfaces). 127.0.0.1 only accepts connections from this host, so the login redirect cannot reach it.</span></label>
-          <label class="field"><span class="field-title" data-i18n>HTTP transport</span>
-            <select id="httpTransport"><option value="node" data-i18n>Built-in client (default)</option><option value="curl" data-i18n>curl subprocess (WAF fingerprint workaround)</option></select>
-            <span class="help" data-i18n>Use "curl subprocess" only if authentication times out on your network while curl works: some WAFs drop a client's TLS fingerprint (issue #6). Requires the curl binary; the WebSocket still uses the built-in TLS.</span></label>
-        </div>
-      </div>
-
-      <div class="subtab hidden" id="subtab-devices">
-        <p class="muted note" data-i18n>Show or hide each device in HomeKit.</p>
-        <div id="device-toggles"></div>
-      </div>
-
-      <div class="save-bar" id="settings-bar"><span id="settings-status" class="muted" role="status" aria-live="polite" data-i18n>Saving applies at once: the plugin reloads with the new settings.</span>
-        <button id="btn-settings-discard" disabled data-i18n data-action-icon="close">Discard</button><button id="btn-settings-save" class="primary" disabled data-i18n data-action-icon="check">Save</button></div>
-    </div>
   </section>
 
   <!-- Authentication -->
@@ -131,7 +80,7 @@
       <dl class="trouble">
         <dt data-i18n>Token expired or invalid</dt><dd data-i18n>Revoke access on the Authentication tab, then sign in again on Add accessories.</dd>
         <dt data-i18n>Authentication flow issues</dt><dd data-i18n>Check that the redirect URI in the portal matches exactly, bind the callback server to 0.0.0.0, check the firewall for the callback port.</dd>
-        <dt data-i18n>Device not appearing</dt><dd data-i18n>Check the log, check the device in the Onecta app, check the hidden devices on Settings › Devices.</dd>
+        <dt data-i18n>Device not appearing</dt><dd data-i18n>Check the log, check the device in the Onecta app, and check whether it is Excluded in its settings.</dd>
       </dl>
     </div>
   </section>

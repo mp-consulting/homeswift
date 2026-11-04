@@ -207,33 +207,38 @@ struct SecretBoxTests {
         FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-secrets-\(UUID().uuidString)")
     }
 
-    /// Every plugin's password field is sealed on save and on import: the form masks it (`x-schema-form` password),
-    /// and the sealing walk, which follows Redaction's name rule, must cover its name too.
-    @Test func everyPluginPasswordFieldIsSealed() throws {
+    /// No plugin's schema declares a secret (docs/plugins.md, "Settings"): credentials are Setup's and live in the vault,
+    /// so no field is a password field, and none is named so that the sealing walk (Redaction's name rule) would seal its
+    /// value or the settings editor leave it out (a filter's `HighPass`, a reader's `TouchPass`).
+    @Test func noPluginSchemaDeclaresASecret() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let plugins = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("Plugins"), includingPropertiesForKeys: nil)
         var checked = 0
         for plugin in plugins {
             guard let data = try? Data(contentsOf: plugin.appendingPathComponent("config.schema.json")) else { continue }
-            for name in Self.passwordFields(try JSONValue(data: data)) {
-                checked += 1
-                #expect(Redaction.isSecretKey(name), "\(plugin.lastPathComponent): \(name) is a password field the sealing rule misses")
+            let file = try JSONValue(data: data)
+            for section in ["schema", "accessorySchema"] {
+                guard let node = file[section] else { continue }
+                for (name, field) in Self.fields(node) {
+                    checked += 1
+                    #expect(!Redaction.isSecretKey(name), "\(plugin.lastPathComponent): \(section) declares \(name), which the sealing rule takes for a secret")
+                    #expect(field["x-schema-form"]?["type"]?.stringValue != "password", "\(plugin.lastPathComponent): \(name) is a password field")
+                }
             }
         }
-        #expect(checked > 0)
+        #expect(checked > 100)
     }
 
-    static func passwordFields(_ node: JSONValue) -> [String] {
-        var names: [String] = []
-        for (name, field) in node["properties"]?.objectValue ?? [:] where field["x-schema-form"]?["type"]?.stringValue == "password" {
-            names.append(name)
-        }
+    /// Every property of a schema, nested ones too, by name.
+    static func fields(_ node: JSONValue) -> [(String, JSONValue)] {
+        var fields: [(String, JSONValue)] = []
+        for (name, field) in node["properties"]?.objectValue ?? [:] { fields.append((name, field)) }
         switch node {
-        case .object(let object): for child in object.values { names += passwordFields(child) }
-        case .array(let items): for child in items { names += passwordFields(child) }
+        case .object(let object): for child in object.values { fields += self.fields(child) }
+        case .array(let items): for child in items { fields += self.fields(child) }
         default: break
         }
-        return names
+        return fields
     }
 
     @Test func sealingSealsANumberUnderASecretNameAsText() throws {

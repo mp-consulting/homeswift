@@ -3,16 +3,19 @@ import Homeswift
 import HomeswiftAI
 import HomeswiftPlugin
 
-/// Glass UI's accessory layout, for the whole bridge rather than per user: rooms in their order, and per accessory
-/// its room, whether the web UI hides it, a display name of the web UI's own and whether it is a Quick Control.
-/// HomeKit never sees any of it (the Home app keeps its own rooms); `list_accessories` filters by these rooms.
-/// Kept in `accessory-layout.json` next to config.json.
+/// Glass UI's accessory layout, for the whole bridge rather than per user, now the Arrangement only
+/// (docs/adr/0003-room-and-visibility-in-accessory-settings.md): the rooms in their order, and per accessory whether it is a
+/// Quick Control. An accessory's room, Hidden and Name are Accessory Settings (`updateAccessorySettings`); the room, hidden
+/// flag and display name an accessory has here are what older versions wrote, read where its settings have none and
+/// moved into them on its next settings write, never written again. `syncRoomNames` is Room Sync's old place, read when
+/// the bridge block has no `roomSync`. Kept in `accessory-layout.json` next to config.json.
 public struct AccessoryLayout: Codable, Sendable, Equatable {
     public struct Entry: Codable, Sendable, Equatable {
-        /// The room; empty for none even when the accessory's controller suggests one (`Accessory.suggestedRoom`).
+        /// Legacy: the room; empty for none even when the accessory's controller suggests one (`Accessory.suggestedRoom`).
         public var room: String?
+        /// Legacy: Hidden.
         public var hidden: Bool?
-        /// The name the web UI shows instead of the accessory's own (an Assistant's rename, say).
+        /// Legacy: the name the web UI showed instead of the accessory's own.
         public var name: String?
         /// On the Quick Controls.
         public var favourite: Bool?
@@ -30,7 +33,7 @@ public struct AccessoryLayout: Codable, Sendable, Equatable {
     /// The rooms in the order the pages show them, empty ones included.
     public var rooms: [String] = []
     public var accessories: [String: Entry] = [:]
-    /// A room renamed here is renamed on the plugins' hubs too (`HomeswiftPlugin.renameRoom`): off unless set.
+    /// Legacy: Room Sync, now the bridge block's `roomSync` (`HomeswiftCatalog.roomSync`), cleared by its next write.
     public var syncRoomNames: Bool?
 
     public init(rooms: [String] = [], accessories: [String: Entry] = [:], syncRoomNames: Bool? = nil) {
@@ -64,33 +67,22 @@ extension HomeswiftCatalog {
         let rooms: [JSONValue] = allRoomNames(all).map { room in
             ["name": .string(room), "accessories": .array((byRoom[room.lowercased()] ?? []).map(entry))]
         }
-        return ["rooms": .array(rooms), "unassigned": .array((byRoom[""] ?? []).map(entry)), "syncRoomNames": .bool(home.layout.value.syncRoomNames == true)]
+        return ["rooms": .array(rooms), "unassigned": .array((byRoom[""] ?? []).map(entry)), "syncRoomNames": .bool(roomSync)]
     }
 
-    /// Changes the layout. `body` may hold `accessories`, an object by accessory id (or a list of objects with
-    /// `id`) of `room`, `hidden`, `name` and `favourite`, where null clears one; `rooms`, the rooms in order (new
-    /// names are added, those left out keep their place after them); `renameRoom` `{from, to}`; `removeRooms`, whose
-    /// accessories have no room afterwards; `syncRoomNames`, whether a renamed room is renamed on the hubs too
-    /// (`updateLayout(_:by:)` does it). A room an accessory moves to is added. A room only a mirrored controller names
-    /// (Apple Home's) becomes the layout's own when it is renamed or removed. Answers `layoutJSON()`.
-    public func updateLayout(_ body: JSONValue) throws -> JSONValue {
-        _ = try applyLayout(body)
-        return layoutJSON()
-    }
-
-    /// `updateLayout(_:)`, then, when `syncRoomNames` is on, the same on the plugins' hubs: a room renamed
-    /// (`renameHubRooms`, what each did in the answer's `hubRooms`) and accessories moved to a room (`moveOnHubs`, in
-    /// `hubMoves`).
+    /// Changes the Arrangement. `body` may hold `accessories`, an object by accessory id (or a list of objects with `id`)
+    /// of `favourite`, where null clears it; `rooms`, the rooms in order (new names are added, those left out keep their
+    /// place after them); `renameRoom` `{from, to}`, which every accessory's `room` setting in that room follows;
+    /// `removeRooms`, whose accessories have no room afterwards; `syncRoomNames`, Room Sync, written to the bridge block
+    /// (`bridge.roomSync`). A room only a mirrored controller names (Apple Home's) becomes the layout's own when it is
+    /// renamed or removed. With Room Sync on, a room renamed is renamed on the plugins' hubs too (`renameHubRooms`, what
+    /// each did in the answer's `hubRooms`). An accessory's room, Hidden and Name are Accessory Settings
+    /// (`updateAccessorySettings`). Answers `layoutJSON()`.
     public func updateLayout(_ body: JSONValue, by: String) async throws -> JSONValue {
-        let change = try applyLayout(body)
+        let change = try await applyLayout(body)
         guard var answer = layoutJSON().objectValue else { return layoutJSON() }
-        if home.layout.value.syncRoomNames == true {
-            if let renamed = change.renamed {
-                answer["hubRooms"] = .array(await renameHubRooms(from: renamed.from, to: renamed.to, by: by))
-            }
-            if !change.moved.isEmpty {
-                answer["hubMoves"] = .array(await moveOnHubs(change.moved, by: by))
-            }
+        if roomSync, let renamed = change.renamed {
+            answer["hubRooms"] = .array(await renameHubRooms(from: renamed.from, to: renamed.to, by: by))
         }
         return .object(answer)
     }
@@ -98,15 +90,14 @@ extension HomeswiftCatalog {
     /// What `applyLayout` changed that hubs may follow.
     private struct LayoutChange {
         var renamed: (from: String, to: String)?
-        /// Accessories moved to another room, not out of one.
-        var moved: [(accessoryID: String, room: String)] = []
     }
 
-    /// Changes the layout as `updateLayout(_:)` says; answers the room renamed and the accessories moved.
-    private func applyLayout(_ body: JSONValue) throws -> LayoutChange {
-        func cleanName(_ value: String, _ what: String) throws -> String {
+    /// Changes the layout as `updateLayout(_:by:)` says, then the Accessory Settings that name a room renamed or removed
+    /// and Room Sync, in one write of config.json; answers the room renamed.
+    private func applyLayout(_ body: JSONValue) async throws -> LayoutChange {
+        func cleanName(_ value: String) throws -> String {
             let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, name.count <= AccessoryLayout.maxName else { throw CatalogError("\(what) must be 1 to \(AccessoryLayout.maxName) characters") }
+            guard !name.isEmpty, name.count <= AccessoryLayout.maxName else { throw CatalogError("A room's name must be 1 to \(AccessoryLayout.maxName) characters") }
             return name
         }
         var changes: [(String, [String: JSONValue])] = []
@@ -118,23 +109,41 @@ extension HomeswiftCatalog {
         } else if let list = body["accessories"]?.arrayValue {
             changes = try list.map { value in
                 guard let object = value.objectValue, let id = object["id"]?.stringValue else { throw CatalogError("each accessory change needs its id") }
-                return (id, object)
+                return (id, object.filter { $0.key != "id" })
+            }
+        }
+        for (id, change) in changes {
+            let moved = change.keys.filter { $0 != "favourite" }.sorted()
+            guard moved.isEmpty else {
+                throw CatalogError("\(moved.joined(separator: ", ")) of \(id): an accessory's room, Hidden and Name are Accessory Settings, changed with update_settings (PATCH /api/settings/accessories/<id>)")
             }
         }
         let all = located()
         let known = Set(all.map(\.accessory.id))
         let suggested = Dictionary(all.compactMap { located in located.accessory.suggestedRoom.map { (located.accessory.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        // The accessories whose room is the suggested one: no room of their own, in their settings or the layout.
+        let following = Set(all.filter { $0.layout?.room == nil && $0.accessory.suggestedRoom != nil }.map(\.accessory.id))
         if let sync = body["syncRoomNames"], !sync.isNull, sync.boolValue == nil { throw CatalogError("syncRoomNames must be true or false") }
-        let result: LayoutChange = try home.layout.update { layout in
-            var renamed: (from: String, to: String)?
-            var moved: [(accessoryID: String, room: String)] = []
+        /// What the layout's change does to the rooms the settings name.
+        var renamed: (from: String, to: String)?
+        var removed: [String] = []
+        /// Mirrored accessories that followed a suggested room the layout adopted, and the room they are in now ("" none).
+        var adopted: [String: String] = [:]
+        // Put back if the settings' write that follows fails, so the layout never names rooms the settings do not.
+        let previous = home.layout.value
+        try home.layout.update { layout in
             /// Gives the layout a room a mirrored controller names: the room, and its accessories that follow the suggestion.
             func adopt(_ name: String) -> String? {
                 if let current = layout.room(named: name) { return current }
-                let followers = suggested.filter { id, room in room.caseInsensitiveCompare(name) == .orderedSame && layout.accessories[id]?.room == nil }
+                // A room only accessories' settings name (a restored config.json): the layout takes it as they spell it.
+                if let named = all.lazy.compactMap({ $0.layout?.room }).first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+                    layout.rooms.append(named)
+                    return named
+                }
+                let followers = suggested.filter { id, room in room.caseInsensitiveCompare(name) == .orderedSame && following.contains(id) }
                 guard let spelled = followers.values.first else { return nil }
                 layout.rooms.append(spelled)
-                for id in followers.keys { layout.accessories[id, default: AccessoryLayout.Entry()].room = spelled }
+                for id in followers.keys { adopted[id] = spelled }
                 return spelled
             }
             /// Out of its room: none, rather than the room its controller suggests.
@@ -142,7 +151,7 @@ extension HomeswiftCatalog {
             if let order = body["rooms"]?.arrayValue {
                 let names = try order.map { value -> String in
                     guard let text = value.stringValue else { throw CatalogError("rooms must be names") }
-                    return try cleanName(text, "A room's name")
+                    return try cleanName(text)
                 }
                 var seen: Set<String> = []
                 let ordered = names.compactMap { name -> String? in
@@ -153,49 +162,91 @@ extension HomeswiftCatalog {
             }
             if let rename = body["renameRoom"], !rename.isNull {
                 guard let from = rename["from"]?.stringValue, let current = adopt(from) else { throw CatalogError("No room \(rename["from"]?.stringValue ?? "")") }
-                let to = try cleanName(rename["to"]?.stringValue ?? "", "A room's name")
+                let to = try cleanName(rename["to"]?.stringValue ?? "")
                 if let other = layout.room(named: to), other != current { throw CatalogError("There is already a room \(other)") }
                 layout.rooms = layout.rooms.map { $0 == current ? to : $0 }
+                // The legacy rooms follow too, as long as the layout has them.
                 for (id, entry) in layout.accessories where entry.room == current { layout.accessories[id]?.room = to }
+                for (id, room) in adopted where room == current { adopted[id] = to }
                 if current != to { renamed = (current, to) }
             }
-            if let sync = body["syncRoomNames"]?.boolValue { layout.syncRoomNames = sync ? true : nil }
+            if body["syncRoomNames"]?.boolValue != nil { layout.syncRoomNames = nil }
             for name in body["removeRooms"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
                 guard let current = adopt(name) else { continue }
                 layout.rooms.removeAll { $0 == current }
                 for (id, entry) in layout.accessories where entry.room == current { layout.accessories[id]?.room = noRoom(id) }
+                for (id, room) in adopted where room == current { adopted[id] = "" }
+                removed.append(current)
             }
             for (id, change) in changes {
                 guard known.contains(id) || layout.accessories[id] != nil else { throw CatalogError("No accessory with id \(id)") }
                 var entry = layout.accessories[id] ?? AccessoryLayout.Entry()
-                if let room = change["room"] {
-                    if let name = room.stringValue, !name.trimmingCharacters(in: .whitespaces).isEmpty {
-                        let clean = try cleanName(name, "A room's name")
-                        let before = entry.room ?? suggested[id]
-                        if let existing = layout.room(named: clean) {
-                            entry.room = existing
-                        } else {
-                            entry.room = clean
-                            layout.rooms.append(clean)
-                        }
-                        if let room = entry.room, before.map({ !Self.sameRoomName($0, room) }) ?? true { moved.append((id, room)) }
-                    } else {
-                        entry.room = noRoom(id)
-                    }
-                }
-                if let hidden = change["hidden"] { entry.hidden = hidden.boolValue == true ? true : nil }
                 if let favourite = change["favourite"] { entry.favourite = favourite.boolValue == true ? true : nil }
-                if let name = change["name"] {
-                    let text = name.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    entry.name = try text.isEmpty ? nil : cleanName(text, "A display name")
-                }
                 layout.accessories[id] = entry.isEmpty ? nil : entry
             }
             guard layout.rooms.count <= AccessoryLayout.maxRooms else { throw CatalogError("At most \(AccessoryLayout.maxRooms) rooms") }
-            return LayoutChange(renamed: renamed, moved: moved)
+        }
+        let sync = body["syncRoomNames"]?.boolValue
+        guard renamed != nil || !removed.isEmpty || !adopted.isEmpty || sync != nil else {
+            home.layoutChanged()
+            return LayoutChange(renamed: renamed)
+        }
+        do {
+            try await retryingWhenConfigChanges {
+                try await writeLayoutRooms(renamed: renamed, removed: removed, adopted: adopted, sync: sync, suggested: suggested, all: all)
+            }
+        } catch {
+            try? home.layout.update { $0 = previous }
+            throw error
         }
         home.layoutChanged()
-        return result
+        return LayoutChange(renamed: renamed)
+    }
+
+    /// `applyLayout`'s write of config.json: the settings' rooms renamed or emptied (a room's name matched as the layout
+    /// matches it, case aside), the adopted followers' rooms, Room Sync.
+    private func writeLayoutRooms(
+        renamed: (from: String, to: String)?, removed: [String], adopted: [String: String], sync: Bool?, suggested: [String: String], all: [Located]
+    ) async throws {
+        // Not `sameRoomName`, which ignores accents too: the layout keeps "Cafe" and "Café" apart.
+        let same = { (a: String, b: String) in a.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(b.trimmingCharacters(in: .whitespaces)) == .orderedSame }
+        let byID = Dictionary(all.map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let current = try readConfig()
+        var root = current.objectValue ?? [:]
+        if let sync { setRoomSync(sync, in: &root) }
+        var platforms = root["platforms"]?.arrayValue ?? []
+        for index in platforms.indices {
+            guard var block = platforms[index].objectValue, let platform = block["platform"]?.stringValue else { continue }
+            let name = block["name"]?.stringValue ?? platform
+            var entries = block["_accessories"]?.objectValue ?? [:]
+            var changed = false
+            for (key, entry) in entries {
+                guard var fields = entry.objectValue, let room = fields["room"]?.stringValue, !room.isEmpty else { continue }
+                if let renamed, same(room, renamed.from) {
+                    fields["room"] = .string(renamed.to)
+                } else if removed.contains(where: { same($0, room) }) {
+                    if suggested["\(platform):\(key)"] == nil { fields.removeValue(forKey: "room") } else { fields["room"] = "" }
+                } else {
+                    continue
+                }
+                // Removed, not set to nil: JSONValue takes the nil literal as JSON null.
+                if fields.isEmpty { entries.removeValue(forKey: key) } else { entries[key] = .object(fields) }
+                changed = true
+            }
+            for (id, room) in adopted {
+                guard let located = byID[id], located.platform?.platform == platform, located.platform?.name == name else { continue }
+                let key = AccessoryNaming.deviceID(of: id, platform: platform)
+                var fields = entries[key]?.objectValue ?? [:]
+                fields["room"] = .string(room)
+                entries[key] = .object(fields)
+                changed = true
+            }
+            guard changed else { continue }
+            if entries.isEmpty { block.removeValue(forKey: "_accessories") } else { block["_accessories"] = .object(entries) }
+            platforms[index] = .object(block)
+        }
+        root["platforms"] = .array(platforms)
+        if JSONValue.object(root) != current { _ = try await applyConfig(.object(root), dryRun: false, current: current, expecting: current) }
     }
 
     /// The Assistant's rooms and names for the running accessories (`AssistantService.suggestOrganization`):
@@ -224,7 +275,8 @@ extension HomeswiftCatalog {
                 ["name": .string(room.name), "accessories": .array(room.accessories.filter { byID[$0] != nil }.map(JSONValue.string))]
             }),
             "renames": .array(suggestion.renames.compactMap { rename in
-                guard let found = byID[rename.uniqueId] else { return nil }
+                // A mirrored accessory is named where it comes from: its Name is read-only here.
+                guard let found = byID[rename.uniqueId], found.accessory.mirroredFrom == nil else { return nil }
                 var object: [String: JSONValue] = ["id": .string(rename.uniqueId), "current": .string(found.layout?.name ?? found.accessory.name), "name": .string(rename.name)]
                 if let reason = rename.reason { object["reason"] = .string(reason) }
                 return .object(object)
@@ -243,7 +295,13 @@ extension HomeswiftCatalog {
         let layout = home.layout.value.rooms
         var seen = Set(layout.map { $0.lowercased() })
         var suggested: [String] = []
-        for name in (all ?? located()).compactMap({ $0.layout?.room == nil ? $0.accessory.suggestedRoom : nil }).sorted()
+        let located = all ?? located()
+        // A room an accessory's settings name that the layout does not have (a restored config.json, a hand edit), then
+        // the rooms mirrored controllers suggest.
+        for name in located.compactMap({ $0.layout?.room.flatMap { $0.isEmpty ? nil : $0 } }).sorted() where seen.insert(name.lowercased()).inserted {
+            suggested.append(name)
+        }
+        for name in located.compactMap({ $0.layout?.room == nil ? $0.accessory.suggestedRoom : nil }).sorted()
         where seen.insert(name.lowercased()).inserted {
             suggested.append(name)
         }
@@ -265,9 +323,6 @@ extension HomeswiftCatalog {
             "type": "object", "required": ["id"], "additionalProperties": false,
             "properties": [
                 "id": ["type": "string", "description": "The accessory id, from list_accessories"],
-                "room": ["type": ["string", "null"], "maxLength": 64, "description": "The room; null takes it out of its room. A new name adds the room"],
-                "hidden": ["type": "boolean", "description": "Hide it on the web UI's pages"],
-                "name": ["type": ["string", "null"], "maxLength": 64, "description": "A display name for the web UI (HomeKit keeps the accessory's own); null clears it"],
                 "favourite": ["type": "boolean", "description": "Show it in the web UI's Quick Controls"],
             ],
         ]
@@ -276,17 +331,17 @@ extension HomeswiftCatalog {
                 name: "get_accessory_layout", title: "Get room layout",
                 description: "The rooms of the web UI's accessory layout, each with its accessories (id, name, displayName, hidden, favourite), and the accessories in no room. "
                     + "These are Homeswift's rooms, not the Home app's: list_accessories and set_accessories filter by them (room). "
-                    + "syncRoomNames says whether a room renamed here is renamed on the plugins' hubs too.",
+                    + "syncRoomNames says whether Room Sync is on: rooms renamed here are renamed on the plugins' hubs too, and accessories moved move there.",
                 outputSchema: Output.object(["rooms": ["type": "array"], "unassigned": ["type": "array"], "syncRoomNames": ["type": "boolean"], "hubRooms": ["type": "array"]], required: ["rooms", "unassigned"]),
                 scope: .read, idempotent: true
             ) { _ in .json(catalog.layoutJSON()) },
             MCPTool(
-                name: "set_accessory_layout", title: "Set rooms and hidden accessories",
-                description: "Changes the web UI's accessory layout: put accessories in rooms (a new room name adds the room), hide them, give them a display name or make them Quick Controls; "
-                    + "order the rooms (rooms), rename one (renameRoom) or remove some (removeRooms; their accessories are left without a room). HomeKit and the Home app are not changed unless syncRoomNames is on and Apple Home is synced through Wingman. "
-                    + "With syncRoomNames on (a setting kept with the layout, off by default), renameRoom also renames the rooms of the same name on the plugins' hubs "
-                    + "(Philips Hue, IKEA DIRIGERA, eWeLink, Apple Home); hubRooms says what each did. An accessory moved to another room moves on the hubs that keep it in rooms "
-                    + "(Apple Home), and hubMoves says what each did.",
+                name: "set_accessory_layout", title: "Arrange rooms and Quick Controls",
+                description: "Changes the web UI's Arrangement: order the rooms (rooms), rename one (renameRoom: the accessories in it follow) or remove some (removeRooms; their accessories are left "
+                    + "without a room), and make accessories Quick Controls (favourite). An accessory's room, Hidden and Name are its Accessory Settings: change them with update_settings. "
+                    + "syncRoomNames turns Room Sync on or off (a Bridge Setting, off by default): with it on, renameRoom also renames the rooms of the same name on the plugins' hubs "
+                    + "(Philips Hue, IKEA DIRIGERA, eWeLink, Apple Home), hubRooms says what each did, and an accessory moved with update_settings moves on the hubs that keep rooms. "
+                    + "HomeKit and the Home app are not changed unless Room Sync is on and Apple Home is synced through Wingman.",
                 inputSchema: [
                     "type": "object",
                     "properties": [
@@ -294,10 +349,10 @@ extension HomeswiftCatalog {
                         "rooms": ["type": "array", "maxItems": 100, "items": ["type": "string", "maxLength": 64], "description": "Room names in the order to show them"],
                         "renameRoom": ["type": "object", "required": ["from", "to"], "properties": ["from": ["type": "string"], "to": ["type": "string", "maxLength": 64]]],
                         "removeRooms": ["type": "array", "items": ["type": "string"]],
-                        "syncRoomNames": ["type": "boolean", "description": "From now on, rename the hubs' rooms of the same name when a room is renamed here, and move accessories on the hubs that keep them in rooms (Apple Home)"],
+                        "syncRoomNames": ["type": "boolean", "description": "Room Sync, from now on: rename the hubs' rooms of the same name when a room is renamed here, and move accessories on the hubs that keep them in rooms (Apple Home)"],
                     ],
                 ],
-                outputSchema: Output.object(["rooms": ["type": "array"], "unassigned": ["type": "array"], "syncRoomNames": ["type": "boolean"], "hubRooms": ["type": "array"], "hubMoves": ["type": "array"]], required: ["rooms", "unassigned"]),
+                outputSchema: Output.object(["rooms": ["type": "array"], "unassigned": ["type": "array"], "syncRoomNames": ["type": "boolean"], "hubRooms": ["type": "array"]], required: ["rooms", "unassigned"]),
                 scope: .admin, idempotent: true
             ) { call in .json(try await catalog.updateLayout(call.arguments, by: "MCP \(call.session.clientInfo?.name ?? "client")")) },
         ]

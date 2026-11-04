@@ -81,6 +81,7 @@ extension HomeswiftCatalog {
                     "authorization": .string(device.authorization.rawValue), "status": .string(device.status.rawValue),
                 ]
                 if let model = device.model { json["model"] = .string(model) }
+                if let kind = device.kind { json["kind"] = .string(kind) }
                 if device.excludedBySettings { json["excludedBySettings"] = true }
                 if !device.parts.isEmpty { json["parts"] = (try? JSONValue(encoding: device.parts)) ?? [] }
                 // What kind of accessory it is on the bridge, for its glyph.
@@ -145,22 +146,6 @@ extension HomeswiftCatalog {
             }
         }
         return try await step(session, answers: texts, first: false)
-    }
-
-    /// Excludes a device of the block (GLOSSARY.md, "Excluded"), or includes it again, in its Accessory Settings: the plugin
-    /// reloads and the runtime takes its accessories off the bridge, or lets the plugin add them.
-    public func setExcluded(platform: String, name: String?, deviceID: String, excluded: Bool) async throws -> JSONValue {
-        try await editBlock(platform: platform, name: name, create: false, dryRun: false, checkSchemas: false) { block in
-            Self.editAccessorySettings(&block, deviceID: deviceID) { $0.excluded = excluded }
-        }
-    }
-
-    /// Includes or leaves out one part of a device (`DevicePart`), in its Accessory Settings' `parts`: the plugin reloads
-    /// and builds the device's accessories without it, or with it.
-    public func setPart(platform: String, name: String?, deviceID: String, part: String, included: Bool) async throws -> JSONValue {
-        try await editBlock(platform: platform, name: name, create: false, dryRun: false, checkSchemas: false) { block in
-            Self.editAccessorySettings(&block, deviceID: deviceID) { $0.parts[part] = included }
-        }
     }
 
     /// Changes one device's Accessory Settings in a block's `_accessories`; a device left with none, and a block left with
@@ -229,7 +214,7 @@ extension HomeswiftCatalog {
         let deviceID = session.deviceID.map { outcome.deviceID ?? $0 }
         var applied: JSONValue?
         if session.draft != nil || !outcome.settings.isEmpty {
-            applied = try await editBlock(platform: session.platform, name: session.name, dryRun: false, checkSchemas: false) { block in
+            applied = try await editBlock(platform: session.platform, name: session.name, dryRun: false, checkSchemas: false, canonical: true) { block in
                 for (key, value) in session.draft?.objectValue ?? [:] where key != "_accessories" { block[key] = value }
                 if let deviceID {
                     Self.editAccessorySettings(&block, deviceID: deviceID) { settings in
@@ -283,7 +268,8 @@ extension HomeswiftCatalog {
                 description: "Asks a plugin which devices it finds now (on the network, in its account, at the addresses its settings name), each with "
                     + "its deviceID, its accessoryID, the Authorization it needs (none, buttonPress, deviceCode, accountLogin, browserRedirect, apiKey) and its "
                     + "status: setUp, notResponding (set up, but the plugin cannot reach it now), needsAuthorization (start_setup with its deviceID), discovered (the plugin publishes it by itself) or excluded "
-                    + "(excludedBySettings: by the plugin's own settings, which get_plugin_config_schema describes). "
+                    + "(excludedBySettings: by the plugin's own settings, which get_plugin_config_schema describes; exclude or include one with update_settings, "
+                    + "its accessoryID and excluded, and leave out one of its parts with parts). kind is its Device Kind, which decides its Plugin Accessory Settings. "
                     + "accountAuthorization says what the plugin's account needs (start_setup without a deviceID).",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance)],
                 scope: .admin, readOnly: true
@@ -316,28 +302,6 @@ extension HomeswiftCatalog {
                 scope: .admin
             ) { call in
                 Self.untrusted(try await catalog.continueSetup(try call.string("session"), answers: call.arguments["answers"]?.objectValue ?? [:], by: .client))
-            },
-            MCPTool(
-                name: "set_device_excluded", title: "Exclude or include a device",
-                description: "Excludes a device a plugin found (deviceID from discover_devices) from the bridge, so it is never an accessory, in the Home "
-                    + "app or Matter, or includes it again (excluded false). The plugin reloads.",
-                inputSchema: ["type": "object", "required": ["platform", "deviceID", "excluded"],
-                              "properties": .object(instance.merging(["deviceID": ["type": "string"], "excluded": ["type": "boolean"]]) { $1 })],
-                scope: .admin, destructive: true
-            ) { call in
-                Self.untrusted(try await catalog.setExcluded(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: try call.string("deviceID"),
-                                                             excluded: call.arguments["excluded"]?.boolValue ?? true))
-            },
-            MCPTool(
-                name: "set_device_part", title: "Include or leave out a part of a device",
-                description: "Includes or leaves out one part of a device (a gate's side door, a door sensor, a camera's occupancy sensor: the parts "
-                    + "discover_devices lists under a device, by id) while the device stays. The plugin reloads and builds it with the part, or without.",
-                inputSchema: ["type": "object", "required": ["platform", "deviceID", "part", "included"],
-                              "properties": .object(instance.merging(["deviceID": ["type": "string"], "part": ["type": "string"], "included": ["type": "boolean"]]) { $1 })],
-                scope: .admin
-            ) { call in
-                Self.untrusted(try await catalog.setPart(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: try call.string("deviceID"),
-                                                         part: try call.string("part"), included: call.arguments["included"]?.boolValue ?? true))
             },
             MCPTool(
                 name: "cancel_setup", title: "Cancel a Setup",

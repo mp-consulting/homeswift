@@ -50,7 +50,8 @@ import Testing
         #expect(environment.govee.requests(to: Self.loginPath).last?.body?["code"] == "123456")
         let login = try #require(outcome.credentials.flatMap { try? JSONDecoder().decode(StoredLogin.self, from: $0.encoded()) })
         #expect(login.username == "user@example.com" && login.password == "pw" && login.credentials?.token == "token-2" && login.iot?.isEmpty == false)
-        #expect(outcome.settings == ["username": "user@example.com", "password": .null, "code": .null])
+        // The whole login is the vault's: the block's account keys go.
+        #expect(outcome.settings == ["username": .null, "password": .null, "code": .null])
 
         // What the bridge then does: the vault's login is the account's, and a start uses it without logging in.
         try context(host).saveCredentials(try #require(outcome.credentials))
@@ -88,6 +89,7 @@ import Testing
         #expect(byID[lightID]?.isSetUp == true && byID[lightID]?.name == "Desk Light" && byID[lightID]?.address == "192.168.1.20")
         #expect(byID[thermoID]?.excludedBySettings == true && byID[thermoID]?.isSetUp == false)
         let lanOnly = "11:22:33:44:55:66:77:88"
+        #expect(byID[lightID]?.kind == "light" && byID[thermoID]?.kind == "thermo")
         let lan = try #require(byID[lanOnly])
         #expect(!lan.isSetUp && lan.authorization == .none)
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(lan))) else { Issue.record("expected done"); return }

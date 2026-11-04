@@ -49,19 +49,8 @@ extension EcoFlowPlugin {
         "title": "Email",
         "type": "string",
         "required": false,
-        "description": "As you sign in to the EcoFlow app",
+        "description": "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it",
         "x-schema-form": {
-          "condition": "model.route !== 'developer'",
-          "requiredWhen": "model.route === 'app'"
-        }
-      },
-      "password": {
-        "title": "Password",
-        "type": "string",
-        "required": false,
-        "description": "Stored sealed in config.json",
-        "x-schema-form": {
-          "type": "password",
           "condition": "model.route !== 'developer'",
           "requiredWhen": "model.route === 'app'"
         }
@@ -74,27 +63,6 @@ extension EcoFlowPlugin {
         "description": "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views",
         "x-schema-form": {
           "condition": "model.route !== 'developer'"
-        }
-      },
-      "accessKey": {
-        "title": "Access Key",
-        "type": "string",
-        "required": false,
-        "description": "From your developer account at developer.ecoflow.com",
-        "x-schema-form": {
-          "condition": "model.route !== 'app'",
-          "requiredWhen": "model.route === 'developer'"
-        }
-      },
-      "secretKey": {
-        "title": "Secret Key",
-        "type": "string",
-        "required": false,
-        "description": "From your developer account at developer.ecoflow.com. Stored sealed in config.json",
-        "x-schema-form": {
-          "type": "password",
-          "condition": "model.route !== 'app'",
-          "requiredWhen": "model.route === 'developer'"
         }
       },
       "region": {
@@ -131,28 +99,6 @@ extension EcoFlowPlugin {
         "x-schema-form": {
           "condition": "model.route !== 'app'"
         }
-      },
-      "devices": {
-        "title": "Devices",
-        "type": "array",
-        "description": "The devices come from your account. List one to keep it by its serial number or to rename it; the plugin's page adds them for you",
-        "items": {
-          "title": "Device",
-          "type": "object",
-          "properties": {
-            "id": {
-              "title": "Serial Number",
-              "type": "string",
-              "required": true,
-              "description": "The serial number of the device, as the EcoFlow app shows it"
-            },
-            "name": {
-              "title": "Name",
-              "type": "string",
-              "description": "The name to show for the device, instead of the name it reports"
-            }
-          }
-        }
       }
     }
   },
@@ -160,98 +106,62 @@ extension EcoFlowPlugin {
     "fr": {
       "Name": "Nom",
       "Name shown in the logs": "Nom affiché dans les journaux",
-      "Access Key": "Clé d'accès",
-      "Secret Key": "Clé secrète",
       "Region": "Région",
       "The region your developer account was created in": "La région dans laquelle votre compte développeur a été créé",
       "United States": "États-Unis",
       "Europe": "Europe",
-      "Devices": "Appareils",
-      "Serial Number": "Numéro de série",
-      "The serial number of the device, as the EcoFlow app shows it": "Le numéro de série de l'appareil, tel que l'affiche l'application EcoFlow",
-      "The name to show for the device, instead of the name it reports": "Le nom à afficher pour l'appareil, à la place de celui qu'il transmet",
-      "Device": "Appareil",
       "Route": "Accès",
       "Developer API": "API développeur",
       "EcoFlow app": "Application EcoFlow",
       "Email": "E-mail",
-      "Password": "Mot de passe",
       "Both": "Les deux",
       "Import the energy history": "Importer l’historique d’énergie",
       "EcoFlow account": "Compte EcoFlow",
       "Which EcoFlow service the plugin reads. Developer API: the documented one, with keys from developer.ecoflow.com. EcoFlow app: your EcoFlow account's sign-in, unofficial. Both: either, or both together": "Le service EcoFlow que lit le plugin. API développeur : le service documenté, avec des clés de developer.ecoflow.com. Application EcoFlow : la connexion de votre compte EcoFlow, non officielle. Les deux : l'un ou l'autre, ou les deux ensemble",
       "Seconds between reads of the developer API's REST values: 60 by default, 30 at least. MQTT values are live whatever this is": "Secondes entre deux lectures des valeurs REST de l'API développeur : 60 par défaut, 30 au minimum. Les valeurs MQTT sont en direct quelle que soit cette valeur",
-      "From your developer account at developer.ecoflow.com. Stored sealed in config.json": "De votre compte développeur sur developer.ecoflow.com. Conservée chiffrée dans config.json",
-      "From your developer account at developer.ecoflow.com": "De votre compte développeur sur developer.ecoflow.com",
-      "Stored sealed in config.json": "Conservé chiffré dans config.json",
-      "As you sign in to the EcoFlow app": "Celui avec lequel vous vous connectez à l'application EcoFlow",
-      "The devices come from your account. List one to keep it by its serial number or to rename it; the plugin's page adds them for you": "Les appareils viennent de votre compte. Listez-en un pour le garder par son numéro de série ou le renommer ; la page du plugin les ajoute pour vous",
       "Interval (seconds)": "Intervalle (secondes)",
-      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La production solaire, la consommation de la maison, la batterie et le réseau heure par heure depuis l'installation de votre système, depuis le cloud EcoFlow, dans les vues mois et année de la page État"
+      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La production solaire, la consommation de la maison, la batterie et le réseau heure par heure depuis l'installation de votre système, depuis le cloud EcoFlow, dans les vues mois et année de la page État",
+      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Comme vous vous connectez à l'app EcoFlow. Son mot de passe est gardé dans le coffre : Configurer à nouveau le change"
     },
     "es": {
       "Name": "Nombre",
       "Name shown in the logs": "Nombre que aparece en los registros",
-      "Access Key": "Clave de acceso",
-      "Secret Key": "Clave secreta",
       "Region": "Región",
       "The region your developer account was created in": "La región en la que se creó tu cuenta de desarrollador",
       "United States": "Estados Unidos",
       "Europe": "Europa",
-      "Devices": "Dispositivos",
-      "Serial Number": "Número de serie",
-      "The serial number of the device, as the EcoFlow app shows it": "El número de serie del dispositivo, tal como lo muestra la aplicación EcoFlow",
-      "The name to show for the device, instead of the name it reports": "El nombre que se mostrará para el dispositivo, en lugar del que informa",
-      "Device": "Dispositivo",
       "Route": "Ruta",
       "Developer API": "API para desarrolladores",
       "EcoFlow app": "App de EcoFlow",
       "Email": "Correo electrónico",
-      "Password": "Contraseña",
       "Both": "Ambas",
       "Import the energy history": "Importar el historial de energía",
       "EcoFlow account": "Cuenta EcoFlow",
       "Which EcoFlow service the plugin reads. Developer API: the documented one, with keys from developer.ecoflow.com. EcoFlow app: your EcoFlow account's sign-in, unofficial. Both: either, or both together": "El servicio de EcoFlow que lee el plugin. API para desarrolladores: el documentado, con claves de developer.ecoflow.com. App de EcoFlow: el inicio de sesión de tu cuenta EcoFlow, no oficial. Ambas: uno u otro, o los dos juntos",
       "Seconds between reads of the developer API's REST values: 60 by default, 30 at least. MQTT values are live whatever this is": "Segundos entre lecturas de los valores REST de la API para desarrolladores: 60 por defecto, 30 como mínimo. Los valores MQTT son en directo sea cual sea este valor",
-      "From your developer account at developer.ecoflow.com. Stored sealed in config.json": "De tu cuenta de desarrollador en developer.ecoflow.com. Se guarda cifrada en config.json",
-      "From your developer account at developer.ecoflow.com": "De tu cuenta de desarrollador en developer.ecoflow.com",
-      "Stored sealed in config.json": "Se guarda cifrada en config.json",
-      "As you sign in to the EcoFlow app": "El que usas para iniciar sesión en la App de EcoFlow",
-      "The devices come from your account. List one to keep it by its serial number or to rename it; the plugin's page adds them for you": "Los dispositivos vienen de tu cuenta. Añade uno para conservarlo por su número de serie o cambiarle el nombre; la página del plugin los añade por ti",
       "Interval (seconds)": "Intervalo (segundos)",
-      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La producción solar, el consumo de la casa, la batería y la red hora a hora desde que se instaló tu sistema, desde la nube de EcoFlow, en las vistas de mes y año de la página Estado"
+      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La producción solar, el consumo de la casa, la batería y la red hora a hora desde que se instaló tu sistema, desde la nube de EcoFlow, en las vistas de mes y año de la página Estado",
+      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Como inicias sesión en la app EcoFlow. Su contraseña se guarda en el almacén: Configurar de nuevo la cambia"
     },
     "pt": {
       "Name": "Nome",
       "Name shown in the logs": "Nome mostrado nos registos",
-      "Access Key": "Chave de acesso",
-      "Secret Key": "Chave secreta",
       "Region": "Região",
       "The region your developer account was created in": "A região em que a sua conta de programador foi criada",
       "United States": "Estados Unidos",
       "Europe": "Europa",
-      "Devices": "Dispositivos",
-      "Serial Number": "Número de série",
-      "The serial number of the device, as the EcoFlow app shows it": "O número de série do dispositivo, tal como o mostra a aplicação EcoFlow",
-      "The name to show for the device, instead of the name it reports": "O nome a mostrar para o dispositivo, em vez do que ele comunica",
-      "Device": "Dispositivo",
       "Route": "Via",
       "Developer API": "API para programadores",
       "EcoFlow app": "Aplicação EcoFlow",
       "Email": "Email",
-      "Password": "Palavra-passe",
       "Both": "Ambas",
       "Import the energy history": "Importar o histórico de energia",
       "EcoFlow account": "Conta EcoFlow",
       "Which EcoFlow service the plugin reads. Developer API: the documented one, with keys from developer.ecoflow.com. EcoFlow app: your EcoFlow account's sign-in, unofficial. Both: either, or both together": "O serviço EcoFlow que o plugin lê. API para programadores: o documentado, com chaves de developer.ecoflow.com. Aplicação EcoFlow: o início de sessão da sua conta EcoFlow, não oficial. Ambas: um ou outro, ou os dois juntos",
       "Seconds between reads of the developer API's REST values: 60 by default, 30 at least. MQTT values are live whatever this is": "Segundos entre leituras dos valores REST da API para programadores: 60 por omissão, 30 no mínimo. Os valores MQTT são em direto, seja qual for este valor",
-      "From your developer account at developer.ecoflow.com. Stored sealed in config.json": "Da sua conta de programador em developer.ecoflow.com. Guardada cifrada em config.json",
-      "From your developer account at developer.ecoflow.com": "Da sua conta de programador em developer.ecoflow.com",
-      "Stored sealed in config.json": "Guardada cifrada em config.json",
-      "As you sign in to the EcoFlow app": "O que usa para iniciar sessão na Aplicação EcoFlow",
-      "The devices come from your account. List one to keep it by its serial number or to rename it; the plugin's page adds them for you": "Os dispositivos vêm da sua conta. Adicione um para o manter pelo número de série ou mudar o nome; a página do plugin adiciona-os por si",
       "Interval (seconds)": "Intervalo (segundos)",
-      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "A produção solar, o consumo da casa, a bateria e a rede hora a hora desde a instalação do seu sistema, a partir da nuvem EcoFlow, nas vistas de mês e ano da página Estado"
+      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "A produção solar, o consumo da casa, a bateria e a rede hora a hora desde a instalação do seu sistema, a partir da nuvem EcoFlow, nas vistas de mês e ano da página Estado",
+      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Como inicia sessão na app EcoFlow. A palavra-passe fica guardada no cofre: Configurar novamente altera-a"
     }
   },
   "layout": [
@@ -269,7 +179,6 @@ extension EcoFlowPlugin {
       "condition": "model.route !== 'developer'",
       "items": [
         "email",
-        "password",
         "importHistory"
       ]
     },
@@ -279,20 +188,8 @@ extension EcoFlowPlugin {
       "icon": "key",
       "condition": "model.route !== 'app'",
       "items": [
-        "accessKey",
-        "secretKey",
         "region",
         "pollingInterval"
-      ]
-    },
-    {
-      "type": "fieldset",
-      "title": "Devices",
-      "icon": "battery",
-      "expandable": true,
-      "expanded": false,
-      "items": [
-        "devices"
       ]
     }
   ]

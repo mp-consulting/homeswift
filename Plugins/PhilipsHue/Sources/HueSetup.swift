@@ -4,12 +4,14 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the Hue Bridge is the instance's account, authorized by a Button Press on its link
-// button; its lights and sensors are the devices, which need nothing more and can be Excluded.
+// button; its lights, sensors, switches and scenes are the devices (Device Kinds `light`, `sensor`, `switch`, `scene`),
+// which need nothing more and can be Excluded. A scene's Device Id is its id on the bridge: Excluded, it has no switch
+// on its room's accessory (`PhilipsHue:scenes:<room>`, whose id stays) and is left off the Scenes page.
 extension PhilipsHuePlugin {
     public static let accountAuthorization = AuthorizationMethod.buttonPress
 
-    /// The lights and sensors the bridge has (`<id>` and `device:<id>`, as their accessories' ids), read once when the
-    /// plugin has not read them yet (an instance made only for Setup).
+    /// The lights, sensors and scenes the bridge has (`<id>` and `device:<id>`, as their accessories' ids, and a scene's
+    /// id), read once when the plugin has not read them yet (an instance made only for Setup).
     public func discover() async throws -> [DiscoveredDevice] {
         var snapshot = self.snapshot
         // The key Setup just saved, when this plugin started without one.
@@ -17,11 +19,20 @@ extension PhilipsHuePlugin {
         if snapshot.lights.isEmpty, snapshot.sensors.isEmpty, let key, let host = await bridgeHost() {
             snapshot = HueSnapshot(resources: try await HueClient(host: host, applicationKey: key, transport: dependencies.transport(trust)).resources())
         }
-        let lights = snapshot.lights.map { DiscoveredDevice(deviceID: $0.id, name: $0.name, model: $0.product, isSetUp: true, excludedBySettings: isExcluded($0)) }
+        let lights = snapshot.lights.map { DiscoveredDevice(deviceID: $0.id, name: $0.name, model: $0.product, isSetUp: true, excludedBySettings: isListed($0), kind: "light") }
         let sensors = snapshot.sensors.map {
-            DiscoveredDevice(deviceID: "device:\($0.id)", name: $0.name, model: $0.model, isSetUp: true, excludedBySettings: !(configuration.sensors ?? true) || isExcluded($0))
+            DiscoveredDevice(
+                deviceID: Self.sensorDeviceID($0.id), name: $0.name, model: $0.model, isSetUp: true, excludedBySettings: !(configuration.sensors ?? true) || isListed($0),
+                kind: Self.kind(of: $0))
         }
-        return lights + sensors
+        let rooms = Dictionary(snapshot.groups.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let scenes = snapshot.scenes.map { scene in
+            let room = rooms[scene.groupID] ?? ""
+            return DiscoveredDevice(
+                deviceID: scene.id, name: room.isEmpty ? scene.name : "\(room) · \(scene.name)", model: scene.smart ? "Smart scene" : "Scene", isSetUp: true,
+                excludedBySettings: configuration.scenes == false || isListed(scene, room: room), kind: "scene")
+        }
+        return lights + sensors + scenes
     }
 
     /// The bridge's address (asked when none is set or found), then its link button, tried every two seconds by the Setup

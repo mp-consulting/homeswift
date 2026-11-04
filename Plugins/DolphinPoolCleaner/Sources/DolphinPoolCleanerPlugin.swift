@@ -8,9 +8,10 @@ import Logging
 /// in the configured mode, the water temperature, and the filter bag. State comes from the robot's AWS IoT
 /// thing shadow, pushed over MQTT and polled when nothing arrived for a whole interval.
 ///
-/// The configuration is the one of `@mp-consulting/homebridge-dolphin-pool-cleaner`, so a Homebridge block
-/// works unchanged. Setup signs in with a verification code and keeps a refresh token in the vault, as the
-/// Homebridge setup wizard keeps one in the block. See README.md in this directory.
+/// A block of `@mp-consulting/homebridge-dolphin-pool-cleaner` loads unchanged; what the bridge writes is the canonical
+/// shape (DolphinSettings.swift): each robot's settings in `_accessories` by serial number. Setup signs in with a
+/// verification code and keeps the email and a refresh token in the vault, where the Homebridge setup wizard kept them
+/// in the block. See README.md in this directory.
 public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     public static let platform = "DolphinPoolCleaner"
     public static let icon: String? = "poolRobot"
@@ -75,7 +76,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     public func start() async throws {
         logger.debug("Initializing platform: \(configuration.name ?? Self.name)")
         // Without an account the plugin stays up, so Setup can sign in.
-        guard configuration.hasCredentials || storedRefreshToken != nil else {
+        guard hasAccount else {
             logger.error("Missing required configuration: refreshToken or email/password")
             status = .notConfigured
             return
@@ -113,7 +114,8 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
             let robots = try await initializeCloud()
             guard !shuttingDown else { return }
             let interval = configuration.effectivePollingInterval
-            for robot in robots {
+            // An Excluded robot is neither polled nor an accessory; it stays a Discovered Device.
+            for robot in robots where !context.isExcluded(robot.serialNumber) {
                 await register(robot, pollingInterval: interval)
                 guard !shuttingDown else { return }
             }
@@ -137,7 +139,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     private func scheduleDiscoveryRetry(after error: any Error) {
         guard !shuttingDown else { return }
         if let error = error as? DolphinError, error.isPermanent {
-            logger.error("Not retrying: update the account in the plugin settings; saving them starts the plugin again")
+            logger.error("Not retrying: sign in again on Add accessories in the Homeswift UI, which starts the plugin again")
             status = .failed
             return
         }
@@ -158,8 +160,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
         cloud = nil
         // `stop()` may have run meanwhile: it found no cloud to close, so none must open.
         guard !shuttingDown else { throw CancellationError() }
-        let settings = AccountSettings(
-            email: configuration.email, password: configuration.password, refreshToken: storedRefreshToken ?? configuration.refreshToken, iotRegion: configuration.iotRegion)
+        let settings = accountSettings()
         let cloud = dependencies.makeCloud?(settings, logger)
             ?? MaytronicsCloud(settings: settings, transport: dependencies.transport, mqtt: dependencies.mqtt, timing: dependencies.timing, logger: logger)
         self.cloud = cloud
@@ -172,7 +173,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     private func register(_ robot: RobotInfo, pollingInterval: Int) async {
         guard let cloud else { return }
         let serialNumber = robot.serialNumber
-        let deviceConfiguration = configuration.device(serialNumber: serialNumber)
+        let deviceConfiguration = robotSettings(serialNumber: serialNumber)
         let device = DolphinDevice(
             serialNumber: serialNumber, name: deviceConfiguration?.name.nonEmpty ?? robot.name, deviceType: robot.deviceType,
             pollingInterval: .seconds(pollingInterval), cloud: cloud, timing: dependencies.timing, logger: logger)
@@ -209,7 +210,8 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
 
     /// Accessories of robots the account no longer has leave HomeKit.
     private func removeStaleAccessories(keeping robots: [RobotInfo]) async {
-        await context.removeAccessories(keeping: Set(robots.map { "\(Self.platform):\($0.serialNumber)" }), message: "Removing stale accessory")
+        let kept = robots.filter { !context.isExcluded($0.serialNumber) }
+        await context.removeAccessories(keeping: Set(kept.map { "\(Self.platform):\($0.serialNumber)" }), message: "Removing stale accessory")
     }
 
     private func stopDevices() async {
@@ -223,14 +225,25 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// `GET robots` lists the robots with their state; `GET image?serial=` is a robot's picture as a data URL, or
-    /// null. `Web/` is the page. Signing in is Setup's (DolphinSetup.swift), not the page's.
+    /// `GET robots` lists the robots with their state (an Excluded one with `excluded: true` and no state); `GET
+    /// image?serial=` is a robot's picture as a data URL, or null. `Web/` is the page, which writes no settings. Signing in
+    /// is Setup's (DolphinSetup.swift), not the page's.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "robots"):
             var list: [JSONValue] = []
             for robot in robots {
-                guard let device = devices[robot.serialNumber] else { continue }
+                guard let device = devices[robot.serialNumber] else {
+                    // Excluded: listed, with its settings a click away on the page.
+                    if context.isExcluded(robot.serialNumber) {
+                        list.append([
+                            "serialNumber": .string(robot.serialNumber), "name": .string(robot.name), "model": .string(robot.model),
+                            "deviceType": .number(Double(robot.deviceType)), "excluded": true,
+                            "hasImage": .bool(images.dataURL(serialNumber: robot.serialNumber) != nil),
+                        ])
+                    }
+                    continue
+                }
                 let state = await device.state
                 var entry: [String: JSONValue] = [
                     "serialNumber": .string(robot.serialNumber), "name": .string(device.name), "model": .string(robot.model),

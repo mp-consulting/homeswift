@@ -116,7 +116,9 @@ public final class PluginHost: @unchecked Sendable {
 
     final class Instance: @unchecked Sendable {
         let entry: PluginRegistry.Entry
-        let block: HomeswiftConfiguration.Platform
+        /// The block its plugin runs; another one only through `adopt(_:)`.
+        var block: HomeswiftConfiguration.Platform { blockBox.withLockedValue { $0 } }
+        private let blockBox: NIOLockedValueBox<HomeswiftConfiguration.Platform>
         let context: PluginContext
         let plugin = NIOLockedValueBox<(any HomeswiftPlugin)?>(nil)
         /// Why its plugin did not start, the last time it was launched.
@@ -131,8 +133,30 @@ public final class PluginHost: @unchecked Sendable {
 
         init(entry: PluginRegistry.Entry, block: HomeswiftConfiguration.Platform, context: PluginContext) {
             self.entry = entry
-            self.block = block
+            self.blockBox = NIOLockedValueBox(block)
             self.context = context
+        }
+
+        /// Takes `block` as the one its plugin runs, without reloading it (`CanonicalMove`).
+        func adopt(_ block: HomeswiftConfiguration.Platform) {
+            blockBox.withLockedValue { $0 = block }
+        }
+    }
+
+    /// A block a write only put in its canonical shape, as far as its plugin reads it (`HomeswiftPlugin.canonicalSettings`,
+    /// which answers a block that means what it was given): its running instance takes the new block without
+    /// reloading, when it runs `from`, the block as it was. A person's first save of a block still in Homebridge's shape
+    /// then reloads only what that save changes.
+    public struct CanonicalMove: Sendable, Equatable {
+        public let platform: String
+        public let name: String
+        /// What the instance must be running (`Platform.json`) to keep running.
+        public let from: Data
+
+        public init(platform: String, name: String, from: Data) {
+            self.platform = platform
+            self.name = name
+            self.from = from
         }
     }
 
@@ -402,11 +426,11 @@ public final class PluginHost: @unchecked Sendable {
     /// swaps. The runtime's other blocks (the web UI) are listed for whoever runs their servers; the bridge
     /// block, which only a restart changes, is listed as such.
     @discardableResult
-    public func apply(_ next: HomeswiftConfiguration) async -> ReloadReport {
-        await serialized { await self.reload(to: next) }
+    public func apply(_ next: HomeswiftConfiguration, keepingRunning moves: [CanonicalMove] = []) async -> ReloadReport {
+        await serialized { await self.reload(to: next, keepingRunning: moves) }
     }
 
-    private func reload(to next: HomeswiftConfiguration) async -> ReloadReport {
+    private func reload(to next: HomeswiftConfiguration, keepingRunning moves: [CanonicalMove]) async -> ReloadReport {
         var report = ReloadReport()
         let previous = configurationBox.withLockedValue { previous in
             defer { previous = next }
@@ -443,7 +467,23 @@ public final class PluginHost: @unchecked Sendable {
 
         for (block, old) in pairs {
             if let old {
-                guard old.block.json != block.json else { continue }
+                guard old.block.json != block.json else {
+                    // Only live settings changed: a device given its first one joins the plugin's Accessory Settings.
+                    old.context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
+                    continue
+                }
+                // Only its canonical shape changed, from the block its plugin runs: it keeps running on the new one.
+                if moves.contains(CanonicalMove(platform: block.platform, name: block.name, from: old.block.json)),
+                   old.block.childBridge == block.childBridge, old.block.paused == block.paused, old.plugin.withLockedValue({ $0 }) != nil {
+                    old.adopt(block)
+                    old.context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
+                    // As a launch would: what the moved settings Exclude leaves the bridge (its plugin read them already).
+                    for accessory in old.context.accessories where old.context.isExcluded(accessoryID: accessory.id) {
+                        try? await old.context.remove(id: accessory.id)
+                    }
+                    old.context.logger.info("Kept running: its settings were put in their canonical shape")
+                    continue
+                }
                 if old.block.childBridge == block.childBridge {
                     // A fresh plugin on the same context: same accessories, aids, iids and pairings.
                     await stopPlugin(old)
@@ -675,7 +715,9 @@ public final class PluginHost: @unchecked Sendable {
     func launch(_ instance: Instance, as verb: String = "Started") async {
         let context = instance.context
         instance.failure.withLockedValue { $0 = nil }
-        context.accessorySettingsBox.withLockedValue { $0 = instance.block.accessorySettings }
+        // As the configuration has them now: a change of live settings alone keeps the instance's block, not its devices.
+        let current = configuration.platforms.first { $0.platform == instance.block.platform && $0.name == instance.block.name && $0.json == instance.block.json }
+        context.accessorySettingsBox.withLockedValue { $0 = (current ?? instance.block).accessorySettings }
         // What a change of `_accessories` Excluded leaves on the bridge goes now; the plugin no longer adds it.
         for accessory in context.accessories {
             guard context.isExcluded(accessoryID: accessory.id) else { continue }

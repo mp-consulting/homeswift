@@ -199,28 +199,29 @@ import Testing
         })
     }
 
-    // MARK: The settings page
+    // MARK: Setup's sign-in
 
-    @Test func settingsPageDevicesUseThePinAndTheSavedPassword() async throws {
+    @Test func setUpsSignInUsesThePin() async throws {
         let environment = ProtectTestEnvironment()
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        let devices = { (body: JSONValue) in try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices", body: body, user: "admin")) }
-        // A configured controller: the saved password, over the pinned certificate.
-        let answer = try await devices(["address": "192.168.1.1", "username": "homeswift"])
-        #expect(answer.json["devices"]?.arrayValue?.count == 7)
+        // A configured controller's address: over the certificate the running plugin pinned.
+        guard case .read = await plugin.read(address: "192.168.1.1", username: "homeswift", password: "secret", verifyTls: false) else {
+            Issue.record("expected the bootstrap"); return
+        }
         let pinned = try #require(environment.controller.requests("/api/auth/login").last)
         guard case .pinned(let fingerprint) = pinned.tls else {
-            Issue.record("The page's login was not pinned: \(pinned.tls)")
+            Issue.record("Setup's login was not pinned: \(pinned.tls)")
             return
         }
         #expect(HTTPClient.normalizeFingerprint(fingerprint) == HTTPClient.normalizeFingerprint(FakeController.fingerprint))
         // Someone else answers at that address: nothing is sent, the password least of all.
         environment.controller.update { $0.certificate = FakeController.otherFingerprint }
         let logins = environment.controller.requests("/api/auth/login").count
-        let refused = try await devices(["address": "192.168.1.1", "username": "homeswift", "password": "secret"])
-        #expect(refused.json["devices"]?.arrayValue?.isEmpty == true)
+        guard case .failed = await plugin.read(address: "192.168.1.1", username: "homeswift", password: "secret", verifyTls: false) else {
+            Issue.record("expected a refusal"); return
+        }
         #expect(environment.controller.requests("/api/auth/login").count == logins)
     }
 
@@ -237,7 +238,7 @@ import Testing
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        #expect(Set(UniFiProtectPlugin.assistantActions.map(\.name)) == ["list_controllers", "list_options", "discover", "check_controller"])
+        #expect(Set(UniFiProtectPlugin.assistantActions.map(\.name)) == ["list_controllers", "discover", "check_controller"])
         #expect(UniFiProtectPlugin.assistantActions.allSatisfy { $0.access == .read && !$0.confirm })
 
         let controllers = try await call(plugin, "list_controllers")
@@ -247,9 +248,6 @@ import Testing
         let devices = try #require(controller["devices"]?.arrayValue)
         let sensor = try #require(devices.first { $0["mac"]?.stringValue == Fixtures.sensorMAC })
         #expect(sensor["accessoryID"]?.stringValue == Self.sensorID && sensor["modelKey"] == "sensor" && sensor["online"] == true)
-
-        let options = try await call(plugin, "list_options")
-        #expect(options.json["categories"]?.arrayValue?.isEmpty == false)
 
         let discover = try await call(plugin, "discover")
         #expect(discover.json["devices"]?[0]?["ip"] == "192.168.1.1" && discover.json["devices"]?[0]?["name"] == "Home NVR")

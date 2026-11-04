@@ -8,8 +8,9 @@ import NIOConcurrencyHelpers
 /// UniFi Access in HomeKit, after `@mp-consulting/homebridge-unifi-access`: every hub and reader of one or more
 /// controllers, found automatically and followed in real time. A hub's door is a lock (a UA Gate's a garage door
 /// opener, its side door a second lock), its terminal inputs contact sensors, its doorbell a doorbell; readers get
-/// a switch per access method. Feature options (`Enable.Hub.DPS.<MAC>`…) tailor it per controller and device, and
-/// MQTT carries the events and lock commands. See README.md.
+/// a switch per access method. Plugin Settings and each device's Accessory Settings tailor it (the Homebridge plugin's feature
+/// options, `Enable.Hub.DPS.<MAC>`…, still load: AccessCanonicalSettings.swift), and MQTT carries the events and lock
+/// commands. See README.md.
 public actor UniFiAccessPlugin: HomeswiftPlugin {
     public static let platform = "UniFi Access"
     public static let icon: String? = "logo-ubiquiti"
@@ -36,7 +37,8 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    /// The block's `options`, after a `Disable.Device.<id>` for each Excluded device (the first of conflicting entries wins).
+    /// The canonical settings as feature options (a `Disable.Device.<id>` for each Excluded device, the Parts, each
+    /// device's settings and the Plugin Settings), then the block's `options`: the first of conflicting entries wins.
     let options: FeatureOptions
     /// The block's `options` alone: what Setup shows as excluded by the plugin's own settings.
     let configuredOptions: FeatureOptions
@@ -54,7 +56,9 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
-        options = AccessOptions.make(Self.exclusions(context) + configuration.options + Self.partChoices(context))
+        options = AccessOptions.make(
+            Self.exclusions(context) + Self.partChoices(context) + Self.settingOptions(plugin: configuration.settings, accessories: context.allAccessorySettings)
+                + configuration.options)
         configuredOptions = AccessOptions.make(configuration.options)
         let logger = dependencies.logger ?? context.logger
         self.logger = configuration.debugAll ? DebugAllLogHandler.promoting(logger) : logger
@@ -96,16 +100,11 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// The Homebridge plugin's settings server: `POST devices` logs in to a controller and lists what it has
-    /// (the controller first, then its hubs and readers with the id feature options use); `GET options` the
-    /// feature options; `GET discover` finds UniFi consoles on the network; `POST status` checks that a
-    /// controller answers. `GET controllers` adds what the running instance sees. `Web/` is the page.
+    /// What the page reads: `GET controllers` the controllers the instance runs with their hubs and readers, `GET discover`
+    /// the UniFi consoles on the network, `POST status` whether a controller answers. `Web/` is the page; it writes no
+    /// settings, and controllers are signed in to through Setup.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
-        case ("GET", "options"):
-            return PluginWebResponse(AccessOptions.json)
-        case ("POST", "devices"):
-            return await devices(request.body)
         case ("GET", "discover"), ("POST", "discover"):
             let found = await dependencies.discover(logger)
             return PluginWebResponse(["devices": .array(found.map(\.json))])
@@ -121,42 +120,16 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
         }
     }
 
-    /// Logs in with the page's details and bootstraps, without events (`read`).
-    private func devices(_ body: JSONValue) async -> PluginWebResponse {
-        guard let address = body["address"]?.stringValue?.trimmingCharacters(in: .whitespaces), AccessSettings.isValidAddress(address) else {
-            return PluginWebResponse(["devices": [], "error": "Invalid controller address. Please provide a valid network address."])
-        }
-        let read = await read(address: address, username: body["username"]?.stringValue ?? "", password: body["password"]?.stringValue ?? "",
-                              verifyTLS: body["verifyTls"]?.boolValue == true)
-        let controller: AccessControllerInfo?, found: [AccessDevice]
-        switch read {
-        case .read(let info, let devices): (controller, found) = (info, devices)
-        case .failed(let message): return PluginWebResponse(["devices": [], "error": .string(message)])
-        }
-        let devices = found.filter(\.isManaged).sorted { lhs, rhs in
-            let key = { (device: AccessDevice) in [device.alias, device.name, device.model].compactMap { $0 }.first { !$0.isEmpty }?.lowercased() ?? "" }
-            return key(lhs) < key(rhs)
-        }
-        var list: [JSONValue] = [controller.map { .object($0.json) } ?? .null]
-        for device in devices {
-            var json = device.json
-            json["featureId"] = .string(device.identifier)
-            list.append(.object(json))
-        }
-        return PluginWebResponse(["devices": .array(list)])
-    }
-
     /// What a login and a bootstrap without events read of a controller, or the error the API logged.
     enum ControllerRead: Sendable {
         case read(AccessControllerInfo?, [AccessDevice])
         case failed(String)
     }
 
-    /// Logs in to a controller and bootstraps, without events: the page's device list, and Setup's check of a login and
-    /// its discovery. The pins are the plugin's, so the page, Setup and the plugin trust the same certificate whichever
-    /// connects first.
+    /// Logs in to a controller and bootstraps, without events: Setup's check of a login and its discovery. The pins are the
+    /// plugin's, so Setup and the plugin trust the same certificate whichever connects first.
     func read(address: String, username: String, password: String, verifyTLS: Bool) async -> ControllerRead {
-        // The page shows the API's last error, as the Homebridge page did.
+        // Setup shows the API's last error, as the Homebridge page did.
         let collector = ErrorCollector()
         let pins = pins
         let trust = HTTPClient.TrustOnFirstUse(pinned: verifyTLS ? nil : pins.pin(for: address)) { pins.set($0, for: address) }
@@ -170,7 +143,7 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
     }
 }
 
-/// Keeps the last error an API logged, for the settings page.
+/// Keeps the last error an API logged, for Setup.
 final class ErrorCollector: Sendable {
     private let message = NIOLockedValueBox<String?>(nil)
 

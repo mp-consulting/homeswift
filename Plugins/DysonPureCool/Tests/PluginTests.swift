@@ -358,69 +358,23 @@ struct PluginTests {
     }
 }
 
-/// The settings page's requests, as the Homebridge UI server's tests.
+/// The page's requests, as the Homebridge UI server's tests.
 @Suite(.timeLimit(.minutes(1)))
 struct WebRequestTests {
     func request(_ plugin: DysonPureCoolPlugin, _ path: String, _ body: JSONValue = .null) async throws -> PluginWebResponse {
         try await plugin.handleWebRequest(PluginWebRequest(method: body == .null ? "GET" : "POST", path: path, body: body, user: "admin"))
     }
 
-    @Test func signInAndListDevices() async throws {
-        let environment = DysonTestEnvironment()
-        let credentials = try DysonCloud.encrypt(apPasswordHash: "local-hash")
-        environment.cloud.set(manifest: [
-            ["serialNumber": .string(serial), "name": "Living Room", "type": "527", "connectedConfiguration": ["mqtt": ["localBrokerCredentials": .string(credentials)]]],
-        ])
-        let host = try await environment.start(settings: [:])
-        defer { Task { await host.stop() } }
-        let plugin = try #require(environment.plugin)
-
-        #expect(try await request(plugin, "verify-otp", ["otpCode": "123456"]) == .error(400, "No pending authentication"))
-        #expect(try await request(plugin, "authenticate", ["email": "bad", "password": "x"]) == .error(400, "A valid email address is required"))
-        let started = try await request(plugin, "authenticate", ["email": "user@example.com", "password": "secret", "countryCode": "gb"])
-        #expect(started == PluginWebResponse(["success": true, "requires2FA": true]))
-        #expect(environment.cloud.requests[1].url.query == "country=GB")
-        // A mistyped code can be tried again.
-        #expect(try await request(plugin, "verify-otp", ["otpCode": "000000"]) == .error(401, "Invalid verification code"))
-        let verified = try await request(plugin, "verify-otp", ["otpCode": "123456"])
-        #expect(verified == PluginWebResponse(["success": true, "token": "token-1"]))
-        #expect(try await request(plugin, "verify-otp", ["otpCode": "123456"]) == .error(400, "No pending authentication"))
-
-        let listed = try await request(plugin, "get-devices", ["token": "token-1"])
-        let device = try #require(listed.json["devices"]?[0])
-        #expect(device["serial"] == .string(serial))
-        #expect(device["localCredentials"] == "local-hash")
-        #expect(device["productName"] == "HP04 - Dyson Pure Hot+Cool")
-        #expect(device["hasHeating"] == true)
-        #expect(device["hasJetFocus"] == true)
-        #expect(device["hasHumidifier"] == false)
-        environment.cloud.expire(token: "token-1")
-        #expect(try await request(plugin, "get-devices", ["token": "token-1"]) == .error(401, "Session expired"))
-        #expect(try await request(plugin, "get-devices", [:]) == .error(400, "Token is required"))
-    }
-
-    @Test func aWrongPasswordEndsTheSignIn() async throws {
+    /// The Homebridge page's sign-in and device list are Setup's: the page has no route for them, and the browser never
+    /// sees a credential.
+    @Test func signingInIsSetups() async throws {
         let environment = DysonTestEnvironment()
         let host = try await environment.start(settings: [:])
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        _ = try await request(plugin, "authenticate", ["email": "user@example.com", "password": "wrong"])
-        #expect(try await request(plugin, "verify-otp", ["otpCode": "123456"]) == .error(401, "Unable to authenticate user."))
-        #expect(try await request(plugin, "verify-otp", ["otpCode": "123456"]) == .error(400, "No pending authentication"))
-        #expect(try await request(plugin, "authenticate", ["email": "nobody@example.com", "password": "x"]) == .error(401, "Account not active or not found"))
-    }
-
-    /// The password waits for the emailed code ten minutes at most, on a timer, not only until the next attempt.
-    @Test func aPendingSignInExpires() async throws {
-        let environment = DysonTestEnvironment()
-        environment.pendingSignInLifetime = .milliseconds(100)
-        let host = try await environment.start(settings: [:])
-        defer { Task { await host.stop() } }
-        let plugin = try #require(environment.plugin)
-        let started = try await request(plugin, "authenticate", ["email": "user@example.com", "password": "secret"])
-        #expect(started == PluginWebResponse(["success": true, "requires2FA": true]))
-        #expect(await eventually { await !plugin.hasPendingSignIn })
-        #expect(try await request(plugin, "verify-otp", ["otpCode": "123456"]) == .error(400, "No pending authentication"))
+        for path in ["authenticate", "verify-otp", "get-devices"] {
+            #expect(try await request(plugin, path, ["email": "user@example.com", "password": "secret", "token": "token-1"]).status == 404)
+        }
     }
 
     @Test func productTypes() async throws {

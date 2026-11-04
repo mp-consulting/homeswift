@@ -12,19 +12,6 @@
         "default": "Tapo Smart Platform",
         "description": "Plugin name as shown in the logs"
       },
-      "username": {
-        "title": "Tapo Account Email",
-        "type": "string",
-        "required": false,
-        "format": "email",
-        "description": "The email address of the Tapo account the devices are set up with. Turn on Third-Party Compatibility in the Tapo app for local control."
-      },
-      "password": {
-        "title": "Tapo Account Password",
-        "type": "string",
-        "required": false,
-        "description": "The password of the Tapo account."
-      },
       "waitTimeUpdate": {
         "title": "Write Grouping (in milliseconds)",
         "type": "number",
@@ -36,7 +23,7 @@
       "devices": {
         "title": "Devices",
         "type": "array",
-        "description": "The Tapo plugs and bulbs, each by its address on the local network.",
+        "description": "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.",
         "items": {
           "title": "Device",
           "type": "object",
@@ -60,11 +47,36 @@
               "required": false,
               "default": "Plug",
               "oneOf": [
-                { "title": "Plug (P100, P105)", "enum": ["Plug"] },
-                { "title": "Plug with energy monitoring (P110)", "enum": ["PowerPlug"] },
-                { "title": "Dimmable bulb (L510E)", "enum": ["Light"] },
-                { "title": "White bulb (L520E)", "enum": ["WhiteLight"] },
-                { "title": "Colour bulb (L530E)", "enum": ["Colorlight"] }
+                {
+                  "title": "Plug (P100, P105)",
+                  "enum": [
+                    "Plug"
+                  ]
+                },
+                {
+                  "title": "Plug with energy monitoring (P110)",
+                  "enum": [
+                    "PowerPlug"
+                  ]
+                },
+                {
+                  "title": "Dimmable bulb (L510E)",
+                  "enum": [
+                    "Light"
+                  ]
+                },
+                {
+                  "title": "White bulb (L520E)",
+                  "enum": [
+                    "WhiteLight"
+                  ]
+                },
+                {
+                  "title": "Colour bulb (L530E)",
+                  "enum": [
+                    "Colorlight"
+                  ]
+                }
               ],
               "description": "What the device is."
             },
@@ -89,9 +101,71 @@
       }
     }
   },
+  "accessorySchema": {
+    "properties": {
+      "host": {
+        "title": "IP Address",
+        "type": "string",
+        "format": "hostname",
+        "description": "The device's IP address or host name on the local network. Changing it keeps the accessory."
+      },
+      "type": {
+        "title": "Type",
+        "type": "string",
+        "default": "Plug",
+        "oneOf": [
+          {
+            "title": "Plug (P100, P105)",
+            "enum": [
+              "Plug"
+            ]
+          },
+          {
+            "title": "Plug with energy monitoring (P110)",
+            "enum": [
+              "PowerPlug"
+            ]
+          },
+          {
+            "title": "Dimmable bulb (L510E)",
+            "enum": [
+              "Light"
+            ]
+          },
+          {
+            "title": "White bulb (L520E)",
+            "enum": [
+              "WhiteLight"
+            ]
+          },
+          {
+            "title": "Colour bulb (L530E)",
+            "enum": [
+              "Colorlight"
+            ]
+          }
+        ],
+        "description": "What the device is."
+      },
+      "updateInterval": {
+        "title": "Update Interval (in seconds)",
+        "type": "number",
+        "placeholder": 10,
+        "minimum": 1,
+        "description": "How often the device is asked for its state."
+      },
+      "timeout": {
+        "title": "Timeout (in seconds)",
+        "type": "number",
+        "placeholder": 2,
+        "minimum": 1,
+        "description": "How long a request to a device on older firmware waits for its answer."
+      }
+    }
+  },
   "i18n": {
     "fr": {
-      "The Tapo plugs and bulbs, each by its address on the local network.": "Les prises et ampoules Tapo, chacune par son adresse sur le réseau local.",
+      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Ajoutez une prise ou une ampoule Tapo par son adresse sur le réseau local. Une fois enregistrés, ses réglages sont avec son accessoire.",
       "Colour bulb (L530E)": "Ampoule couleur (L530E)",
       "Device": "Appareil",
       "Devices": "Appareils",
@@ -104,12 +178,9 @@
       "Plug (P100, P105)": "Prise (P100, P105)",
       "Plug with energy monitoring (P110)": "Prise avec suivi de la consommation (P110)",
       "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
-      "Tapo Account Email": "E-mail du compte Tapo",
-      "Tapo Account Password": "Mot de passe du compte Tapo",
       "The device's IP address or host name on the local network.": "L'adresse IP ou le nom d'hôte de l'appareil sur le réseau local.",
-      "The email address of the Tapo account the devices are set up with. Turn on Third-Party Compatibility in the Tapo app for local control.": "L'adresse e-mail du compte Tapo avec lequel les appareils sont configurés. Activez la compatibilité avec les services tiers dans l'app Tapo pour le contrôle local.",
+      "The device's IP address or host name on the local network. Changing it keeps the accessory.": "L'adresse IP ou le nom d'hôte de l'appareil sur le réseau local. La changer garde l'accessoire.",
       "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "Le nom dans HomeKit. Avec l'adresse, c'est ce qui identifie l'accessoire : changer l'un ou l'autre crée un nouvel accessoire.",
-      "The password of the Tapo account.": "Le mot de passe du compte Tapo.",
       "Timeout (in seconds)": "Délai d'attente (en secondes)",
       "Type": "Type",
       "Update Interval (in seconds)": "Intervalle de mise à jour (en secondes)",
@@ -118,7 +189,7 @@
       "Write Grouping (in milliseconds)": "Regroupement des écritures (en millisecondes)"
     },
     "es": {
-      "The Tapo plugs and bulbs, each by its address on the local network.": "Los enchufes y bombillas Tapo, cada uno por su dirección en la red local.",
+      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Añade un enchufe o una bombilla Tapo por su dirección en la red local. Una vez guardado, sus ajustes están con su accesorio.",
       "Colour bulb (L530E)": "Bombilla de color (L530E)",
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
@@ -131,12 +202,9 @@
       "Plug (P100, P105)": "Enchufe (P100, P105)",
       "Plug with energy monitoring (P110)": "Enchufe con medición de consumo (P110)",
       "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
-      "Tapo Account Email": "Correo de la cuenta Tapo",
-      "Tapo Account Password": "Contraseña de la cuenta Tapo",
       "The device's IP address or host name on the local network.": "La dirección IP o el nombre de host del dispositivo en la red local.",
-      "The email address of the Tapo account the devices are set up with. Turn on Third-Party Compatibility in the Tapo app for local control.": "La dirección de correo de la cuenta Tapo con la que se configuraron los dispositivos. Activa la compatibilidad con servicios de terceros en la app Tapo para el control local.",
+      "The device's IP address or host name on the local network. Changing it keeps the accessory.": "La dirección IP o el nombre de host del dispositivo en la red local. Cambiarla conserva el accesorio.",
       "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "El nombre en HomeKit. Junto con la dirección, es lo que identifica al accesorio: cambiar cualquiera de los dos crea un accesorio nuevo.",
-      "The password of the Tapo account.": "La contraseña de la cuenta Tapo.",
       "Timeout (in seconds)": "Tiempo de espera (en segundos)",
       "Type": "Tipo",
       "Update Interval (in seconds)": "Intervalo de actualización (en segundos)",
@@ -145,7 +213,7 @@
       "Write Grouping (in milliseconds)": "Agrupación de escrituras (en milisegundos)"
     },
     "pt": {
-      "The Tapo plugs and bulbs, each by its address on the local network.": "As tomadas e lâmpadas Tapo, cada uma pelo seu endereço na rede local.",
+      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Adicione uma tomada ou lâmpada Tapo pelo seu endereço na rede local. Depois de guardada, as suas definições ficam com o seu acessório.",
       "Colour bulb (L530E)": "Lâmpada de cor (L530E)",
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
@@ -158,12 +226,9 @@
       "Plug (P100, P105)": "Tomada (P100, P105)",
       "Plug with energy monitoring (P110)": "Tomada com medição de consumo (P110)",
       "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
-      "Tapo Account Email": "E-mail da conta Tapo",
-      "Tapo Account Password": "Palavra-passe da conta Tapo",
       "The device's IP address or host name on the local network.": "O endereço IP ou o nome de anfitrião do dispositivo na rede local.",
-      "The email address of the Tapo account the devices are set up with. Turn on Third-Party Compatibility in the Tapo app for local control.": "O endereço de e-mail da conta Tapo com que os dispositivos foram configurados. Ative a compatibilidade com serviços de terceiros na app Tapo para o controlo local.",
+      "The device's IP address or host name on the local network. Changing it keeps the accessory.": "O endereço IP ou o nome de anfitrião do dispositivo na rede local. Mudá-lo mantém o acessório.",
       "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "O nome no HomeKit. Com o endereço, é o que identifica o acessório: mudar qualquer um dos dois cria um novo acessório.",
-      "The password of the Tapo account.": "A palavra-passe da conta Tapo.",
       "Timeout (in seconds)": "Tempo limite (em segundos)",
       "Type": "Tipo",
       "Update Interval (in seconds)": "Intervalo de atualização (em segundos)",

@@ -4,21 +4,17 @@
   "headerDisplay": "Full HomeKit support UniFi Access devices. See the [homebridge-unifi-access](https://github.com/mp-consulting/homebridge-unifi-access) developer page for detailed documentation.",
   "singular": true,
   "customUi": true,
-
   "schema": {
     "type": "object",
     "properties": {
-
       "controllers": {
         "type": "array",
         "title": "UniFi Access Controllers",
-        "description": "The controllers to connect to, each with its address and a local user's login.",
-
+        "description": "UniFi consoles by address, for one discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.",
         "items": {
           "type": "object",
           "title": "UniFi Access Controller",
           "properties": {
-
             "address": {
               "type": "string",
               "title": "Controller Address",
@@ -27,7 +23,6 @@
               "placeholder": "e.g. 1.2.3.4",
               "description": "Hostname or IP address of your UniFi Access controller."
             },
-
             "mqttTopic": {
               "type": "string",
               "title": "MQTT Base Topic",
@@ -35,7 +30,6 @@
               "placeholder": "e.g. unifi/access",
               "description": "The base MQTT topic to publish to. Default: unifi/access."
             },
-
             "mqttUrl": {
               "type": "string",
               "title": "MQTT Broker URL",
@@ -44,7 +38,6 @@
               "placeholder": "e.g. mqtt://1.2.3.4",
               "description": "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None."
             },
-
             "mqttVerifyTls": {
               "type": "boolean",
               "title": "Verify MQTT Broker TLS Certificate",
@@ -52,7 +45,6 @@
               "default": true,
               "description": "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled."
             },
-
             "name": {
               "type": "string",
               "title": "Controller Name",
@@ -60,23 +52,6 @@
               "placeholder": "e.g. UNVR",
               "description": "Name for this UniFi Access controller to be used for logging purposes. Default: Defined by the controller."
             },
-
-            "password": {
-              "type": "string", "x-schema-form": { "type": "password" },
-              "title": "Controller Password",
-              "required": true,
-              "placeholder": "e.g. unifi-access-password",
-              "description": "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security."
-            },
-
-            "username": {
-              "type": "string",
-              "title": "Controller Username",
-              "required": true,
-              "placeholder": "e.g. some-unifi-access-user",
-              "description": "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security."
-            },
-
             "verifyTls": {
               "type": "boolean",
               "title": "Verify TLS Certificate",
@@ -86,33 +61,26 @@
           }
         }
       },
-
       "name": {
-
         "type": "string",
         "title": "Plugin Name",
         "required": true,
         "default": "UniFi Access",
         "description": "Name shown in the logs. Default: UniFi Access."
       },
-
       "options": {
-
         "type": "array",
         "title": "Feature Options",
-        "description": "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.",
-
+        "description": "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's id), one per entry. The bridge moves the others into the settings.",
         "items": {
           "type": "string",
           "title": "Feature Option",
           "required": false,
-          "description": "One option per entry. The plugin's README lists them all, and its page sets them too.",
+          "description": "One option per entry, as the Homebridge plugin's README spells them.",
           "placeholder": "e.g. Disable.Device"
         }
       },
-
       "ringDelay": {
-
         "type": "integer",
         "title": "Doorbell Ring Delay (seconds)",
         "required": false,
@@ -120,10 +88,525 @@
         "maximum": 60,
         "placeholder": "e.g. 5",
         "description": "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0."
+      },
+      "syncName": {
+        "type": "boolean",
+        "title": "Sync Names",
+        "default": true,
+        "description": "Keep the name in step with UniFi Access, one way: from UniFi Access to HomeKit."
+      },
+      "delayDeviceRemoval": {
+        "type": "integer",
+        "title": "Device Removal Delay (seconds)",
+        "minimum": 0,
+        "placeholder": 60,
+        "description": "Seconds before a device that left the controller leaves HomeKit; 0 removes it at once."
+      },
+      "publishTelemetry": {
+        "type": "boolean",
+        "title": "Publish Telemetry",
+        "default": false,
+        "description": "Publish everything the controller reports in real time to MQTT."
+      },
+      "useLock": {
+        "type": "boolean",
+        "title": "Gate as a Lock",
+        "default": false,
+        "description": "Show a UA Gate's gate as a lock rather than a garage door opener."
+      },
+      "useGarageOpener": {
+        "type": "boolean",
+        "title": "Door as a Garage Door",
+        "default": false,
+        "description": "Show the door as a garage door opener rather than a lock, in the Home app only: it locks and unlocks the same."
+      },
+      "gateDirectionDuration": {
+        "type": "integer",
+        "title": "Gate Cycle (seconds)",
+        "minimum": 0,
+        "placeholder": 90,
+        "description": "Seconds of a gate's whole cycle (opening, open, closing), split in three to show its state; the position sensor confirms it closed."
+      },
+      "lockDelayInterval": {
+        "type": "integer",
+        "title": "Relock Delay (minutes)",
+        "minimum": 0,
+        "description": "Minutes before the relay locks again once unlocked from HomeKit; 0 leaves it unlocked. Empty locks it again after five seconds."
+      },
+      "lockTrigger": {
+        "type": "boolean",
+        "title": "Lock Trigger Switch",
+        "default": false,
+        "description": "Add a switch that locks and unlocks the door relay, for automations HomeKit's lock rules would stop."
+      },
+      "doorbell": {
+        "type": "boolean",
+        "title": "Doorbells",
+        "default": true,
+        "description": "Add a doorbell for the hubs' doorbell rings. A hub's Parts overrule it."
+      },
+      "doorbellTrigger": {
+        "type": "boolean",
+        "title": "Doorbell Trigger Switch",
+        "default": false,
+        "description": "Add a switch that shows (but does not make) the doorbell's rings, for automations."
+      },
+      "doorbellSeparateAccessory": {
+        "type": "boolean",
+        "title": "Doorbell on Its Own Tile",
+        "default": false,
+        "description": "Put the doorbell and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again."
+      },
+      "sensorsSeparateAccessory": {
+        "type": "boolean",
+        "title": "Sensors on Their Own Tiles",
+        "default": true,
+        "description": "Give each door sensor an accessory of its own rather than grouping them with the lock. Changing this gives them a new identity in HomeKit: their rooms, names and automations are set again."
+      },
+      "dps": {
+        "type": "boolean",
+        "title": "Door Position Sensors",
+        "default": true,
+        "description": "Add a contact sensor for each hub's door position sensor. A hub's Parts overrule it."
+      },
+      "rel": {
+        "type": "boolean",
+        "title": "Remote Release Sensors",
+        "default": true,
+        "description": "Add a contact sensor for each hub's remote release. A hub's Parts overrule it."
+      },
+      "ren": {
+        "type": "boolean",
+        "title": "Request to Enter Sensors",
+        "default": true,
+        "description": "Add a contact sensor for each hub's request to enter sensor. A hub's Parts overrule it."
+      },
+      "rex": {
+        "type": "boolean",
+        "title": "Request to Exit Sensors",
+        "default": true,
+        "description": "Add a contact sensor for each hub's request to exit sensor. A hub's Parts overrule it."
+      },
+      "sideDoor": {
+        "type": "boolean",
+        "title": "Side Doors",
+        "default": true,
+        "description": "Add a lock for a UA Gate's side door, the pedestrian gate. A hub's Parts overrule it."
+      },
+      "sideDoorDps": {
+        "type": "boolean",
+        "title": "Side Door Position Sensors",
+        "default": true,
+        "description": "Add a contact sensor for a UA Gate's side door position sensor. A hub's Parts overrule it."
+      },
+      "sideDoorSeparateAccessory": {
+        "type": "boolean",
+        "title": "Side Door on Its Own Tile",
+        "default": true,
+        "description": "Put a UA Gate's side door, its sensor and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again."
+      },
+      "sideDoorLockTrigger": {
+        "type": "boolean",
+        "title": "Side Door Lock Trigger Switch",
+        "default": false,
+        "description": "Add a switch that locks and unlocks a UA Gate's side door, for automations HomeKit's lock rules would stop."
+      },
+      "accessMethodsSeparateAccessory": {
+        "type": "boolean",
+        "title": "Access Methods on Their Own Tile",
+        "default": false,
+        "description": "Put the access method switches on an accessory of their own rather than the lock's. Changing this gives them a new identity in HomeKit: their room, names and automations are set again."
+      },
+      "accessMethodFace": {
+        "type": "boolean",
+        "title": "Face Unlock Switch",
+        "default": true,
+        "description": "Add a switch that turns face unlock on and off."
+      },
+      "accessMethodHand": {
+        "type": "boolean",
+        "title": "Hand Wave Switch",
+        "default": true,
+        "description": "Add a switch that turns hand wave unlock on and off."
+      },
+      "accessMethodMobile": {
+        "type": "boolean",
+        "title": "Mobile Unlock Switch",
+        "default": true,
+        "description": "Add a switch that turns mobile unlock on and off."
+      },
+      "accessMethodNfc": {
+        "type": "boolean",
+        "title": "NFC Card Switch",
+        "default": true,
+        "description": "Add a switch that turns NFC cards on and off."
+      },
+      "accessMethodPin": {
+        "type": "boolean",
+        "title": "PIN Switch",
+        "default": true,
+        "description": "Add a switch that turns PIN unlock on and off."
+      },
+      "accessMethodQr": {
+        "type": "boolean",
+        "title": "QR Code Switch",
+        "default": true,
+        "description": "Add a switch that turns QR code unlock on and off."
+      },
+      "accessMethodTouchPass": {
+        "type": "boolean",
+        "title": "Touch Pass Switch",
+        "default": true,
+        "description": "Add a switch that turns Touch Pass on and off."
+      },
+      "logDoorbell": {
+        "type": "boolean",
+        "title": "Log Doorbell Rings",
+        "default": true,
+        "description": "Write doorbell rings to the log."
+      },
+      "logDps": {
+        "type": "boolean",
+        "title": "Log Door Position",
+        "default": true,
+        "description": "Write the door position sensor's events to the log."
+      },
+      "logRel": {
+        "type": "boolean",
+        "title": "Log Remote Releases",
+        "default": true,
+        "description": "Write remote release events to the log."
+      },
+      "logRen": {
+        "type": "boolean",
+        "title": "Log Requests to Enter",
+        "default": true,
+        "description": "Write request to enter events to the log."
+      },
+      "logRex": {
+        "type": "boolean",
+        "title": "Log Requests to Exit",
+        "default": true,
+        "description": "Write request to exit events to the log."
+      },
+      "logLock": {
+        "type": "boolean",
+        "title": "Log Lock Events",
+        "default": true,
+        "description": "Write lock and unlock events to the log."
       }
     }
   },
-
+  "accessorySchema": {
+    "properties": {
+      "address": {
+        "type": "string",
+        "title": "Controller Address",
+        "format": "hostname",
+        "placeholder": "e.g. 1.2.3.4",
+        "description": "Hostname or IP address of your UniFi Access controller.",
+        "x-kinds": [
+          "controller"
+        ]
+      },
+      "mqttUrl": {
+        "type": "string",
+        "title": "MQTT Broker URL",
+        "format": "uri",
+        "placeholder": "e.g. mqtt://1.2.3.4",
+        "description": "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None.",
+        "x-kinds": [
+          "controller"
+        ]
+      },
+      "mqttTopic": {
+        "type": "string",
+        "title": "MQTT Base Topic",
+        "placeholder": "e.g. unifi/access",
+        "description": "The base MQTT topic to publish to. Default: unifi/access.",
+        "x-kinds": [
+          "controller"
+        ]
+      },
+      "mqttVerifyTls": {
+        "type": "boolean",
+        "title": "Verify MQTT Broker TLS Certificate",
+        "default": true,
+        "description": "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.",
+        "x-kinds": [
+          "controller"
+        ]
+      },
+      "verifyTls": {
+        "type": "boolean",
+        "title": "Verify TLS Certificate",
+        "description": "Validate the controller's TLS certificate against trusted certificate authorities. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and a different certificate is refused thereafter. Default: disabled.",
+        "x-kinds": [
+          "controller"
+        ]
+      },
+      "syncName": {
+        "type": "boolean",
+        "title": "Sync Names",
+        "description": "Keep the name in step with UniFi Access, one way: from UniFi Access to HomeKit.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "syncName"
+      },
+      "delayDeviceRemoval": {
+        "type": "integer",
+        "title": "Device Removal Delay (seconds)",
+        "minimum": 0,
+        "placeholder": 60,
+        "description": "Seconds before a device that left the controller leaves HomeKit; 0 removes it at once.",
+        "x-kinds": [
+          "controller"
+        ],
+        "x-default": "delayDeviceRemoval"
+      },
+      "publishTelemetry": {
+        "type": "boolean",
+        "title": "Publish Telemetry",
+        "description": "Publish everything the controller reports in real time to MQTT.",
+        "x-kinds": [
+          "controller"
+        ],
+        "x-default": "publishTelemetry"
+      },
+      "useLock": {
+        "type": "boolean",
+        "title": "Gate as a Lock",
+        "description": "Show a UA Gate's gate as a lock rather than a garage door opener.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "useLock"
+      },
+      "useGarageOpener": {
+        "type": "boolean",
+        "title": "Door as a Garage Door",
+        "description": "Show the door as a garage door opener rather than a lock, in the Home app only: it locks and unlocks the same.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "useGarageOpener"
+      },
+      "gateDirectionDuration": {
+        "type": "integer",
+        "title": "Gate Cycle (seconds)",
+        "minimum": 0,
+        "placeholder": 90,
+        "description": "Seconds of a gate's whole cycle (opening, open, closing), split in three to show its state; the position sensor confirms it closed.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "gateDirectionDuration"
+      },
+      "lockDelayInterval": {
+        "type": "integer",
+        "title": "Relock Delay (minutes)",
+        "minimum": 0,
+        "description": "Minutes before the relay locks again once unlocked from HomeKit; 0 leaves it unlocked. Empty locks it again after five seconds.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "lockDelayInterval"
+      },
+      "lockTrigger": {
+        "type": "boolean",
+        "title": "Lock Trigger Switch",
+        "description": "Add a switch that locks and unlocks the door relay, for automations HomeKit's lock rules would stop.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "lockTrigger"
+      },
+      "doorbellTrigger": {
+        "type": "boolean",
+        "title": "Doorbell Trigger Switch",
+        "description": "Add a switch that shows (but does not make) the doorbell's rings, for automations.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "doorbellTrigger"
+      },
+      "doorbellSeparateAccessory": {
+        "type": "boolean",
+        "title": "Doorbell on Its Own Tile",
+        "description": "Put the doorbell and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "doorbellSeparateAccessory"
+      },
+      "sensorsSeparateAccessory": {
+        "type": "boolean",
+        "title": "Sensors on Their Own Tiles",
+        "description": "Give each door sensor an accessory of its own rather than grouping them with the lock. Changing this gives them a new identity in HomeKit: their rooms, names and automations are set again.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "sensorsSeparateAccessory"
+      },
+      "sideDoorSeparateAccessory": {
+        "type": "boolean",
+        "title": "Side Door on Its Own Tile",
+        "description": "Put a UA Gate's side door, its sensor and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "sideDoorSeparateAccessory"
+      },
+      "sideDoorLockTrigger": {
+        "type": "boolean",
+        "title": "Side Door Lock Trigger Switch",
+        "description": "Add a switch that locks and unlocks a UA Gate's side door, for automations HomeKit's lock rules would stop.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "sideDoorLockTrigger"
+      },
+      "accessMethodsSeparateAccessory": {
+        "type": "boolean",
+        "title": "Access Methods on Their Own Tile",
+        "description": "Put the access method switches on an accessory of their own rather than the lock's. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodsSeparateAccessory"
+      },
+      "accessMethodFace": {
+        "type": "boolean",
+        "title": "Face Unlock Switch",
+        "description": "Add a switch that turns face unlock on and off.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodFace"
+      },
+      "accessMethodHand": {
+        "type": "boolean",
+        "title": "Hand Wave Switch",
+        "description": "Add a switch that turns hand wave unlock on and off.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodHand"
+      },
+      "accessMethodMobile": {
+        "type": "boolean",
+        "title": "Mobile Unlock Switch",
+        "description": "Add a switch that turns mobile unlock on and off.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodMobile"
+      },
+      "accessMethodNfc": {
+        "type": "boolean",
+        "title": "NFC Card Switch",
+        "description": "Add a switch that turns NFC cards on and off.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodNfc"
+      },
+      "accessMethodPin": {
+        "type": "boolean",
+        "title": "PIN Switch",
+        "description": "Add a switch that turns PIN unlock on and off.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodPin"
+      },
+      "accessMethodQr": {
+        "type": "boolean",
+        "title": "QR Code Switch",
+        "description": "Add a switch that turns QR code unlock on and off.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodQr"
+      },
+      "accessMethodTouchPass": {
+        "type": "boolean",
+        "title": "Touch Pass Switch",
+        "description": "Add a switch that turns Touch Pass on and off.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "accessMethodTouchPass"
+      },
+      "logDoorbell": {
+        "type": "boolean",
+        "title": "Log Doorbell Rings",
+        "description": "Write doorbell rings to the log.",
+        "x-kinds": [
+          "hub",
+          "reader"
+        ],
+        "x-default": "logDoorbell"
+      },
+      "logDps": {
+        "type": "boolean",
+        "title": "Log Door Position",
+        "description": "Write the door position sensor's events to the log.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "logDps"
+      },
+      "logRel": {
+        "type": "boolean",
+        "title": "Log Remote Releases",
+        "description": "Write remote release events to the log.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "logRel"
+      },
+      "logRen": {
+        "type": "boolean",
+        "title": "Log Requests to Enter",
+        "description": "Write request to enter events to the log.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "logRen"
+      },
+      "logRex": {
+        "type": "boolean",
+        "title": "Log Requests to Exit",
+        "description": "Write request to exit events to the log.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "logRex"
+      },
+      "logLock": {
+        "type": "boolean",
+        "title": "Log Lock Events",
+        "description": "Write lock and unlock events to the log.",
+        "x-kinds": [
+          "hub"
+        ],
+        "x-default": "logLock"
+      }
+    }
+  },
   "layout": [
     "name",
     {
@@ -133,57 +616,97 @@
       "expanded": false,
       "items": [
         {
-
           "key": "controllers",
           "type": "array",
           "name": " ",
-          "description": "Provide the IP address and login details of your UniFi Access controllers.",
           "orderable": false,
           "buttonText": "Add UniFi Access Controller",
           "items": [
-
             "controllers[].address",
-            "controllers[].username",
-            "controllers[].password",
-
-            {
-              "key": "controllers[]",
-              "type": "section",
-              "title": "Optional Settings",
-              "expandable": true,
-              "expanded": false,
-              "items": [
-                {
-                  "description": "These settings are optional. The defaults work well for almost everyone.",
-                  "items": [
-                    "controllers[].name",
-                    "controllers[].verifyTls"
-                  ]
-                }
-              ]
-            },
-            {
-              "key": "controllers[]",
-              "type": "section",
-              "title": "MQTT Settings",
-              "expandable": true,
-              "expanded": false,
-              "items": [
-                {
-                  "description": "MQTT support will only be enabled if an MQTT broker URL is specified below.",
-                  "items": [
-                    "controllers[].mqttUrl",
-                    "controllers[].mqttTopic",
-                    "controllers[].mqttVerifyTls"
-                  ]
-                }
-              ]
-            }
+            "controllers[].name",
+            "controllers[].verifyTls",
+            "controllers[].mqttUrl",
+            "controllers[].mqttTopic",
+            "controllers[].mqttVerifyTls"
           ]
         }
       ]
     },
-
+    "ringDelay",
+    {
+      "type": "fieldset",
+      "title": "Doors and Gates",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "useLock",
+        "useGarageOpener",
+        "gateDirectionDuration",
+        "lockDelayInterval",
+        "lockTrigger",
+        "sideDoor",
+        "sideDoorSeparateAccessory",
+        "sideDoorLockTrigger"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Sensors and Doorbells",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "dps",
+        "rel",
+        "ren",
+        "rex",
+        "sideDoorDps",
+        "sensorsSeparateAccessory",
+        "doorbell",
+        "doorbellTrigger",
+        "doorbellSeparateAccessory"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Access Methods",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "accessMethodsSeparateAccessory",
+        "accessMethodFace",
+        "accessMethodHand",
+        "accessMethodMobile",
+        "accessMethodNfc",
+        "accessMethodPin",
+        "accessMethodQr",
+        "accessMethodTouchPass"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Names and Logging",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "syncName",
+        "logDoorbell",
+        "logDps",
+        "logRel",
+        "logRen",
+        "logRex",
+        "logLock"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Controllers",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "delayDeviceRemoval",
+        "publishTelemetry"
+      ]
+    },
     {
       "type": "section",
       "title": "Plugin Feature Options (Optional)",
@@ -194,7 +717,6 @@
           "key": "options",
           "type": "array",
           "name": " ",
-          "description": "Feature options allow you to further customize the behavior of this plugin such as the ability to show or hide devices. You can use the the feature options tab above (recommended) to customize these settings or enter them manually below.",
           "orderable": false,
           "buttonText": "Add Feature Option",
           "items": [
@@ -202,31 +724,12 @@
           ]
         }
       ]
-    },
-
-    {
-      "type": "section",
-      "title": "Additional Settings (Optional)",
-      "expandable": true,
-      "expanded": false,
-      "items": [
-        {
-          "description": "These settings should be rarely used or needed by most people. Use these with caution.",
-          "items": [
-            "name"
-          ]
-        }
-      ]
     }
   ],
   "i18n": {
     "fr": {
-      "One option per entry. The plugin's README lists them all, and its page sets them too.": "Une option par entrée. Le README du plugin les liste toutes, et sa page les règle aussi.",
-      "Additional Settings (Optional)": "Réglages supplémentaires (facultatif)",
       "Controller Address": "Adresse du contrôleur",
       "Controller Name": "Nom du contrôleur",
-      "Controller Password": "Mot de passe du contrôleur",
-      "Controller Username": "Nom d'utilisateur du contrôleur",
       "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0.": "Délai entre deux sonneries. Une valeur non nulle empêche une sonnette de sonner plusieurs fois pendant cette durée. Par défaut : 0.",
       "Doorbell Ring Delay (seconds)": "Délai entre sonneries (secondes)",
       "Feature Option": "Option de fonctionnalité",
@@ -234,32 +737,98 @@
       "Hostname or IP address of your UniFi Access controller.": "Nom d'hôte ou adresse IP de votre contrôleur UniFi Access.",
       "MQTT Base Topic": "Sujet MQTT de base",
       "MQTT Broker URL": "URL du broker MQTT",
-      "MQTT Settings": "Réglages MQTT",
       "Name for this UniFi Access controller to be used for logging purposes. Default: Defined by the controller.": "Nom de ce contrôleur UniFi Access dans les journaux. Par défaut : celui que donne le contrôleur.",
       "Name shown in the logs. Default: UniFi Access.": "Nom affiché dans les journaux. Par défaut : UniFi Access.",
-      "Optional Settings": "Réglages facultatifs",
-      "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.": "Des options comme Disable.Device, une par entrée, pour afficher ou masquer des appareils et changer leur présentation. La page du plugin les règle aussi.",
       "Plugin Feature Options (Optional)": "Options de fonctionnalité du plugin (facultatif)",
       "Plugin Name": "Nom du plugin",
       "The base MQTT topic to publish to. Default: unifi/access.": "Le sujet MQTT de base où publier. Par défaut : unifi/access.",
-      "The controllers to connect to, each with its address and a local user's login.": "Les contrôleurs auxquels se connecter, chacun avec son adresse et l'identifiant d'un utilisateur local.",
       "UniFi Access Controller": "Contrôleur UniFi Access",
       "UniFi Access Controllers": "Contrôleurs UniFi Access",
-      "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security.": "Le mot de passe UniFi Access de ce contrôleur. Créer un utilisateur local réservé au pont est vivement conseillé, par sécurité et par simplicité.",
-      "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security.": "Le nom d'utilisateur UniFi Access de ce contrôleur. Créer un utilisateur local réservé au pont est vivement conseillé, par sécurité et par simplicité.",
       "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None.": "L'URL du broker MQTT où publier les événements. Le broker peut aussi verrouiller et déverrouiller les portes (lock/set) : utilisez-en un qui demande une connexion. Par défaut : aucun.",
       "Validate the controller's TLS certificate against trusted certificate authorities. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and a different certificate is refused thereafter. Default: disabled.": "Vérifier le certificat TLS du contrôleur auprès d'autorités de certification reconnues. Laissez cette option désactivée sauf si votre contrôleur utilise un certificat signé par une autorité reconnue : les contrôleurs UniFi utilisent par défaut des certificats autosignés. Désactivée, le certificat du contrôleur est épinglé à la première connexion du plugin, et un autre certificat est ensuite refusé. Par défaut : désactivé.",
       "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Vérifier le certificat TLS du broker MQTT lors d'une connexion en mqtts:// ou ssl://. Ne désactivez cette option que si votre broker utilise un certificat autosigné. Par défaut : activé.",
       "Verify MQTT Broker TLS Certificate": "Vérifier le certificat TLS du broker MQTT",
-      "Verify TLS Certificate": "Vérifier le certificat TLS"
+      "Verify TLS Certificate": "Vérifier le certificat TLS",
+      "Sync Names": "Synchroniser les noms",
+      "Keep the name in step with UniFi Access, one way: from UniFi Access to HomeKit.": "Garder le nom en accord avec UniFi Access, dans un sens : de UniFi Access vers HomeKit.",
+      "Device Removal Delay (seconds)": "Délai avant retrait (secondes)",
+      "Seconds before a device that left the controller leaves HomeKit; 0 removes it at once.": "Secondes avant qu'un appareil disparu du contrôleur quitte HomeKit ; 0 le retire aussitôt.",
+      "Publish Telemetry": "Publier la télémétrie",
+      "Publish everything the controller reports in real time to MQTT.": "Publier sur MQTT tout ce que le contrôleur signale en temps réel.",
+      "Gate as a Lock": "Portail en serrure",
+      "Show a UA Gate's gate as a lock rather than a garage door opener.": "Présenter le portail d'un UA Gate comme une serrure plutôt qu'une porte de garage.",
+      "Door as a Garage Door": "Porte en porte de garage",
+      "Show the door as a garage door opener rather than a lock, in the Home app only: it locks and unlocks the same.": "Présenter la porte comme une porte de garage plutôt qu'une serrure, dans l'app Maison seulement : elle se verrouille et se déverrouille de la même façon.",
+      "Gate Cycle (seconds)": "Cycle du portail (secondes)",
+      "Seconds of a gate's whole cycle (opening, open, closing), split in three to show its state; the position sensor confirms it closed.": "Secondes d'un cycle complet du portail (ouverture, ouvert, fermeture), divisées en trois pour montrer son état ; le capteur de position confirme la fermeture.",
+      "Relock Delay (minutes)": "Délai de reverrouillage (minutes)",
+      "Minutes before the relay locks again once unlocked from HomeKit; 0 leaves it unlocked. Empty locks it again after five seconds.": "Minutes avant que le relais se reverrouille une fois déverrouillé depuis HomeKit ; 0 le laisse déverrouillé. Vide, il se reverrouille après cinq secondes.",
+      "Lock Trigger Switch": "Interrupteur de verrouillage",
+      "Add a switch that locks and unlocks the door relay, for automations HomeKit's lock rules would stop.": "Ajouter un interrupteur qui verrouille et déverrouille le relais de la porte, pour les automatisations que les règles des serrures de HomeKit bloqueraient.",
+      "Doorbells": "Sonnettes",
+      "Add a doorbell for the hubs' doorbell rings. A hub's Parts overrule it.": "Ajouter une sonnette pour les sonneries des hubs. Les Parties d'un hub l'emportent.",
+      "Doorbell Trigger Switch": "Interrupteur de sonnette",
+      "Add a switch that shows (but does not make) the doorbell's rings, for automations.": "Ajouter un interrupteur qui reflète (sans les déclencher) les sonneries, pour les automatisations.",
+      "Doorbell on Its Own Tile": "Sonnette sur sa propre tuile",
+      "Put the doorbell and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Mettre la sonnette et son interrupteur sur un accessoire à part. Changer ce réglage leur donne une nouvelle identité dans HomeKit : leur pièce, leurs noms et leurs automatisations sont à refaire.",
+      "Sensors on Their Own Tiles": "Capteurs sur leurs propres tuiles",
+      "Give each door sensor an accessory of its own rather than grouping them with the lock. Changing this gives them a new identity in HomeKit: their rooms, names and automations are set again.": "Donner à chaque capteur de porte son propre accessoire plutôt que de les grouper avec la serrure. Changer ce réglage leur donne une nouvelle identité dans HomeKit : leurs pièces, leurs noms et leurs automatisations sont à refaire.",
+      "Door Position Sensors": "Capteurs de position de porte",
+      "Add a contact sensor for each hub's door position sensor. A hub's Parts overrule it.": "Ajouter un capteur de contact pour le capteur de position de porte de chaque hub. Les Parties d'un hub l'emportent.",
+      "Remote Release Sensors": "Capteurs d'ouverture à distance",
+      "Add a contact sensor for each hub's remote release. A hub's Parts overrule it.": "Ajouter un capteur de contact pour l'ouverture à distance de chaque hub. Les Parties d'un hub l'emportent.",
+      "Request to Enter Sensors": "Capteurs de demande d'entrée",
+      "Add a contact sensor for each hub's request to enter sensor. A hub's Parts overrule it.": "Ajouter un capteur de contact pour le capteur de demande d'entrée de chaque hub. Les Parties d'un hub l'emportent.",
+      "Request to Exit Sensors": "Capteurs de demande de sortie",
+      "Add a contact sensor for each hub's request to exit sensor. A hub's Parts overrule it.": "Ajouter un capteur de contact pour le capteur de demande de sortie de chaque hub. Les Parties d'un hub l'emportent.",
+      "Side Doors": "Portes latérales",
+      "Add a lock for a UA Gate's side door, the pedestrian gate. A hub's Parts overrule it.": "Ajouter une serrure pour la porte latérale d'un UA Gate, le portillon. Les Parties d'un hub l'emportent.",
+      "Side Door Position Sensors": "Capteurs de position des portes latérales",
+      "Add a contact sensor for a UA Gate's side door position sensor. A hub's Parts overrule it.": "Ajouter un capteur de contact pour le capteur de position de la porte latérale d'un UA Gate. Les Parties d'un hub l'emportent.",
+      "Side Door on Its Own Tile": "Porte latérale sur sa propre tuile",
+      "Put a UA Gate's side door, its sensor and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Mettre la porte latérale d'un UA Gate, son capteur et son interrupteur sur un accessoire à part. Changer ce réglage leur donne une nouvelle identité dans HomeKit : leur pièce, leurs noms et leurs automatisations sont à refaire.",
+      "Side Door Lock Trigger Switch": "Interrupteur de verrouillage de la porte latérale",
+      "Add a switch that locks and unlocks a UA Gate's side door, for automations HomeKit's lock rules would stop.": "Ajouter un interrupteur qui verrouille et déverrouille la porte latérale d'un UA Gate, pour les automatisations que les règles des serrures de HomeKit bloqueraient.",
+      "Access Methods on Their Own Tile": "Méthodes d'accès sur leur propre tuile",
+      "Put the access method switches on an accessory of their own rather than the lock's. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Mettre les interrupteurs des méthodes d'accès sur un accessoire à part plutôt que sur celui de la serrure. Changer ce réglage leur donne une nouvelle identité dans HomeKit : leur pièce, leurs noms et leurs automatisations sont à refaire.",
+      "Face Unlock Switch": "Interrupteur Face Unlock",
+      "Add a switch that turns face unlock on and off.": "Ajouter un interrupteur qui active ou désactive le déverrouillage par le visage.",
+      "Hand Wave Switch": "Interrupteur Hand Wave",
+      "Add a switch that turns hand wave unlock on and off.": "Ajouter un interrupteur qui active ou désactive le déverrouillage d'un geste de la main.",
+      "Mobile Unlock Switch": "Interrupteur de déverrouillage mobile",
+      "Add a switch that turns mobile unlock on and off.": "Ajouter un interrupteur qui active ou désactive le déverrouillage par téléphone.",
+      "NFC Card Switch": "Interrupteur des cartes NFC",
+      "Add a switch that turns NFC cards on and off.": "Ajouter un interrupteur qui active ou désactive les cartes NFC.",
+      "PIN Switch": "Interrupteur du code PIN",
+      "Add a switch that turns PIN unlock on and off.": "Ajouter un interrupteur qui active ou désactive le déverrouillage par code PIN.",
+      "QR Code Switch": "Interrupteur du code QR",
+      "Add a switch that turns QR code unlock on and off.": "Ajouter un interrupteur qui active ou désactive le déverrouillage par code QR.",
+      "Touch Pass Switch": "Interrupteur Touch Pass",
+      "Add a switch that turns Touch Pass on and off.": "Ajouter un interrupteur qui active ou désactive Touch Pass.",
+      "Log Doorbell Rings": "Journaliser les sonneries",
+      "Write doorbell rings to the log.": "Inscrire les sonneries dans le journal.",
+      "Log Door Position": "Journaliser la position de la porte",
+      "Write the door position sensor's events to the log.": "Inscrire les événements du capteur de position de porte dans le journal.",
+      "Log Remote Releases": "Journaliser les ouvertures à distance",
+      "Write remote release events to the log.": "Inscrire les ouvertures à distance dans le journal.",
+      "Log Requests to Enter": "Journaliser les demandes d'entrée",
+      "Write request to enter events to the log.": "Inscrire les demandes d'entrée dans le journal.",
+      "Log Requests to Exit": "Journaliser les demandes de sortie",
+      "Write request to exit events to the log.": "Inscrire les demandes de sortie dans le journal.",
+      "Log Lock Events": "Journaliser le verrouillage",
+      "Write lock and unlock events to the log.": "Inscrire les verrouillages et déverrouillages dans le journal.",
+      "Doors and Gates": "Portes et portails",
+      "Sensors and Doorbells": "Capteurs et sonnettes",
+      "Access Methods": "Méthodes d'accès",
+      "Names and Logging": "Noms et journal",
+      "Controllers": "Contrôleurs",
+      "UniFi consoles by address, for one discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.": "Des consoles UniFi par adresse, pour celles que la découverte ne trouve pas ; on se connecte à chacune dans Ajouter des accessoires, et son identifiant est gardé dans le coffre.",
+      "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's id), one per entry. The bridge moves the others into the settings.": "Les options de fonctionnalité d'un bloc Homebridge qu'aucun réglage n'exprime (Enable.<option> ou Disable.<option>, suivies au besoin de l'identifiant d'un appareil), une par entrée. Le pont déplace les autres dans les réglages.",
+      "One option per entry, as the Homebridge plugin's README spells them.": "Une option par entrée, écrite comme dans le README du plugin Homebridge."
     },
     "es": {
-      "One option per entry. The plugin's README lists them all, and its page sets them too.": "Una opción por entrada. El README del plugin las enumera todas, y su página también las ajusta.",
-      "Additional Settings (Optional)": "Ajustes adicionales (opcional)",
       "Controller Address": "Dirección del controlador",
       "Controller Name": "Nombre del controlador",
-      "Controller Password": "Contraseña del controlador",
-      "Controller Username": "Nombre de usuario del controlador",
       "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0.": "Tiempo entre dos timbrazos. Un valor distinto de cero impide que un timbre suene varias veces durante ese tiempo. Predeterminado: 0.",
       "Doorbell Ring Delay (seconds)": "Intervalo entre timbrazos (segundos)",
       "Feature Option": "Opción de función",
@@ -267,32 +836,98 @@
       "Hostname or IP address of your UniFi Access controller.": "Nombre de host o dirección IP de tu controlador UniFi Access.",
       "MQTT Base Topic": "Tema MQTT base",
       "MQTT Broker URL": "URL del bróker MQTT",
-      "MQTT Settings": "Ajustes de MQTT",
       "Name for this UniFi Access controller to be used for logging purposes. Default: Defined by the controller.": "Nombre de este controlador UniFi Access en los registros. Predeterminado: el que indica el controlador.",
       "Name shown in the logs. Default: UniFi Access.": "Nombre que se muestra en los registros. Predeterminado: UniFi Access.",
-      "Optional Settings": "Ajustes opcionales",
-      "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.": "Opciones como Disable.Device, una por entrada, para mostrar u ocultar dispositivos y cambiar cómo aparecen. La página del plugin también las ajusta.",
       "Plugin Feature Options (Optional)": "Opciones de función del plugin (opcional)",
       "Plugin Name": "Nombre del plugin",
       "The base MQTT topic to publish to. Default: unifi/access.": "El tema MQTT base en el que se publica. Predeterminado: unifi/access.",
-      "The controllers to connect to, each with its address and a local user's login.": "Los controladores a los que conectarse, cada uno con su dirección y los datos de acceso de un usuario local.",
       "UniFi Access Controller": "Controlador UniFi Access",
       "UniFi Access Controllers": "Controladores UniFi Access",
-      "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security.": "La contraseña de UniFi Access de este controlador. Es muy recomendable crear un usuario local solo para el puente, por seguridad y por sencillez.",
-      "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security.": "El nombre de usuario de UniFi Access de este controlador. Es muy recomendable crear un usuario local solo para el puente, por seguridad y por sencillez.",
       "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None.": "La URL del bróker MQTT en el que publicar los eventos. El bróker también puede bloquear y desbloquear puertas (lock/set), así que usa uno que pida inicio de sesión. Predeterminado: ninguno.",
       "Validate the controller's TLS certificate against trusted certificate authorities. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and a different certificate is refused thereafter. Default: disabled.": "Comprueba el certificado TLS del controlador con autoridades de certificación de confianza. Déjalo desactivado salvo que tu controlador use un certificado firmado por una autoridad de confianza: los controladores UniFi usan certificados autofirmados por defecto. Desactivado, el certificado del controlador se fija la primera vez que el plugin se conecta, y después se rechaza cualquier otro. Predeterminado: desactivado.",
       "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Comprueba el certificado TLS del bróker MQTT al conectar por mqtts:// o ssl://. Desactívalo solo si tu bróker usa un certificado autofirmado. Predeterminado: activado.",
       "Verify MQTT Broker TLS Certificate": "Comprobar el certificado TLS del bróker MQTT",
-      "Verify TLS Certificate": "Comprobar el certificado TLS"
+      "Verify TLS Certificate": "Comprobar el certificado TLS",
+      "Sync Names": "Sincronizar nombres",
+      "Keep the name in step with UniFi Access, one way: from UniFi Access to HomeKit.": "Mantener el nombre al día con UniFi Access, en un sentido: de UniFi Access a HomeKit.",
+      "Device Removal Delay (seconds)": "Retraso antes de quitar (segundos)",
+      "Seconds before a device that left the controller leaves HomeKit; 0 removes it at once.": "Segundos antes de que un dispositivo que ya no está en el controlador salga de HomeKit; 0 lo quita al momento.",
+      "Publish Telemetry": "Publicar la telemetría",
+      "Publish everything the controller reports in real time to MQTT.": "Publicar en MQTT todo lo que el controlador informa en tiempo real.",
+      "Gate as a Lock": "Portón como cerradura",
+      "Show a UA Gate's gate as a lock rather than a garage door opener.": "Mostrar el portón de un UA Gate como una cerradura en lugar de una puerta de garaje.",
+      "Door as a Garage Door": "Puerta como puerta de garaje",
+      "Show the door as a garage door opener rather than a lock, in the Home app only: it locks and unlocks the same.": "Mostrar la puerta como una puerta de garaje en lugar de una cerradura, solo en la app Casa: se bloquea y desbloquea igual.",
+      "Gate Cycle (seconds)": "Ciclo del portón (segundos)",
+      "Seconds of a gate's whole cycle (opening, open, closing), split in three to show its state; the position sensor confirms it closed.": "Segundos de un ciclo completo del portón (abriendo, abierto, cerrando), divididos en tres para mostrar su estado; el sensor de posición confirma el cierre.",
+      "Relock Delay (minutes)": "Retraso de rebloqueo (minutos)",
+      "Minutes before the relay locks again once unlocked from HomeKit; 0 leaves it unlocked. Empty locks it again after five seconds.": "Minutos antes de que el relé vuelva a bloquearse tras desbloquearlo desde HomeKit; 0 lo deja desbloqueado. Vacío, vuelve a bloquearse a los cinco segundos.",
+      "Lock Trigger Switch": "Interruptor de bloqueo",
+      "Add a switch that locks and unlocks the door relay, for automations HomeKit's lock rules would stop.": "Añadir un interruptor que bloquea y desbloquea el relé de la puerta, para automatizaciones que las reglas de cerraduras de HomeKit impedirían.",
+      "Doorbells": "Timbres",
+      "Add a doorbell for the hubs' doorbell rings. A hub's Parts overrule it.": "Añadir un timbre para los timbrazos de los hubs. Las Partes de un hub prevalecen.",
+      "Doorbell Trigger Switch": "Interruptor del timbre",
+      "Add a switch that shows (but does not make) the doorbell's rings, for automations.": "Añadir un interruptor que refleja (sin provocarlos) los timbrazos, para automatizaciones.",
+      "Doorbell on Its Own Tile": "Timbre en su propio mosaico",
+      "Put the doorbell and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Poner el timbre y su interruptor en un accesorio aparte. Cambiarlo les da una nueva identidad en HomeKit: hay que volver a ajustar su habitación, sus nombres y sus automatizaciones.",
+      "Sensors on Their Own Tiles": "Sensores en sus propios mosaicos",
+      "Give each door sensor an accessory of its own rather than grouping them with the lock. Changing this gives them a new identity in HomeKit: their rooms, names and automations are set again.": "Dar a cada sensor de puerta su propio accesorio en lugar de agruparlos con la cerradura. Cambiarlo les da una nueva identidad en HomeKit: hay que volver a ajustar sus habitaciones, sus nombres y sus automatizaciones.",
+      "Door Position Sensors": "Sensores de posición de puerta",
+      "Add a contact sensor for each hub's door position sensor. A hub's Parts overrule it.": "Añadir un sensor de contacto para el sensor de posición de puerta de cada hub. Las Partes de un hub prevalecen.",
+      "Remote Release Sensors": "Sensores de apertura remota",
+      "Add a contact sensor for each hub's remote release. A hub's Parts overrule it.": "Añadir un sensor de contacto para la apertura remota de cada hub. Las Partes de un hub prevalecen.",
+      "Request to Enter Sensors": "Sensores de solicitud de entrada",
+      "Add a contact sensor for each hub's request to enter sensor. A hub's Parts overrule it.": "Añadir un sensor de contacto para el sensor de solicitud de entrada de cada hub. Las Partes de un hub prevalecen.",
+      "Request to Exit Sensors": "Sensores de solicitud de salida",
+      "Add a contact sensor for each hub's request to exit sensor. A hub's Parts overrule it.": "Añadir un sensor de contacto para el sensor de solicitud de salida de cada hub. Las Partes de un hub prevalecen.",
+      "Side Doors": "Puertas laterales",
+      "Add a lock for a UA Gate's side door, the pedestrian gate. A hub's Parts overrule it.": "Añadir una cerradura para la puerta lateral de un UA Gate, la puerta peatonal. Las Partes de un hub prevalecen.",
+      "Side Door Position Sensors": "Sensores de posición de las puertas laterales",
+      "Add a contact sensor for a UA Gate's side door position sensor. A hub's Parts overrule it.": "Añadir un sensor de contacto para el sensor de posición de la puerta lateral de un UA Gate. Las Partes de un hub prevalecen.",
+      "Side Door on Its Own Tile": "Puerta lateral en su propio mosaico",
+      "Put a UA Gate's side door, its sensor and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Poner la puerta lateral de un UA Gate, su sensor y su interruptor en un accesorio aparte. Cambiarlo les da una nueva identidad en HomeKit: hay que volver a ajustar su habitación, sus nombres y sus automatizaciones.",
+      "Side Door Lock Trigger Switch": "Interruptor de bloqueo de la puerta lateral",
+      "Add a switch that locks and unlocks a UA Gate's side door, for automations HomeKit's lock rules would stop.": "Añadir un interruptor que bloquea y desbloquea la puerta lateral de un UA Gate, para automatizaciones que las reglas de cerraduras de HomeKit impedirían.",
+      "Access Methods on Their Own Tile": "Métodos de acceso en su propio mosaico",
+      "Put the access method switches on an accessory of their own rather than the lock's. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Poner los interruptores de los métodos de acceso en un accesorio aparte en lugar del de la cerradura. Cambiarlo les da una nueva identidad en HomeKit: hay que volver a ajustar su habitación, sus nombres y sus automatizaciones.",
+      "Face Unlock Switch": "Interruptor de desbloqueo facial",
+      "Add a switch that turns face unlock on and off.": "Añadir un interruptor que activa o desactiva el desbloqueo facial.",
+      "Hand Wave Switch": "Interruptor de gesto con la mano",
+      "Add a switch that turns hand wave unlock on and off.": "Añadir un interruptor que activa o desactiva el desbloqueo con un gesto de la mano.",
+      "Mobile Unlock Switch": "Interruptor de desbloqueo móvil",
+      "Add a switch that turns mobile unlock on and off.": "Añadir un interruptor que activa o desactiva el desbloqueo con el móvil.",
+      "NFC Card Switch": "Interruptor de tarjetas NFC",
+      "Add a switch that turns NFC cards on and off.": "Añadir un interruptor que activa o desactiva las tarjetas NFC.",
+      "PIN Switch": "Interruptor del PIN",
+      "Add a switch that turns PIN unlock on and off.": "Añadir un interruptor que activa o desactiva el desbloqueo con PIN.",
+      "QR Code Switch": "Interruptor del código QR",
+      "Add a switch that turns QR code unlock on and off.": "Añadir un interruptor que activa o desactiva el desbloqueo con código QR.",
+      "Touch Pass Switch": "Interruptor de Touch Pass",
+      "Add a switch that turns Touch Pass on and off.": "Añadir un interruptor que activa o desactiva Touch Pass.",
+      "Log Doorbell Rings": "Registrar los timbrazos",
+      "Write doorbell rings to the log.": "Anotar los timbrazos en el registro.",
+      "Log Door Position": "Registrar la posición de la puerta",
+      "Write the door position sensor's events to the log.": "Anotar los eventos del sensor de posición de puerta en el registro.",
+      "Log Remote Releases": "Registrar las aperturas remotas",
+      "Write remote release events to the log.": "Anotar las aperturas remotas en el registro.",
+      "Log Requests to Enter": "Registrar las solicitudes de entrada",
+      "Write request to enter events to the log.": "Anotar las solicitudes de entrada en el registro.",
+      "Log Requests to Exit": "Registrar las solicitudes de salida",
+      "Write request to exit events to the log.": "Anotar las solicitudes de salida en el registro.",
+      "Log Lock Events": "Registrar los bloqueos",
+      "Write lock and unlock events to the log.": "Anotar los bloqueos y desbloqueos en el registro.",
+      "Doors and Gates": "Puertas y portones",
+      "Sensors and Doorbells": "Sensores y timbres",
+      "Access Methods": "Métodos de acceso",
+      "Names and Logging": "Nombres y registro",
+      "Controllers": "Controladores",
+      "UniFi consoles by address, for one discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.": "Consolas UniFi por dirección, para las que la búsqueda no encuentra; se inicia sesión en cada una en Añadir accesorios, y sus datos de acceso se guardan en el almacén.",
+      "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's id), one per entry. The bridge moves the others into the settings.": "Las opciones de función de un bloque de Homebridge que ningún ajuste expresa (Enable.<option> o Disable.<option>, seguidas si hace falta del identificador de un dispositivo), una por entrada. El puente pasa las demás a los ajustes.",
+      "One option per entry, as the Homebridge plugin's README spells them.": "Una opción por entrada, escrita como en el README del plugin de Homebridge."
     },
     "pt": {
-      "One option per entry. The plugin's README lists them all, and its page sets them too.": "Uma opção por entrada. O README do plugin lista-as todas, e a sua página também as define.",
-      "Additional Settings (Optional)": "Definições adicionais (opcional)",
       "Controller Address": "Endereço do controlador",
       "Controller Name": "Nome do controlador",
-      "Controller Password": "Palavra-passe do controlador",
-      "Controller Username": "Nome de utilizador do controlador",
       "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0.": "Intervalo entre toques. Um valor diferente de zero impede que uma campainha toque várias vezes durante esse tempo. Predefinição: 0.",
       "Doorbell Ring Delay (seconds)": "Intervalo entre toques da campainha (segundos)",
       "Feature Option": "Opção de funcionalidade",
@@ -300,24 +935,94 @@
       "Hostname or IP address of your UniFi Access controller.": "Nome de anfitrião ou endereço IP do controlador UniFi Access.",
       "MQTT Base Topic": "Tópico MQTT base",
       "MQTT Broker URL": "URL do broker MQTT",
-      "MQTT Settings": "Definições MQTT",
       "Name for this UniFi Access controller to be used for logging purposes. Default: Defined by the controller.": "Nome deste controlador UniFi Access nos registos. Predefinição: o indicado pelo controlador.",
       "Name shown in the logs. Default: UniFi Access.": "Nome mostrado nos registos. Predefinição: UniFi Access.",
-      "Optional Settings": "Definições opcionais",
-      "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.": "Opções como Disable.Device, uma por entrada, para mostrar ou ocultar dispositivos e mudar a forma como aparecem. A página do plugin também as define.",
       "Plugin Feature Options (Optional)": "Opções de funcionalidade do plugin (opcional)",
       "Plugin Name": "Nome do plugin",
       "The base MQTT topic to publish to. Default: unifi/access.": "O tópico MQTT base onde publicar. Predefinição: unifi/access.",
-      "The controllers to connect to, each with its address and a local user's login.": "Os controladores a que ligar, cada um com o seu endereço e as credenciais de um utilizador local.",
       "UniFi Access Controller": "Controlador UniFi Access",
       "UniFi Access Controllers": "Controladores UniFi Access",
-      "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security.": "A palavra-passe UniFi Access deste controlador. Recomenda-se vivamente criar um utilizador local só para a ponte, por segurança e simplicidade.",
-      "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security.": "O nome de utilizador UniFi Access deste controlador. Recomenda-se vivamente criar um utilizador local só para a ponte, por segurança e simplicidade.",
       "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None.": "O URL do broker MQTT onde publicar os eventos. O broker também pode trancar e destrancar portas (lock/set), por isso use um que exija início de sessão. Predefinição: nenhum.",
       "Validate the controller's TLS certificate against trusted certificate authorities. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and a different certificate is refused thereafter. Default: disabled.": "Verificar o certificado TLS do controlador junto de autoridades de certificação fidedignas. Deixe desativado, a menos que o controlador use um certificado assinado por uma autoridade fidedigna: os controladores UniFi usam certificados autoassinados por predefinição. Desativado, o certificado do controlador é fixado na primeira ligação do plugin, e outro certificado é depois recusado. Predefinição: desativado.",
       "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Verificar o certificado TLS do broker MQTT ao ligar por mqtts:// ou ssl://. Desative apenas se o broker usar um certificado autoassinado. Predefinição: ativado.",
       "Verify MQTT Broker TLS Certificate": "Verificar o certificado TLS do broker MQTT",
-      "Verify TLS Certificate": "Verificar o certificado TLS"
+      "Verify TLS Certificate": "Verificar o certificado TLS",
+      "Sync Names": "Sincronizar nomes",
+      "Keep the name in step with UniFi Access, one way: from UniFi Access to HomeKit.": "Manter o nome igual ao do UniFi Access, num sentido: do UniFi Access para o HomeKit.",
+      "Device Removal Delay (seconds)": "Atraso antes de remover (segundos)",
+      "Seconds before a device that left the controller leaves HomeKit; 0 removes it at once.": "Segundos antes de um dispositivo que saiu do controlador sair do HomeKit; 0 remove-o de imediato.",
+      "Publish Telemetry": "Publicar a telemetria",
+      "Publish everything the controller reports in real time to MQTT.": "Publicar no MQTT tudo o que o controlador comunica em tempo real.",
+      "Gate as a Lock": "Portão como fechadura",
+      "Show a UA Gate's gate as a lock rather than a garage door opener.": "Mostrar o portão de um UA Gate como fechadura em vez de porta de garagem.",
+      "Door as a Garage Door": "Porta como porta de garagem",
+      "Show the door as a garage door opener rather than a lock, in the Home app only: it locks and unlocks the same.": "Mostrar a porta como porta de garagem em vez de fechadura, só na app Casa: tranca e destranca da mesma forma.",
+      "Gate Cycle (seconds)": "Ciclo do portão (segundos)",
+      "Seconds of a gate's whole cycle (opening, open, closing), split in three to show its state; the position sensor confirms it closed.": "Segundos de um ciclo completo do portão (a abrir, aberto, a fechar), divididos em três para mostrar o estado; o sensor de posição confirma o fecho.",
+      "Relock Delay (minutes)": "Atraso para voltar a trancar (minutos)",
+      "Minutes before the relay locks again once unlocked from HomeKit; 0 leaves it unlocked. Empty locks it again after five seconds.": "Minutos até o relé voltar a trancar depois de destrancado pelo HomeKit; 0 deixa-o destrancado. Vazio, volta a trancar após cinco segundos.",
+      "Lock Trigger Switch": "Interruptor de tranca",
+      "Add a switch that locks and unlocks the door relay, for automations HomeKit's lock rules would stop.": "Adicionar um interruptor que tranca e destranca o relé da porta, para automatizações que as regras de fechaduras do HomeKit impediriam.",
+      "Doorbells": "Campainhas",
+      "Add a doorbell for the hubs' doorbell rings. A hub's Parts overrule it.": "Adicionar uma campainha para os toques dos hubs. As Partes de um hub prevalecem.",
+      "Doorbell Trigger Switch": "Interruptor da campainha",
+      "Add a switch that shows (but does not make) the doorbell's rings, for automations.": "Adicionar um interruptor que reflete (sem os provocar) os toques da campainha, para automatizações.",
+      "Doorbell on Its Own Tile": "Campainha no seu próprio mosaico",
+      "Put the doorbell and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Pôr a campainha e o seu interruptor num acessório próprio. Mudar isto dá-lhes uma nova identidade no HomeKit: a divisão, os nomes e as automatizações têm de ser definidos de novo.",
+      "Sensors on Their Own Tiles": "Sensores nos seus próprios mosaicos",
+      "Give each door sensor an accessory of its own rather than grouping them with the lock. Changing this gives them a new identity in HomeKit: their rooms, names and automations are set again.": "Dar a cada sensor de porta um acessório próprio em vez de os agrupar com a fechadura. Mudar isto dá-lhes uma nova identidade no HomeKit: as divisões, os nomes e as automatizações têm de ser definidos de novo.",
+      "Door Position Sensors": "Sensores de posição da porta",
+      "Add a contact sensor for each hub's door position sensor. A hub's Parts overrule it.": "Adicionar um sensor de contacto para o sensor de posição da porta de cada hub. As Partes de um hub prevalecem.",
+      "Remote Release Sensors": "Sensores de abertura remota",
+      "Add a contact sensor for each hub's remote release. A hub's Parts overrule it.": "Adicionar um sensor de contacto para a abertura remota de cada hub. As Partes de um hub prevalecem.",
+      "Request to Enter Sensors": "Sensores de pedido de entrada",
+      "Add a contact sensor for each hub's request to enter sensor. A hub's Parts overrule it.": "Adicionar um sensor de contacto para o sensor de pedido de entrada de cada hub. As Partes de um hub prevalecem.",
+      "Request to Exit Sensors": "Sensores de pedido de saída",
+      "Add a contact sensor for each hub's request to exit sensor. A hub's Parts overrule it.": "Adicionar um sensor de contacto para o sensor de pedido de saída de cada hub. As Partes de um hub prevalecem.",
+      "Side Doors": "Portas laterais",
+      "Add a lock for a UA Gate's side door, the pedestrian gate. A hub's Parts overrule it.": "Adicionar uma fechadura para a porta lateral de um UA Gate, o portão pedonal. As Partes de um hub prevalecem.",
+      "Side Door Position Sensors": "Sensores de posição das portas laterais",
+      "Add a contact sensor for a UA Gate's side door position sensor. A hub's Parts overrule it.": "Adicionar um sensor de contacto para o sensor de posição da porta lateral de um UA Gate. As Partes de um hub prevalecem.",
+      "Side Door on Its Own Tile": "Porta lateral no seu próprio mosaico",
+      "Put a UA Gate's side door, its sensor and its trigger switch on an accessory of their own. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Pôr a porta lateral de um UA Gate, o seu sensor e o seu interruptor num acessório próprio. Mudar isto dá-lhes uma nova identidade no HomeKit: a divisão, os nomes e as automatizações têm de ser definidos de novo.",
+      "Side Door Lock Trigger Switch": "Interruptor de tranca da porta lateral",
+      "Add a switch that locks and unlocks a UA Gate's side door, for automations HomeKit's lock rules would stop.": "Adicionar um interruptor que tranca e destranca a porta lateral de um UA Gate, para automatizações que as regras de fechaduras do HomeKit impediriam.",
+      "Access Methods on Their Own Tile": "Métodos de acesso no seu próprio mosaico",
+      "Put the access method switches on an accessory of their own rather than the lock's. Changing this gives them a new identity in HomeKit: their room, names and automations are set again.": "Pôr os interruptores dos métodos de acesso num acessório próprio em vez do da fechadura. Mudar isto dá-lhes uma nova identidade no HomeKit: a divisão, os nomes e as automatizações têm de ser definidos de novo.",
+      "Face Unlock Switch": "Interruptor de desbloqueio facial",
+      "Add a switch that turns face unlock on and off.": "Adicionar um interruptor que ativa ou desativa o desbloqueio facial.",
+      "Hand Wave Switch": "Interruptor de gesto com a mão",
+      "Add a switch that turns hand wave unlock on and off.": "Adicionar um interruptor que ativa ou desativa o desbloqueio com um gesto da mão.",
+      "Mobile Unlock Switch": "Interruptor de desbloqueio móvel",
+      "Add a switch that turns mobile unlock on and off.": "Adicionar um interruptor que ativa ou desativa o desbloqueio pelo telemóvel.",
+      "NFC Card Switch": "Interruptor de cartões NFC",
+      "Add a switch that turns NFC cards on and off.": "Adicionar um interruptor que ativa ou desativa os cartões NFC.",
+      "PIN Switch": "Interruptor do PIN",
+      "Add a switch that turns PIN unlock on and off.": "Adicionar um interruptor que ativa ou desativa o desbloqueio por PIN.",
+      "QR Code Switch": "Interruptor do código QR",
+      "Add a switch that turns QR code unlock on and off.": "Adicionar um interruptor que ativa ou desativa o desbloqueio por código QR.",
+      "Touch Pass Switch": "Interruptor do Touch Pass",
+      "Add a switch that turns Touch Pass on and off.": "Adicionar um interruptor que ativa ou desativa o Touch Pass.",
+      "Log Doorbell Rings": "Registar os toques",
+      "Write doorbell rings to the log.": "Escrever os toques da campainha no registo.",
+      "Log Door Position": "Registar a posição da porta",
+      "Write the door position sensor's events to the log.": "Escrever os eventos do sensor de posição da porta no registo.",
+      "Log Remote Releases": "Registar as aberturas remotas",
+      "Write remote release events to the log.": "Escrever as aberturas remotas no registo.",
+      "Log Requests to Enter": "Registar os pedidos de entrada",
+      "Write request to enter events to the log.": "Escrever os pedidos de entrada no registo.",
+      "Log Requests to Exit": "Registar os pedidos de saída",
+      "Write request to exit events to the log.": "Escrever os pedidos de saída no registo.",
+      "Log Lock Events": "Registar as trancas",
+      "Write lock and unlock events to the log.": "Escrever as trancas e destrancas no registo.",
+      "Doors and Gates": "Portas e portões",
+      "Sensors and Doorbells": "Sensores e campainhas",
+      "Access Methods": "Métodos de acesso",
+      "Names and Logging": "Nomes e registo",
+      "Controllers": "Controladores",
+      "UniFi consoles by address, for one discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.": "Consolas UniFi por endereço, para as que a descoberta não encontra; cada uma inicia sessão em Adicionar acessórios, e as credenciais ficam guardadas no cofre.",
+      "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's id), one per entry. The bridge moves the others into the settings.": "As opções de funcionalidade de um bloco do Homebridge que nenhuma definição exprime (Enable.<option> ou Disable.<option>, seguidas se preciso do identificador de um dispositivo), uma por entrada. A ponte passa as outras para as definições.",
+      "One option per entry, as the Homebridge plugin's README spells them.": "Uma opção por entrada, escrita como no README do plugin do Homebridge."
     }
   }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftPlugin
 
 extension UniFiAccessPlugin {
     /// The platform block of `homebridge-unifi-access`, key for key. Decoding is lenient where Homebridge was:
@@ -61,13 +62,19 @@ extension UniFiAccessPlugin {
         public var ringDelay: Int
         /// The plugin's debug lines at the info level, without `homeswift -D`.
         public var debugAll: Bool
+        /// The Plugin Settings that stand for feature options without a scope (`OptionSetting.key`: `dps`,
+        /// `lockDelayInterval`), as the block has them.
+        public var settings: [String: JSONValue]
 
-        public init(name: String? = nil, controllers: [Controller] = [], options: [String] = [], ringDelay: Int = 0, debugAll: Bool = false) {
+        public init(
+            name: String? = nil, controllers: [Controller] = [], options: [String] = [], ringDelay: Int = 0, debugAll: Bool = false, settings: [String: JSONValue] = [:]
+        ) {
             self.name = name
             self.controllers = controllers
             self.options = options
             self.ringDelay = ringDelay
             self.debugAll = debugAll
+            self.settings = settings
         }
 
         enum CodingKeys: String, CodingKey {
@@ -81,6 +88,8 @@ extension UniFiAccessPlugin {
             options = (try? container.decodeIfPresent([Lenient<String>].self, forKey: .options))?.compactMap(\.value) ?? []
             ringDelay = max(0, container.lenientInt(.ringDelay) ?? 0)
             debugAll = container.lenientBool(.debugAll) ?? false
+            let keys = Set(UniFiAccessPlugin.optionSettings.map(\.key))
+            settings = ((try? JSONValue(from: decoder))?.objectValue ?? [:]).filter { keys.contains($0.key) }
         }
     }
 }

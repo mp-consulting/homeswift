@@ -7,10 +7,10 @@ extension DaikinCloudPlugin {
     /// The plugin's web pages, as written, served by the web UI under /plugins/<platform>/.
     public static let webFiles: [String: WebFile] = [
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// The Daikin Cloud page, after the Homebridge plugin's settings UI: the devices the account has; the plugin's
-// settings (feature switches, polling, network, hidden devices), saved to this instance's block; the sign-in's
+// The Daikin Cloud page, after the Homebridge plugin's settings UI: the devices the account has; the sign-in's
 // state, its connection test and signing out (signing in is Setup's, on Add accessories, which the page leads to);
-// and help, with the quota the plugin saw on its last call.
+// and help, with the quota the plugin saw on its last call. It writes no settings
+// (docs/adr/0002-schema-declares-every-setting.md): the plugin's open its Settings page, and a device's its own there.
 (() => {
   "use strict";
   const { $, el, request, explain, breadcrumb, act, poll } = homeswift;
@@ -22,8 +22,6 @@ extension DaikinCloudPlugin {
   const numberFormat = new Intl.NumberFormat(HomeswiftI18n.locale);
   const formatNumber = (value) => (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? numberFormat.format(Number(value)) : String(value ?? ""));
   const operationModeLabel = (mode) => (mode ? OPERATION_MODE_LABELS[mode] || String(mode).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "");
-  const isValidNumber = (value, min, max) => { const n = parseInt(value, 10); return !isNaN(n) && n >= min && n <= max; };
-  const isValidIPv4 = (ip) => !ip || /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.){3}(25[0-5]|(2[0-4]|1\d|[1-9]|)\d)$/.test(ip);
   function formatTime(ms) {
     const days = Math.floor(ms / 86400000), hours = Math.floor((ms % 86400000) / 3600000);
     const minutes = Math.floor((ms % 3600000) / 60000), seconds = Math.floor((ms % 60000) / 1000);
@@ -38,12 +36,12 @@ extension DaikinCloudPlugin {
 
   const assistantDevice = (d) => ({ name: d.name, id: d.id, model: d.model, type: d.type, online: !!d.online, features: Array.isArray(d.features) ? d.features : [] });
   function assistantContext(extra) {
+    const session = auth.status?.session;
     return [
       extra,
       `Authentication method: ${authMode.current}.`,
-      block?.updateIntervalInMinutes ? `Update interval: ${block.updateIntervalInMinutes} minutes.` : "",
-      authMode.current === "mobile_app" ? `WebSocket: ${block?.enableWebSocket !== false ? "on" : "off"}.` : "",
-      `HTTP transport: ${block?.httpTransport === "curl" ? "curl subprocess" : "Homeswift's built-in HTTP client (NIO, BoringSSL)"}.`,
+      session?.pollMinutes ? `Update interval: ${session.pollMinutes} minutes.` : "",
+      authMode.current === "mobile_app" && session?.running ? `WebSocket: ${session.webSocket ? "connected" : "not connected"}.` : "",
     ].filter(Boolean).join(" ");
   }
   /// Puts an Explain button in `slot` for `message`, or empties it.
@@ -51,25 +49,9 @@ extension DaikinCloudPlugin {
     slot.replaceChildren(message ? explain({ error: message, context: assistantContext(context), device }) : "");
   }
 
-  // MARK: config.json: this instance's block, read and written through the signed-in UI, as Homebridge's
-  // getPluginConfig/updatePluginConfig/savePluginConfig. A save reloads the plugin with the block.
+  // MARK: Where settings are edited: the plugin's Settings page, and each device's there (its Accessory Settings).
 
-  let block = null;   // this instance's block as last read or saved
-
-  async function readBlock() {
-    block = await homeswift.readBlock();
-  }
-
-  /// Merges `changes` into the block (undefined removes a key) and saves it.
-  async function saveBlock(changes) {
-    let next = null;
-    const result = await homeswift.updateBlock((current) => {
-      next = current;
-      for (const [key, value] of Object.entries(changes)) { if (value === undefined) delete next[key]; else next[key] = value; }
-    });
-    block = next;
-    return result;
-  }
+  const settingsOf = (deviceID) => homeswift.accessorySettings(`DaikinCloud:${deviceID}`);
 
   // MARK: Tabs
 
@@ -82,7 +64,6 @@ extension DaikinCloudPlugin {
     }
     for (const pane of document.querySelectorAll(".tab-pane")) pane.classList.toggle("hidden", pane.id !== `tab-${tab}`);
     breadcrumb(tab === "devices" ? null : tabs.querySelector(`[data-tab="${tab}"]`).textContent, () => switchTab("devices"));
-    if (tab === "settings") settings.load();
   }
   tabs.addEventListener("click", (event) => { const tab = event.target.closest("button")?.dataset.tab; if (tab) switchTab(tab); });
 
@@ -114,7 +95,8 @@ extension DaikinCloudPlugin {
       $("#auth-status-card").classList.toggle("hidden", !status.authenticated);
       if (status.authenticated) {
         $("#auth-setup").replaceChildren();
-        if (status.authMode && !block?.authMode) authMode.current = status.authMode;
+        const mode = status.session?.mode ?? status.authMode;
+        if (mode) authMode.current = mode;
         authMode.render();
         badge.className = `pill status ${status.isExpired ? "away" : ""}`;
         badge.textContent = status.isExpired ? t("Expired") : t("Connected");
@@ -178,7 +160,7 @@ extension DaikinCloudPlugin {
     async revoke(button) {
       if (!await HomeswiftCommon.confirmDialog(t("Revoke access? The plugin stops until you sign in again on Add accessories."))) return;
       await act(button, async () => {
-        await request("auth/revoke", { method: "POST", body: { clientId: block?.clientId, clientSecret: block?.clientSecret } });
+        await request("auth/revoke", { method: "POST", body: {} });
         await this.load();
         devices.load();
       });
@@ -187,7 +169,7 @@ extension DaikinCloudPlugin {
   $("#btn-test").addEventListener("click", (event) => auth.test(event.currentTarget));
   $("#btn-revoke").addEventListener("click", (event) => auth.revoke(event.currentTarget));
 
-  // MARK: How the account signs in: the block's `authMode`, else the token's; Setup chooses it.
+  // MARK: How the account signs in: the running instance's `authMode`, else the token's; Setup chooses it.
 
   const authMode = {
     current: "developer_portal",
@@ -198,14 +180,10 @@ extension DaikinCloudPlugin {
       const daily = mobile ? 3000 : 200;
       $("#rate-limit-display").textContent = t("{n} requests/day", { n: daily });
       $("#rate-limit-info").textContent = t("The Daikin API limits you to {n} requests per day.", { n: daily });
-      $("#websocket-setting-row").classList.toggle("hidden", !mobile);
-      $("#updateIntervalInMinutes").placeholder = t("{n} (recommended)", { n: mobile ? 5 : 15 });
-      $("#forceUpdateDelay").placeholder = t("{n} (recommended)", { n: mobile ? 10 : 60 });
     },
   };
 
-  // MARK: Devices: one request shared by the Devices tab and the Settings tab's device list; Refresh skips the
-  // plugin's five-minute cache.
+  // MARK: Devices: one request at a time; Refresh skips the plugin's five-minute cache.
 
   const deviceList = {
     inFlight: null,
@@ -263,8 +241,6 @@ extension DaikinCloudPlugin {
         return;
       }
       this.items = result.devices;
-      settings.devices = result.devices;
-      settings.renderDevices();
       if (!result.devices.length) {
         list.replaceChildren(el("div", { class: "card empty" },
           el("p", { text: t("No devices found") }),
@@ -282,7 +258,7 @@ extension DaikinCloudPlugin {
 
     card(device) {
       const on = device.powerState === "on";
-      const hidden = (block?.excludedDevicesByDeviceId || []).includes(device.id);
+      const hidden = device.excluded === true;
       const fact = (label, value) => homeswift.fact(label, value || "—", { title: value || "" });
       const problem = this.problem(device);
       return el("div", { class: `card unit ${hidden ? "is-hidden" : ""}` },
@@ -294,189 +270,16 @@ extension DaikinCloudPlugin {
         el("div", { class: "facts" },
           fact(t("Room"), device.roomTemp), fact(t("Outdoor"), device.outdoorTemp),
           fact(t("Mode"), operationModeLabel(device.operationMode)), fact(t("Model"), device.model)),
-        hidden ? el("p", { class: "muted note", text: t("Hidden from HomeKit. Settings › Devices shows it again.") }) : null,
+        hidden ? el("p", { class: "muted note", text: t("Excluded: not in HomeKit. Its settings bring it back.") }) : null,
         problem ? explain({
           error: problem,
           context: assistantContext("The user is looking at the device list of the Daikin Cloud plugin's page."),
           device: assistantDevice(device),
-        }) : null);
+        }) : null,
+        el("div", { class: "actions" }, el("a", { class: "button", href: settingsOf(device.id), actionIcon: "gear", text: t("Settings") })));
     },
   };
   $("#btn-refresh-devices").addEventListener("click", (event) => act(event.currentTarget, () => devices.load({ refresh: true })));
-
-  // MARK: Settings: a draft of the block's settings; Save writes it and the plugin reloads.
-
-  const FEATURES = [
-    ["showPowerfulMode", t("Powerful Mode"), t("Boost heating/cooling performance")],
-    ["showEconoMode", t("Econo Mode"), t("Energy-saving operation")],
-    ["showStreamerMode", t("Streamer Mode"), t("Air purification")],
-    ["showOutdoorSilentMode", t("Outdoor Silent Mode"), t("Reduce outdoor unit noise")],
-    ["showIndoorSilentMode", t("Indoor Silent Mode"), t("Quiet fan operation")],
-    ["showAutoFanMode", t("Auto Fan Mode"), t("Automatic fan speed (switch)")],
-    ["showOscillationSwitch", t("Oscillation Switch"), t("Swing as a separate switch (stays visible when grouped into a single tile)")],
-    ["showSeparateFanControl", t("Separate Fan Tile"), t("Fan speed + oscillation as a standalone Fan tile (stays visible when grouped into a single tile)")],
-    ["showDryMode", t("Dry Mode"), t("Dehumidification")],
-    ["showFanOnlyMode", t("Fan Only Mode"), t("Fan without heating/cooling")],
-    ["showHolidayMode", t("Holiday Mode"), t("Holiday / away mode as a switch")],
-    ["showFirmwareUpdateSwitch", t("Firmware Update"), t("Install staged gateway firmware updates from HomeKit. Never enabled implicitly — the unit is unavailable while it updates")],
-  ];
-  // Switches that follow the legacy "Show Extra Features" flag when their own key is not set.
-  const FEATURE_KEYS = ["showPowerfulMode", "showEconoMode", "showStreamerMode", "showOutdoorSilentMode", "showIndoorSilentMode", "showAutoFanMode",
-    "showOscillationSwitch", "showDryMode", "showFanOnlyMode", "showHolidayMode"];
-  // Standalone toggles, off unless set.
-  const STANDALONE_KEYS = ["showSeparateFanControl", "showFirmwareUpdateSwitch"];
-
-  const settings = {
-    draft: null,
-    saved: "",
-    devices: [],
-    loaded: false,
-
-    async load() {
-      if (this.loaded && this.dirty()) return;
-      try {
-        await readBlock();
-        this.populate(block);
-        this.loaded = true;
-      } catch (e) {
-        this.status("error", e.message);
-      }
-    },
-
-    /// The draft from the block, with the plugin's rule: only a boolean overrides; absent or null follows
-    /// showExtraFeatures for extra features, and is off for standalone ones.
-    populate(config) {
-      const legacy = config?.showExtraFeatures === true;
-      const draft = {};
-      for (const key of FEATURE_KEYS) draft[key] = typeof config?.[key] === "boolean" ? config[key] : legacy;
-      for (const key of STANDALONE_KEYS) draft[key] = config?.[key] === true;
-      draft.updateIntervalInMinutes = String(config?.updateIntervalInMinutes || 15);
-      draft.forceUpdateDelay = String(Math.round((config?.forceUpdateDelay || 60000) / 1000));
-      draft.oidcCallbackServerBindAddr = config?.oidcCallbackServerBindAddr || "0.0.0.0";
-      draft.httpTransport = config?.httpTransport === "curl" ? "curl" : "node";
-      draft.enableWebSocket = config?.enableWebSocket !== false;
-      draft.excludedDevicesByDeviceId = [...(config?.excludedDevicesByDeviceId || [])];
-      this.draft = draft;
-      this.saved = JSON.stringify(draft);
-      this.render();
-    },
-
-    dirty() { return this.draft && JSON.stringify(this.draft) !== this.saved; },
-
-    render() {
-      const draft = this.draft;
-      if (!draft) return;
-      $("#feature-toggles").replaceChildren(...FEATURES.map(([key, title, help]) => this.toggle(title, help, draft[key], (on) => { draft[key] = on; this.changed(); })));
-      $("#updateIntervalInMinutes").value = draft.updateIntervalInMinutes;
-      $("#forceUpdateDelay").value = draft.forceUpdateDelay;
-      $("#oidcCallbackServerBindAddr").value = draft.oidcCallbackServerBindAddr;
-      $("#httpTransport").value = draft.httpTransport;
-      $("#enableWebSocket").checked = draft.enableWebSocket;
-      this.renderDevices();
-      this.changed();
-    },
-
-    toggle(title, help, checked, onChange, side) {
-      const input = el("input", { type: "checkbox", checked });
-      input.addEventListener("change", () => onChange(input.checked, input));
-      return el("label", { class: "row-toggle" },
-        el("span", { class: "who" }, el("span", { class: "field-title", text: title }), help ? el("span", { class: "help", text: help }) : null),
-        el("span", { class: "side" }, side || null, el("span", { class: "switch" }, input, el("span"))));
-    },
-
-    renderDevices() {
-      const box = $("#device-toggles");
-      if (!this.draft) return;
-      if (!this.devices.length) {
-        box.replaceChildren(el("p", { class: "muted", text: t("No devices found. Sign in on Add accessories to see your devices.") }));
-        return;
-      }
-      box.replaceChildren(...this.devices.map((device) => {
-        const visible = !this.draft.excludedDevicesByDeviceId.includes(device.id);
-        const state = el("span", { class: `state ${visible ? "" : "off"}`, text: visible ? t("Visible") : t("Hidden") });
-        const row = this.toggle(device.name, null, visible, (on) => {
-          const ids = this.draft.excludedDevicesByDeviceId.filter((id) => id !== device.id);
-          if (!on) ids.push(device.id);
-          this.draft.excludedDevicesByDeviceId = ids;
-          state.textContent = on ? t("Visible") : t("Hidden");
-          state.className = `state ${on ? "" : "off"}`;
-          this.changed();
-        }, state);
-        row.querySelector(".who").append(el("span", { class: "mono", text: device.id }));
-        return row;
-      }));
-    },
-
-    valid() {
-      const checks = [
-        ["oidcCallbackServerBindAddr", (v) => isValidIPv4(v.trim())],
-        ["updateIntervalInMinutes", (v) => isValidNumber(v, 1, 60)],
-        // Seconds here; the block keeps milliseconds (5000-300000).
-        ["forceUpdateDelay", (v) => isValidNumber(v, 5, 300)],
-      ];
-      return checks.map(([id, check]) => {
-        const input = $(`#${id}`);
-        const ok = check(input.value);
-        input.classList.toggle("invalid", !ok);
-        return ok;
-      }).every(Boolean);
-    },
-
-    changed() {
-      const dirty = this.dirty();
-      $("#btn-settings-save").disabled = !dirty;
-      $("#btn-settings-discard").disabled = !dirty;
-      if (dirty) this.status("dirty", t("Unsaved changes"));
-      else if ($("#settings-status").className !== "ok") this.status("muted", t("Saving applies at once: the plugin reloads with the new settings."));
-    },
-
-    status(kind, text) {
-      const line = $("#settings-status");
-      line.className = kind;
-      line.textContent = text;
-    },
-
-    async save(button) {
-      if (!this.valid()) { this.status("error", t("Check the highlighted fields.")); return; }
-      const draft = this.draft;
-      const changes = {
-        updateIntervalInMinutes: parseInt(draft.updateIntervalInMinutes, 10) || 15,
-        forceUpdateDelay: (parseInt(draft.forceUpdateDelay, 10) || 60) * 1000,
-        oidcCallbackServerBindAddr: draft.oidcCallbackServerBindAddr.trim() || "0.0.0.0",
-        excludedDevicesByDeviceId: draft.excludedDevicesByDeviceId,
-        enableWebSocket: draft.enableWebSocket,
-        httpTransport: draft.httpTransport === "curl" ? "curl" : "node",
-      };
-      for (const key of [...FEATURE_KEYS, ...STANDALONE_KEYS]) changes[key] = draft[key];
-      await act(button, async () => {
-        this.status("muted", t("Saving…"));
-        const result = await saveBlock(changes);
-        this.saved = JSON.stringify(this.draft);
-        const pending = result.restartNeeded || [];
-        this.status("ok", pending.length ? t("Saved. Restart Homeswift to apply the rest ({changes}).", { changes: pending.join("; ") }) : t("Saved. The plugin reloaded with the new settings."));
-        this.changed();
-        devices.load();
-        setTimeout(() => auth.load(), 1500);
-      }, (message) => this.status("error", t("Failed: {error}", { error: message })));
-    },
-  };
-  for (const [id, key] of [["updateIntervalInMinutes", "updateIntervalInMinutes"], ["forceUpdateDelay", "forceUpdateDelay"], ["oidcCallbackServerBindAddr", "oidcCallbackServerBindAddr"]]) {
-    $(`#${id}`).addEventListener("input", (event) => { if (settings.draft) { settings.draft[key] = event.currentTarget.value; settings.valid(); settings.changed(); } });
-  }
-  $("#httpTransport").addEventListener("change", (event) => { settings.draft.httpTransport = event.currentTarget.value; settings.changed(); });
-  $("#enableWebSocket").addEventListener("change", (event) => { settings.draft.enableWebSocket = event.currentTarget.checked; settings.changed(); });
-  $("#btn-settings-save").addEventListener("click", (event) => settings.save(event.currentTarget));
-  $("#btn-settings-discard").addEventListener("click", () => { settings.draft = JSON.parse(settings.saved); settings.render(); });
-  $("#subtabs").addEventListener("click", (event) => {
-    const subtab = event.target.closest("button")?.dataset.subtab;
-    if (!subtab) return;
-    for (const button of $("#subtabs").querySelectorAll("button")) {
-      button.classList.toggle("on", button.dataset.subtab === subtab);
-      button.setAttribute("aria-selected", String(button.dataset.subtab === subtab));
-    }
-    for (const pane of document.querySelectorAll(".subtab")) pane.classList.toggle("hidden", pane.id !== `subtab-${subtab}`);
-  });
-  window.addEventListener("beforeunload", (event) => { if (settings.dirty()) { event.preventDefault(); event.returnValue = ""; } });
 
   // MARK: Help: the quota the plugin recorded on its last call (no API call).
 
@@ -510,15 +313,6 @@ extension DaikinCloudPlugin {
   // MARK: Start
 
   (async () => {
-    try {
-      await readBlock();
-      if (block?.authMode) authMode.current = block.authMode === "mobile_app" ? "mobile_app" : "developer_portal";
-      settings.populate(block);
-      settings.loaded = true;
-    } catch (e) {
-      $("#session-line").classList.remove("hidden");
-      $("#session-line").textContent = e.message;
-    }
     authMode.render();
     // The token renews itself; the page follows.
     poll(() => auth.load(), 60000);
@@ -529,7 +323,7 @@ extension DaikinCloudPlugin {
 """#),
         "daikin.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* The Daikin Cloud page's own pieces, on the UI's materials: tabs like the Homebridge plugin's settings page,
-   a card per unit with its state as facts, the settings with a save bar, and the sign-in's state. */
+   a card per unit with its state as facts, and the sign-in's state. */
 
 .page-head { align-items: center; }
 .tile.daikin { background: linear-gradient(160deg, #3fb6f0, #007dbb); }
@@ -547,25 +341,6 @@ extension DaikinCloudPlugin {
 .power { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .power.on { color: var(--ok); border-color: rgba(31, 157, 85, 0.4); }
 #session-line { margin: -4px 0 12px; }
-
-/* Settings */
-.settings-card { display: grid; gap: 14px; }
-.subtabs { justify-self: start; }
-.subtab { min-height: 120px; animation: fade var(--normal) var(--ease-out); }
-.subtab > .note { margin-bottom: 4px; }
-.row-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
-.row-toggle:last-child { border-bottom: 0; }
-@media (hover: hover) and (pointer: fine) { .row-toggle:hover .field-title { color: var(--accent); } }
-.row-toggle .field-title { margin: 0 0 2px; }
-.row-toggle .help { display: block; }
-.row-toggle .side { display: inline-flex; align-items: center; gap: 10px; flex: none; }
-.row-toggle .state { font-size: 0.8125rem; min-width: 52px; text-align: right; }
-.row-toggle .state.off { color: var(--muted); }
-.row-toggle .who { min-width: 0; }
-.row-toggle .mono { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-input:invalid, input.invalid { border-color: var(--error) !important; }
-.save-bar > .dirty { flex: 1; font-size: 0.8125rem; color: var(--warn); font-weight: 500; }
-.save-bar > .ok, .save-bar > .error { flex: 1; font-size: 0.8125rem; }
 
 /* Authentication */
 .actions { flex-wrap: wrap; }
@@ -585,7 +360,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .tab-pane, .subtab, .unit { animation: none; }
+  .tab-pane, .unit { animation: none; }
   .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
 }
 @media (max-width: 640px) {
@@ -606,27 +381,6 @@ HomeswiftI18n.add({
     "Help": "Aide",
     "Discovered devices": "Appareils découverts",
     "Refresh": "Actualiser",
-    "Plugin settings": "Réglages du plugin",
-    "Features": "Fonctions",
-    "Polling": "Interrogation",
-    "Network": "Réseau",
-    "Switches for additional modes in HomeKit. A switch appears only when the unit supports the feature.": "Des interrupteurs pour des modes supplémentaires dans HomeKit. Un interrupteur n'apparaît que si l'unité prend en charge la fonction.",
-    "Update interval (minutes)": "Intervalle de mise à jour (minutes)",
-    "Developer Portal: 15+ min · Mobile App: 1-5 min": "Developer Portal : 15 min ou plus · App mobile : 1 à 5 min",
-    "Force update delay (seconds)": "Délai de mise à jour forcée (secondes)",
-    "Developer Portal: 60 s · Mobile App: 10 s": "Developer Portal : 60 s · App mobile : 10 s",
-    "Enable WebSocket": "Activer le WebSocket",
-    "Real-time updates (Mobile App only)": "Mises à jour en temps réel (App mobile uniquement)",
-    "OIDC callback bind address": "Adresse d'écoute du rappel OIDC",
-    "The IPv4 address of the OAuth callback server (0.0.0.0 for all interfaces). 127.0.0.1 only accepts connections from this host, so the login redirect cannot reach it.": "L'adresse IPv4 du serveur de rappel OAuth (0.0.0.0 pour toutes les interfaces). 127.0.0.1 n'accepte que les connexions de cette machine : la redirection de connexion ne peut alors pas l'atteindre.",
-    "HTTP transport": "Transport HTTP",
-    "Built-in client (default)": "Client intégré (par défaut)",
-    "curl subprocess (WAF fingerprint workaround)": "Sous-processus curl (contourne l'empreinte WAF)",
-    "Use \"curl subprocess\" only if authentication times out on your network while curl works: some WAFs drop a client's TLS fingerprint (issue #6). Requires the curl binary; the WebSocket still uses the built-in TLS.": "N'utilisez « Sous-processus curl » que si l'authentification expire sur votre réseau alors que curl fonctionne : certains WAF rejettent l'empreinte TLS d'un client (ticket n° 6). Nécessite l'exécutable curl ; le WebSocket utilise toujours le TLS intégré.",
-    "Show or hide each device in HomeKit.": "Affichez ou masquez chaque appareil dans HomeKit.",
-    "Saving applies at once: the plugin reloads with the new settings.": "L'enregistrement s'applique aussitôt : le plugin se recharge avec les nouveaux réglages.",
-    "Discard": "Annuler les modifications",
-    "Save": "Enregistrer",
     "Status": "État",
     "Loading…": "Chargement…",
     "Mode": "Mode",
@@ -647,7 +401,6 @@ HomeswiftI18n.add({
     "Authentication flow issues": "Problèmes d'authentification",
     "Check that the redirect URI in the portal matches exactly, bind the callback server to 0.0.0.0, check the firewall for the callback port.": "Vérifiez que l'URI de redirection du portail correspond exactement, faites écouter le serveur de rappel sur 0.0.0.0 et vérifiez le pare-feu pour le port de rappel.",
     "Device not appearing": "Un appareil n'apparaît pas",
-    "Check the log, check the device in the Onecta app, check the hidden devices on Settings › Devices.": "Consultez le journal, vérifiez l'appareil dans l'app Onecta et les appareils masqués dans Réglages › Appareils.",
     "Auto": "Auto",
     "Cooling": "Refroidissement",
     "Heating": "Chauffage",
@@ -668,8 +421,6 @@ HomeswiftI18n.add({
     "Mobile App": "App mobile",
     "{n} requests/day": "{n} requêtes/jour",
     "The Daikin API limits you to {n} requests per day.": "L'API Daikin vous limite à {n} requêtes par jour.",
-    "{n} (recommended)": "{n} (recommandé)",
-    "Failed: {error}": "Échec : {error}",
     "{n} unit in HomeKit": "{n} unité dans HomeKit",
     "{n} units in HomeKit": "{n} unités dans HomeKit",
     "real-time updates over the WebSocket": "mises à jour en temps réel par WebSocket",
@@ -688,38 +439,6 @@ HomeswiftI18n.add({
     "Room": "Pièce",
     "Outdoor": "Extérieur",
     "Model": "Modèle",
-    "Hidden from HomeKit. Settings › Devices shows it again.": "Masqué dans HomeKit. Réglages › Appareils permet de l'afficher à nouveau.",
-    "Powerful Mode": "Mode Powerful",
-    "Boost heating/cooling performance": "Augmente la puissance de chauffage ou de refroidissement",
-    "Econo Mode": "Mode Econo",
-    "Energy-saving operation": "Fonctionnement économe en énergie",
-    "Streamer Mode": "Mode Streamer",
-    "Air purification": "Purification de l'air",
-    "Outdoor Silent Mode": "Mode silencieux extérieur",
-    "Reduce outdoor unit noise": "Réduit le bruit de l'unité extérieure",
-    "Indoor Silent Mode": "Mode silencieux intérieur",
-    "Quiet fan operation": "Ventilation silencieuse",
-    "Auto Fan Mode": "Ventilation automatique",
-    "Automatic fan speed (switch)": "Vitesse de ventilation automatique (interrupteur)",
-    "Oscillation Switch": "Interrupteur d'oscillation",
-    "Swing as a separate switch (stays visible when grouped into a single tile)": "L'oscillation comme interrupteur séparé (reste visible quand les éléments sont regroupés en une seule vignette)",
-    "Separate Fan Tile": "Vignette Ventilateur séparée",
-    "Fan speed + oscillation as a standalone Fan tile (stays visible when grouped into a single tile)": "Vitesse de ventilation et oscillation dans une vignette Ventilateur à part (reste visible quand les éléments sont regroupés en une seule vignette)",
-    "Dry Mode": "Mode déshumidification",
-    "Dehumidification": "Déshumidification",
-    "Fan Only Mode": "Mode ventilation seule",
-    "Fan without heating/cooling": "Ventilation sans chauffage ni refroidissement",
-    "Holiday Mode": "Mode vacances",
-    "Holiday / away mode as a switch": "Le mode vacances ou absence comme interrupteur",
-    "Firmware Update": "Mise à jour du firmware",
-    "Install staged gateway firmware updates from HomeKit. Never enabled implicitly — the unit is unavailable while it updates": "Installe depuis HomeKit les mises à jour du firmware de la passerelle en attente. Jamais activé implicitement : l'unité est indisponible pendant la mise à jour",
-    "Visible": "Visible",
-    "Hidden": "Masqué",
-    "Unsaved changes": "Modifications non enregistrées",
-    "Check the highlighted fields.": "Vérifiez les champs mis en évidence.",
-    "Saving…": "Enregistrement…",
-    "Saved. Restart Homeswift to apply the rest ({changes}).": "Enregistré. Redémarrez Homeswift pour appliquer le reste ({changes}).",
-    "Saved. The plugin reloaded with the new settings.": "Enregistré. Le plugin s'est rechargé avec les nouveaux réglages.",
     "No info": "Aucune information",
     "{remaining}/{limit} daily": "{remaining}/{limit} par jour",
     "{remaining}/{limit}/min": "{remaining}/{limit}/min",
@@ -748,8 +467,9 @@ HomeswiftI18n.add({
     "Revoke access? The plugin stops until you sign in again on Add accessories.": "Révoquer l'accès ? Le plugin s'arrête jusqu'à ce que vous vous reconnectiez dans Ajouter des accessoires.",
     "The plugin is not connected to Daikin yet.": "Le plugin n'est pas encore connecté à Daikin.",
     "Make sure your Daikin devices are set up in the Onecta app.": "Vérifiez que vos appareils Daikin sont configurés dans l'app Onecta.",
-    "No devices found. Sign in on Add accessories to see your devices.": "Aucun appareil trouvé. Connectez-vous dans Ajouter des accessoires pour voir vos appareils.",
-    "Revoke access on the Authentication tab, then sign in again on Add accessories.": "Révoquez l'accès dans l'onglet Authentification, puis reconnectez-vous dans Ajouter des accessoires."
+    "Revoke access on the Authentication tab, then sign in again on Add accessories.": "Révoquez l'accès dans l'onglet Authentification, puis reconnectez-vous dans Ajouter des accessoires.",
+    "Excluded: not in HomeKit. Its settings bring it back.": "Exclu : absent de HomeKit. Ses réglages le font revenir.",
+    "Check the log, check the device in the Onecta app, and check whether it is Excluded in its settings.": "Consultez le journal, vérifiez l'appareil dans l'app Onecta, et regardez s'il est exclu dans ses réglages."
   },
   "es": {
     "Onecta integration for HomeKit: your air conditioners and Altherma heat pumps, from the Daikin cloud.": "Integración de Onecta con HomeKit: tus aires acondicionados y bombas de calor Altherma, desde la nube de Daikin.",
@@ -760,27 +480,6 @@ HomeswiftI18n.add({
     "Help": "Ayuda",
     "Discovered devices": "Dispositivos descubiertos",
     "Refresh": "Actualizar",
-    "Plugin settings": "Ajustes del plugin",
-    "Features": "Funciones",
-    "Polling": "Consulta periódica",
-    "Network": "Red",
-    "Switches for additional modes in HomeKit. A switch appears only when the unit supports the feature.": "Interruptores para modos adicionales en HomeKit. Un interruptor solo aparece si la unidad admite la función.",
-    "Update interval (minutes)": "Intervalo de actualización (minutos)",
-    "Developer Portal: 15+ min · Mobile App: 1-5 min": "Developer Portal: 15 min o más · App móvil: 1-5 min",
-    "Force update delay (seconds)": "Retardo de actualización forzada (segundos)",
-    "Developer Portal: 60 s · Mobile App: 10 s": "Developer Portal: 60 s · App móvil: 10 s",
-    "Enable WebSocket": "Activar WebSocket",
-    "Real-time updates (Mobile App only)": "Actualizaciones en tiempo real (solo app móvil)",
-    "OIDC callback bind address": "Dirección de escucha del retorno OIDC",
-    "The IPv4 address of the OAuth callback server (0.0.0.0 for all interfaces). 127.0.0.1 only accepts connections from this host, so the login redirect cannot reach it.": "La dirección IPv4 del servidor de retorno OAuth (0.0.0.0 para todas las interfaces). 127.0.0.1 solo acepta conexiones desde este equipo, así que la redirección del inicio de sesión no puede llegar a él.",
-    "HTTP transport": "Transporte HTTP",
-    "Built-in client (default)": "Cliente integrado (predeterminado)",
-    "curl subprocess (WAF fingerprint workaround)": "Subproceso curl (evita la huella del WAF)",
-    "Use \"curl subprocess\" only if authentication times out on your network while curl works: some WAFs drop a client's TLS fingerprint (issue #6). Requires the curl binary; the WebSocket still uses the built-in TLS.": "Usa «Subproceso curl» solo si la autenticación agota el tiempo de espera en tu red mientras curl funciona: algunos WAF descartan la huella TLS de un cliente (incidencia n.º 6). Necesita el binario de curl; el WebSocket sigue usando el TLS integrado.",
-    "Show or hide each device in HomeKit.": "Muestra u oculta cada dispositivo en HomeKit.",
-    "Saving applies at once: the plugin reloads with the new settings.": "Al guardar se aplica enseguida: el plugin se recarga con los nuevos ajustes.",
-    "Discard": "Descartar",
-    "Save": "Guardar",
     "Status": "Estado",
     "Loading…": "Cargando…",
     "Mode": "Modo",
@@ -801,7 +500,6 @@ HomeswiftI18n.add({
     "Authentication flow issues": "Problemas con la autenticación",
     "Check that the redirect URI in the portal matches exactly, bind the callback server to 0.0.0.0, check the firewall for the callback port.": "Comprueba que la URI de redirección del portal coincide exactamente, haz que el servidor de retorno escuche en 0.0.0.0 y revisa el cortafuegos para el puerto de retorno.",
     "Device not appearing": "Un dispositivo no aparece",
-    "Check the log, check the device in the Onecta app, check the hidden devices on Settings › Devices.": "Consulta el registro, revisa el dispositivo en la app Onecta y los dispositivos ocultos en Ajustes › Dispositivos.",
     "Auto": "Auto",
     "Cooling": "Refrigeración",
     "Heating": "Calefacción",
@@ -822,8 +520,6 @@ HomeswiftI18n.add({
     "Mobile App": "App móvil",
     "{n} requests/day": "{n} solicitudes/día",
     "The Daikin API limits you to {n} requests per day.": "La API de Daikin te limita a {n} solicitudes al día.",
-    "{n} (recommended)": "{n} (recomendado)",
-    "Failed: {error}": "Error: {error}",
     "{n} unit in HomeKit": "{n} unidad en HomeKit",
     "{n} units in HomeKit": "{n} unidades en HomeKit",
     "real-time updates over the WebSocket": "actualizaciones en tiempo real por WebSocket",
@@ -842,38 +538,6 @@ HomeswiftI18n.add({
     "Room": "Habitación",
     "Outdoor": "Exterior",
     "Model": "Modelo",
-    "Hidden from HomeKit. Settings › Devices shows it again.": "Oculto en HomeKit. Ajustes › Dispositivos lo vuelve a mostrar.",
-    "Powerful Mode": "Modo Powerful",
-    "Boost heating/cooling performance": "Aumenta la potencia de calefacción o refrigeración",
-    "Econo Mode": "Modo Econo",
-    "Energy-saving operation": "Funcionamiento de ahorro de energía",
-    "Streamer Mode": "Modo Streamer",
-    "Air purification": "Purificación del aire",
-    "Outdoor Silent Mode": "Modo silencioso exterior",
-    "Reduce outdoor unit noise": "Reduce el ruido de la unidad exterior",
-    "Indoor Silent Mode": "Modo silencioso interior",
-    "Quiet fan operation": "Ventilador silencioso",
-    "Auto Fan Mode": "Ventilador automático",
-    "Automatic fan speed (switch)": "Velocidad automática del ventilador (interruptor)",
-    "Oscillation Switch": "Interruptor de oscilación",
-    "Swing as a separate switch (stays visible when grouped into a single tile)": "La oscilación como interruptor aparte (sigue visible al agruparse en un solo mosaico)",
-    "Separate Fan Tile": "Mosaico de ventilador aparte",
-    "Fan speed + oscillation as a standalone Fan tile (stays visible when grouped into a single tile)": "Velocidad del ventilador y oscilación en un mosaico de ventilador independiente (sigue visible al agruparse en un solo mosaico)",
-    "Dry Mode": "Modo deshumidificación",
-    "Dehumidification": "Deshumidificación",
-    "Fan Only Mode": "Modo solo ventilador",
-    "Fan without heating/cooling": "Ventilador sin calefacción ni refrigeración",
-    "Holiday Mode": "Modo vacaciones",
-    "Holiday / away mode as a switch": "El modo vacaciones o ausencia como interruptor",
-    "Firmware Update": "Actualización del firmware",
-    "Install staged gateway firmware updates from HomeKit. Never enabled implicitly — the unit is unavailable while it updates": "Instala desde HomeKit las actualizaciones pendientes del firmware de la pasarela. Nunca se activa de forma implícita: la unidad no está disponible mientras se actualiza",
-    "Visible": "Visible",
-    "Hidden": "Oculto",
-    "Unsaved changes": "Cambios sin guardar",
-    "Check the highlighted fields.": "Revisa los campos resaltados.",
-    "Saving…": "Guardando…",
-    "Saved. Restart Homeswift to apply the rest ({changes}).": "Guardado. Reinicia Homeswift para aplicar el resto ({changes}).",
-    "Saved. The plugin reloaded with the new settings.": "Guardado. El plugin se ha recargado con los nuevos ajustes.",
     "No info": "Sin información",
     "{remaining}/{limit} daily": "{remaining}/{limit} al día",
     "{remaining}/{limit}/min": "{remaining}/{limit}/min",
@@ -902,8 +566,9 @@ HomeswiftI18n.add({
     "Revoke access? The plugin stops until you sign in again on Add accessories.": "¿Revocar el acceso? El plugin se detiene hasta que vuelvas a iniciar sesión en Añadir accesorios.",
     "The plugin is not connected to Daikin yet.": "El plugin aún no está conectado a Daikin.",
     "Make sure your Daikin devices are set up in the Onecta app.": "Asegúrate de que tus dispositivos Daikin están configurados en la app Onecta.",
-    "No devices found. Sign in on Add accessories to see your devices.": "No se encontraron dispositivos. Inicia sesión en Añadir accesorios para ver tus dispositivos.",
-    "Revoke access on the Authentication tab, then sign in again on Add accessories.": "Revoca el acceso en la pestaña Autenticación y vuelve a iniciar sesión en Añadir accesorios."
+    "Revoke access on the Authentication tab, then sign in again on Add accessories.": "Revoca el acceso en la pestaña Autenticación y vuelve a iniciar sesión en Añadir accesorios.",
+    "Excluded: not in HomeKit. Its settings bring it back.": "Excluido: no está en HomeKit. Sus ajustes lo recuperan.",
+    "Check the log, check the device in the Onecta app, and check whether it is Excluded in its settings.": "Consulta el registro, revisa el dispositivo en la app Onecta y comprueba si está excluido en sus ajustes."
   },
   "pt": {
     "Onecta integration for HomeKit: your air conditioners and Altherma heat pumps, from the Daikin cloud.": "Integração Onecta para o HomeKit: os aparelhos de ar condicionado e as bombas de calor Altherma, a partir da nuvem Daikin.",
@@ -914,27 +579,6 @@ HomeswiftI18n.add({
     "Help": "Ajuda",
     "Discovered devices": "Dispositivos descobertos",
     "Refresh": "Atualizar",
-    "Plugin settings": "Definições do plugin",
-    "Features": "Funcionalidades",
-    "Polling": "Consulta",
-    "Network": "Rede",
-    "Switches for additional modes in HomeKit. A switch appears only when the unit supports the feature.": "Interruptores para modos adicionais no HomeKit. Um interruptor só aparece quando a unidade suporta a funcionalidade.",
-    "Update interval (minutes)": "Intervalo de atualização (minutos)",
-    "Developer Portal: 15+ min · Mobile App: 1-5 min": "Developer Portal: 15 min ou mais · App móvel: 1-5 min",
-    "Force update delay (seconds)": "Atraso da atualização forçada (segundos)",
-    "Developer Portal: 60 s · Mobile App: 10 s": "Developer Portal: 60 s · App móvel: 10 s",
-    "Enable WebSocket": "Ativar o WebSocket",
-    "Real-time updates (Mobile App only)": "Atualizações em tempo real (apenas App móvel)",
-    "OIDC callback bind address": "Endereço de escuta do retorno OIDC",
-    "The IPv4 address of the OAuth callback server (0.0.0.0 for all interfaces). 127.0.0.1 only accepts connections from this host, so the login redirect cannot reach it.": "O endereço IPv4 do servidor de retorno OAuth (0.0.0.0 para todas as interfaces). 127.0.0.1 só aceita ligações deste computador, pelo que o redirecionamento do início de sessão não o consegue alcançar.",
-    "HTTP transport": "Transporte HTTP",
-    "Built-in client (default)": "Cliente integrado (predefinição)",
-    "curl subprocess (WAF fingerprint workaround)": "Subprocesso curl (contorna a impressão digital do WAF)",
-    "Use \"curl subprocess\" only if authentication times out on your network while curl works: some WAFs drop a client's TLS fingerprint (issue #6). Requires the curl binary; the WebSocket still uses the built-in TLS.": "Use «Subprocesso curl» apenas se a autenticação esgotar o tempo na sua rede enquanto o curl funciona: alguns WAF rejeitam a impressão digital TLS de um cliente (issue n.º 6). Requer o binário curl; o WebSocket continua a usar o TLS integrado.",
-    "Show or hide each device in HomeKit.": "Mostrar ou ocultar cada dispositivo no HomeKit.",
-    "Saving applies at once: the plugin reloads with the new settings.": "Ao guardar, as alterações aplicam-se de imediato: o plugin recarrega com as novas definições.",
-    "Discard": "Descartar",
-    "Save": "Guardar",
     "Status": "Estado",
     "Loading…": "A carregar…",
     "Mode": "Modo",
@@ -955,7 +599,6 @@ HomeswiftI18n.add({
     "Authentication flow issues": "Problemas na autenticação",
     "Check that the redirect URI in the portal matches exactly, bind the callback server to 0.0.0.0, check the firewall for the callback port.": "Verifique se o URI de redirecionamento no portal coincide exatamente, ponha o servidor de retorno à escuta em 0.0.0.0 e verifique a firewall para a porta de retorno.",
     "Device not appearing": "Um dispositivo não aparece",
-    "Check the log, check the device in the Onecta app, check the hidden devices on Settings › Devices.": "Consulte o registo, verifique o dispositivo na app Onecta e os dispositivos ocultos em Definições › Dispositivos.",
     "Auto": "Auto",
     "Cooling": "Arrefecimento",
     "Heating": "Aquecimento",
@@ -976,8 +619,6 @@ HomeswiftI18n.add({
     "Mobile App": "App móvel",
     "{n} requests/day": "{n} pedidos/dia",
     "The Daikin API limits you to {n} requests per day.": "A API da Daikin está limitada a {n} pedidos por dia.",
-    "{n} (recommended)": "{n} (recomendado)",
-    "Failed: {error}": "Falhou: {error}",
     "{n} unit in HomeKit": "{n} unidade no HomeKit",
     "{n} units in HomeKit": "{n} unidades no HomeKit",
     "real-time updates over the WebSocket": "atualizações em tempo real por WebSocket",
@@ -996,38 +637,6 @@ HomeswiftI18n.add({
     "Room": "Divisão",
     "Outdoor": "Exterior",
     "Model": "Modelo",
-    "Hidden from HomeKit. Settings › Devices shows it again.": "Oculto no HomeKit. Definições › Dispositivos volta a mostrá-lo.",
-    "Powerful Mode": "Modo Powerful",
-    "Boost heating/cooling performance": "Aumenta a potência de aquecimento ou arrefecimento",
-    "Econo Mode": "Modo Econo",
-    "Energy-saving operation": "Funcionamento com poupança de energia",
-    "Streamer Mode": "Modo Streamer",
-    "Air purification": "Purificação do ar",
-    "Outdoor Silent Mode": "Modo silencioso exterior",
-    "Reduce outdoor unit noise": "Reduz o ruído da unidade exterior",
-    "Indoor Silent Mode": "Modo silencioso interior",
-    "Quiet fan operation": "Ventilação silenciosa",
-    "Auto Fan Mode": "Ventilação automática",
-    "Automatic fan speed (switch)": "Velocidade automática da ventoinha (interruptor)",
-    "Oscillation Switch": "Interruptor de oscilação",
-    "Swing as a separate switch (stays visible when grouped into a single tile)": "A oscilação como interruptor separado (continua visível quando agrupado num único mosaico)",
-    "Separate Fan Tile": "Mosaico de ventoinha separado",
-    "Fan speed + oscillation as a standalone Fan tile (stays visible when grouped into a single tile)": "Velocidade da ventoinha e oscilação num mosaico de ventoinha independente (continua visível quando agrupado num único mosaico)",
-    "Dry Mode": "Modo desumidificação",
-    "Dehumidification": "Desumidificação",
-    "Fan Only Mode": "Modo só ventilação",
-    "Fan without heating/cooling": "Ventilação sem aquecimento nem arrefecimento",
-    "Holiday Mode": "Modo férias",
-    "Holiday / away mode as a switch": "O modo férias ou ausência como interruptor",
-    "Firmware Update": "Atualização do firmware",
-    "Install staged gateway firmware updates from HomeKit. Never enabled implicitly — the unit is unavailable while it updates": "Instala a partir do HomeKit as atualizações pendentes do firmware do gateway. Nunca é ativado implicitamente: a unidade fica indisponível durante a atualização",
-    "Visible": "Visível",
-    "Hidden": "Oculto",
-    "Unsaved changes": "Alterações não guardadas",
-    "Check the highlighted fields.": "Verifique os campos assinalados.",
-    "Saving…": "A guardar…",
-    "Saved. Restart Homeswift to apply the rest ({changes}).": "Guardado. Reinicie o Homeswift para aplicar o resto ({changes}).",
-    "Saved. The plugin reloaded with the new settings.": "Guardado. O plugin recarregou com as novas definições.",
     "No info": "Sem informação",
     "{remaining}/{limit} daily": "{remaining}/{limit} por dia",
     "{remaining}/{limit}/min": "{remaining}/{limit}/min",
@@ -1056,8 +665,9 @@ HomeswiftI18n.add({
     "Revoke access? The plugin stops until you sign in again on Add accessories.": "Revogar o acesso? O plugin para até iniciar sessão de novo em Adicionar acessórios.",
     "The plugin is not connected to Daikin yet.": "O plugin ainda não está ligado à Daikin.",
     "Make sure your Daikin devices are set up in the Onecta app.": "Verifique se os seus dispositivos Daikin estão configurados na app Onecta.",
-    "No devices found. Sign in on Add accessories to see your devices.": "Nenhum dispositivo encontrado. Inicie sessão em Adicionar acessórios para ver os seus dispositivos.",
-    "Revoke access on the Authentication tab, then sign in again on Add accessories.": "Revogue o acesso no separador Autenticação e inicie sessão de novo em Adicionar acessórios."
+    "Revoke access on the Authentication tab, then sign in again on Add accessories.": "Revogue o acesso no separador Autenticação e inicie sessão de novo em Adicionar acessórios.",
+    "Excluded: not in HomeKit. Its settings bring it back.": "Excluído: não está no HomeKit. As suas definições trazem-no de volta.",
+    "Check the log, check the device in the Onecta app, and check whether it is Excluded in its settings.": "Consulte o registo, verifique o dispositivo na app Onecta e veja se está excluído nas suas definições."
   }
 });
 
@@ -1090,7 +700,6 @@ HomeswiftI18n.add({
 
   <div class="group tabs" role="tablist" id="tabs">
     <button role="tab" aria-controls="tab-devices" data-tab="devices" class="on" aria-selected="true" data-i18n>Devices</button>
-    <button role="tab" aria-controls="tab-settings" data-tab="settings" aria-selected="false" data-i18n data-action-icon="sliders">Settings</button>
     <button role="tab" aria-controls="tab-auth" data-tab="auth" aria-selected="false" data-i18n data-action-icon="key">Authentication</button>
     <button role="tab" aria-controls="tab-help" data-tab="help" aria-selected="false" data-i18n>Help</button>
   </div>
@@ -1101,56 +710,6 @@ HomeswiftI18n.add({
     <p id="session-line" class="muted note hidden"></p>
     <div id="devices-list" class="grid"></div>
     <div id="devices-problem"></div>
-  </section>
-
-  <!-- Settings -->
-  <section class="tab-pane hidden" id="tab-settings" role="tabpanel">
-    <div class="section-head"><h2 data-i18n>Plugin settings</h2></div>
-    <div class="card settings-card">
-      <div class="group tabs subtabs" role="tablist" id="subtabs">
-        <button role="tab" data-subtab="features" class="on" aria-selected="true" data-i18n>Features</button>
-        <button role="tab" data-subtab="polling" aria-selected="false" data-i18n>Polling</button>
-        <button role="tab" data-subtab="network" aria-selected="false" data-i18n>Network</button>
-        <button role="tab" data-subtab="devices" aria-selected="false" data-i18n>Devices</button>
-      </div>
-
-      <div class="subtab" id="subtab-features">
-        <p class="muted note" data-i18n>Switches for additional modes in HomeKit. A switch appears only when the unit supports the feature.</p>
-        <div id="feature-toggles"></div>
-      </div>
-
-      <div class="subtab hidden" id="subtab-polling">
-        <div class="fields">
-          <label class="field"><span class="field-title" data-i18n>Update interval (minutes)</span>
-            <input type="number" id="updateIntervalInMinutes" min="1" max="60" step="1" placeholder="15 (recommended)">
-            <span class="help" data-i18n>Developer Portal: 15+ min · Mobile App: 1-5 min</span></label>
-          <label class="field"><span class="field-title" data-i18n>Force update delay (seconds)</span>
-            <input type="number" id="forceUpdateDelay" min="5" max="300" step="1" placeholder="60 (recommended)">
-            <span class="help" data-i18n>Developer Portal: 60 s · Mobile App: 10 s</span></label>
-        </div>
-        <label class="toggle hidden" id="websocket-setting-row"><span class="switch"><input type="checkbox" id="enableWebSocket"><span></span></span>
-          <span><span class="field-title" data-i18n>Enable WebSocket</span><span class="help" data-i18n>Real-time updates (Mobile App only)</span></span></label>
-      </div>
-
-      <div class="subtab hidden" id="subtab-network">
-        <div class="fields">
-          <label class="field"><span class="field-title" data-i18n>OIDC callback bind address</span>
-            <input type="text" id="oidcCallbackServerBindAddr" placeholder="0.0.0.0" spellcheck="false" autocomplete="off">
-            <span class="help" data-i18n>The IPv4 address of the OAuth callback server (0.0.0.0 for all interfaces). 127.0.0.1 only accepts connections from this host, so the login redirect cannot reach it.</span></label>
-          <label class="field"><span class="field-title" data-i18n>HTTP transport</span>
-            <select id="httpTransport"><option value="node" data-i18n>Built-in client (default)</option><option value="curl" data-i18n>curl subprocess (WAF fingerprint workaround)</option></select>
-            <span class="help" data-i18n>Use "curl subprocess" only if authentication times out on your network while curl works: some WAFs drop a client's TLS fingerprint (issue #6). Requires the curl binary; the WebSocket still uses the built-in TLS.</span></label>
-        </div>
-      </div>
-
-      <div class="subtab hidden" id="subtab-devices">
-        <p class="muted note" data-i18n>Show or hide each device in HomeKit.</p>
-        <div id="device-toggles"></div>
-      </div>
-
-      <div class="save-bar" id="settings-bar"><span id="settings-status" class="muted" role="status" aria-live="polite" data-i18n>Saving applies at once: the plugin reloads with the new settings.</span>
-        <button id="btn-settings-discard" disabled data-i18n data-action-icon="close">Discard</button><button id="btn-settings-save" class="primary" disabled data-i18n data-action-icon="check">Save</button></div>
-    </div>
   </section>
 
   <!-- Authentication -->
@@ -1196,7 +755,7 @@ HomeswiftI18n.add({
       <dl class="trouble">
         <dt data-i18n>Token expired or invalid</dt><dd data-i18n>Revoke access on the Authentication tab, then sign in again on Add accessories.</dd>
         <dt data-i18n>Authentication flow issues</dt><dd data-i18n>Check that the redirect URI in the portal matches exactly, bind the callback server to 0.0.0.0, check the firewall for the callback port.</dd>
-        <dt data-i18n>Device not appearing</dt><dd data-i18n>Check the log, check the device in the Onecta app, check the hidden devices on Settings › Devices.</dd>
+        <dt data-i18n>Device not appearing</dt><dd data-i18n>Check the log, check the device in the Onecta app, and check whether it is Excluded in its settings.</dd>
       </dl>
     </div>
   </section>

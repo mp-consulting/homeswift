@@ -20,7 +20,13 @@ extension PhilipsHuePlugin {
 
     static func sensorAccessoryID(deviceID: String) -> String { "\(platform):device:\(deviceID)" }
 
+    /// Excluded by its Accessory Settings (`device:<id>`), or left out by `excludeSensors`.
     func isExcluded(_ sensor: HueSensorDevice) -> Bool {
+        context.isExcluded(Self.sensorDeviceID(sensor.id)) || isListed(sensor)
+    }
+
+    /// Left out by the Homebridge-shaped `excludeSensors`, by name or device id.
+    func isListed(_ sensor: HueSensorDevice) -> Bool {
         excludedSensors.contains(sensor.name.lowercased()) || excludedSensors.contains(sensor.id.lowercased())
     }
 
@@ -128,7 +134,7 @@ extension PhilipsHuePlugin {
         }
         let accessory = Accessory(
             id: Self.sensorAccessoryID(deviceID: sensor.id), name: sensor.name, manufacturer: sensor.manufacturer, model: sensor.model,
-            serialNumber: sensor.id, firmwareRevision: sensor.firmware.isEmpty ? "1.0.0" : sensor.firmware,
+            serialNumber: sensor.serialNumber ?? sensor.id, firmwareRevision: sensor.firmware.isEmpty ? "1.0.0" : sensor.firmware,
             category: motion == nil && contact == nil && !buttons.isEmpty ? .programmableSwitch : .sensor, services: services,
             onIdentify: { [client, deviceID = sensor.id] in try? await client?.identify(deviceID: deviceID) })
         let built = SensorServices(

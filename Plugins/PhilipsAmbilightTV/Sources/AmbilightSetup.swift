@@ -3,13 +3,14 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 
-// Setup (GLOSSARY.md, "Setup"): each TV is a device whose Device Id is its MAC, authorized with the PIN it shows (a
-// Device Code). Its keys go in the vault; its address and options in its Accessory Settings. The Homebridge plugin's
-// `devices` list still works as it was (docs/adr/0001-canonical-accessory-settings.md), and an entry of it with only an
-// address is a TV for Setup to pair: the way to reach one Bonjour does not.
+// Setup (GLOSSARY.md, "Setup"): each TV is a device whose Device Id is its MAC and whose Device Kind is `tv`, authorized
+// with the PIN it shows (a Device Code). Its keys go in the vault; its address and options in its Accessory Settings
+// (AmbilightSettings.swift). An entry of the block's `devices` with only an address is a TV for Setup to pair: the way to
+// reach one Bonjour does not. A Homebridge block's paired TVs in `devices` still run as they were
+// (docs/adr/0001-canonical-accessory-settings.md) until `canonicalSettings` moves them.
 extension PhilipsAmbilightTVPlugin {
     /// The keys a pairing gives a TV, kept in the vault under its MAC.
-    struct TVCredentials: Codable, Sendable {
+    struct TVCredentials: Codable, Sendable, Equatable {
         var username: String
         var password: String
         var certFingerprint: String?
@@ -20,16 +21,19 @@ extension PhilipsAmbilightTVPlugin {
     /// not reach, typed in the settings to be found by Setup) takes the MAC and the keys of the TV Setup paired there.
     func configuredDevices() -> [Configuration.Device] {
         var setUp = context.setUpDevices(credentials: TVCredentials.self)
-        // A TV Setup paired keeps its keys in the vault under its MAC: they take the place of the entry's.
+        // A TV Setup paired keeps its keys in the vault under its MAC: they take the place of the entry's, and its
+        // Accessory Settings overrule the entry's options.
         let listed = (configuration.devices ?? []).map { device -> Configuration.Device in
             var device = device
+            if let mac = device.mac.flatMap(MACAddress.canonical) { device = Self.overlay(context.accessorySettings(for: mac), on: device) }
             if let mac = device.mac.flatMap(MACAddress.canonical), let keys = context.credentials(for: mac, as: TVCredentials.self) {
                 device.username = keys.username
                 device.password = keys.password
                 device.certFingerprint = keys.certFingerprint ?? device.certFingerprint
             } else if !Self.hasKeys(device), device.mac.flatMap(MACAddress.canonical) == nil, let ip = Self.address(device),
                       let index = setUp.firstIndex(where: { $0.settings.plugin["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces) == ip }) {
-                let (mac, _, keys) = setUp.remove(at: index)
+                let (mac, settings, keys) = setUp.remove(at: index)
+                device = Self.overlay(settings, on: device)
                 device.mac = mac
                 device.username = keys.username
                 device.password = keys.password
@@ -39,9 +43,10 @@ extension PhilipsAmbilightTVPlugin {
         }
         let listedMACs = Set(listed.compactMap { $0.mac.flatMap(MACAddress.canonical) })
         let added = setUp.filter { !listedMACs.contains($0.deviceID) }.compactMap { mac, settings, keys in
+            // A Name cleared gives the TV back the plugin's own.
             settings.decode(Configuration.Device.self, adding: [
                 "mac": .string(mac), "username": .string(keys.username), "password": .string(keys.password),
-                "certFingerprint": keys.certFingerprint.map(JSONValue.string) ?? .null,
+                "certFingerprint": keys.certFingerprint.map(JSONValue.string) ?? .null, "name": .string(settings.name ?? "Philips TV"),
             ])
         }
         return listed + added
@@ -69,13 +74,13 @@ extension PhilipsAmbilightTVPlugin {
             // Set up: by its MAC. Waiting for its PIN: by its MAC, else its address, and only with an address to pair at.
             guard let deviceID = keys ? mac : ip.flatMap({ _ in mac }) ?? ip.map({ "ip:\($0)" }) else { continue }
             found.append(DiscoveredDevice(deviceID: deviceID, name: device.name ?? deviceID, model: "Philips TV", address: ip ?? device.ip,
-                                          authorization: .deviceCode, isSetUp: keys))
+                                          authorization: .deviceCode, isSetUp: keys, kind: Self.tvKind))
         }
         let known = Set(found.compactMap(\.address))
         for tv in await dependencies.discover(logger) where !known.contains(tv.host) {
             let mac = await dependencies.lookUpARP(tv.host).flatMap(MACAddress.canonical)
             guard !found.contains(where: { $0.deviceID == mac }) else { continue }
-            found.append(DiscoveredDevice(deviceID: mac ?? "ip:\(tv.host)", name: tv.name, model: "Philips TV", address: tv.host, authorization: .deviceCode))
+            found.append(DiscoveredDevice(deviceID: mac ?? "ip:\(tv.host)", name: tv.name, model: "Philips TV", address: tv.host, authorization: .deviceCode, kind: Self.tvKind))
         }
         return found
     }

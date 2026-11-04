@@ -41,15 +41,36 @@ Setup: it pairs nowhere else. One block per bridge.
 | `pollingInterval` | `2` | Seconds between reads of the bridge, for changes made in the Hue app or with a switch |
 | `scenes` | `true` | A switch for each scene of a room or zone, on one accessory per room or zone (see below) |
 | `dynamicScenes` | `false` | Recall every scene with its colours moving, as if the Hue app's play button were pressed each time; off, each scene follows its own Autoplay |
-| `excludeScenes` | `[]` | Scene names, `Room/Scene` or ids to leave out |
-| `sceneTransitions` | none | Scenes with a transition of their own instead of `transitionMs`: `[{ "scene": "Living room/Relax", "transitionMs": 2000 }]`, by "Room/Scene" or by a scene's name in any room |
 | `effects` | `true` | A switch for each effect a light has |
 | `roomLights` | `false` | A lightbulb on each room's and zone's accessory: on, off and brightness for all its lights in one command, as the Hue app's room controls |
 | `flashSwitch` | `false` | A switch on each light that makes it flash for five seconds (Hue's signaling) |
 | `gradientPoints` | `false` | On gradient lightstrips and lamps, a lightbulb per colour point (up to five), so each part takes its own colour |
-| `excludeLights` | `[]` | Light names or ids to leave out of HomeKit |
 | `sensors` | `true` | The sensors and the switches' buttons (see below) |
-| `excludeSensors` | `[]` | Sensor and switch names or device ids to leave out of HomeKit |
+
+These are the Plugin Settings, edited on the plugin's **Settings** page in the web UI or with the MCP tools
+`get_settings` and `update_settings`. Each light, sensor or switch and scene has its Accessory Settings in the block's
+`_accessories`, by its Device Id: a light's id, `device:<device id>` for a sensor or a switch, a scene's id. Any of them
+can be Excluded (`"excluded": true`: a light or a sensor is not an accessory, a scene has no switch and is left off the
+Scenes page); a light (Device Kind `light`) may set its own `effects`, `flashSwitch` and `gradientPoints`, and a scene
+(`scene`) its own `transitionMs`, each overruling the Plugin Setting of the same name. Sensors are of the Device Kind
+`sensor`, switches with buttons only `switch`.
+
+```json
+{
+  "platform": "PhilipsHue", "name": "Philips Hue", "transitionMs": 200,
+  "_accessories": {
+    "<a light's id>": { "excluded": true },
+    "device:<a dimmer's device id>": { "excluded": true },
+    "<a scene's id>": { "transitionMs": 2000 },
+    "<another light's id>": { "effects": false, "flashSwitch": true }
+  }
+}
+```
+
+A Homebridge-shaped block still loads: `excludeLights`, `excludeSensors` (names or ids), `excludeScenes` (names,
+"Room/Scene" or ids) and `sceneTransitions` (`[{ "scene": "Living room/Relax", "transitionMs": 2000 }]`, by "Room/Scene"
+or a scene's name in any room). The first settings change written through the bridge moves into `_accessories` what the
+bridge's names resolve, and leaves the names it has not.
 
 ### Scenes
 
@@ -71,8 +92,8 @@ plugin reads rooms and zones and never changes them; they are made in the Hue ap
 
 Pairing the plugin with the bridge does not touch the bridge's own HomeKit pairing (a bridge keeps many application
 keys), but the lights then show twice in the Home app: once from the bridge, once from Homeswift, both working.
-Either keep the bridge in the Home app and leave the lights out of Homeswift (`excludeLights`, or a light's ⋯ menu on
-the page), using it for scenes, room lights and what HomeKit's Hue lacks; or remove the bridge from the Home app and
+Either keep the bridge in the Home app and leave the lights out of Homeswift (Exclude them in their settings, which a
+light's ⋯ menu on the page opens), using it for scenes, room lights and what HomeKit's Hue lacks; or remove the bridge from the Home app and
 use Homeswift's accessories, with effects, Flash, gradient points and room lights, putting rooms and automations on
 them again. The Hue app keeps working either way.
 
@@ -105,15 +126,16 @@ flows as smoothly as in the Hue app; Off stops it. Flash uses the bridge's signa
 
 With the web UI on, the plugin's page shows the bridge (its address, id, how many lights, sensors and scenes, and
 **Pair again** in its ⋯ menu, which opens its Setup on Add accessories; until it is set up, a card leading there),
-then four tabs:
+then three tabs. The page writes no settings: **Settings** at its top opens the plugin's Settings page, and a light's,
+sensor's or scene's ⋯ menu its own settings there.
 
 - **Lights**: every light drawn by the Accessories page's own widgets (power, brightness, colours, white; effects and
-  the rest in All controls), with **Identify**, **Leave out of the Home app** and its log in each widget's menu. They
+  the rest in All controls), with **Identify**, **Settings** and its log in each widget's menu. They
   come room by room (a light's room is the room its device is in) or by name, under the same toolbar as the scenes: a
   search, a room, and filters for on now, colour lights, with effects and No Response.
 - **Sensors**: every sensor and switch drawn by the same widgets (motion, temperature, light level, contact, battery,
   a button's last press), under the same toolbar, with filters for motion sensors, switches, low battery and No
-  Response, and **Identify** (the device's LED flashes), **Leave out of the Home app** and its log in each menu.
+  Response, and **Identify** (the device's LED flashes), **Settings** and its log in each menu.
 - **Scenes**: each room's scenes as photographic tiles with the name overlaid, the same style used by the Scenes gallery, under a toolbar that finds one among
   dozens: a search (scene and room names), a room, by room or by name, and filters with their counts (on now,
   Autoplay, colour scenes, which leaves out the whites of Hue's standard scenes, with a picture, not in the Home app),
@@ -125,10 +147,8 @@ then four tabs:
   a tile (or choose one from its ⋯ menu) to give the scene its own: the page shrinks it to 640 pixels, and the bridge
   keeps it with every scene's picture (`scene-pictures/` beside config.json, JPEG, PNG or WebP, checked by its bytes,
   1 MB at most), so Homeswift's Scenes page shows it too. The same
-  menu removes it, leaves the scene out of the Home app, and gives it a **Speed** of its own (the transition its
-  recall takes, from the page and the Home app; Settings' speed otherwise).
-- **Settings**: the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default), the polling
-  interval, and what the Home app shows (sensors and switches among it).
+  menu removes it, and opens the scene's settings, where it is left out of the Home app (Excluded) or given a
+  **Speed** of its own (the transition its recall takes, from the page and the Home app; the plugin's otherwise).
 
 ![Scenes, room by room](../../docs/images/plugins/hue-scenes.png)
 
@@ -158,6 +178,7 @@ Writes from the Home app arrive together (the bridge server runs one request's w
 gathers a light's changes for 30 ms and sends one `PUT /clip/v2/resource/light/<id>` with `on`, `dimming`, `color` or
 `color_temperature` and `dynamics.duration`. At most three requests are in flight (the bridge answers 429 beyond),
 and 429 or 503 is retried. A light whose Zigbee connectivity reports a problem shows No Response. The accessory ids
-are `PhilipsHue:<light id>`, `PhilipsHue:device:<device id>` (sensors and switches) and `PhilipsHue:scenes:<room or zone id>`.
+are `PhilipsHue:<light id>`, `PhilipsHue:device:<device id>` (sensors and switches) and `PhilipsHue:scenes:<room or zone id>`;
+a scene has no accessory of its own, its Accessory Settings sitting under its id.
 
 The Entertainment API (Hue Sync's 25 updates a second) needs DTLS, which Homeswift's networking does not have yet.
