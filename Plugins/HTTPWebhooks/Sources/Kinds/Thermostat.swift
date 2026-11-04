@@ -19,10 +19,7 @@ final class ThermostatAccessory: WebhookAccessory {
         let target = CharacteristicType.targetTemperature.with(
             minValue: entry.number("minTemp", default: 15), maxValue: entry.number("maxTemp", default: 30), minStep: entry.number("minStep", default: 0.5))
         let service = Service(.thermostat, name: name, optional: [target], isPrimary: true)
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookThermostatAccessory-\(name)", serialNumber: "HttpWebHookThermostatAccessory-\(id)", category: .thermostat,
-            services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("Thermostat", id: id, name: name, category: .thermostat, services: [service])
         let keys = (
             current: "http-webhook-current-temperature-\(id)", target: "http-webhook-target-temperature-\(id)",
             currentState: "http-webhook-current-heating-cooling-state-\(id)", targetState: "http-webhook-target-heating-cooling-state-\(id)")

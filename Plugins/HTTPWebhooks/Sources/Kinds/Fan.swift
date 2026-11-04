@@ -9,7 +9,6 @@ final class FanAccessory: WebhookAccessory {
     let id: String
     let name: String
     let accessory: Accessory
-    let factor: Double
     private let active: Characteristic
     private let speed: Characteristic
     /// The integer characteristics a parameter sets: rotation direction, and those the entry enables.
@@ -22,7 +21,7 @@ final class FanAccessory: WebhookAccessory {
         self.id = id
         self.name = name
         self.environment = environment
-        factor = entry.number("speed_factor", default: 1)
+        let factor = entry.number("speed_factor", default: 1)
         let lockControls = entry.flag("enableLockPhysicalControls", default: false)
         let targetState = entry.flag("enableTargetStateControls", default: false)
         let swingMode = entry.flag("enableSwingModeControls", default: false)
@@ -33,9 +32,7 @@ final class FanAccessory: WebhookAccessory {
         let service = Service(.fanv2, name: name, optional: optional, isPrimary: true)
         active = service.characteristic(.active)
         speed = service.characteristic(.rotationSpeed)
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookFanv2Accessory-\(name)", serialNumber: "HttpWebHookFanv2Accessory-\(id)", category: .fan, services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("Fanv2", id: id, name: name, category: .fan, services: [service])
 
         var integers: [(parameter: String, key: String, characteristic: Characteristic)] = [("rotationDirection", "http-webhook-rotationdirection-\(id)", service.characteristic(.rotationDirection))]
         if lockControls { integers.append(("lockstate", "http-webhook-lockstate-\(id)", service.characteristic(.lockPhysicalControls))) }
@@ -46,7 +43,7 @@ final class FanAccessory: WebhookAccessory {
         speed.show(environment.store.number(speedKey, default: 100))
         for value in integers { value.characteristic.show(environment.store.number(value.key, default: 0)) }
 
-        let (key, speedKey, factor) = (key, speedKey, factor)
+        let (key, speedKey) = (key, speedKey)
         let coalesce = LatestCallGuard(delay: environment.timing.coalescing)
         let calls = (on: entry.call("on"), off: entry.call("off"), speed: entry.call("speed"))
         active.onWrite { [environment, name] value in
@@ -69,10 +66,10 @@ final class FanAccessory: WebhookAccessory {
         // unlock call.
         let placeholders = ["rotationDirection": "%rotationDirection", "targetState": "%targetState", "swingMode": "%swingMode"]
         let groups = ["rotationDirection": "rotation_direction", "targetState": "target_state", "swingMode": "swing_mode"]
+        let lockCalls = (lock: entry.call("lock"), unlock: entry.call("unlock"))
         for (parameter, key, characteristic) in integers {
             let label = characteristic.type.name
             let call = groups[parameter].flatMap(entry.call)
-            let lockCalls = (lock: entry.call("lock"), unlock: entry.call("unlock"))
             characteristic.onWrite { [environment, name] value in
                 let number = value.intValue ?? 0
                 environment.logger.info("\(name): setting \(label) to \(number) for \(id)")

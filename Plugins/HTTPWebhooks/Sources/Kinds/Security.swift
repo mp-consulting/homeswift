@@ -26,6 +26,14 @@ struct StatePair: Sendable {
     }
 }
 
+extension [StatePair] {
+    /// Applies each pair's parameter, then answers every pair's value after the call.
+    func reply(to query: WebhookQuery, environment: KindEnvironment, name: String, adding extra: [(String, JSONValue)] = []) -> WebhookReply {
+        for pair in self { pair.apply(query, environment: environment, name: name) }
+        return WebhookReply(fields: [("success", true)] + map { ($0.field, .number($0.stored(environment.store))) } + extra)
+    }
+}
+
 /// `security[]`: a Security System. `currentstate` (0 stay, 1 away, 2 night, 3 disarmed, 4 triggered) and
 /// `targetstate` (0–3) set it; HomeKit's target calls `set_state_*` with `%d` in its URL, and the current state follows
 /// once the call worked.
@@ -48,10 +56,7 @@ final class SecurityAccessory: WebhookAccessory {
         target = StatePair(
             parameter: "targetstate", key: "http-webhook-target-security-state-\(id)", characteristic: service.characteristic(.securitySystemTargetState),
             fallback: 3, field: "targetState")
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookSecurityAccessory-\(name)", serialNumber: "HttpWebHookSecurityAccessory-\(id)", category: .securitySystem,
-            services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("Security", id: id, name: name, category: .securitySystem, services: [service])
         for pair in [current, target] { pair.characteristic.show(pair.stored(environment.store)) }
 
         let call = entry.call("set_state")
@@ -67,9 +72,7 @@ final class SecurityAccessory: WebhookAccessory {
     }
 
     func handle(_ query: WebhookQuery) -> WebhookReply {
-        current.apply(query, environment: environment, name: name)
-        target.apply(query, environment: environment, name: name)
-        return .success([current.field: .number(current.stored(environment.store)), target.field: .number(target.stored(environment.store))])
+        [current, target].reply(to: query, environment: environment, name: name)
     }
 }
 
@@ -98,10 +101,7 @@ final class GarageDoorAccessory: WebhookAccessory {
             parameter: "targetdoorstate", key: "http-webhook-target-door-state-\(id)", characteristic: service.characteristic(.targetDoorState),
             fallback: 1, field: "targetState")
         obstruction = service.characteristic(.obstructionDetected)
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookGarageDoorOpenerAccessory-\(name)", serialNumber: "HttpWebHookGarageDoorOpenerAccessory-\(id)",
-            category: .garageDoorOpener, services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("GarageDoorOpener", id: id, name: name, category: .garageDoorOpener, services: [service])
         for pair in [current, target] { pair.characteristic.show(pair.stored(environment.store)) }
         obstruction.show(environment.store.bool(obstructionKey))
 
@@ -119,17 +119,12 @@ final class GarageDoorAccessory: WebhookAccessory {
     }
 
     func handle(_ query: WebhookQuery) -> WebhookReply {
-        current.apply(query, environment: environment, name: name)
-        target.apply(query, environment: environment, name: name)
         if let text = query.nonEmpty("obstructiondetected") {
             let detected = text == "1" || text == "true"
             environment.store.set(obstructionKey, detected)
             if obstruction.show(detected) { environment.logger.info("\(name): changing HomeKit Obstruction Detected to \(detected)") }
         }
-        return .success([
-            current.field: .number(current.stored(environment.store)), target.field: .number(target.stored(environment.store)),
-            "obstruction": .bool(environment.store.bool(obstructionKey)),
-        ])
+        return [current, target].reply(to: query, environment: environment, name: name, adding: [("obstruction", .bool(environment.store.bool(obstructionKey)))])
     }
 }
 
@@ -155,10 +150,7 @@ final class LockAccessory: WebhookAccessory {
         target = StatePair(
             parameter: "locktargetstate", key: "http-webhook-lock-target-state-\(id)", characteristic: service.characteristic(.lockTargetState),
             fallback: 1, field: "targetState")
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookLockMechanismAccessory-\(name)", serialNumber: "HttpWebHookLockMechanismAccessory-\(id)", category: .doorLock,
-            services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("LockMechanism", id: id, name: name, category: .doorLock, services: [service])
         for pair in [current, target] { pair.characteristic.show(pair.stored(environment.store)) }
 
         let calls = (unlock: entry.call("open"), lock: entry.call("close"))
@@ -183,8 +175,6 @@ final class LockAccessory: WebhookAccessory {
     }
 
     func handle(_ query: WebhookQuery) -> WebhookReply {
-        current.apply(query, environment: environment, name: name)
-        target.apply(query, environment: environment, name: name)
-        return .success([current.field: .number(current.stored(environment.store)), target.field: .number(target.stored(environment.store))])
+        [current, target].reply(to: query, environment: environment, name: name)
     }
 }

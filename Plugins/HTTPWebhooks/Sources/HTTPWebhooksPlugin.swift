@@ -31,13 +31,6 @@ public actor HTTPWebhooksPlugin: HomeswiftPlugin {
     /// The Manufacturer of every accessory, as the Homebridge plugin gives it.
     static let manufacturer = "HttpWebHooksPlatform"
 
-    /// The lists of the block, in the order the Homebridge plugin creates their accessories: the first accessory of an
-    /// `id` gets its webhooks.
-    static let kinds = [
-        "sensors", "switches", "pushbuttons", "doorbells", "lights", "thermostats", "outlets", "security", "garagedooropeners", "windowcoverings",
-        "statelessswitches", "lockmechanisms", "fanv2s", "co2sensors", "valves",
-    ]
-
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
@@ -75,11 +68,11 @@ public actor HTTPWebhooksPlugin: HomeswiftPlugin {
             store: store, caller: OutgoingCaller(client: dependencies.client, logger: logger), logger: logger, tasks: tasks, timing: dependencies.timing)
         accessories = Self.build(configuration, environment: environment, logger: logger)
         var routes: [String: any WebhookAccessory] = [:]
-        for accessory in accessories where !context.isExcluded(Self.deviceID(of: accessory)) {
+        for accessory in accessories where !context.isExcluded(accessory.name) {
             do {
                 try context.add(accessory.accessory)
             } catch {
-                logger.error("Could not add \(accessory.accessory.information.characteristic(.name).value.stringValue ?? accessory.id): \(error)")
+                logger.error("Could not add \(accessory.name): \(error)")
                 continue
             }
             if routes[accessory.id] == nil { routes[accessory.id] = accessory }
@@ -121,58 +114,77 @@ public actor HTTPWebhooksPlugin: HomeswiftPlugin {
         try? store?.flush()
     }
 
-    /// The Device Id of an accessory: its id after `HttpWebHooks:`, the entry's name.
-    static func deviceID(of accessory: any WebhookAccessory) -> String {
-        String(accessory.accessory.id.dropFirst(platform.count + 1))
+    /// What a kind's entry becomes: its accessory, or nil (a sensor of an unknown `type`).
+    typealias Make = @Sendable (_ id: String, _ name: String, _ entry: Entry, _ environment: KindEnvironment) -> (any WebhookAccessory)?
+
+    /// The lists of the block, in the order the Homebridge plugin creates their accessories (the first accessory of an
+    /// `id` gets its webhooks), with what Setup calls each and what makes it.
+    static let kindTable: [(list: String, label: String, make: Make)] = [
+        ("sensors", "Sensor", { id, name, entry, environment in
+            entry.string("type").flatMap(SensorAccessory.Kind.init(rawValue:)).map {
+                SensorAccessory(id: id, name: name, kind: $0, entry: entry, environment: environment)
+            }
+        }),
+        ("switches", "Switch", { SwitchAccessory(id: $0, name: $1, outlet: false, entry: $2, environment: $3) }),
+        ("pushbuttons", "Push button", { PushButtonAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("doorbells", "Doorbell", { DoorbellAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("lights", "Light", { LightAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("thermostats", "Thermostat", { ThermostatAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("outlets", "Outlet", { SwitchAccessory(id: $0, name: $1, outlet: true, entry: $2, environment: $3) }),
+        ("security", "Security system", { SecurityAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("garagedooropeners", "Garage door", { GarageDoorAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("windowcoverings", "Window covering", { WindowCoveringAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("statelessswitches", "Stateless switch", { StatelessSwitchAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("lockmechanisms", "Lock", { LockAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("fanv2s", "Fan", { FanAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("co2sensors", "Carbon dioxide sensor", { CarbonDioxideAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+        ("valves", "Valve", { ValveAccessory(id: $0, name: $1, entry: $2, environment: $3) }),
+    ]
+
+    static var kinds: [String] { kindTable.map(\.list) }
+
+    /// An entry that makes an accessory, with what Setup calls it.
+    struct ValidEntry {
+        let id: String
+        let name: String
+        let entry: Entry
+        let model: String
+        let make: Make
     }
 
-    /// Every entry of the block as an accessory, in the block's order. An entry without an `id` or a `name`, a sensor of
-    /// an unknown `type`, and a second entry of the same name (Homebridge would give both the same identity) are left
-    /// out, with an error in the log.
-    static func build(_ configuration: Configuration, environment: KindEnvironment, logger: Logger) -> [any WebhookAccessory] {
-        var built: [any WebhookAccessory] = []
+    /// The block's entries that make accessories, in the block's order. An entry without an `id` or a `name`, a sensor
+    /// of an unknown `type`, and a second entry of the same name (Homebridge would give both the same identity) are left
+    /// out, logged when `logger` is given.
+    static func validEntries(_ configuration: Configuration, logger: Logger?) -> [ValidEntry] {
+        var valid: [ValidEntry] = []
         var names: Set<String> = []
-        for list in kinds {
+        for (list, label, make) in kindTable {
             for entry in configuration.entries(list) {
                 guard let id = entry.id, !id.isEmpty, let name = entry.name else {
-                    logger.error("An entry of \(list) has no id or no name: leaving it out")
+                    logger?.error("An entry of \(list) has no id or no name: leaving it out")
                     continue
+                }
+                var model = label
+                if list == "sensors" {
+                    guard let kind = entry.string("type").flatMap(SensorAccessory.Kind.init(rawValue:)) else {
+                        let known = SensorAccessory.Kind.allCases.map(\.rawValue).joined(separator: ", ")
+                        logger?.error("\(name): sensor type \"\(entry.string("type") ?? "")\" is not one of \(known): leaving it out")
+                        continue
+                    }
+                    model = kind.label
                 }
                 guard names.insert(name).inserted else {
-                    logger.error("\(name) (\(list)): another entry has this name, and the name is the accessory's identity: leaving it out")
+                    logger?.error("\(name) (\(list)): another entry has this name, and the name is the accessory's identity: leaving it out")
                     continue
                 }
-                let accessory: (any WebhookAccessory)? = switch list {
-                case "sensors":
-                    if let kind = entry.string("type").flatMap(SensorAccessory.Kind.init(rawValue:)) {
-                        SensorAccessory(id: id, name: name, kind: kind, entry: entry, environment: environment)
-                    } else {
-                        nil
-                    }
-                case "switches": SwitchAccessory(id: id, name: name, outlet: false, entry: entry, environment: environment)
-                case "outlets": SwitchAccessory(id: id, name: name, outlet: true, entry: entry, environment: environment)
-                case "pushbuttons": PushButtonAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "doorbells": DoorbellAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "lights": LightAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "thermostats": ThermostatAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "security": SecurityAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "garagedooropeners": GarageDoorAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "windowcoverings": WindowCoveringAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "statelessswitches": StatelessSwitchAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "lockmechanisms": LockAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "fanv2s": FanAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "co2sensors": CarbonDioxideAccessory(id: id, name: name, entry: entry, environment: environment)
-                case "valves": ValveAccessory(id: id, name: name, entry: entry, environment: environment)
-                default: nil
-                }
-                guard let accessory else {
-                    names.remove(name)
-                    logger.error("\(name): sensor type \"\(entry.string("type") ?? "")\" is not one of \(SensorAccessory.Kind.allCases.map(\.rawValue).joined(separator: ", ")): leaving it out")
-                    continue
-                }
-                built.append(accessory)
+                valid.append(ValidEntry(id: id, name: name, entry: entry, model: model, make: make))
             }
         }
-        return built
+        return valid
+    }
+
+    /// Every valid entry of the block as an accessory, in the block's order.
+    static func build(_ configuration: Configuration, environment: KindEnvironment, logger: Logger) -> [any WebhookAccessory] {
+        validEntries(configuration, logger: logger).compactMap { $0.make($0.id, $0.name, $0.entry, environment) }
     }
 }

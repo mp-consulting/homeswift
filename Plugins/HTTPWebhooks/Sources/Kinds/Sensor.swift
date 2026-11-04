@@ -79,9 +79,7 @@ final class SensorAccessory: WebhookAccessory {
         let releaseTime = entry.number("autoReleaseTime", default: 5000)
         autoRelease = kind.releases && entry.flag("autoRelease", default: false)
             ? .milliseconds(Int(saturating: max(0, releaseTime) * environment.timing.autoReleaseScale) ?? 5000) : nil
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookSensorAccessory-\(name)", serialNumber: "HttpWebHookSensorAccessory-\(id)", category: .sensor, services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("Sensor", id: id, name: name, category: .sensor, services: [service])
         if kind.isBoolean {
             show(environment.store.bool(key))
         } else {

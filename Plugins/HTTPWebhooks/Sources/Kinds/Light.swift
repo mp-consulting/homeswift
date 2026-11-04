@@ -16,7 +16,6 @@ final class LightAccessory: WebhookAccessory {
     private let on: Characteristic
     private let brightness: Characteristic
     private let environment: KindEnvironment
-    private let coalesce: LatestCallGuard
     private var key: String { "http-webhook-\(id)" }
     private var brightnessKey: String { "http-webhook-brightness-\(id)" }
 
@@ -25,18 +24,16 @@ final class LightAccessory: WebhookAccessory {
         self.name = name
         self.environment = environment
         factor = entry.number("brightness_factor", default: 1)
-        coalesce = LatestCallGuard(delay: environment.timing.coalescing)
         let service = Service(.lightbulb, name: name, optional: [.brightness], isPrimary: true)
         on = service.characteristic(.on)
         brightness = service.characteristic(.brightness)
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookLightAccessory-\(name)", serialNumber: "HttpWebHookLightAccessory-\(id)", category: .lightbulb, services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("Light", id: id, name: name, category: .lightbulb, services: [service])
         on.show(environment.store.bool(key))
         brightness.show(homeKitBrightness(storedBrightness))
 
         let calls = (on: entry.call("on"), off: entry.call("off"), brightness: entry.call("brightness"))
-        let (key, brightnessKey, factor, coalesce) = (key, brightnessKey, factor, coalesce)
+        let (key, brightnessKey, factor) = (key, brightnessKey, factor)
+        let coalesce = LatestCallGuard(delay: environment.timing.coalescing)
         on.onWrite { [environment, name] value in
             let state = value.boolValue ?? false
             environment.logger.info("\(name): switching \(state ? "on" : "off") for \(id)")

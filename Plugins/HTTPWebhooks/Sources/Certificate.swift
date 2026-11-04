@@ -40,17 +40,14 @@ enum WebhookCertificate {
                 throw FileError(description: "cannot read https_keyfile or https_certfile: \(error)")
             }
         } else {
-            var stored = secrets.load()
-            if let current = stored, current.certVersion != version || now.timeIntervalSince1970 * 1000 - current.timestamp > renewAfter * 1000 {
-                stored = nil
-            }
-            if stored == nil {
-                let made = try make(now: now)
-                try secrets.save(made)
-                stored = made
+            let stored: Stored
+            if let current = secrets.load(), current.certVersion == version, now.timeIntervalSince1970 * 1000 - current.timestamp <= renewAfter * 1000 {
+                stored = current
+            } else {
+                stored = try make(now: now)
+                try secrets.save(stored)
                 generated = true
             }
-            guard let stored else { throw FileError(description: "no certificate") }
             chain = try NIOSSLCertificate.fromPEMBytes(Array(stored.cert.utf8))
             key = try NIOSSLPrivateKey(bytes: Array(stored.private.utf8), format: .pem)
         }

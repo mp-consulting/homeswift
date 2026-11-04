@@ -15,11 +15,6 @@ final class StateStore: Sendable {
         self.values = values
     }
 
-    subscript(key: String) -> JSONValue? {
-        get { values[key] }
-        set { values[key] = newValue }
-    }
-
     func bool(_ key: String, default value: Bool = false) -> Bool {
         guard let stored = values[key] else { return value }
         return Loose.truthy(stored)

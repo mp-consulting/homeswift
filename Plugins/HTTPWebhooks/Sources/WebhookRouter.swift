@@ -58,7 +58,7 @@ struct WebhookRouter: Sendable {
     /// Basic credentials equal to the configured ones, compared in constant time (both, whatever the first gave).
     func isAuthorized(_ authorization: String?) -> Bool {
         guard let credentials else { return true }
-        guard let authorization, authorization.count < 4096 else { return false }
+        guard let authorization, authorization.utf8.count < 4096 else { return false }
         let parts = authorization.split(separator: " ", maxSplits: 1)
         guard parts.count == 2, parts[0].lowercased() == "basic",
             let decoded = Data(base64Encoded: String(parts[1]).trimmingCharacters(in: .whitespaces)),

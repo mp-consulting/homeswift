@@ -42,10 +42,7 @@ final class WindowCoveringAccessory: WebhookAccessory {
         state = StatePair(
             parameter: "positionstate", key: "http-webhook-position-state-\(id)", characteristic: service.characteristic(.positionState),
             fallback: 2, field: "PositionState")
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookWindowCoveringAccessory-\(name)", serialNumber: "HttpWebHookWindowCoveringAccessory-\(id)", category: .windowCovering,
-            services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("WindowCovering", id: id, name: name, category: .windowCovering, services: [service])
         for pair in [current, target, state] { pair.characteristic.show(pair.stored(environment.store)) }
 
         let calls = Dictionary(uniqueKeysWithValues: ["open", "open_20", "open_40", "open_60", "open_80", "close"].map { ($0, entry.call($0)) })
@@ -68,10 +65,6 @@ final class WindowCoveringAccessory: WebhookAccessory {
     }
 
     func handle(_ query: WebhookQuery) -> WebhookReply {
-        for pair in [current, target, state] { pair.apply(query, environment: environment, name: name) }
-        return .success([
-            current.field: .number(current.stored(environment.store)), target.field: .number(target.stored(environment.store)),
-            state.field: .number(state.stored(environment.store)),
-        ])
+        [current, target, state].reply(to: query, environment: environment, name: name)
     }
 }

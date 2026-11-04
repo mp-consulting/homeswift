@@ -22,10 +22,7 @@ final class CarbonDioxideAccessory: WebhookAccessory {
         let service = Service(.carbonDioxideSensor, name: name, optional: [.carbonDioxideLevel], isPrimary: true)
         level = service.characteristic(.carbonDioxideLevel)
         detected = service.characteristic(.carbonDioxideDetected)
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookCarbonDioxideSensorAccessory-\(name)", serialNumber: "HttpWebHookCarbonDioxideSensorAccessory-\(id)", category: .sensor,
-            services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("CarbonDioxideSensor", id: id, name: name, category: .sensor, services: [service])
         level.show(environment.store.number(levelKey, default: 0))
         detected.show(environment.store.bool(detectedKey) ? 1 : 0)
     }
@@ -76,9 +73,7 @@ final class ValveAccessory: WebhookAccessory {
         case 3: .faucet
         default: .showerHead
         }
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookValveAccessory-\(name)", serialNumber: "HttpWebHookValveAccessory-\(id)", category: category, services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("Valve", id: id, name: name, category: category, services: [service])
         let open = environment.store.number(key, default: 0)
         active.show(open)
         inUse.show(open)

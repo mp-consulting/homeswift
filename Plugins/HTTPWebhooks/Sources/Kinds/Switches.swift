@@ -14,7 +14,6 @@ final class SwitchAccessory: WebhookAccessory {
     private let environment: KindEnvironment
     private var key: String { "http-webhook-\(id)" }
     private var inUseKey: String { "http-webhook-\(id)-inUse" }
-    private var kindName: String { isOutlet ? "Outlet" : "Switch" }
 
     init(id: String, name: String, outlet: Bool, entry: HTTPWebhooksPlugin.Entry, environment: KindEnvironment) {
         self.id = id
@@ -24,10 +23,7 @@ final class SwitchAccessory: WebhookAccessory {
         let service = Service(outlet ? .outlet : .switch, name: name, optional: outlet ? [.outletInUse] : [], isPrimary: true)
         on = service.characteristic(.on)
         inUse = outlet ? service.characteristic(.outletInUse) : nil
-        let prefix = outlet ? "HttpWebHookOutletAccessory" : "HttpWebHookSwitchAccessory"
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "\(prefix)-\(name)", serialNumber: "\(prefix)-\(id)", category: outlet ? .outlet : .switch, services: [service])
+        accessory = HTTPWebhooksPlugin.accessory(outlet ? "Outlet" : "Switch", id: id, name: name, category: outlet ? .outlet : .switch, services: [service])
         on.show(environment.store.bool(key))
         inUse?.show(environment.store.bool(inUseKey))
         let calls = (on: entry.call("on"), off: entry.call("off"))
@@ -44,13 +40,14 @@ final class SwitchAccessory: WebhookAccessory {
         let state = query.nonEmpty("state")
         let inUseState = isOutlet ? query.nonEmpty("stateOutletInUse") : nil
         guard state != nil || inUseState != nil else {
-            let readback = WebhookReply.success(["state": .bool(environment.store.bool(key))])
-            return isOutlet ? WebhookReply(fields: readback.fields + [("stateOutletInUse", .bool(environment.store.bool(inUseKey)))]) : readback
+            var reply = WebhookReply.success(["state": .bool(environment.store.bool(key))])
+            if isOutlet { reply.fields.append(("stateOutletInUse", .bool(environment.store.bool(inUseKey)))) }
+            return reply
         }
         if let state {
             let on = state == "true"
             environment.store.set(key, on)
-            if self.on.show(on) { environment.logger.info("\(name): changing HomeKit state for \(kindName.lowercased()) to \(on)") }
+            if self.on.show(on) { environment.logger.info("\(name): changing HomeKit state for \(isOutlet ? "outlet" : "switch") to \(on)") }
         }
         if let inUseState, let inUse {
             let used = inUseState == "true"
@@ -76,9 +73,7 @@ final class PushButtonAccessory: WebhookAccessory {
         self.environment = environment
         let service = Service(.switch, name: name, isPrimary: true)
         on = service.characteristic(.on)
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookPushButtonAccessory-\(name)", serialNumber: "HttpWebHookPushButtonAccessory-\(id)", category: .switch, services: [service])
+        accessory = HTTPWebhooksPlugin.accessory("PushButton", id: id, name: name, category: .switch, services: [service])
         let push = entry.call("push")
         let on = on
         on.onWrite { [environment, name] value in

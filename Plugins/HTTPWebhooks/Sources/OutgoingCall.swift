@@ -64,7 +64,8 @@ struct OutgoingCall: Sendable, Equatable {
         guard var components = URLComponents(string: url) ?? Self.lenientComponents(url) else { throw Failure.invalidURL }
         var request = HTTPRequest(method: method, url: URL(string: "http://placeholder")!, timeout: timeout)
         if let user = components.user {
-            let credentials = "\(user.removingPercentEncoding ?? user):\((components.password ?? "").removingPercentEncoding ?? components.password ?? "")"
+            // URLComponents gives them decoded already.
+            let credentials = "\(user):\(components.password ?? "")"
             request.setHeader("Authorization", "Basic \(Data(credentials.utf8).base64EncodedString())")
             components.user = nil
             components.password = nil
@@ -154,8 +155,7 @@ struct OutgoingCaller: Sendable {
                     guard remaining > .zero else { throw HTTPClientError.timeout }
                     // Credentials and the entry's own headers (API keys) stay with the host they were given for, and off
                     // a plain-HTTP hop.
-                    let downgraded = request.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http"
-                    if next.host?.lowercased() != request.url.host?.lowercased() || downgraded {
+                    if !Self.sameOrigin(request.url, next) || Self.downgrades(request.url, to: next) {
                         let dropped = call.headerNames.union(["authorization"])
                         request.headers.removeAll { dropped.contains($0.name.lowercased()) }
                     }
@@ -171,6 +171,21 @@ struct OutgoingCaller: Sendable {
             logger.warning("\(name): \(call.logDescription) failed: \(error)")
             throw HAPStatusError(.serviceCommunicationFailure)
         }
+    }
+}
+
+extension OutgoingCaller {
+    /// The same scheme, host and port: where a redirect may keep a call's credentials and headers.
+    static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        func origin(_ url: URL) -> (String, String, Int?) {
+            let scheme = url.scheme?.lowercased() ?? ""
+            return (scheme, url.host?.lowercased() ?? "", url.port ?? (scheme == "https" ? 443 : 80))
+        }
+        return origin(lhs) == origin(rhs)
+    }
+
+    static func downgrades(_ from: URL, to: URL) -> Bool {
+        from.scheme?.lowercased() == "https" && to.scheme?.lowercased() == "http"
     }
 }
 

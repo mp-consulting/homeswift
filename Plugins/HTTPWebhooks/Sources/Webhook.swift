@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 
@@ -20,21 +21,14 @@ struct WebhookQuery: Sendable, Equatable {
             return
         }
         var lists: [String: [String]] = [:]
-        var order: [String] = []
         let query = uri[uri.index(after: start)...].prefix { $0 != "#" }
         for pair in query.split(separator: "&") {
             let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            let name = Self.decode(parts[0])
+            let name = URLEncoding.decode(String(parts[0]))
             guard !name.isEmpty else { continue }
-            if lists[name] == nil { order.append(name) }
-            lists[name, default: []].append(parts.count == 2 ? Self.decode(parts[1]) : "")
+            lists[name, default: []].append(parts.count == 2 ? URLEncoding.decode(String(parts[1])) : "")
         }
         self.init(lists.mapValues { $0.joined(separator: ",") })
-    }
-
-    private static func decode(_ text: Substring) -> String {
-        let spaced = text.replacingOccurrences(of: "+", with: " ")
-        return spaced.removingPercentEncoding ?? spaced
     }
 
     /// The parameter as given, even empty; nil when absent.
@@ -94,9 +88,23 @@ struct WebhookReply: Sendable, Equatable {
 protocol WebhookAccessory: AnyObject, Sendable {
     /// The entry's `id`: the webhook's `accessoryId`.
     var id: String { get }
+    /// The entry's `name`: the accessory's identity (`HttpWebHooks:<name>`) and its Device Id.
+    var name: String { get }
     var accessory: Accessory { get }
     /// Applies a webhook's parameters and answers it.
     func handle(_ query: WebhookQuery) -> WebhookReply
+}
+
+extension HTTPWebhooksPlugin {
+    /// An entry's accessory, with the Homebridge plugin's Accessory Information: `<model>-<name>` and `<model>-<id>`.
+    static func accessory(
+        _ model: String, id: String, name: String, category: AccessoryCategory, services: [Service], serialNumber: String? = nil
+    ) -> Accessory {
+        let prefix = "HttpWebHook\(model)Accessory"
+        return Accessory(
+            id: accessoryID(name: name), name: name, manufacturer: manufacturer, model: "\(prefix)-\(name)",
+            serialNumber: serialNumber ?? "\(prefix)-\(id)", category: category, services: services)
+    }
 }
 
 /// What every kind uses: the state, the outgoing calls, the log, the plugin's tasks and its delays.

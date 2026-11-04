@@ -81,14 +81,15 @@ struct TransportTests {
         await http.redirect("http://a/same", to: "http://a/kept")
         await http.redirect("http://a/away", to: "http://b/elsewhere")
         await http.redirect("https://a/secure", to: "http://a/plain")
-        for url in ["http://u:p@a/same", "http://u:p@a/away", "https://u:p@a/secure"] {
+        await http.redirect("http://a/port", to: "http://a:8080/other-port")
+        for url in ["http://u:p@a/same", "http://u:p@a/away", "https://u:p@a/secure", "http://u:p@a/port"] {
             try await caller.send(OutgoingCall(url: url, method: "GET", headers: headers, rejectUnauthorized: true), timeout: .seconds(5), name: "Test")
         }
         let requests = await http.requests
         func last(_ url: String) -> HTTPRequest? { requests.last { $0.url.absoluteString == url } }
         #expect(last("http://a/kept")?.header("X-Api-Key") == "k")
         #expect(last("http://a/kept")?.header("Authorization") != nil)
-        for url in ["http://b/elsewhere", "http://a/plain"] {
+        for url in ["http://b/elsewhere", "http://a/plain", "http://a:8080/other-port"] {
             #expect(last(url)?.header("X-Api-Key") == nil, "\(url)")
             #expect(last(url)?.header("Accept") == nil, "\(url)")
             #expect(last(url)?.header("Authorization") == nil, "\(url)")

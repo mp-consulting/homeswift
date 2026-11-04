@@ -49,9 +49,7 @@ final class DoorbellAccessory: WebhookAccessory {
         switchEvent = programmable.characteristic(.programmableSwitchEvent)
         doorbellEvent = doorbell.characteristic(.programmableSwitchEvent)
         // The doorbell's serial number is the bare id, as the Homebridge plugin has it.
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookDoorbellAccessory-\(name)", serialNumber: id, category: .videoDoorbell, services: [programmable, doorbell])
+        accessory = HTTPWebhooksPlugin.accessory("Doorbell", id: id, name: name, category: .videoDoorbell, services: [programmable, doorbell], serialNumber: id)
     }
 
     func handle(_ query: WebhookQuery) -> WebhookReply {
@@ -94,10 +92,7 @@ final class StatelessSwitchAccessory: WebhookAccessory {
             buttons.append((buttonName, service.characteristic(.programmableSwitchEvent)))
         }
         self.buttons = buttons
-        accessory = Accessory(
-            id: HTTPWebhooksPlugin.accessoryID(name: name), name: name, manufacturer: HTTPWebhooksPlugin.manufacturer,
-            model: "HttpWebHookStatelessSwitchAccessory-\(name)", serialNumber: "HttpWebHookStatelessSwitchAccessory-\(id)", category: .programmableSwitch,
-            services: services)
+        accessory = HTTPWebhooksPlugin.accessory("StatelessSwitch", id: id, name: name, category: .programmableSwitch, services: services)
     }
 
     /// Every button of that name gets the event, unchecked against its flags, as the Homebridge plugin does.

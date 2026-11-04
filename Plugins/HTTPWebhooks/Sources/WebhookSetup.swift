@@ -23,18 +23,11 @@ extension HTTPWebhooksPlugin {
 
     /// The entries of the block, each a device set up already: nothing to authorize, as the accessories are virtual.
     public func discover() async throws -> [DiscoveredDevice] {
-        var devices: [DiscoveredDevice] = []
-        var names: Set<String> = []
-        for list in Self.kinds {
-            for entry in configuration.entries(list) {
-                guard let id = entry.id, !id.isEmpty, let name = entry.name, names.insert(name).inserted else { continue }
-                let model = list == "sensors" ? entry.string("type").flatMap(SensorAccessory.Kind.init(rawValue:))?.label : Self.label(of: list)
-                guard let model else { continue }
-                let shown = context.accessorySettings(for: name).name ?? name
-                devices.append(DiscoveredDevice(deviceID: name, name: shown, model: model, address: "accessoryId=\(id)", isSetUp: true))
-            }
+        Self.validEntries(configuration, logger: nil).map { valid in
+            DiscoveredDevice(
+                deviceID: valid.name, name: context.accessorySettings(for: valid.name).name ?? valid.name, model: valid.model,
+                address: "accessoryId=\(valid.id)", isSetUp: true)
         }
-        return devices
     }
 
     /// The user name and the password the webhooks must give.
@@ -47,13 +40,5 @@ extension HTTPWebhooksPlugin {
         }
         return .done(SetupOutcome(
             credentials: ["user": .string(user), "password": .string(password)], settings: ["http_auth_user": .null, "http_auth_pass": .null]))
-    }
-
-    static func label(of list: String) -> String? {
-        [
-            "switches": "Switch", "pushbuttons": "Push button", "doorbells": "Doorbell", "lights": "Light", "thermostats": "Thermostat",
-            "outlets": "Outlet", "security": "Security system", "garagedooropeners": "Garage door", "windowcoverings": "Window covering",
-            "statelessswitches": "Stateless switch", "lockmechanisms": "Lock", "fanv2s": "Fan", "co2sensors": "Carbon dioxide sensor", "valves": "Valve",
-        ][list]
     }
 }
