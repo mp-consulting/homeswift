@@ -65,7 +65,7 @@ final class AssistantRuns: Sendable {
 extension UIServer {
     static let assistantOff = "the Assistant is off: add a HomeswiftAiKit block"
 
-    /// `/api/assistant/…` besides the chat: `usage`, `test`, `digest`, `explain`, `ask`, `diagnose` and `cancel`.
+    /// `/api/assistant/…` besides the chat: `usage`, `test`, `models`, `digest`, `explain`, `ask`, `diagnose` and `cancel`.
     /// nil for a route it does not know.
     func assistantRoute(_ route: [String], _ request: Request, body: JSONValue, username: String) async throws -> Reply? {
         switch (request.method, route) {
@@ -77,6 +77,13 @@ extension UIServer {
             if let refused = limitAssistant(for: username) { return refused }
             let block = body["block"].flatMap { $0.objectValue == nil ? nil : $0 }
             return .json(await catalog.testAssistantConnection(block: block, user: username))
+        case (.POST, ["models"]):
+            // The settings form's block, saved or not, or the saved one: the models its provider offers (the Model menu).
+            // Each opening of the menu asks the provider with the bridge's key: limited as the test is, though no
+            // tokens are spent and no usage is counted.
+            if let refused = limitAssistant(for: username) { return refused }
+            let block = body["block"].flatMap { $0.objectValue == nil ? nil : $0 }
+            return .json(await catalog.assistantModels(block: block))
         case (.GET, ["digest"]):
             // Today's digest when it was written already; the Status page's widget writes it on demand.
             guard catalog.host.assistant != nil else { return .error(404, Self.assistantOff) }

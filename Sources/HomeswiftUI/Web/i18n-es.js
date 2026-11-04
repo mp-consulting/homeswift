@@ -1326,6 +1326,8 @@ HomeswiftI18n.add("es", {
   "New room…": "Nueva habitación…",
   "The new room's name.": "El nombre de la nueva habitación.",
   "Search rooms": "Buscar habitaciones",
+  "Other…": "Otro…",
+  "The list could not be read": "No se pudo leer la lista",
   "Find a setting": "Buscar un ajuste",
   "No setting matches.": "Ningún ajuste coincide.",
   "Motion": "Movimiento",
