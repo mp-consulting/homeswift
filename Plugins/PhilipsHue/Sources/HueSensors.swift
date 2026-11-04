@@ -20,7 +20,13 @@ extension PhilipsHuePlugin {
 
     static func sensorAccessoryID(deviceID: String) -> String { "\(platform):device:\(deviceID)" }
 
+    /// Excluded by its Accessory Settings (`device:<id>`), or left out by `excludeSensors`.
     func isExcluded(_ sensor: HueSensorDevice) -> Bool {
+        context.isExcluded(Self.sensorDeviceID(sensor.id)) || isListed(sensor)
+    }
+
+    /// Left out by the Homebridge-shaped `excludeSensors`, by name or device id.
+    func isListed(_ sensor: HueSensorDevice) -> Bool {
         excludedSensors.contains(sensor.name.lowercased()) || excludedSensors.contains(sensor.id.lowercased())
     }
 

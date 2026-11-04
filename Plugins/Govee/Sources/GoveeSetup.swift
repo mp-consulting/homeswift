@@ -4,9 +4,10 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the Govee account is the instance's, an Account Login whose second step is the code
-// Govee emails for a new device (its "new device" check). The login it gives, the AWS IoT certificate and the password
-// go in the vault (`StoredLogin`), never in config.json; the block's `username`, `password` and `code` still work. The
-// devices are the account's and the LAN's, by their Govee device id (`AA:BB:…`, as their accessories' ids): the
+// Govee emails for a new device (its "new device" check). The login it gives, the AWS IoT certificate, the username and
+// the password go in the vault (`StoredLogin`), never in config.json: a Homebridge block's `username`, `password` and
+// `code` still work, and Setup takes them out of it. The devices are the account's and the LAN's, by their Govee device
+// id (`AA:BB:…`, as their accessories' ids), each of the Device Kind of its model's list (`kind(ofModel:)`): the
 // account's need nothing more, and one found only on the LAN is published once it has Accessory Settings.
 extension GoveePlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
@@ -51,10 +52,10 @@ extension GoveePlugin {
             let name = deviceSettings[id]?.label ?? entry["deviceName"]?.stringValue?.nonEmpty ?? id
             // As `initializeDevices` decides: the account's devices, and with an account, of the LAN's only those configured.
             let published = devices[id] != nil
-                || (!started && !isIgnored(id, model: model) && (entry["account"] == true || !signedIn || deviceSettings[id] != nil))
+                || (!started && !isIgnored(id, model: model) && (entry["account"] == true || !signedIn || isConfigured(id)))
             return DiscoveredDevice(
                 deviceID: id, name: name, model: model, address: entry["ip"]?.stringValue, isSetUp: published,
-                excludedBySettings: isIgnoredBySettings(id, model: model))
+                excludedBySettings: isIgnoredBySettings(id, model: model), kind: Self.kind(ofModel: model))
         }
     }
 
@@ -95,6 +96,6 @@ extension GoveePlugin {
         context.logger.info("[HTTP] Signed in through Setup")
         let login = StoredLogin(username: username, password: password, credentials: result.credentials, iot: result.iot)
         return .done(SetupOutcome(
-            credentials: try JSONValue(encoding: login), settings: ["username": .string(username), "password": .null, "code": .null]))
+            credentials: try JSONValue(encoding: login), settings: ["username": .null, "password": .null, "code": .null]))
     }
 }

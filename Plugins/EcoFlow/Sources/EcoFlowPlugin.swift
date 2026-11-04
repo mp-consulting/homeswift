@@ -25,11 +25,12 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         public var route: String?
         /// The EcoFlow account email, for the app route.
         public var email: String?
-        /// The EcoFlow account password, for the app route. Stored in config.json, which only the bridge's owner can read.
+        /// The EcoFlow account password, for the app route: in the vault (Setup); a block's still works, moved there by
+        /// `canonicalSettings`.
         public var password: String?
-        /// The developer access key.
+        /// The developer access key, likewise in the vault.
         public var accessKey: String?
-        /// The developer secret key. Stored in config.json, which only the bridge's owner can read.
+        /// The developer secret key, likewise in the vault.
         public var secretKey: String?
         /// `us` or `eu`: the region the developer account was created in. `us` by default.
         public var region: String?
@@ -39,6 +40,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         /// Seconds between reads of the developer API; 30 at least, 60 by default. The app's stream is read every few
         /// seconds whatever this is.
         public var pollingInterval: Int?
+        /// Serial numbers with names, read first by the app's route; `canonicalSettings` moves the names into each device's
+        /// Accessory Settings.
         public var devices: [Device]?
     }
 
@@ -113,7 +116,20 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context,
-                  dependencies: Self.dependencies(for: Self.withStoredKeys(configuration, context), clientSuffix: Self.clientSuffix(context)))
+                  dependencies: Self.dependencies(
+                    for: Self.withStoredKeys(configuration, context), serials: Self.configuredSerials(configuration, context).map(\.id),
+                    clientSuffix: Self.clientSuffix(context)))
+    }
+
+    /// The devices config.json names, with their names: a Homebridge block's `devices`, then the devices with Accessory
+    /// Settings (where `canonicalSettings` moves them); an Excluded one is left out.
+    static func configuredSerials(_ configuration: Configuration, _ context: PluginContext) -> [(id: String, name: String?)] {
+        var devices = (configuration.devices ?? []).map { (id: $0.id, name: $0.name) }
+        for (id, settings) in context.allAccessorySettings.sorted(by: { $0.key < $1.key })
+        where !devices.contains(where: { $0.id == id }) && EcoFlowModel.model(serial: id) != nil {
+            devices.append((id: id, name: settings.name))
+        }
+        return devices.filter { !context.isExcluded($0.id) }
     }
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
@@ -135,7 +151,9 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         return suffix
     }
 
-    static func dependencies(for configuration: Configuration, clientSuffix: String = "") -> Dependencies {
+    /// `serials`: the devices the app's route subscribes to before those the account lists (`configuredSerials`), a
+    /// Homebridge block's `devices` by default.
+    static func dependencies(for configuration: Configuration, serials: [String]? = nil, clientSuffix: String = "") -> Dependencies {
         let route = Route(configuration.route)
         var apis: [any EcoFlowAPI] = []
         // The developer API first: a device both APIs report is read from it.
@@ -148,7 +166,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         if route != .developer, let email = configuration.email, !email.isEmpty,
            let password = configuration.password, !password.isEmpty {
             apis.append(EcoFlowAppAPI(
-                email: email, password: password, serials: (configuration.devices ?? []).map(\.id), transport: HTTPClient(),
+                email: email, password: password, serials: serials ?? (configuration.devices ?? []).map(\.id), transport: HTTPClient(),
                 mqtt: { MQTTClient($0) }))
         }
         var history: EcoFlowHistory?
@@ -250,7 +268,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// the app's device list, so no device has to report, nor be listed, for the import to run.
     var historySerial: String? {
         latest.first { $0.kind == .stream }?.id
-            ?? configuration.devices?.first { EcoFlowModel.model(serial: $0.id)?.kind == .stream }?.id
+            ?? Self.configuredSerials(configuration, context).first { EcoFlowModel.model(serial: $0.id)?.kind == .stream }?.id
     }
 
     /// One import: from where the last one stopped (`historyOverlap` before it), or from the start. Each month goes into
@@ -303,7 +321,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         guard let api = dependencies.api else { return }
         let reported: [EcoFlowDevice]
         do {
-            reported = try await api.devices()
+            // An Excluded device is neither recorded nor added: the runtime would refuse its accessory.
+            reported = try await api.devices().filter { !context.isExcluded($0.id) }
         } catch {
             logger.warning("Could not read the devices: \(error)")
             await logSchemaChanges(api)
@@ -388,14 +407,11 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     }
 
     private func power() -> PluginWebResponse {
-        let listed = Set((configuration.devices ?? []).map(\.id))
         let devices: [JSONValue] = ordered(latest).map { device in
             let power = device.state.power
             return .object([
                 "id": .string(device.id),
                 "name": .string(displayName(device)),
-                // Whether the device has an entry in the configuration's `devices`: the page offers to add the others.
-                "configured": .bool(listed.contains(device.id)),
                 "online": .bool(device.online),
                 "source": .string(device.source.rawValue),
                 "batteryLevel": device.state.knowsBatteryLevel ? .number(Double(device.state.battery.batteryLevel)) : .null,
@@ -427,7 +443,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         // The configured devices with no readings yet: the page shows a placeholder for each while they arrive (the
         // app's stream reports a few seconds after the developer API).
         let reported = Set(latest.map(\.id))
-        let waiting: [JSONValue] = (configuration.devices ?? []).filter { !reported.contains($0.id) }.map { device in
+        let waiting: [JSONValue] = Self.configuredSerials(configuration, context).filter { !reported.contains($0.id) }.map { device in
             .object(["id": .string(device.id), "name": device.name.map { .string($0) } ?? .null,
                      "model": EcoFlowModel.model(serial: device.id).map { .string($0.name) } ?? .null])
         }

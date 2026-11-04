@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftPlugin
 
 extension UniFiProtectPlugin {
     /// The `UniFi Protect` platform block of `homebridge-unifi-protect`, key for key. Decoding is lenient as
@@ -17,6 +18,9 @@ extension UniFiProtectPlugin {
         public var verboseFfmpeg: Bool
         /// The FFmpeg executable; the first `ffmpeg` on the PATH otherwise.
         public var videoProcessor: String?
+        /// The Plugin Settings that stand for feature options without a scope (`OptionSetting.key`: `motionDuration`), as
+        /// the block has them.
+        public var settings: [String: JSONValue] = [:]
 
         public struct Controller: Decodable, Sendable, Equatable {
             public var address: String
@@ -132,6 +136,8 @@ extension UniFiProtectPlugin {
             ringDelay = min(max(0, container.lenientInt(.ringDelay) ?? 0), 86_400)
             verboseFfmpeg = container.lenientBool(.verboseFfmpeg) ?? false
             videoProcessor = container.lenientString(.videoProcessor)?.trimmingCharacters(in: .whitespaces).nonEmpty
+            let keys = Set(UniFiProtectPlugin.optionSettings.map(\.key))
+            settings = ((try? JSONValue(from: decoder))?.objectValue ?? [:]).filter { keys.contains($0.key) }
         }
 
         init(controllers: [Controller], options: [String] = [], ringDelay: Int = 0) {

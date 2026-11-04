@@ -6,8 +6,10 @@ import HomeswiftPlugin
 // Setup (GLOSSARY.md, "Setup"): each Wingman is a device whose Device Id is its own id (its Bonjour TXT `id`),
 // authorized with the 6-digit code its menu shows (a Device Code) once the person has checked its certificate. The token
 // and the pinned certificate go in the vault under its id; its address in its Accessory Settings. The `devices` list
-// the plugin's page used to write still works as it was (docs/adr/0001-canonical-accessory-settings.md), and an entry of
-// it with an address but no id is a Wingman for Setup to pair: the way to reach one Bonjour does not.
+// the plugin's page used to write still works as it was, until `canonicalSettings` moves it
+// (docs/adr/0001-canonical-accessory-settings.md), and an entry of it with an address but no id is a Wingman for Setup to
+// pair: the way to reach one Bonjour does not. The mirrored accessories and Apple Home's bridges are devices too
+// (WingmanSettings.swift).
 extension WingmanPlugin {
     /// What pairing gives a Wingman, kept in the vault under its id.
     struct Credentials: Codable, Sendable, Equatable {
@@ -78,7 +80,7 @@ extension WingmanPlugin {
 
     /// The Wingmen the plugin runs (set up once they have a token and a pinned certificate), those Bonjour finds that it
     /// does not, and those typed in the settings by their address (`address:<host>`) that are neither: the last two need
-    /// their code.
+    /// their code. Then the accessories the paired Wingmen mirror and their bridges, which need nothing.
     public func discover() async throws -> [DiscoveredDevice] {
         let configured = configuredDevices()
         let found = isBrowsing ? Array(announced.values) : await browseOnce()
@@ -87,19 +89,21 @@ extension WingmanPlugin {
             return DiscoveredDevice(
                 deviceID: device.id, name: device.name ?? seen?.name ?? device.id, model: "Homeswift Wingman",
                 address: Self.address(host: seen?.host ?? device.host, port: seen?.port ?? device.port), authorization: .deviceCode,
-                isSetUp: device.token?.isEmpty == false && device.fingerprint?.isEmpty == false)
+                isSetUp: device.token?.isEmpty == false && device.fingerprint?.isEmpty == false, kind: Self.wingmanKind)
         }
         let known = Set(configured.map(\.id))
         for wingman in found.sorted(by: { $0.name < $1.name }) where !known.contains(wingman.id) {
             devices.append(DiscoveredDevice(
-                deviceID: wingman.id, name: wingman.name, model: "Homeswift Wingman", address: Self.address(host: wingman.host, port: wingman.port), authorization: .deviceCode))
+                deviceID: wingman.id, name: wingman.name, model: "Homeswift Wingman", address: Self.address(host: wingman.host, port: wingman.port), authorization: .deviceCode,
+                kind: Self.wingmanKind))
         }
         // At the address Bonjour or Setup knows a Wingman by: that Wingman, set up or found already.
         let addresses = Set((devices.compactMap(\.address) + configured.compactMap { Self.address(host: $0.host, port: $0.port) }).map { $0.lowercased() })
         for (address, name) in typedAddresses() where !addresses.contains(address.lowercased()) {
-            devices.append(DiscoveredDevice(deviceID: "address:\(address)", name: name ?? address, model: "Homeswift Wingman", address: address, authorization: .deviceCode))
+            devices.append(DiscoveredDevice(deviceID: "address:\(address)", name: name ?? address, model: "Homeswift Wingman", address: address, authorization: .deviceCode,
+                                            kind: Self.wingmanKind))
         }
-        return devices
+        return devices + (await mirroredDevices())
     }
 
     /// Asks Wingman for its certificate, then for the code its menu shows, which pairs over that certificate pinned.

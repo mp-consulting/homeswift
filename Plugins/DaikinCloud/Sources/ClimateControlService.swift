@@ -73,7 +73,7 @@ final class ClimateControlService: @unchecked Sendable {
         // The separate Fan: only with the option, and only when the unit has a fan speed or a swing.
         let fixed = fanSpeed.fixed()
         let fanShape = separateFanShape ?? SeparateFanShape(hasFanSpeed: fixed.value != nil, fanSpeedMax: fixed.maxValue, hasSwing: swing.isSupported)
-        if context.settings.isEnabled(.showSeparateFanControl), fanShape.hasFanSpeed || fanShape.hasSwing {
+        if context.isEnabled(.showSeparateFanControl), fanShape.hasFanSpeed || fanShape.hasSwing {
             context.logger.debug("[\(name)] Adding separate Fan service")
             let fanName = "\(name) Fan"
             var fanExtra = [Characteristic(.configuredName, value: .string(fanName))]

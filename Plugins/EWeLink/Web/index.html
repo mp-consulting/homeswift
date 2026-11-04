@@ -7,8 +7,8 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* The Homebridge plugin's settings page on the UI's materials, without its login (Setup signs in): the account,
-     the devices and settings, then done once saved. One step shows at a time. */
+  /* The Homebridge plugin's settings page on the UI's materials, without its login (Setup signs in) or its settings
+     (the Settings page has them): the account and its devices. */
   .page-head { align-items: center; }
   .tile.ewelink { background: linear-gradient(160deg, #ff7b6b, #e74c3c); }
   /* RF and LAN hues, lighter on dark backgrounds so their small text stays readable. */
@@ -18,16 +18,8 @@
   }
   :root:where([data-theme="dark"]) { --rf: #d58cf0; --rf-line: rgba(213, 140, 240, 0.4); --rf-fill: rgba(213, 140, 240, 0.14); --lan: #6aa8ff; --lan-line: rgba(106, 168, 255, 0.4); }
   .step { margin-bottom: 22px; animation: materialize var(--normal) var(--ease-out); }
-  .step-head { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; }
-  .step-head h2 { margin: 0; }
-  .step-number {
-    width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: 600;
-    background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text);
-  }
-  .step-number.done { background: linear-gradient(160deg, #6ee7a0, #23a55a); color: #fff; }
   .session { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
   .session p { margin: 2px 0 0; font-size: 0.8125rem; }
-  .tabs { margin-bottom: 14px; }
   .list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
   .list-head h3 { margin: 0; display: flex; align-items: center; gap: 8px; }
   .count { font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
@@ -71,7 +63,7 @@
     <span class="tile large ewelink" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></svg></span>
     <div class="who">
       <h1>eWeLink</h1>
-      <p class="muted" data-i18n>Connect your eWeLink account to manage devices in HomeKit.</p>
+      <p class="muted" data-i18n>The devices of your eWeLink account, how the plugin reaches each one on the LAN or through the cloud, and their settings.</p>
     </div>
   </div>
 
@@ -79,15 +71,10 @@
 
   <section id="step-devices" class="step hidden">
     <div id="account" class="card session">
-      <div><strong data-i18n>Your account</strong><p id="account-text" class="muted"></p></div>
+      <div><strong data-i18n>Your account</strong><p class="muted" data-i18n>Signed in. The connection mode, the other options and each device's settings are on the Settings page.</p></div>
       <a id="sign-in-again" class="button" data-i18n data-action-icon="key">Sign in again</a>
     </div>
-    <div class="group tabs" role="tablist">
-      <button id="tab-devices" role="tab" class="on" aria-selected="true" aria-controls="pane-devices" data-i18n>Devices</button>
-      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" data-i18n data-action-icon="sliders">Settings</button>
-    </div>
-    <div id="save-problem" class="problem hidden" role="alert"></div>
-    <div id="pane-devices" class="card" role="tabpanel">
+    <div id="pane-devices" class="card">
       <div id="status" class="facts status-facts"></div>
       <div class="list-head">
         <h3 data-i18n>Discovered devices <span id="device-count" class="count">0</span></h3>
@@ -95,29 +82,6 @@
       </div>
       <div id="devices-problem" class="problem hidden"></div>
       <ul id="devices" class="devices"></ul>
-    </div>
-    <div id="pane-settings" class="card hidden" role="tabpanel">
-      <label class="field"><span class="field-title" data-i18n>Connection mode</span>
-        <select id="mode"><option value="auto" data-i18n>Auto (LAN + Cloud)</option><option value="lan" data-i18n>LAN Only</option><option value="wan" data-i18n>Cloud Only</option></select>
-        <span class="help" data-i18n>Auto mode tries LAN first, then falls back to cloud.</span></label>
-      <label class="toggle"><span class="switch"><input id="debug" type="checkbox"><span></span></span>
-        <span><span class="field-title" data-i18n>Enable debug logging</span><span class="help" data-i18n>Accessories log their debug lines (run homeswift with -D to see them).</span></span></label>
-      <label class="toggle"><span class="switch"><input id="offline-as-off" type="checkbox"><span></span></span>
-        <span><span class="field-title" data-i18n>Show offline devices as off</span><span class="help" data-i18n>Instead of "No Response" in the Home app.</span></span></label>
-      <div class="save-bar"><span class="muted" data-i18n>The other options (per-device settings, simulations, RF sub-devices) are in Settings.</span>
-        <button id="save-settings" class="primary" data-i18n data-action-icon="check">Save configuration</button></div>
-    </div>
-  </section>
-
-  <section id="step-complete" class="step hidden">
-    <div class="step-head"><span class="step-number done">✓</span><h2 data-i18n>Configuration complete</h2></div>
-    <div class="card">
-      <p id="complete-text"><strong>All done!</strong> The plugin reloaded with the new configuration.</p>
-      <div class="actions">
-        <button id="back" data-i18n data-action-icon="restore">Back to the devices</button>
-        <button id="restart" class="hidden" data-i18n data-action-icon="power">Restart Homeswift</button>
-      </div>
-      <p id="restart-status" class="status-line"></p>
     </div>
   </section>
 </main>

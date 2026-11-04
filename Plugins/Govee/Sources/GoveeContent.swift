@@ -2,8 +2,8 @@ import Foundation
 import Homeswift
 import HomeswiftPlugin
 
-/// The Govee app's content: the scene library of a device, the account's DIY effects, and the modes a device
-/// supports (`utils/govee-content.ts`). Unofficial endpoints the app itself calls; they can change without
+/// The Govee app's content: the scene library of a device and the account's DIY effects
+/// (`utils/govee-content.ts`). Unofficial endpoints the app itself calls; they can change without
 /// notice, so every caller carries on without them.
 enum GoveeContent {
     /// What identifies a device to the content endpoints.
@@ -11,12 +11,6 @@ enum GoveeContent {
         var sku: String
         var device: String
         var goodsType: Int?
-        var versionSoft: String?
-        var versionHard: String?
-        var wifiVersionSoft: String?
-        var wifiVersionHard: String?
-        var pactType: Int?
-        var pactCode: Int?
     }
 
     /// One effect of a scene; scenes with several carry the speed or style variants the app offers.
@@ -60,17 +54,6 @@ enum GoveeContent {
         var group: String?
         var iconUrl: String?
         var code: String
-    }
-
-    /// The modes the app can show for a device, by its internal mode id.
-    static let modes: [Int: String] = [
-        7: "video", 8: "music", 9: "colour", 10: "scene", 11: "diy", 12: "graffiti", 13: "illumination", 18: "interaction",
-        19: "quickOperation", 20: "shareSpace", 21: "display", 22: "carousel",
-    ]
-
-    struct FunctionSupport: Sendable, Equatable {
-        var modes: [String]
-        var modeIds: [Int]
     }
 
     // MARK: Normalising
@@ -170,7 +153,6 @@ enum GoveeContent {
 
     static let scenesURL = "https://app2.govee.com/appsku/v2/scences"
     static let diysURL = "https://app2.govee.com/bff-app/v1/diy/list"
-    static let functionSupportURL = "https://app2.govee.com/bff-app/v1/devices/detail/function-support"
     static let timeout: Duration = .seconds(20)
 
     /// The scene library Govee offers for one device. Throws when the request fails: callers decide whether
@@ -204,32 +186,6 @@ enum GoveeContent {
             }
         }
         return entries
-    }
-
-    /// Which modes a device supports, so the page offers only those.
-    static func functionSupport(api: GoveeAPI, token: String, ref: DeviceRef) async throws -> FunctionSupport {
-        var query: [(String, String)] = [("sku", ref.sku), ("device", ref.device), ("goodsType", String(ref.goodsType ?? 0))]
-        if let value = ref.pactType { query.append(("pactType", String(value))) }
-        if let value = ref.pactCode { query.append(("pactCode", String(value))) }
-        if let value = ref.versionSoft { query.append(("versionSoft", value)) }
-        if let value = ref.versionHard { query.append(("versionHard", value)) }
-        if let value = ref.wifiVersionSoft { query.append(("wifiVersionSoft", value)) }
-        if let value = ref.wifiVersionHard { query.append(("wifiVersionHard", value)) }
-        let answer = try await api.request("GET", functionSupportURL, token: token, query: query, timeout: timeout)
-        return functionSupport(answer["data"])
-    }
-
-    static func functionSupport(_ raw: JSONValue?) -> FunctionSupport {
-        let ids: [Double?]
-        if let modes = raw?["modes"]?.arrayValue {
-            ids = modes.map { $0.doubleValue ?? $0["componentId"].flatMap { $0.doubleValue ?? $0.stringValue.flatMap(Double.init) } }
-        } else if let components = raw?["components"]?.arrayValue {
-            ids = components.map { ($0["componentId"] ?? $0).doubleValue ?? ($0["componentId"] ?? $0).stringValue.flatMap(Double.init) }
-        } else {
-            ids = []
-        }
-        let modeIds = ids.compactMap { $0 }.filter(\.isFinite).map { Int($0) }
-        return FunctionSupport(modes: modeIds.compactMap { modes[$0] }, modeIds: modeIds)
     }
 }
 

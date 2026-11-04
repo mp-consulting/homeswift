@@ -25,30 +25,39 @@ sensors; the other kinds, writes, scenes and events against a fake hub in the te
 }
 ```
 
-A hub without a `token` is set up on the web UI's **Add accessories** page (Setup: the hubs are the instance's account,
+A hub is set up on the web UI's **Add accessories** page (Setup: the hubs are the instance's account,
 authorized by a Button Press), or by an AI agent through the MCP server's `start_setup`: Setup takes a hub of the block
 without a token, else one found on the network, else asks for its address, then asks for a press on the action button
 under the hub within a minute. A hub Setup paired is used without an entry in `hubs`. The plugin's page leads there
 while no hub is set up, and a hub's ⋯ menu has **Pair again** (or **Pair**). The token is kept sealed in the bridge's vault (`vault.json`,
 docs/vault-design.md; `plugins/Dirigera-<name>/hubs.json` before, which moves there when the plugin reads it), never in
-config.json, with the hub's certificate pinned on first use. A token
-from homebridge-dirigera in `token` works as it is; a token pairing kept wins over it. Setup lists each light, outlet,
-sensor group and the scenes accessory (`scenes:<host>`) by its accessory's id; Excluding one there, or naming it in
-`excludeDevices` or `excludeScenes`, keeps it out.
+config.json, with the hub's certificate pinned on first use.
 
 | Option | Default | What it does |
 |---|---|---|
-| `hubs` | `[]` | The hubs: `host`, optional `token` and `name` (the scenes accessory is "<name> Scenes") |
+| `hubs` | `[]` | The hubs: `host` and an optional `name` (the scenes accessory is "<name> Scenes") |
 | `transitionMs` | `100` | How long a light takes to reach a new level or colour; `0` changes at once |
 | `scenes` | `true` | A switch for each scene of the hub (see below) |
-| `excludeDevices` | `[]` | Device names or ids to leave out of HomeKit |
-| `excludeScenes` | `[]` | Scene names or ids to leave out |
+
+These are the Plugin Settings, edited on the plugin's **Settings** page in the web UI or with the MCP tools
+`get_settings` and `update_settings`. Setup lists each light, outlet and sensor group by its accessory's id
+(`Dirigera:<id>`), and each scene by its id on the hub; their Accessory Settings sit in the block's `_accessories` under
+those ids, and Excluding one keeps it out (a scene has no switch then). Their Device Kinds are `light`, `outlet`,
+`sensor` (door, motion, light, air and water sensors), `blinds`, `airPurifier`, `controller` (remotes) and `scene`; the
+plugin declares no Accessory Settings of its own.
+
+A homebridge-dirigera block still loads: a hub's `token` works as it is (a token pairing kept wins over it), and
+`excludeDevices` (device names or ids, a part's for its product) and `excludeScenes` (scene names or ids) leave devices
+and scenes out. The first settings change written through the bridge moves them: the names the hubs have become Excluded
+devices and scenes, and a `token` goes into the vault and out of config.json. A scenes accessory Excluded before each
+scene was a device (`scenes:<host>`) becomes each of its scenes Excluded.
 
 ### Scenes
 
 The hub's user scenes are switches on one accessory per hub: **On** triggers the scene and the switch goes back off a
 second later; **Off** within 30 seconds of triggering undoes it (the hub's undo window). Wake-up and playlist scenes,
-which run on their own schedule, are left out.
+which run on their own schedule, are left out. The accessory keeps its id, `Dirigera:scenes:<hub address>`, whichever
+scenes are Excluded; with none left, it goes.
 
 ### Sensors, blinds, air purifiers and remotes
 
@@ -64,20 +73,19 @@ which run on their own schedule, are left out.
 | `batteryPercentage` | Battery, low below 10 % |
 
 Devices that are parts of one product (`relationId`: a VALLHORN's motion and light sensors, a remote's buttons) are
-one accessory, `Dirigera:<relationId>`; the others keep `Dirigera:<device id>`. `excludeDevices` takes a part's name or
-id, or the group's id. A remote's button keeps working with what it controls on the hub; in the Home app it can run
+one accessory, `Dirigera:<relationId>`, Excluded by that id; the others keep `Dirigera:<device id>`. A remote's button keeps working with what it controls on the hub; in the Home app it can run
 scenes and automations too.
 
 ## The web page
 
 With the web UI on, the plugin's page lists the hubs (their state, devices and scenes, and **Pair again** in a hub's ⋯
-menu, which opens Setup on Add accessories; until one is set up, a card leading there), then three tabs: **Devices**, every device drawn by the
+menu, which opens Setup on Add accessories; until one is set up, a card leading there), then two tabs: **Devices**, every device drawn by the
 Accessories page's widgets (a remote's buttons light as they are pressed), room by room or by name under the Hue page's
 toolbar: a search, a room, and filters for lights, outlets, sensors, blinds and air, remotes, low battery and No
 Response; **Scenes**, a tile per scene (a tap runs it; drop a picture on it, or choose
 one from its ⋯ menu, to give the scene its own, kept with every scene's picture so Homeswift's Scenes page shows it
-too; the same menu leaves it out of the Home
-app); **Settings**, the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default) and the scenes switch.
+too; the same menu opens the scene's settings, where it is left out of the Home app). The page writes no settings:
+**Settings** at its top opens the plugin's Settings page, and a device's ⋯ menu its own settings there.
 
 ![Scenes](../../docs/images/plugins/dirigera-scenes.png)
 

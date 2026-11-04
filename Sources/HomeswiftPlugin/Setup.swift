@@ -28,6 +28,9 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
     public var deviceID: String
     public var name: String
     public var model: String?
+    /// Its Device Kind (GLOSSARY.md): `camera`, `sensor`, as the plugin names them in its schema's `accessorySchema`
+    /// (`x-kinds`); nil when its Plugin Accessory Settings do not depend on it.
+    public var kind: String?
     /// Where it answers, when it has an address of its own: `192.168.1.20`, `hue.local:443`.
     public var address: String?
     /// What it asks before the bridge may talk to it.
@@ -48,11 +51,12 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
 
     public init(
         deviceID: String, name: String, model: String? = nil, address: String? = nil, authorization: AuthorizationMethod = .none, isSetUp: Bool = false,
-        excludedBySettings: Bool = false
+        excludedBySettings: Bool = false, kind: String? = nil
     ) {
         self.deviceID = deviceID
         self.name = name
         self.model = model
+        self.kind = kind
         self.address = address
         self.authorization = authorization
         self.isSetUp = isSetUp

@@ -10,6 +10,9 @@
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
+  /// Changes Accessory Settings (Excluded, Parts) by Accessory Id: one device's, or several by id in one write.
+  const settings = (block, body, accessoryID) => api(`/api/settings/accessories${accessoryID ? `/${encodeURIComponent(accessoryID)}` : ""}?instance=${encodeURIComponent(block.name)}`, { method: "PATCH", body });
+  const accessoryID = (block, device) => device.accessoryID || `${block.platform}:${device.deviceID}`;
   const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
 
   /// What each Authorization Method is called, and the glyph its rows and the sheet show.
@@ -247,24 +250,27 @@
     const setUp = device.status === "setUp" || device.status === "notResponding";
     const toggle = (value) => async () => {
       try {
-        await post("exclude", { platform: block.platform, name: block.name, deviceID: device.deviceID, excluded: value });
+        await settings(block, { excluded: value }, accessoryID(block, device));
         await reload();
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
+      // Its Accessory Settings, the same sheet as the wall's.
+      setUp || device.status === "discovered" ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessoryID(block, device), instance: block.name, device,
+        name: device.name, glyph: HomeswiftWidgets.deviceIcon(device) ?? "accessory", after: (changed) => { if (changed) reload(); } }) } : null,
       setUp && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
-      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
+      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/settings` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
     ].filter(Boolean);
     const needs = device.status === "needsAuthorization";
     // The glyph the wall gives its accessory, once it has one.
-    const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
+    const glyph = HomeswiftWidgets.deviceIcon(device) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
     // Its parts, switched here at once: the plugin reloads with them, or without.
     const parts = !excluded && setUp ? partsList(device, {
       onChange: async (part, included, box) => {
         box.disabled = true;
-        try { await post("part", { platform: block.platform, name: block.name, deviceID: device.deviceID, part: part.id, included }); part.included = included; }
+        try { await settings(block, { parts: { [part.id]: included } }, accessoryID(block, device)); part.included = included; }
         catch (e) { box.checked = !included; HomeswiftCommon.showAlert(e.message); }
         finally { box.disabled = false; }
       },
@@ -378,25 +384,28 @@
       form.addEventListener("submit", (event) => event.preventDefault());
       const fill = (...nodes) => { body.replaceChildren(...nodes.filter(Boolean)); body.classList.remove("entering"); void body.offsetWidth; body.classList.add("entering"); };
 
-      /// The end: what reached the Home app, when the sheet knows.
-      function finish(added = null) {
+      /// The end: what reached the Home app, when the sheet knows. A device's Setup ends on its Accessory Settings
+      /// (settings.js), the fields its plugin declares as the wall's sheet draws them, each saved as it is changed.
+      function finish(added = null, accessory = null) {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
+        const editor = device && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device }) : null;
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
               : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
-            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+          editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
           el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
         body.querySelector(".actions button")?.focus();
       }
 
       /// What the account, or a device just set up (a console), reaches, to pick: every device ticked; those left out are
       /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
-      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
+      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name, accessory = null }) {
         fill(loading(t("Looking for devices…")));
         let found = [], failure = null;
         for (let attempt = 0; attempt < tries && !closed; attempt++) {
@@ -420,7 +429,7 @@
           again.focus({ preventScroll: true });
           return;
         }
-        if (!found.length) { finish(); return; }
+        if (!found.length) { finish(null, accessory); return; }
         if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
         stage(stages.indexOf(devicesStage));
         const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
@@ -435,13 +444,14 @@
         form.onsubmit = (event) => {
           event.preventDefault();
           HomeswiftCommon.busyButton(submit, async () => {
-            const left = found.filter((one, index) => !boxes[index].checked);
-            for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
-            // The parts of the devices kept, as switched: the plugin builds them, or leaves them out.
+            // In one write: the devices left out Excluded, the parts of those kept as switched.
+            const changes = {};
             for (const [index, one] of found.entries()) {
-              if (!boxes[index].checked) continue;
-              for (const change of partLists[index]?.changes() ?? []) await post("part", { platform: block.platform, name: block.name, deviceID: one.deviceID, ...change });
+              if (!boxes[index].checked) { changes[accessoryID(block, one)] = { excluded: true }; continue; }
+              const parts = Object.fromEntries((partLists[index]?.changes() ?? []).map((change) => [change.part, change.included]));
+              if (Object.keys(parts).length) changes[accessoryID(block, one)] = { parts };
             }
+            if (Object.keys(changes).length) await settings(block, changes);
             finish(found.filter((one, index) => boxes[index].checked));
           });
         };
@@ -450,7 +460,7 @@
           el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
           el("div", { class: "setup-picks" }, ...found.map((one, index) => el("div", { class: "setup-pick-group" },
             el("label", { class: "setup-pick" }, boxes[index],
-              tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+              tile(HomeswiftWidgets.deviceIcon(one) ?? glyph, "blue"),
               el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))),
             partLists[index]?.node ?? null))),
           el("div", { class: "actions" }, submit));
@@ -467,8 +477,8 @@
           session = null;
           if (picking) pick({ keep: () => true });
           // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
-          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title });
-          else finish();
+          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title, accessory: answer.accessoryID });
+          else finish(null, answer.accessoryID);
           return;
         }
         session = answer.session;
@@ -580,5 +590,9 @@
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  window.HomeswiftSetup = { view, resume };
+  /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
+  /// Settings): `after()` once it is done.
+  const setUp = ({ block, plugin, device = null, trigger = null, after = () => {} }) => open({ block, plugin, device, trigger, after });
+
+  window.HomeswiftSetup = { view, resume, setUp };
 })();

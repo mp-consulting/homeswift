@@ -121,49 +121,47 @@ a watt on a DELTA Pro, Max or Mini). A PowerStream's battery power is positive w
 and it has no grid reading. A home system's solar, home, grid and battery feed the Status page's Energy section, as a
 STREAM's do; a station's ports do not. `EcoFlowModels.swift` has every key.
 
-## Configuration
+## Settings
 
-Add an `EcoFlow` platform block to `config.json`:
+The account is set up on the web UI's **Add accessories** page (Setup), or by an AI agent with `start_setup`: it asks for
+the route, then the developer keys, the app's email and password, or both, and checks each before keeping it. The keys
+and the password are kept in the bridge's vault; the rest is on the plugin's Settings page (or `get_settings` and
+`update_settings`):
 
 ```json
 {
   "platform": "EcoFlow",
   "name": "EcoFlow",
-  "accessKey": "your access key",
-  "secretKey": "your secret key",
+  "route": "both",
   "region": "eu",
   "email": "you@example.com",
-  "password": "your EcoFlow password",
-  "devices": [
-    { "id": "your STREAM's serial number", "name": "STREAM Ultra" },
-    { "id": "your RIVER's serial number", "name": "RIVER 3 Plus" }
-  ]
+  "_accessories": {
+    "your STREAM's serial number": { "name": "STREAM Ultra" }
+  }
 }
 ```
 
-- **Route:** `both` (the default), `developer` or `app`. The form shows the settings the route needs. The web UI's **Add
-  accessories** page asks for the route, then the keys, the app's email and password, or both, and checks each before
-  keeping it (the keys in the vault).
-- **Access key and secret key:** from your developer account. They are stored in `config.json`, which only the
-  bridge's owner can read; the secret key is sent only in each request's signature, never in a URL or a log.
+- **Route:** `both` (the default), `developer` or `app`. The form shows the settings the route needs.
 - **Region:** `us` or `eu`, the region your developer account was created in.
-- **Email and password:** your EcoFlow account's, for the app.
-- **Devices:** the serial numbers the app reads, with optional names. A name replaces the one the device reports.
-  Without a list, the app reads the account's devices from its device list (EcoFlow's broker refuses a subscription to
-  every device at once). The plugin's page offers to add the devices it reads to this list (**Add to the
-  configuration**), under the names they report.
+- **Email:** your EcoFlow account's, for the app; its password is in the vault (**Set up again** changes it).
 - **Import the energy history:** `importHistory`, on by default; it needs the email and password (above, [What it
   does](#what-it-does)).
 - **Interval** (under Developer API): `pollingInterval`, the seconds between reads of the developer API's REST values, 60 by
   default, 30 at least; the form shows it when the route uses the developer API. Both routes also use MQTT, which is
   live whatever the interval: the developer API's pushes for a STREAM, and the app's stream for every device it reads (a
   RIVER, a RAPID), as in the app.
-- **The form** groups the settings by route: **EcoFlow account** (email, password, the history import) and **Developer
-  API** (keys, region, interval), each shown when the route uses it. The email and password are marked required on the
-  EcoFlow app route, the keys on the developer API's; with Both, either pair, or both, will do.
+- **The form** groups the settings by route: **EcoFlow account** (email, the history import) and **Developer API**
+  (region, interval), each shown when the route uses it.
 
-Every option is optional. There is no Homebridge plugin to stay compatible with, so the option names are the
-plugin's own.
+Each device comes with the account, by its serial number, of the Device Kind of its model (`stream`, `home`, `portable`,
+`powerBank`); its Accessory Settings (its Name, room, Excluded) are in `_accessories` and its Settings sheet, with no
+settings of the plugin's own. The app reads the account's devices from its device list (EcoFlow's broker refuses a
+subscription to every device at once).
+
+A block written before still runs: `accessKey`, `secretKey` and `password` in it (sealed), and `devices`, serial numbers
+with names, which the app reads first. At the next settings change the bridge moves the keys and the password into the
+vault and each device's name into its Accessory Settings. The option names are the plugin's own: there is no Homebridge
+plugin to stay compatible with.
 
 ## How it works
 

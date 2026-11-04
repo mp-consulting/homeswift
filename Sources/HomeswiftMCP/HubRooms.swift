@@ -1,7 +1,7 @@
 import Foundation
 import HomeswiftPlugin
 
-// A room renamed in Homeswift, renamed on the plugins' hubs too when the layout's `syncRoomNames` is on: every hub room
+// A room renamed in Homeswift, renamed on the plugins' hubs too when Room Sync is on (`roomSync`): every hub room
 // named as the room was, case and accents aside (as a hub scene's room is matched), takes the new name. The other way
 // only for a hub that says so (`PluginContext.hubRoomRenamed`, Wingman for the Home app): `followHubRoomRename`. docs/ui.md,
 // "Rooms on the hubs".
@@ -40,12 +40,12 @@ extension HomeswiftCatalog {
         }
     }
 
-    /// A change made on a plugin's hub (in the Home app, through Wingman), followed when `syncRoomNames` is on.
+    /// A change made on a plugin's hub (in the Home app, through Wingman), followed when Room Sync is on.
     func followHubRoomChange(on instance: PluginHost.PlatformInstance, _ change: HubRoomChange) async {
-        guard home.layout.value.syncRoomNames == true else { return }
+        guard roomSync else { return }
         switch change {
         case .renamed(let from, let to): await followHubRoomRename(on: instance, from: from, to: to)
-        case .moved(let accessoryID, let room): followHubAccessoryMove(on: instance, accessoryID: accessoryID, room: room)
+        case .moved(let accessoryID, let room): await followHubAccessoryMove(on: instance, accessoryID: accessoryID, room: room)
         }
     }
 
@@ -62,16 +62,16 @@ extension HomeswiftCatalog {
         }
     }
 
-    /// The accessory goes to the layout's room of that name (added when there is none), and to no hub: the one that
-    /// moved it has it there already. One with no room in the layout that follows its controller's (a mirrored
+    /// The accessory goes to the room of that name (added when there is none), in its Accessory Settings, and to no hub:
+    /// the one that moved it has it there already. One with no room of its own that follows its controller's (a mirrored
     /// accessory's `suggestedRoom`) keeps following it.
-    private func followHubAccessoryMove(on instance: PluginHost.PlatformInstance, accessoryID: String, room: String) {
+    private func followHubAccessoryMove(on instance: PluginHost.PlatformInstance, accessoryID: String, room: String) async {
         guard let found = find(id: accessoryID) else { return }
-        let current = home.layout.value.accessories[accessoryID]?.room
+        let current = found.layout?.room
         if current == nil, found.accessory.suggestedRoom != nil { return }
         if let current, Self.sameRoomName(current, room) { return }
         do {
-            _ = try updateLayout(["accessories": [accessoryID: ["room": .string(room)]]])
+            try await updateAccessorySettings([(accessoryID, ["room": .string(room)])], moveOnHubs: false, by: .person, who: instance.name)
             logger.info("\(found.accessory.name) moved to \"\(room)\" as on \(instance.name)")
         } catch {
             logger.warning("\(found.accessory.name) not moved to \"\(room)\" as on \(instance.name): \(error)")

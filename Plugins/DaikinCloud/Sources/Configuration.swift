@@ -83,12 +83,22 @@ struct DaikinSettings: Sendable {
     var updateInterval: Double
     /// Milliseconds, clamped to 5 to 300 seconds.
     var forceUpdateDelay: Double
+    /// Excluded: the block's `excludedDevicesByDeviceId` and the devices Excluded in their Accessory Settings.
     var excludedDeviceIDs: Set<String>
+    /// The Homebridge-shaped `excludedDevicesByDeviceId` alone: what Setup shows as left out by the plugin's settings.
+    var listedDeviceIDs: Set<String>
     var features: [FeatureKey: Bool]
+    /// Each device's own `show*` switches (its Plugin Accessory Settings), by Device Id: they overrule `features`.
+    var deviceFeatures: [String: [FeatureKey: Bool]]
     var webSocketEnabled: Bool
+    /// The block with the account's credentials from the vault in place of its own (`merging`): what is validated.
+    var raw: [String: JSONValue]
 
-    init(_ configuration: DaikinCloudPlugin.Configuration) {
-        let raw = configuration.raw
+    /// `credentials`: what Setup kept in the vault (`email`, `password`, `clientId`, `clientSecret`), which wins over the
+    /// block's Homebridge-shaped keys; `accessorySettings`: the devices' Accessory Settings, by Device Id.
+    init(_ configuration: DaikinCloudPlugin.Configuration, credentials: JSONValue? = nil, accessorySettings: [String: AccessorySettings] = [:]) {
+        let raw = Self.merging(configuration.raw, credentials: credentials)
+        self.raw = raw
         name = Self.nonEmpty(raw["name"])
         authMode = Self.authMode(raw)
         httpTransport = raw["httpTransport"]?.stringValue.flatMap(TransportMode.init(rawValue:))
@@ -101,7 +111,12 @@ struct DaikinSettings: Sendable {
         password = Self.nonEmpty(raw["daikinPassword"]) ?? Self.nonEmpty(raw["password"])
         updateInterval = Self.updateIntervalMinutes(raw["updateIntervalInMinutes"]) * 60_000
         forceUpdateDelay = Self.forceUpdateDelay(raw["forceUpdateDelay"])
-        excludedDeviceIDs = Set((raw["excludedDevicesByDeviceId"]?.arrayValue ?? []).compactMap(\.stringValue))
+        listedDeviceIDs = Set((raw["excludedDevicesByDeviceId"]?.arrayValue ?? []).compactMap(\.stringValue))
+        excludedDeviceIDs = listedDeviceIDs.union(accessorySettings.filter(\.value.excluded).keys)
+        deviceFeatures = accessorySettings.compactMapValues { settings in
+            let own = Dictionary(uniqueKeysWithValues: FeatureKey.allCases.compactMap { key in settings.plugin[key.rawValue]?.boolValue.map { (key, $0) } })
+            return own.isEmpty ? nil : own
+        }
         var features: [FeatureKey: Bool] = [:]
         let legacy = raw["showExtraFeatures"]?.boolValue == true
         for key in FeatureKey.extra { features[key] = raw[key.rawValue]?.boolValue ?? legacy }
@@ -111,11 +126,30 @@ struct DaikinSettings: Sendable {
     }
 
     func isEnabled(_ feature: FeatureKey) -> Bool { features[feature] ?? false }
+    /// A device's own switch, else the plugin-wide one.
+    func isEnabled(_ feature: FeatureKey, for deviceID: String?) -> Bool {
+        deviceID.flatMap { deviceFeatures[$0]?[feature] } ?? isEnabled(feature)
+    }
     func isExcluded(_ deviceID: String) -> Bool { excludedDeviceIDs.contains(deviceID) }
     var hasDeveloperCredentials: Bool { clientID != nil && clientSecret != nil }
     var mobileCredentials: (email: String, password: String)? {
         guard let email, let password else { return nil }
         return (email, password)
+    }
+
+    /// The vault's credential fields and the block's keys they stand for.
+    static let credentialKeys: [(field: String, key: String)] = [
+        ("email", "daikinEmail"), ("password", "daikinPassword"), ("clientId", "clientId"), ("clientSecret", "clientSecret"),
+    ]
+
+    /// The block with each credential the vault holds in place of the block's own (and of its legacy alias).
+    static func merging(_ raw: [String: JSONValue], credentials: JSONValue?) -> [String: JSONValue] {
+        var merged = raw
+        for (field, key) in credentialKeys {
+            guard let value = nonEmpty(credentials?[field]) else { continue }
+            merged[key] = .string(value)
+        }
+        return merged
     }
 
     // MARK: Coercion, as the Homebridge plugin does it

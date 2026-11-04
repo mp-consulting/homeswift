@@ -40,9 +40,10 @@ public enum Redaction {
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
     /// The key rule as a pattern: the server sends it to the page, so the page never keeps its own copy.
     public static let secretKeyPattern = #"pass$|pass(word|wd|phrase|code)|^pwd$|^pw$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$|authorization|^auth$|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#
-    public static let notSecretKeyPattern = #"^(max|min|context|input|output|total|daily|monthly)\w*tokens$"#
+    public static let notSecretKeyPattern = #"^(max|min|context|input|output|total|daily|monthly)\w*tokens$|(high|low|touch)pass$"#
     private static let secretKey = try! NSRegularExpression(pattern: secretKeyPattern, options: [.caseInsensitive])
-    /// Keys that look secret but hold token counts: maxOutputTokens, contextTokens, a budget's dailyTokens.
+    /// Keys that look secret but are not: token counts (maxOutputTokens, contextTokens, a budget's dailyTokens), an audio
+    /// filter's high and low pass, UniFi's TouchPass reader option.
     private static let notSecretKey = try! NSRegularExpression(pattern: notSecretKeyPattern, options: [.caseInsensitive])
     /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret (including HomeKit's
     /// pin and setup code).

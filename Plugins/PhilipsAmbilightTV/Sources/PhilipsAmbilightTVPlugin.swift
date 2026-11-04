@@ -9,8 +9,9 @@ import Logging
 /// Ambilight as a colour lightbulb, and optional switches and sensors for scenes and automations.
 ///
 /// Each TV is published as an accessory of its own, as Homebridge does: HomeKit allows one television per
-/// bridge. The configuration is the one of `homebridge-philips-ambilight-tv`; a TV is paired through Setup
-/// (AmbilightSetup.swift: Add accessories in the web UI, or an MCP client's `start_setup`). See README.md.
+/// bridge. A block of `homebridge-philips-ambilight-tv` still loads, and what the bridge writes is its canonical shape
+/// (AmbilightSettings.swift); a TV is paired through Setup (AmbilightSetup.swift: Add accessories in the web UI, or an MCP
+/// client's `start_setup`). See README.md.
 public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public static let platform = "PhilipsAmbilightTV"
     public static let icon: String? = "tv"
@@ -59,6 +60,8 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public func start() async throws {
         var settings: [TVSettings] = []
         for (index, device) in configuredDevices().enumerated() {
+            // An Excluded TV is not run: a `devices` entry of it may still be there (keys the vault cannot read).
+            if let mac = device.mac.flatMap(MACAddress.canonical), context.isExcluded(mac) { continue }
             // An entry with no keys is a TV for Setup to pair (AmbilightSetup.swift), not one to run yet.
             guard Self.hasKeys(device) else {
                 logger.info("TV \(device.name.map { "\"\($0)\"" } ?? "#\(index + 1)") is not paired yet: set it up on Add accessories")
@@ -141,9 +144,10 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     // MARK: The web page
 
     /// `GET tvs` lists the TVs with their state; `GET sources?mac=` a TV's inputs in the wheel's order, for
-    /// the sources editor, and `POST sources/refresh` the same after reading the TV's apps again; `GET mac?ip=`
-    /// finds a TV's MAC address; `POST wake` sends Wake-on-LAN to any MAC address; `POST key` sends a remote
-    /// key. Pairing is Setup's (AmbilightSetup.swift). `Web/` is the page.
+    /// the page's Inputs, and `POST sources/refresh` the same after reading the TV's apps again; `GET current-app?mac=`
+    /// the app on screen; `POST wake` sends Wake-on-LAN to any MAC address; `POST key` sends a remote key. Pairing
+    /// and finding a TV's MAC address are Setup's (AmbilightSetup.swift), settings the Settings page's
+    /// (AmbilightSettings.swift): the page writes none. `Web/` is the page.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "tvs"):
@@ -172,19 +176,6 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                 return .error(502, "\(device.settings.name) did not list its apps. A TV that just woke is slow to: try again once its Home screen shows.")
             }
             return PluginWebResponse(["sources": .array(await sources(of: device))])
-        case ("GET", "mac"):
-            // "Get MAC": a configured TV is asked first, then this machine's ARP table, as the Homebridge plugin reads it.
-            guard let ip = request.query["ip"]?.trimmingCharacters(in: .whitespaces), WakeOnLAN.ipv4(ip) != nil else { return .error(400, "an IPv4 address is required") }
-            let mac: String?
-            if let device = devices.values.first(where: { $0.settings.ip == ip }) {
-                // Through the TV's own client: its queue (the TV copes badly with requests on top of each other)
-                // and the certificate it pinned.
-                mac = await lookUpMAC(ip: ip, client: device.client)
-            } else {
-                mac = await dependencies.lookUpARP(ip).flatMap(MACAddress.canonical)
-            }
-            guard let mac else { return .error(404, "No MAC address found for that IP. Make sure the TV is on.") }
-            return PluginWebResponse(["mac": .string(mac)])
         case ("GET", "current-app"):
             // "Detect from TV" for a custom app: whatever is in the foreground, unless it is the TV's own.
             guard let mac = request.query["mac"], let device = device(mac: mac) else { return .error(404, "no TV with that MAC") }

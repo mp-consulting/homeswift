@@ -4,10 +4,10 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the eWeLink account is the instance's, an Account Login checked with a login before it
-// is kept. The plugin logs in with the password at each launch, so the password goes in the vault, preferred over the
-// block's `password`, which goes; the session the login gives stays where the plugin keeps it (`TokenStorage`, its own
-// vault entry). The devices come with the account, by their eWeLink device id; `ignoredDevices` still leaves devices out
-// (docs/adr/0001-canonical-accessory-settings.md). Its entries' `ignoreDevice` keeps having no effect, as its schema says.
+// is kept. The plugin logs in with the password at each launch, so the username and the password go in the vault,
+// preferred over the block's, which go; the session the login gives stays where the plugin keeps it (`TokenStorage`,
+// its own vault entry). The devices come with the account, by their eWeLink device id, each of the Device Kind of its
+// category (EWeLinkSettings.swift); a Homebridge block's `ignoredDevices` still leaves devices out, as Excluded does.
 extension EWeLinkPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
 
@@ -17,16 +17,19 @@ extension EWeLinkPlugin {
         return parent == suffix ? nil : parent
     }
 
-    /// What Setup keeps in the vault.
-    struct StoredPassword: Codable, Sendable {
+    /// What Setup keeps in the vault: the password, and the account it is for (nil in an entry kept before).
+    struct StoredPassword: Codable, Sendable, Equatable {
         var password: String
+        var username: String?
     }
 
-    /// The configuration with the password from the vault in place of the block's, when Setup kept one.
+    /// The configuration with the account from the vault: its password in place of the block's, its username where the
+    /// block has none, when Setup (or a settings write, `canonicalSettings`) kept them.
     static func withStoredPassword(_ configuration: Configuration, _ context: PluginContext) -> Configuration {
-        guard let password = context.credentials(as: StoredPassword.self)?.password, !password.isEmpty else { return configuration }
+        guard let stored = context.credentials(as: StoredPassword.self), !stored.password.isEmpty else { return configuration }
         var configuration = configuration
-        configuration.password = password
+        configuration.password = stored.password
+        if configuration.username?.isEmpty != false, let username = stored.username, !username.isEmpty { configuration.username = username }
         return configuration
     }
 
@@ -51,12 +54,12 @@ extension EWeLinkPlugin {
         let found = devices.filter { !$0.deviceid.isEmpty }.map { device in
             DiscoveredDevice(
                 deviceID: device.deviceid, name: device.name, model: device.productModel ?? device.model, isSetUp: true,
-                excludedBySettings: configuration.isIgnored(device.deviceid))
+                excludedBySettings: configuration.isIgnored(device.deviceid), kind: DeviceCategory.resolve(device).rawValue)
         }
         let groupsFound = groups.compactMap { group -> DiscoveredDevice? in
             guard let id = group["id"]?.jsString, !id.isEmpty else { return nil }
             let name = group["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? "Group \(id)"
-            return DiscoveredDevice(deviceID: id, name: name, model: "Group", isSetUp: true, excludedBySettings: configuration.isIgnored(id))
+            return DiscoveredDevice(deviceID: id, name: name, model: "Group", isSetUp: true, excludedBySettings: configuration.isIgnored(id), kind: DeviceCategory.group.rawValue)
         }
         return found + groupsFound
     }
@@ -89,8 +92,8 @@ extension EWeLinkPlugin {
         }
         let region = await api.region.rawValue
         logger.info("Signed in to eWeLink through Setup", metadata: ["region": "\(region)"])
-        var settings: [String: JSONValue] = ["username": .string(username), "password": .null]
+        var settings: [String: JSONValue] = ["username": .null, "password": .null]
         if let typedCountry { settings["countryCode"] = .string(typedCountry.hasPrefix("+") ? typedCountry : "+\(typedCountry)") }
-        return .done(SetupOutcome(credentials: try JSONValue(encoding: StoredPassword(password: password)), settings: settings))
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: StoredPassword(password: password, username: username)), settings: settings))
     }
 }

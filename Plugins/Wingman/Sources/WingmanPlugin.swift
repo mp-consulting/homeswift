@@ -9,9 +9,10 @@ import Logging
 ///
 /// Each Wingman is a device of Setup by its id (WingmanSetup.swift), authorized with the code its menu shows once its
 /// certificate is checked: its token and pinned certificate are kept in the vault under its id, its address in its
-/// Accessory Settings or in an entry of `devices` (the plugin's page wrote one after pairing before Setup did; a `token`
-/// and a `fingerprint` still there from before move into the vault; an entry with only an address is a Wingman for Setup
-/// to pair). The plugin reads the homes (`GET /homes`), follows value changes with a
+/// Accessory Settings (an entry of `devices` the plugin's page wrote after pairing before Setup did still runs, its `token`
+/// and `fingerprint` moved into the vault; an entry with only an address is a Wingman for Setup to pair). Each mirrored
+/// accessory and each bridge of Apple Home is a Discovered Device too, which its Accessory Settings Exclude
+/// (WingmanSettings.swift). The plugin reads the homes (`GET /homes`), follows value changes with a
 /// long-poll (`GET /events?since=&wait=`) and writes through `POST /write`. Its accessories are mirrored
 /// (`Accessory.mirroredFrom`): on the web UI's wall, in moods, scenes, automations and the MCP tools, but never
 /// published to HomeKit, which has them already. Homeswift's own accessories, which Apple Home lists too, are left
@@ -95,7 +96,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
     }
 
     /// The Wingmen the plugin runs, from `devices` and Setup (`configuredDevices`), read at start.
-    private var running: [Configuration.Device] = []
+    private(set) var running: [Configuration.Device] = []
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
         self.configuration = configuration
@@ -174,16 +175,25 @@ public actor WingmanPlugin: HomeswiftPlugin {
     /// like a TV or a camera, by serial number: `homeswift` is `context.publishedSerialNumbers`), not excluded, in a
     /// chosen home.
     nonisolated func includes(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>) -> Bool {
+        isCandidate(accessory, home: home, homeswift: homeswift) && !isLeftOut(accessory)
+    }
+
+    /// Whether an Apple Home accessory is one Homeswift may mirror at all: not Homeswift's own, in a chosen home. What
+    /// discovery lists, Excluded or not.
+    nonisolated func isCandidate(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>) -> Bool {
         if let serial = accessory.serialNumber, homeswift.contains(serial) { return false }
         if let homes = configuration.homes, !homes.isEmpty, !homes.contains(where: { $0.caseInsensitiveCompare(home.name) == .orderedSame }) { return false }
-        if let exclude = configuration.exclude, exclude.contains(where: { $0 == accessory.id || $0.caseInsensitiveCompare(accessory.name) == .orderedSame }) {
-            return false
-        }
-        if let bridge = accessory.bridge {
-            if bridge.manufacturer == "Homeswift" || bridge.model == "Homeswift" { return false }
-            if let names = configuration.excludeBridges, names.contains(where: { $0.caseInsensitiveCompare(bridge.name) == .orderedSame }) { return false }
-        }
+        if let bridge = accessory.bridge, bridge.manufacturer == "Homeswift" || bridge.model == "Homeswift" { return false }
         return true
+    }
+
+    /// Excluded, it or its bridge (by their Accessory Settings), or left out by a Homebridge-shaped list (`exclude`,
+    /// `excludeBridges`).
+    nonisolated func isLeftOut(_ accessory: WingmanAPI.Accessory) -> Bool {
+        if context.isExcluded(accessory.id) || isExcludedBySettings(accessory) { return true }
+        guard let bridge = accessory.bridge else { return false }
+        let id = Self.bridgeID(bridge.name).lowercased()
+        return context.excludedDeviceIDs.contains { $0.lowercased() == id }
     }
 
     nonisolated func publish(_ accessory: Accessory) {
@@ -241,6 +251,8 @@ actor Link {
         var mirrors: [String: Mirror]
         var homes: [String]
         var leftOut: Int
+        /// Every accessory Homeswift may mirror, Excluded or not: the Discovered Devices.
+        var candidates: [WingmanAPI.Accessory]
     }
 
     private let device: WingmanPlugin.Configuration.Device
@@ -274,6 +286,9 @@ actor Link {
             host: device.host ?? "", port: device.port ?? WingmanPlugin.defaultPort, token: token, fingerprint: device.fingerprint,
             transports: plugin.dependencies.transports)
     }
+
+    /// The accessories Homeswift may mirror from the last read of the homes, Excluded ones included; nil before the first.
+    var candidates: [WingmanAPI.Accessory]? { snapshot?.candidates }
 
     /// The accessories of the last read of the homes; nil before the first.
     var loadedIDs: Set<String>? { snapshot.map { Set($0.mirrors.values.map(\.accessory.id)) } }
@@ -335,8 +350,10 @@ actor Link {
         var mirrors: [String: Mirror] = [:]
         var changed: [Mirror] = []
         var leftOut = 0
+        var candidates: [WingmanAPI.Accessory] = []
         for home in homes {
             for accessory in home.accessories {
+                if plugin.isCandidate(accessory, home: home, homeswift: homeswift) { candidates.append(accessory) }
                 guard plugin.includes(accessory, home: home, homeswift: homeswift) else {
                     leftOut += 1
                     continue
@@ -354,7 +371,7 @@ actor Link {
         if phase != .connected {
             logger.info("Mirroring Apple Home through Wingman", metadata: ["wingman": "\(name)", "accessories": "\(mirrors.count)", "left out": "\(leftOut)"])
         }
-        snapshot = Snapshot(mirrors: mirrors, homes: homes.map(\.name), leftOut: leftOut)
+        snapshot = Snapshot(mirrors: mirrors, homes: homes.map(\.name), leftOut: leftOut, candidates: candidates)
         phase = .connected
         lastContact = Date()
         if info.servesStructure {

@@ -28,17 +28,19 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         public var scenes: Bool?
         /// A lightbulb per room and zone, its lights' on and brightness as one command; off by default.
         public var roomLights: Bool?
+        /// Homebridge-shaped: scene names, "Room/Scene" or ids left out (`canonicalSettings` moves them).
         public var excludeScenes: [String]?
-        /// Scenes with a transition of their own, by "Room/Scene" (or a scene's name, in any room).
+        /// Homebridge-shaped: scenes with a transition of their own, by "Room/Scene" (or a scene's name, in any room).
         public var sceneTransitions: [SceneTransition]?
         public var dynamicScenes: Bool?
         public var effects: Bool?
         public var flashSwitch: Bool?
         public var gradientPoints: Bool?
+        /// Homebridge-shaped: light names or ids left out.
         public var excludeLights: [String]?
         /// Motion, temperature, light level and contact sensors, and the buttons of switches and remotes; on by default.
         public var sensors: Bool?
-        /// Sensor and switch names or device ids to leave out of HomeKit.
+        /// Homebridge-shaped: sensor and switch names or device ids left out.
         public var excludeSensors: [String]?
     }
 
@@ -173,8 +175,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     var transitionMs: Int { min(max(configuration.transitionMs ?? Self.defaultTransition, 0), 10000) }
 
-    /// The transition `sceneTransitions` gives a scene of the room `room`: by "Room/Scene" first, then by its name.
+    /// A scene's own transition: its Accessory Settings', else the one `sceneTransitions` gives a scene of the room
+    /// `room`, by "Room/Scene" first, then by its name.
     func ownTransition(_ scene: HueScene, room: String) -> Int? {
+        if let own = sceneTransition(scene.id) { return min(max(own, 0), 10000) }
         let entries = configuration.sceneTransitions ?? []
         let entry = entries.first { $0.scene.lowercased() == "\(room)/\(scene.name)".lowercased() } ?? entries.first { $0.scene.lowercased() == scene.name.lowercased() }
         return entry.map { min(max($0.transitionMs, 0), 10000) }
@@ -337,25 +341,35 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         _ = await context.removeAccessories(keeping: keep, message: "Removing a Hue light, sensor or scene the bridge no longer has")
     }
 
+    /// Excluded by its Accessory Settings, or left out by `excludeLights`.
     func isExcluded(_ light: HueLight) -> Bool {
+        context.isExcluded(light.id) || isListed(light)
+    }
+
+    /// Left out by the Homebridge-shaped `excludeLights`, by name or id.
+    func isListed(_ light: HueLight) -> Bool {
         excludedLights.contains(light.name.lowercased()) || excludedLights.contains(light.id.lowercased())
     }
 
+    /// The scenes of a room or zone that are not Excluded (by their Accessory Settings, or `excludeScenes`).
     func visibleScenes(of group: HueGroup) -> [HueScene] {
+        snapshot.scenes.filter { scene in scene.groupID == group.id && !context.isExcluded(scene.id) && !isListed(scene, room: group.name) }
+    }
+
+    /// Left out by the Homebridge-shaped `excludeScenes`: by name, "Room/Scene" or id.
+    func isListed(_ scene: HueScene, room: String) -> Bool {
         let excluded = excludedScenes
-        return snapshot.scenes.filter { scene in
-            scene.groupID == group.id && !excluded.contains(scene.name.lowercased()) && !excluded.contains("\(group.name)/\(scene.name)".lowercased())
-                && !excluded.contains(scene.id.lowercased())
-        }
+        return excluded.contains(scene.name.lowercased()) || excluded.contains("\(room)/\(scene.name)".lowercased()) || excluded.contains(scene.id.lowercased())
     }
 
     // MARK: Lights
 
     private func shape(of light: HueLight) -> String {
         var parts = [light.dims ? "d" : "", light.hasColour ? "c" : "", light.mirekRange.map { "t\($0.lowerBound)-\($0.upperBound)" } ?? ""]
-        if configuration.effects ?? true { parts.append("e" + light.effects.joined(separator: ",")) }
-        if configuration.flashSwitch == true, light.canFlash { parts.append("f") }
-        if configuration.gradientPoints == true, light.gradientCapacity > 1 { parts.append("g\(light.gradientCapacity)") }
+        let shown = extras(light)
+        if shown.effects { parts.append("e" + light.effects.joined(separator: ",")) }
+        if shown.flash, light.canFlash { parts.append("f") }
+        if shown.gradientPoints, light.gradientCapacity > 1 { parts.append("g\(light.gradientCapacity)") }
         return parts.joined(separator: "|")
     }
 
@@ -449,7 +463,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
         var services = [lightbulb]
         var effects: [String: Service] = [:]
-        if configuration.effects ?? true {
+        let shown = extras(light)
+        if shown.effects {
             for effect in light.effects {
                 let service = Self.switchService(Self.effectName(effect), subtype: "effect:\(effect)")
                 let v2 = light.effectsV2
@@ -463,7 +478,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             }
         }
         var flash: Service?
-        if configuration.flashSwitch == true, light.canFlash {
+        if shown.flash, light.canFlash {
             let service = Self.switchService("Flash", subtype: "flash")
             let signal = light.signals.contains("on_off") ? "on_off" : "on_off_color"
             service.characteristic(.on).onWrite { [service] value in
@@ -483,7 +498,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             services.append(service)
         }
         var points: [Service] = []
-        if configuration.gradientPoints == true, light.gradientCapacity > 1 {
+        if shown.gradientPoints, light.gradientCapacity > 1 {
             let count = min(light.gradientCapacity, 5)
             for index in 0..<count {
                 let point = Service(.lightbulb, name: "\(light.name) \(index + 1)", subtype: "point:\(index)", optional: [.hue, .saturation])

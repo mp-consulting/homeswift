@@ -24,7 +24,6 @@
   <div class="group tabs main-tabs" role="tablist">
     <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n data-action-icon="accessory">Devices</button>
     <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n data-action-icon="star">Scenes</button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
   </div>
 
   <section id="tab-devices" class="tab-pane" role="tabpanel">
@@ -34,22 +33,8 @@
   </section>
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
-    <p class="muted intro" data-i18n>Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.</p>
+    <p class="muted intro" data-i18n>Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu opens the scene's settings, where it is left out.</p>
     <div id="scenes" class="scene-tiles"></div>
-  </section>
-
-  <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
-    <div class="card">
-      <h2 data-i18n>Speed</h2>
-      <div id="speed"></div>
-    </div>
-    <div class="card">
-      <h2 data-i18n>In the Home app</h2>
-      <div id="options"></div>
-    </div>
-    <div class="card save-card">
-      <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n data-action-icon="check">Save Configuration</button></div>
-    </div>
   </section>
 </main>
 <script src="/common.js"></script>

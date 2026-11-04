@@ -6,7 +6,7 @@ show up in the Home app.
 
 A port of [`@mp-consulting/homebridge-elgato-key-lights`](https://github.com/mp-consulting/homebridge-elgato-key-lights),
 originally by Julian J. Maurer, under the MIT license (notice in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)).
-The platform block is the same, so a Homebridge configuration works unchanged.
+A Homebridge configuration loads unchanged; what the bridge writes is the canonical shape below.
 
 ## Configuration
 
@@ -21,7 +21,9 @@ The platform block is the same, so a Homebridge configuration works unchanged.
 }
 ```
 
-That is enough: every light on the network is added. The options:
+That is enough: every light on the network is added. Edit the settings on the web UI's **Settings** page of the
+plugin (each light's from its accessory), or with the MCP tools `get_settings` and `update_settings`. The Plugin
+Settings:
 
 | Option | Default | What it does |
 |---|---|---|
@@ -33,17 +35,12 @@ That is enough: every light on the network is added. The options:
 | `switchOffDurationMs` | the light's | Fade-out when switching off |
 | `colorChangeDurationMs` | the light's | Transition between colour temperatures |
 | `useIP` | `false` | `true` connects to the address Bonjour announced. Off, the plugin connects to the light's `.local` host name, turned into an address through the ARP table (by the light's MAC), then the addresses Bonjour announced |
-| `devices` | `[]` | Per-light settings, see below |
+| `addresses` | `[]` | Lights Bonjour does not reach (a container without multicast, another network): `host` (an IP address or a host name), `port` (9123 by default) and `mac`. Without a MAC the plugin asks the light for it, and writes it there at the next settings change. Announcements never move such a light |
 
-Per light, keyed by MAC address (`id` in the light's Bonjour record; the log prints it when a light is found):
-
-| Option | What it does |
-|---|---|
-| `mac` | The light's MAC address, in any usual spelling |
-| `displayName` | The name in HomeKit, instead of the one the light reports |
-| `ip`, `host`, `port` | Reach the light here without Bonjour, e.g. in a container without multicast; `ip` wins over `host`, the port defaults to 9123 |
-| `enabled` | `false` keeps the light out of HomeKit, and removes it if it was there (Excluding the light by its MAC on the web UI's **Add accessories** page does the same) |
-| `powerOnBehavior`, `powerOnBrightness`, `powerOnTemperature` | Override the platform's values for this light; `powerOnBehavior: 0` means the platform's, `powerOnTemperature: 0` the light's own |
+Each light's Accessory Settings sit in the block's `_accessories`, by its MAC (the Device Id; the accessory id is
+`ElgatoKeyLights:<MAC>`): the Core ones (its Name, room, Excluded…) and `powerOnBehavior`, `powerOnBrightness` and
+`powerOnTemperature`, which overrule the Plugin Settings of the same names for that light (`powerOnTemperature: 0`
+keeps the light's own).
 
 ```json
 {
@@ -53,26 +50,33 @@ Per light, keyed by MAC address (`id` in the light's Bonjour record; the log pri
   "powerOnBehavior": 2,
   "powerOnBrightness": 20,
   "powerOnTemperature": 4695,
-  "devices": [
-    { "mac": "3C:6A:9D:04:0A:0B", "displayName": "Desk Light" },
-    { "mac": "3C:6A:9D:04:0A:0C", "ip": "192.168.1.50", "enabled": true }
-  ]
+  "addresses": [{ "host": "192.168.1.50", "mac": "3C:6A:9D:04:0A:0C" }],
+  "_accessories": {
+    "3C:6A:9D:04:0A:0B": { "name": "Desk Light", "powerOnBrightness": 40 },
+    "3C:6A:9D:04:0A:0D": { "excluded": true }
+  }
 }
 ```
+
+### A Homebridge block
+
+The Homebridge plugin's `devices` list (by `mac`: `displayName`, `ip`, `host`, `port`, `enabled`, `powerOnBehavior`,
+`powerOnBrightness`, `powerOnTemperature`) still loads, read where `_accessories` and `addresses` say nothing. The first
+settings change written through the bridge moves it: `enabled: false` becomes Excluded, `displayName` the Name, the
+power-on settings the light's own (`powerOnBehavior: 0`, the platform's, is dropped), `ip` or `host` and `port` an
+entry of `addresses`. An entry without a MAC stays as it is.
 
 ## The web page
 
 With the web UI on, the Plugins page has an **Open** button for this plugin, a page with what the Homebridge
-plugin's settings page does: every light the instance knows (its state, address, serial and firmware, whether
-it answers), the configured ones that did not answer (offline, with why, their settings and **Remove**) and the
-disabled ones from config.json; **Identify** flashes one. **Settings** keeps a light in or out of HomeKit, names
-it, and sets what it does when switched on (the platform's setting, the last settings, or a default brightness
-and colour temperature), with a connection test. **On the network** lists the lights Bonjour announces (the
-Homebridge plugin's **Discover**, kept up to date since Homeswift browses all the time) and adds one to
-config.json; **Add by address** adds a light Bonjour does not reach, asking it for its MAC (`macAddress` in
-`accessory-info`, else the ARP table). With the Assistant on, **Explain** sits next to errors; without, a tip
-says how to set it up. Saving applies at once, no restart. `Web/` holds the page; `Sources/WebFiles.swift` is
-generated from it.
+plugin's page shows: every light the instance knows (its state, address, serial and firmware, whether it answers),
+the ones it tried that did not answer (offline, with why) and the Excluded ones; **Identify** flashes one and **Test
+connection** asks it who it is. **On the network** lists the lights Bonjour announces (the Homebridge plugin's
+**Discover**, kept up to date since Homeswift browses all the time); **Check an address** asks a light Bonjour does not
+reach for its name and MAC (`macAddress` in `accessory-info`, else the ARP table), to put in `addresses`. The page
+writes no settings: **Settings** opens the plugin's Settings page, and a light's menu its own. With the Assistant on,
+**Explain** sits next to errors; without, a tip says how to set it up. `Web/` holds the page; `Sources/WebFiles.swift`
+is generated from it.
 
 ## How it works
 
@@ -84,4 +88,4 @@ the light counts as unreachable and the Home app shows "No Response" until it an
 again on a new address is followed.
 
 Accessories are cached by the runtime, so the lights are in the Home app right after launch, before they
-answered. The accessory id is `ElgatoKeyLights:<MAC>`.
+answered. The accessory id is `ElgatoKeyLights:<MAC>`, the Device Kind of every light `light`.

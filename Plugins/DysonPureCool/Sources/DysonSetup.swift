@@ -4,10 +4,11 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the Dyson account is the instance's, an Account Login whose second step is the code
-// Dyson emails (the page's sign-in, the same calls). Its token goes in the vault and lists the account's devices, each a
-// device whose Device Id is its serial number: setting one up reads its local MQTT credential from the account into the
-// vault under the serial, and its product type into its Accessory Settings. The block's `devices` list still works as it
-// was (docs/adr/0001-canonical-accessory-settings.md), a credential in the vault preferred over its `localCredentials`.
+// Dyson emails. Its token goes in the vault and lists the account's devices, each a device whose Device Id is its serial
+// number and whose Device Kind follows its product type (DysonSettings.swift): setting one up reads its local MQTT
+// credential from the account into the vault under the serial, and its product type into its Accessory Settings. A
+// Homebridge block's `devices` list still runs (docs/adr/0001-canonical-accessory-settings.md), a credential in the vault
+// preferred over its `localCredentials`, until `canonicalSettings` moves it.
 extension DysonPureCoolPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
 
@@ -29,20 +30,29 @@ extension DysonPureCoolPlugin {
         context.credentials(for: serial, as: DeviceCredentials.self)?.localCredentials.nonEmpty
     }
 
-    /// The devices to run: those of `devices`, then those set up through Setup (Accessory Settings with a credential in
-    /// the vault), a serial in both counting once, `devices`' first.
+    /// The devices to run: those of a Homebridge block's `devices`, then those set up through Setup (Accessory Settings
+    /// with a credential in the vault), a serial in both counting once, `devices`' first. A device's Accessory Settings
+    /// (its Name among them) overrule its Homebridge entry's, key by key.
     func configuredDevices() -> [Configuration.Device] {
         let listed = (configuration.devices ?? []).map { entry -> Configuration.Device in
-            guard let serial = entry.serial?.trimmingCharacters(in: .whitespaces).nonEmpty, let stored = storedLocalCredentials(serial: serial) else { return entry }
-            var entry = entry
-            entry.localCredentials = stored
-            entry.credentials = nil
+            guard let serial = entry.serial?.trimmingCharacters(in: .whitespaces).nonEmpty else { return entry }
+            let settings = context.accessorySettings(for: serial)
+            var entry = Self.overlay(Self.entry(fromAccessorySettings: settings.plugin), on: entry)
+            entry.name = settings.name ?? entry.name
+            if let stored = storedLocalCredentials(serial: serial) {
+                entry.localCredentials = stored
+                entry.credentials = nil
+            }
             return entry
         }
         let listedSerials = Set(listed.compactMap { $0.serial?.trimmingCharacters(in: .whitespaces) })
         let setUp = context.setUpDevices(credentials: DeviceCredentials.self).filter { !listedSerials.contains($0.deviceID) }.compactMap { serial, settings, stored -> Configuration.Device? in
             guard let credentials = stored.localCredentials.nonEmpty else { return nil }
-            return settings.decode(Configuration.Device.self, adding: ["serial": .string(serial), "localCredentials": .string(credentials), "credentials": .null])
+            var entry = Self.entry(fromAccessorySettings: settings.plugin)
+            entry.serial = serial
+            entry.name = settings.name
+            entry.localCredentials = credentials
+            return entry
         }
         return listed + setUp
     }
@@ -56,7 +66,7 @@ extension DysonPureCoolPlugin {
             let hasCredential = (device.credentials ?? device.localCredentials)?.nonEmpty != nil
             found.append(DiscoveredDevice(
                 deviceID: serial, name: device.name?.nonEmpty ?? "Dyson \(serial)", model: device.productType.map(DeviceCatalog.modelName),
-                address: device.ipAddress?.nonEmpty, authorization: .accountLogin, isSetUp: hasCredential))
+                address: device.ipAddress?.nonEmpty, authorization: .accountLogin, isSetUp: hasCredential, kind: Self.kind(ofProductType: device.productType)))
         }
         guard let token = storedToken else { return found }
         let listed: [DysonCloud.CloudDevice]
@@ -68,7 +78,8 @@ extension DysonPureCoolPlugin {
         }
         for device in listed where !found.contains(where: { $0.deviceID == device.serial }) && DeviceCatalog.isSupported(device.productType) {
             found.append(DiscoveredDevice(
-                deviceID: device.serial, name: device.name ?? "Dyson \(device.serial)", model: DeviceCatalog.modelName(device.productType), authorization: .accountLogin))
+                deviceID: device.serial, name: device.name ?? "Dyson \(device.serial)", model: DeviceCatalog.modelName(device.productType), authorization: .accountLogin,
+                kind: Self.kind(ofProductType: device.productType)))
         }
         return found
     }

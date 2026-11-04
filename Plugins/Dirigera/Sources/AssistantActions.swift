@@ -30,6 +30,7 @@ extension DirigeraPlugin {
         "The Homeswift IKEA DIRIGERA plugin talks to DIRIGERA hubs on the local network (https://<hub>:8443/v1), without the cloud.",
         "It pairs with the action button under the hub (OAuth with PKCE) and keeps the token sealed in the vault. Lights, outlets and",
         "PARASOLL sensors become HomeKit accessories, each hub's user scenes switches on one accessory (on runs, off within 30 s undoes).",
-        "Never ask the user for passwords, tokens or keys.",
+        "Settings are read with get_settings and written with update_settings: by plugin for hubs, transitionMs and scenes; by accessory",
+        "(Dirigera:<device id>, or Dirigera:<scene id> for a scene) to Exclude a device or a scene. Never ask the user for passwords, tokens or keys.",
     ].joined(separator: " ")
 }

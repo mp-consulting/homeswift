@@ -9,8 +9,9 @@ import Logging
 /// simulations that show a switch as a blind, a garage door, a lock, a valve, a heater and more.
 ///
 /// The cloud API logs in and lists the devices; the WebSocket brings changes as they happen; commands go
-/// over the LAN first (mDNS discovery, encrypted HTTP) and through the cloud otherwise. The configuration is
-/// the one of `@mp-consulting/homebridge-ewelink`, so a Homebridge block works unchanged. See README.md.
+/// over the LAN first (mDNS discovery, encrypted HTTP) and through the cloud otherwise. A block of
+/// `@mp-consulting/homebridge-ewelink` loads unchanged; what the bridge writes is the canonical shape
+/// (EWeLinkSettings.swift). See README.md.
 public actor EWeLinkPlugin: HomeswiftPlugin {
     public static let platform = "eWeLink"
     public static let icon: String? = "switch"
@@ -35,15 +36,16 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     var logger: Logger { context.logger }
     private var platformTask: Task<Void, Never>?
-    private let holder = PlatformHolder()
+    let holder = PlatformHolder()
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
     }
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
-        // The password Setup keeps in the vault (EWeLinkSetup.swift) in place of the block's.
-        self.configuration = Self.withStoredPassword(configuration, context)
+        // The account Setup keeps in the vault (EWeLinkSetup.swift) in place of the block's, and each device's Accessory
+        // Settings over its entries in the typed lists (EWeLinkSettings.swift).
+        self.configuration = Self.withAccessorySettings(Self.withStoredPassword(configuration, context), context.allAccessorySettings)
         self.context = context
         self.dependencies = dependencies
     }

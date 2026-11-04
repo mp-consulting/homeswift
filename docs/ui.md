@@ -135,21 +135,35 @@ screenshots, and what a plugin does to get good ones.
   it off or resumes the Home app's schedule. Temperatures show in the unit chosen on [Appearance](#appearance). Values
   that carry keys (a camera's Setup Endpoints) are not shown, nor what only HomeKit uses.
 - **A widget's ⋯ menu** (a right click on a tile): its size or its kind's, **All controls** (every control in a sheet,
-  the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
-  paused plugin, a room, **Rename** (below), add to the Quick Controls or hide it, and **History** for an accessory
-  whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
+  the rest under More), Identify, its log, ask the Assistant about it, add to the Quick Controls, **Settings…** and its
+  plugin's Settings (administrators), resume a paused plugin, and **History** for an accessory whose plugin records an
+  Eve history (temperature, humidity, power…): a day, a week or four weeks.
 - **Full screen** (the toolbar's last button, or `/accessories?full=1` for a wall tablet's bookmark): the widgets alone,
   in the browser's own full screen where it has one. Grouped by room or by plugin, one group fills the screen at a time
   and the next is a swipe away (the arrow keys, the dots, the side arrows with a mouse); one button opens the toolbar
   (search, grouping, filters, Leave full screen) as a panel from the right edge, and Esc leaves.
-- **Rename** (a widget's ⋯ menu, administrators): a new name for a plugin's accessory, in the Home app too, its room,
-  scenes and automations kept. Its plugin's block keeps it (`name` under its Device Id in `_accessories`) and the
-  bridge puts it on the accessory's Name and Configured Name, which the Home app follows; a rename in the Home app is
-  kept the same way. Empty gives it back the name its plugin gives it. An accessory mirrored from another controller
-  (Wingman's) is renamed there: it has **Name on these pages** instead, a name these pages show and the Home app does
-  not.
-- **Visible in Home app** (a widget's ⋯ menu, administrators): off, the accessory leaves the Home app, with its room,
-  scenes and automations, while Homeswift and Matter keep it (`_hiddenFromHomeKit` in its plugin's block).
+- **Settings…** (a widget's ⋯ menu, administrators; `settings.js`): the accessory's Accessory Settings in one sheet,
+  drawn from `GET /api/settings/accessories/<id>`, each field saved on its own as it is changed (a quiet *Saved* or the
+  error beside its title, and *reloads* when the plugin reloads with it):
+  - **Name**, in the Home app too, its room, scenes and automations kept; empty gives it back the name its plugin gives
+    it. An accessory mirrored from another controller (Wingman's) is named there: its Name is read-only here.
+  - **Room**: one of the rooms, or a new name that adds it; the note under it says whether the Home app follows (Room
+    Sync on, or a mirrored accessory) or only Homeswift's pages do.
+  - **Hidden** (off the wall, still in the Home app) and **Not in Home** (out of the Home app, with its room, scenes and
+    automations, while Homeswift and Matter keep it; it asks first).
+  - **Parts**, a switch each, from what the plugin's discovery says the device brings; a change reloads the plugin.
+  - **Plugin settings**: the plugin's Plugin Accessory Settings (its schema's `accessorySchema`, the fields of the
+    device's Device Kind), drawn by the same renderer as its Plugin Settings. A field with a plugin-wide default shows
+    *Default (X)* while the accessory has no value of its own; cleared, it takes the default again.
+  - **Exclude** (asks first): its plugin makes no accessory of it; it leaves the Home app, the wall and Matter until it is
+    included again, here or from its plugin's Devices. **Forget** (asks first): its Authorization and Accessory Settings
+    go (`DELETE /api/settings/accessories/<id>`), and it is only a Discovered Device again.
+
+  ![An accessory's Settings: its Name, room, where it shows and its plugin's settings](images/ui/accessory-settings.png)
+
+  Its room, Name, Hidden and Not in Home are Accessory Settings in its plugin's block (`_accessories`, keyed by Device Id);
+  the bridge puts the Name on the accessory's Name and Configured Name, which the Home app follows, and a rename in the
+  Home app is kept the same way.
 - **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
   gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
   wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
@@ -164,18 +178,20 @@ screenshots, and what a plugin does to get good ones.
   (`/api/cameras/<id>/snapshot?width=&height=`). Off screen it fetches nothing. A camera has four live viewers at most;
   one turned off in the Home app, or whose plugin is paused, shows nothing; one that sends no picture shows television
   snow behind its message (a still frame under reduced motion).
-- **Rooms** (Glass UI's accessory layout): a card's **⋯** puts the accessory in a room (a new name adds the room), gives
-  it a name for these pages (the Home app keeps its own), adds it to the Quick Controls, or hides it; hidden accessories
-  stay out unless **Show hidden** (`?hidden=1`). Accessories mirrored from another controller (the Home app's, through
+- **Rooms**: an accessory's room and Hidden are in its Settings sheet (a new room name adds the room); hidden
+  accessories stay out unless **Show hidden** (`?hidden=1`). Its room and Hidden are Accessory Settings
+  (`room`, `hidden` in its plugin's block, `PATCH /api/settings/accessories/<id>`); the Quick Controls and the rooms'
+  order are the Arrangement, the layout's. Accessories mirrored from another controller (the Home app's, through
   the Wingman plugin) carry a small house badge, sit in that controller's room until given one here, and have a filter
-  of their own, the **Apple Home** switch (`?from=Apple%20Home`). The layout is the bridge's, shared by every user, in
-  `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
+  of their own, the **Apple Home** switch (`?from=Apple%20Home`). The Arrangement is the bridge's, shared by every user, in
+  `accessory-layout.json` next to config.json (owner-only; `/api/rooms`), where older versions also kept rooms, Hidden and
+  display names: those are read until the accessory's settings are next written, which moves them there. The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
 - **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
   Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
   that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
-  one too (choose it). Its **Sync rooms with the hubs** switch, off until turned on (`syncRoomNames` in
-  `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
+  one too (choose it). Its **Sync rooms with the hubs** switch, Room Sync, off until turned on (`roomSync` in config.json's
+  bridge block, applied without a restart), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
   an IKEA DIRIGERA hub, an eWeLink home or Apple Home (through Wingman) named as the room was, case and accents aside,
   is renamed with it, and the log says so (`Room "Salon" renamed "Lounge" on Hue`). From Apple Home it goes both ways:
   a room renamed in the Home app renames Homeswift's room of the old name, and the other hubs' with it. A room renamed
@@ -186,8 +202,8 @@ screenshots, and what a plugin does to get good ones.
   Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you
-  do not want, then **Apply** saves the rooms and the names as display names. Accessories it finds odd are listed as
-  advice.
+  do not want, then **Apply** saves the rooms and the names as the accessories' settings (a name is its Name, in the
+  Home app too; a mirrored accessory gets none). Accessories it finds odd are listed as advice.
 - **Groups**: **Create group** opens a two-column picker (available accessories on the left, the members on the right,
   with search and device-type filters); in Edit, holding a compatible tile over another's centre and dropping it starts
   one. A group shows its members' shared writable controls; it is not a HomeKit accessory. Its menu edits the members
@@ -358,8 +374,8 @@ needs the page added to the home screen.
 Every platform block of config.json, with whether it runs, is paused, and on which bridge; then **Add a plugin**, the
 plugins compiled into this homeswift, with a search and a sort.
 
-- **A card's ⋯** opens the plugin's page, its Expert form or JSON, pauses or resumes it, and removes it; its name opens
-  its page. Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
+- **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, and removes it; its name
+  opens its page (its Settings when it has none). Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
   there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
 - **Pause** (also at the top right of a plugin's page) stops the plugin's calls to its devices, for when an app sharing
   the account would be signed out by them. Its accessories stay in the Home app, showing No Response, and the page
@@ -368,12 +384,27 @@ plugins compiled into this homeswift, with a search and a sort.
   authors](#for-plugin-authors)) does its everyday work there, at `/plugins/<slug>` (the block's name in lower case,
   dashes for spaces: `/plugins/dyson-pure-cool`), from the list or an accessory's menu. **Add** on such a plugin writes
   an empty block and opens its page, as Homebridge's custom UIs do.
-- **Expert**, last on the page and in the card's menu, is the whole block as a form built from the plugin's schema (the
-  same `config.schema.json` the Homebridge version ships), or as JSON: `/plugins/<slug>/expert` and `/expert/json`. A
-  plugin that does not run, or has no page, shows the form at its own address, and so do the runtime's own blocks,
-  `HomeswiftUI` and `HomeswiftAiKit` (the Assistant and the MCP server).
+- **Settings** (`/plugins/<slug>/settings`; a plugin without a page of its own has them at `/plugins/<slug>`, and a
+  plugin's page links to them at the right of its breadcrumb, before Pause; the old `/expert` and `/expert/json`
+  addresses lead there). One surface in sections:
+  - **Account**, for a plugin that signs in to an account or pairs with a hub: where it stands and **Set up again**,
+    which opens the Setup sheet. Its sign-in is kept in the vault, never in the form.
+  - **Settings**: the Plugin Settings as a form built from the plugin's schema (the same `config.schema.json` the
+    Homebridge version ships), read and saved through `GET`/`PATCH /api/settings/plugins/<platform>/<name>`. One Save
+    sends what changed from the form as it opened (a key taken out is cleared; one the form does not show, such as a
+    secret kept in the vault, is left alone); the plugin reloads once, its accessories kept.
+  - **Devices**: every Discovered Device of the instance, as Setup's discovery finds them, with where each stands: one set
+    up opens its accessory's Settings sheet, an Excluded one has **Include**, one that Needs Authorization has **Set up
+    again**. **Find again** asks the plugin again. `?accessory=<Accessory Id>` opens that accessory's sheet over the
+    page (a plugin page's link to one of its devices, or to a scene through `scenePictures`' `settings` option), and the
+    address loses it once the sheet closes.
+  - What the form does not show is in config.json: the page links to its editor (Settings › Config), the one place to
+    write a block as it is, **Save anyway** included. Then **Remove this plugin**.
 
-![A plugin's Expert form, made from its config.schema.json](images/ui/plugin-form.png)
+  The runtime's own blocks (`HomeswiftUI`, `HomeswiftAiKit`: the web UI, the Assistant and the MCP server) keep their form
+  at `/plugins/<slug>`, saved whole, as a new block's (`/plugins/add/<platform>`) is.
+
+![A plugin's Settings: its Plugin Settings, its devices](images/ui/plugin-settings.png)
 
 The form follows the schema's `condition`s (`functionBody` or an expression, as Homebridge's form reads them): a field
 shows only when its condition holds for the block or, in a list, for its entry (`arrayIndices`). The page runs no code
@@ -386,16 +417,23 @@ chosen). A boolean with
 under a title that turns it on (the web UI's daily backup). A certificate or key field takes a dropped PEM file, which
 the bridge checks and keeps owner-only under `files/` next to config.json.
 
-The JSON view is coloured as you type, like Settings › Config, and Save takes the view on screen. With the Assistant on,
-**Describe your setup** above the form writes the block from a sentence and the plugin's schema; the change shows as a
+With the Assistant on, **Describe your setup** above the form writes the block from a sentence and the plugin's schema; the change shows as a
 diff, and **Use it** puts it in the form to review and save. Passwords and tokens never reach the provider.
 
 **Saving** validates the block, backs up the previous file and applies it at once ([Applying changes](#applying-changes-and-restarts)).
-The JSON view marks the line of a syntax error as you type, and Save waits until it is fixed. A save also checks what it
-changes against the plugin's schema (a type, a bound, a choice outside the list, a required setting): the problems
-show under the editor with their lines marked, **Line 12** puts the caret there, and **Save anyway** keeps a value the
-plugin accepts that its schema does not list. Settings left as they were are not checked, so an old mistake never stops
-another change; a plugin's own page and **Pause** write without the check.
+A save also checks what it
+changes against the plugin's schema (a type, a bound, a choice outside the list, a required setting): the problems show
+in the save bar, and nothing is written. Settings left as they were are not checked, so an old mistake never stops
+another change; **Pause** is checked the same way (`PUT /api/config/block/<platform>/<name>`),
+and only config.json's editor's **Save anyway** writes without the check.
+
+The settings routes are what MCP's `get_settings` and `update_settings` read and write (docs/mcp.md), for
+administrators, secrets as the placeholder: `GET`/`PATCH /api/settings/accessories/<accessoryId>` an accessory's
+Accessory Settings and their fields (`?instance=` names the block of an accessory not on the bridge whose platform has
+several), `PATCH /api/settings/accessories` several accessories' in one write (`{"<accessoryId>": {…}}`), and
+`GET`/`PATCH /api/settings/plugins/<platform>/<name>` an instance's Plugin Settings with its `schema` and
+`accessorySchema`. A `PATCH` merges its body, objects key by key, and `null` clears a key. `DELETE
+/api/settings/accessories/<accessoryId>` Forgets the device (MCP's `forget_device`).
 
 ### Add accessories
 
@@ -435,11 +473,13 @@ Setup. What it gives goes in the vault, and the plugin reloads with it.
 An account set up for the first time then lists what the plugin finds, every device switched on: those switched off are
 excluded (they can be included later), and the sheet ends on the accessories added. A device that brings devices of its
 own (a UniFi console: its cameras, doors and sensors) lists those the same way once the plugin reaches them. Another
-device's Setup, or an account signed in again, ends at done.
+device's Setup ends at done with the device's Accessory Settings under it, the same editor as the wall's **Settings…**
+(each field saved as it is changed), so what a plugin declares once shows in both places, then **Done**; an account
+signed in again ends at done.
 
 ![The sheet pairing a Hue Bridge: its link button, and the time left](images/ui/setup-pair.png)
 
-A device's ⋯ **Exclude**s it (its Accessory Settings' `excluded`: the plugin makes no accessory of it, in the Home app or
+A device's ⋯ opens its **Settings…** (the wall's sheet), **Exclude**s it (its Accessory Settings' `excluded`: the plugin makes no accessory of it, in the Home app or
 Matter) or **Include**s it again; one excluded by the plugin's own settings (a Homebridge exclude list) opens them
 instead. **Find again** asks the plugin again.
 
@@ -514,7 +554,8 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
     stages it in `.restore-pending/` and restarts; the new process puts the files in place before it reads anything,
     keeping this machine's bridge and web UI ports. Files the backup does not have stay.
   - **config.json backups**: the file before each of its last 20 saves, each compared with the file as it is (a diff)
-    or restored.
+    or restored. A settings write that changes only an accessory's Name, room, Hidden or Not in Home (a rename in the
+    Home app, a move Room Sync follows) keeps none.
 - **Vault** (docs/vault-design.md), for administrators:
 
   ![Settings › Vault: a secret still in config.json, and the entries](images/ui/vault.png)
@@ -553,8 +594,8 @@ The pages' changes that cannot be undone (pairings, caches, a restore) ask first
 
 ![Settings › Config: the whole config.json, secrets marked in gold](images/ui/config.png)
 
-A tab of Settings (`/settings/config`; `/config`, its address before, leads there). The whole file in an editor. Saving validates it, checks each plugin block's changes against its schema as the Expert
-view does, keeps a backup under `backups/` (the last 20), sorts the keys and applies it. A syntax error's line is
+A tab of Settings (`/settings/config`; `/config`, its address before, leads there). The whole file in an editor. Saving validates it, checks each plugin block's changes against its schema as a plugin's Settings
+do, keeps a backup under `backups/` (the last 20), sorts the keys and applies it. A syntax error's line is
 marked as you type.
 
 - **Folding**: a block that spans lines folds from the chevron beside its first line (Option-click folds or opens every
@@ -585,7 +626,7 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
 ### Addresses
 
 Every view is a path: `/status`, `/accessories` (and `/accessories/graph`), `/quick`, `/scenes` (and `/scenes/<id>`,
-`/scenes/new`), `/notifications`, `/plugins`, `/plugins/<slug>` and its `/expert`, `/plugins/add/<platform>`,
+`/scenes/new`), `/notifications`, `/plugins`, `/plugins/<slug>` and its `/settings` (`/expert`, its address before, leads there), `/plugins/add/<platform>`,
 `/account`, `/appearance`, `/users`, and `/settings` with `/bridge`, `/config` (`/config` alone leads there),
 `/child-bridges`, `/backups`, `/vault`, `/updates`, `/audit` and `/assistant`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
 `?section=schedules` (`/plugins/web-ui?section=proxy`) opens and scrolls to that part of its settings, and the Logs view is
@@ -789,7 +830,8 @@ Apricot frost, the design system of `style.css` ([design-system.md](design-syste
 **A settings form.** Ship a `config.schema.json` in the plugin's directory and run `swift Scripts/embed-assets.swift
 plugin Plugins/<Name> <Type>` to embed it (a test checks it is current); the Plugins page then shows a form. The form
 understands the Homebridge dialect: `properties` in order, `required: true` on a property, `oneOf` with `enum` and
-`title` for menus, `placeholder`, `default`, `description`, arrays of objects or of values, nested objects, the
+`title` for menus, `placeholder`, `default`, `description`, arrays of objects (rows to reorder, named as
+docs/plugins.md's "Settings" says) or of values (checkboxes for an array of choices), nested objects, the
 top-level `layout` with `fieldset` groups, and `condition`s ([Plugins](#plugins)). Keys the schema does not know
 (`_bridge` for one) are kept as they are.
 
@@ -814,11 +856,13 @@ Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test checks 
   way the UI's own pages do; `homeswift.tile(icon, tone)` draws an icon on a colour and `homeswift.fact(label, value)` a
   labelled value of a `.facts` grid. `homeswift.act(button, work, report)` runs `work` with the button disabled and a
   spinner and hands an error's message to `report` (`alert` by default; with `report` null the error is thrown).
-- **Its block.** `homeswift.readBlock()` and `homeswift.updateBlock(change)` read and write the instance's block of
-  config.json (`GET`/`PUT /api/config/block/<platform>/<name>`): a write applies at once and the plugin reloads. For a
-  block with a `devices` list keyed by MAC address there are `updateDevices`, `updateDevice`, `putDevice` and
-  `findDevice`; `poll(refresh)` refreshes while the page is visible, and `renderKeyed` redraws only the cards whose item
-  changed.
+- **Its settings.** A page shows views, diagnostics and actions, and writes no settings
+  (docs/adr/0002-schema-declares-every-setting.md): its schema declares them and the Settings page edits them. It links
+  there: `homeswift.settingsAddress` is the instance's Settings, `homeswift.accessorySettings(accessoryID)` one
+  accessory's there (`?accessory=`, its Accessory Settings over the page: its Name, room, Excluded and the plugin's own),
+  and `homeswift.scenePictures({ settings })` gives a scene tile's menu the link. `poll(refresh)` refreshes while the
+  page is visible, `renderKeyed` redraws only the cards whose item changed, and `canonicalMAC` spells a MAC address as the
+  server does.
 - **Setup.** A page signs in and pairs nowhere: `homeswift.setupCard({ title, text, glyph, tone, start })` is a card
   whose button opens the instance's row on Add accessories (`homeswift.setupAddress({ start })`, `/setup?start#<slug>`;
   with `start`, its account's Setup sheet opens there), for a page whose account or hub is not set up yet or a "Sign in
@@ -868,8 +912,9 @@ node Scripts/ui-screenshots.mjs
 It runs the bridge built at `~/Library/Caches/homeswift-build/debug/homeswift` (or the binary given) from a temporary
 folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin blocks with demonstration names, all
 paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
-light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, and removes the folder
-when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page's shots that need lights (hubs' scenes,
+light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, answers a plugin's
+discovery with demonstration lights (so a plugin's Settings and an accessory's sheet never show this network's devices),
+and removes the folder when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page's shots that need lights (hubs' scenes,
 the templates, a scene card and its Stop) come from `node Scripts/plugin-screenshots.mjs`, against its fake Hue Bridge
 and DIRIGERA hub.
 

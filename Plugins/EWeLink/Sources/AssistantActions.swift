@@ -15,8 +15,9 @@ extension EWeLinkPlugin {
             description: "The devices of the eWeLink account, from the cloud, with what a 3-second mDNS scan finds on the LAN: deviceId, name, "
                 + "brand, model, uiid, online, lanEnabled, lanIp and lanPort. RF remotes and sensors an RF Bridge learned follow their "
                 + "bridge as <bridge id>SW<n> (isRfSubdevice, parentDeviceId, buttons). Uses the instance's own session; it answers 401 "
-                + "when the instance never signed in (the user then signs in on Add accessories, or an AI agent through start_setup). The deviceId is what singleDevices, "
-                + "multiDevices and ignoredDevices take in config.json.",
+                + "when the instance never signed in (the user then signs in on Add accessories, or an AI agent through start_setup). The deviceId is the Device Id: a device's "
+                + "accessory is eWeLink:<deviceId> (a channel's or a sub-device's eWeLink:<deviceId>SW<n>), and its settings are read with get_settings "
+                + "and written with update_settings by that accessory.",
             path: "devices", access: .read),
         AssistantAction(
             name: "test_device", title: "Send a test command",
@@ -50,7 +51,12 @@ extension EWeLinkPlugin {
         "(logged as AUTH_TOKEN_INVALIDATED) means the session was invalidated, usually because the same account logged in",
         "elsewhere with the same app ID - a dedicated eWeLink account shared to the main one avoids it; 500 eWeLink server",
         "error; 503/504 or \"offline\" means the device did not answer (powered off, weak Wi-Fi, or not connected to the cloud).",
-        "Devices are identified by deviceId and UIID (the eWeLink model type). Never ask the user for their password, tokens",
-        "or API keys.",
+        "Devices are identified by deviceId and UIID (the eWeLink model type). Settings are read with get_settings and written with",
+        "update_settings: by plugin for mode, countryCode, logging, offlineAsOff, groups and bridgeSensors; by accessory",
+        "(eWeLink:<deviceId>) for Excluded and the device's own settings, which depend on its Device Kind (its category: single,",
+        "multi, thermostat, light, fan, sensor, rf_bridge…): showAs, hideChannels, tempOffset, humidityOffset, brightnessStep,",
+        "adaptiveLightingShift, hideLight, hideTemp, hideHumidity, lowBattery, disableDeviceLogging, an RF Bridge's subdevices, and",
+        "the simulations' options. The account is in the vault, set through Setup only. Never ask the user for their password,",
+        "tokens or API keys.",
     ].joined(separator: " ")
 }

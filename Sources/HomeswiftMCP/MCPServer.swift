@@ -288,6 +288,10 @@ public struct MCPTool: Sendable {
     /// Asks the user before running: through elicitation, or with a one-time code from the bridge's log
     /// when the client cannot ask; logged with `notConfirmed` when declined.
     public var destructive: Bool
+    /// For a tool that is not destructive as a whole: whether a call's arguments make one that asks first, as a
+    /// destructive call does (the same question, dry run and one-time code). `update_settings` asks only for a change
+    /// that reloads a plugin or takes an accessory out of Apple Home.
+    public var confirmsWhen: (@Sendable (JSONValue) -> Bool)?
     /// Honours `dryRun: true`: previews, changes nothing, and then needs no confirmation.
     public var supportsDryRun: Bool
     public var idempotent: Bool
@@ -299,16 +303,17 @@ public struct MCPTool: Sendable {
     public init(
         name: String, title: String? = nil, description: String, inputSchema: JSONValue = ["type": "object", "properties": [:]],
         outputSchema: JSONValue? = nil, scope: Scope, readOnly: Bool? = nil, destructive: Bool = false, supportsDryRun: Bool = false,
-        idempotent: Bool = false, handler: @escaping @Sendable (ToolCall) async throws -> ToolResult
+        idempotent: Bool = false, confirmsWhen: (@Sendable (JSONValue) -> Bool)? = nil, handler: @escaping @Sendable (ToolCall) async throws -> ToolResult
     ) {
         self.name = name
+        self.confirmsWhen = confirmsWhen
         self.outputSchema = outputSchema
         self.title = title
         self.description = description
         var schema = inputSchema.objectValue ?? ["type": "object"]
         var properties = schema["properties"]?.objectValue ?? [:]
         if supportsDryRun { properties["dryRun"] = ["type": "boolean", "description": "Preview without changing anything"] }
-        if destructive {
+        if destructive || confirmsWhen != nil {
             properties["confirmationCode"] = ["type": "string", "description": "The one-time code from the homeswift log, when the client cannot ask the user"]
         }
         schema["properties"] = .object(properties)
@@ -320,6 +325,15 @@ public struct MCPTool: Sendable {
         self.supportsDryRun = supportsDryRun
         self.idempotent = idempotent
         self.handler = handler
+    }
+
+    /// Whether this call asks the user first: every call of a destructive tool, and those `confirmsWhen` picks.
+    public func confirms(_ arguments: JSONValue) -> Bool {
+        guard !destructive else { return true }
+        guard let confirmsWhen else { return false }
+        var bare = arguments.objectValue ?? [:]
+        bare.removeValue(forKey: "confirmationCode")
+        return confirmsWhen(.object(bare))
     }
 
     var json: JSONValue {
@@ -740,7 +754,7 @@ public final class MCPServer: Sendable {
                 tool: name, arguments: arguments, ok: ok, error: error, session: session.id, client: session.clientInfo?.name ?? "unknown",
                 principal: session.principal.name, scope: session.principal.scope, dryRun: call.isDryRun, notConfirmed: notConfirmed))
         }
-        if tool.destructive, !call.isDryRun {
+        if tool.confirms(arguments), !call.isDryRun {
             var bare = arguments.objectValue ?? [:]
             let presentedCode = bare.removeValue(forKey: "confirmationCode")?.stringValue
             let summary = Redaction.redactSecrets(.object(bare)).text()
