@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Tuya: an experimental plugin for Tuya and Smart Life devices through the Tuya Cloud OpenAPI, compatible with
+  homebridge-tuya-platform's `TuyaPlatform` block: lights with Adaptive Lighting, switches and plugs with energy,
+  climate, covers, locks, sensors, cameras' events, IR remotes and scenes, kept current by Tuya's MQTT push.
 - The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
   opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
   an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.

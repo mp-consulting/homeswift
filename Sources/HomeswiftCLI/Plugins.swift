@@ -10,6 +10,7 @@ import HomeswiftLGThinQ
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftTuya
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
 import HomeswiftWingman
@@ -35,5 +36,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(TuyaPlugin.self)
     return registry
 }
