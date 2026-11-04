@@ -308,6 +308,17 @@ struct HTTPClientTests {
         }
     }
 
+    @Test func sendsAnAllDigitServerNameAsSNI() {
+        #expect(TLSOptions.sniHostname("123456789012") == "123456789012")
+        #expect(TLSOptions.sniHostname("C43212345678") == "C43212345678")
+        #expect(TLSOptions.sniHostname("localhost") == "localhost")
+        #expect(TLSOptions.sniHostname("1.2.3") == "1.2.3")
+        #expect(TLSOptions.sniHostname("1234.1.1.1") == "1234.1.1.1")
+        #expect(TLSOptions.sniHostname("192.168.1.20") == nil)
+        #expect(TLSOptions.sniHostname("::1") == nil)
+        #expect(TLSOptions.sniHostname("fe80::1") == nil)
+    }
+
     @Test func offersTheCipherSuitesItIsGiven() async throws {
         let server = try await TestServer(tls: true, behaviour: .echo)
         defer { Task { await server.stop() } }
