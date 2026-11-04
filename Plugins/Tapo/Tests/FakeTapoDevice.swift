@@ -132,8 +132,6 @@ final class FakeTapoNetwork: HTTPSending, Sendable {
                 reply = handle(inner, device: &device)
             }
             return json(["error_code": 0, "result": ["response": .string(try cipher.encrypt(reply))]])
-        case (.passthrough, _):
-            return HTTPResponse(status: 404)
         case (.klap, "/app"):
             return json(["error_code": 1003])
         default:

@@ -3,18 +3,18 @@ import Homeswift
 import HomeswiftPlugin
 
 /// Eve's consumption characteristics as the Homebridge plugin defines them for Tapo: watts as a float, so a plug's
-/// 15.3 W stays 15.3 (the bridge's shared one is a whole number), and kWh to the watt-hour.
+/// 15.3 W stays 15.3 (the bridge's shared one is a whole number, and `with` cannot change a format), and kWh to the
+/// watt-hour.
 enum TapoEve {
     static let currentConsumption = CharacteristicType(
         name: "Current Consumption", uuid: EveCharacteristic.currentConsumption.uuid, format: .float, permissions: [.pairedRead, .events],
         minValue: 0, maxValue: 65535, minStep: 0.1)
-    static let totalConsumption = CharacteristicType(
-        name: "Total Consumption", uuid: EveCharacteristic.totalConsumption.uuid, format: .float, permissions: [.pairedRead, .events],
-        minValue: 0, maxValue: 4_294_967_295, minStep: 0.001)
+    static let totalConsumption = EveCharacteristic.totalConsumption.with(minStep: 0.001)
 }
 
 /// A device's accessory and the services the plugin sets (docs/clean-room/Tapo.md, 3.4).
 struct TapoServices: Sendable {
+    let kind: TapoKind
     let accessory: Accessory
     /// The Outlet or the Lightbulb.
     let primary: Service
@@ -26,7 +26,7 @@ struct TapoServices: Sendable {
     /// Builds the accessory; `write` is what a HomeKit write becomes. `cached` gives its last values back.
     static func make(
         id: String, name: String, kind: TapoKind, cached: Accessory?, historyURL: URL?, context: PluginContext,
-        write: @escaping @Sendable (TapoWrite) async throws -> Void
+        write: @escaping @Sendable (LightChangeBatcher.Change) async throws -> Void
     ) -> TapoServices {
         let primary: Service
         if kind.isLight {
@@ -47,28 +47,28 @@ struct TapoServices: Sendable {
             services: [primary] + (history.map { [$0.service] } ?? []))
         if let cached { accessory.takeValues(from: cached) }
 
-        primary.characteristic(.on).onWrite { value in try await write(TapoWrite(on: value.boolValue ?? false)) }
+        primary.characteristic(.on).onWrite { value in try await write(.on(value.boolValue ?? false)) }
         if kind.isLight {
             primary.characteristic(.brightness).onWrite(changesOnly: true) { value in
-                try await write(TapoWrite(brightness: Int(saturating: value.doubleValue ?? 0, in: 0...100) ?? 0))
+                try await write(.brightness(value.doubleValue ?? 0))
             }
         }
         var adaptiveLighting: AdaptiveLightingController?
         if kind.colorTemperatureRange != nil {
             primary.characteristic(.colorTemperature).onWrite(changesOnly: true) { value in
-                try await write(TapoWrite(mireds: Int(saturating: value.doubleValue ?? 0) ?? 0))
+                try await write(.mirek(Int(saturating: value.doubleValue ?? 0) ?? 0))
             }
             adaptiveLighting = context.adaptiveLighting(for: primary, accessoryID: id)
         }
         if kind.hasColor {
             primary.characteristic(.hue).onWrite(changesOnly: true) { value in
-                try await write(TapoWrite(hue: Int(saturating: (value.doubleValue ?? 0).rounded(), in: 0...360) ?? 0))
+                try await write(.hue(value.doubleValue ?? 0))
             }
             primary.characteristic(.saturation).onWrite(changesOnly: true) { value in
-                try await write(TapoWrite(saturation: Int(saturating: (value.doubleValue ?? 0).rounded(), in: 0...100) ?? 0))
+                try await write(.saturation(value.doubleValue ?? 0))
             }
         }
-        return TapoServices(accessory: accessory, primary: primary, history: history, adaptiveLighting: adaptiveLighting)
+        return TapoServices(kind: kind, accessory: accessory, primary: primary, history: history, adaptiveLighting: adaptiveLighting)
     }
 
     private static func energyCharacteristics(_ kind: TapoKind) -> [Characteristic] {
@@ -77,7 +77,7 @@ struct TapoServices: Sendable {
     }
 
     /// Shows what the device reported; `previous` is its report before, to tell a white or a colour set elsewhere.
-    func show(_ state: TapoState, previous: TapoState?, kind: TapoKind) {
+    func show(_ state: TapoState, previous: TapoState?) {
         if let on = state.on { primary.characteristic(.on).value = .bool(on) }
         guard kind.isLight else { return }
         if let brightness = state.brightness { primary.characteristic(.brightness).value = .int(min(max(brightness, 0), 100)) }
@@ -95,7 +95,7 @@ struct TapoServices: Sendable {
         }
     }
 
-    func show(_ energy: TapoEnergy, kind: TapoKind) {
+    func show(_ energy: TapoEnergy) {
         primary.characteristic(TapoEve.currentConsumption).value = .double((energy.watts * 10).rounded() / 10)
         primary.characteristic(TapoEve.totalConsumption).value = .double(energy.todayKWh)
         if kind == .powerPlug { primary.characteristic(.outletInUse).value = .bool(energy.watts > 0) }

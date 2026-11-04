@@ -2,8 +2,8 @@ import Foundation
 
 extension TapoPlugin {
     /// The Homebridge plugin's block (docs/clean-room/Tapo.md, 2), so it works unchanged. `pollingInterval` and
-    /// `timeout` at the top are read and unused there, and here too; `waitTimeUpdate` is unused there and here is how
-    /// long writes wait for the ones made with them.
+    /// `timeout` at the top and `port` of a device are unused there and are not read here; `waitTimeUpdate` is unused
+    /// there and here is how long writes wait for the ones made with them.
     public struct Configuration: Decodable, Sendable {
         public struct Device: Decodable, Sendable {
             /// The display name, and with `host` the device's identity.
@@ -15,17 +15,12 @@ extension TapoPlugin {
             public var updateInterval: TapoNumber?
             /// Seconds before a securePassthrough request gives up; 2 when absent or 0.
             public var timeout: TapoNumber?
-            /// Read and unused: the devices answer on port 80.
-            public var port: TapoNumber?
         }
 
-        public var name: String?
         /// The Tapo account's email.
         public var username: String?
         public var password: String?
         public var devices: [Device]?
-        public var pollingInterval: TapoNumber?
-        public var timeout: TapoNumber?
         /// Milliseconds; 100 by default.
         public var waitTimeUpdate: TapoNumber?
     }

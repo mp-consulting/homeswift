@@ -54,13 +54,7 @@ struct TapoState: Sendable, Equatable {
     var hardwareID: String?
     var firmware: String?
 
-    init(on: Bool? = nil, brightness: Int? = nil, kelvin: Int? = nil, hue: Int? = nil, saturation: Int? = nil) {
-        self.on = on
-        self.brightness = brightness
-        self.kelvin = kelvin
-        self.hue = hue
-        self.saturation = saturation
-    }
+    init() {}
 
     init(info: JSONValue) {
         on = info["device_on"]?.boolValue
@@ -122,32 +116,5 @@ struct TapoEnergy: Sendable, Equatable {
     init(watts: Double, todayKWh: Double) {
         self.watts = watts
         self.todayKWh = todayKWh
-    }
-}
-
-/// The writes HomeKit made within a moment, sent together: on or off first, then the brightness, then a white or a
-/// colour (the later of the two). Hue and Saturation become one request.
-struct TapoWrite: Sendable, Equatable {
-    var on: Bool?
-    var brightness: Int?
-    var mireds: Int?
-    var hue: Int?
-    var saturation: Int?
-
-    var isEmpty: Bool { self == TapoWrite() }
-
-    mutating func merge(_ later: TapoWrite) {
-        if let on = later.on { self.on = on }
-        if let brightness = later.brightness { self.brightness = brightness }
-        if let mireds = later.mireds {
-            self.mireds = mireds
-            hue = nil
-            saturation = nil
-        }
-        if later.hue != nil || later.saturation != nil {
-            mireds = nil
-            if let hue = later.hue { self.hue = hue }
-            if let saturation = later.saturation { self.saturation = saturation }
-        }
     }
 }

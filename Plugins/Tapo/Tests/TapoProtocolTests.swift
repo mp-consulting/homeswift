@@ -3,6 +3,7 @@ import Foundation
 import HomeswiftAI
 import HomeswiftNetwork
 import Logging
+import NIOConcurrencyHelpers
 import Testing
 import _CryptoExtras
 
@@ -132,17 +133,6 @@ extension Data {
         #expect(TapoKind(type: "WhiteLight") == .whiteLight)
         #expect(TapoKind(type: "colorlight") == .colorLight)
         #expect(TapoKind.allCases.map(\.model) == ["Tapo P100", "Tapo P110", "Tapo L510E", "Tapo L520E", "Tapo L530"])
-    }
-
-    @Test func writesMerge() {
-        var write = TapoWrite(hue: 120)
-        write.merge(TapoWrite(saturation: 50))
-        #expect(write == TapoWrite(hue: 120, saturation: 50))
-        write.merge(TapoWrite(mireds: 300))
-        #expect(write == TapoWrite(mireds: 300))
-        write.merge(TapoWrite(on: true))
-        write.merge(TapoWrite(brightness: 40))
-        #expect(write == TapoWrite(on: true, brightness: 40, mireds: 300))
     }
 
     @Test func firmwareRevision() {
@@ -277,15 +267,7 @@ extension Data {
 /// A clock a test moves.
 final class ClockBox: Sendable {
     private let start = ContinuousClock.now
-    private let offset = NIOLockedDuration()
-    var now: ContinuousClock.Instant { start + offset.value }
-    func advance(_ by: Duration) { offset.add(by) }
-}
-
-import NIOConcurrencyHelpers
-
-final class NIOLockedDuration: Sendable {
-    private let box = NIOLockedValueBox<Duration>(.zero)
-    var value: Duration { box.withLockedValue { $0 } }
-    func add(_ duration: Duration) { box.withLockedValue { $0 += duration } }
+    private let offset = NIOLockedValueBox<Duration>(.zero)
+    var now: ContinuousClock.Instant { start + offset.withLockedValue { $0 } }
+    func advance(_ by: Duration) { offset.withLockedValue { $0 += by } }
 }

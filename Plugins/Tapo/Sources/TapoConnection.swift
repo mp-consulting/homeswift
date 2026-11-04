@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftAI
 import HomeswiftNetwork
 import Logging
@@ -147,42 +148,37 @@ actor TapoConnection {
 
     private func handshake() async throws {
         guard let credentials = credentials() else { throw TapoError.noCredentials }
-        if !usesPassthrough {
+        session = nil
+        expiry = nil
+        if usesPassthrough { return try await passthroughHandshake(credentials) }
+        do {
+            try await klapHandshake(credentials)
+            rememberKLAP()
+        } catch is NoKLAP {
+            guard !spokeKLAP() else {
+                logger.warning("\(host) answered KLAP's handshake with HTTP 404, but it spoke KLAP before: not falling back to securePassthrough")
+                throw TapoError.http(404)
+            }
+            logger.info("\(host) has no KLAP endpoint (HTTP 404), trying securePassthrough")
             do {
-                try await klapHandshake(credentials)
-                rememberKLAP()
-                return
-            } catch is NoKLAP {
-                guard !spokeKLAP() else {
-                    logger.warning("\(host) answered KLAP's handshake with HTTP 404, but it spoke KLAP before: not falling back to securePassthrough")
-                    throw TapoError.http(404)
-                }
-                logger.info("\(host) has no KLAP endpoint (HTTP 404), trying securePassthrough")
-                do {
-                    try await passthroughHandshake(credentials)
-                    usesPassthrough = true
-                } catch TapoError.device(TapoMessage.wantsKLAP) {
-                    throw TapoError.http(404)
-                }
-                return
+                try await passthroughHandshake(credentials)
+                usesPassthrough = true
+            } catch TapoError.device(TapoMessage.wantsKLAP) {
+                throw TapoError.http(404)
             }
         }
-        try await passthroughHandshake(credentials)
     }
 
     private func klapHandshake(_ credentials: TapoCredentials) async throws {
-        session = nil
-        expiry = nil
         let authHash = KLAP.authHash(username: credentials.username, password: credentials.password)
-        var localSeed = Data(count: 16)
-        for index in localSeed.indices { localSeed[index] = UInt8.random(in: .min ... .max) }
+        let localSeed = Secrets.randomBytes(16)
         // Without the old cookie: a new session.
         let first = try await post("/app/handshake1", body: localSeed, cookie: nil, timeout: handshakeTimeout)
         guard first.status != 404 else { throw NoKLAP() }
         guard first.status == 200 else { throw TapoError.http(first.status) }
         guard first.body.count == 48 else { throw TapoError.invalidResponse("handshake1 answered \(first.body.count) bytes") }
         let remoteSeed = Data(first.body.prefix(16))
-        guard KLAP.serverHash(localSeed: localSeed, remoteSeed: remoteSeed, authHash: authHash) == first.body.suffix(32) else {
+        guard Secrets.constantTimeEqual(KLAP.serverHash(localSeed: localSeed, remoteSeed: remoteSeed, authHash: authHash), first.body.suffix(32)) else {
             throw TapoError.invalidCredentials
         }
         let cookie = Self.cookie(of: first)
@@ -199,8 +195,6 @@ actor TapoConnection {
     }
 
     private func passthroughHandshake(_ credentials: TapoCredentials) async throws {
-        session = nil
-        expiry = nil
         let keys = try keyPair ?? SecurePassthrough.KeyPair()
         keyPair = keys
         let request = TapoMessage.request("handshake", params: ["key": .string(keys.publicKeyPEM)])

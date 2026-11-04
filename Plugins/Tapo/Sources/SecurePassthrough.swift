@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import _CryptoExtras
 
 /// securePassthrough, the protocol of older Tapo firmware (docs/clean-room/Tapo.md, 4.1): the client sends an RSA public
@@ -26,7 +27,7 @@ enum SecurePassthrough {
     }
 
     /// The session's AES-128-CBC key and IV: the same IV for every message.
-    struct Cipher: Sendable, Equatable {
+    struct Cipher: Sendable {
         let key: Data
         let iv: Data
 
@@ -43,7 +44,7 @@ enum SecurePassthrough {
     /// `login_device`'s parameters: base64 of the lowercase hex SHA-1 of the email (the 40 characters), and base64 of
     /// the password.
     static func loginParameters(username: String, password: String) -> [String: String] {
-        let digest = Insecure.SHA1.hash(data: Data(username.utf8)).map { String(format: "%02x", $0) }.joined()
+        let digest = Secrets.hex(Insecure.SHA1.hash(data: Data(username.utf8)))
         return ["username": Data(digest.utf8).base64EncodedString(), "password": Data(password.utf8).base64EncodedString()]
     }
 }

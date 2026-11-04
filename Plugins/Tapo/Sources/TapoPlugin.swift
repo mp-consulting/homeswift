@@ -43,6 +43,7 @@ public actor TapoPlugin: HomeswiftPlugin {
     private(set) var devices: [String: TapoDevice] = [:]
     /// The devices that completed a KLAP handshake, which never fall back to securePassthrough.
     let klapDevices: KLAPDevices
+    private let credentialCache = NIOLockedValueBox<TapoCredentials??>(nil)
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -60,8 +61,18 @@ public actor TapoPlugin: HomeswiftPlugin {
 
     func scaled(_ seconds: Double) -> Duration { .seconds(seconds * dependencies.timeScale) }
 
-    /// The account: what Setup kept in the vault, else the block's `username` and `password`.
+    /// The account: what Setup kept in the vault, else the block's `username` and `password`. The vault is read once a
+    /// run: a Setup that changes the account reloads the plugin.
     nonisolated var credentials: TapoCredentials? {
+        credentialCache.withLockedValue { cached in
+            if let cached { return cached }
+            let found = readCredentials()
+            cached = .some(found)
+            return found
+        }
+    }
+
+    private nonisolated func readCredentials() -> TapoCredentials? {
         if let kept = context.credentials(as: TapoCredentials.self), !kept.username.isEmpty, !kept.password.isEmpty { return kept }
         guard let username = configuration.username, !username.isEmpty, let password = configuration.password, !password.isEmpty else { return nil }
         return TapoCredentials(username: username, password: password)
@@ -110,7 +121,7 @@ public actor TapoPlugin: HomeswiftPlugin {
         let kind = TapoKind(type: device.type)
         let interval = device.updateInterval?.positive ?? Self.defaultUpdateInterval
         let settings = TapoDevice.Settings(
-            deviceID: deviceID, name: name, host: host, kind: kind, interval: scaled(interval),
+            name: name, host: host, kind: kind, interval: scaled(interval),
             backoff: Backoff(initial: scaled(interval), maximum: scaled(max(interval, Self.maximumBackoff)), jitter: .proportional(0.1)),
             writeDelay: scaled((configuration.waitTimeUpdate?.value.flatMap { $0 >= 0 ? $0 : nil } ?? Self.defaultWaitTimeUpdate) / 1000),
             bulbEnergyInterval: dependencies.bulbEnergyInterval)
