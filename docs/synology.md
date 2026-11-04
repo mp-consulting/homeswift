@@ -61,6 +61,31 @@ open the new address yourself. DSM's menu entry follows at the package's next st
 its `bridge` block holds that bridge's HomeKit identity (`username`, `pin`), and two bridges with one
 identity make the Home app drop the pairing. Copy the `platforms` instead.
 
+### Security
+
+The **homeswift** shared folder holds what gives the bridge away: `secrets.key` (the key that opens the vault and
+config.json's sealed secrets), `vault.json`, config.json, the HomeKit identity and pairings (`homeswift.json`) and the
+web UI's accounts, sessions and tokens (`ui-*.json`). The bridge writes them for its user alone (mode 0600), but a DSM
+shared folder gives every file in it the share's ACL, which DSM checks instead of the mode bits: `ls -l` shows those
+files as `-rwxrwxrwx+`, and any account or app given access to the share in **Control Panel > Shared Folder** could read
+them, or replace config.json.
+
+At each start the package removes that ACL from these files (`synoacltool -del`) and sets them back to 0600, and the
+bridge sets each one to 0600 (a chmod, not only the mode it is created with) each time it writes it. The bridge then checks the folder and its secrets, and when other accounts
+can still reach them its log says which, starting `Other accounts can reach the bridge's secrets`. Over SSH, to see
+for yourself:
+
+```bash
+ls -le /volume1/homeswift                              # no "+" after the mode of secrets.key and vault.json
+sudo synoacltool -get /volume1/homeswift/secrets.key   # no "has_ACL" in its Archive line
+sudo homeswift logs | grep "reach the bridge's secrets"
+```
+
+If a file keeps its ACL, remove it as root with `sudo synoacltool -del <file>`, then `sudo homeswift restart`. Give
+no other account access to the **homeswift** shared folder: an account that can write the folder can still replace
+files in it. Hyper Backup reads it as root and needs no access of its own; a backup holds `secrets.key`, so keep it as
+private as the NAS.
+
 ### Over SSH
 
 `homeswift` runs the bridge's binary as the package's user, on the package's data. It needs `sudo`:
