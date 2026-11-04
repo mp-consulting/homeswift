@@ -63,6 +63,9 @@ public struct TLSOptions: Sendable, Equatable {
     /// The TLS 1.2 cipher suites offered, as an OpenSSL cipher list (`"DEFAULT"`); nil for NIOSSL's own. See
     /// `HTTPClient.cipherSuites`.
     public var cipherSuites: String?
+    /// For `.system` and `.roots`: whether the certificate must name the host connected to (or `serverName`). False
+    /// accepts any certificate the roots vouch for, for a device reached by an address its certificate does not name.
+    public var checksHostName = true
 
     /// The context built from these options, reused while they stay the same (one per client, not per connection).
     private let contextCache = ContextCache()
@@ -87,6 +90,9 @@ public struct TLSOptions: Sendable, Equatable {
         case .system: self.init(trust: .system)
         case .any: self.init(trust: .any)
         case .pinned(let fingerprint): self.init(trust: .pinned(fingerprint))
+        case .authority(let pem, let serverName):
+            self.init(trust: .roots(pem: pem), serverName: serverName)
+            checksHostName = serverName != nil
         }
     }
 
@@ -98,9 +104,12 @@ public struct TLSOptions: Sendable, Equatable {
         var clientIdentity: ClientIdentity?
         var alpn: [String]
         var cipherSuites: String?
+        var checksHostName: Bool
     }
 
-    private var contextKey: ContextKey { ContextKey(trust: trust, clientIdentity: clientIdentity, alpn: alpn, cipherSuites: cipherSuites) }
+    private var contextKey: ContextKey {
+        ContextKey(trust: trust, clientIdentity: clientIdentity, alpn: alpn, cipherSuites: cipherSuites, checksHostName: checksHostName)
+    }
 
     private final class ContextCache: Sendable {
         let entry = NIOLockedValueBox<(key: ContextKey, context: NIOSSLContext)?>(nil)
@@ -127,7 +136,9 @@ public struct TLSOptions: Sendable, Equatable {
             configuration.certificateVerification = .noHostnameVerification
         case .roots(let pem):
             configuration.trustRoots = .certificates(try NIOSSLCertificate.fromPEMBytes(Array(pem.utf8)))
+            if !checksHostName { configuration.certificateVerification = .noHostnameVerification }
         }
+        if case .system = trust, !checksHostName { configuration.certificateVerification = .noHostnameVerification }
         switch clientIdentity {
         case nil:
             break
