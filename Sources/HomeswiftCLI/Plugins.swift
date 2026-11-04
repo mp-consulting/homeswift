@@ -11,6 +11,7 @@ import HomeswiftLGThinQ
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftShelly
 import HomeswiftTPLinkSmarthome
 import HomeswiftTapo
 import HomeswiftUniFiAccess
@@ -39,6 +40,8 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(ShellyNGPlugin.self)
+    registry.register(ShellyPlugin.self)
     registry.register(TPLinkSmarthomePlugin.self)
     registry.register(Zigbee2MQTTPlugin.self)
     registry.register(TapoPlugin.self)

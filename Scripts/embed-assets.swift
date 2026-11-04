@@ -15,7 +15,7 @@ import Foundation
 
 let arguments = CommandLine.arguments.dropFirst()
 guard let mode = arguments.first else {
-    FileHandle.standardError.write(Data("usage: embed-assets.swift plugin <plugin dir> <plugin type> | web <web dir> <output file> [<plugin type>] | prompts <prompts dir> <output file>\n".utf8))
+    FileHandle.standardError.write(Data("usage: embed-assets.swift plugin <plugin dir> <plugin type> [<schema file>] | web <web dir> <output file> [<plugin type>] | prompts <prompts dir> <output file>\n".utf8))
     exit(2)
 }
 
@@ -28,12 +28,16 @@ func literal(_ text: String) -> String {
 
 switch mode {
 case "plugin":
-    guard arguments.count == 3 else { exit(2) }
+    guard arguments.count == 3 || arguments.count == 4 else { exit(2) }
     let directory = arguments[arguments.startIndex + 1]
     let type = arguments[arguments.startIndex + 2]
-    let schema = try String(contentsOfFile: "\(directory)/config.schema.json", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+    // A directory with two platforms gives the second one's schema file (`config.gen1.schema.json`), embedded as
+    // Sources/<type>Schema.swift.
+    let schemaFile = arguments.count == 4 ? arguments[arguments.startIndex + 3] : "config.schema.json"
+    let outputFile = arguments.count == 4 ? "\(type)Schema.swift" : "ConfigurationSchema.swift"
+    let schema = try String(contentsOfFile: "\(directory)/\(schemaFile)", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
     let output = """
-        // THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+        // THIS FILE IS GENERATED from ../\(schemaFile) by Scripts/embed-assets.swift - DO NOT EDIT.
         // swiftlint:disable all
 
         extension \(type) {
@@ -42,7 +46,7 @@ case "plugin":
         }
 
         """
-    try output.write(toFile: "\(directory)/Sources/ConfigurationSchema.swift", atomically: true, encoding: .utf8)
+    try output.write(toFile: "\(directory)/Sources/\(outputFile)", atomically: true, encoding: .utf8)
 case "web":
     guard arguments.count == 3 || arguments.count == 4 else { exit(2) }
     let directory = arguments[arguments.startIndex + 1]

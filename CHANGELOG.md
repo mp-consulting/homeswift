@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Shelly plugin (experimental): Gen 2, 3 and 4 devices over their WebSocket RPC (`ShellyNG` block) and Gen 1 devices over CoIoT and HTTP (`Shelly` block), the two homebridge-shelly blocks unchanged, with lights, colour lights and energy meters beyond the originals; a CoAP codec in HomeswiftNetwork.
 - TP-Link Kasa (`TplinkSmarthome`), experimental: Kasa plugs, switches, dimmers, power strips and bulbs on the local
   network, with Eve energy readings and Adaptive Lighting; a clean-room implementation that loads
   homebridge-tplink-smarthome's block.
