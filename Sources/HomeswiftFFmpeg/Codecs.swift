@@ -296,6 +296,9 @@ public final class FfmpegCodecs: Sendable {
 
     /// `\S+\s+(\S+).+\(decoders: (.*?)\s*\)` (or `encoders`): the codec name and its implementations.
     static func parseCodecLine(_ line: String, kind: String) -> (String, [String])? {
+        // Most of `ffmpeg -codecs`'s 550 lines name no implementations, and Swift's Regex takes about 0.4 ms a line:
+        // without this check the probe spent 0.45 s of CPU at every start of a camera plugin.
+        guard line.contains(kind == "decoders" ? "(decoders: " : "(encoders: ") else { return nil }
         let match = kind == "decoders"
             ? line.firstMatch(of: #/\S+\s+(\S+).+\(decoders: (.*?)\s*\)/#)
             : line.firstMatch(of: #/\S+\s+(\S+).+\(encoders: (.*?)\s*\)/#)
