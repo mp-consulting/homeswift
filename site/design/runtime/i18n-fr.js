@@ -61,6 +61,7 @@ HomeswiftI18n.add("fr", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
+  "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Enceintes Sonos : lecture, volume et groupes, favoris en entrées TV, voyants et alarmes",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
   "Lights with scenes and effects, plugs and sensors": "Lumières avec scènes et effets, prises et capteurs",
   "Air conditioners, washers, fridges and other appliances through LG's cloud": "Climatiseurs, lave-linge, réfrigérateurs et autres appareils via le cloud de LG",

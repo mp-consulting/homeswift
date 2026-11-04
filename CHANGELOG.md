@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Sonos plugin (platform `ZP`, homebridge-zp's block): zones found by SSDP and mDNS and followed through UPnP events, their
+  group's playback, volume and sleep timer, a Speakers service, LEDs, alarms and a TV per zone with the favourites as inputs;
+  `HomeswiftNetwork.SSDP`, an SSDP search and listener for plugins. Experimental: written from a clean-room spec.
 - The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
   opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
   an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
