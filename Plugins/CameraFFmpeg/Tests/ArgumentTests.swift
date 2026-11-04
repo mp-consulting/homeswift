@@ -185,7 +185,7 @@ struct ArgumentTests {
         let arguments = ["-i", "rtsp://admin:s3cr@t@10.0.0.5:554/s1", "-srtp_out_params", "c2VjcmV0a2V5", "srtp://192.168.1.20:51000?rtcpport=51000"]
         let line = Masking.commandLine(arguments)
         #expect(!line.contains("admin") && !line.contains("s3cr") && !line.contains("c2VjcmV0a2V5"))
-        #expect(line.contains("rtsp://***@10.0.0.5:554/s1"))
+        #expect(line.contains("rtsp://***@10.0.0.5:554/<redacted>"))
         #expect(line.contains("srtp://192.168.1.20:51000"))
         #expect(Masking.text("a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:QUJDRA==") == "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:***")
         #expect(Masking.text("-i http://cam/snapshot.cgi?usr=admin&pwd=hunter2&res=1") == "-i http://cam/snapshot.cgi?usr=admin&pwd=***&res=1")

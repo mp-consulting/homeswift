@@ -35,7 +35,9 @@ public func redactCommandLine(_ commandLineArgs: [String]) -> String {
 
 /// `\b([a-z][a-z0-9+.-]*:\/\/[^:/?#@\s]*):[^/?#\s]*@` (case-insensitive) replaced by `$1:***@`. The password runs to the
 /// last `@` before the host, so one holding a raw `@` (cameras accept them unencoded) is hidden whole.
-/// Credentials in a URL's query (`?usr=admin&pwd=…`, `&token=…`), which many cameras take, are hidden too.
+/// Credentials in a URL's query (`?usr=admin&pwd=…`, `&token=…`), which many cameras take, are hidden too, and so is the
+/// path of an RTSP or RTSPS URL, which can be the secret itself (UniFi Protect's `rtsps://host:7441/<alias>?enableSrtp`):
+/// the scheme, host and port stay, the path becomes `<redacted>`, the query stays (its secret values hidden).
 public func redactURLPasswords(_ text: String) -> String {
     guard text.contains("://") else { return text }
     var result = text.replacing(#/\b([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@\s]*):[^\/?#\s]*@/#) { match in
@@ -44,7 +46,14 @@ public func redactURLPasswords(_ text: String) -> String {
     if result.contains("=") {
         result = result.replacing(#/(?i)([?&;](?:[^=&\s]*(?:pass|pwd|token|secret|key|auth|cred|sig)[^=&\s]*)=)[^&\s]*/#) { $0.output.1 + "***" }
     }
-    return result
+    return redactRTSPPaths(result)
+}
+
+/// The path of every `rtsp://` and `rtsps://` URL replaced by `<redacted>`; the scheme, the host and port (and masked
+/// credentials before them) and the query stay.
+public func redactRTSPPaths(_ text: String) -> String {
+    guard text.range(of: "rtsp", options: .caseInsensitive) != nil else { return text }
+    return text.replacing(#/(?i)\b(rtsps?:\/\/[^\/?#\s'"]+)\/[^?#\s'"]+/#) { $0.output.1 + "/<redacted>" }
 }
 
 /// Matches runs of non-printable characters (Unicode category C) in FFmpeg's standard error, which become line breaks.

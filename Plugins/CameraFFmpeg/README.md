@@ -116,8 +116,9 @@ and a password, both optional). The Add accessories page lists the cameras of th
   Mac, where macOS's Local Network privacy refused Homebrew's FFmpeg ("No route to host") while curl reached the NVR.
   The plugin's FFmpeg paths were run with real FFmpeg on camera-like H.264 sources instead (below).
 - Credentials inside `source`, `stillImageSource` and `returnAudioTarget` are stored as written: those keys are not
-  secret-named, so the bridge neither seals them nor resolves `vault:` references in them. A token in a URL's path
-  (UniFi Protect's RTSPS) is not masked in the log either: the plugin cannot tell it from a path.
+  secret-named, so the bridge neither seals them nor resolves `vault:` references in them. The log masks them: the
+  credentials and secret query values of every URL, and the whole path of an RTSP or RTSPS URL (UniFi Protect's stream
+  alias is its secret).
 - Two-way audio is experimental, as upstream: it needs a camera that takes audio at an FFmpeg output (`returnAudioTarget`).
 - The web UI's live view copies the source's video: an MJPEG camera keeps its snapshots there.
 
