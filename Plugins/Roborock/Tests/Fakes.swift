@@ -26,6 +26,14 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async
     return await condition()
 }
 
+/// Records an issue unless `condition` holds within `timeout` (no `await` inside `#expect`, which Linux rejects).
+func expectEventually(
+    timeout: Duration = .seconds(10), sourceLocation: SourceLocation = #_sourceLocation, _ condition: @Sendable () async -> Bool
+) async {
+    let held = await eventually(timeout: timeout, condition)
+    #expect(held, sourceLocation: sourceLocation)
+}
+
 enum Sample {
     static let duid = "DUID00000000000001AB"
     static let sharedDUID = "DUID00000000000002CD"

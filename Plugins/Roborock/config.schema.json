@@ -63,6 +63,7 @@
       "currentRoomMqtt": {
         "title": "Current room to MQTT",
         "type": "object",
+        "description": "The Homebridge plugin's telemetry of the room each robot is in. Read from a Homebridge block; Homeswift does not send it yet.",
         "properties": {
           "enabled": { "title": "Enabled", "type": "boolean", "default": false, "description": "Publishes the room each robot cleans to an MQTT broker of yours." },
           "brokerUrl": { "title": "Broker URL", "type": "string", "default": "mqtt://127.0.0.1:1883", "description": "The broker, such as mqtt://192.168.1.10:1883." },
@@ -77,6 +78,7 @@
   },
   "i18n": {
     "fr": {
+      "The Homebridge plugin's telemetry of the room each robot is in. Read from a Homebridge block; Homeswift does not send it yet.": "La télémétrie du plugin Homebridge sur la pièce où se trouve chaque robot. Lue depuis un bloc Homebridge ; Homeswift ne l'envoie pas encore.",
       "Asia": "Asie",
       "Broker URL": "URL du broker",
       "China": "Chine",
@@ -116,6 +118,7 @@
       "United States": "États-Unis"
     },
     "es": {
+      "The Homebridge plugin's telemetry of the room each robot is in. Read from a Homebridge block; Homeswift does not send it yet.": "La telemetría del plugin de Homebridge sobre la habitación en la que está cada robot. Se lee de un bloque de Homebridge; Homeswift aún no la envía.",
       "Asia": "Asia",
       "Broker URL": "URL del broker",
       "China": "China",
@@ -155,6 +158,7 @@
       "United States": "Estados Unidos"
     },
     "pt": {
+      "The Homebridge plugin's telemetry of the room each robot is in. Read from a Homebridge block; Homeswift does not send it yet.": "A telemetria do plugin do Homebridge sobre a divisão onde está cada robô. Lida de um bloco do Homebridge; o Homeswift ainda não a envia.",
       "Asia": "Ásia",
       "Broker URL": "URL do broker",
       "China": "China",

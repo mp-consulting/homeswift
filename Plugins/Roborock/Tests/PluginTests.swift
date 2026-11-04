@@ -25,7 +25,7 @@ struct PluginTests {
     @Test func signsInAndPutsTheRobotInHomeKit() async throws {
         environment.cloud.state.withLockedValue { $0.scenes = [Sample.scene(42, name: " After dinner "), Sample.scene(43, name: "Off", enabled: false)] }
         let host = try await environment.start()
-        #expect(await eventually { environment.accessory(host) != nil })
+        await expectEventually { environment.accessory(host) != nil }
         let accessory = try #require(environment.accessory(host))
         #expect(accessory.id == "RoborockVacuumPlatform:\(Sample.duid)")
         #expect(accessory.information[.manufacturer]?.value == "Roborock")
@@ -52,10 +52,10 @@ struct PluginTests {
         #expect(String(decoding: login.body ?? Data(), as: UTF8.self).contains("password=LvL%2FDG4BURyfwhsOQkg4Qw%3D%3D"))
         let homeRequest = try #require(environment.cloud.requests.first { $0.url.path == "/v2/user/homes/\(Sample.homeID)" })
         #expect(homeRequest.header("Authorization")?.hasPrefix(#"Hawk id="u_example", s="s_example", ts=""#) == true)
-        #expect(await eventually { environment.mqtt.subscriptions["rr/m/o/u_example/bb7e313c/#"] != nil })
+        await expectEventually { environment.mqtt.subscriptions["rr/m/o/u_example/bb7e313c/#"] != nil }
 
         // The first poll reaches the robot on the LAN: its status, and the consumables as Filter Maintenance.
-        #expect(await eventually { accessory.service(.filterMaintenance, subtype: "filter") != nil || environment.accessory(host)?.service(.filterMaintenance, subtype: "filter") != nil })
+        await expectEventually { accessory.service(.filterMaintenance, subtype: "filter") != nil || environment.accessory(host)?.service(.filterMaintenance, subtype: "filter") != nil }
         let current = try #require(environment.accessory(host))
         let filter = try #require(current.service(.filterMaintenance, subtype: "filter"))
         #expect(filter[.filterLifeLevel]?.value.doubleValue == 5)
@@ -69,7 +69,7 @@ struct PluginTests {
 
     @Test func activeStartsAndStopsACleanOnTheLAN() async throws {
         let host = try await environment.start()
-        #expect(await eventually { environment.robot.methods.contains("get_consumable") })
+        await expectEventually { environment.robot.methods.contains("get_consumable") }
         let accessory = try #require(environment.accessory(host))
         let active = try #require(accessory.service(.fanv2)?[.active])
         let handler = try #require(active.writeHandler(for: .int(1)))
@@ -84,11 +84,11 @@ struct PluginTests {
 
     @Test func aBroadcastFromTheCloudReachesHomeKit() async throws {
         let host = try await environment.start()
-        #expect(await eventually { environment.robot.methods.contains("get_consumable") })
+        await expectEventually { environment.robot.methods.contains("get_consumable") }
         var frame = RoborockFrame(version: .v1, seq: 9, random: 10, timestamp: 1_700_000_000, protocolNumber: 102)
         frame.payload = try RoborockCipher.encrypt(Data(#"{"dps":{"121":5,"122":15},"t":1700000000}"#.utf8), frame: frame, localKey: Sample.localKey, nonces: nil)
         environment.mqtt.receive("rr/m/o/u_example/bb7e313c/\(Sample.duid)", payload: frame.encoded())
-        #expect(await eventually { environment.accessory(host)?.service(.fanv2)?[.active]?.value == 1 })
+        await expectEventually { environment.accessory(host)?.service(.fanv2)?[.active]?.value == 1 }
         let battery = try #require(environment.accessory(host)?.service(.battery))
         #expect(battery[.batteryLevel]?.value == 15)
         #expect(battery[.statusLowBattery]?.value == 1)
@@ -100,7 +100,7 @@ struct PluginTests {
         let responder = answerCloud(environment.mqtt)
         defer { responder.cancel() }
         let host = try await environment.start()
-        #expect(await eventually { environment.robot.methods.contains("get_consumable") })
+        await expectEventually { environment.robot.methods.contains("get_consumable") }
         let active = try #require(environment.accessory(host)?.service(.fanv2)?[.active])
         let handler = try #require(active.writeHandler(for: .int(1)))
         try await handler(.int(1))
@@ -117,10 +117,10 @@ struct PluginTests {
         let responder = answerCloud(environment.mqtt)
         defer { responder.cancel() }
         let host = try await environment.start()
-        #expect(await eventually { environment.accessory(host, duid: Sample.sharedDUID) != nil })
+        await expectEventually { environment.accessory(host, duid: Sample.sharedDUID) != nil }
         // Shared devices get no dock-wash switch (no feature info) and are not dialled.
         #expect(environment.accessory(host, duid: Sample.sharedDUID)?.service(.switch, subtype: "dock-wash") == nil)
-        #expect(await eventually { environment.mqtt.subscriptions.isEmpty == false })
+        await expectEventually { environment.mqtt.subscriptions.isEmpty == false }
         let active = try #require(environment.accessory(host, duid: Sample.sharedDUID)?.service(.fanv2)?[.active])
         let handler = try #require(active.writeHandler(for: .int(1)))
         try await handler(.int(1))
@@ -138,8 +138,8 @@ struct PluginTests {
         environment.dialer.add(other, at: "192.0.2.11")
         environment.discovered.withLockedValue { $0[Sample.otherDUID] = "192.0.2.11" }
         let host = try await environment.start(settings: ["email": "user@example.com", "password": "hunter2", "skipDevices": [Sample.duid]])
-        #expect(await eventually { environment.accessory(host, duid: Sample.otherDUID) != nil })
-        #expect(await eventually { other.methods.contains("get_consumable") })
+        await expectEventually { environment.accessory(host, duid: Sample.otherDUID) != nil }
+        await expectEventually { other.methods.contains("get_consumable") }
         #expect(environment.accessory(host, duid: Sample.duid) == nil)
         #expect(environment.robot.connections == 0)
         #expect(environment.robot.methods.isEmpty)
@@ -150,13 +150,13 @@ struct PluginTests {
         environment.cloud.state.withLockedValue { $0.scenes = [Sample.scene(42, name: "After dinner")] }
         environment.robot.answer("do_scenes_segments", with: ["ok"])
         let host = try await environment.start()
-        #expect(await eventually { environment.robot.methods.contains("get_consumable") })
+        await expectEventually { environment.robot.methods.contains("get_consumable") }
         let on = try #require(environment.accessory(host)?.service(.switch, subtype: "scene-42")?[.on])
         let handler = try #require(on.writeHandler(for: true))
         try await handler(true)
-        #expect(await eventually { environment.robot.methods.contains("do_scenes_segments") })
+        await expectEventually { environment.robot.methods.contains("do_scenes_segments") }
         // A momentary switch.
-        #expect(await eventually { on.value == false })
+        await expectEventually { on.value == false }
         // The robot reports docked again without having cleaned: no cloud scene ran.
         #expect(!environment.cloud.paths().contains("POST /user/scene/42/execute"))
         await host.stop()
@@ -164,7 +164,7 @@ struct PluginTests {
 
     @Test func theConfiguredLanguageNamesTheServices() async throws {
         let host = try await environment.start(settings: ["email": "user@example.com", "password": "hunter2", "language": "fr"])
-        #expect(await eventually { environment.accessory(host)?.service(.filterMaintenance, subtype: "main-brush") != nil })
+        await expectEventually { environment.accessory(host)?.service(.filterMaintenance, subtype: "main-brush") != nil }
         let accessory = try #require(environment.accessory(host))
         #expect(accessory.service(.switch, subtype: "dock-wash")?[.name]?.value == "Démarrer le lavage à la vadrouille")
         #expect(accessory.service(.filterMaintenance, subtype: "main-brush")?[.name]?.value == "Brosse principale")
@@ -192,7 +192,7 @@ struct PluginTests {
     @Test func aRejectedLoginStaysIdleWithoutACache() async throws {
         environment.cloud.state.withLockedValue { $0.loginResponse = ["code": 2031, "msg": "need two-step"] }
         let host = try await environment.start()
-        #expect(await eventually { environment.cloud.paths().contains("POST /api/v4/auth/email/login/pwd") })
+        await expectEventually { environment.cloud.paths().contains("POST /api/v4/auth/email/login/pwd") }
         #expect(environment.accessory(host) == nil)
         #expect(!environment.cloud.paths().contains { $0.contains("homes") })
         await host.stop()
