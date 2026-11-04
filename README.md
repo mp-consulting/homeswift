@@ -175,6 +175,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired on Add accessories) |
 | [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired on Add accessories) |
+| [Roborock](Plugins/Roborock) | `RoborockVacuumPlatform` | Experimental: Roborock robot vacuums, on the LAN with the cloud's MQTT as a fallback: clean, dock, mop washing, scenes, brushes and filter |
 | [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired on Add accessories) |
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |

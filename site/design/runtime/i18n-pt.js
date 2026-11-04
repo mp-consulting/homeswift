@@ -58,6 +58,7 @@ HomeswiftI18n.add("pt", {
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Ares condicionados e bombas de calor Altherma através da nuvem Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luzes, tomadas, sensores, estores, purificadores e cenas, localmente",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robôs de piscina: iniciar e parar a limpeza, temperatura da água e filtro",
+  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robôs aspiradores: limpeza, regresso à base, bateria, lavagem da esfregona, cenas e escovas",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
