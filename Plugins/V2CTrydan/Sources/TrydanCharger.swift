@@ -35,7 +35,7 @@ actor TrydanCharger {
     /// The Device Id the accessory is under, once known (the configuration's, or the first report's).
     private(set) var deviceID: String?
     private(set) var name: String
-    let settings: ChargerSettings
+    private(set) var settings: ChargerSettings
     private(set) var report: TrydanReport?
     private(set) var services: TrydanServices?
     /// What `/read` gave for the keywords `/RealTimeData` lacks, and those the firmware does not know.
@@ -46,6 +46,11 @@ actor TrydanCharger {
     private(set) var isReachable = true
     private var retryAfter: Duration?
     private var reading = false
+    private var rereadWanted = false
+    /// Writes the charger took, so a read sent before one is not shown over it.
+    private var writes = 0
+    /// When the Light LED's brightness was last written, so an On of the same request does not override it.
+    private var lastBrightnessWrite: ContinuousClock.Instant?
     private var warnedStates: Set<Int> = []
     private var repairedFirmware: Set<String> = []
     private var identityNoted = false
@@ -55,8 +60,7 @@ actor TrydanCharger {
     private var logoDimmable = false
     private var lastLogoLevel = 100
     private let coalesce: LatestCallGuard
-    private let chargeSeries: RecordedSeries?
-    private var otherSeries: [String: RecordedSeries] = [:]
+    private var series: [String: RecordedSeries] = [:]
 
     init(
         host: String, deviceID: String?, name: String, settings: ChargerSettings, transport: any HTTPSending, interval: Duration, timeout: Duration,
@@ -73,7 +77,6 @@ actor TrydanCharger {
         self.tasks = tasks
         client = TrydanClient(host: host, transport: transport, timeout: timeout, logger: context.logger)
         coalesce = LatestCallGuard(delay: timing.coalescing)
-        chargeSeries = deviceID.map { context.series("\($0):charge") }
     }
 
     var isOnBridge: Bool { services != nil }
@@ -84,13 +87,34 @@ actor TrydanCharger {
     /// because another is in flight, which sees the same values.
     @discardableResult
     func refresh() async -> TrydanReport? {
-        guard !reading else { return nil }
+        guard !reading else {
+            // A write asks for a read while one is in flight: that one may predate the write, so another follows it.
+            rereadWanted = true
+            return nil
+        }
         reading = true
         defer { reading = false }
+        var report: TrydanReport?
+        // At most a few rounds: each is one more write during the read before.
+        for _ in 0..<3 {
+            rereadWanted = false
+            report = await readOnce()
+            guard rereadWanted else { break }
+        }
+        return report
+    }
+
+    /// One read; an answer that a write overtook while it was on its way is not shown.
+    private func readOnce() async -> TrydanReport? {
+        let generation = writes
         do {
             let parsed = try await client.realTimeData()
             try await readFallbacks(missingFrom: parsed.object)
             let report = try TrydanReport(parsed.object, extras: extras)
+            guard writes == generation else {
+                rereadWanted = true
+                return nil
+            }
             if parsed.repaired, repairedFirmware.insert(report.firmwareVersion ?? "").inserted {
                 logger.warning("Repaired the malformed JSON of \(name)", metadata: ["host": "\(host)", "firmware": "\(report.firmwareVersion ?? "unknown")"])
             }
@@ -186,7 +210,9 @@ actor TrydanCharger {
     func nextDelay() -> Duration {
         if let retryAfter { return retryAfter }
         guard failures >= 3 else { return interval }
-        return max(interval, timing.backoff.delay(attempt: failures - 3))
+        // 30 s, 60 s, 120 s, then the maximum (5.3).
+        let attempt = failures - 3
+        return max(interval, attempt >= 3 ? timing.backoff.maximum : timing.backoff.delay(attempt: attempt))
     }
 
     // MARK: Energy
@@ -195,13 +221,13 @@ actor TrydanCharger {
     /// them, `BatteryPower` untagged (docs/clean-room/V2CTrydan.md, 4.4).
     static func energyReadings(_ report: TrydanReport, settings: ChargerSettings, device: String) -> [(key: String, watts: Double, tag: EnergyTag?)] {
         var readings: [(key: String, watts: Double, tag: EnergyTag?)] = [("charge", report.chargePower, nil)]
-        let houseTag: EnergyTag? =
+        let houseRole: EnergyRole? =
             switch settings.houseEnergyRole ?? .none {
             case .none: nil
-            case .home: EnergyTag(role: .home, device: device, shared: meterShared)
-            case .grid: EnergyTag(role: .grid, device: device, shared: meterShared)
+            case .home: .home
+            case .grid: .grid
             }
-        readings.append(("house", report.housePower, houseTag))
+        readings.append(("house", report.housePower, houseRole.map { EnergyTag(role: $0, device: device, shared: meterShared) }))
         readings.append(("solar", report.fvPower, settings.solarEnergy == true ? EnergyTag(role: .solar, device: device, shared: meterShared) : nil))
         if let battery = report.batteryPower { readings.append(("battery", battery, nil)) }
         return readings
@@ -214,13 +240,14 @@ actor TrydanCharger {
         guard let deviceID else { return }
         for reading in Self.energyReadings(report, settings: settings, device: name) {
             guard let watts = reading.watts.finite else { continue }
-            if reading.key == "charge", let chargeSeries {
-                context.recordValue(watts, series: chargeSeries)
-                continue
+            let recorded: RecordedSeries
+            if let known = series[reading.key] {
+                recorded = known
+            } else {
+                recorded = context.series("\(deviceID):\(reading.key)")
+                series[reading.key] = recorded
             }
-            let series = otherSeries[reading.key] ?? context.series("\(deviceID):\(reading.key)")
-            otherSeries[reading.key] = series
-            context.recordValue(watts, series: series, energy: reading.tag)
+            context.recordValue(watts, series: recorded, energy: reading.tag)
         }
     }
 
@@ -228,12 +255,13 @@ actor TrydanCharger {
 
     /// Puts the charger on the bridge under `deviceID`, or builds it again when its shape changed (the maximum current, the
     /// LEDs reported). `cached` gives its last values back.
-    func attach(deviceID: String, name: String, cached: Accessory?) throws -> Bool {
+    func attach(deviceID: String, name: String, settings: ChargerSettings, cached: Accessory?) throws -> Bool {
         let shape = services?.shape ?? cached.map(TrydanShape.init(cached:)) ?? TrydanShape()
         let wanted = report.map(shape.updated(with:)) ?? shape
         guard services == nil || services?.shape != wanted || self.deviceID != deviceID else { return false }
         self.deviceID = deviceID
         self.name = name
+        self.settings = settings
         let built = TrydanServices.make(
             id: "\(V2CTrydanPlugin.platform):\(deviceID)", deviceID: deviceID, name: name, firmware: report?.firmwareVersion, settings: settings,
             shape: wanted, cached: services?.accessory ?? cached
@@ -263,13 +291,15 @@ actor TrydanCharger {
             try await set("Paused", allowed ? 0 : 1)
         case .current(let amperes):
             guard amperes >= 1 else {
+                // The slider at the bottom: a value still waiting from the same drag is dropped.
+                _ = coalesce.claim("intensity")
                 try await set("Paused", 1)
                 return
             }
             // A drag of the slider: only its last value goes.
             guard await coalesce("intensity") else { return }
             let range = report?.intensityRange ?? 6...32
-            let value = min(max(Int(saturating: amperes.rounded()) ?? range.lowerBound, range.lowerBound), range.upperBound)
+            let value = Int(saturating: amperes.rounded(), in: range) ?? range.lowerBound
             try await set("Intensity", value)
         case .lock(let locked):
             try await set("Locked", locked ? 1 : 0)
@@ -280,8 +310,19 @@ actor TrydanCharger {
         case .pauseDynamic(let on):
             try await set("PauseDynamic", on ? 1 : 0)
         case .lightLED(let on):
-            try await set("LightLED", on ? lastLightLevel : 0)
+            guard on else {
+                _ = coalesce.claim("lightLED")
+                try await set("LightLED", 0)
+                return
+            }
+            // HomeKit sends On with a Brightness in one request, in no set order: a brightness wins.
+            let asked = ContinuousClock.now
+            try? await Task.sleep(for: timing.coalescing)
+            if let lastBrightnessWrite, lastBrightnessWrite >= asked - timing.coalescing { return }
+            try await set("LightLED", lastLightLevel)
         case .lightLEDBrightness(let level):
+            lastBrightnessWrite = .now
+            guard await coalesce("lightLED") else { return }
             try await set("LightLED", min(max(level, 0), 100))
         case .logoLED(let on):
             try await set("LogoLED", on ? (logoDimmable ? lastLogoLevel : 1) : 0)
@@ -296,21 +337,10 @@ actor TrydanCharger {
             allowed = (0...1).contains(value) ? nil : "0 or 1"
         case "Intensity":
             allowed = (6...32).contains(value) ? nil : "6 to 32"
-        case "MinIntensity":
-            allowed = (6...min(32, report?.maxIntensity ?? 32)).contains(value) ? nil : "6 to the maximum current"
-        case "MaxIntensity":
-            allowed = (max(6, report?.minIntensity ?? 6)...32).contains(value) ? nil : "the minimum current to 32"
         case "DynamicPowerMode":
             allowed = (0...5).contains(value) ? nil : "0 to 5"
-        case "ChargeMode":
-            allowed = (0...2).contains(value) ? nil : "0, 1 or 2"
         case "LightLED", "LogoLED":
             allowed = (0...100).contains(value) ? nil : "0 to 100"
-        case "VoltageInstallation":
-            allowed = (1...500).contains(value) ? nil : "1 to 500"
-        case "ContractedPower":
-            let mode = report?.dynamicPowerMode
-            allowed = value >= 0 || mode == 0 || mode == 3 ? nil : "0 or more, unless the mode is timed (0) or solar only (3)"
         default:
             allowed = "a keyword the plugin writes"
         }
@@ -327,6 +357,7 @@ actor TrydanCharger {
         }
         do {
             try await client.write(keyword, value)
+            writes += 1
         } catch {
             logger.warning("\(name) did not take \(keyword)=\(value): \(error)", metadata: ["host": "\(host)"])
             throw HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
@@ -353,14 +384,9 @@ actor TrydanCharger {
         case "Dynamic": report.dynamic = value
         case "PauseDynamic": report.pauseDynamic = value
         case "Intensity": report.intensity = value
-        case "MinIntensity": report.minIntensity = value
-        case "MaxIntensity": report.maxIntensity = value
         case "DynamicPowerMode": report.dynamicPowerMode = value
-        case "ChargeMode": report.chargeMode = value
         case "LightLED": report.lightLED = value
         case "LogoLED": report.logoLED = value
-        case "VoltageInstallation": report.voltageInstallation = value
-        case "ContractedPower": report.contractedPower = value
         default: break
         }
     }

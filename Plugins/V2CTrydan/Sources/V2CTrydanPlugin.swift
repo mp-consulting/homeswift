@@ -95,9 +95,7 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
     }
 
     public func start() async throws {
-        let targets = self.targets()
-        guard !targets.isEmpty else { return }
-        for target in targets { await run(target) }
+        for target in targets() { await run(target) }
     }
 
     public func stop() async {
@@ -162,13 +160,16 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
             await attach(charger, deviceID: deviceID, name: target.name)
         }
         tasks.add { [weak self] in
-            while !Task.isCancelled {
-                if await charger.refresh() != nil { await self?.answered(charger) }
+            // Until stopped, or until it answers as an Excluded charger (`answered` lets it go).
+            while !Task.isCancelled, let self, await self.isRunning(charger, key: key) {
+                if await charger.refresh() != nil { await self.answered(charger) }
                 let delay = await charger.nextDelay()
                 try? await Task.sleep(for: delay)
             }
         }
     }
+
+    func isRunning(_ charger: TrydanCharger, key: String) -> Bool { chargers[key] === charger }
 
     /// After a read: a charger not on the bridge yet goes on it under the `ID` it gave; one whose shape changed is rebuilt.
     func answered(_ charger: TrydanCharger) async {
@@ -178,11 +179,8 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
         }
         guard let report = await charger.report else { return }
         let host = charger.host
-        let deviceID: String
-        if let id = report.id.flatMap(TrydanIdentity.deviceID) {
-            deviceID = id
-        } else {
-            deviceID = TrydanIdentity.hostDeviceID(host)
+        let deviceID = report.deviceID(host: host)
+        if report.id.flatMap(TrydanIdentity.deviceID) == nil {
             logger.info("The charger at \(host) gives no ID: it is keyed by its address (\(deviceID)), and becomes a new accessory if the address changes")
         }
         learnedIDs[Self.hostKey(host)] = deviceID
@@ -199,6 +197,7 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
         let key = Self.hostKey(charger.host)
         if let owner = owners[deviceID], owner != key {
             logger.error("The chargers at \(owner) and \(charger.host) have the same ID \(deviceID): only the first runs")
+            chargers[key] = nil
             return
         }
         owners[deviceID] = key
@@ -207,7 +206,7 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
         let name = name ?? cached?.name ?? Self.defaultName
         do {
             let first = !(await charger.isOnBridge)
-            if try await charger.attach(deviceID: deviceID, name: name, cached: cached), first {
+            if try await charger.attach(deviceID: deviceID, name: name, settings: settings(for: deviceID), cached: cached), first {
                 let firmware = await charger.report?.firmwareVersion ?? "unknown"
                 logger.info("Added charger", metadata: ["charger": "\(name)", "host": "\(charger.host)", "deviceID": "\(deviceID)", "firmware": "\(firmware)"])
             }

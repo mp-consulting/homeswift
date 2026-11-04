@@ -101,8 +101,9 @@ Choices made where the spec is silent or a device must confirm, each worth check
    minimum. Only `MaxIntensity` changes the props (the accessory is rebuilt, its iids kept).
 2. **Adding by address on the Add accessories page.** Setup has no address field for a plugin without an account: the
    page adds chargers through the settings' Chargers list; the instance's Setup with an address runs from MCP clients.
-3. **No `ID`.** A charger that sends none is keyed `HOST-<address>` with everything but letters, digits, `-` and `_` taken
-   out (`192.0.2.50` is `HOST-1920250`), as the spec says; a later `ID` is logged once, never re-keyed.
+3. **No `ID`.** A charger that sends none is keyed `HOST-<address>`, its `.` and `:` made `-` and everything else but
+   letters, digits, `-` and `_` taken out (`192.0.2.50` is `HOST-192-0-2-50`): taking the dots out as well, as the spec
+   says, would give 192.168.1.23 and 192.168.12.3 one Device Id. A later `ID` is logged once, never re-keyed.
 4. **`LogoLED`** is on or off (V2C's sheet): on sends 1, unless the charger once reported more than 1, then its last level.
    `LightLED` is dimmable. Verify on hardware which of the two dims.
 5. **The meter's figures** are shared as `v2c-meter`, so several chargers of one instance on one meter count once; two

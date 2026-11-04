@@ -57,7 +57,7 @@ extension V2CTrydanPlugin {
             do {
                 let report = try await Self.probe(host: host, transport: dependencies.transport, timeout: timeout, logger: logger)
                 var fields: [String: JSONValue] = [
-                    "host": .string(host), "deviceID": .string(report.id.flatMap(TrydanIdentity.deviceID) ?? TrydanIdentity.hostDeviceID(host)),
+                    "host": .string(host), "deviceID": .string(report.deviceID(host: host)),
                     "connected": .bool(report.isConnected), "charging": .bool(report.isCharging), "chargePower": .number(report.chargePower),
                 ]
                 if let firmware = report.firmwareVersion { fields["firmware"] = .string(firmware) }

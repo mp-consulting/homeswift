@@ -35,10 +35,8 @@ enum SlaveError {
         255: "TCP header mismatch", 256: "Empty message", 257: "Undefined error",
     ]
 
-    /// The code as the sheet knows it: any other is 257.
-    static func code(_ raw: Int) -> Int { names[raw] == nil ? 257 : raw }
-
-    static func name(_ raw: Int) -> String { names[code(raw)] ?? "Undefined error" }
+    /// The code's name; codes the sheet does not list are 257's.
+    static func name(_ raw: Int) -> String { names[raw] ?? "Undefined error" }
 }
 
 /// `DynamicPowerMode` (3.6), as V2C's sheet and pytrydan name them; the names are the MCP action's.
@@ -62,16 +60,6 @@ enum DynamicPowerMode: Int, Sendable, CaseIterable {
         }
     }
 
-    var label: String {
-        switch self {
-        case .timed: "Timed power enabled"
-        case .timedOff: "Timed power disabled (deprecated)"
-        case .solarMin: "Solar and minimum power"
-        case .solarOnly: "Solar only"
-        case .solarGrid: "Solar and grid"
-        case .stop: "Stop"
-        }
-    }
 
     init?(name: String) {
         let lowered = name.trimmingCharacters(in: .whitespaces).lowercased()
@@ -91,7 +79,6 @@ struct TrydanReport: Sendable, Equatable {
     var id: String?
     /// The raw `ChargeState`; `chargeState` is nil for a value outside the enum (`3`, or a new one).
     var rawChargeState: Int
-    var readyState: Int?
     var chargePower: Double
     var chargeEnergy: Double
     var chargeTime: Int
@@ -114,9 +101,6 @@ struct TrydanReport: Sendable, Equatable {
     var lightLED: Int?
     var logoLED: Int?
     var firmwareVersion: String?
-    var ssid: String?
-    var ip: String?
-    var signalStatus: Int?
     /// Measured current per phase, amperes, for the phases the firmware reports.
     var intensityMeasures: [Double] = []
     /// Measured voltage per phase, volts.
@@ -124,16 +108,13 @@ struct TrydanReport: Sendable, Equatable {
 
     var chargeState: ChargeState? { ChargeState(rawValue: rawChargeState) }
 
+    /// The Device Id: the `ID` it reports, else `HOST-<host>`.
+    func deviceID(host: String) -> String { id.flatMap(TrydanIdentity.deviceID) ?? TrydanIdentity.hostDeviceID(host) }
+
     /// Plugged in: any state but A. A value outside the enum counts as connected, not charging (5.3).
     var isConnected: Bool { rawChargeState != ChargeState.waitingVehicle.rawValue }
     var isCharging: Bool { chargeState == .charging }
     var isFault: Bool { chargeState?.isFault ?? false }
-
-    /// The fields pytrydan fails a read without (3.3, presence R).
-    static let requiredKeys = [
-        "ChargeState", "ChargePower", "ChargeEnergy", "ChargeTime", "HousePower", "FVPower", "SlaveError", "Paused", "Locked",
-        "Timer", "Intensity", "MinIntensity", "MaxIntensity", "Dynamic", "PauseDynamic", "DynamicPowerMode", "ContractedPower",
-    ]
 
     /// The optional keywords asked through `/read` when `/RealTimeData` leaves them out (3.3, Recommendation), by name.
     static let fallbackKeys = ["ChargeMode", "LightLED", "LogoLED", "VoltageInstallation"]
@@ -161,9 +142,8 @@ struct TrydanReport: Sendable, Equatable {
             }
         }
 
-        id = text("ID").flatMap { $0.isEmpty ? nil : $0 }
+        id = text("ID")?.nonEmpty
         rawChargeState = try requiredInt("ChargeState")
-        readyState = optionalInt("ReadyState")
         chargePower = try required("ChargePower")
         chargeEnergy = try required("ChargeEnergy")
         chargeTime = try requiredInt("ChargeTime")
@@ -185,10 +165,7 @@ struct TrydanReport: Sendable, Equatable {
         chargeMode = optionalInt("ChargeMode")
         lightLED = optionalInt("LightLED")
         logoLED = optionalInt("LogoLED")
-        firmwareVersion = text("FirmwareVersion").flatMap { $0.isEmpty ? nil : $0 }
-        ssid = text("SSID")
-        ip = text("IP")
-        signalStatus = optionalInt("SignalStatus")
+        firmwareVersion = text("FirmwareVersion")?.nonEmpty
         // The sheet's sample spells the first phase `IntensityMeasure_L1y`: both are read.
         intensityMeasures = [["IntensityMeasure_L1", "IntensityMeasure_L1y"], ["IntensityMeasure_L2"], ["IntensityMeasure_L3"]].compactMap { keys in
             keys.lazy.compactMap { object[$0].flatMap(Self.number) }.first
@@ -293,37 +270,26 @@ enum TrydanJSON {
 
     /// Whether `FirmwareVersion` appears more than once, which a parser keeping the first would read wrong.
     private static func hasDuplicateFirmware(_ data: Data) -> Bool {
-        let key = Array(#""FirmwareVersion""#.utf8)
-        var count = 0
-        let bytes = [UInt8](data)
-        guard bytes.count >= key.count else { return false }
-        var index = 0
-        while index <= bytes.count - key.count {
-            if bytes[index] == key[0], Array(bytes[index..<index + key.count]) == key {
-                count += 1
-                if count > 1 { return true }
-                index += key.count
-            } else {
-                index += 1
-            }
-        }
-        return false
+        guard let first = data.range(of: firmwareKey) else { return false }
+        return data.range(of: firmwareKey, in: first.upperBound..<data.endIndex) != nil
     }
+
+    private static let firmwareKey = Data(#""FirmwareVersion""#.utf8)
+    // Compiled once: a firmware that needs a repair needs it on every poll.
+    private static let bareVersion = try! NSRegularExpression(pattern: #"("FirmwareVersion"\s*:\s*)(\d+(?:\.\d+)+)"#)
+    private static let firmwareEntry = try! NSRegularExpression(pattern: #""FirmwareVersion"\s*:\s*"[^"]*"\s*,?"#)
 
     /// The three repairs, in turn: a bare version quoted, all but the last `"FirmwareVersion":"…",` dropped, a comma
     /// put before `"ReadyState":` where none is.
     static func repair(_ text: String) -> String {
         var text = text
-        text = text.replacingOccurrences(
-            of: #"("FirmwareVersion"\s*:\s*)(\d+(?:\.\d+)+)"#, with: "$1\"$2\"", options: .regularExpression)
-        if let pattern = try? NSRegularExpression(pattern: #""FirmwareVersion"\s*:\s*"[^"]*"\s*,?"#) {
-            let matches = pattern.matches(in: text, range: NSRange(text.startIndex..., in: text))
-            if matches.count > 1 {
-                let mutable = NSMutableString(string: text)
-                // From the end, so earlier ranges stay where they are; the last one stays.
-                for match in matches.dropLast().reversed() { mutable.replaceCharacters(in: match.range, with: "") }
-                text = mutable as String
-            }
+        text = bareVersion.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1\"$2\"")
+        let matches = firmwareEntry.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        if matches.count > 1 {
+            let mutable = NSMutableString(string: text)
+            // From the end, so earlier ranges stay where they are; the last one stays.
+            for match in matches.dropLast().reversed() { mutable.replaceCharacters(in: match.range, with: "") }
+            text = mutable as String
         }
         var output = ""
         output.reserveCapacity(text.count + 4)
@@ -334,7 +300,7 @@ enum TrydanJSON {
             let before = rest[rest.startIndex..<range.lowerBound]
             output += before
             if let last = before.last(where: { !$0.isWhitespace }) { lastNonSpace = last }
-            if let lastNonSpace, lastNonSpace != ",", lastNonSpace != "{" { output += "," }
+            if let lastNonSpace, !",{:[".contains(lastNonSpace) { output += "," }
             output += key
             lastNonSpace = "\""
             rest = rest[range.upperBound...]
@@ -360,9 +326,11 @@ enum TrydanIdentity {
         return id.isEmpty ? nil : id
     }
 
-    /// The Device Id of a charger that sends no `ID`: `host-<host>`, normalised the same way.
+    /// The Device Id of a charger that sends no `ID`: `host-<host>`, normalised the same way once its `.` and `:` are
+    /// `-` (192.168.1.23 and 192.168.12.3 stay apart).
     static func hostDeviceID(_ host: String) -> String {
-        deviceID("host-\(host)") ?? "HOST"
+        let separated = host.map { $0 == "." || $0 == ":" ? "-" : String($0) }.joined()
+        return deviceID("host-\(separated)") ?? "HOST"
     }
 
     /// `FirmwareVersion` as Accessory Information's Firmware Revision: `major.minor.patch`, digits only, `0.0.0` when absent.

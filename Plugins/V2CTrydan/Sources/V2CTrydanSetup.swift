@@ -45,7 +45,7 @@ extension V2CTrydanPlugin {
         }
         for (target, report) in probed {
             // A charger is known by its `ID`: one listed without it that does not answer cannot be named yet.
-            guard let deviceID = target.deviceID ?? report.map({ $0.id.flatMap(TrydanIdentity.deviceID) ?? TrydanIdentity.hostDeviceID(target.host) }) else { continue }
+            guard let deviceID = target.deviceID ?? report.map({ $0.deviceID(host: target.host) }) else { continue }
             add(deviceID, name: target.name, host: target.host, firmware: report?.firmwareVersion, reachable: report != nil)
         }
         return found.values.sorted { ($0.name, $0.deviceID) < ($1.name, $1.deviceID) }
@@ -54,7 +54,6 @@ extension V2CTrydanPlugin {
     /// One `/RealTimeData` read at `host`: the report, or the error that says it is no V2C Trydan.
     static func probe(host: String, transport: any HTTPSending, timeout: Duration, logger: Logger) async throws -> TrydanReport {
         let parsed = try await TrydanClient(host: host, transport: transport, timeout: timeout, logger: logger).realTimeData()
-        guard parsed.object["ChargeState"] != nil else { throw TrydanError.missingField("ChargeState") }
         return try TrydanReport(parsed.object)
     }
 
@@ -77,7 +76,7 @@ extension V2CTrydanPlugin {
             logger.info("No V2C Trydan answered at \(host): \(error)")
             throw SetupError("No V2C Trydan answered at \(host)")
         }
-        let deviceID = report.id.flatMap(TrydanIdentity.deviceID) ?? TrydanIdentity.hostDeviceID(host)
+        let deviceID = report.deviceID(host: host)
         var devices = (configuration.devices ?? []).filter { device in
             device.id.flatMap(TrydanIdentity.deviceID) != deviceID && Self.hostKey(device.host ?? "") != Self.hostKey(host)
         }

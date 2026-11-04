@@ -178,7 +178,7 @@ func object(_ text: String) throws -> [String: JSONValue] {
         #expect(fault.isFault && fault.isConnected && !fault.isCharging)
         let unknown = try TrydanReport(object(Vectors.idle.replacingOccurrences(of: #""ChargeState":1"#, with: #""ChargeState":3"#)))
         #expect(unknown.chargeState == nil && unknown.isConnected && !unknown.isFault)
-        #expect(SlaveError.code(224) == 257 && SlaveError.name(224) == "Undefined error")
+        #expect(SlaveError.name(224) == "Undefined error")
     }
 
     @Test func aMissingRequiredFieldFailsTheRead() throws {
@@ -221,7 +221,8 @@ func object(_ text: String) throws -> [String: JSONValue] {
     @Test func identities() {
         #expect(TrydanIdentity.deviceID(" try4f2a ") == "TRY4F2A")
         #expect(TrydanIdentity.deviceID("a.b c/d") == "ABCD")
-        #expect(TrydanIdentity.hostDeviceID("192.0.2.50") == "HOST-1920250")
+        #expect(TrydanIdentity.hostDeviceID("192.0.2.50") == "HOST-192-0-2-50")
+        #expect(TrydanIdentity.hostDeviceID("192.168.1.23") != TrydanIdentity.hostDeviceID("192.168.12.3"))
         #expect(TrydanIdentity.firmwareRevision(nil) == "0.0.0")
         #expect(TrydanIdentity.firmwareRevision("2.1") == "2.1.0")
         #expect(TrydanIdentity.normalizedHost("192.0.2.50:80") == "192.0.2.50")
@@ -372,7 +373,10 @@ struct V2CTrydanPluginTests {
     }
 
     @Test func sliderWritesAreCoalescedAndClamped() async throws {
-        let environment = TestEnvironment()
+        // Calls far enough apart to arrive in order on a loaded runner, within one window.
+        var timing = fastTiming
+        timing.coalescing = .milliseconds(600)
+        let environment = TestEnvironment(timing: timing)
         let host = try await environment.start()
         let accessory = try #require(await accessory(host, accessoryID))
         let speed = try #require(accessory.service(.fanv2)?[.rotationSpeed])
@@ -380,7 +384,7 @@ struct V2CTrydanPluginTests {
         await withTaskGroup(of: Void.self) { group in
             for (index, amperes) in [7.0, 8, 9, 10, 40].enumerated() {
                 group.addTask {
-                    try? await Task.sleep(for: .milliseconds(5 * index))
+                    try? await Task.sleep(for: .milliseconds(40 * index))
                     try? await handler(.double(amperes))
                 }
             }
@@ -388,6 +392,54 @@ struct V2CTrydanPluginTests {
         #expect(environment.charger.writes == ["/write/Intensity=16"], "the last value, clamped to MaxIntensity")
         try await handler(.double(0))
         #expect(environment.charger.writes.last == "/write/Paused=1", "the bottom of the slider pauses")
+        await host.stop()
+    }
+
+    @Test func aDragToTheBottomOnlyPauses() async throws {
+        var timing = fastTiming
+        timing.coalescing = .milliseconds(400)
+        let environment = TestEnvironment(timing: timing)
+        let host = try await environment.start()
+        let accessory = try #require(await accessory(host, accessoryID))
+        let speed = try #require(accessory.service(.fanv2)?[.rotationSpeed])
+        let handler = try #require(speed.writeHandler(for: .double(10)))
+        async let dragged: Void = { try? await handler(.double(10)) }()
+        try await Task.sleep(for: .milliseconds(50))
+        try await handler(.double(0))
+        await dragged
+        #expect(environment.charger.writes == ["/write/Paused=1"], "the 10 still waiting is dropped")
+        await host.stop()
+    }
+
+    @Test func anOnWithABrightnessWritesTheBrightnessOnly() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start(settings: [
+            "devices": [["host": "192.0.2.50", "id": "TRY4F2A"]], "_accessories": ["TRY4F2A": ["exposeLeds": true]],
+        ])
+        #expect(await eventually { host.mainBridge.server.accessories.first { $0.id == accessoryID }?.service(.lightbulb, subtype: "lightLED") != nil })
+        let light = try #require(host.mainBridge.server.accessories.first { $0.id == accessoryID }?.service(.lightbulb, subtype: "lightLED"))
+        let on = try #require(light[.on]?.writeHandler(for: .bool(true)))
+        let brightness = try #require(light[.brightness]?.writeHandler(for: .int(40)))
+        // One request of the Home app: both at once, in either order.
+        async let turnedOn: Void = { try? await on(.bool(true)) }()
+        try await brightness(.int(40))
+        await turnedOn
+        #expect(environment.charger.writes == ["/write/LightLED=40"])
+        await host.stop()
+    }
+
+    @Test func anExcludedChargerIsNoLongerPolled() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start(settings: [
+            "devices": [["host": "192.0.2.50"]], "_accessories": ["TRY4F2A": ["excluded": true]],
+        ])
+        #expect(await eventually { environment.charger.count("/RealTimeData") >= 1 })
+        #expect(await eventually { await environment.plugin?.chargers.isEmpty == true })
+        let reads = environment.charger.count("/RealTimeData")
+        // As long as several polling intervals.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(environment.charger.count("/RealTimeData") <= reads + 1)
+        #expect(host.mainBridge.server.accessories.first { $0.id == accessoryID } == nil)
         await host.stop()
     }
 
@@ -440,7 +492,7 @@ struct V2CTrydanPluginTests {
         let charger = FakeCharger(Vectors.idle)
         let environment = TestEnvironment(charger)
         let host = try await environment.start()
-        let id = V2CTrydanPlugin.accessoryID(deviceID: "HOST-1920250")
+        let id = V2CTrydanPlugin.accessoryID(deviceID: "HOST-192-0-2-50")
         _ = try #require(await accessory(host, id))
         charger.set(Vectors.idle.replacingOccurrences(of: "{", with: #"{"ID":"NEW1","#))
         let before = charger.count("/RealTimeData")
@@ -448,7 +500,7 @@ struct V2CTrydanPluginTests {
         #expect(host.mainBridge.server.accessories.contains { $0.id == id })
         #expect(!host.mainBridge.server.accessories.contains { $0.id == "V2CTrydan:NEW1" })
         let learned = await environment.plugin?.learnedIDs
-        #expect(learned?["192.0.2.50"] == "HOST-1920250")
+        #expect(learned?["192.0.2.50"] == "HOST-192-0-2-50")
         await host.stop()
     }
 
