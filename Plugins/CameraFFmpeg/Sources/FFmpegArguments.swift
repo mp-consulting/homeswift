@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftFFmpeg
 
 /// The FFmpeg command lines of homebridge-camera-ffmpeg (docs/clean-room/CameraFFmpeg.md, sections 7 and 9). Users write
 /// several options in one string (`source`, `encoderOptions`, `videoFilter`…), so each command but the recording's and the
@@ -108,10 +109,13 @@ enum FFmpegArguments {
         return StreamValues(vcodec: vcodec, mtu: video.packetSize, encoderOptions: encoderOptions, filters: filters, fps: fps, bitrate: bitrate)
     }
 
-    /// The main stream's command line, and whether HomeKit asked for an audio codec it cannot have (then without audio).
+    /// The main stream's command line, and whether HomeKit asked for an audio codec it cannot have (then without audio). The
+    /// user's options are split on whitespace; what comes from HomeKit (the SRTP keys, the controller's address) is
+    /// appended whole, so it can never become options of its own.
     static func stream(
         _ video: CameraFFmpegPlugin.VideoConfig, values: StreamValues, request: StartStreamRequest, target: Target
     ) -> (arguments: [String], unsupportedAudio: Bool) {
+        var arguments: [String] = []
         var command = video.source ?? ""
         command += video.mapvideo.map { " -map " + $0 } ?? " -an -sn -dn"
         command += " -codec:v \(values.vcodec) -pix_fmt yuv420p -color_range mpeg"
@@ -120,24 +124,29 @@ enum FFmpegArguments {
         if let options = values.encoderOptions { command += " " + options }
         if let filter = values.filters.videoFilter { command += " -filter:v " + filter }
         if values.bitrate > 0 { command += " -b:v \(values.bitrate)k" }
-        command += " -payload_type \(request.video.pt)"
-        command += " -ssrc \(target.videoSSRC) -f rtp -srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params \(target.videoSRTP.base64EncodedString())"
-        command += " srtp://\(target.address):\(target.videoPort)?rtcpport=\(target.videoPort)&pkt_size=\(values.mtu)"
+        arguments += split(command) + ["-payload_type", "\(request.video.pt)"]
+            + srtpOutput(ssrc: target.videoSSRC, srtp: target.videoSRTP, address: target.address, port: target.videoPort, packetSize: values.mtu)
         var unsupportedAudio = false
         if video.audio {
             let audio = request.audio
             if audio.codec == .opus || audio.codec == .aacELD {
-                command += video.mapaudio.map { " -map " + $0 } ?? " -vn -sn -dn"
-                command += audio.codec == .opus ? " -codec:a libopus -application lowdelay" : " -codec:a libfdk_aac -profile:a aac_eld"
-                command += " -flags +global_header -f null -ar \(audio.sampleRate)k -b:a \(audio.maxBitRate)k -ac \(audio.channel) -payload_type \(audio.pt)"
-                command += " -ssrc \(target.audioSSRC) -f rtp -srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params \(target.audioSRTP.base64EncodedString())"
-                command += " srtp://\(target.address):\(target.audioPort)?rtcpport=\(target.audioPort)&pkt_size=188"
+                arguments += split(video.mapaudio.map { "-map " + $0 } ?? "-vn -sn -dn")
+                arguments += audio.codec == .opus ? ["-codec:a", "libopus", "-application", "lowdelay"] : ["-codec:a", "libfdk_aac", "-profile:a", "aac_eld"]
+                arguments += ["-flags", "+global_header", "-f", "null", "-ar", "\(audio.sampleRate)k", "-b:a", "\(audio.maxBitRate)k", "-ac", "\(audio.channel)",
+                              "-payload_type", "\(audio.pt)"]
+                arguments += srtpOutput(ssrc: target.audioSSRC, srtp: target.audioSRTP, address: target.address, port: target.audioPort, packetSize: 188)
             } else {
                 unsupportedAudio = true
             }
         }
-        command += " -loglevel level" + (video.debug ? "+verbose" : "") + " -progress pipe:1"
-        return (split(command), unsupportedAudio)
+        arguments += ["-loglevel", video.debug ? "level+verbose" : "level", "-progress", "pipe:1"]
+        return (arguments, unsupportedAudio)
+    }
+
+    /// An SRTP output to the controller (the address in a URL without brackets, as the original writes IPv6 ones).
+    private static func srtpOutput(ssrc: UInt32, srtp: Data, address: String, port: Int, packetSize: Int) -> [String] {
+        ["-ssrc", "\(ssrc)", "-f", "rtp", "-srtp_out_suite", "AES_CM_128_HMAC_SHA1_80", "-srtp_out_params", srtp.base64EncodedString(),
+         "srtp://\(address):\(port)?rtcpport=\(port)&pkt_size=\(packetSize)"]
     }
 
     // MARK: Two-way audio (7.7)
@@ -246,10 +255,8 @@ enum Masking {
         if result.contains("://") {
             result = result.replacing(#/([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/)[^\/?#\s]*@/#) { $0.output.1 + "***@" }
         }
-        // Credentials some cameras take in the query (`?usr=admin&pwd=…`).
-        if result.contains("=") {
-            result = result.replacing(#/(?i)([?&;](?:[^=&\s]*(?:pass|pwd|token|secret|key|auth|cred)[^=&\s]*)=)[^&\s]*/#) { $0.output.1 + "***" }
-        }
+        // Credentials some cameras take in the query (`?usr=admin&pwd=…`), as HomeswiftFFmpeg hides them in its own lines.
+        result = redactCommandLine([result])
         if result.contains("inline:") {
             result = result.replacing(#/inline:[A-Za-z0-9+\/=]+/#) { _ in "inline:***" }
         }

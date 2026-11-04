@@ -12,7 +12,7 @@ struct CameraLog: Sendable {
     func debug(_ message: @autoclosure () -> String) {
         if promotesDebug {
             logger.info("\(line(message()))")
-        } else if logger.logLevel <= .debug {
+        } else {
             logger.debug("\(line(message()))")
         }
     }

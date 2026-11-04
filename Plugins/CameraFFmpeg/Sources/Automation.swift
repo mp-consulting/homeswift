@@ -61,7 +61,6 @@ struct MQTTRoutes: Sendable {
 /// messages match. Errors (a sensor that is not enabled) are ignored, as the original does.
 final class MQTTAutomation: Sendable {
     let connection: any MQTTConnection
-    let routes: MQTTRoutes
     private let tasks = TaskBag()
 
     init(configuration: CameraFFmpegPlugin.Configuration, host: String, password: String?, routes: MQTTRoutes, logger: Logger,
@@ -74,7 +73,6 @@ final class MQTTAutomation: Sendable {
         // The original reconnects every second; this backs off to a minute while the broker stays away.
         mqtt.reconnect = MQTTConfiguration.Reconnect(delay: .seconds(1), maximumDelay: .seconds(60), jitter: .proportional(0.2), firstConnection: true)
         connection = connect(mqtt)
-        self.routes = routes
         let connection = connection
         let url = "\(configuration.mqttTLS ? "mqtts" : "mqtt")://\(host):\(port)"
         logger.info("Setting up MQTT connection with topics: \(routes.topics.joined(separator: ", ")) (\(url))")

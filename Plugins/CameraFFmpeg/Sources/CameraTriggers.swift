@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftPlugin
 
 /// What a motion or doorbell trigger answered: the HTTP API's body (section 6).
 struct TriggerResult: Sendable, Equatable {
@@ -12,26 +13,11 @@ struct TriggerResult: Sendable, Equatable {
 
     /// The JSON body, its keys in the original's order.
     var json: String {
-        var text = #"{"error":\#(error),"message":\#(Self.quote(message))"#
+        var text = #"{"error":\#(error),"message":\#(JSONValue.string(message).text())"#
         if let cooldownActive { text += #","cooldownActive":\#(cooldownActive)"# }
         return text + "}"
     }
 
-    static func quote(_ value: String) -> String {
-        var result = "\""
-        for scalar in value.unicodeScalars {
-            switch scalar {
-            case "\"": result += "\\\""
-            case "\\": result += "\\\\"
-            case "\n": result += "\\n"
-            case "\r": result += "\\r"
-            case "\t": result += "\\t"
-            case _ where scalar.value < 0x20: result += String(format: "\\u%04x", scalar.value)
-            default: result.unicodeScalars.append(scalar)
-            }
-        }
-        return result + "\""
-    }
 }
 
 /// A camera's motion sensor, doorbell and trigger switches, with their two timers (sections 6.1 to 6.3).
@@ -118,7 +104,7 @@ actor CameraTriggers {
         doorbell.characteristic(.programmableSwitchEvent).sendEvent(.int(HAPConstants.ProgrammableSwitchEvent.singlePress))
         if let doorbellSwitch {
             doorbellSwitch.characteristic(.on).value = .bool(true)
-            let timeout = (motionTimeout ?? 0) > 0 ? motionTimeout ?? 1 : 1
+            let timeout = max(motionTimeout ?? 1, 1)
             let generation = doorbellGeneration
             doorbellTimer = Task { [weak self, timeScale] in
                 guard (try? await Task.sleep(for: .seconds(timeout) * timeScale)) != nil else { return }

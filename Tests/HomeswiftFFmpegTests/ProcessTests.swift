@@ -114,6 +114,9 @@ import Darwin
         #expect(redactCommandLine(["-srtp_out_suite", "AES_CM_128_HMAC_SHA1_80", "-srtp_out_params", "c2VjcmV0a2V5", "srtp://10.0.0.3:5000"])
             == "-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params *** srtp://10.0.0.3:5000")
         #expect(redactCommandLine(["-i", "rtsp://admin:p@ss@w0rd@10.0.0.4:554/live"]) == "-i rtsp://admin:***@10.0.0.4:554/live")
+        // Credentials in the query, as many cameras take them; other parameters stay.
+        #expect(redactCommandLine(["-i", "http://10.0.0.5/snapshot.cgi?usr=admin&pwd=hunter2&res=1"]) == "-i http://10.0.0.5/snapshot.cgi?usr=admin&pwd=***&res=1")
+        #expect(redactCommandLine(["-i", "rtsps://10.0.0.1:7441/abc?enableSrtp"]) == "-i rtsps://10.0.0.1:7441/abc?enableSrtp")
     }
 
     @Test func logsTheCommandLineWithoutPasswords() async {

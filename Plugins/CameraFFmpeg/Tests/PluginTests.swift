@@ -386,13 +386,6 @@ struct PluginTests {
         #expect(await eventually { environment.accessory(host, named: "Front Door") != nil })
         let streamer = try #require(await environment.plugin?.cameras["Front Door"]?.streamer)
         await #expect(throws: HAPStatusError.self) { try await streamer.handleStreamRequest(.start(startRequest(sessionID: "unknown"))) }
-        // A controller address that is not an IP address would add options to FFmpeg's command line.
-        let source = PrepareStreamRequest.Source(port: 50000, srtpCryptoSuite: .aesCM128HMACSHA1_80, srtpKey: Data(repeating: 1, count: 16),
-                                                 srtpSalt: Data(repeating: 2, count: 14))
-        await #expect(throws: HAPStatusError.self) {
-            _ = try await streamer.prepareStream(PrepareStreamRequest(
-                sessionID: "bad", sourceAddress: "127.0.0.1", targetAddress: "1.2.3.4 -y /tmp/out.mp4", addressVersion: .ipv4, video: source, audio: source))
-        }
         await host.stop()
     }
 

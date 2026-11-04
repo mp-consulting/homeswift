@@ -88,7 +88,6 @@ final class CameraRecorder: CameraRecordingDelegate, @unchecked Sendable {
             continuation.yield(RecordingPacket(data: Data(), isLast: true))
             return
         }
-        log.debug("Recording command: \(tools.executable) \(Masking.commandLine(arguments))")
 
         let process = FfmpegProcess(tools.options, commandLineArgs: arguments)
         let (output, outputContinuation) = AsyncStream.makeStream(of: Data.self)
@@ -232,14 +231,13 @@ final class Prebuffer: @unchecked Sendable {
         self.tools = tools
     }
 
-    var isRunning: Bool { state.withLockedValue { $0.process != nil } }
-
     struct StartFailure: Error, CustomStringConvertible {
         var description: String { "FFmpeg could not be started" }
     }
 
     /// Starts FFmpeg, unless it runs already. It is not restarted when it dies.
     func start() async throws {
+        guard state.withLockedValue({ $0.process == nil }) else { return }
         let process = FfmpegProcess(tools.options, commandLineArgs: FFmpegArguments.prebuffer(video))
         let fresh = state.withLockedValue { state -> Bool in
             guard state.process == nil else { return false }
@@ -261,15 +259,15 @@ final class Prebuffer: @unchecked Sendable {
 
     private func received(_ chunk: Data) {
         let now = ContinuousClock.now
-        let (live, listeners) = state.withLockedValue { state -> (Data, [AsyncStream<Data>.Continuation]) in
+        let (live, listeners, failure) = state.withLockedValue { state -> ([Data], [AsyncStream<Data>.Continuation], (any Error)?) in
             let boxes: [MP4Box]
             do {
                 boxes = try state.reader.push(chunk)
             } catch {
-                log.error("Prebuffer: \(error)")
-                return (Data(), [])
+                return ([], [], error)
             }
-            var live = Data()
+            let listeners = Array(state.listeners.values)
+            var live: [Data] = []
             for box in boxes {
                 if state.ftyp == nil {
                     state.ftyp = box
@@ -278,7 +276,7 @@ final class Prebuffer: @unchecked Sendable {
                 } else {
                     state.boxes.append((now, box))
                     state.bytes += box.data.count
-                    live.append(box.data)
+                    if !listeners.isEmpty { live.append(box.data) }
                 }
             }
             var drop = 0
@@ -287,10 +285,13 @@ final class Prebuffer: @unchecked Sendable {
                 drop += 1
             }
             if drop > 0 { state.boxes.removeFirst(drop) }
-            return (live, live.isEmpty ? [] : Array(state.listeners.values))
+            return (live, listeners, nil)
         }
+        if let failure { log.error("Prebuffer: \(failure)") }
         // Whole boxes only: a recording that joins mid-chunk still reads a well-formed stream.
-        for listener in listeners { listener.yield(live) }
+        for listener in listeners {
+            for box in live { listener.yield(box) }
+        }
     }
 
     private func ended(_ process: FfmpegProcess, status: FfmpegExitStatus) {
@@ -306,12 +307,13 @@ final class Prebuffer: @unchecked Sendable {
     /// What a recording reads: `ftyp`, `moov`, the buffered boxes of the last `duration` from the first `moof` among them,
     /// then the stream as it comes. nil until the prebuffer has its initialization boxes.
     func feed(duration: Duration) -> AsyncStream<Data>? {
-        let (stream, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingOldest(4096))
+        let (stream, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingOldest(8192))
         let registered = state.withLockedValue { state -> Int? in
             guard let ftyp = state.ftyp, let moov = state.moov else { return nil }
             let since = ContinuousClock.now - duration
             let recent = state.boxes.drop { $0.time < since }.drop { $0.box.type != "moof" }
-            continuation.yield(ftyp.data + moov.data + recent.reduce(into: Data()) { $0.append($1.box.data) })
+            // Under the lock, so the live boxes come after these; each box as it is, without copying them together.
+            for box in [ftyp, moov] + recent.map(\.box) { continuation.yield(box.data) }
             state.nextListener += 1
             state.listeners[state.nextListener] = continuation
             return state.nextListener

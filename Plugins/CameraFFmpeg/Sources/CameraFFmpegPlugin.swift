@@ -23,7 +23,6 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
 
     /// One camera on its own accessory.
     struct CameraRuntime {
-        let name: String
         let accessory: Accessory
         let controller: CameraController
         let streamer: CameraStreamer
@@ -118,7 +117,7 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
     /// HAP-NodeJS's `uuid.generate`: the SHA-1 of the text laid out as a version 4 UUID, the accessory UUID of a camera in
     /// the original (its name is the seed).
     static func hapUUID(_ text: String) -> String {
-        let hex = Array(Insecure.SHA1.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined())
+        let hex = Array(Secrets.hex(Insecure.SHA1.hash(data: Data(text.utf8))))
         func digits(_ range: Range<Int>) -> String { String(hex[range]) }
         let variant = String(Int(String(hex[15]), radix: 16).map { $0 & 0x3 | 0x8 } ?? 8, radix: 16)
         return "\(digits(0..<8))-\(digits(8..<12))-4\(digits(12..<15))-\(variant)\(digits(16..<19))-\(digits(19..<31))"
@@ -181,9 +180,6 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
         }
     }
 
-    /// The port the HTTP API listens on, for tests.
-    var httpPort: Int? { configuration.httpPort }
-
     /// Builds a camera's accessory (section 4.2) and publishes it on its own server.
     private func publish(_ entry: AcceptedCamera) async throws -> CameraRuntime {
         let name = entry.name
@@ -234,7 +230,7 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
         context.configureController(controller, accessoryID: accessory.id)
         log.info("Configuring new accessory.")
         try await context.publishExternal(accessory)
-        return CameraRuntime(name: name, accessory: accessory, controller: controller, streamer: streamer, recorder: recorder, triggers: triggers)
+        return CameraRuntime(accessory: accessory, controller: controller, streamer: streamer, recorder: recorder, triggers: triggers)
     }
 
 }

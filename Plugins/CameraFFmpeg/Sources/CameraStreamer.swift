@@ -3,7 +3,6 @@ import Homeswift
 import HomeswiftFFmpeg
 import HomeswiftNetwork
 import NIOConcurrencyHelpers
-import NIOCore
 
 /// Snapshots and live streams of one camera (sections 7.2 to 7.7): FFmpeg encrypts and sends the RTP itself, and a UDP
 /// socket on the video return port watches HomeKit's RTCP to stop a stream nobody watches any more.
@@ -97,7 +96,6 @@ actor CameraStreamer: CameraStreamingDelegate {
 
     private static func fetchSnapshot(video: CameraFFmpegPlugin.VideoConfig, snapFilter: String, tools: FFmpegTools, log: CameraLog) async throws -> Data {
         let arguments = FFmpegArguments.snapshotFetch(video, snapFilter: snapFilter)
-        log.debug("Snapshot command: \(tools.executable) \(Masking.commandLine(arguments))")
         let started = ContinuousClock.now
         let result = await FfmpegExec(tools.options, commandLineArgs: arguments, logErrors: video.debug).exec(timeout: snapshotTimeout)
         logTiming(log, ContinuousClock.now - started, "Fetched snapshot",
@@ -120,12 +118,6 @@ actor CameraStreamer: CameraStreamingDelegate {
 
     func prepareStream(_ request: PrepareStreamRequest) async throws -> PrepareStreamResponse {
         releaseStalePrepared()
-        // The address goes into FFmpeg's command line and the SDP: an IP address only, nothing a controller could add
-        // options or lines with.
-        guard (try? SocketAddress(ipAddress: request.targetAddress, port: 0)) != nil else {
-            log.error("Refusing a stream to an address that is not an IP address.")
-            throw HAPStatusError(.invalidValueInRequest)
-        }
         let family = request.addressVersion
         let videoReturnPort = await ports.reserve(ipFamily: family)
         let audioReturnPort = await ports.reserve(ipFamily: family)
@@ -185,7 +177,6 @@ actor CameraStreamer: CameraStreamingDelegate {
             + "\(values.bitrate > 0 ? String(values.bitrate) : "???") kbps\(video.audio ? " (\(request.audio.codec.rawValue))" : "")")
         let (arguments, unsupportedAudio) = FFmpegArguments.stream(video, values: values, request: request, target: entry.target)
         if unsupportedAudio { log.error("Unsupported audio codec requested: \(request.audio.codec.rawValue)") }
-        log.debug("Stream command: \(tools.executable) \(Masking.commandLine(arguments))")
 
         nextToken += 1
         let token = nextToken
@@ -206,7 +197,6 @@ actor CameraStreamer: CameraStreamingDelegate {
 
         if video.returnAudioTarget != nil {
             let returnAudio = FfmpegProcess(tools.returnOptions, commandLineArgs: FFmpegArguments.returnAudio(video))
-            log.debug("Two-way FFmpeg command: \(tools.executable) \(Masking.commandLine(returnAudio.commandLineArgs))")
             returnAudio.start()
             returnAudio.endStdin(Data(FFmpegArguments.returnAudioSDP(
                 address: entry.target.address, isIPv6: entry.target.isIPv6, port: entry.audioReturnPort, srtp: entry.target.audioSRTP).utf8))
@@ -296,7 +286,7 @@ actor CameraStreamer: CameraStreamingDelegate {
             log.error("\(label)FFmpeg exited (unexpected), signal \(status.signal ?? "none").")
             return
         }
-        log.error("\(label)FFmpeg exited with code \(status.exitCode.map(String.init) ?? "null") and signal \(status.signal ?? "null").")
+        log.error("\(label)FFmpeg exited with code \(status.exitCode ?? 0) and signal \(status.signal ?? "null").")
         stopStream(sessionID)
         if session.replied { controller?.forceStopStreamingSession(sessionID) }
     }

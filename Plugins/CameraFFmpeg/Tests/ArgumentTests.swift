@@ -88,6 +88,16 @@ struct ArgumentTests {
         #expect(joined.contains("-map 0:1 -codec:a libopus -application lowdelay"))
     }
 
+    @Test func whatHomeKitSendsStaysOneArgument() throws {
+        let video = try videoConfig(["source": source])
+        var target = streamTarget
+        target.address = "1.2.3.4 -y /tmp/out.mp4"
+        let request = startRequest()
+        let arguments = FFmpegArguments.stream(video, values: FFmpegArguments.streamValues(video, request: request.video), request: request, target: target).arguments
+        #expect(arguments.contains("srtp://1.2.3.4 -y /tmp/out.mp4:51000?rtcpport=51000&pkt_size=1316"))
+        #expect(!arguments.contains("-y"))
+    }
+
     @Test func anUnsupportedAudioCodecSendsNoAudio() throws {
         let video = try videoConfig(["source": source, "audio": true])
         let request = startRequest(audio: .pcmu)
