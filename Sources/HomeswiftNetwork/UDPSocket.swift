@@ -6,23 +6,45 @@ import NIOPosix
 /// port, optionally in a multicast group, with the datagrams it receives as a stream. A failed send (the network
 /// unreachable after a Wi-Fi drop) fails that send only; the socket stays open.
 public final class UDPSocket: Sendable {
-    /// What arrives, with the sender's IP address. Ends when the socket closes.
+    /// A datagram with its sender's address and port.
+    public struct Datagram: Sendable, Equatable {
+        public var data: Data
+        public var address: String
+        public var port: Int
+
+        public init(data: Data, address: String, port: Int) {
+            self.data = data
+            self.address = address
+            self.port = port
+        }
+    }
+
+    /// What arrives, with the sender's IP address. Ends when the socket closes. Empty (and ended) for a socket bound
+    /// with `senderPorts`, whose datagrams arrive in `datagramsWithPorts`.
     public let datagrams: AsyncStream<(data: Data, address: String)>
+    /// What arrives with the sender's address and port, for a socket bound with `senderPorts` (a reply's source port
+    /// is where to answer, behind port forwarding); empty otherwise. Ends when the socket closes.
+    public let datagramsWithPorts: AsyncStream<Datagram>
     private let channel: any Channel
 
-    private init(channel: any Channel, datagrams: AsyncStream<(data: Data, address: String)>) {
+    private init(channel: any Channel, datagrams: AsyncStream<(data: Data, address: String)>, datagramsWithPorts: AsyncStream<Datagram>) {
         self.channel = channel
         self.datagrams = datagrams
+        self.datagramsWithPorts = datagramsWithPorts
     }
 
     /// Binds a socket. `reuseAddress` lets another process (or bridge) bind the same port, `broadcast` allows sends
     /// to broadcast addresses, `multicastGroup` joins that IPv4 group. `bufferSize` datagrams wait at most for a
-    /// reader; older ones are dropped beyond.
+    /// reader; older ones are dropped beyond. `senderPorts` hands them over in `datagramsWithPorts` instead of `datagrams`.
     public static func bind(
         host: String = "0.0.0.0", port: Int = 0, reuseAddress: Bool = false, broadcast: Bool = false, multicastGroup: String? = nil,
-        bufferSize: Int = 256, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        bufferSize: Int = 256, senderPorts: Bool = false, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
     ) async throws -> UDPSocket {
-        let (stream, continuation) = AsyncStream<(data: Data, address: String)>.makeStream(bufferingPolicy: .bufferingNewest(bufferSize))
+        let (stream, plain) = AsyncStream<(data: Data, address: String)>.makeStream(bufferingPolicy: .bufferingNewest(bufferSize))
+        let (withPorts, ported) = AsyncStream<Datagram>.makeStream(bufferingPolicy: .bufferingNewest(bufferSize))
+        // The stream not used ends at once; what the handler yields to it is dropped.
+        if senderPorts { plain.finish() } else { ported.finish() }
+        let inbound = Inbound(plain: plain, ported: ported, senderPorts: senderPorts)
         var bootstrap = DatagramBootstrap(group: group)
         if reuseAddress { bootstrap = bootstrap.channelOption(.socketOption(.so_reuseaddr), value: 1) }
         if broadcast { bootstrap = bootstrap.channelOption(.socketOption(.so_broadcast), value: 1) }
@@ -30,14 +52,14 @@ public final class UDPSocket: Sendable {
         do {
             channel = try await bootstrap
                 .channelInitializer { channel in
-                    channel.eventLoop.makeCompletedFuture { try channel.pipeline.syncOperations.addHandler(Inbound(continuation: continuation)) }
+                    channel.eventLoop.makeCompletedFuture { try channel.pipeline.syncOperations.addHandler(inbound) }
                 }
                 .bind(host: host, port: port).get()
         } catch {
-            continuation.finish()
+            inbound.finish()
             throw error
         }
-        channel.closeFuture.whenComplete { _ in continuation.finish() }
+        channel.closeFuture.whenComplete { _ in inbound.finish() }
         if let multicastGroup {
             do {
                 guard let multicast = channel as? any MulticastChannel else { throw ChannelError.operationUnsupported }
@@ -47,7 +69,7 @@ public final class UDPSocket: Sendable {
                 throw error
             }
         }
-        return UDPSocket(channel: channel, datagrams: stream)
+        return UDPSocket(channel: channel, datagrams: stream, datagramsWithPorts: withPorts)
     }
 
     /// The port the socket is bound to (the one the system chose for port 0).
@@ -67,13 +89,29 @@ public final class UDPSocket: Sendable {
 
     private final class Inbound: ChannelInboundHandler, Sendable {
         typealias InboundIn = AddressedEnvelope<ByteBuffer>
-        let continuation: AsyncStream<(data: Data, address: String)>.Continuation
+        let plain: AsyncStream<(data: Data, address: String)>.Continuation
+        let ported: AsyncStream<Datagram>.Continuation
+        let senderPorts: Bool
 
-        init(continuation: AsyncStream<(data: Data, address: String)>.Continuation) { self.continuation = continuation }
+        init(plain: AsyncStream<(data: Data, address: String)>.Continuation, ported: AsyncStream<Datagram>.Continuation, senderPorts: Bool) {
+            self.plain = plain
+            self.ported = ported
+            self.senderPorts = senderPorts
+        }
+
+        func finish() {
+            plain.finish()
+            ported.finish()
+        }
 
         func channelRead(context: ChannelHandlerContext, data: NIOAny) {
             let envelope = unwrapInboundIn(data)
-            continuation.yield((Data(envelope.data.readableBytesView), envelope.remoteAddress.ipAddress ?? ""))
+            let bytes = Data(envelope.data.readableBytesView), address = envelope.remoteAddress.ipAddress ?? ""
+            if senderPorts {
+                ported.yield(Datagram(data: bytes, address: address, port: envelope.remoteAddress.port ?? 0))
+            } else {
+                plain.yield((bytes, address))
+            }
         }
 
         // An ICMP error for an earlier send (nobody at that address) must not close the socket.

@@ -64,6 +64,7 @@ HomeswiftI18n.add("es", {
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
   "Tapo plugs and bulbs on the local network": "Enchufes y bombillas Tapo en la red local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
+  "Kasa plugs, switches, power strips and bulbs on the local network": "Enchufes, interruptores, regletas y bombillas Kasa en la red local",
   "Lights with scenes and effects, plugs and sensors": "Luces con escenas y efectos, enchufes y sensores",
   "Air conditioners, washers, fridges and other appliances through LG's cloud": "Aires acondicionados, lavadoras, frigoríficos y otros electrodomésticos a través de la nube de LG",
   "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Encendido, entradas, volumen, mando y Ambilight de los televisores Philips Android",
