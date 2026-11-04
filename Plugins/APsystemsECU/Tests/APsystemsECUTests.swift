@@ -23,11 +23,19 @@ actor FakeECU: ECUExchanging {
     var reachable = true
     private(set) var requests: [String] = []
     private(set) var hosts: [String] = []
+    /// How long each answer takes, and the most requests it had at once.
+    var delay: Duration = .zero
+    private var inFlight = 0
+    private(set) var mostAtOnce = 0
 
     func exchange(_ request: [UInt8], host: String, port: Int) async throws -> [UInt8] {
         let command = String(decoding: request[9..<13], as: UTF8.self)
         requests.append(command)
         hosts.append(host)
+        inFlight += 1
+        mostAtOnce = max(mostAtOnce, inFlight)
+        defer { inFlight -= 1 }
+        if delay > .zero { try await Task.sleep(for: delay) }
         guard reachable else { throw HTTPClientError.cannotConnect(host: host, port: port, code: 61, reason: "connection refused") }
         guard let frame = ECUCommand(rawValue: command).flatMap({ frames[$0] }) else { throw ECUTransportError.timeout }
         return frame
@@ -35,6 +43,7 @@ actor FakeECU: ECUExchanging {
 
     func set(_ command: ECUCommand, _ frame: [UInt8]?) { frames[command] = frame }
     func set(reachable: Bool) { self.reachable = reachable }
+    func set(delay: Duration) { self.delay = delay }
     func count(_ command: ECUCommand) -> Int { requests.filter { $0 == command.rawValue }.count }
 }
 
@@ -124,8 +133,7 @@ struct APsystemsECUTests {
 
     @Test func notConfiguredCostsNothing() async throws {
         let host = try await environment.start(settings: [:])
-        let plugin = try #require(environment.plugin)
-        #expect(await !plugin.isPolling)
+        _ = try #require(environment.plugin)
         #expect(await environment.ecu.requests.isEmpty)
         #expect(host.mainBridge.server.accessories.allSatisfy { !$0.id.hasPrefix("APsystemsECU:") })
         await host.stop()
@@ -145,8 +153,8 @@ struct APsystemsECUTests {
         #expect(solar[.currentAmbientLightLevel]?.value == .double(8172))
         #expect(solar[.statusActive]?.value == .bool(true))
         #expect(solar[.statusFault]?.value == .int(0))
-        #expect(solar[Eve.consumption]?.value == .double(8172))
-        #expect(solar[Eve.totalConsumption]?.value == .double(18132.9))
+        #expect(solar[EveCharacteristic.currentConsumption]?.value == .int(8172))
+        #expect(solar[EveCharacteristic.totalConsumption]?.value == .double(18132.9))
 
         let inverter = try #require(host.accessory(inverterID))
         #expect(inverter.information.characteristic(.model).value == .string("DS3 series"))
@@ -246,6 +254,42 @@ struct APsystemsECUTests {
         #expect(await eventually { solar[.statusActive]?.value == .bool(true) && solar[.statusFault]?.value == .int(0) })
         #expect(await eventually { inverter.service(.lightSensor)?[.statusActive]?.value == .bool(true) })
         await host.stop()
+    }
+
+    @Test func aRestartWithTheECUDownShowsTheCachedAccessoriesNotActive() async throws {
+        let first = try await environment.start()
+        #expect(await eventually { first.accessory(inverterID)?.service(.lightSensor)?[.statusActive]?.value == .bool(true) })
+        await first.stop()
+        await environment.ecu.set(reachable: false)
+        let host = try await environment.start()
+        let solar = try #require(host.accessory(ecuID)?.service(.lightSensor))
+        #expect(await eventually { solar[.statusActive]?.value == .bool(false) })
+        #expect(await eventually { host.accessory(inverterID)?.service(.lightSensor)?[.statusActive]?.value == .bool(false) })
+        await host.stop()
+    }
+
+    @Test func aProbeNeverTalksToTheECUDuringAPoll() async throws {
+        await environment.ecu.set(delay: .milliseconds(20))
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<4 { group.addTask { _ = try await plugin.probe(host: "192.0.2.10", port: 8899) } }
+            try await group.waitForAll()
+        }
+        #expect(await eventually { await environment.ecu.count(.realTime) >= 2 })
+        #expect(await environment.ecu.mostAtOnce == 1)
+        await host.stop()
+    }
+
+    @Test func aDayChangesOnTheBridgesDateWithoutRealTimeData() throws {
+        let previous = try ECUProtocol.parseSystem(Vectors.bytes(Vectors.v1))
+        var morning = previous
+        morning.todayEnergy = previous.todayEnergy / 2
+        let yesterday = APsystemsECUPlugin.localDay(Date(timeIntervalSinceNow: -86_400))
+        let today = APsystemsECUPlugin.localDay(Date())
+        #expect(today.count == 8 && today != yesterday)
+        #expect(APsystemsECUPlugin.filtered(morning, previous: previous, previousDate: yesterday, newDate: today).todayEnergy == morning.todayEnergy)
+        #expect(APsystemsECUPlugin.filtered(morning, previous: previous, previousDate: today, newDate: today).todayEnergy == previous.todayEnergy)
     }
 
     @Test func backsOffAfterThreeFailures() async throws {
@@ -350,7 +394,7 @@ struct APsystemsECUTests {
         await environment.ecu.set(.system, glitch)
         let before = await environment.ecu.count(.system)
         #expect(await eventually { await environment.ecu.count(.system) >= before + 2 })
-        #expect(ecu.service(.lightSensor)?[Eve.totalConsumption]?.value == .double(18132.9))
+        #expect(ecu.service(.lightSensor)?[EveCharacteristic.totalConsumption]?.value == .double(18132.9))
         await host.stop()
     }
 
@@ -431,9 +475,9 @@ struct APsystemsECUTests {
     @Test func theClientReadsAFrameSplitAcrossReads() async throws {
         let stream = ChunkedStream(chunks: [Array(Vectors.bytes(Vectors.v4).prefix(40)), Array(Vectors.bytes(Vectors.v4).dropFirst(40))])
         let client = ECUClient(connect: { _, _, _ in stream })
-        let frame = try await client.exchange(ECUProtocol.realTimeRequest(ecuID: "215000999901"), host: "h", port: 8899)
+        let frame = try await client.exchange(ECUProtocol.request(.realTime, ecuID: "215000999901"), host: "h", port: 8899)
         #expect(frame == Vectors.bytes(Vectors.v4))
-        #expect(stream.sent == [ECUProtocol.realTimeRequest(ecuID: "215000999901")])
+        #expect(stream.sent == [ECUProtocol.request(.realTime, ecuID: "215000999901")])
         #expect(stream.closed)
     }
 

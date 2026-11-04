@@ -69,14 +69,15 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
     /// Each configured ECU, by `host:port`, in the order of `ecus`.
     var ecus: [String: ECURuntime]
     var order: [String]
-    /// The ECUs' services, by ECU id.
-    var ecuServices: [String: ECUServices] = [:]
+    /// The ECUs' production services, by ECU id.
+    var solarServices: [String: Service] = [:]
     /// The inverters' services, by UID.
     var inverterServices: [String: InverterServices] = [:]
     /// The last reading of every inverter an ECU reported, by UID, for the page and Setup.
     var inverterReadings: [String: InverterReading] = [:]
-    /// Whether the poll runs (an instance without ECUs starts nothing).
-    var isPolling = false
+    /// The ECUs (by `host:port`) a request is talking to now, and those waiting for them (`exclusively`).
+    var busy: Set<String> = []
+    var waiting: [String: [CheckedContinuation<Void, Never>]] = [:]
     /// Type codes and models already logged as unknown, logged once.
     var loggedOddities: Set<String> = []
 
@@ -104,13 +105,21 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
     static func entries(_ configuration: Configuration) -> [(key: String, host: String, port: Int, name: String?)] {
         (configuration.ecus ?? []).compactMap { entry in
             guard let host = entry.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return nil }
-            let port = (1...65535).contains(entry.port ?? ECUProtocol.port) ? entry.port ?? ECUProtocol.port : ECUProtocol.port
+            let port = port(entry.port)
             let name = entry.name?.trimmingCharacters(in: .whitespaces)
             return (Self.key(host: host, port: port), host, port, name?.isEmpty == false ? name : nil)
         }
     }
 
     static func key(host: String, port: Int) -> String { "\(host.lowercased()):\(port)" }
+
+    /// A configured port, 8899 when it is missing or out of range.
+    static func port(_ port: Int?) -> Int { port.flatMap { (1...65535).contains($0) ? $0 : nil } ?? ECUProtocol.port }
+
+    /// An ECU's name until its Accessory Settings have one: the configured one, else its model and ECU id.
+    static func defaultName(ecuID: String, configured: String?) -> String { configured ?? "\(ECUProtocol.ecuModel(ecuID)) \(ecuID)" }
+
+    static func inverterName(_ uid: String) -> String { "Inverter \(uid)" }
 
     var pollSeconds: Int {
         min(max(configuration.pollInterval ?? Self.defaultPollInterval, Self.pollIntervalRange.lowerBound), Self.pollIntervalRange.upperBound)
@@ -134,7 +143,6 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
             logger.info("No ECU configured: add its address in the plugin's settings (ecus)")
             return
         }
-        isPolling = true
         tasks.add { [weak self] in await self?.run() }
     }
 
@@ -159,16 +167,14 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
 
     /// The Device Kind of an ECU or an inverter.
     public func deviceKind(of deviceID: String) async -> String? {
-        if ecuServices[deviceID] != nil || ecus.values.contains(where: { $0.ecuID == deviceID }) { return Self.ecuKind }
-        if inverterReadings[deviceID] != nil || inverterServices[deviceID] != nil { return Self.inverterKind }
+        if ecus.values.contains(where: { $0.ecuID == deviceID }) { return Self.ecuKind }
+        if inverterReadings[deviceID] != nil { return Self.inverterKind }
         return nil
     }
 
     /// `ecus[].name` moved into the ECU's Accessory Settings once the plugin knows the ECU's id at that address.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        var ids: [String: String] = [:]
-        for runtime in ecus.values { if let id = runtime.ecuID { ids[Self.key(host: runtime.host, port: runtime.port)] = id } }
-        return Self.canonical(block, ecuIDs: ids)
+        Self.canonical(block, ecuIDs: ecus.compactMapValues(\.ecuID))
     }
 
     static func canonical(_ block: JSONValue, ecuIDs: [String: String]) -> JSONValue {
@@ -178,7 +184,7 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
         let moved: [JSONValue] = list.map { item in
             guard var entry = item.objectValue, let name = entry["name"]?.stringValue,
                   let host = entry["host"]?.stringValue?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return item }
-            let port = entry["port"]?.saturatingIntValue ?? ECUProtocol.port
+            let port = port(entry["port"]?.saturatingIntValue)
             guard let id = ecuIDs[key(host: host, port: port)] else { return item }
             var settings = entries[id]?.objectValue ?? [:]
             if settings["name"] == nil, !name.trimmingCharacters(in: .whitespaces).isEmpty { settings["name"] = .string(name) }

@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftNetwork
+import HomeswiftPlugin
 
 /// Sends one request to an ECU and answers its frame, whole (3.1): connect, send, read the bytes the header announces,
 /// close. Tests answer from memory.
@@ -108,28 +109,17 @@ struct ECUMeter: Sendable, Equatable {
     /// All the grid phases, nil without them.
     var gridPower: Double? { grid.map { $0.reduce(0, +) } }
     /// The home's use, production + grid on each phase; nil without the grid clamps.
-    var homePower: Double? {
-        guard let grid else { return nil }
-        let production = self.production ?? []
-        return (0..<max(grid.count, production.count)).reduce(0) { sum, phase in
-            sum + (phase < grid.count ? grid[phase] : 0) + (phase < production.count ? production[phase] : 0)
-        }
-    }
+    var homePower: Double? { gridPower.map { $0 + (production ?? []).reduce(0, +) } }
 
     /// The JSON of `/index.php/meter/old_meter_power_graph`: arrays `power1` (production) and `power2` (grid), each
     /// element with `powerA`, `powerB`, `powerC`; the last element of each counts.
     static func parse(_ data: Data) throws -> ECUMeter {
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ECUFrameError.malformed("meter answer") }
+        guard let object = try JSONValue(data: data).objectValue else { throw ECUFrameError.malformed("meter answer") }
         func phases(_ key: String) -> [Double]? {
-            guard let list = object[key] as? [Any], let last = list.last as? [String: Any] else { return nil }
+            guard let last = object[key]?.arrayValue?.last?.objectValue else { return nil }
             let values = ["powerA", "powerB", "powerC"].compactMap { name -> Double? in
-                let value: Double? = switch last[name] {
-                case let number as Double: number
-                case let number as Int: Double(number)
-                case let number as NSNumber: number.doubleValue
-                case let text as String: Double(text.trimmingCharacters(in: .whitespaces))
-                default: nil
-                }
+                let field = last[name]
+                let value = field?.doubleValue ?? field?.stringValue.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
                 // A reading of the house, so within what a house draws: a value past it is not one.
                 guard let value, value.isFinite, abs(value) < 1_000_000 else { return nil }
                 return value
@@ -148,8 +138,7 @@ struct ECUMeterClient: ECUMeterReading {
 
     func meter(host: String) async throws -> ECUMeter {
         let http = self.http ?? HTTPClient(maximumBodySize: 512 * 1024)
-        let address = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        guard let url = URL(string: "http://\(address)/index.php/meter/old_meter_power_graph") else { throw HTTPClientError.invalidURL(host) }
+        guard let url = URL(string: "http://\(hostHeader(host: host, port: 80, defaultPort: 80))/index.php/meter/old_meter_power_graph") else { throw HTTPClientError.invalidURL(host) }
         let response = try await http.send(HTTPRequest(url: url, headers: [("X-Requested-With", "XMLHttpRequest")], timeout: timeout))
         guard response.isSuccess else { throw ECUFrameError.malformed("meter status \(response.status)") }
         return try ECUMeter.parse(response.body)

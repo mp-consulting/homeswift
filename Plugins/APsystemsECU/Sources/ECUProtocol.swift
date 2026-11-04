@@ -6,7 +6,7 @@ import Foundation
 // pure: the bytes in, the values out, bounded by the frame's own length, so a frame from the network never traps.
 
 /// The commands the plugin asks.
-enum ECUCommand: String, Sendable, CaseIterable {
+enum ECUCommand: String, Sendable {
     case system = "0001"
     case realTime = "0002"
     case signal = "0030"
@@ -52,16 +52,9 @@ enum ECUProtocol {
 
     static let systemRequest = Array("APS1100160001END\n".utf8)
 
-    static func realTimeRequest(ecuID: String) -> [UInt8] { Array("APS1100280002\(ecuID)END\n".utf8) }
-
-    static func signalRequest(ecuID: String) -> [UInt8] { Array("APS1100280030\(ecuID)END\n".utf8) }
-
+    /// A request about one ECU (the real-time data, the signal levels): its command and its ECU id.
     static func request(_ command: ECUCommand, ecuID: String) -> [UInt8] {
-        switch command {
-        case .system: systemRequest
-        case .realTime: realTimeRequest(ecuID: ecuID)
-        case .signal: signalRequest(ecuID: ecuID)
-        }
+        command == .system ? systemRequest : Array("APS110028\(command.rawValue)\(ecuID)END\n".utf8)
     }
 
     // MARK: Frames (3.2)
@@ -85,9 +78,6 @@ enum ECUProtocol {
         guard received == command.rawValue else { throw ECUFrameError.wrongCommand(expected: command.rawValue, received: received) }
         return bytes
     }
-
-    /// The frame's command group (`11`, or `12` from an ECU-C's system answer).
-    static func group(_ frame: [UInt8]) -> String? { ascii(frame, 3, 2) }
 
     // MARK: System info (3.4)
 

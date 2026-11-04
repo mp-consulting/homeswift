@@ -22,7 +22,7 @@ extension APsystemsECUPlugin {
                 id = try? await probe(host: ecu.host, port: ecu.port).ecuID
                 reachable = id != nil
             }
-            let address = ecu.port == ECUProtocol.port ? ecu.host : "\(ecu.host):\(ecu.port)"
+            let address = ecu.address
             guard let id else {
                 var device = DiscoveredDevice(deviceID: "address:\(address)", name: ecu.configuredName ?? address, model: "APsystems ECU", address: address, kind: Self.ecuKind)
                 device.isReachable = false
@@ -30,14 +30,14 @@ extension APsystemsECUPlugin {
                 continue
             }
             var device = DiscoveredDevice(
-                deviceID: id, name: ecu.configuredName ?? "\(ECUProtocol.ecuModel(id)) \(id)", model: ECUProtocol.ecuModel(id), address: address, isSetUp: true,
+                deviceID: id, name: Self.defaultName(ecuID: id, configured: ecu.configuredName), model: ECUProtocol.ecuModel(id), address: address, isSetUp: true,
                 kind: Self.ecuKind)
             device.isReachable = reachable
             devices.append(device)
         }
-        for (uid, reading) in inverterReadings.sorted(by: { $0.key < $1.key }) where !reading.record.isRegisteredOnly {
+        for (uid, reading) in inverterReadings.sorted(by: { $0.key < $1.key }) where !reading.record.isRegisteredOnly || inverterServices[uid] != nil {
             devices.append(DiscoveredDevice(
-                deviceID: uid, name: "Inverter \(uid)", model: ECUProtocol.inverterModel(uid), isSetUp: configuration.inverters != false,
+                deviceID: uid, name: Self.inverterName(uid), model: ECUProtocol.inverterModel(uid), isSetUp: configuration.inverters != false,
                 excludedBySettings: configuration.inverters == false, kind: Self.inverterKind))
         }
         return devices
@@ -46,8 +46,10 @@ extension APsystemsECUPlugin {
     /// Asks the ECU at an address who it is: the system query, once, within `probeTimeout`.
     func probe(host: String, port: Int) async throws -> ECUProtocol.SystemInfo {
         let exchanger = dependencies.exchange ?? ECUClient(retries: 1, connectTimeout: .seconds(3), readTimeout: .seconds(3))
-        let frame = try await ECUClient.withTimeout(Self.probeTimeout) {
-            try await exchanger.exchange(ECUProtocol.systemRequest, host: host, port: port)
+        let frame = try await exclusively(Self.key(host: host, port: port)) {
+            try await ECUClient.withTimeout(Self.probeTimeout) {
+                try await exchanger.exchange(ECUProtocol.systemRequest, host: host, port: port)
+            }
         }
         return try ECUProtocol.parseSystem(try ECUProtocol.validate(frame, expecting: .system))
     }
@@ -77,18 +79,18 @@ extension APsystemsECUPlugin {
 
     /// The ECUs and their inverters as last read, for the page.
     func status() -> JSONValue {
-        let formatter = ISO8601DateFormatter()
+        let readings = Dictionary(grouping: inverterReadings, by: \.value.ecuID)
         let ecuList: [JSONValue] = order.compactMap { key in
             guard let ecu = ecus[key] else { return nil }
             var fields: [String: JSONValue] = [
-                "host": .string(ecu.host), "port": .number(Double(ecu.port)), "failures": .number(Double(ecu.failures)),
+                "host": .string(ecu.host), "port": .number(Double(ecu.port)), "address": .string(ecu.address), "failures": .number(Double(ecu.failures)),
                 "meterFailing": .bool(ecu.meterFailing),
             ]
             if let id = ecu.ecuID {
                 fields["ecuID"] = .string(id)
                 fields["model"] = .string(ECUProtocol.ecuModel(id))
                 fields["accessoryID"] = .string(Self.accessoryID(deviceID: id))
-                fields["name"] = .string(context.accessorySettings(for: id).name ?? ecu.configuredName ?? "\(ECUProtocol.ecuModel(id)) \(id)")
+                fields["name"] = .string(context.accessorySettings(for: id).name ?? Self.defaultName(ecuID: id, configured: ecu.configuredName))
             }
             if let system = ecu.system {
                 fields["power"] = .number(Double(system.currentPower))
@@ -98,15 +100,15 @@ extension APsystemsECUPlugin {
                 fields["online"] = .number(Double(system.invertersOnline))
                 fields["firmware"] = .string(system.firmware)
             }
-            if let updated = ecu.lastSuccess { fields["updated"] = .string(formatter.string(from: updated)) }
+            if let updated = ecu.lastSuccess { fields["updated"] = .string(Timestamp.iso8601(updated)) }
             if let grid = ecu.meter?.gridPower { fields["grid"] = .number(grid) }
             if let home = ecu.meter?.homePower { fields["home"] = .number(home) }
-            let inverters: [JSONValue] = inverterReadings.filter { $0.value.ecuID == ecu.ecuID }.sorted { $0.key < $1.key }.map { uid, reading in
+            let inverters: [JSONValue] = (ecu.ecuID.flatMap { readings[$0] } ?? []).sorted { $0.key < $1.key }.map { uid, reading in
                 var inverter: [String: JSONValue] = [
                     "uid": .string(uid), "model": .string(ECUProtocol.inverterModel(uid)), "online": .bool(reading.record.online),
                     "current": .bool(reading.current), "registeredOnly": .bool(reading.record.isRegisteredOnly),
                     "power": .number(Double(reading.record.power)), "powers": .array(reading.record.powers.map { .number(Double($0)) }),
-                    "voltages": .array(reading.record.voltages.map { .number(Double($0)) }), "updated": .string(formatter.string(from: reading.updated)),
+                    "voltages": .array(reading.record.voltages.map { .number(Double($0)) }), "updated": .string(Timestamp.iso8601(reading.updated)),
                 ]
                 if inverterServices[uid] != nil { inverter["accessoryID"] = .string(Self.accessoryID(deviceID: uid)) }
                 if reading.record.online, let temperature = reading.record.temperature { inverter["temperature"] = .number(Double(temperature)) }

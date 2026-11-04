@@ -40,16 +40,16 @@ enum Vectors {
 @Suite struct ECUProtocolTests {
     @Test func requestsAreTheSpecsBytes() {
         #expect(String(decoding: ECUProtocol.systemRequest, as: UTF8.self) == "APS1100160001END\n")
-        #expect(String(decoding: ECUProtocol.realTimeRequest(ecuID: "215000999901"), as: UTF8.self) == "APS1100280002215000999901END\n")
-        #expect(String(decoding: ECUProtocol.signalRequest(ecuID: "215000999901"), as: UTF8.self) == "APS1100280030215000999901END\n")
-        #expect(ECUProtocol.realTimeRequest(ecuID: "215000999901").count == 29)
+        #expect(String(decoding: ECUProtocol.request(.realTime, ecuID: "215000999901"), as: UTF8.self) == "APS1100280002215000999901END\n")
+        #expect(String(decoding: ECUProtocol.request(.signal, ecuID: "215000999901"), as: UTF8.self) == "APS1100280030215000999901END\n")
+        #expect(ECUProtocol.request(.realTime, ecuID: "215000999901").count == 29)
     }
 
     @Test func v1ECUCSystemDaytime() throws {
         let frame = Vectors.bytes(Vectors.v1)
         #expect(frame.count == 115)
         let system = try ECUProtocol.parseSystem(try ECUProtocol.validate(frame, expecting: .system))
-        #expect(ECUProtocol.group(frame) == "12")
+        #expect(ECUProtocol.ascii(frame, 3, 2) == "12")
         #expect(system.ecuID == "215000999901")
         #expect(system.model == "01")
         #expect(system.lifetimeEnergy == 18132.9)
@@ -81,7 +81,7 @@ enum Vectors {
         let frame = Vectors.bytes(Vectors.v3)
         #expect(frame.count == 95)
         let system = try ECUProtocol.parseSystem(try ECUProtocol.validate(frame, expecting: .system))
-        #expect(ECUProtocol.group(frame) == "11")
+        #expect(ECUProtocol.ascii(frame, 3, 2) == "11")
         #expect(system.ecuID == "216000999902")
         #expect(ECUProtocol.ecuModel(system.ecuID) == "ECU-R")
         #expect(!ECUProtocol.hasMeter(system.ecuID))

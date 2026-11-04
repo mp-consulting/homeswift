@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 
 /// What the plugin knows of one configured ECU between polls.
@@ -18,13 +19,13 @@ struct ECURuntime: Sendable {
     var realTimeFailing = false
     var meterFailing = false
     var loggedHint = false
+    /// When the failures in a row began.
+    var failingSince: ContinuousClock.Instant?
     var lastSuccess: Date?
     var nextPoll = ContinuousClock.now
-}
 
-/// An ECU's accessory: its production.
-struct ECUServices: Sendable {
-    let solar: Service
+    /// `host`, or `host:port` when the port is not 8899, as the page and Setup show it.
+    var address: String { hostHeader(host: host, port: port, defaultPort: ECUProtocol.port) }
 }
 
 /// An inverter's accessory: its power and temperature.
@@ -44,18 +45,9 @@ struct InverterReading: Sendable {
     var current: Bool
 }
 
-/// Eve's power characteristics, which the Eve app shows on the production's Light Sensor; the Home app ignores them.
-enum Eve {
-    static let consumption = CharacteristicType(
-        name: "Consumption", uuid: HAPUUID("E863F10D-079E-48FF-8F27-9C2605A29F52"), format: .float, permissions: [.pairedRead, .events],
-        minValue: 0, maxValue: 100_000, minStep: 0.1)
-    static let totalConsumption = CharacteristicType(
-        name: "Total Consumption", uuid: HAPUUID("E863F10C-079E-48FF-8F27-9C2605A29F52"), format: .float, permissions: [.pairedRead, .events],
-        minValue: 0, maxValue: 100_000_000, minStep: 0.1)
-}
-
 extension Characteristic {
-    /// Sets the value when it differs: an unchanged reading reaches no controller.
+    /// Sets the value when it differs: the setter already sends controllers no event for an unchanged value, this spares
+    /// the bridge's observers (history, scenes) too.
     func update(_ value: HAPValue) {
         if self.value != value { self.value = value }
     }
@@ -70,6 +62,10 @@ extension APsystemsECUPlugin {
     /// One poll of an ECU (3.1): system info, real-time data and signal levels, each on its own connection, then the
     /// ECU-C's meter. The system answer decides success; the others only add to it.
     func poll(_ key: String) async {
+        await exclusively(key) { await pollAlone(key) }
+    }
+
+    private func pollAlone(_ key: String) async {
         guard var ecu = ecus[key] else { return }
         if let id = ecu.ecuID, context.isExcluded(id) {
             ecu.nextPoll = .now + scaled(seconds: pollSeconds)
@@ -78,8 +74,7 @@ extension APsystemsECUPlugin {
         }
         let exchanger = self.exchanger
         do {
-            let systemFrame = try ECUProtocol.validate(
-                try await exchanger.exchange(ECUProtocol.systemRequest, host: ecu.host, port: ecu.port), expecting: .system)
+            let systemFrame = try await ask(.system, ecu, exchanger: exchanger)
             let system = try ECUProtocol.parseSystem(systemFrame)
             logger.debug("System answer", metadata: ["ecu": "\(ECUProtocol.masked(system.ecuID))",
                 "hex": "\(ECUProtocol.maskedHex(systemFrame, ecuID: system.ecuID, masked: ECUProtocol.systemMACRange(systemFrame)))"])
@@ -95,6 +90,8 @@ extension APsystemsECUPlugin {
             let realTime = await readRealTime(&ecu, ecuID: system.ecuID, exchanger: exchanger)
             let levels = realTime == nil ? nil : await readSignal(ecu, ecuID: system.ecuID, exchanger: exchanger)
             let meter = await readMeter(&ecu, ecuID: system.ecuID)
+            // Stopped meanwhile: what failed was the stop, not the ECU.
+            guard !Task.isCancelled else { return }
             succeeded(&ecu, system: system, realTime: realTime, levels: levels, meter: meter)
         } catch is CancellationError {
             return
@@ -105,10 +102,15 @@ extension APsystemsECUPlugin {
         ecus[key] = ecu
     }
 
+    /// One request to an ECU, its answer checked.
+    private func ask(_ command: ECUCommand, _ ecu: ECURuntime, ecuID: String = "", exchanger: any ECUExchanging) async throws -> [UInt8] {
+        try ECUProtocol.validate(try await exchanger.exchange(ECUProtocol.request(command, ecuID: ecuID), host: ecu.host, port: ecu.port), expecting: command)
+    }
+
     /// The real-time answer, nil when it fails (logged once until it answers again).
     private func readRealTime(_ ecu: inout ECURuntime, ecuID: String, exchanger: any ECUExchanging) async -> ECUProtocol.RealTime? {
         do {
-            let frame = try ECUProtocol.validate(try await exchanger.exchange(ECUProtocol.realTimeRequest(ecuID: ecuID), host: ecu.host, port: ecu.port), expecting: .realTime)
+            let frame = try await ask(.realTime, ecu, ecuID: ecuID, exchanger: exchanger)
             logger.debug("Real-time answer", metadata: ["ecu": "\(ECUProtocol.masked(ecuID))", "hex": "\(ECUProtocol.maskedHex(frame, ecuID: ecuID))"])
             let realTime = try ECUProtocol.parseRealTime(frame)
             if realTime.model != "01", loggedOddities.insert("model \(realTime.model)").inserted {
@@ -125,6 +127,7 @@ extension APsystemsECUPlugin {
             ecu.realTimeFailing = false
             return realTime
         } catch {
+            if Task.isCancelled { return nil }
             if !ecu.realTimeFailing { logger.warning("Could not read the inverters from the ECU at \(ecu.host): \(error)") }
             ecu.realTimeFailing = true
             return nil
@@ -134,7 +137,7 @@ extension APsystemsECUPlugin {
     /// The signal levels, nil when they fail (the levels are a detail: debug only).
     private func readSignal(_ ecu: ECURuntime, ecuID: String, exchanger: any ECUExchanging) async -> [String: Int]? {
         do {
-            let frame = try ECUProtocol.validate(try await exchanger.exchange(ECUProtocol.signalRequest(ecuID: ecuID), host: ecu.host, port: ecu.port), expecting: .signal)
+            let frame = try await ask(.signal, ecu, ecuID: ecuID, exchanger: exchanger)
             logger.debug("Signal answer", metadata: ["ecu": "\(ECUProtocol.masked(ecuID))", "hex": "\(ECUProtocol.maskedHex(frame, ecuID: ecuID))"])
             return try ECUProtocol.parseSignal(frame)
         } catch {
@@ -152,6 +155,7 @@ extension APsystemsECUPlugin {
             ecu.meterFailing = false
             return meter
         } catch {
+            if Task.isCancelled { return nil }
             if !ecu.meterFailing {
                 logger.warning("The ECU-C's meter did not answer (\(error)): its CT readings stay unknown, the production is read as usual")
             }
@@ -169,21 +173,53 @@ extension APsystemsECUPlugin {
         return scaled(seconds: interval)
     }
 
+    /// `YYYYMMDD` of a date in the bridge's time zone.
+    static func localDay(_ date: Date) -> String {
+        let day = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d%02d%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
+    }
+
+    /// Runs `body` with the ECU at `key` to itself: the ECUs take one client at a time, and the poll, Setup's discovery
+    /// and the page's check of an address can come at once.
+    func exclusively<T: Sendable>(_ key: String, _ body: () async throws -> T) async rethrows -> T {
+        while busy.contains(key) { await withCheckedContinuation { waiting[key, default: []].append($0) } }
+        busy.insert(key)
+        defer {
+            busy.remove(key)
+            for waiter in waiting.removeValue(forKey: key) ?? [] { waiter.resume() }
+        }
+        return try await body()
+    }
+
+    /// The accessories restored from the cache that no poll has replaced yet, Status Active off: their values are the
+    /// last run's.
+    private func markRestoredInactive() {
+        for accessory in context.accessories where context.isRestoredOnly(id: accessory.id) {
+            for service in accessory.services { service[.statusActive]?.update(.bool(false)) }
+        }
+    }
+
     // MARK: Failure
 
     private func failed(_ ecu: inout ECURuntime, _ error: any Error) {
         ecu.failures += 1
+        let since = ecu.failingSince ?? .now
+        ecu.failingSince = since
         if ecu.failures == 1 || ecu.failures % 10 == 0 {
             logger.warning("Cannot read the ECU at \(ecu.host): \(error); keeping its last values (failed \(ecu.failures) time\(ecu.failures == 1 ? "" : "s") in a row)")
         }
-        if !ecu.loggedHint, ecu.failures * pollSeconds >= 3600 {
+        if !ecu.loggedHint, ContinuousClock.now - since >= scaled(seconds: 3600) {
             ecu.loggedHint = true
             logger.warning("The ECU at \(ecu.host) has not answered for an hour: if it stays so, power-cycle it")
         }
-        guard let id = ecu.ecuID else { return }
-        if let services = ecuServices[id] {
-            services.solar.characteristic(.statusActive).update(.bool(false))
-            if ecu.failures >= connectRetries { services.solar.characteristic(.statusFault).update(.int(1)) }
+        guard let id = ecu.ecuID else {
+            // Not reached since the bridge started: its accessories from the cache are not live either.
+            markRestoredInactive()
+            return
+        }
+        if let solar = solarServices[id] {
+            solar.characteristic(.statusActive).update(.bool(false))
+            if ecu.failures >= connectRetries { solar.characteristic(.statusFault).update(.int(1)) }
         }
         markInverters(of: id, current: [])
     }
@@ -198,9 +234,7 @@ extension APsystemsECUPlugin {
         if system.inverters == 0 { accepted.inverters = previous.inverters }
         if system.lifetimeEnergy == 0 || system.lifetimeEnergy < previous.lifetimeEnergy { accepted.lifetimeEnergy = previous.lifetimeEnergy }
         let newDay = previousDate != nil && newDate != nil && previousDate != newDate
-        if system.todayEnergy == 0, system.invertersOnline > 0 {
-            accepted.todayEnergy = previous.todayEnergy
-        } else if system.todayEnergy < previous.todayEnergy, !newDay, system.invertersOnline > 0 {
+        if system.invertersOnline > 0, system.todayEnergy == 0 || system.todayEnergy < previous.todayEnergy && !newDay {
             accepted.todayEnergy = previous.todayEnergy
         }
         return accepted
@@ -210,29 +244,35 @@ extension APsystemsECUPlugin {
         _ ecu: inout ECURuntime, system raw: ECUProtocol.SystemInfo, realTime: ECUProtocol.RealTime?, levels: [String: Int]?, meter: ECUMeter?
     ) {
         if ecu.failures > 0 { logger.info("The ECU at \(ecu.host) answers again after \(ecu.failures) failed poll\(ecu.failures == 1 ? "" : "s")") }
-        let system = Self.filtered(raw, previous: ecu.system, previousDate: ecu.dataDate, newDate: realTime?.date)
+        let now = Date()
+        // The day of the data: the ECU's, else the bridge's (an ECU whose real-time data fails still resets at midnight).
+        let previousDate = ecu.dataDate ?? ecu.lastSuccess.map(Self.localDay)
+        let newDate = realTime.map(\.date).flatMap { $0.count == 8 ? $0 : nil } ?? Self.localDay(now)
+        let system = Self.filtered(raw, previous: ecu.system, previousDate: previousDate, newDate: newDate)
         ecu.failures = 0
+        ecu.failingSince = nil
         ecu.loggedHint = false
         ecu.ecuID = system.ecuID
         ecu.system = system
         ecu.meter = meter
-        ecu.lastSuccess = Date()
-        if let date = realTime?.date, date.count == 8 { ecu.dataDate = date }
+        ecu.lastSuccess = now
+        ecu.dataDate = newDate
         let id = system.ecuID
-        let name = ecu.configuredName ?? "\(ECUProtocol.ecuModel(id)) \(id)"
+        let name = Self.defaultName(ecuID: id, configured: ecu.configuredName)
 
-        if let services = ecuServices[id] ?? addECU(id: id, name: name, system: system) {
-            services.solar.characteristic(.currentAmbientLightLevel).update(Self.lux(system.currentPower))
-            services.solar.characteristic(.statusActive).update(.bool(true))
-            services.solar.characteristic(.statusFault).update(.int(0))
-            services.solar[Eve.consumption]?.update(.double(min(Double(system.currentPower), 100_000)))
-            services.solar[Eve.totalConsumption]?.update(.double(min(system.lifetimeEnergy, 100_000_000)))
+        if let solar = solarServices[id] ?? addECU(id: id, name: name, system: system) {
+            solar.characteristic(.currentAmbientLightLevel).update(Self.lux(system.currentPower))
+            solar.characteristic(.statusActive).update(.bool(true))
+            solar.characteristic(.statusFault).update(.int(0))
+            solar[EveCharacteristic.currentConsumption]?.update(.int(min(max(system.currentPower, 0), Int(UInt16.max))))
+            solar[EveCharacteristic.totalConsumption]?.update(.double(min(system.lifetimeEnergy, 100_000_000_000)))
         }
-        // The Energy section: the production, 0 at night included; the meter when it answered.
-        context.recordValue(Double(system.currentPower), series: "\(id):solar", energy: EnergyTag(role: .solar, device: name))
+        // The Energy section, under the name the person sees: the production, 0 at night included; the meter when it answered.
+        let shownName = context.accessorySettings(for: id).name ?? name
+        context.recordValue(Double(system.currentPower), series: "\(id):solar", energy: EnergyTag(role: .solar, device: shownName))
         context.recordValue(system.todayEnergy, series: "\(id):today")
-        if let grid = meter?.gridPower { context.recordValue(grid, series: "\(id):grid", energy: EnergyTag(role: .grid, device: name)) }
-        if let home = meter?.homePower { context.recordValue(home, series: "\(id):home", energy: EnergyTag(role: .home, device: name)) }
+        if let grid = meter?.gridPower { context.recordValue(grid, series: "\(id):grid", energy: EnergyTag(role: .grid, device: shownName)) }
+        if let home = meter?.homePower { context.recordValue(home, series: "\(id):home", energy: EnergyTag(role: .home, device: shownName)) }
 
         guard let realTime else {
             markInverters(of: id, current: [])
@@ -242,7 +282,7 @@ extension APsystemsECUPlugin {
         for record in realTime.inverters {
             current.insert(record.uid)
             let signal = levels?[record.uid]
-            inverterReadings[record.uid] = InverterReading(ecuID: id, record: record, signal: signal, updated: Date(), current: true)
+            inverterReadings[record.uid] = InverterReading(ecuID: id, record: record, signal: signal, updated: now, current: true)
             guard !record.isRegisteredOnly else { continue }
             recordHistory(record, signal: signal)
             guard configuration.inverters != false, !context.isExcluded(record.uid) else { continue }
@@ -291,20 +331,21 @@ extension APsystemsECUPlugin {
 
     private func removeInverterAccessories(_ uids: Set<String>) {
         let present = Set(context.accessories.map(\.id))
-        for uid in uids where present.contains(Self.accessoryID(deviceID: uid)) {
-            inverterServices[uid] = nil
+        for uid in uids {
             let id = Self.accessoryID(deviceID: uid)
+            guard present.contains(id) else { continue }
+            inverterServices[uid] = nil
             tasks.add { [context] in try? await context.remove(id: id) }
         }
     }
 
     // MARK: Accessories
 
-    private func addECU(id: String, name: String, system: ECUProtocol.SystemInfo) -> ECUServices? {
+    private func addECU(id: String, name: String, system: ECUProtocol.SystemInfo) -> Service? {
         let solar = Service(
             .lightSensor, name: "Solar power", optional: [.statusActive, .statusFault],
-            extra: [Characteristic(Eve.consumption, value: .double(0)), Characteristic(Eve.totalConsumption, value: .double(0))], isPrimary: true)
-        let services = ECUServices(solar: solar)
+            extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(0)), Characteristic(EveCharacteristic.totalConsumption, value: .double(0))],
+            isPrimary: true)
         do {
             try context.add(Accessory(
                 id: Self.accessoryID(deviceID: id), name: name, manufacturer: "APsystems", model: ECUProtocol.ecuModel(id), serialNumber: id,
@@ -313,8 +354,8 @@ extension APsystemsECUPlugin {
             logger.error("Could not add the ECU \(ECUProtocol.masked(id)): \(error)")
             return nil
         }
-        ecuServices[id] = services
-        return services
+        solarServices[id] = solar
+        return solar
     }
 
     private func addInverter(_ record: ECUProtocol.Inverter) -> InverterServices? {
@@ -325,7 +366,7 @@ extension APsystemsECUPlugin {
         let services = InverterServices(power: power, temperature: temperature)
         do {
             try context.add(Accessory(
-                id: Self.accessoryID(deviceID: record.uid), name: "Inverter \(record.uid)", manufacturer: "APsystems",
+                id: Self.accessoryID(deviceID: record.uid), name: Self.inverterName(record.uid), manufacturer: "APsystems",
                 model: ECUProtocol.inverterModel(record.uid), serialNumber: record.uid, category: .sensor, services: [power, temperature]))
         } catch {
             logger.error("Could not add the inverter \(ECUProtocol.masked(record.uid)): \(error)")
