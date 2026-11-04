@@ -85,10 +85,17 @@ struct PluginTests {
     @Test func aBroadcastFromTheCloudReachesHomeKit() async throws {
         let host = try await environment.start()
         await expectEventually { environment.robot.methods.contains("get_consumable") }
+        // The fake hands a message only to readers already there: wait for the plugin to listen to the robot.
+        await expectEventually { environment.mqtt.subscriptions.keys.contains { $0.hasPrefix("rr/m/o/") } }
         var frame = RoborockFrame(version: .v1, seq: 9, random: 10, timestamp: 1_700_000_000, protocolNumber: 102)
         frame.payload = try RoborockCipher.encrypt(Data(#"{"dps":{"121":5,"122":15},"t":1700000000}"#.utf8), frame: frame, localKey: Sample.localKey, nonces: nil)
-        environment.mqtt.receive("rr/m/o/u_example/bb7e313c/\(Sample.duid)", payload: frame.encoded())
-        await expectEventually { environment.accessory(host)?.service(.fanv2)?[.active]?.value == 1 }
+        // Sent again until it lands: the plugin's reader may start a moment after its subscription.
+        let (mqtt, encoded) = (environment.mqtt, frame.encoded())
+        await expectEventually {
+            mqtt.receive("rr/m/o/u_example/bb7e313c/\(Sample.duid)", payload: encoded)
+            try? await Task.sleep(for: .milliseconds(50))
+            return environment.accessory(host)?.service(.fanv2)?[.active]?.value == 1
+        }
         let battery = try #require(environment.accessory(host)?.service(.battery))
         #expect(battery[.batteryLevel]?.value == 15)
         #expect(battery[.statusLowBattery]?.value == 1)
