@@ -25278,7 +25278,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-medium .tile { width: 40px; height: 40px; border-radius: 50%; }
 /* The ⋯ button sits over the compact tile's corner: the name and status end before it. */
 .size-small .w-bottom .who { padding-right: 22px; }
-.size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 26px; height: 26px; margin: 0; opacity: 1; color: var(--text); background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 26px; height: 26px; margin: 0; opacity: 1; color: var(--tile-on-text); background: var(--tile-on); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
 /* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
    card's material so it reads as sitting on the tile. */
 .widget .tile { position: relative; }
@@ -28563,11 +28563,17 @@ select option:disabled { color: var(--muted); }
 .size-xlarge .battery-graphic .bat-icon { width: 72px; height: 72px; }
 .battery-graphic rect.bat-body, .battery-graphic path.bat-terminal { fill: none; stroke: currentColor; stroke-width: 1.6; }
 .battery-graphic path.bat-terminal { stroke-linecap: round; }
+/* No stroke on the bars and the bolt: on small and medium tiles the graphic sits in .w-hero, whose svg rule strokes every
+   shape 2 units wide, which filled the gaps between the bars and thickened the bolt. */
+.battery-graphic .bat-bar, .battery-graphic .bat-bolt { stroke: none; }
 .battery-graphic .bat-bar { fill: currentColor; opacity: 0.2; transition: opacity var(--normal) var(--ease-out); }
 .battery-graphic .bat-bar.on { opacity: 1; }
 /* The bolt sits outside the battery's box, beside it, so the battery stays centred. */
-.battery-graphic .bat-bolt { display: none; position: absolute; left: calc(100% + 2px); top: 50%; margin-top: -10px; width: 20px; height: 20px; fill: currentColor; }
-.size-medium .battery-graphic .bat-bolt { width: 16px; height: 16px; margin-top: -8px; }
+/* Its size is --bolt, and half of it is its offset from the middle, so it stays on the battery's centre line at every size. */
+.battery-graphic .bat-bolt { --bolt: 20px; display: none; position: absolute; left: calc(100% + 2px); top: 50%; margin-top: calc(var(--bolt) / -2); width: var(--bolt); height: var(--bolt); fill: currentColor; }
+.size-medium .battery-graphic .bat-bolt { --bolt: 16px; }
+.size-large .battery-graphic .bat-bolt { --bolt: 26px; }
+.size-xlarge .battery-graphic .bat-bolt { --bolt: 32px; }
 .battery-graphic.charging .bat-bolt { display: block; animation: bat-bolt 1.8s ease-in-out infinite; }
 .battery-graphic.charging .bat-bar.live { animation: bat-flicker 1.1s steps(1, end) infinite; }
 @keyframes bat-flicker { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
@@ -28582,7 +28588,7 @@ select option:disabled { color: var(--muted); }
 .battery-gauge .gauge-figure small { display: inline; margin-top: 0; font-size: 0.6em; font-weight: var(--weight-medium); opacity: 0.7; }
 
 /* Battery tiles: the menu button is a round, bordered control at every size. */
-.widget.widget-battery:not(.widget-full) .menu-button { width: 28px; height: 28px; margin: 0; opacity: 1; color: var(--text); background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.widget.widget-battery:not(.widget-full) .menu-button { width: 28px; height: 28px; margin: 0; opacity: 1; color: var(--tile-on-text); background: var(--tile-on); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
 .widget.widget-battery:not(.widget-full) .menu-button svg { width: 18px; height: 18px; stroke-width: 2.2; }
 
 /* A small battery tile: the icon on the left, the name and status beside it, and the level as a subtitle under the
@@ -28596,7 +28602,7 @@ select option:disabled { color: var(--muted); }
 .widget-battery.size-small .battery-gauge { flex-direction: row; gap: var(--space-6); }
 .widget-battery.size-small .battery-graphic { width: 42px; flex: none; justify-content: flex-start; }
 .widget-battery.size-small .battery-graphic .bat-icon { width: 20px; height: 20px; }
-.widget-battery.size-small .battery-graphic .bat-bolt { left: 24px; width: 12px; height: 12px; margin-top: -12px; }
+.widget-battery.size-small .battery-graphic .bat-bolt { --bolt: 12px; left: 24px; }
 .widget-battery.size-small .gauge-figure { display: block; font-size: 13px; line-height: 1; white-space: nowrap; }
 .widget-battery.size-small .gauge-figure small { font-size: 0.8em; }
 
@@ -30703,7 +30709,9 @@ self.addEventListener("notificationclick", (event) => {
   function batteryGraphic() {
     const node = el("span", { class: "battery-graphic", "aria-hidden": "true" });
     node.innerHTML = '<svg class="bat-icon" viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>' +
-      '<rect class="bat-bar" x="4.5" y="8.8" width="2.6" height="6.4" rx="0.6"/><rect class="bat-bar" x="8.4" y="8.8" width="2.6" height="6.4" rx="0.6"/><rect class="bat-bar" x="12.3" y="8.8" width="2.6" height="6.4" rx="0.6"/></svg>' +
+      // Three slim bars across the outline's inside (x 2.8 to 18.2): 1.4 to its edges and 2.4 between them, so the steps
+      // stay distinct on a small tile's 20 px battery.
+      '<rect class="bat-bar" x="4.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="9.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="14.2" y="8.7" width="2.6" height="6.6" rx="0.6"/></svg>' +
       '<svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
     const bars = [...node.querySelectorAll(".bat-bar")];
     return {

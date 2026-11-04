@@ -78,7 +78,7 @@
   function batteryGraphic(level) {
     const node = el("span", { class: level === null ? "battery-mini unknown" : "battery-mini", "aria-hidden": "true" });
     const filled = level === null ? 0 : level >= 67 ? 3 : level >= 34 ? 2 : level >= 10 ? 1 : 0;
-    const bars = [0, 1, 2].map((index) => `<rect class="bat-bar${index < filled ? " on" : ""}" x="${4.5 + index * 3.9}" y="8.8" width="2.6" height="6.4" rx="0.6"/>`).join("");
+    const bars = [0, 1, 2].map((index) => `<rect class="bat-bar${index < filled ? " on" : ""}" x="${4.2 + index * 5}" y="8.7" width="2.6" height="6.6" rx="0.6"/>`).join("");
     node.innerHTML = `<svg viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>${bars}</svg>`;
     return node;
   }

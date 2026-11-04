@@ -69,6 +69,11 @@ final class FakeDevice: @unchecked Sendable {
         return connection
     }
 
+    private var _pings = 0
+    /// The PingRequests answered.
+    var pings: Int { lock.withLock { _pings } }
+    func pinged() { lock.withLock { _pings += 1 } }
+
     private var _authentications = 0
     /// The AuthenticationRequests received: each carried the password.
     var authentications: Int { lock.withLock { _authentications } }
@@ -235,6 +240,7 @@ final class FakeConnection: ByteStream, @unchecked Sendable {
             subscribed = true
             for state in configuration.states { write(state) }
         case MessageType.pingRequest:
+            device?.pinged()
             write(ESPHomeFrame(type: MessageType.pingResponse, body: []))
         case MessageType.disconnectRequest:
             write(ESPHomeFrame(type: MessageType.disconnectResponse, body: []))

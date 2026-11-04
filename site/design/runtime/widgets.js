@@ -1635,7 +1635,9 @@
   function batteryGraphic() {
     const node = el("span", { class: "battery-graphic", "aria-hidden": "true" });
     node.innerHTML = '<svg class="bat-icon" viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>' +
-      '<rect class="bat-bar" x="4.5" y="8.8" width="2.6" height="6.4" rx="0.6"/><rect class="bat-bar" x="8.4" y="8.8" width="2.6" height="6.4" rx="0.6"/><rect class="bat-bar" x="12.3" y="8.8" width="2.6" height="6.4" rx="0.6"/></svg>' +
+      // Three slim bars across the outline's inside (x 2.8 to 18.2): 1.4 to its edges and 2.4 between them, so the steps
+      // stay distinct on a small tile's 20 px battery.
+      '<rect class="bat-bar" x="4.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="9.2" y="8.7" width="2.6" height="6.6" rx="0.6"/><rect class="bat-bar" x="14.2" y="8.7" width="2.6" height="6.6" rx="0.6"/></svg>' +
       '<svg class="bat-bolt" viewBox="0 0 24 24"><path d="M13.6 2 5.5 13.2h5.6L9.6 22l8.9-11.6h-5.7z"/></svg>';
     const bars = [...node.querySelectorAll(".bat-bar")];
     return {
