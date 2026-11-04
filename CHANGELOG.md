@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-04
+
 ### Added
 
 - Matter: a Fan v2 that stands for a cleaning robot (`Service.standsFor = .cleaningRobot`) is a Robotic Vacuum Cleaner,
@@ -1748,7 +1750,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/mp-consulting/homeswift/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/mp-consulting/homeswift/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/mp-consulting/homeswift/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/mp-consulting/homeswift/compare/v0.17.0...v0.18.0
