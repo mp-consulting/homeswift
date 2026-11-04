@@ -32,6 +32,8 @@ public final class PluginHost: @unchecked Sendable {
         /// How every server is advertised, and on which interfaces; `init` takes them from the bridge block.
         public var advertiser: HAPServer.Options.Advertiser = .system
         public var interfaces: [String] = []
+        /// The bridge's log, for plugins that follow it (`PluginContext.logs`); the CLI sets it.
+        public var logs: LogBuffer?
 
         public init(advertise: Bool = true, logger: Logger = Logger(label: "homeswift"), makeStorage: (@Sendable (_ name: String) -> any HAPStorage)? = nil) {
             self.advertise = advertise
@@ -667,6 +669,7 @@ public final class PluginHost: @unchecked Sendable {
         }
         let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, assistantBackground: entry.assistantBackground)
         context.publishedAccessories = { [weak self] in self?.bridges.flatMap(\.server.accessories) ?? [] }
+        context.logs = options.logs
         context.naming.setNames(block.accessoryNames)
         context.naming.onRenamed { [weak self, logger = context.logger] id, name in
             guard let handler = self?.renameHandler.withLockedValue({ $0 }) else { return }

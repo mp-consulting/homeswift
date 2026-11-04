@@ -1,6 +1,7 @@
 import HomeswiftDaikinCloud
 import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
+import HomeswiftDummy
 import HomeswiftDysonPureCool
 import HomeswiftESPHome
 import HomeswiftEWeLink
@@ -42,6 +43,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(DummyPlugin.self)
     registry.register(MQTTThingPlugin.self)
     registry.register(ESPHomePlugin.self)
     registry.register(ShellyNGPlugin.self)

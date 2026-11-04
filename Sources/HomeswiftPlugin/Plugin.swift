@@ -504,6 +504,14 @@ public final class PluginContext: @unchecked Sendable {
         self.externals = externals
     }
 
+    /// The bridge's log, from now on (`LogBuffer.observe`), when the host has one (`PluginHost.Options.logs`): for a plugin
+    /// that acts on log lines. nil in a library or a test that gives none.
+    public internal(set) var logs: LogBuffer? {
+        get { logsBox.withLockedValue { $0 } }
+        set { logsBox.withLockedValue { $0 = newValue } }
+    }
+    private let logsBox = NIOLockedValueBox<LogBuffer?>(nil)
+
     /// Every accessory on the host's servers (the bridges and the external accessories), set by `PluginHost`.
     var publishedAccessories: @Sendable () -> [Accessory] {
         get { publishedBox.withLockedValue { $0 } }

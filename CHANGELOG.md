@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Dummy Accessories plugin (`HomebridgeDummy`, compatible with homebridge-dummy's configuration): switches, lights, locks, doors, sensors, thermostats and more that exist only in HomeKit, with schedules, sun times, auto-resets, limiters, conditions and webhooks. Plugins can follow the bridge's log (`PluginContext.logs`).
 - MQTT Thing (`Plugins/MQTTThing`), an experimental clean-room plugin compatible with homebridge-mqttthing's accessory blocks: every accessory type it has, driven by MQTT topics, one connection per broker; accessory blocks (`accessories` in config.json) now run in the plugin that claims them (`runsAccessoryBlocks`), and the Homebridge import keeps them.
 - ESPHome, an experimental plugin (`esphome`, a clean-room implementation compatible with homebridge-esphome-ts's
   block) for ESPHome devices over their native API, plaintext or Noise-encrypted with the device's key, with

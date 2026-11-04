@@ -62,6 +62,7 @@ HomeswiftI18n.add("fr", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
+  "Switches, sensors and more that exist only in HomeKit, for automations": "Interrupteurs, capteurs et plus qui n'existent que dans HomeKit, pour les automatisations",
   "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
   "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
