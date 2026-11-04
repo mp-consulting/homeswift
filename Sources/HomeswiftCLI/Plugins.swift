@@ -13,6 +13,7 @@ import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
+import HomeswiftMagicHome
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
@@ -68,5 +69,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(TapoPlugin.self)
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
+    registry.register(MagicHomePlugin.self)
     return registry
 }
