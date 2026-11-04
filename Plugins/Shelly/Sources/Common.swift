@@ -45,7 +45,7 @@ extension Characteristic {
         if let maxValue = type.maxValue { number = min(number, maxValue) }
         switch type.format {
         case .float: update(.double((number * 1000).rounded() / 1000))
-        default: update(.int(Int(number.rounded())))
+        default: update(.int(Int(saturating: number.rounded()) ?? 0))
         }
     }
 }
@@ -54,7 +54,7 @@ extension Characteristic {
 /// saturation and value 0 to 100, red, green and blue 0 to 255.
 enum ShellyColor {
     static func hsv(red: Double, green: Double, blue: Double) -> (hue: Int, saturation: Int, value: Int) {
-        let r = red / 255, g = green / 255, b = blue / 255
+        let r = min(max(red, 0), 255) / 255, g = min(max(green, 0), 255) / 255, b = min(max(blue, 0), 255) / 255
         let high = max(r, g, b), low = min(r, g, b), delta = high - low
         var hue = 0.0
         if delta > 0 {
@@ -88,7 +88,7 @@ enum ShellyColor {
     }
 
     /// Kelvin to mireds and back, rounded.
-    static func mireds(kelvin: Double) -> Int { kelvin > 0 ? Int((1_000_000 / kelvin).rounded()) : 0 }
+    static func mireds(kelvin: Double) -> Int { kelvin > 0 ? Int(saturating: (1_000_000 / kelvin).rounded(), in: 0...1_000_000) ?? 0 : 0 }
 }
 
 extension JSONValue {

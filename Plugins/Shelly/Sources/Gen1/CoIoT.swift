@@ -42,8 +42,9 @@ struct CoIoTStatus: Sendable, Equatable {
         model = parts[0]
         deviceID = parts[1]
         revision = parts.count > 2 ? parts[2] : "1"
-        validity = message.option(Self.validityOption)?.unsignedValue.map { Self.validity(Int($0)) }
-        serial = message.option(Self.serialOption)?.unsignedValue.map { Int($0) }
+        // Both are 16-bit: a longer value keeps its low bytes, never an overflow.
+        validity = message.option(Self.validityOption)?.unsignedValue.map { Self.validity(Int(UInt16(truncatingIfNeeded: $0))) }
+        serial = message.option(Self.serialOption)?.unsignedValue.map { Int(UInt16(truncatingIfNeeded: $0)) }
         guard let payload = try? JSONValue(data: Data(message.payload)), case .array(let tuples) = payload["G"] ?? .null else { return nil }
         values = tuples.compactMap { tuple in
             guard let items = tuple.arrayValue, items.count >= 3, let id = items[1].intValue else { return nil }

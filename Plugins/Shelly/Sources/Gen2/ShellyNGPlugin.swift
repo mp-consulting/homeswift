@@ -72,6 +72,7 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
     private(set) var failures: [String: String] = [:]
     private let tasks = TaskBag()
     private(set) var browsing = false
+    private var stopped = false
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -111,6 +112,7 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
+        stopped = true
         tasks.cancelAll()
         for device in devices.values { await device.stop() }
         devices.removeAll()
@@ -242,9 +244,20 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
             for accessory in context.accessories where context.isAccessory(accessory.id, of: id) && !ids.contains(accessory.id) {
                 try? await context.remove(id: accessory.id)
             }
+            // Stopped while the device answered: nothing of it stays behind.
+            guard !stopped else {
+                await rpc.stop()
+                return
+            }
             for accessory in accessories {
                 if let cached = context.accessory(id: accessory.id) { accessory.takeValues(from: cached) }
-                try context.add(accessory)
+                do {
+                    try context.add(accessory)
+                } catch {
+                    // All or none: the ones added already would stay without a connection.
+                    for added in accessories.prefix(while: { $0.id != accessory.id }) { try? await context.remove(id: added.id) }
+                    throw error
+                }
             }
             devices[id] = device
             await device.watch()

@@ -232,9 +232,9 @@ struct Gen1Builder: Sendable {
             service.characteristic(.obstructionDetected).value = .bool(false)
             target.onWrite { value in
                 guard let state = value.intValue, state != written.withLockedValue({ $0 }) else { return }
-                written.withLockedValue { $0 = state }
                 do {
                     try await device.set("rollerPosition", "roller/0", [("go", "to_pos"), ("roller_pos", state == 0 ? "100" : "0")])
+                    written.withLockedValue { $0 = state }
                 } catch {
                     await device.logFailure("Failed to set roller", error)
                     throw HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
@@ -245,7 +245,12 @@ struct Gen1Builder: Sendable {
                 let position = values["rollerPosition"]?.number ?? 0
                 let current = state == "open" ? 2 : state == "close" ? 3 : position >= 100 ? 0 : position <= 0 ? 1 : 4
                 service.characteristic(.currentDoorState).update(.int(current))
-                target.update(.int(written.withLockedValue { $0 } ?? (current == 0 || current == 2 ? 0 : 1)))
+                // Stopped open or closed: what HomeKit asked is done, or a wall button overruled it.
+                let goal = written.withLockedValue { written -> Int? in
+                    if current == 0 || current == 1 { written = nil }
+                    return written
+                }
+                target.update(.int(goal ?? (current == 0 || current == 2 ? 0 : 1)))
             }
             return ([service], .garageDoorOpener)
         }
@@ -257,19 +262,18 @@ struct Gen1Builder: Sendable {
         let service = Service(serviceType, isPrimary: true)
         let current = service.characteristic(.currentPosition), target = service.characteristic(.targetPosition)
         let state = service.characteristic(.positionState)
-        let control = RollerControl()
-        let delay = rollerDelay, settle = rollerSettle
-        target.value = .int(Int(await device.value("rollerPosition").number ?? 0))
-        control.target.withLockedValue { $0 = target.value.intValue ?? 0 }
-        // HomeKit is answered at once; the roller moves a second later, unless a move is waiting already.
+        let control = NIOLockedValueBox(0)
+        let moves = LatestCallGuard(delay: rollerDelay), settle = rollerSettle
+        target.value = .int(Int(saturating: await device.value("rollerPosition").number ?? 0, in: 0...100) ?? 0)
+        control.withLockedValue { $0 = target.value.intValue ?? 0 }
+        // HomeKit is answered at once; the roller moves a second later, to the last position asked meanwhile.
         target.onWrite { value in
-            guard let position = value.intValue, position != control.target.withLockedValue({ $0 }), control.claimMove() else { return }
+            guard let position = value.intValue, position != control.withLockedValue({ $0 }) else { return }
             Task {
-                defer { control.releaseMove() }
-                try? await Task.sleep(for: delay)
+                guard await moves() else { return }
                 do {
                     try await device.set("rollerPosition", "roller/0", [("go", "to_pos"), ("roller_pos", "\(position)")])
-                    control.target.withLockedValue { $0 = position }
+                    control.withLockedValue { $0 = position }
                 } catch {
                     await device.logFailure("Failed to set roller", error)
                 }
@@ -277,13 +281,13 @@ struct Gen1Builder: Sendable {
         }
         let recompute = LatestCallGuard(delay: settle)
         await device.observe(["rollerState", "rollerPosition"]) { values in
-            let position = Int(values["rollerPosition"]?.number ?? 0)
+            let position = Int(saturating: values["rollerPosition"]?.number ?? 0, in: 0...100) ?? 0
             let moving = values["rollerState"]?.stringValue
             current.update(.int(position))
             state.update(.int(moving == "open" ? 1 : moving == "close" ? 0 : 2))
             Task {
                 guard await recompute() else { return }
-                let goal = control.target.withLockedValue { goal -> Int in
+                let goal = control.withLockedValue { goal -> Int in
                     switch moving {
                     case "stop": goal = position
                     case "open" where goal <= position: goal = 100
@@ -510,14 +514,4 @@ struct Gen1Builder: Sendable {
         }
         return service
     }
-}
-
-/// A roller's target as the Homebridge plugin keeps it, and whether a move is waiting to be sent.
-final class RollerControl: Sendable {
-    let target = NIOLockedValueBox(0)
-    private let pending = NIOLockedValueBox(false)
-
-    /// Takes the one waiting move; false when one is waiting already.
-    func claimMove() -> Bool { pending.withLockedValue { busy in defer { busy = true }; return !busy } }
-    func releaseMove() { pending.withLockedValue { $0 = false } }
 }

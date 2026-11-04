@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftAI
 import HomeswiftNetwork
 import Logging
@@ -45,7 +46,7 @@ struct RPCSettings: Sendable, Equatable {
     /// Multiplies every delay above; tests shorten them.
     var timeScale: Double = 1
 
-    func duration(_ seconds: Double) -> Duration { .milliseconds(Int((seconds * timeScale * 1000).rounded())) }
+    func duration(_ seconds: Double) -> Duration { .milliseconds(Int(saturating: (seconds * timeScale * 1000).rounded()) ?? 0) }
 
     /// The schedule from a number, an array of numbers or a comma-separated string, as the Homebridge plugin reads it.
     static func reconnectSchedule(_ value: JSONValue?) -> [Double]? {
@@ -385,9 +386,9 @@ actor ShellyRPC {
 
     static func describe(seconds: Double) -> String {
         func unit(_ value: Int, _ name: String) -> String { "\(value) \(name)\(value == 1 ? "" : "s")" }
-        if seconds < 60 { return unit(Int(seconds), "second") }
-        if seconds < 3600 { return unit(Int(seconds / 60), "minute") }
-        return unit(Int(seconds / 3600), "hour")
+        if seconds < 60 { return unit(Int(saturating: seconds) ?? 0, "second") }
+        if seconds < 3600 { return unit(Int(saturating: seconds / 60) ?? 0, "minute") }
+        return unit(Int(saturating: seconds / 3600) ?? 0, "hour")
     }
 
     // MARK: Frames in

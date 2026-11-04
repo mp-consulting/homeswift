@@ -31,6 +31,12 @@ struct CoIoTTests {
         let badG = CoAPMessage(type: .nonConfirmable, code: 30, messageID: 1, options: [.init(number: 3332, value: Array("SHSW-1#ABC#2".utf8))],
                                payload: Array(#"{"G":1}"#.utf8)).encoded()
         #expect(CoIoTStatus(datagram: badG) == nil)
+        // An option longer than its 16 bits does not trap.
+        let long = CoAPMessage(type: .nonConfirmable, code: 30, messageID: 1, options: [
+            .init(number: 3332, value: Array("SHSW-1#ABC#2".utf8)), .init(number: 3412, value: Array(repeating: 0xFF, count: 8)),
+            .init(number: 3420, value: Array(repeating: 0xFF, count: 8)),
+        ], payload: Array(#"{"G":[]}"#.utf8)).encoded()
+        #expect(CoIoTStatus(datagram: long)?.validity == 0xFFFF * 4)
         #expect(CoIoTStatus.request() == [0x50, 0x01, 0x00, 0x0A, 0xB3, 0x63, 0x69, 0x74, 0x01, 0x73, 0xFF, 0x00])
     }
 

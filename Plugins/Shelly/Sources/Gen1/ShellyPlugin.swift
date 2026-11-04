@@ -78,7 +78,7 @@ public actor ShellyPlugin: HomeswiftPlugin {
         self.dependencies = dependencies
     }
 
-    var requestTimeout: Duration { .milliseconds(Int(configuration.requestTimeout?.number ?? 10000)) }
+    var requestTimeout: Duration { .milliseconds(Int(saturating: configuration.requestTimeout?.number ?? 10000, in: 100...600_000) ?? 10000) }
 
     /// The device of an accessory id's part after `Shelly:`: the word before ` #<index>`.
     public static func deviceID(ofAccessory suffix: String) -> String? {
@@ -162,6 +162,11 @@ public actor ShellyPlugin: HomeswiftPlugin {
             let (modeChanged, hostChanged) = await device.apply(status, from: address)
             if modeChanged { _ = await buildAccessories(device, armed: true) }
             if modeChanged || hostChanged { await store(device) }
+            if await device.candidateHost != nil {
+                tasks.add { [weak self] in
+                    if await device.verifyMove() { await self?.store(device) }
+                }
+            }
             await heard(device, validity: status.validity)
             return
         }
@@ -211,7 +216,7 @@ public actor ShellyPlugin: HomeswiftPlugin {
         let stale = configuration.staleTimeout?.number ?? 0
         guard stale > 0, stale == stale.rounded() else { return }
         let key = device.key, label = device.label
-        let delay = Duration.milliseconds(Int(stale * dependencies.timeScale))
+        let delay = Duration.milliseconds(Int(saturating: stale * dependencies.timeScale) ?? Int.max)
         staleTimers[key] = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self, await !device.isOnline else { return }

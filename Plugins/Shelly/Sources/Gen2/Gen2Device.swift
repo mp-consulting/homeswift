@@ -123,6 +123,7 @@ actor Gen2Device {
             if wasDisconnected, let fresh = try? await rpc.call("Shelly.GetStatus") { apply(fresh) }
         case .disconnected:
             isConnected = false
+            setUnavailable(true)
         case .notification(let method, let params):
             switch method {
             case "NotifyStatus", "NotifyFullStatus": apply(params)
@@ -149,6 +150,10 @@ actor Gen2Device {
                 } else {
                     component[field] = new
                 }
+            }
+            // A cover reports `target_pos` only while it moves to one: once it stops, an old one is gone.
+            if key.hasPrefix("cover:"), let state = fields["state"]?.stringValue, state != "opening", state != "closing", fields["target_pos"] == nil {
+                component.removeValue(forKey: "target_pos")
             }
             guard component != before else { continue }
             status[key] = component

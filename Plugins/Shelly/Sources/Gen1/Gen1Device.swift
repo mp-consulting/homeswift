@@ -36,6 +36,8 @@ actor Gen1Device {
     private var settingsLoaded = false
     /// The address that last answered 401: Basic credentials go there from then on.
     private var challengedHost: String?
+    /// Another address a status came from, for a device with credentials, until `verifyMove()` checks it.
+    private(set) var candidateHost: String?
     /// Whether a status was heard since the device object was made.
     private(set) var heard = false
 
@@ -76,10 +78,13 @@ actor Gen1Device {
     /// whether the mode changed (the accessories are made again then).
     @discardableResult
     func apply(_ status: CoIoTStatus, from address: String) -> (modeChanged: Bool, hostChanged: Bool) {
-        let hostChanged = address != host
+        // CoIoT is unauthenticated: a device with credentials moves only once `verifyMove()` checked the new address.
+        let hostChanged = address != host && credentials == nil
         if hostChanged {
             logger.debug("Device \(label) changed host to \(address)")
             host = address
+        } else if address != host {
+            candidateHost = address
         }
         heard = true
         var newMode = mode
@@ -155,23 +160,42 @@ actor Gen1Device {
     /// `GET http://<host>/<path>?<query>` with the device's credentials; the reply as JSON.
     @discardableResult
     func request(_ path: String, _ query: [(String, String)] = []) async throws -> JSONValue {
+        // The address as the request starts: the device may move while it waits.
+        let target = host
         do {
-            return try await send(path, query, authenticated: credentials != nil && challengedHost == host)
-        } catch Gen1Error.wrongCredentials where credentials != nil && challengedHost != host {
-            // Credentials go only to an address that asked for them: one a spoofed CoIoT status pointed at gets none
-            // unless it challenges, and none of them before.
-            challengedHost = host
-            return try await send(path, query, authenticated: true)
+            return try await send(path, query, to: target, authenticated: credentials != nil && challengedHost == target)
+        } catch Gen1Error.wrongCredentials where credentials != nil && challengedHost != target {
+            // Credentials go only to an address that asked for them, and none before it does.
+            challengedHost = target
+            return try await send(path, query, to: target, authenticated: true)
         }
     }
 
-    private func send(_ path: String, _ query: [(String, String)], authenticated: Bool) async throws -> JSONValue {
+    /// A CoIoT status came from another address than the device's, which has credentials: it moves there only when its
+    /// address does not answer as this device any more and the new one does (`GET /shelly`, which needs no login).
+    /// Answers whether it moved.
+    func verifyMove() async -> Bool {
+        guard let candidate = candidateHost else { return false }
+        candidateHost = nil
+        guard await !isThisDevice(at: host), await isThisDevice(at: candidate) else { return false }
+        logger.debug("Device \(label) changed host to \(candidate)")
+        host = candidate
+        return true
+    }
+
+    private func isThisDevice(at address: String) async -> Bool {
+        guard let shelly = try? await send("shelly", [], to: address, authenticated: false),
+              let mac = shelly["mac"]?.stringValue?.replacingOccurrences(of: ":", with: "").uppercased() else { return false }
+        return mac.hasSuffix(deviceID.uppercased())
+    }
+
+    private func send(_ path: String, _ query: [(String, String)], to target: String, authenticated: Bool) async throws -> JSONValue {
         var components = URLComponents()
         components.scheme = "http"
-        components.host = host
+        components.host = target
         components.path = "/\(path)"
         if !query.isEmpty { components.queryItems = query.map { URLQueryItem(name: $0.0, value: $0.1) } }
-        guard let url = components.url else { throw Gen1Error.transport("invalid address \(host)") }
+        guard let url = components.url else { throw Gen1Error.transport("invalid address \(target)") }
         var request = HTTPRequest(url: url, timeout: timeout)
         request.setHeader("User-Agent", "homeswift")
         if authenticated, let credentials {
