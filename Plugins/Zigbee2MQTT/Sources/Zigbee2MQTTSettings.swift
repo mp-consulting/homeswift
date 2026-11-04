@@ -37,7 +37,8 @@ extension Zigbee2MQTTPlugin {
         if context.credentials(as: BrokerLogin.self) == nil {
             // The block may name the password by reference: the running configuration has its value.
             guard let password = settings?.mqtt.password, !password.isEmpty else { return canonical }
-            let context = context, login = BrokerLogin(user: settings?.mqtt.user, password: password)
+            guard let server = settings?.mqtt.server else { return canonical }
+            let context = context, login = BrokerLogin(server: server, user: settings?.mqtt.user, password: password)
             await context.whenSettingsWritten { try context.saveCredentials(login) }
         }
         mqtt.removeValue(forKey: "password")

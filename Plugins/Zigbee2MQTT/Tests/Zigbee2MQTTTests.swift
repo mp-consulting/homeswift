@@ -528,7 +528,7 @@ struct Zigbee2MQTTTests {
         broker.receive("zigbee2mqtt/bridge/devices", string: "[" + Fixtures.light + "]")
         broker.receive("zigbee2mqtt/bridge/groups", string: "[]")
         guard case .done(let outcome) = try await step.value else { Issue.record("expected done"); return }
-        #expect(outcome.credentials == ["user": "z2m", "password": "secret"])
+        #expect(outcome.credentials == ["server": "mqtt://broker:1883", "user": "z2m", "password": "secret"])
         #expect(outcome.settings["mqtt"]?["server"] == "mqtt://broker:1883")
         #expect(outcome.settings["mqtt"]?["user"] == "z2m")
         #expect(outcome.settings["mqtt"]?["password"] == nil)

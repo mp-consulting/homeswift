@@ -6,6 +6,8 @@ import Logging
 
 /// The broker's user name and password, kept in the vault by Setup.
 struct BrokerLogin: Codable, Sendable, Equatable {
+    /// The broker it is for: it is sent to no other.
+    var server: String
     var user: String?
     var password: String
 }
@@ -64,7 +66,10 @@ extension Zigbee2MQTTPlugin {
         }
         let base = request.answer("base_topic") ?? "zigbee2mqtt"
         let user = request.answer("user")
-        let password = request.secret("password") ?? (mqtt["user"]?.stringValue == user ? context.credentials(as: BrokerLogin.self)?.password : nil)
+        // The password kept in the vault goes only to the broker and user it was given for, never to another address.
+        let stored = context.credentials(as: BrokerLogin.self)
+        let sameBroker = stored?.server == server && mqtt["user"]?.stringValue == user
+        let password = request.secret("password") ?? (sameBroker ? stored?.password : nil)
         mqtt["server"] = .string(server)
         mqtt["base_topic"] = .string(base)
         mqtt["user"] = user.map(JSONValue.string)
@@ -84,7 +89,7 @@ extension Zigbee2MQTTPlugin {
         }
         logger.info("Zigbee2MQTT found on \(Self.masked(server)): \(lists.devices.count) devices and \(lists.groups.count) groups")
         guard let password else { return .done(SetupOutcome(settings: ["mqtt": .object(mqtt)])) }
-        return .done(try SetupOutcome(encoding: BrokerLogin(user: user, password: password), settings: ["mqtt": .object(mqtt)]))
+        return .done(try SetupOutcome(encoding: BrokerLogin(server: server, user: user, password: password), settings: ["mqtt": .object(mqtt)]))
     }
 
     private var logger: Logger { context.logger }

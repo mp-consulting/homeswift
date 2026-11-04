@@ -91,7 +91,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     /// The broker's password: the block's, or the one Setup put in the vault.
     func mqttSettings(_ settings: Settings) -> Settings.MQTT {
         var mqtt = settings.mqtt
-        if mqtt.password == nil, let stored = context.credentials(as: BrokerLogin.self) {
+        if mqtt.password == nil, let stored = context.credentials(as: BrokerLogin.self), stored.server == mqtt.server {
             mqtt.password = stored.password
             if mqtt.user == nil { mqtt.user = stored.user }
         }
