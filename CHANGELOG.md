@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- TP-Link Tapo plugin (`TapoP100`, experimental): P100, P105 and P110 plugs and L510E, L520E and L530E bulbs on the local
+  network, with KLAP and the older securePassthrough, the P110's and L530's power on Eve's characteristics, and
+  Adaptive Lighting on the white and colour bulbs; a homebridge-tapo block works unchanged and keeps its accessories.
+  A `WhiteLight` (L520E), an Outlet in Homebridge, is a Lightbulb: its automations need doing again.
 - HTTP Webhooks (`HttpWebHooks`), experimental: homebridge-http-webhooks' virtual accessories, set by webhooks on the LAN
   (Basic authentication, HTTPS) and calling URLs on HomeKit writes, written in a clean room from a functional spec.
 - A plugin whose account Needs Authorization (never set up, or refused since) is no longer shown as running: its card
