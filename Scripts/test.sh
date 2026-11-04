@@ -26,8 +26,14 @@ fi
 bin="$(swift build --show-bin-path ${build[@]+"${build[@]}"})"
 developer="$(xcode-select -p)/Platforms/MacOSX.platform/Developer"
 helper="$(dirname "$(xcrun --find swift)")/../libexec/swift/pm/swiftpm-testing-helper"
-logs="$(mktemp -d -t homeswift-tests.XXXXXX)"
-trap 'rm -rf "$logs"' EXIT
+# $TEST_LOG_DIR keeps the bundles' logs where Scripts/ci-test.sh's watchdog sees them grow; otherwise a temporary folder.
+if [ -n "${TEST_LOG_DIR:-}" ]; then
+    logs="$TEST_LOG_DIR"
+    mkdir -p "$logs"
+else
+    logs="$(mktemp -d -t homeswift-tests.XXXXXX)"
+    trap 'rm -rf "$logs"' EXIT
+fi
 
 shopt -s nullglob
 bundles=("$bin"/*.xctest)
@@ -54,9 +60,14 @@ status=0
 failed=()
 for index in "${!pids[@]}"; do
     name="${names[$index]}"
-    if wait "${pids[$index]}"; then
+    wait "${pids[$index]}"
+    code=$?
+    if [ "$code" -eq 0 ]; then
         summary="$(grep -a 'Test run with' "$logs/$name.log" | tail -n 1 | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/^[^T]*//')"
         printf '%-26s %s\n' "$name" "${summary:-no tests}"
+    elif [ "$code" -eq 69 ] && [ ${#tests[@]} -gt 0 ]; then
+        # Swift Testing's EX_UNAVAILABLE: a filter matched none of the bundle's tests.
+        printf '%-26s %s\n' "$name" "no matching tests"
     else
         status=1
         failed+=("$name")
