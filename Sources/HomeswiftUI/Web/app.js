@@ -3851,7 +3851,9 @@
       for (const { count, keys } of groupCounts) {
         // Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
         const set = keys.filter((key) => isSet(model[key]) && JSON.stringify(model[key]) !== JSON.stringify(properties[key]?.default)).length;
-        count.textContent = set ? t("{count} settings · {set} set", { count: keys.length, set }) : t("{count} settings", { count: keys.length });
+        const one = keys.length === 1;
+        count.textContent = set ? (one ? t("1 setting · {set} set", { set }) : t("{count} settings · {set} set", { count: keys.length, set }))
+          : one ? t("1 setting") : t("{count} settings", { count: keys.length });
       }
     };
     container.addEventListener("input", applyConditions);
@@ -3892,7 +3894,8 @@
       event.stopPropagation();
     });
     query.addEventListener("input", filter);
-    const element = el("div", { class: "form-with-search" }, el("label", { class: "form-search" }, HomeswiftCommon.icon("search"), query), none, container);
+    query.classList.add("form-search");
+    const element = el("div", { class: "form-with-search" }, query, none, container);
     return { element, getValue };
   }
 

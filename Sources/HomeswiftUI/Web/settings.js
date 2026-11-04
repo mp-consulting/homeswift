@@ -486,7 +486,7 @@
     if (linked) {
       const device = (await found)?.devices.find((one) => (one.accessoryID || `${platform}:${one.deviceID}`) === linked) ?? null;
       openAccessory({ accessoryID: linked, instance: block.name, device, name: device?.name ?? null,
-        glyph: device ? HomeswiftWidgets.categoryIcon(device.category) ?? "accessory" : "accessory",
+        glyph: device ? HomeswiftWidgets.deviceIcon(device) ?? "accessory" : "accessory",
         after: (changed) => {
           history.replaceState(history.state, "", location.pathname);
           if (changed) devices.load();
@@ -532,7 +532,7 @@
   function deviceRow(block, plugin, device, reload) {
     const [state, tone] = statuses[device.status] ?? statuses.discovered;
     const accessoryID = device.accessoryID || `${block.platform}:${device.deviceID}`;
-    const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? "accessory";
+    const glyph = HomeswiftWidgets.deviceIcon(device) ?? "accessory";
     const opens = ["setUp", "notResponding", "discovered"].includes(device.status);
     const detail = device.excludedBySettings ? t("Left out by the settings above") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID;
     let action = null;

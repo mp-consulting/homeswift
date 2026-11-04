@@ -142,7 +142,7 @@
         "x-kinds": ["light"]
       },
       "awsBrightnessNoScale": {
-        "title": "AWS Brightness No Scale",
+        "title": "Unscaled AWS Brightness",
         "type": "boolean",
         "default": false,
         "description": "If enabled, brightness goes over AWS as 0-100 instead of 0-254, for models that read it unscaled.",
@@ -845,7 +845,7 @@
   ],
   "i18n": {
     "fr": {
-      "AWS Brightness No Scale": "Luminosité AWS sans mise à l'échelle",
+      "Unscaled AWS Brightness": "Luminosité AWS sans mise à l'échelle",
       "AWS Colour Mode": "Mode de couleur AWS",
       "Adaptive Lighting Shift": "Décalage de l'Éclairage adaptatif",
       "Air Purifier": "Purificateur d'air",
@@ -993,7 +993,7 @@
       "Whether this is a scene from the library or one of your DIY effects.": "S'il s'agit d'une scène de la bibliothèque ou de l'un de vos effets DIY."
     },
     "es": {
-      "AWS Brightness No Scale": "Brillo AWS sin escalar",
+      "Unscaled AWS Brightness": "Brillo AWS sin escalar",
       "AWS Colour Mode": "Modo de color AWS",
       "Adaptive Lighting Shift": "Desplazamiento de la Iluminación adaptativa",
       "Air Purifier": "Purificador de aire",
@@ -1141,7 +1141,7 @@
       "Whether this is a scene from the library or one of your DIY effects.": "Si es una escena de la biblioteca o uno de tus efectos DIY."
     },
     "pt": {
-      "AWS Brightness No Scale": "Brilho AWS sem escala",
+      "Unscaled AWS Brightness": "Brilho AWS sem escala",
       "AWS Colour Mode": "Modo de cor AWS",
       "Adaptive Lighting Shift": "Desvio da Iluminação adaptativa",
       "Air Purifier": "Purificador de ar",

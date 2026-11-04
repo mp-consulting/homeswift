@@ -1318,6 +1318,8 @@ HomeswiftI18n.add("pt", {
   "Mon": "Seg",
   "More": "Mais",
   "More options ({count})": "Mais opções ({count})",
+  "1 setting": "1 definição",
+  "1 setting · {set} set": "1 definição · {set} definida",
   "{count} settings": "{count} definições",
   "{count} settings · {set} set": "{count} definições · {set} definidas",
   "Find a setting": "Procurar uma definição",

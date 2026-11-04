@@ -1318,6 +1318,8 @@ HomeswiftI18n.add("es", {
   "Mon": "Lun",
   "More": "Más",
   "More options ({count})": "Más opciones ({count})",
+  "1 setting": "1 ajuste",
+  "1 setting · {set} set": "1 ajuste · {set} definido",
   "{count} settings": "{count} ajustes",
   "{count} settings · {set} set": "{count} ajustes · {set} definidos",
   "Find a setting": "Buscar un ajuste",

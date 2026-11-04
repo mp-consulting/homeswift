@@ -257,7 +257,7 @@
     const items = [
       // Its Accessory Settings, the same sheet as the wall's.
       setUp || device.status === "discovered" ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessoryID(block, device), instance: block.name, device,
-        name: device.name, glyph: HomeswiftWidgets.categoryIcon(device.category) ?? "accessory", after: (changed) => { if (changed) reload(); } }) } : null,
+        name: device.name, glyph: HomeswiftWidgets.deviceIcon(device) ?? "accessory", after: (changed) => { if (changed) reload(); } }) } : null,
       setUp && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
       device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/settings` }
@@ -265,7 +265,7 @@
     ].filter(Boolean);
     const needs = device.status === "needsAuthorization";
     // The glyph the wall gives its accessory, once it has one.
-    const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
+    const glyph = HomeswiftWidgets.deviceIcon(device) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
     // Its parts, switched here at once: the plugin reloads with them, or without.
     const parts = !excluded && setUp ? partsList(device, {
       onChange: async (part, included, box) => {
@@ -397,7 +397,7 @@
               : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
-            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
           editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
           el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
         body.querySelector(".actions button")?.focus();
@@ -460,7 +460,7 @@
           el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
           el("div", { class: "setup-picks" }, ...found.map((one, index) => el("div", { class: "setup-pick-group" },
             el("label", { class: "setup-pick" }, boxes[index],
-              tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+              tile(HomeswiftWidgets.deviceIcon(one) ?? glyph, "blue"),
               el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))),
             partLists[index]?.node ?? null))),
           el("div", { class: "actions" }, submit));

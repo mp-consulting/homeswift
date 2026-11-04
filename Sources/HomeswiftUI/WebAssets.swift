@@ -5715,7 +5715,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       for (const { count, keys } of groupCounts) {
         // Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
         const set = keys.filter((key) => isSet(model[key]) && JSON.stringify(model[key]) !== JSON.stringify(properties[key]?.default)).length;
-        count.textContent = set ? t("{count} settings · {set} set", { count: keys.length, set }) : t("{count} settings", { count: keys.length });
+        const one = keys.length === 1;
+        count.textContent = set ? (one ? t("1 setting · {set} set", { set }) : t("{count} settings · {set} set", { count: keys.length, set }))
+          : one ? t("1 setting") : t("{count} settings", { count: keys.length });
       }
     };
     container.addEventListener("input", applyConditions);
@@ -5756,7 +5758,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       event.stopPropagation();
     });
     query.addEventListener("input", filter);
-    const element = el("div", { class: "form-with-search" }, el("label", { class: "form-search" }, HomeswiftCommon.icon("search"), query), none, container);
+    query.classList.add("form-search");
+    const element = el("div", { class: "form-with-search" }, query, none, container);
     return { element, getValue };
   }
 
@@ -13857,6 +13860,8 @@ HomeswiftI18n.add("es", {
   "Mon": "Lun",
   "More": "Más",
   "More options ({count})": "Más opciones ({count})",
+  "1 setting": "1 ajuste",
+  "1 setting · {set} set": "1 ajuste · {set} definido",
   "{count} settings": "{count} ajustes",
   "{count} settings · {set} set": "{count} ajustes · {set} definidos",
   "Find a setting": "Buscar un ajuste",
@@ -16609,6 +16614,8 @@ HomeswiftI18n.add("fr", {
   "Mon": "Lun",
   "More": "Plus",
   "More options ({count})": "Plus d'options ({count})",
+  "1 setting": "1 réglage",
+  "1 setting · {set} set": "1 réglage · {set} défini",
   "{count} settings": "{count} réglages",
   "{count} settings · {set} set": "{count} réglages · {set} définis",
   "Find a setting": "Chercher un réglage",
@@ -19361,6 +19368,8 @@ HomeswiftI18n.add("pt", {
   "Mon": "Seg",
   "More": "Mais",
   "More options ({count})": "Mais opções ({count})",
+  "1 setting": "1 definição",
+  "1 setting · {set} set": "1 definição · {set} definida",
   "{count} settings": "{count} definições",
   "{count} settings · {set} set": "{count} definições · {set} definidas",
   "Find a setting": "Procurar uma definição",
@@ -23287,7 +23296,7 @@ HomeswiftI18n.add("pt", {
     if (linked) {
       const device = (await found)?.devices.find((one) => (one.accessoryID || `${platform}:${one.deviceID}`) === linked) ?? null;
       openAccessory({ accessoryID: linked, instance: block.name, device, name: device?.name ?? null,
-        glyph: device ? HomeswiftWidgets.categoryIcon(device.category) ?? "accessory" : "accessory",
+        glyph: device ? HomeswiftWidgets.deviceIcon(device) ?? "accessory" : "accessory",
         after: (changed) => {
           history.replaceState(history.state, "", location.pathname);
           if (changed) devices.load();
@@ -23333,7 +23342,7 @@ HomeswiftI18n.add("pt", {
   function deviceRow(block, plugin, device, reload) {
     const [state, tone] = statuses[device.status] ?? statuses.discovered;
     const accessoryID = device.accessoryID || `${block.platform}:${device.deviceID}`;
-    const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? "accessory";
+    const glyph = HomeswiftWidgets.deviceIcon(device) ?? "accessory";
     const opens = ["setUp", "notResponding", "discovered"].includes(device.status);
     const detail = device.excludedBySettings ? t("Left out by the settings above") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID;
     let action = null;
@@ -23624,7 +23633,7 @@ HomeswiftI18n.add("pt", {
     const items = [
       // Its Accessory Settings, the same sheet as the wall's.
       setUp || device.status === "discovered" ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessoryID(block, device), instance: block.name, device,
-        name: device.name, glyph: HomeswiftWidgets.categoryIcon(device.category) ?? "accessory", after: (changed) => { if (changed) reload(); } }) } : null,
+        name: device.name, glyph: HomeswiftWidgets.deviceIcon(device) ?? "accessory", after: (changed) => { if (changed) reload(); } }) } : null,
       setUp && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
       device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/settings` }
@@ -23632,7 +23641,7 @@ HomeswiftI18n.add("pt", {
     ].filter(Boolean);
     const needs = device.status === "needsAuthorization";
     // The glyph the wall gives its accessory, once it has one.
-    const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
+    const glyph = HomeswiftWidgets.deviceIcon(device) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
     // Its parts, switched here at once: the plugin reloads with them, or without.
     const parts = !excluded && setUp ? partsList(device, {
       onChange: async (part, included, box) => {
@@ -23764,7 +23773,7 @@ HomeswiftI18n.add("pt", {
               : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
-            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
           editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
           el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
         body.querySelector(".actions button")?.focus();
@@ -23827,7 +23836,7 @@ HomeswiftI18n.add("pt", {
           el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
           el("div", { class: "setup-picks" }, ...found.map((one, index) => el("div", { class: "setup-pick-group" },
             el("label", { class: "setup-pick" }, boxes[index],
-              tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+              tile(HomeswiftWidgets.deviceIcon(one) ?? glyph, "blue"),
               el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))),
             partLists[index]?.node ?? null))),
           el("div", { class: "actions" }, submit));
@@ -28532,9 +28541,9 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .form-subgroup > .help { margin: 0 0 var(--space-8); }
 .form-subgroup.compact > .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-8) var(--space-16); }
 /* Find a setting, over a form of many. */
-.form-search { display: flex; align-items: center; gap: var(--space-8); margin: 0 0 var(--space-8); position: relative; }
-.form-search > svg { position: absolute; left: var(--space-12); width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; pointer-events: none; }
-.form-search > input { width: 100%; padding-left: calc(var(--space-12) + 24px); }
+input[type=search].form-search { width: 100%; margin: 0 0 var(--space-8); }
+/* A field that cannot change here (a mirrored accessory's name): text on the surface, no field to type in. */
+.accessory-settings input[readonly] { background: transparent; border-color: var(--line); color: var(--muted); }
 .form-search-none { margin: var(--space-8) 0; }
 .search-miss { display: none !important; }
 /* Describe your setup, a line at the head of the Settings section, the hairline under it the form's. */
@@ -30342,6 +30351,15 @@ self.addEventListener("notificationclick", (event) => {
     ipCamera: ["camera", "grey"], videoDoorbell: ["bell", "grey"], faucet: ["drop", "blue"], sprinkler: ["drop", "blue"], securitySystem: ["shield", "violet"],
   };
 
+  /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
+  const kindIcons = {
+    camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
+    wingman: "bridge", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
+    multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
+    climatecontrol: "thermo", domestichotwatertank: "thermo", kettle: "thermo", ac: "thermo", airconditioner: "thermo",
+    airpurifier: "wind", aerotower: "wind", humidifier: "wind", scene: "sparkle", robot: "poolRobot",
+  };
+
   /// What no widget claims: the power in the header and the primary service's rows; in full, the rest under More.
   const inspector = {
     name: "inspector", size: "medium",
@@ -30801,6 +30819,9 @@ self.addEventListener("notificationclick", (event) => {
   window.HomeswiftWidgets = {
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
+    /// paused plugin's camera, a device not set up yet); undefined for a kind none fits.
+    deviceIcon: (device) => categoryIcons[device?.category]?.[0] ?? kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")],
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {
