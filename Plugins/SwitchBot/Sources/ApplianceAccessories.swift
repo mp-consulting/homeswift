@@ -79,10 +79,11 @@ final class HumidifierAccessory: DeviceAccessory, @unchecked Sendable {
         let (active, auto, threshold, humidity, reported) = lock.withLock { (self.active, self.auto, self.threshold, self.humidity, self.reportedActive) }
         var commands: [Command] = []
         if !active {
-            commands.append(Command(command: "turnOff"))
+            if reported != false { commands.append(Command(command: "turnOff")) }
         } else {
-            // 4.x never sends turnOn; the API has it, and setMode alone does not wake a humidifier that is off.
-            if reported == false { commands.append(Command(command: "turnOn")) }
+            // 4.x never sends turnOn; the API has it, and setMode alone does not wake a humidifier that is off (or not
+            // known to be on).
+            if reported != true { commands.append(Command(command: "turnOn")) }
             if auto {
                 commands.append(Command(command: "setMode", parameter: "auto"))
             } else if Double(threshold) != humidity.rounded() {

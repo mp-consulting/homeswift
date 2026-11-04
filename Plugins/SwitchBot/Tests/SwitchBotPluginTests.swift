@@ -113,20 +113,24 @@ struct SwitchBotPluginTests {
             $0.list = ["statusCode": 100, "body": ["deviceList": [["deviceId": "A1B2C3D4E5F6", "deviceName": "Bulb", "deviceType": "Color Bulb", "hubDeviceId": "000000000000"]]]]
         }
         environment.cloud.setStatus("A1B2C3D4E5F6", #"{"deviceId":"A1B2C3D4E5F6","deviceType":"Color Bulb","power":"on","brightness":80,"color":"255:0:0","colorTemperature":4000}"#)
-        let host = try await environment.start(TestEnvironment.keys, timeScale: 0.01)
+        var settings = TestEnvironment.keys
+        // A debounce long enough (0.5 s) for the three writes below to land in it on a slow machine.
+        settings["options"] = ["pushRate": 50]
+        let host = try await environment.start(settings, timeScale: 0.01)
         let id = "SwitchBot:A1B2C3D4E5F6-Color Bulb"
         #expect(await eventually { host.accessory(id)?.service(.lightbulb)?[.brightness]?.value == .int(80) })
         let light = try #require(host.accessory(id)?.service(.lightbulb))
         #expect(light[.on]?.value == .bool(true) && light[.hue]?.value.near(0) == true && light[.saturation]?.value.near(100) == true)
         #expect(light[.colorTemperature]?.value == .int(250))
         #expect(light.adaptiveLighting != nil)
-        // A drag: one command.
+        // A drag: one command, the last value's (which of the three lands last is the scheduler's).
         async let a: Void = light[.brightness]!.write(.int(30))
         async let b: Void = light[.brightness]!.write(.int(40))
         async let c: Void = light[.brightness]!.write(.int(50))
         _ = try await (a, b, c)
-        #expect(await eventually { environment.cloud.commands(to: "A1B2C3D4E5F6").contains(Command(command: "setBrightness", parameter: "50")) })
-        #expect(environment.cloud.commands(to: "A1B2C3D4E5F6").filter { $0.command == "setBrightness" }.count == 1)
+        let brightness: @Sendable () -> [Command] = { [environment] in environment.cloud.commands(to: "A1B2C3D4E5F6").filter { $0.command == "setBrightness" } }
+        #expect(await eventually { brightness().count == 1 })
+        #expect(["30", "40", "50"].contains(brightness().first?.parameter ?? ""))
         async let hue: Void = light[.hue]!.write(.int(120))
         async let saturation: Void = light[.saturation]!.write(.int(100))
         _ = try await (hue, saturation)
@@ -158,9 +162,9 @@ struct SwitchBotPluginTests {
         statuses()
         environment.cloud.state.withLockedValue { $0.unreachable = ["6055F92F0A1B"] }
         let host = try await environment.start()
-        #expect(await eventually { host.accessory(Self.plug)?.isUnavailable == true })
+        #expect(await eventually { host.accessory(Self.plug)?.isUnreachable == true })
         environment.cloud.state.withLockedValue { $0.unreachable = [] }
-        #expect(await eventually { host.accessory(Self.plug)?.isUnavailable == false })
+        #expect(await eventually { host.accessory(Self.plug)?.isUnreachable == false })
         await host.stop()
     }
 
@@ -249,6 +253,24 @@ extension SwitchBotPluginTests {
             let bot = SwitchAccessory(info: info, family: .bot, link: DeviceLink { _ in true }, debounce: .zero, logger: testLogger)
             #expect(bot.control[characteristic]?.isSecurityControl == secured, "\(type)")
         }
+    }
+
+    @Test func aBotInPressModePressesAndReturnsToOff() async throws {
+        let sent = SentCommands()
+        let info = DeviceInfo(id: "D1A2B3C4D5E6", deviceID: "D1A2B3C4D5E6-Bot", type: "Bot", name: "Bot", options: DeviceOptions(["mode": "press"]), isRemote: false, firmware: "1")
+        let bot = SwitchAccessory(info: info, family: .bot, link: DeviceLink { sent.append($0); return true }, debounce: .zero, logger: testLogger)
+        let on = try #require(bot.control[.on])
+        try await on.write(.bool(true))
+        #expect(sent.all == [Command(command: "press")])
+        #expect(await eventually { on.value == .bool(false) })
+        // A stateful switch presses on a change, not with every status.
+        let stateful = SwitchAccessory(
+            info: DeviceInfo(id: "X", deviceID: "X-Bot", type: "Bot", name: "S", options: DeviceOptions(["type": "stateful"]), isRemote: false, firmware: "1"),
+            family: .bot, link: DeviceLink { _ in true }, debounce: .zero, logger: testLogger)
+        let presses = NIOLockedValueBox(0)
+        stateful.control.characteristic(.programmableSwitchEvent).observe { _ in presses.withLockedValue { $0 += 1 } }
+        for _ in 0..<3 { stateful.show(["power": "on"], webhook: false) }
+        #expect(presses.withLockedValue { $0 } == 1)
     }
 
     @Test func theWebhookSegmentMovesIntoTheVault() async throws {

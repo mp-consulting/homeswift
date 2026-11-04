@@ -79,8 +79,11 @@ enum ControlKind: String, CaseIterable {
             service.characteristic(.lockTargetState).value = .int(on ? 0 : 1)
         case .faucet, .fan: service.characteristic(.active).value = .int(on ? 1 : 0)
         case .stateful:
+            // A press only when the state changes, not with every status.
+            let state = service.characteristic(.programmableSwitchOutputState)
+            guard state.value.intValue != (on ? 1 : 0) else { return }
             service.characteristic(.programmableSwitchEvent).sendEvent(.int(0))
-            service.characteristic(.programmableSwitchOutputState).value = .int(on ? 1 : 0)
+            state.value = .int(on ? 1 : 0)
         }
     }
 }
@@ -166,9 +169,9 @@ final class SwitchAccessory: DeviceAccessory, @unchecked Sendable {
             guard on || mode == "press" && allowPush else { return }
             let count = mode == "multipress" ? max(presses, 1) : 1
             try await repeated(Array(repeating: Command(command: "press"), count: count))
-            // A press returns the control to off.
+            // A press returns the control to off, once HomeKit's write has landed.
             lock.withLock { target = false }
-            kind.show(false, on: control)
+            control.characteristic(kind.written).revert(to: kind == .lock ? .int(1) : kind.written == .on ? .bool(false) : .int(kind == .garagedoor ? 1 : 0), after: .milliseconds(500))
             return
         }
         if try await repeated([Command(command: on ? "turnOn" : "turnOff")]) { lock.withLock { reported = on } }

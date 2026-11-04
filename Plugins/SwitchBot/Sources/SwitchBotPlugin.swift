@@ -83,11 +83,12 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     func scaled(_ seconds: Double) -> Duration { .milliseconds(Int(saturating: max(seconds, 0) * 1000 * dependencies.timeScale) ?? 0) }
 
-    /// The token and secret: Setup's, in the vault, else the block's.
+    /// The token and secret: the block's when it has them (Setup takes them out, so they were typed since: a rotated
+    /// token), else Setup's, in the vault.
     var keys: (token: String, secret: String)? {
-        if let stored = context.credentials(as: AccountKeys.self), !stored.token.isEmpty, !stored.secret.isEmpty { return (stored.token, stored.secret) }
-        guard let token = configuration.token, let secret = configuration.secret else { return nil }
-        return (token, secret)
+        if let token = configuration.token, let secret = configuration.secret { return (token, secret) }
+        guard let stored = context.credentials(as: AccountKeys.self), !stored.token.isEmpty, !stored.secret.isEmpty else { return nil }
+        return (stored.token, stored.secret)
     }
 
     func makeClient(token: String, secret: String, attempts: Int? = nil) -> OpenAPIClient {
@@ -153,7 +154,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         var polled: [String] = []
         var adds: [(DeviceInfo, Family?, RemoteFamily?)] = []
         for raw in list.devices {
-            guard let info = physicalInfo(raw) else { continue }
+            guard let info = physicalInfo(raw), !info.leftOut else { continue }
             guard let family = Family(deviceType: info.type) else {
                 if !Family.silentlySkipped.contains(info.type) {
                     logger.warning("\(info.name) is a \(info.type), which this plugin does not support yet")
@@ -163,7 +164,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             adds.append((info, family, nil))
         }
         for raw in list.remotes {
-            guard let info = remoteInfo(raw) else { continue }
+            guard let info = remoteInfo(raw), !info.leftOut else { continue }
             guard let family = RemoteFamily(remoteType: info.type) else {
                 logger.warning("\(info.name) is an IR remote of type \(info.type), which this plugin does not support")
                 continue
@@ -244,11 +245,9 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         let listed = listedEntry(cloudID, remote: false)
         guard let type = raw["deviceType"]?.stringValue?.nonEmpty ?? listed?.string("configDeviceType") else { return nil }
         let deviceID = deviceID(cloudID: cloudID, type: type, listed: listed)
-        guard !leftOutByList(deviceID, listed: listed, remote: false) else { return nil }
         var options = DeviceOptions(raw).merged(configuration.typeOptions(type, remote: false))
         if let listed { options = options.merged(listed.values) }
         options = options.merged(context.accessorySettings(for: deviceID).plugin)
-        if options.flag("hide_device") { return nil }
         // A secondary curtain or blind of a group: its master moves the group.
         if ["Curtain", "Curtain3", "Blind Tilt"].contains(type), raw["master"]?.boolValue == false, !options.flag("disable_group") {
             logger.debug("\(raw["deviceName"]?.stringValue ?? cloudID) is the secondary device of a group: its master drives it")
@@ -256,7 +255,8 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         }
         return DeviceInfo(
             id: cloudID, deviceID: deviceID, type: type, name: displayName(options, raw), options: options, isRemote: false,
-            firmware: normalizedVersion(options.string("firmware") ?? raw["version"]?.stringValue) ?? "0.0.0")
+            firmware: normalizedVersion(options.string("firmware") ?? raw["version"]?.stringValue) ?? "0.0.0",
+            leftOut: options.flag("hide_device") || leftOutByList(deviceID, listed: listed, remote: false))
     }
 
     func remoteInfo(_ raw: [String: JSONValue]) -> DeviceInfo? {
@@ -267,14 +267,13 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             return nil
         }
         let deviceID = deviceID(cloudID: cloudID, type: type, listed: listed)
-        guard !leftOutByList(deviceID, listed: listed, remote: true) else { return nil }
         var options = DeviceOptions(raw).merged(configuration.typeOptions(type, remote: true))
         if let listed { options = options.merged(listed.values) }
         options = options.merged(context.accessorySettings(for: deviceID).plugin)
-        if options.flag("hide_device") { return nil }
         return DeviceInfo(
             id: cloudID, deviceID: deviceID, type: type, name: displayName(options, raw), options: options, isRemote: true,
-            firmware: normalizedVersion(options.string("firmware")) ?? "0.0.0")
+            firmware: normalizedVersion(options.string("firmware")) ?? "0.0.0",
+            leftOut: options.flag("hide_device") || leftOutByList(deviceID, listed: listed, remote: true))
     }
 
     func displayName(_ options: DeviceOptions, _ raw: [String: JSONValue]) -> String {
@@ -402,8 +401,10 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
     }
 
     private func markUnreachable(_ deviceID: String, _ unreachable: Bool) {
-        guard let entry = entries[deviceID], entry.hap.isUnavailable != unreachable else { return }
-        entry.hap.isUnavailable = unreachable
+        // Unreachable, not unavailable: No Response shows, and HomeKit's next write still tries the cloud (an IR remote is
+        // never polled, so only a write can find it answering again).
+        guard let entry = entries[deviceID], entry.hap.isUnreachable != unreachable else { return }
+        entry.hap.isUnreachable = unreachable
     }
 
     // MARK: Polling
@@ -449,6 +450,9 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
     }
 
     private func show(_ status: [String: JSONValue], on entry: Entry, webhook: Bool) {
+        // A write waiting for its debounce or on its way wins over a report that crossed it: the refresh after its
+        // command shows what the device did.
+        guard !entry.accessory.isWriting || entry.accessory is SensorAccessory else { return }
         entry.accessory.show(status, webhook: webhook)
         if let sensor = entry.accessory as? SensorAccessory, let celsius = sensor.lastTemperature {
             meterTemperatures.withLockedValue { $0[normalizedID(entry.info.id)] = (entry.info.type, celsius) }
@@ -502,20 +506,26 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         logger.info("Listening for SwitchBot's webhook on port \(server.port ?? port)")
         let retry = scaled(1)
         let setup = try? await client.webhook("setupWebhook", ["action": "setupWebhook", "url": .string(address), "deviceList": "ALL"], attempts: 3, retryDelay: retry)
-        if let setup, !setup.succeeded { logger.debug("setupWebhook: \(setup.failure) (a URL is registered already: it is replaced)") }
-        var update: OpenAPI.Response?
-        if setup?.succeeded != true {
-            update = try? await client.webhook("updateWebhook", ["action": "updateWebhook", "config": ["url": .string(address), "enable": true]], attempts: 3, retryDelay: retry)
+        var registered = setup?.succeeded == true
+        if !registered, let query = try? await client.webhook("queryWebhook", ["action": "queryUrl"], attempts: 1) {
+            let urls = query.body["urls"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            if urls.contains(address) {
+                // This URL already: make sure it is on.
+                let update = try? await client.webhook("updateWebhook", ["action": "updateWebhook", "config": ["url": .string(address), "enable": true]], attempts: 3, retryDelay: retry)
+                registered = update?.succeeded == true
+            } else if !urls.isEmpty {
+                // The account keeps one URL: another integration's (or an earlier one of this bridge's) goes.
+                logger.warning("Replacing the webhook URL registered for the SwitchBot account (\(urls.count) URL\(urls.count == 1 ? "" : "s"))")
+                for url in urls { _ = try? await client.webhook("deleteWebhook", ["action": "deleteWebhook", "url": .string(url)], attempts: 1) }
+                let again = try? await client.webhook("setupWebhook", ["action": "setupWebhook", "url": .string(address), "deviceList": "ALL"], attempts: 3, retryDelay: retry)
+                registered = again?.succeeded == true
+            }
         }
-        if update?.succeeded == true || setup?.succeeded == true {
+        if registered {
             registeredWebhookURL = address
             logger.info("SwitchBot's webhook is registered")
         } else {
-            logger.error("Could not register SwitchBot's webhook: \(update?.failure ?? setup?.failure ?? "no answer")")
-            if let query = try? await client.webhook("queryWebhook", ["action": "queryUrl"], attempts: 1),
-               let registered = query.body["urls"]?[0]?.stringValue, registered != address {
-                logger.warning("SwitchBot's cloud has another webhook URL registered for the account")
-            }
+            logger.error("Could not register SwitchBot's webhook: \(setup?.failure ?? "no answer")")
         }
     }
 

@@ -17,11 +17,16 @@ extension SwitchBotPlugin {
         var block = block
         if var fields = block.objectValue, fields["credentials"] != nil || fields["openApiToken"] != nil || fields["openApiSecret"] != nil {
             let stored = context.credentials(as: AccountKeys.self)
-            if stored == nil {
-                // The block may name the secret only (a `vault:` reference, a sealed copy): the running configuration has it.
-                guard let token = configuration.token, let secret = configuration.secret else { return Self.canonical(block, list: latest) }
-                let context = context, keys = AccountKeys(token: token, secret: secret)
-                await context.whenSettingsWritten { try context.saveCredentials(keys) }
+            // The block's keys (resolved by the running configuration: it may hold a `vault:` reference or a sealed copy)
+            // replace the vault's, as they were typed after Setup.
+            if let token = configuration.token, let secret = configuration.secret {
+                let keys = AccountKeys(token: token, secret: secret)
+                if keys != stored {
+                    let context = context
+                    await context.whenSettingsWritten { try context.saveCredentials(keys) }
+                }
+            } else if stored == nil {
+                return Self.canonical(block, list: latest)
             }
             for key in ["credentials", "openApiToken", "openApiSecret"] { fields.removeValue(forKey: key) }
             block = .object(fields)

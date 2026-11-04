@@ -16,6 +16,8 @@ struct DeviceInfo: Sendable {
     var options: DeviceOptions
     var isRemote: Bool
     var firmware: String
+    /// The block leaves it out: `hide_device`, or a list that does not name it. Setup lists it as excluded by settings.
+    var leftOut = false
 }
 
 /// How an accessory reaches its device: `send` sends the commands in turn and says whether the cloud took them all; it

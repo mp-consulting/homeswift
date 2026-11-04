@@ -12,30 +12,24 @@ extension SwitchBotPlugin {
     public func accountAuthorized() async -> Bool? { keys != nil }
 
     /// The account's devices and remotes, from the last list (or a new one on an instance that is not running), a
-    /// secondary curtain of a group left out. One the block's own lists leave out is `excludedBySettings`.
+    /// secondary curtain of a group left out, by the bridge's own rules (`physicalInfo`, `remoteInfo`). One the block
+    /// leaves out is `excludedBySettings`.
     public func discover() async throws -> [DiscoveredDevice] {
         var list = latest
         if list == nil, let keys { list = try await makeClient(token: keys.token, secret: keys.secret, attempts: 1).deviceList(attempts: 1) }
         guard let list else { return [] }
         var found: [DiscoveredDevice] = []
         for raw in list.devices {
-            guard let cloudID = raw["deviceId"]?.stringValue, let type = raw["deviceType"]?.stringValue, let family = Family(deviceType: type) else { continue }
-            if ["Curtain", "Curtain3", "Blind Tilt"].contains(type), raw["master"]?.boolValue == false { continue }
-            let listed = listedEntry(cloudID, remote: false)
-            let deviceID = deviceID(cloudID: cloudID, type: type, listed: listed)
+            guard let info = physicalInfo(raw), let family = Family(deviceType: info.type) else { continue }
             var device = DiscoveredDevice(
-                deviceID: deviceID, name: listed?.string("configDeviceName") ?? raw["deviceName"]?.stringValue ?? cloudID, model: type, isSetUp: true,
-                excludedBySettings: leftOutByList(deviceID, listed: listed, remote: false) || listed?.flag("hide_device") == true, kind: family.kind)
+                deviceID: info.deviceID, name: info.name, model: info.type, isSetUp: true, excludedBySettings: info.leftOut, kind: family.kind)
             device.isReachable = raw["enableCloudService"]?.boolValue != false
             found.append(device)
         }
         for raw in list.remotes {
-            guard let cloudID = raw["deviceId"]?.stringValue, let type = raw["remoteType"]?.stringValue, RemoteFamily(remoteType: type) != nil else { continue }
-            let listed = listedEntry(cloudID, remote: true)
-            let deviceID = deviceID(cloudID: cloudID, type: type, listed: listed)
+            guard let info = remoteInfo(raw), RemoteFamily(remoteType: info.type) != nil else { continue }
             found.append(DiscoveredDevice(
-                deviceID: deviceID, name: listed?.string("configDeviceName") ?? raw["deviceName"]?.stringValue ?? cloudID, model: type, isSetUp: true,
-                excludedBySettings: leftOutByList(deviceID, listed: listed, remote: true) || listed?.flag("hide_device") == true, kind: RemoteFamily.kind))
+                deviceID: info.deviceID, name: info.name, model: info.type, isSetUp: true, excludedBySettings: info.leftOut, kind: RemoteFamily.kind))
         }
         return found
     }
