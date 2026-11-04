@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Matter: a Fan v2 that stands for a cleaning robot (`Service.standsFor = .cleaningRobot`) is a Robotic Vacuum Cleaner,
+  cleaning as its Active says, with the accessory's battery; Roborock's robots set it, so Google Home, Alexa and the other
+  Matter ecosystems see robot vacuums rather than fans (and the Accessories page shows a vacuum). The device changes kind
+  on the same endpoint: an ecosystem that keeps the fan needs the robot removed and found again.
 - The Ring plugin (platform `Ring`, a clean-room implementation compatible with homebridge-ring's configuration): the alarm, Smart Lighting and their sensors over each location's socket, cameras and doorbells with snapshots, motion and rings by push, chimes, intercoms and location modes; signed in through Setup with the 2FA code. `HomeswiftNetwork` gains `FCMReceiver`, an FCM web-push receiver.
 - The IP Cameras plugin (`Camera-ffmpeg`, experimental): IP cameras over RTSP, HTTP snapshots or MJPEG in HomeKit
   through FFmpeg, each on its own accessory, with snapshots, live streams, two-way audio, HomeKit Secure Video with a

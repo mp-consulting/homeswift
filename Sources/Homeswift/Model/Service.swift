@@ -135,6 +135,6 @@ public final class Service: @unchecked Sendable {
 
 /// A device a service stands for, that HAP has no service type for.
 public enum ServiceStandsFor: String, Sendable, Equatable, Codable {
-    /// A cleaning robot (a robot vacuum, a pool robot) on a Switch: On while it cleans.
+    /// A cleaning robot (a robot vacuum, a pool robot) on a service whose On (a Switch) or Active (a Fan v2) is on while it cleans.
     case cleaningRobot
 }
