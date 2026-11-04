@@ -110,8 +110,6 @@ actor KasaUnit {
     /// Relay writes (a plug) or light changes (a bulb), gathered for `waitTimeUpdate`.
     private var batcher: LightChangeBatcher?
     private let brightnessGuard: LatestCallGuard
-    /// The light the bulb reported last, its set replies merged on.
-    private var reportedLight: KasaLightState?
     /// A bulb whose meter answered that it has none is not asked again.
     private(set) var energyUnsupported = false
     private var energyFailing = false
@@ -128,7 +126,6 @@ actor KasaUnit {
         self.options = options
         self.logger = logger
         self.brightnessGuard = LatestCallGuard(delay: options.window)
-        reportedLight = sysinfo.lightState
     }
 
     /// Attaches the accessory's characteristics; called once, before the accessory goes on the bridge.
@@ -157,7 +154,6 @@ actor KasaUnit {
             showRelay(on: services)
             if presentation == .dimmer, let brightness = sysinfo.brightness { services.brightness?.value = .int(brightness) }
         } else if let light = sysinfo.lightState {
-            reportedLight = light
             show(light, on: services)
             // A white or a colour set elsewhere (the Kasa app, a schedule) turns Adaptive Lighting off; not what the
             // bulb still reports of the time before the bridge's own write.
@@ -262,8 +258,6 @@ actor KasaUnit {
             ? KasaRequest(module: "smartlife.iot.lightStrip", method: "set_light_state", parameters)
             : KasaRequest(module: "smartlife.iot.smartbulb.lightingservice", method: "transition_light_state", parameters)
         let reply = KasaLightState(try await send(request))
-        let merged = (reportedLight ?? KasaLightState()).merging(reply)
-        reportedLight = merged
         // Reads take the sysinfo: what the bulb answered is what it shows now.
         sysinfo.lightState = (sysinfo.lightState ?? KasaLightState()).merging(reply)
         if let services { show(reply, on: services) }
@@ -308,6 +302,12 @@ actor KasaUnit {
             await refreshEnergy()
             energyRefresh = nil
         }
+    }
+
+    /// The plugin stopped: a refresh still waiting for the device goes.
+    func cancel() {
+        energyRefresh?.cancel()
+        energyRefresh = nil
     }
 
     private func show(_ reading: KasaEnergyReading) {

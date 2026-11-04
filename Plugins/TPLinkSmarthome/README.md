@@ -53,7 +53,7 @@ That is enough: every Kasa device the broadcast reaches is added. The block of
 | `discoveryPort` | `0` | The local UDP port discovery binds; 0 lets the system choose |
 | `devicesUseDiscoveryPort` | `false` | Commands to a device listed in `devices` go to its entry's `port` rather than 9999 (port forwarding) |
 | `transport` | `tcp` | `tcp` or `udp` for commands; discovery is always UDP |
-| `timeout` | `15` | Seconds a command may take; `0` waits as long as the connection lasts |
+| `timeout` | `15` | Seconds a command may take; `0` waits as long as the TCP connection lasts (a UDP reply 15 s) |
 | `waitTimeUpdate` | `100` | Milliseconds HomeKit's writes to a device are gathered for |
 
 Each accessory's Accessory Settings sit in the block's `_accessories`, by its Device Id: the Core ones (its Name, room,

@@ -166,6 +166,7 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
 
     public func stop() async {
         tasks.cancelAll()
+        for unit in units.values { await unit.cancel() }
         // Let go, not disabled: a running schedule stays saved and resumes at the next start.
         adaptiveLighting.removeAll()
         histories.removeAll()
@@ -192,7 +193,7 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
                 attempt += 1
                 continue
             }
-            attempt = 0
+            let opened = ContinuousClock.now
             isDiscovering = true
             logger.info("Looking for Kasa devices", metadata: ["broadcast": "\(broadcastAddress)"])
             let interval = pollingInterval
@@ -214,6 +215,13 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
             }
             isDiscovering = false
             await socket.close()
+            // A socket that closed at once (the interface went down) is opened again after a pause that grows.
+            if ContinuousClock.now - opened < interval * 2 {
+                try? await Task.sleep(for: backoff.delay(attempt: attempt))
+                attempt += 1
+            } else {
+                attempt = 0
+            }
         }
     }
 
@@ -336,23 +344,15 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
         adaptiveLighting[id] = lighting
         histories[id] = built.history
         logger.info("Added accessory", metadata: ["alias": "\(built.accessory.name)", "kind": "\(presentation.rawValue)", "id": "\(id)"])
-        if sysinfo.supportsEnergy, energyInterval != nil { Task { await unit.refreshEnergy() } }
+        if sysinfo.supportsEnergy, energyInterval != nil { tasks.add { await unit.refreshEnergy() } }
     }
 
     // MARK: Energy
 
-    /// One reading of each metering accessory: hosts in parallel, a strip's outlets one after another.
+    /// One reading of each metering accessory: hosts in parallel, a strip's outlets one after another (the host queue).
     func pollEnergy() async {
-        var byHost: [String: [KasaUnit]] = [:]
-        for unit in units.values where await unit.supportsEnergy {
-            byHost[await unit.host, default: []].append(unit)
-        }
         await withTaskGroup(of: Void.self) { group in
-            for units in byHost.values {
-                group.addTask {
-                    for unit in units { await unit.refreshEnergy() }
-                }
-            }
+            for unit in units.values { group.addTask { await unit.refreshEnergy() } }
         }
     }
 

@@ -50,6 +50,9 @@ struct ProtocolTests {
         #expect(try reader.add(frame[0..<2]) == nil)
         #expect(try reader.add(frame[2..<20]) == nil)
         #expect(try reader.add(frame[20...]) == #"{"system":{"get_sysinfo":{"err_code":0}}}"#)
+        // Bytes after the announced length are not part of it.
+        var trailing = KasaFrameReader()
+        #expect(try trailing.add(frame + [0x41, 0x42]) == #"{"system":{"get_sysinfo":{"err_code":0}}}"#)
         var huge = KasaFrameReader()
         #expect(throws: KasaFrameReader.Failure.self) { try huge.add([0x7F, 0, 0, 0]) }
     }
@@ -110,6 +113,7 @@ struct ProtocolTests {
         let light = try #require(KasaSysinfo(try JSONValue(string: Fixtures.kl430Off)))
         #expect(light.isLightStrip)
         #expect(KasaSysinfo(try JSONValue(string: #"{"alias":"x","deviceId":"1","model":"m","sw_ver":"1","hw_ver":"1","type":"IOT.SMARTPLUGSWITCH","mac":"","feature":"TIM","children":null}"#)) == nil)
+        #expect(KasaSysinfo(try JSONValue(string: Fixtures.hs110.replacingOccurrences(of: Fixtures.hs110ID, with: "../../etc"))) == nil)
         #expect(KasaSysinfo.firmwareRevision("1.5.7 Build 180912 Rel.104837") == "1.5.7")
         #expect(KasaSysinfo.discoveryReply(Data(KasaCipher.encrypt("garbage"))) == nil)
         #expect(KasaSysinfo.discoveryReply(Data(KasaCipher.encrypt(#"{"system":{}}"#))) == nil)

@@ -57,7 +57,7 @@ struct KasaFrameReader {
         let length = Int(buffer[0]) << 24 | Int(buffer[1]) << 16 | Int(buffer[2]) << 8 | Int(buffer[3])
         guard length <= Self.maximumLength else { throw Failure.tooLong(length) }
         guard buffer.count - 4 >= length else { return nil }
-        return String(decoding: KasaCipher.decrypt(buffer[4...]), as: UTF8.self)
+        return String(decoding: KasaCipher.decrypt(buffer[4..<4 + length]), as: UTF8.self)
     }
 }
 

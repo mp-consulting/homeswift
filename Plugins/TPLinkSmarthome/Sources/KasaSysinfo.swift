@@ -41,7 +41,7 @@ struct KasaSysinfo: Sendable, Equatable {
     /// The sysinfo of a reply, or nil for one that is neither a plug's nor a bulb's (section 4.1).
     init?(_ json: JSONValue) {
         guard json.objectValue != nil,
-              let alias = json["alias"]?.stringValue, let deviceID = json["deviceId"]?.stringValue,
+              let alias = json["alias"]?.stringValue, let deviceID = json["deviceId"]?.stringValue, Self.isPlainID(deviceID),
               let model = json["model"]?.stringValue, let software = json["sw_ver"]?.stringValue, let hardware = json["hw_ver"]?.stringValue
         else { return nil }
         let type = json["type"]?.stringValue ?? json["mic_type"]?.stringValue ?? ""
@@ -65,10 +65,13 @@ struct KasaSysinfo: Sendable, Equatable {
             brightness = json["brightness"]?.intValue
             ledOff = json["led_off"]?.intValue
             if let list = json["children"]?.arrayValue, !list.isEmpty {
-                children = list.compactMap { child in
-                    guard let id = child["id"]?.stringValue, !id.isEmpty else { return nil }
+                let parsed = list.compactMap { child -> Child? in
+                    guard let id = child["id"]?.stringValue, !id.isEmpty, Self.isPlainID(id) else { return nil }
                     return Child(id: Self.childID(id, deviceID: deviceID), alias: child["alias"]?.stringValue ?? id, state: child["state"]?.intValue ?? 0)
                 }
+                // A strip none of whose outlets can be read is an invalid reply (logged as one), not a strip of none.
+                guard !parsed.isEmpty else { return nil }
+                children = parsed
             }
         } else if lowered.contains("bulb") {
             guard json["mic_type"] != nil, json["mic_mac"] != nil, json["description"] != nil, let light = json["light_state"],
@@ -83,6 +86,12 @@ struct KasaSysinfo: Sendable, Equatable {
         } else {
             return nil
         }
+    }
+
+    /// Ids are hex digits (40, or 42 for an outlet): anything else in a reply, which any host on the network can send, is
+    /// not taken as part of an accessory id or a file name.
+    static func isPlainID(_ id: String) -> Bool {
+        id.count <= 64 && id.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0)) }
     }
 
     /// A strip's outlet id: the device id and two digits, built when the firmware gave only the digits (section 4.2).

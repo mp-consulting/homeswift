@@ -33,7 +33,11 @@ struct KasaConnectionClosed: Error, CustomStringConvertible {
 struct KasaNetworkTransport: KasaTransport {
     var group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
 
+    /// A UDP reply that is lost never comes: it is waited for this long when the block sets no timeout.
+    static let udpTimeout = Duration.seconds(15)
+
     func send(_ json: String, host: String, port: Int, udp: Bool, timeout: Duration?) async throws -> String {
+        let timeout = timeout ?? (udp ? Self.udpTimeout : nil)
         let operation: @Sendable () async throws -> String
         if udp {
             operation = { try await self.sendUDP(json, host: host, port: port) }

@@ -91,6 +91,7 @@ enum KasaAccessory {
 
         var history: EveHistory?
         if metered, sysinfo.kind == .plug {
+            // The id's device part is letters and digits only (`KasaSysinfo.isPlainID`): it names no other directory.
             let file = options.historyDirectory?.appendingPathComponent("\(id.replacingOccurrences(of: ":", with: "_"))_persist.json")
             history = EveHistory(.energy, accessoryName: name, storageURL: file)
         }
