@@ -142,7 +142,9 @@ struct ProtectSettingsTests {
             case .text: "string"
             }
             #expect(declared["type"] == type, "\(setting.key)")
-            #expect(declared["title"] == .string(setting.option))
+            // Words a person reads, not the feature option (Motion.OccupancySensor.Person), which the form finds by its key.
+            let title = declared["title"]?.stringValue ?? ""
+            #expect(!title.isEmpty && (!setting.option.contains(".") || title != setting.option), "\(setting.key)'s title is \(title)")
             if setting.isPart {
                 #expect(fields[setting.key] == nil, "\(setting.key) is a Part")
             } else {

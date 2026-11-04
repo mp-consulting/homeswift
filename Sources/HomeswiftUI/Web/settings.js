@@ -70,6 +70,42 @@
     return patch;
   }
 
+  /// The plugin's layout for an accessory's own fields: its groups (Audio, Motion…) with only the fields the accessory
+  /// has, closed, after the fields no group holds (a controller's address). Undefined without groups to keep.
+  function accessoryLayout(layout, properties, schema) {
+    if (!Array.isArray(layout)) return undefined;
+    /// What one entry of the list a group draws is called (UniFi Protect Controller), from the plugin's schema.
+    const entryTitle = (group) => {
+      const list = group.items?.find((item) => item?.key && !item.key.includes("[]"))?.key;
+      return list ? schema?.properties?.[list]?.items?.title : undefined;
+    };
+    const placed = new Set();
+    // An entry of a list of Plugin Settings (`controllers[].address`) is the accessory's own `address`: a controller's
+    // device carries what its entry said, and that group stays open, under the entry's name.
+    let fromList = false;
+    const keep = (item) => {
+      let key = typeof item === "string" ? item : item?.key;
+      if (key !== undefined && key.includes("[].")) { key = key.slice(key.lastIndexOf("[].") + 3); fromList ||= Object.hasOwn(properties, key); }
+      if (key !== undefined && Object.hasOwn(properties, key)) {
+        placed.add(key);
+        return typeof item === "string" || item.items ? key : { ...item, key };
+      }
+      if (!Array.isArray(item?.items)) return null;
+      const items = item.items.flatMap((child) => keep(child) ?? []);
+      // A list's own item (`controllers`) holds its entries' fields: they take its place in the group.
+      return items.length ? (key !== undefined ? items : { ...item, items }) : null;
+    };
+    const groups = layout.filter((item) => Array.isArray(item?.items)).map((item) => {
+      fromList = false;
+      const group = keep(item);
+      if (!group?.title) return group;
+      return fromList ? { ...group, title: entryTitle(item) ?? group.title, expandable: true, expanded: true } : { ...group, expandable: true, expanded: false };
+    }).filter(Boolean)
+      .map((group) => (Array.isArray(group) ? { items: group } : group));
+    if (!groups.length) return undefined;
+    return [...Object.keys(properties).filter((key) => !placed.has(key)), ...groups];
+  }
+
   // ---- An accessory's settings ------------------------------------------------------------------------------
 
   /// The Accessory Settings editor of `accessoryID` (`instance`, its block's name, for a device not on the bridge),
@@ -215,9 +251,11 @@
       let pluginSection = null;
       if (own.length) {
         const properties = Object.fromEntries(own.map(([key, field]) => [key, field.schema]));
-        const defaults = Object.fromEntries(own.filter(([, field]) => field.default).map(([key, field]) => [key, field.default.value]));
+        // A plugin-wide setting left unset takes the default its schema declares: "Default (On)", not a bare "Default".
+        const declared = (setting) => schemaFile?.schema?.properties?.[setting]?.default ?? null;
+        const defaults = Object.fromEntries(own.filter(([, field]) => field.default).map(([key, field]) => [key, field.default.value ?? declared(field.default.setting)]));
         const values = Object.fromEntries(own.filter(([key]) => key in settings).map(([key]) => [key, settings[key]]));
-        const form = app().buildForm({ schema: { type: "object", properties }, i18n: schemaFile?.i18n }, values, {
+        const form = app().buildForm({ schema: { type: "object", properties }, layout: accessoryLayout(schemaFile?.layout, properties, schemaFile?.schema), i18n: schemaFile?.i18n }, values, {
           defaults,
           // Cleared, a field takes the plugin-wide default again (null clears the key); a map's entry taken out is a null
           // in it, as the bridge merges objects key by key.

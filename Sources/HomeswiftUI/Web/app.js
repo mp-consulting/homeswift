@@ -3751,12 +3751,15 @@
       } };
     }
 
+    // What Find a setting looks through: each top-level field with its title, help and key.
+    const searchable = [];
     const render = (key) => {
       const property = properties[key];
       if (!property || fields.has(key)) return null;
       const fallback = defaults && key in defaults ? defaults[key] ?? null : undefined;
       const f = field(key, property, value[key], requiredTop.has(key) || property.required === true, undefined, fallback);
       fields.set(key, f);
+      searchable.push({ element: f.element, text: [tr(property.title), tr(property.description), key].filter(Boolean).join(" ").toLowerCase() });
       if (onCommit) {
         // Its saved or error state, quiet, after its title.
         const state = el("span", { class: "field-state", role: "status", "aria-live": "polite" });
@@ -3765,19 +3768,45 @@
       }
       return f.element;
     };
-    const layoutItem = (item) => {
-      if (typeof item === "string") return item === "*" ? Object.keys(properties).map(render) : render(item);
-      if (item && item.key) { const node = render(item.key); if (item.condition) watch(node, item.condition); return node; }
+    // A closed group says what it holds: its number of settings, and how many have a value of their own.
+    const groupCounts = [];
+    /// `keys` gathers the top-level keys the item draws, for its group's count; `depth` is how deep in groups it sits.
+    const layoutItem = (item, depth = 0, keys = []) => {
+      const drawn = (key) => { const node = render(key); if (node) keys.push(key); return node; };
+      if (typeof item === "string") return item === "*" ? Object.keys(properties).map(drawn) : drawn(item);
+      if (item && item.key) { const node = drawn(item.key); if (item.condition) watch(node, item.condition); return node; }
       if (item && Array.isArray(item.items)) {
-        let inner = item.items.map(layoutItem).flat().filter(Boolean);
+        const own = [];
+        let inner = item.items.map((child) => layoutItem(child, depth + 1, own)).flat().filter(Boolean);
+        keys.push(...own);
         if (!inner.length) return null;
         // A group holding one object of its own name (Budget in Budget) shows the object's fields, not a box titled
         // again inside it.
         const only = inner.length === 1 && inner[0].tagName === "FIELDSET" ? inner[0] : null;
         if (only && item.title && only.querySelector(":scope > legend")?.textContent === tr(item.title)) inner = [...only.children].filter((child) => child.tagName !== "LEGEND");
-        const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") })), el("div", { class: "fields" }, ...inner))
-          : el("div", { class: "fields" }, ...inner);
+        const help = item.description ? el("p", { class: "help group-help", text: tr(item.description) }) : null;
+        let node;
+        if (depth > 0 && item.title && !item.expandable) {
+          // A group in a group is a heading over its fields, not a box in a box.
+          // A group of switches only (one per kind of detection), explained by its heading, sits in columns: each one's
+          // own words are its tooltip, and still what a screen reader says of it.
+          const compact = Boolean(item.description) && inner.every((child) => child.matches?.(".toggle"));
+          if (compact) for (const child of inner) {
+            const words = child.querySelector(".help");
+            if (!words) continue;
+            child.title = words.textContent;
+            words.classList.add("visually-hidden");
+          }
+          node = el("div", { class: `form-subgroup${compact ? " compact" : ""}` }, el("h4", { text: tr(item.title) }), help, el("div", { class: "fields" }, ...inner));
+        } else if (item.type === "fieldset" || item.title) {
+          const count = el("span", { class: "group-count" });
+          // Only a group that closes says it; a list alone (a controller's entries) is no count of settings.
+          if (item.expandable && own.some((key) => properties[key]?.type !== "array")) groupCounts.push({ count, keys: own });
+          node = el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false },
+            el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") }), count), help, el("div", { class: "fields" }, ...inner));
+        } else {
+          node = el("div", { class: "fields" }, ...inner);
+        }
         watch(node, item.condition);
         return node;
       }
@@ -3816,11 +3845,55 @@
         if (control) control.required = needed;
       }
     };
+    const countGroups = () => {
+      if (!groupCounts.length) return;
+      const model = getValue();
+      for (const { count, keys } of groupCounts) {
+        // Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
+        const set = keys.filter((key) => isSet(model[key]) && JSON.stringify(model[key]) !== JSON.stringify(properties[key]?.default)).length;
+        count.textContent = set ? t("{count} settings · {set} set", { count: keys.length, set }) : t("{count} settings", { count: keys.length });
+      }
+    };
     container.addEventListener("input", applyConditions);
     container.addEventListener("change", applyConditions);
+    container.addEventListener("change", countGroups);
     container.addEventListener("click", () => setTimeout(applyConditions, 0));   // rows added or removed
     applyConditions();
-    return { element: container, getValue };
+    countGroups();
+    // Many settings: a search over them, which opens the groups that hold a match and leaves the rest out of sight.
+    if (searchable.length < 15) return { element: container, getValue };
+    const query = el("input", { type: "search", placeholder: t("Find a setting"), "aria-label": t("Find a setting"), autocomplete: "off", spellcheck: false });
+    const none = el("p", { class: "muted form-search-none hidden", role: "status", text: t("No setting matches.") });
+    const groups = () => container.querySelectorAll("details.group-box, details.more-options, .form-subgroup");
+    let opened = null;
+    const filter = () => {
+      const words = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      // The groups open as the person left them once the search is cleared.
+      if (words.length && !opened) opened = new Map([...container.querySelectorAll("details")].map((node) => [node, node.open]));
+      let shown = 0;
+      for (const { element, text } of searchable) {
+        const miss = words.length > 0 && !words.every((word) => text.includes(word));
+        element.classList.toggle("search-miss", miss);
+        if (!miss) shown++;
+      }
+      for (const group of groups()) {
+        const any = [...group.querySelectorAll(".field, .toggle, fieldset")].some((node) => !node.closest(".search-miss"));
+        group.classList.toggle("search-miss", words.length > 0 && !any);
+        if (words.length && group.tagName === "DETAILS") group.open = any;
+      }
+      if (!words.length && opened) { for (const [node, open] of opened) node.open = open; opened = null; }
+      none.classList.toggle("hidden", !words.length || shown > 0);
+    };
+    // Not a change of the form: its listeners (a save bar, a field's save) never hear it.
+    for (const type of ["input", "change"]) query.addEventListener(type, (event) => event.stopPropagation());
+    query.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    query.addEventListener("input", filter);
+    const element = el("div", { class: "form-with-search" }, el("label", { class: "form-search" }, HomeswiftCommon.icon("search"), query), none, container);
+    return { element, getValue };
   }
 
   // ---- Password strength ---------------------------------------------------

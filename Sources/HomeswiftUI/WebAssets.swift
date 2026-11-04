@@ -5615,12 +5615,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } };
     }
 
+    // What Find a setting looks through: each top-level field with its title, help and key.
+    const searchable = [];
     const render = (key) => {
       const property = properties[key];
       if (!property || fields.has(key)) return null;
       const fallback = defaults && key in defaults ? defaults[key] ?? null : undefined;
       const f = field(key, property, value[key], requiredTop.has(key) || property.required === true, undefined, fallback);
       fields.set(key, f);
+      searchable.push({ element: f.element, text: [tr(property.title), tr(property.description), key].filter(Boolean).join(" ").toLowerCase() });
       if (onCommit) {
         // Its saved or error state, quiet, after its title.
         const state = el("span", { class: "field-state", role: "status", "aria-live": "polite" });
@@ -5629,19 +5632,45 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       return f.element;
     };
-    const layoutItem = (item) => {
-      if (typeof item === "string") return item === "*" ? Object.keys(properties).map(render) : render(item);
-      if (item && item.key) { const node = render(item.key); if (item.condition) watch(node, item.condition); return node; }
+    // A closed group says what it holds: its number of settings, and how many have a value of their own.
+    const groupCounts = [];
+    /// `keys` gathers the top-level keys the item draws, for its group's count; `depth` is how deep in groups it sits.
+    const layoutItem = (item, depth = 0, keys = []) => {
+      const drawn = (key) => { const node = render(key); if (node) keys.push(key); return node; };
+      if (typeof item === "string") return item === "*" ? Object.keys(properties).map(drawn) : drawn(item);
+      if (item && item.key) { const node = drawn(item.key); if (item.condition) watch(node, item.condition); return node; }
       if (item && Array.isArray(item.items)) {
-        let inner = item.items.map(layoutItem).flat().filter(Boolean);
+        const own = [];
+        let inner = item.items.map((child) => layoutItem(child, depth + 1, own)).flat().filter(Boolean);
+        keys.push(...own);
         if (!inner.length) return null;
         // A group holding one object of its own name (Budget in Budget) shows the object's fields, not a box titled
         // again inside it.
         const only = inner.length === 1 && inner[0].tagName === "FIELDSET" ? inner[0] : null;
         if (only && item.title && only.querySelector(":scope > legend")?.textContent === tr(item.title)) inner = [...only.children].filter((child) => child.tagName !== "LEGEND");
-        const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") })), el("div", { class: "fields" }, ...inner))
-          : el("div", { class: "fields" }, ...inner);
+        const help = item.description ? el("p", { class: "help group-help", text: tr(item.description) }) : null;
+        let node;
+        if (depth > 0 && item.title && !item.expandable) {
+          // A group in a group is a heading over its fields, not a box in a box.
+          // A group of switches only (one per kind of detection), explained by its heading, sits in columns: each one's
+          // own words are its tooltip, and still what a screen reader says of it.
+          const compact = Boolean(item.description) && inner.every((child) => child.matches?.(".toggle"));
+          if (compact) for (const child of inner) {
+            const words = child.querySelector(".help");
+            if (!words) continue;
+            child.title = words.textContent;
+            words.classList.add("visually-hidden");
+          }
+          node = el("div", { class: `form-subgroup${compact ? " compact" : ""}` }, el("h4", { text: tr(item.title) }), help, el("div", { class: "fields" }, ...inner));
+        } else if (item.type === "fieldset" || item.title) {
+          const count = el("span", { class: "group-count" });
+          // Only a group that closes says it; a list alone (a controller's entries) is no count of settings.
+          if (item.expandable && own.some((key) => properties[key]?.type !== "array")) groupCounts.push({ count, keys: own });
+          node = el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false },
+            el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") }), count), help, el("div", { class: "fields" }, ...inner));
+        } else {
+          node = el("div", { class: "fields" }, ...inner);
+        }
         watch(node, item.condition);
         return node;
       }
@@ -5680,11 +5709,55 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (control) control.required = needed;
       }
     };
+    const countGroups = () => {
+      if (!groupCounts.length) return;
+      const model = getValue();
+      for (const { count, keys } of groupCounts) {
+        // Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
+        const set = keys.filter((key) => isSet(model[key]) && JSON.stringify(model[key]) !== JSON.stringify(properties[key]?.default)).length;
+        count.textContent = set ? t("{count} settings · {set} set", { count: keys.length, set }) : t("{count} settings", { count: keys.length });
+      }
+    };
     container.addEventListener("input", applyConditions);
     container.addEventListener("change", applyConditions);
+    container.addEventListener("change", countGroups);
     container.addEventListener("click", () => setTimeout(applyConditions, 0));   // rows added or removed
     applyConditions();
-    return { element: container, getValue };
+    countGroups();
+    // Many settings: a search over them, which opens the groups that hold a match and leaves the rest out of sight.
+    if (searchable.length < 15) return { element: container, getValue };
+    const query = el("input", { type: "search", placeholder: t("Find a setting"), "aria-label": t("Find a setting"), autocomplete: "off", spellcheck: false });
+    const none = el("p", { class: "muted form-search-none hidden", role: "status", text: t("No setting matches.") });
+    const groups = () => container.querySelectorAll("details.group-box, details.more-options, .form-subgroup");
+    let opened = null;
+    const filter = () => {
+      const words = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      // The groups open as the person left them once the search is cleared.
+      if (words.length && !opened) opened = new Map([...container.querySelectorAll("details")].map((node) => [node, node.open]));
+      let shown = 0;
+      for (const { element, text } of searchable) {
+        const miss = words.length > 0 && !words.every((word) => text.includes(word));
+        element.classList.toggle("search-miss", miss);
+        if (!miss) shown++;
+      }
+      for (const group of groups()) {
+        const any = [...group.querySelectorAll(".field, .toggle, fieldset")].some((node) => !node.closest(".search-miss"));
+        group.classList.toggle("search-miss", words.length > 0 && !any);
+        if (words.length && group.tagName === "DETAILS") group.open = any;
+      }
+      if (!words.length && opened) { for (const [node, open] of opened) node.open = open; opened = null; }
+      none.classList.toggle("hidden", !words.length || shown > 0);
+    };
+    // Not a change of the form: its listeners (a save bar, a field's save) never hear it.
+    for (const type of ["input", "change"]) query.addEventListener(type, (event) => event.stopPropagation());
+    query.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    query.addEventListener("input", filter);
+    const element = el("div", { class: "form-with-search" }, el("label", { class: "form-search" }, HomeswiftCommon.icon("search"), query), none, container);
+    return { element, getValue };
   }
 
   // ---- Password strength ---------------------------------------------------
@@ -13784,6 +13857,10 @@ HomeswiftI18n.add("es", {
   "Mon": "Lun",
   "More": "Más",
   "More options ({count})": "Más opciones ({count})",
+  "{count} settings": "{count} ajustes",
+  "{count} settings · {set} set": "{count} ajustes · {set} definidos",
+  "Find a setting": "Buscar un ajuste",
+  "No setting matches.": "Ningún ajuste coincide.",
   "Motion": "Movimiento",
   "Motion Detected": "Movimiento detectado",
   "Motion Sensor": "Sensor de movimiento",
@@ -16532,6 +16609,10 @@ HomeswiftI18n.add("fr", {
   "Mon": "Lun",
   "More": "Plus",
   "More options ({count})": "Plus d'options ({count})",
+  "{count} settings": "{count} réglages",
+  "{count} settings · {set} set": "{count} réglages · {set} définis",
+  "Find a setting": "Chercher un réglage",
+  "No setting matches.": "Aucun réglage ne correspond.",
   "Motion": "Mouvement",
   "Motion Detected": "Mouvement détecté",
   "Motion Sensor": "Détecteur de mouvement",
@@ -19280,6 +19361,10 @@ HomeswiftI18n.add("pt", {
   "Mon": "Seg",
   "More": "Mais",
   "More options ({count})": "Mais opções ({count})",
+  "{count} settings": "{count} definições",
+  "{count} settings · {set} set": "{count} definições · {set} definidas",
+  "Find a setting": "Procurar uma definição",
+  "No setting matches.": "Nenhuma definição corresponde.",
   "Motion": "Movimento",
   "Motion Detected": "Movimento detetado",
   "Motion Sensor": "Sensor de movimento",
@@ -22786,6 +22871,42 @@ HomeswiftI18n.add("pt", {
     return patch;
   }
 
+  /// The plugin's layout for an accessory's own fields: its groups (Audio, Motion…) with only the fields the accessory
+  /// has, closed, after the fields no group holds (a controller's address). Undefined without groups to keep.
+  function accessoryLayout(layout, properties, schema) {
+    if (!Array.isArray(layout)) return undefined;
+    /// What one entry of the list a group draws is called (UniFi Protect Controller), from the plugin's schema.
+    const entryTitle = (group) => {
+      const list = group.items?.find((item) => item?.key && !item.key.includes("[]"))?.key;
+      return list ? schema?.properties?.[list]?.items?.title : undefined;
+    };
+    const placed = new Set();
+    // An entry of a list of Plugin Settings (`controllers[].address`) is the accessory's own `address`: a controller's
+    // device carries what its entry said, and that group stays open, under the entry's name.
+    let fromList = false;
+    const keep = (item) => {
+      let key = typeof item === "string" ? item : item?.key;
+      if (key !== undefined && key.includes("[].")) { key = key.slice(key.lastIndexOf("[].") + 3); fromList ||= Object.hasOwn(properties, key); }
+      if (key !== undefined && Object.hasOwn(properties, key)) {
+        placed.add(key);
+        return typeof item === "string" || item.items ? key : { ...item, key };
+      }
+      if (!Array.isArray(item?.items)) return null;
+      const items = item.items.flatMap((child) => keep(child) ?? []);
+      // A list's own item (`controllers`) holds its entries' fields: they take its place in the group.
+      return items.length ? (key !== undefined ? items : { ...item, items }) : null;
+    };
+    const groups = layout.filter((item) => Array.isArray(item?.items)).map((item) => {
+      fromList = false;
+      const group = keep(item);
+      if (!group?.title) return group;
+      return fromList ? { ...group, title: entryTitle(item) ?? group.title, expandable: true, expanded: true } : { ...group, expandable: true, expanded: false };
+    }).filter(Boolean)
+      .map((group) => (Array.isArray(group) ? { items: group } : group));
+    if (!groups.length) return undefined;
+    return [...Object.keys(properties).filter((key) => !placed.has(key)), ...groups];
+  }
+
   // ---- An accessory's settings ------------------------------------------------------------------------------
 
   /// The Accessory Settings editor of `accessoryID` (`instance`, its block's name, for a device not on the bridge),
@@ -22931,9 +23052,11 @@ HomeswiftI18n.add("pt", {
       let pluginSection = null;
       if (own.length) {
         const properties = Object.fromEntries(own.map(([key, field]) => [key, field.schema]));
-        const defaults = Object.fromEntries(own.filter(([, field]) => field.default).map(([key, field]) => [key, field.default.value]));
+        // A plugin-wide setting left unset takes the default its schema declares: "Default (On)", not a bare "Default".
+        const declared = (setting) => schemaFile?.schema?.properties?.[setting]?.default ?? null;
+        const defaults = Object.fromEntries(own.filter(([, field]) => field.default).map(([key, field]) => [key, field.default.value ?? declared(field.default.setting)]));
         const values = Object.fromEntries(own.filter(([key]) => key in settings).map(([key]) => [key, settings[key]]));
-        const form = app().buildForm({ schema: { type: "object", properties }, i18n: schemaFile?.i18n }, values, {
+        const form = app().buildForm({ schema: { type: "object", properties }, layout: accessoryLayout(schemaFile?.layout, properties, schemaFile?.schema), i18n: schemaFile?.i18n }, values, {
           defaults,
           // Cleared, a field takes the plugin-wide default again (null clears the key); a map's entry taken out is a null
           // in it, as the bridge merges objects key by key.
@@ -28400,6 +28523,20 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 :is(.plugin-settings, .accessory-settings-sheet) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
 :is(.plugin-settings, .accessory-settings-sheet) .item { padding-inline: 0; }
 @media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before { transition: none; } }
+/* A closed group's count of settings, quiet at the end of its heading; a group's own words under it; a group in a
+   group, a heading over its fields. */
+.group-box > summary > .group-count { margin-left: auto; font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); }
+.group-box > .group-help { margin: 0 0 var(--space-8); }
+.form-subgroup { grid-column: 1 / -1; margin-top: var(--space-12); }
+.form-subgroup > h4 { margin: 0 0 2px; font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--text); }
+.form-subgroup > .help { margin: 0 0 var(--space-8); }
+.form-subgroup.compact > .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-8) var(--space-16); }
+/* Find a setting, over a form of many. */
+.form-search { display: flex; align-items: center; gap: var(--space-8); margin: 0 0 var(--space-8); position: relative; }
+.form-search > svg { position: absolute; left: var(--space-12); width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; pointer-events: none; }
+.form-search > input { width: 100%; padding-left: calc(var(--space-12) + 24px); }
+.form-search-none { margin: var(--space-8) 0; }
+.search-miss { display: none !important; }
 /* Describe your setup, a line at the head of the Settings section, the hairline under it the form's. */
 .plugin-settings details.describe-setup.card { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0 0 var(--space-12); margin: 0 0 var(--space-12); border-bottom: 1px solid var(--line); }
 .settings-row, .settings-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; }

@@ -4555,6 +4555,20 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 :is(.plugin-settings, .accessory-settings-sheet) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
 :is(.plugin-settings, .accessory-settings-sheet) .item { padding-inline: 0; }
 @media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before { transition: none; } }
+/* A closed group's count of settings, quiet at the end of its heading; a group's own words under it; a group in a
+   group, a heading over its fields. */
+.group-box > summary > .group-count { margin-left: auto; font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); }
+.group-box > .group-help { margin: 0 0 var(--space-8); }
+.form-subgroup { grid-column: 1 / -1; margin-top: var(--space-12); }
+.form-subgroup > h4 { margin: 0 0 2px; font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--text); }
+.form-subgroup > .help { margin: 0 0 var(--space-8); }
+.form-subgroup.compact > .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-8) var(--space-16); }
+/* Find a setting, over a form of many. */
+.form-search { display: flex; align-items: center; gap: var(--space-8); margin: 0 0 var(--space-8); position: relative; }
+.form-search > svg { position: absolute; left: var(--space-12); width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; pointer-events: none; }
+.form-search > input { width: 100%; padding-left: calc(var(--space-12) + 24px); }
+.form-search-none { margin: var(--space-8) 0; }
+.search-miss { display: none !important; }
 /* Describe your setup, a line at the head of the Settings section, the hairline under it the form's. */
 .plugin-settings details.describe-setup.card { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0 0 var(--space-12); margin: 0 0 var(--space-12); border-bottom: 1px solid var(--line); }
 .settings-row, .settings-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; }
