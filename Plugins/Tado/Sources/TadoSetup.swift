@@ -153,7 +153,10 @@ extension TadoPlugin {
     /// resolved, whether the block holds it, a sealed copy or a reference), and answers the block without it.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         let canonical = Self.canonical(block)
-        let typed = configuration.homes.lazy.compactMap { $0["telegram"]?["token"]?.text }.last
+        // The written block's token, typed there; a sealed copy or a reference is the running configuration's, resolved.
+        let written = (canonical["homes"]?.arrayValue ?? []).compactMap { $0["telegram"]?["token"]?.text }.last
+        let isReference = written.map { ["enc:", "vault:", "env:", "file:"].contains(where: $0.hasPrefix) } ?? false
+        let typed = isReference ? configuration.homes.lazy.compactMap { $0["telegram"]?["token"]?.text }.last : written
         let hasToken = (canonical["homes"]?.arrayValue ?? []).contains { $0["telegram"]?["token"] != nil }
         guard hasToken else { return canonical }
         if let typed, telegramFile.load()?["token"] != typed {

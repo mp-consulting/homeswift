@@ -217,7 +217,12 @@ actor TadoAccount {
     static func fileName(username: String) -> String { ".tado-token-\(TadoHash.username(username)).json" }
 
     /// Whether the vault has a refresh token for the account (or it needs none).
-    var isAuthorized: Bool { tokenFile != nil || (refreshToken != nil && !signInRequired) || (file?.load()?.refreshToken).map { !$0.isEmpty } == true }
+    var isAuthorized: Bool {
+        if tokenFile != nil || (refreshToken != nil && !signInRequired) { return true }
+        // A stored token tado refused does not count: only a new one Setup kept.
+        guard let stored = file?.load()?.refreshToken, !stored.isEmpty else { return false }
+        return !signInRequired || stored != refreshToken
+    }
 
     /// A valid access token: the current one, else one refreshed (once for all callers at a time).
     func token() async throws -> String {
@@ -247,6 +252,8 @@ actor TadoAccount {
         guard let refresh = refreshToken, !signInRequired else { throw requireSignIn("no refresh token is stored for it") }
         switch try await TadoLogin.refresh(refresh, http: http, counter: counter) {
         case .rejected:
+            // Out of the vault too, so every instance (Setup's included) sees the account needs signing in.
+            if file?.load()?.refreshToken == refresh { file?.remove() }
             throw requireSignIn("tado° refused its refresh token")
         case .refreshed(let tokens):
             store(tokens)

@@ -107,12 +107,12 @@ actor TadoHome {
         for zone in settings.activeZones {
             if zone.id == nil { logger.warning("Zone \(zone.name) has no id: it is looked up by its name") }
             var (services, accessories) = TadoAccessories.zone(zone, home: settings.name, unit: unit, firmware: firmware)
+            guard !context.isExcluded(services.deviceID) else { continue }
             if zone.openWindowSwitch {
                 let service = Service(.switch, name: "\(zone.name) Window", subtype: "\(zone.name) Window")
                 services.windowSwitch = service
                 windowSwitches.append(service)
             }
-            guard !context.isExcluded(services.deviceID) else { continue }
             accessories.forEach(add)
             zones[zone.name] = services
             bindZone(services)
@@ -324,7 +324,7 @@ actor TadoHome {
 
     // What a poll asks for: what the home's added accessories show (an Excluded one costs nothing).
     private var pollsZones: Bool { !zones.isEmpty }
-    private var pollsPresence: Bool { !presence.isEmpty }
+    private var pollsPresence: Bool { !presence.isEmpty || anyone != nil }
     private var pollsWeather: Bool { weather != nil || solar != nil }
     private var pollsRunningTime: Bool { central["Central"] != nil && settings.runningInformation && !settings.hasCustomAPI }
     private var pollsPresenceLock: Bool { presenceLockService != nil || homeSwitch != nil }
@@ -404,7 +404,7 @@ actor TadoHome {
     private func resolveHome() async throws -> Int {
         if homeID == nil {
             let me = try await api.me()
-            guard let first = me["homes"]?[0], let id = first["id"]?.saturatingIntValue, first["name"]?.stringValue == settings.name else {
+            guard let id = me["homes"]?.arrayValue?.first(where: { $0["name"]?.stringValue == settings.name })?["id"]?.saturatingIntValue else {
                 throw TadoError.noHome("The tado° account has no home named \(settings.name): set the home's id")
             }
             homeID = id
@@ -412,7 +412,11 @@ actor TadoHome {
         guard let homeID else { throw TadoError.noHome("No home id") }
         if settings.temperatureUnit == nil, !resolvedUnit {
             resolvedUnit = true
-            if let unit = try await api.home(homeID)["temperatureUnit"]?.stringValue.flatMap(TemperatureUnit.init(rawValue:)) { self.unit = unit }
+            if let unit = try await api.home(homeID)["temperatureUnit"]?.stringValue.flatMap(TemperatureUnit.init(rawValue:)), unit != self.unit {
+                // The zones were built for Celsius: build them again, their limits and display unit in the home's.
+                self.unit = unit
+                addAccessories()
+            }
         }
         return homeID
     }
@@ -420,7 +424,8 @@ actor TadoHome {
 
     private func pollZones(_ home: Int) async throws {
         let missingID = settings.activeZones.contains { zoneIDs[$0.name] == nil }
-        if missingID || isDue(lastZoneList) {
+        // A zone tado does not have keeps its id missing: asked again at the slow cadence, not every poll.
+        if (missingID && lastZoneList == nil) || isDue(lastZoneList) {
             readZoneList(try await api.zones(home))
             lastZoneList = now()
         }
@@ -595,10 +600,13 @@ actor TadoHome {
     private func pollPresence(_ home: Int) async throws {
         let devices = try await api.mobileDevices(home).arrayValue ?? []
         var anyoneHome = false
+        let configured = Set(settings.users.map(\.name))
         for device in devices {
-            guard let name = device["name"]?.stringValue, let service = presence[name] else { continue }
+            // Anyone counts every configured person, an Excluded person's sensor included.
+            guard let name = device["name"]?.stringValue, configured.contains(name) else { continue }
             let atHome = device["location"]?["atHome"]?.boolValue ?? false
             anyoneHome = anyoneHome || atHome
+            guard let service = presence[name] else { continue }
             setPresence(service, atHome, key: "presence:\(name)", message: atHome ? "presence.user_in" : "presence.user_out", accessory: name)
         }
         if let anyone { setPresence(anyone, anyoneHome, key: "presence:anyone", message: anyoneHome ? "presence.anyone_in" : "presence.anyone_out", accessory: nil) }
@@ -715,7 +723,8 @@ actor TadoHome {
             }
         }
         if let temperature, !(options.preferSiriTemperature && temperature == 5) { lastTemperature[zone] = temperature }
-        let last = lastTemperature[zone] ?? (isBoiler ? services.limits.min : 20)
+        let shown = services.primary[services.kind == .thermostat ? .targetTemperature : .heatingThresholdTemperature]?.value.doubleValue
+        let last = lastTemperature[zone] ?? (isBoiler ? services.limits.min : (shown ?? 20))
         let custom = services.zone.mode == .custom && services.kind.isHeaterCooler
         let action: Action?
         if options.preferSiriTemperature, entry.state == 3, let temperature {
