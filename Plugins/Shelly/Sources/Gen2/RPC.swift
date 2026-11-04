@@ -48,6 +48,10 @@ struct RPCSettings: Sendable, Equatable {
 
     func duration(_ seconds: Double) -> Duration { .milliseconds(Int(saturating: (seconds * timeScale * 1000).rounded()) ?? 0) }
 
+    /// How long a request (and a ping) waits for its answer: real seconds, which `timeScale` does not shorten, as a
+    /// device on a busy host may take its time to answer.
+    var requestTimeoutDuration: Duration { .milliseconds(Int(saturating: (requestTimeout * 1000).rounded()) ?? 10000) }
+
     /// The schedule from a number, an array of numbers or a comma-separated string, as the Homebridge plugin reads it.
     static func reconnectSchedule(_ value: JSONValue?) -> [Double]? {
         switch value {
@@ -246,7 +250,7 @@ actor ShellyRPC {
         if let auth { frame["auth"] = auth }
         logger.debug("WebSocket: \(method)")
         let timeout = Task { [settings] in
-            try? await Task.sleep(for: settings.duration(settings.requestTimeout))
+            try? await Task.sleep(for: settings.requestTimeoutDuration)
             self.expire(id)
         }
         defer { timeout.cancel() }
@@ -330,7 +334,7 @@ actor ShellyRPC {
                 try? await Task.sleep(for: settings.duration(settings.pingInterval))
                 guard !Task.isCancelled else { return }
                 do {
-                    try await socket.ping(timeout: settings.duration(settings.requestTimeout))
+                    try await socket.ping(timeout: settings.requestTimeoutDuration)
                 } catch {
                     await self?.kill(socket)
                     return

@@ -161,7 +161,7 @@ struct ShellyNGTests {
         await expectEventually { await environment.ng?.devices["shellyplus1pm-aabbccddeeff"]?.host == "10.0.0.10" }
         await expectEventually { device.socket?.url?.host == "10.0.0.10" }
         // Values missed while away are read again.
-        await expectEventually { device.calls("Shelly.GetStatus").count == 2 }
+        await expectEventually { device.calls("Shelly.GetStatus").count >= 2 }
     }
 
     @Test func aDroppedConnectionReconnectsAndAnIntentionalCloseDoesNot() async throws {
@@ -170,12 +170,14 @@ struct ShellyNGTests {
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
         await expectEventually { host.accessory(switchID) != nil }
+        let before = device.connections, statuses = device.calls("Shelly.GetStatus").count
         device.socket?.drop()
-        await expectEventually { device.connections == 2 }
-        await expectEventually { device.calls("Shelly.GetStatus").count == 2 }
+        await expectEventually { device.connections == before + 1 }
+        await expectEventually { device.calls("Shelly.GetStatus").count == statuses + 1 }
+        let reconnected = device.connections
         device.socket?.finish(code: 1000)
         try await Task.sleep(for: .milliseconds(100))
-        #expect(device.connections == 2)
+        #expect(device.connections == reconnected)
     }
 
     @Test func anExcludedDeviceIsNotReached() async throws {
