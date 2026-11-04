@@ -167,7 +167,7 @@ struct RenaultTests {
         #expect(await eventually {
             host.mainBridge.server.accessories.first { $0.id == id }.map { !$0.services.contains { $0.subtype == "Climate" } } ?? false
         })
-        let stored = try #require(await environment.plugin?.droppedStore.load()?[Fixtures.vin])
+        let stored = try #require(environment.plugin?.droppedStore.load()?[Fixtures.vin])
         #expect(stored.model == "R5E1VE")
         #expect(stored.endpoints["hvac-status"] != nil)
         // Not asked again.
@@ -201,7 +201,7 @@ struct RenaultTests {
         _ = try #require(await accessory(host))
         let login = try #require(environment.cloud.gigya("accounts.login").last)
         #expect(login.header("Cookie") == "gmid=G1; ucid=U1")
-        #expect(await eventually { await environment.plugin?.storedCredentials()?.loginToken == "LT-new" })
+        #expect(await eventually { environment.plugin?.storedCredentials()?.loginToken == "LT-new" })
         _ = directory
         await host.stop()
     }

@@ -7,7 +7,6 @@ import HomeswiftPlugin
 struct KamereonAccount: Sendable, Equatable {
     var id: String
     var type: String?
-    var status: String?
 }
 
 /// A vehicle of an account, from its link and details (3.7). The VIN is personal data: logged masked only.
@@ -74,11 +73,8 @@ struct VehicleInfo: Codable, Sendable, Equatable {
 /// quota or the session; `RenaultSession` sends through it.
 enum Kamereon {
     /// The request for `path` under the root, with the country and the three headers every request carries.
-    static func request(
-        method: String, path: String, query: [(String, String)] = [], body: JSONValue? = nil, servers: RenaultServers, jwt: String, timeout: Duration
-    ) -> HTTPRequest {
-        let all = [("country", servers.country)] + query
-        let address = "\(servers.kamereonRoot)\(path)?\(URLEncoding.query(all))"
+    static func request(method: String, path: String, body: JSONValue? = nil, servers: RenaultServers, jwt: String, timeout: Duration) -> HTTPRequest {
+        let address = "\(servers.kamereonRoot)\(path)?\(URLEncoding.query([("country", servers.country)]))"
         return HTTPRequest(
             method: method, url: URL(string: address) ?? URL(string: servers.kamereonRoot)!,
             headers: [("Content-type", "application/vnd.api+json"), ("apikey", servers.kamereonKey), ("x-gigya-id_token", jwt)],
@@ -90,29 +86,23 @@ enum Kamereon {
     static func check(_ response: HTTPResponse) throws -> JSONValue {
         let trimmed = response.body.drop { $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }
         let first = trimmed.first
-        if first == UInt8(ascii: "[") {
-            guard let array = try? JSONValue(data: Data(trimmed)) else { throw RenaultError.invalidJSON }
-            guard response.isSuccess else { throw RenaultError.http(status: response.status) }
-            return ["data": array]
-        }
-        guard first == UInt8(ascii: "{") else {
-            if !response.isSuccess {
-                if response.status == 404 { throw RenaultError.kamereon(KamereonError(code: "", detail: "", status: 404)) }
-                throw RenaultError.http(status: response.status)
-            }
+        guard first == UInt8(ascii: "[") || first == UInt8(ascii: "{") else {
+            guard response.isSuccess else { throw failure(response.status) }
             throw RenaultError.invalidJSON
         }
         guard let json = try? JSONValue(data: Data(trimmed)) else { throw RenaultError.invalidJSON }
-        if let error = json["errors"]?.arrayValue?.first {
+        if first == UInt8(ascii: "{"), let error = json["errors"]?.arrayValue?.first {
             let code = error["errorCode"]?.stringValue ?? error["errorCode"]?.intValue.map(String.init) ?? ""
             throw RenaultError.kamereon(KamereonError(
                 code: String(code.prefix(80)), detail: KamereonError.detail(of: error["errorMessage"]?.stringValue ?? ""), status: response.status))
         }
-        guard response.isSuccess else {
-            if response.status == 404 { throw RenaultError.kamereon(KamereonError(code: "", detail: "", status: 404)) }
-            throw RenaultError.http(status: response.status)
-        }
-        return json
+        guard response.isSuccess else { throw failure(response.status) }
+        return first == UInt8(ascii: "[") ? ["data": json] : json
+    }
+
+    /// An HTTP error without a Kamereon entry; a 404 counts as one (4.7: the car does not have the endpoint).
+    private static func failure(_ status: Int) -> RenaultError {
+        status == 404 ? .kamereon(KamereonError(code: "", detail: "", status: 404)) : .http(status: status)
     }
 
     /// A kca answer's `data.attributes`, empty when missing (8.10); a kcm answer is the object itself.
@@ -132,7 +122,7 @@ enum Kamereon {
     static func accounts(_ json: JSONValue) -> [KamereonAccount] {
         (json["accounts"]?.arrayValue ?? []).prefix(50).compactMap { entry in
             guard let id = entry["accountId"]?.stringValue, !id.isEmpty else { return nil }
-            return KamereonAccount(id: id, type: entry["accountType"]?.stringValue, status: entry["accountStatus"]?.stringValue)
+            return KamereonAccount(id: id, type: entry["accountType"]?.stringValue)
         }
     }
 }
@@ -161,7 +151,6 @@ struct BatteryStatus: Sendable, Equatable {
     var autonomy: Int?
     var plugStatus: Int?
     var chargingStatus: Double?
-    var remainingMinutes: Int?
     /// Kilowatts (watts on a ZOE phase 1, converted).
     var powerKW: Double?
 
@@ -170,7 +159,6 @@ struct BatteryStatus: Sendable, Equatable {
         autonomy = json["batteryAutonomy"]?.saturatingIntValue
         plugStatus = json["plugStatus"]?.saturatingIntValue
         chargingStatus = ChargingStatus.normalised(json["chargingStatus"]?.doubleValue)
-        remainingMinutes = json["chargingRemainingTime"]?.saturatingIntValue
         powerKW = json["chargingInstantaneousPower"]?.doubleValue?.finite.map { reportsWatts ? $0 / 1000 : $0 }
     }
 
@@ -204,13 +192,11 @@ struct HvacStatus: Sendable, Equatable {
     var isOn: Bool?
     var externalTemperature: Double?
     var internalTemperature: Double?
-    var socThreshold: Double?
 
     init(attributes json: JSONValue) {
         isOn = json["hvacStatus"]?.stringValue.map { $0.lowercased() == "on" }
         externalTemperature = json["externalTemperature"]?.doubleValue?.finite.flatMap(Self.plausible)
         internalTemperature = json["internalTemperature"]?.doubleValue?.finite.flatMap(Self.plausible)
-        socThreshold = json["socThreshold"]?.doubleValue?.finite
     }
 
     init(isOn: Bool?) { self.isOn = isOn }
@@ -221,11 +207,9 @@ struct HvacStatus: Sendable, Equatable {
 
 struct SocLevels: Sendable, Equatable {
     var minimum: Int?
-    var target: Int?
 
     init(attributes json: JSONValue) {
         minimum = json["socMin"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
-        target = json["socTarget"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
     }
 }
 

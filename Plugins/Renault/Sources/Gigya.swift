@@ -108,11 +108,11 @@ struct GigyaClient: Sendable {
         }
     }
 
-    /// Ends the challenge; `remember` (the default) keeps the device remembered for about 30 days.
-    func finalize(assertion: String, providerAssertion: String, regToken: String, remember: Bool = true, deviceIDs: GigyaDeviceIDs) async throws {
+    /// Ends the challenge, the device remembered for about 30 days.
+    func finalize(assertion: String, providerAssertion: String, regToken: String, deviceIDs: GigyaDeviceIDs) async throws {
         _ = try await get("accounts.tfa.finalizeTFA", [
             ("APIKey", servers.gigyaKey), ("gigyaAssertion", assertion), ("providerAssertion", providerAssertion), ("regToken", regToken),
-            ("tempDevice", remember ? "false" : "true"),
+            ("tempDevice", "false"),
         ], deviceIDs: deviceIDs)
     }
 
@@ -155,7 +155,7 @@ struct GigyaClient: Sendable {
             throw RenaultError.needsTwoFactor(regToken: token)
         default:
             let details = json["errorDetails"]?.stringValue ?? json["errorMessage"]?.stringValue ?? ""
-            throw RenaultError.gigya(code: code, details: String(details.prefix(120)))
+            throw RenaultError.gigya(code: code, details: logExcerpt(details, limit: 120) ?? "")
         }
     }
 }
@@ -165,9 +165,7 @@ enum JWT {
     static func expiry(of token: String) -> Date? {
         let parts = token.split(separator: ".")
         guard parts.count >= 2 else { return nil }
-        var base64 = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        while base64.count % 4 != 0 { base64 += "=" }
-        guard let data = Data(base64Encoded: base64), let payload = try? JSONValue(data: data), let exp = payload["exp"]?.doubleValue?.finite else { return nil }
+        guard let bytes = WebPushDecryption.base64URLDecode(String(parts[1])), let payload = try? JSONValue(data: Data(bytes)), let exp = payload["exp"]?.doubleValue?.finite else { return nil }
         return Date(timeIntervalSince1970: exp)
     }
 

@@ -61,7 +61,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
     private var loggedCooldown = false
     private var loggedOverride = false
     private var missingLogged: Set<String> = []
-    private var sleeper: Task<Void, Never>?
+    private var savedList: [VehicleInfo]?
     /// The interval of the last round.
     private(set) var currentInterval: Duration?
 
@@ -78,7 +78,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
     static func accessoryID(vin: String) -> String { "\(platform):\(vin)" }
 
     var locale: String { configuration.locale.flatMap { $0.isEmpty ? nil : $0 } ?? RenaultLocale.defaultLocale }
-    var maxCalls: Int { max(configuration.maxCallsPerHour ?? Self.defaultMaxCalls, RequestBudget.actionReserve + 3) }
+    var maxCalls: Int { configuration.maxCallsPerHour ?? Self.defaultMaxCalls }
 
     /// HA's interval (6.1): the hour's budget spread over every poller of every vehicle, the calls made once an hour
     /// (the vehicle list) kept aside. One R5 (5 pollers) at 60 calls an hour reads every 305 s.
@@ -93,7 +93,6 @@ public actor RenaultPlugin: HomeswiftPlugin {
 
     public func stop() async {
         tasks.cancelAll()
-        sleeper?.cancel()
     }
 
     // MARK: The account
@@ -112,10 +111,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
             return
         }
         let context = context, logger = logger
-        let budget = RequestBudget(maxCallsPerHour: maxCalls, hour: dependencies.timing.hour, cooldown: dependencies.timing.cooldown)
-        let session = RenaultSession(
-            http: dependencies.http, locale: locale, credentials: credentials, budget: budget, timing: dependencies.timing, logger: logger
-        ) { renewed in
+        let session = makeSession(locale: locale, credentials: credentials) { renewed in
             do { try context.saveCredentials(renewed) } catch { logger.error("Could not store Renault's new sign-in in the vault: \(error)") }
         }
         self.session = session
@@ -144,34 +140,45 @@ public actor RenaultPlugin: HomeswiftPlugin {
         }
     }
 
+    /// A session of the account with a budget of its own.
+    func makeSession(locale: String, credentials: RenaultCredentials, onCredentialsChange: @escaping @Sendable (RenaultCredentials) -> Void) -> RenaultSession {
+        let budget = RequestBudget(maxCallsPerHour: maxCalls, hour: dependencies.timing.hour, cooldown: dependencies.timing.cooldown)
+        return RenaultSession(
+            http: dependencies.http, locale: locale, credentials: credentials, budget: budget, timing: dependencies.timing, logger: logger,
+            onCredentialsChange: onCredentialsChange)
+    }
+
+    /// The run task's sleep: `stop()` cancels the task, and the sleep with it.
     private func pause(_ duration: Duration) async {
-        let task = Task { _ = try? await Task.sleep(for: duration) }
-        sleeper = task
-        await task.value
+        try? await Task.sleep(for: duration)
     }
 
     /// The account refused: Needs Authorization, and no more requests until Setup is done again.
     func refuse(_ error: RenaultError) {
-        let reason = switch error {
-        case .invalidCredentials: "Renault refused the password"
-        case .needsTwoFactor: "Renault asks for a one-time code: set up the account again"
-        case .loginTokenExpired: "Renault's sign-in expired and no password is stored"
-        default: error.description
-        }
-        context.accountRefused(reason)
+        context.accountRefused(error.refusalReason)
     }
+
+    /// Every car of the last list, excluded ones included: the one in memory, else the file.
+    var knownVehicles: [VehicleInfo] {
+        savedList ?? context.jsonFile(Self.vehiclesFile, as: [VehicleInfo].self).load() ?? []
+    }
+
+    static let vehiclesFile = "renault-vehicles.json"
+
+    /// The block's `vins`, cleaned; empty for every car.
+    var wantedVINs: Set<String> { Set(configuration.vins?.compactMap { VehicleInfo.cleanVIN($0) } ?? []) }
 
     /// The account (3.6) and its vehicles (3.7), every hour.
     private func refreshVehicles(_ session: RenaultSession) async throws {
         let accountID = try await chooseAccount(session)
         let listed: (vehicles: [VehicleInfo], missing: [String])
         do {
-            listed = try await session.perform(.poll) { session in try await session.vehicles(accountID: accountID, .poll) }
+            let known = Dictionary(knownVehicles.map { ($0.vin, $0) }, uniquingKeysWith: { a, _ in a })
+            listed = try await session.perform(.poll) { session in try await session.vehicles(accountID: accountID, known: known, .poll) }
         } catch RenaultError.kamereon(let error) where error.code == KamereonError.forbidden && configuration.kamereonAccountId != nil {
             let accounts = (try? await session.perform(.poll) { session in try await session.accounts(.poll) }) ?? []
             if !accounts.isEmpty, !accounts.contains(where: { $0.id == accountID }) {
-                context.accountRefused("The Kamereon account set up is no longer the person's: set up the account again")
-                throw RenaultError.notSignedIn
+                throw RenaultError.accountGone
             }
             throw RenaultError.kamereon(error)
         }
@@ -185,8 +192,11 @@ public actor RenaultPlugin: HomeswiftPlugin {
         }
         // An empty list is a server problem, not every car gone (3.7).
         guard !listed.vehicles.isEmpty else { return }
-        try? context.jsonFile("renault-vehicles.json", as: [VehicleInfo].self).save(listed.vehicles)
-        let wanted = Set(configuration.vins?.compactMap { VehicleInfo.cleanVIN($0) } ?? [])
+        if listed.vehicles != savedList {
+            try? context.jsonFile(Self.vehiclesFile, as: [VehicleInfo].self).save(listed.vehicles)
+            savedList = listed.vehicles
+        }
+        let wanted = wantedVINs
         var keep: Set<String> = []
         for info in listed.vehicles where !context.isExcluded(info.vin) && (wanted.isEmpty || wanted.contains(info.vin)) {
             keep.insert(Self.accessoryID(vin: info.vin))
@@ -211,7 +221,10 @@ public actor RenaultPlugin: HomeswiftPlugin {
             logger.info("Found \(info.modelName ?? info.modelCode ?? "a vehicle") \(maskedVIN(info.vin))")
             await publish(vehicle)
         }
-        for vin in vehicles.keys where !keep.contains(Self.accessoryID(vin: vin)) { vehicles.removeValue(forKey: vin) }
+        for vin in vehicles.keys where !keep.contains(Self.accessoryID(vin: vin)) {
+            vehicles.removeValue(forKey: vin)
+            builtKeys.removeValue(forKey: vin)
+        }
         _ = await context.removeAccessories(keeping: keep)
         for vehicle in vehicles.values {
             for endpoint in await vehicle.hourlyEndpoints() {
@@ -238,7 +251,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
         let vin = vehicle.info.vin
         guard builtKeys[vin] != keys else { return }
         let id = Self.accessoryID(vin: vin)
-        let previous = context.accessories.first { $0.id == id }
+        let previous = context.accessory(id: id)
         guard let accessory = await vehicle.makeAccessory(id: id, firmware: PluginHost.version, previous: previous) else {
             if builtKeys[vin] == nil { logger.info("\(maskedVIN(vin)) has nothing HomeKit can show: it is left out") }
             builtKeys[vin] = keys
@@ -280,6 +293,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
                     return false
                 }
             }
+            // After the reads: a dropped endpoint no longer counts.
             pollers += await vehicle.roundEndpoints().count
             hourly += await vehicle.hourlyEndpoints().count
             await publish(vehicle)

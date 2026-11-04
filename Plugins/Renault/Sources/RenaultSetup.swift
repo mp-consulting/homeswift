@@ -16,21 +16,21 @@ extension RenaultPlugin {
     public func discover() async throws -> [DiscoveredDevice] {
         let known: [VehicleInfo]
         if vehicles.isEmpty {
-            known = context.jsonFile("renault-vehicles.json", as: [VehicleInfo].self).load() ?? []
+            known = knownVehicles
         } else {
             var running: [VehicleInfo] = []
             for vehicle in vehicles.values { running.append(vehicle.info) }
             known = running
         }
         let dropped = droppedStore.load() ?? [:]
-        let wanted = Set(configuration.vins?.compactMap { VehicleInfo.cleanVIN($0) } ?? [])
+        let wanted = wantedVINs
         return known.sorted { $0.vin < $1.vin }.map { info in
             let parts = context.accessorySettings(for: info.vin).parts
             let available = RenaultVehicle.parts(for: info, dropped: Self.dropped(in: dropped, for: info, forgetAfter: dependencies.timing.forgetDropped))
             var device = DiscoveredDevice(
                 deviceID: info.vin, name: info.displayName, model: info.modelName ?? info.modelCode, isSetUp: true,
                 excludedBySettings: !wanted.isEmpty && !wanted.contains(info.vin), kind: Self.vehicleKind)
-            device.parts = available.map { DevicePart($0.rawValue, name: $0.name, icon: $0.icon, included: parts[$0.rawValue] ?? $0.includedByDefault) }
+            device.parts = available.map { $0.devicePart(included: parts[$0.rawValue]) }
             return device
         }
     }
@@ -51,7 +51,7 @@ extension RenaultPlugin {
             let password = state["password"]?.stringValue ?? request.secret("password")
         else {
             return .ask(SetupPrompt(message: "Sign in with your MyRenault account.", fields: [
-                .choice("locale", label: "Country", options: RenaultLocale.known.map { SetupOption($0, label: Self.localeLabel($0), country: String($0.suffix(2))) }, value: locale),
+                .choice("locale", label: "Country", options: RenaultLocale.known.map(Self.localeOption), value: locale),
                 SetupField("email", label: "E-mail", value: configuration.username),
                 SetupField("password", label: "Password", kind: .secret),
             ]))
@@ -138,15 +138,14 @@ extension RenaultPlugin {
             accountID = chosen
         } else {
             // A session of its own: Setup may run on an instance that never started.
-            let budget = RequestBudget(maxCallsPerHour: maxCalls, hour: dependencies.timing.hour, cooldown: dependencies.timing.cooldown)
-            let session = RenaultSession(
-                http: dependencies.http, locale: locale, credentials: credentials, budget: budget, timing: dependencies.timing, logger: logger
-            ) { _ in }
+            let session = makeSession(locale: locale, credentials: credentials) { _ in }
             var qualified: [(account: KamereonAccount, cars: Int)] = []
             do {
                 let accounts = try await session.perform(.action) { session in try await session.accounts(.action) }
                 for account in accounts {
-                    let cars = (try? await session.perform(.action) { session in try await session.vehicles(accountID: account.id, .action) })?.vehicles.count ?? 0
+                    // Only counted: the details come with the first poll.
+                    let links = (try? await session.perform(.action) { session in try await session.vehicleLinks(accountID: account.id, .action) }) ?? []
+                    let cars = links.filter { VehicleInfo.cleanVIN($0["vin"]?.stringValue ?? $0["vehicleDetails"]?["vin"]?.stringValue) != nil }.count
                     if cars > 0 { qualified.append((account, cars)) }
                 }
             } catch {
@@ -170,11 +169,10 @@ extension RenaultPlugin {
         ]))
     }
 
-    static func localeLabel(_ locale: String) -> String {
-        let english = Locale(identifier: "en_US")
-        let country = english.localizedString(forRegionCode: String(locale.suffix(2))) ?? String(locale.suffix(2))
-        let language = english.localizedString(forLanguageCode: String(locale.prefix(2))) ?? String(locale.prefix(2))
-        return "\(country) (\(language))"
+    /// A locale as a language of a country (`fr_BE`: "French (Belgium)"), so Belgium's two locales stay apart.
+    static func localeOption(_ locale: String) -> SetupOption {
+        let label = Locale(identifier: "en_US").localizedString(forIdentifier: locale) ?? locale
+        return SetupOption(locale, label: label, language: locale.replacingOccurrences(of: "_", with: "-"))
     }
 
     // Settings (docs/plugins.md, "Settings"): `vins` (only these cars) becomes Excluded Accessory Settings of the other
@@ -183,7 +181,7 @@ extension RenaultPlugin {
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         var known: [String] = []
         for vehicle in vehicles.values { known.append(vehicle.info.vin) }
-        if known.isEmpty { known = (context.jsonFile("renault-vehicles.json", as: [VehicleInfo].self).load() ?? []).map(\.vin) }
+        if known.isEmpty { known = knownVehicles.map(\.vin) }
         return Self.canonical(block, knownVINs: known)
     }
 

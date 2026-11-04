@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import HomeswiftPlugin
 
 /// What can go wrong talking to Renault, in words a log or a Setup step can show. Never carries a token, a password, a
@@ -18,11 +19,11 @@ enum RenaultError: Error, CustomStringConvertible, Equatable, Sendable {
     case http(status: Int)
     case invalidJSON
     case unknownLocale(String)
-    /// The endpoint has no URL for the model (the per-model table), refused without a request.
-    case endpointUnavailable(Endpoint, model: String)
     /// The hourly budget of requests is spent (6.1), or Renault said so (6.2's cool-down).
     case quota
     case notSignedIn
+    /// The Kamereon account in the block is no longer the person's.
+    case accountGone
     case missing(String)
 
     var description: String {
@@ -36,9 +37,9 @@ enum RenaultError: Error, CustomStringConvertible, Equatable, Sendable {
         case .http(let status): "Renault answered HTTP \(status)"
         case .invalidJSON: "Renault answered something that is not JSON"
         case .unknownLocale(let locale): "Renault has no servers for the locale \(locale)"
-        case .endpointUnavailable(let endpoint, let model): "\(endpoint.rawValue) is not available for the model \(model)"
         case .quota: "the hourly quota of Renault requests is spent"
         case .notSignedIn: "the Renault account is not set up"
+        case .accountGone: "the Kamereon account set up is no longer the person's"
         case .missing(let what): "Renault's answer has no \(what)"
         }
     }
@@ -46,7 +47,27 @@ enum RenaultError: Error, CustomStringConvertible, Equatable, Sendable {
     /// A refusal of the account (Needs Authorization), not a cloud that does not answer.
     var isRefusal: Bool {
         switch self {
-        case .invalidCredentials, .needsTwoFactor, .loginTokenExpired: true
+        case .invalidCredentials, .needsTwoFactor, .loginTokenExpired, .accountGone: true
+        default: false
+        }
+    }
+
+    /// What Needs Authorization says for a refusal.
+    var refusalReason: String {
+        switch self {
+        case .invalidCredentials: "Renault refused the password"
+        case .needsTwoFactor: "Renault asks for a one-time code: set up the account again"
+        case .loginTokenExpired: "Renault's sign-in expired and no password is stored"
+        case .accountGone: "The Kamereon account set up is no longer the person's: set up the account again"
+        default: description
+        }
+    }
+
+    /// Kamereon refused the JWT: mint a new one and try once more.
+    var isUnauthorizedSession: Bool {
+        switch self {
+        case .kamereon(let error): error.code == KamereonError.unauthorized || error.status == 401
+        case .http(let status): status == 401
         default: false
         }
     }
@@ -90,8 +111,7 @@ struct KamereonError: Error, CustomStringConvertible, Equatable, Sendable {
 
     /// The detail, short and on one line: Renault's texts can echo what was sent.
     private func logSafe(_ text: String) -> String {
-        let line = maskingVINs(in: text.replacingOccurrences(of: "\n", with: " "))
-        return line.count > 160 ? String(line.prefix(160)) + "…" : line
+        maskingVINs(in: logExcerpt(text, limit: 160) ?? "")
     }
 
     /// The readable detail of `errorMessage`: a JSON text with `errors[]` gives each one's `title`, `source.pointer` and
@@ -112,8 +132,10 @@ func maskedVIN(_ vin: String) -> String {
 }
 
 /// `text` with anything shaped like a VIN (17 capital letters and digits) masked.
+private let vinPattern = try? NSRegularExpression(pattern: "\\b[A-HJ-NPR-Z0-9]{17}\\b")
+
 func maskingVINs(in text: String) -> String {
-    guard let pattern = try? NSRegularExpression(pattern: "\\b[A-HJ-NPR-Z0-9]{17}\\b") else { return text }
+    guard text.utf8.count >= 17, let pattern = vinPattern else { return text }
     var result = text
     for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
         guard let range = Range(match.range, in: result) else { continue }

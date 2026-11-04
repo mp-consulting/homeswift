@@ -31,6 +31,11 @@ enum VehiclePart: String, CaseIterable, Sendable {
     /// The horn sounds in the street: off unless a person includes it.
     var includedByDefault: Bool { self != .horn }
 
+    /// The Part as Setup lists it, `included` from the Accessory Settings.
+    func devicePart(included: Bool?) -> DevicePart {
+        DevicePart(rawValue, name: name, icon: icon, included: included ?? includedByDefault)
+    }
+
     var icon: String? {
         switch self {
         case .climate: "fan"
@@ -112,7 +117,6 @@ actor RenaultVehicle {
         self.onDrop = onDrop
     }
 
-    var vin: String { info.vin }
     var logName: String { maskedVIN(info.vin) }
 
     // MARK: What the model has
@@ -153,8 +157,6 @@ actor RenaultVehicle {
     }
 
     func isIncluded(_ part: VehiclePart) -> Bool { options.parts[part.rawValue] ?? part.includedByDefault }
-
-    func devicePart(_ part: VehiclePart) -> DevicePart { DevicePart(part.rawValue, name: part.name, icon: part.icon, included: isIncluded(part)) }
 
     /// The endpoints read each round (6.1): only those something in HomeKit shows.
     func roundEndpoints() -> [Endpoint] {

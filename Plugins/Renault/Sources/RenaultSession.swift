@@ -226,32 +226,25 @@ actor RenaultSession {
 
     /// One Kamereon request, counted; inside `perform`. Kamereon's unauthorized (or a 401) mints a new JWT and tries once
     /// more; the quota error starts the cool-down.
-    func send(_ priority: RequestBudget.Priority, method: String = "GET", path: String, query: [(String, String)] = [], body: JSONValue? = nil, label: String) async throws -> JSONValue {
+    func send(_ priority: RequestBudget.Priority, method: String = "GET", path: String, body: JSONValue? = nil, label: String) async throws -> JSONValue {
         var retried = false
         while true {
             let token = try await currentJWT()
             let servers = try await resolvedServers()
             try await budget.record(retried ? .action : priority)
-            let request = Kamereon.request(method: method, path: path, query: query, body: body, servers: servers, jwt: token, timeout: timing.requestTimeout)
+            let request = Kamereon.request(method: method, path: path, body: body, servers: servers, jwt: token, timeout: timing.requestTimeout)
             let response = try await http.send(request)
             do {
                 let json = try Kamereon.check(response)
                 logger.debug("Renault \(method) \(label): HTTP \(response.status)")
                 return json
-            } catch RenaultError.kamereon(let error) {
-                logger.debug("Renault \(method) \(label): HTTP \(response.status), \(error.code)")
-                if error.code == KamereonError.overloaded { await budget.overloaded() }
-                if !retried, error.code == KamereonError.unauthorized || response.status == 401 {
-                    retried = true
-                    jwt = nil
-                    continue
-                }
-                throw RenaultError.kamereon(error)
-            } catch RenaultError.http(let status) where status == 401 && !retried {
-                logger.debug("Renault \(method) \(label): HTTP 401")
+            } catch let error as RenaultError {
+                let code = if case .kamereon(let kamereon) = error { ", \(kamereon.code)" } else { "" }
+                logger.debug("Renault \(method) \(label): HTTP \(response.status)\(code)")
+                if case .kamereon(let kamereon) = error, kamereon.code == KamereonError.overloaded { await budget.overloaded() }
+                guard !retried, error.isUnauthorizedSession else { throw error }
                 retried = true
-                jwt = nil
-                continue
+                dropJWT()
             }
         }
     }
@@ -264,15 +257,24 @@ actor RenaultSession {
         return Kamereon.accounts(json)
     }
 
-    /// The account's vehicles with their details; a link without details asks for them, and one still without is left
-    /// out (`missing` lists its VIN).
-    func vehicles(accountID: String, _ priority: RequestBudget.Priority) async throws -> (vehicles: [VehicleInfo], missing: [String]) {
+    /// The account's vehicle links.
+    func vehicleLinks(accountID: String, _ priority: RequestBudget.Priority) async throws -> [JSONValue] {
         let json = try await send(priority, path: "\(Kamereon.accountPath(accountID))/vehicles", label: "vehicles")
+        return Array((json["vehicleLinks"]?.arrayValue ?? []).prefix(20))
+    }
+
+    /// The account's vehicles with their details; a link without details takes them from `known`, else asks for them,
+    /// and one still without is left out (`missing` lists its VIN).
+    func vehicles(accountID: String, known: [String: VehicleInfo] = [:], _ priority: RequestBudget.Priority) async throws -> (vehicles: [VehicleInfo], missing: [String]) {
         var vehicles: [VehicleInfo] = []
         var missing: [String] = []
-        for link in (json["vehicleLinks"]?.arrayValue ?? []).prefix(20) {
+        for link in try await vehicleLinks(accountID: accountID, priority) {
             guard let vin = VehicleInfo.cleanVIN(link["vin"]?.stringValue ?? link["vehicleDetails"]?["vin"]?.stringValue) else { continue }
             if let details = link["vehicleDetails"], details.objectValue != nil, let vehicle = VehicleInfo(details: details, vin: vin) {
+                vehicles.append(vehicle)
+                continue
+            }
+            if let vehicle = known[vin] {
                 vehicles.append(vehicle)
                 continue
             }
