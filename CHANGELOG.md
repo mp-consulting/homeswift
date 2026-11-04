@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The APsystems ECU plugin (platform `APsystemsECU`, experimental, a clean-room implementation of the ECU's local
+  protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
+  energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
+  Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
