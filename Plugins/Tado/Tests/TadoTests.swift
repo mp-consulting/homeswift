@@ -454,6 +454,18 @@ struct TadoPluginTests {
         await host.stop()
     }
 
+    @Test func aHomeWithoutAUsernameIsSkipped() async throws {
+        let environment = TestEnvironment()
+        var settings = TestEnvironment.home(zones: [livingRoom])
+        settings["homes"] = [["name": "Holiday Home"]] + (settings["homes"] as? [Any] ?? [])
+        let host = try await environment.start(settings: settings)
+        let plugin = try #require(environment.plugin)
+        await expectEventually({ await plugin.homes.count == 1 })
+        let names = await plugin.homeSettings().map(\.name)
+        #expect(names == ["My Home"])
+        await host.stop()
+    }
+
     @Test func pollingFitsTheDailyLimit() async throws {
         let environment = TestEnvironment()
         let host = try await environment.start(settings: TestEnvironment.home(zones: [livingRoom]))

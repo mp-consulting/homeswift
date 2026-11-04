@@ -79,10 +79,11 @@ public actor TadoPlugin: HomeswiftPlugin {
     func homeSettings(log: Bool = false) -> [HomeSettings] {
         let telegramToken = telegramFile.load()?["token"]
         return configuration.homes.compactMap { json in
-            do {
+            do throws(SkippedHome) {
                 return try HomeSettings(json, telegramToken: telegramToken) { deviceID in self.context.accessorySettings(for: deviceID).plugin }
             } catch {
-                if log, let skipped = error as? SkippedHome { logger.warning("\(skipped.reason): the home is skipped") }
+                // Typed: casting `any Error` to SkippedHome here crashed Swift 6.4.2's optimiser in release builds.
+                if log { logger.warning("\(error.reason): the home is skipped") }
                 return nil
             }
         }
