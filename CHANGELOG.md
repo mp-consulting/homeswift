@@ -67,6 +67,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- On a Synology NAS the vault's key, the vault, config.json, the pairings and the web UI's accounts and tokens are the
+  bridge's alone again: the shared folder gave them its ACL (`-rwxrwxrwx+`), which DSM checks instead of their 0600, so
+  other accounts with access to the share could read them. The package removes that ACL from them at each start, every
+  file the bridge writes is set to 0600 with a chmod (which also bounds a directory's default POSIX ACL), and at start
+  the bridge sets its secrets that others can reach back to 0600 and warns in its log about any still open, from a wide
+  mode or an ACL, on any system (docs/synology.md, "Security").
 - The Home app shows a real serial number for Philips Hue lights and sensors, their device's Zigbee MAC (with the
   light's place after it on a device with several lights, such as a Dymera), rather than the bridge's resource id; a
   device without one keeps the id, as scene switches do. Wingman's mirrors show the serial number Apple Home has for
