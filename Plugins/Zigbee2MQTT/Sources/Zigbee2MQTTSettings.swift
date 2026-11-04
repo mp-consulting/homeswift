@@ -33,14 +33,13 @@ extension Zigbee2MQTTPlugin {
 
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         var canonical = Self.canonical(block, lists: knownLists)
-        guard var fields = canonical.objectValue, var mqtt = fields["mqtt"]?.objectValue, mqtt["password"] != nil else { return canonical }
-        if context.credentials(as: BrokerLogin.self) == nil {
-            // The block may name the password by reference: the running configuration has its value.
-            guard let password = settings?.mqtt.password, !password.isEmpty else { return canonical }
-            guard let server = settings?.mqtt.server else { return canonical }
-            let context = context, login = BrokerLogin(server: server, user: settings?.mqtt.user, password: password)
-            await context.whenSettingsWritten { try context.saveCredentials(login) }
-        }
+        guard var fields = canonical.objectValue, var mqtt = fields["mqtt"]?.objectValue, let written = mqtt["password"]?.stringValue,
+              let server = mqtt["server"]?.stringValue else { return canonical }
+        // The password as written, or, when the block names it by reference or seals it, the running configuration's value.
+        let isReference = ["vault:", "env:", "file:", "enc:"].contains { written.hasPrefix($0) }
+        guard let password = isReference ? settings?.mqtt.password : written, !password.isEmpty else { return canonical }
+        let context = context, login = BrokerLogin(server: server, user: mqtt["user"]?.stringValue, password: password)
+        await context.whenSettingsWritten { try context.saveCredentials(login) }
         mqtt.removeValue(forKey: "password")
         fields["mqtt"] = .object(mqtt)
         canonical = .object(fields)
@@ -65,10 +64,12 @@ extension Zigbee2MQTTPlugin {
         var left: [JSONValue] = []
         for item in list {
             guard let values = item.objectValue, let id = values["id"]?.stringValue, let deviceID = byID[id.lowercased()],
-                  values["exclude"] != .bool(false), moved.insert(deviceID).inserted else {
+                  values["exclude"] != .bool(false) else {
                 left.append(item)
                 continue
             }
+            // Only the first entry for a device ever applied: a later one would apply once the first moved.
+            guard moved.insert(deviceID).inserted else { continue }
             if values["exclude"] == .bool(true) { entries.exclude(deviceID) }
             for key in accessoryKeys {
                 if let value = values[key], !value.isNull { entries.setIfAbsent(key, value, on: deviceID) }

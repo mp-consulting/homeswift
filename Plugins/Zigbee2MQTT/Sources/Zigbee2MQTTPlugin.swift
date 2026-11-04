@@ -91,7 +91,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     /// The broker's password: the block's, or the one Setup put in the vault.
     func mqttSettings(_ settings: Settings) -> Settings.MQTT {
         var mqtt = settings.mqtt
-        if mqtt.password == nil, let stored = context.credentials(as: BrokerLogin.self), stored.server == mqtt.server {
+        if mqtt.password == nil, let stored = context.credentials(as: BrokerLogin.self), stored.server == mqtt.server, mqtt.user == nil || mqtt.user == stored.user {
             mqtt.password = stored.password
             if mqtt.user == nil { mqtt.user = stored.user }
         }
@@ -295,10 +295,14 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         if settings.excludeGroupedDevices, groupList == nil { return }
         for entry in deviceList where entry.hasValidDefinition { createOrUpdate(entry) }
         guard let groupList else { return }
+        // A group skipped (nothing its members share) goes, as a device gone from the list does.
+        var keep = Set(deviceList.map(\.deviceID))
         for group in groupList {
-            if let entry = groupEntry(group, devices: deviceList) { createOrUpdate(entry) }
+            guard let entry = groupEntry(group, devices: deviceList) else { continue }
+            keep.insert(entry.deviceID)
+            createOrUpdate(entry)
         }
-        removeStale(keeping: Set(deviceList.map(\.deviceID)).union(groupList.compactMap { $0["id"]?.intValue.map { "group-\($0)" } }))
+        removeStale(keeping: keep)
     }
 
     /// A group as a device: the exposes all its members share (11).
@@ -402,7 +406,11 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         if let cached = context.accessory(id: accessoryID) { accessory.takeValues(from: cached) }
         let device = DeviceAccessory(entry: entry, options: options, handlers: handlers, accessory: accessory)
         device.availabilityEnabled = availabilityEnabled(entry, options: options)
-        devices[entry.deviceID]?.refresh?.cancel()
+        if let previous = devices[entry.deviceID] {
+            previous.refresh?.cancel()
+            // What Zigbee2MQTT last said of its availability outlives the rebuild.
+            device.online = previous.online
+        }
         devices[entry.deviceID] = device
         indexTopics()
         do {
@@ -432,10 +440,10 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         }
     }
 
-    private func remove(_ id: String) {
+    private func remove(_ id: String, save: Bool = true) {
         devices.removeValue(forKey: id)?.refresh?.cancel()
         indexTopics()
-        saveEntries()
+        if save { saveEntries() }
         let context = self.context
         tasks.add { try? await context.remove(id: Self.accessoryID(deviceID: id)) }
     }
@@ -445,9 +453,12 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             log.debug("Removing \(devices[id]?.entry.friendlyName ?? id): no longer in Zigbee2MQTT")
             remove(id)
         }
-        let keep = Set(devices.keys.map(Self.accessoryID))
-        let context = self.context
-        tasks.add { _ = await context.removeAccessories(keeping: keep) }
+        // What is kept is read when the removal runs, so an accessory a later message added stays.
+        tasks.add { [weak self] in await self?.removeRestoredOnly() }
+    }
+
+    private func removeRestoredOnly() async {
+        _ = await context.removeAccessories(keeping: Set(devices.keys.map(Self.accessoryID)))
     }
 
     private func saveEntries() {
@@ -465,12 +476,14 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             let options = effectiveOptions(entry, settings)
             if isExcluded(entry, options: options) {
                 log.warning("Removing the excluded \(entry.friendlyName) (\(entry.ieeeAddress)) restored from the cache")
-                remove(id)
+                // Not saved yet: the entries not rebuilt so far would be lost.
+                remove(id, save: false)
                 continue
             }
             log.info("Restoring accessory \(entry.friendlyName)")
             build(entry, options: options)
         }
+        saveEntries()
     }
 
     private func receivedState(_ id: String, _ payload: Data) {

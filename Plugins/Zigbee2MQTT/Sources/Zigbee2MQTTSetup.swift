@@ -68,7 +68,7 @@ extension Zigbee2MQTTPlugin {
         let user = request.answer("user")
         // The password kept in the vault goes only to the broker and user it was given for, never to another address.
         let stored = context.credentials(as: BrokerLogin.self)
-        let sameBroker = stored?.server == server && mqtt["user"]?.stringValue == user
+        let sameBroker = stored?.server == server && stored?.user == user
         let password = request.secret("password") ?? (sameBroker ? stored?.password : nil)
         mqtt["server"] = .string(server)
         mqtt["base_topic"] = .string(base)

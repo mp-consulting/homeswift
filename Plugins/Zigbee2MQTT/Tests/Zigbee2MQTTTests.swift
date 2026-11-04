@@ -471,7 +471,9 @@ struct Zigbee2MQTTTests {
         #expect(await eventually { light.characteristic(.on).value == .bool(true) })
         // A device list on its own (a broker resending it) does not drop the group.
         environment.send("bridge/devices", "[" + [Fixtures.light, Fixtures.hsBulb].joined(separator: ",") + "]")
-        try await Task.sleep(for: .milliseconds(100))
+        // Messages are handled in order: once this shows, the device list was too, and its removals ran.
+        environment.send("5", #"{"state":"OFF"}"#)
+        #expect(await eventually { light.characteristic(.on).value == .bool(false) })
         #expect(host.accessory("group-5") === accessory)
         // A device gone from the list goes.
         environment.send("bridge/devices", "[" + Fixtures.light + "]")
@@ -509,8 +511,9 @@ struct Zigbee2MQTTTests {
     @Test func anInvalidConfigurationDoesNothing() async throws {
         let host = try await environment.start(["mqtt": ["server": "mqtt://localhost"]])
         defer { Task { await host.stop() } }
-        try await Task.sleep(for: .milliseconds(50))
+        // `start()` has returned: it connected to nothing.
         #expect(environment.allConnections.isEmpty)
+        #expect(await environment.plugin?.settings == nil)
     }
 
     @Test func setupChecksTheBrokerAndKeepsThePasswordOut() async throws {
