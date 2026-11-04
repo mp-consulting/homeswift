@@ -10,9 +10,7 @@ enum EveTypes {
         CharacteristicType(name: name, uuid: HAPUUID(uuid), format: .float, permissions: [.pairedRead, .events], minValue: 0, maxValue: max, minStep: step)
     }
 
-    static let airPressure = CharacteristicType(
-        name: "Air Pressure", uuid: HAPUUID("E863F10F-079E-48FF-8F27-9C2605A29F52"), format: .uint16, permissions: [.pairedRead, .events],
-        minValue: 700, maxValue: 1100, minStep: 1)
+    static let airPressure = EveCharacteristic.airPressure
     static let airPressureSensor = ServiceType(name: "AirPressureSensor", uuid: HAPUUID("E863F00A-079E-48FF-8F27-9C2605A29F52"), required: [airPressure], optional: [.name])
     static let consumption = float("Consumption", "E863F10D-079E-48FF-8F27-9C2605A29F52", max: 65535, step: 0.1)
     static let voltage = float("Voltage", "E863F10A-079E-48FF-8F27-9C2605A29F52", max: 500, step: 0.1)
@@ -88,6 +86,9 @@ extension ServiceBuilder {
         /// The characteristic's type when the entry has no range of its own.
         var defaultRange: CharacteristicType?
         var abnormalAt: Double?
+        /// False for a reading whose range is HomeKit's own whatever the entry says (Eve's air pressure).
+        var copiesRange = true
+        var initialValue: HAPValue?
 
         static func endpoint(_ endpoint: String?) -> String? { endpoint }
         static func before(_ word: String) -> (String?) -> String? { { $0.map { "\(word) \($0)" } ?? word } }
@@ -106,7 +107,8 @@ extension ServiceBuilder {
                        subtype: SensorKind.endpoint, defaultRange: .currentTemperature.with(minValue: -100, maxValue: 100)),
             SensorKind(names: ["illuminance_lux", "illuminance"], numeric: true, service: .lightSensor, characteristic: .currentAmbientLightLevel, mapping: .number,
                        subtype: SensorKind.endpoint, defaultRange: .currentAmbientLightLevel.with(minValue: 0)),
-            SensorKind(names: ["pressure"], numeric: true, service: EveTypes.airPressureSensor, characteristic: EveTypes.airPressure, mapping: .number, subtype: SensorKind.endpoint),
+            SensorKind(names: ["pressure"], numeric: true, service: EveTypes.airPressureSensor, characteristic: EveTypes.airPressure, mapping: .number, subtype: SensorKind.endpoint,
+                       copiesRange: false, initialValue: .int(1013)),
             SensorKind(names: ["contact"], numeric: false, service: .contactSensor, characteristic: .contactSensorState, mapping: detected, subtype: SensorKind.endpoint),
             occupancy,
             SensorKind(names: ["presence"], numeric: false, service: .occupancySensor, characteristic: .occupancyDetected, mapping: detected, subtype: SensorKind.before("presence")),
@@ -135,15 +137,14 @@ extension ServiceBuilder {
                     let subtype = kind.subtype(endpoint)
                     guard claim(kind.service, subtype: subtype) else { continue }
                     var optional: [CharacteristicType] = []
-                    // Air pressure keeps Eve's 700-1100 hPa.
-                    if kind.numeric, kind.characteristic != EveTypes.airPressure {
+                    if kind.numeric, kind.copiesRange {
                         optional.append(entry.isNumericRange ? ranged(kind.characteristic, entry) : kind.defaultRange ?? kind.characteristic)
                     }
                     if batteryLow != nil { optional.append(.statusLowBattery) }
                     if tamper != nil { optional.append(.statusTampered) }
                     // An optional type the service requires replaces it, with the entry's range.
                     let service = service(kind.service, subtype: subtype, optional: optional)
-                    if kind.characteristic == EveTypes.airPressure { service.characteristic(EveTypes.airPressure).value = .int(1013) }
+                    if let initial = kind.initialValue { service.characteristic(kind.characteristic).value = initial }
                     add(SensorHandler(service: service, entry: entry, characteristic: kind.characteristic, mapping: kind.mapping, batteryLow: batteryLow,
                                       tamper: tamper, abnormalAt: kind.abnormalAt, link: link))
                 }

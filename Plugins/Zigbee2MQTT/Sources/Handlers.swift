@@ -94,18 +94,16 @@ final class ServiceBuilder {
     let friendlyName: String
     /// The IEEE address, or a group's id.
     let fallbackName: String
-    let accessoryID: String
     let options: DeviceOptions
     let link: DeviceLink
     let adaptiveLighting: (Service) -> AdaptiveLightingController?
     private(set) var handlers: [any ServiceHandler] = []
     private var identities = Set<String>()
 
-    init(friendlyName: String, fallbackName: String, accessoryID: String, options: DeviceOptions, link: DeviceLink,
+    init(friendlyName: String, fallbackName: String, options: DeviceOptions, link: DeviceLink,
          adaptiveLighting: @escaping (Service) -> AdaptiveLightingController?) {
         self.friendlyName = friendlyName
         self.fallbackName = fallbackName
-        self.accessoryID = accessoryID
         self.options = options
         self.link = link
         self.adaptiveLighting = adaptiveLighting
@@ -139,12 +137,8 @@ final class ServiceBuilder {
 
     /// Every converter, in the order of section 8.
     func build(_ exposes: [Expose]) -> [any ServiceHandler] {
-        let converters: [(String, ([Expose]) -> Void)] = [
-            ("light", buildLights), ("switch", buildSwitches), ("cover", buildCovers), ("lock", buildLocks), ("sensor", buildBasicSensors),
-            ("air quality", buildAirQuality), ("electrical", buildElectrical), ("action", buildActions), ("thermostat", buildThermostats),
-            ("battery", buildBatteries),
-        ]
-        for (_, converter) in converters { converter(exposes) }
+        let converters = [buildLights, buildSwitches, buildCovers, buildLocks, buildBasicSensors, buildAirQuality, buildElectrical, buildActions, buildThermostats, buildBatteries]
+        for converter in converters { converter(exposes) }
         return handlers
     }
 
@@ -201,8 +195,8 @@ final class LightHandler: ServiceHandler, @unchecked Sendable {
         self.link = link
         self.state = state
         self.options = builder.options.light
-        let brightness = expose.feature("brightness").flatMap { $0.isNumericRange && $0.isPublished && $0.isSettable ? $0 : nil }
-        let colorTemperature = expose.feature("color_temp").flatMap { $0.isNumericRange && $0.isPublished && $0.isSettable ? $0 : nil }
+        let brightness = expose.feature("brightness").flatMap { $0.isSettableRange ? $0 : nil }
+        let colorTemperature = expose.feature("color_temp").flatMap { $0.isSettableRange ? $0 : nil }
         func composite(_ name: String, _ a: String, _ b: String) -> (String, Expose, Expose)? {
             guard let entry = features.first(where: { $0.type == "composite" && $0.name == name }), let property = entry.property,
                   let first = entry.features?.first(where: { $0.name == a }), let second = entry.features?.first(where: { $0.name == b }),
@@ -412,6 +406,8 @@ final class LockHandler: ServiceHandler, @unchecked Sendable {
     private let state: Expose
     private let lockState: Expose
 
+    static let currentStates = ["locked": 1, "unlocked": 0, "not_fully_locked": 2]
+
     init(service: Service, state: Expose, lockState: Expose, link: DeviceLink) {
         self.service = service
         self.state = state
@@ -426,7 +422,7 @@ final class LockHandler: ServiceHandler, @unchecked Sendable {
     func update(_ message: [String: JSONValue]) {
         if let property = state.property, let on = state.onOff(message[property]) { service.characteristic(.lockTargetState).value = .int(on ? 1 : 0) }
         if let property = lockState.property, let value = message[property]?.stringValue,
-           let current = ["locked": 1, "unlocked": 0, "not_fully_locked": 2][value] {
+           let current = Self.currentStates[value] {
             service.characteristic(.lockCurrentState).value = .int(current)
         }
     }

@@ -2,8 +2,8 @@ import Foundation
 import HomeswiftPlugin
 
 enum Names {
+    /// Kept among letters and numbers, and stripped from the start.
     private static let kept: Set<Character> = ["\u{2019}", " ", "'", ".", ",", "-"]
-    private static let leading: Set<Character> = ["\u{2019}", " ", "'", ".", ",", "-"]
     private static let trailing: Set<Character> = [" ", "'", ".", ",", "-"]
 
     private static func isLetterOrNumber(_ scalar: Unicode.Scalar) -> Bool {
@@ -29,7 +29,7 @@ enum Names {
             }
         }
         while result.contains("  ") { result = result.replacingOccurrences(of: "  ", with: " ") }
-        while let first = result.first, leading.contains(first) { result.removeFirst() }
+        while let first = result.first, kept.contains(first) { result.removeFirst() }
         while let last = result.last, trailing.contains(last) { result.removeLast() }
         return result.isEmpty ? nil : result
     }

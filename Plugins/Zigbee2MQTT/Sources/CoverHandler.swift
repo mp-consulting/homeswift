@@ -155,7 +155,7 @@ extension ServiceBuilder {
         for expose in exposes where expose.type == "cover" {
             guard let features = expose.features else { continue }
             func movable(_ name: String) -> Expose? {
-                features.first { $0.name == name && $0.isNumericRange && $0.isPublished && $0.isSettable }
+                features.first { $0.name == name && $0.isSettableRange }
             }
             var position = movable("position")
             var tilt = movable("tilt")

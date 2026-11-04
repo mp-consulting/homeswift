@@ -73,24 +73,27 @@ struct DeviceEntry: Codable, Sendable, Equatable {
 
 /// A device's accessory and what the plugin keeps of it.
 final class DeviceAccessory {
-    var entry: DeviceEntry
-    var options: DeviceOptions
-    var handlers: [any ServiceHandler]
-    var accessory: Accessory
+    let entry: DeviceEntry
+    let options: DeviceOptions
+    let handlers: [any ServiceHandler]
+    let accessory: Accessory
+    /// What a `get` asks for, from every handler.
+    let gettableKeys: [String]
     /// Zigbee2MQTT reports this device's availability (10.1).
     var availabilityEnabled = true
     /// Its last availability message.
     var online = true
     var refresh: Task<Void, Never>?
+    /// Its last state message.
+    var lastState: ContinuousClock.Instant?
 
     init(entry: DeviceEntry, options: DeviceOptions, handlers: [any ServiceHandler], accessory: Accessory) {
         self.entry = entry
         self.options = options
         self.handlers = handlers
         self.accessory = accessory
+        gettableKeys = handlers.flatMap(\.gettableKeys)
     }
-
-    var gettableKeys: [String] { handlers.flatMap(\.gettableKeys) }
 
     deinit { refresh?.cancel() }
 }
@@ -105,7 +108,7 @@ final class Publisher: Sendable {
 
     let baseTopic: String
     private let connection: any MQTTConnection
-    private let qos: (set: MQTTQoS, get: MQTTQoS)
+    private let qos: MQTTQoS
     private let log: Log
     private let level: Settings.PublishLevel
     private let coalesce: LatestCallGuard
@@ -119,7 +122,7 @@ final class Publisher: Sendable {
         self.connection = connection
         baseTopic = settings.mqtt.baseTopic
         // QoS 2 is not sent by Homeswift's MQTT client: `set` goes at least once.
-        qos = settings.mqtt.disableQoS ? (.atMostOnce, .atMostOnce) : (.atLeastOnce, .atLeastOnce)
+        qos = settings.mqtt.disableQoS ? .atMostOnce : .atLeastOnce
         self.log = log
         level = settings.publishLevel
         coalesce = LatestCallGuard(delay: coalescing)
@@ -149,9 +152,9 @@ final class Publisher: Sendable {
 
     private func flush(_ topic: String) async {
         guard let taken = pending.withLockedValue({ $0.removeValue(forKey: topic) }) else { return }
-        if !taken.set.isEmpty { await publish("\(baseTopic)/\(topic)/set", .object(taken.set), qos: qos.set) }
+        if !taken.set.isEmpty { await publish("\(baseTopic)/\(topic)/set", .object(taken.set), qos: qos) }
         if !taken.get.isEmpty {
-            await publish("\(baseTopic)/\(topic)/get", .object(Dictionary(taken.get.map { ($0, JSONValue.number(0)) }) { a, _ in a }), qos: qos.get)
+            await publish("\(baseTopic)/\(topic)/get", .object(Dictionary(taken.get.map { ($0, JSONValue.number(0)) }) { a, _ in a }), qos: qos)
         }
     }
 

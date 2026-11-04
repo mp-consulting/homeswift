@@ -36,7 +36,7 @@ extension Zigbee2MQTTPlugin {
         guard var fields = canonical.objectValue, var mqtt = fields["mqtt"]?.objectValue, let written = mqtt["password"]?.stringValue,
               let server = mqtt["server"]?.stringValue else { return canonical }
         // The password as written, or, when the block names it by reference or seals it, the running configuration's value.
-        let isReference = ["vault:", "env:", "file:", "enc:"].contains { written.hasPrefix($0) }
+        let isReference = SecretReference(written) != nil || SecretBox.isSealed(written)
         guard let password = isReference ? settings?.mqtt.password : written, !password.isEmpty else { return canonical }
         let context = context, login = BrokerLogin(server: server, user: mqtt["user"]?.stringValue, password: password)
         await context.whenSettingsWritten { try context.saveCredentials(login) }

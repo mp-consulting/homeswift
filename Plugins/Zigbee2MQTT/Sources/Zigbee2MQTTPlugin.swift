@@ -65,7 +65,9 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     private var availability: AvailabilityConfiguration?
     private var version: String?
     private var bridgeOffline = false
-    private var seenBridgeOffline = false
+    /// The topic index and devices.json wait for the end of a sync, rather than following each device.
+    private var topicsChanged = false
+    private var entriesChanged = false
     private var brokerDown = false
     private var everConnected = false
     private var reportedDisconnection = false
@@ -293,12 +295,14 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         guard let settings, let deviceList else { return }
         // Devices that are in a group may be left out: that needs the group list.
         if settings.excludeGroupedDevices, groupList == nil { return }
+        defer { saveChanges() }
         for entry in deviceList where entry.hasValidDefinition { createOrUpdate(entry) }
         guard let groupList else { return }
         // A group skipped (nothing its members share) goes, as a device gone from the list does.
         var keep = Set(deviceList.map(\.deviceID))
+        let byAddress = Dictionary(deviceList.map { ($0.ieeeAddress, $0) }) { first, _ in first }
         for group in groupList {
-            guard let entry = groupEntry(group, devices: deviceList) else { continue }
+            guard let entry = groupEntry(group, devices: byAddress) else { continue }
             keep.insert(entry.deviceID)
             createOrUpdate(entry)
         }
@@ -306,9 +310,8 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     }
 
     /// A group as a device: the exposes all its members share (11).
-    private func groupEntry(_ group: JSONValue, devices: [DeviceEntry]) -> DeviceEntry? {
+    private func groupEntry(_ group: JSONValue, devices byAddress: [String: DeviceEntry]) -> DeviceEntry? {
         guard let id = group["id"]?.intValue, let name = group["friendly_name"]?.stringValue else { return nil }
-        let byAddress = Dictionary(devices.map { ($0.ieeeAddress, $0) }) { first, _ in first }
         var exposes: [Expose]?
         for member in group["members"]?.arrayValue ?? [] {
             guard let address = member["ieee_address"]?.stringValue, let device = byAddress[address], let own = device.definition?.exposes else {
@@ -364,7 +367,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             if devices[id] != nil || context.accessory(id: Self.accessoryID(deviceID: id)) != nil { remove(id) }
             return
         }
-        if let existing = devices[id], existing.entry.sameInformation(as: entry), existing.options == options {
+        if let existing = devices[id], (existing.entry == entry || existing.entry.sameInformation(as: entry)), existing.options == options {
             existing.availabilityEnabled = availabilityEnabled(entry, options: options)
             applyAvailability(existing)
             return
@@ -372,7 +375,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         let isNew = devices[id] == nil && context.accessory(id: Self.accessoryID(deviceID: id)) == nil
         guard let device = build(entry, options: options) else { return }
         if isNew { log.info("New accessory: \(entry.friendlyName) (\(device.accessory.name))") }
-        saveEntries()
+        entriesChanged = true
     }
 
     /// Builds the accessory and puts it on the bridge, in place of the one with its id.
@@ -395,7 +398,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             set: { [publisher] in publisher.set(topic, $0) }, get: { [publisher] in publisher.get(topic, $0) })
         let context = self.context
         let builder = ServiceBuilder(
-            friendlyName: entry.friendlyName, fallbackName: entry.ieeeAddress, accessoryID: accessoryID, options: options, link: link,
+            friendlyName: entry.friendlyName, fallbackName: entry.ieeeAddress, options: options, link: link,
             adaptiveLighting: { context.adaptiveLighting(for: $0, accessoryID: accessoryID) })
         let handlers = builder.build(filtered.definition?.exposes ?? [])
         let accessory = Accessory(
@@ -412,7 +415,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             device.online = previous.online
         }
         devices[entry.deviceID] = device
-        indexTopics()
+        topicsChanged = true
         do {
             try context.add(accessory)
         } catch {
@@ -440,10 +443,10 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         }
     }
 
-    private func remove(_ id: String, save: Bool = true) {
+    private func remove(_ id: String) {
         devices.removeValue(forKey: id)?.refresh?.cancel()
-        indexTopics()
-        if save { saveEntries() }
+        topicsChanged = true
+        entriesChanged = true
         let context = self.context
         tasks.add { try? await context.remove(id: Self.accessoryID(deviceID: id)) }
     }
@@ -461,7 +464,12 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         _ = await context.removeAccessories(keeping: Set(devices.keys.map(Self.accessoryID)))
     }
 
-    private func saveEntries() {
+    /// The topic index and devices.json, once the accessories changed.
+    private func saveChanges() {
+        if topicsChanged { indexTopics() }
+        topicsChanged = false
+        guard entriesChanged else { return }
+        entriesChanged = false
         do {
             try storedEntries.save(devices.mapValues(\.entry))
         } catch {
@@ -476,14 +484,13 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             let options = effectiveOptions(entry, settings)
             if isExcluded(entry, options: options) {
                 log.warning("Removing the excluded \(entry.friendlyName) (\(entry.ieeeAddress)) restored from the cache")
-                // Not saved yet: the entries not rebuilt so far would be lost.
-                remove(id, save: false)
+                remove(id)
                 continue
             }
             log.info("Restoring accessory \(entry.friendlyName)")
             build(entry, options: options)
         }
-        saveEntries()
+        saveChanges()
     }
 
     private func receivedState(_ id: String, _ payload: Data) {
@@ -499,24 +506,33 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             log.error("Could not parse the state of \(device.entry.friendlyName): \(String(decoding: payload.prefix(512), as: UTF8.self))")
             return
         }
-        restartRefresh(device)
+        device.lastState = .now
+        if device.refresh == nil { startRefresh(device) }
         let state = object.filter { !$0.value.isNull }
         for handler in device.handlers { handler.update(state) }
         log.debug("Handled device update for \(id): \(String(decoding: payload.prefix(512), as: UTF8.self))")
     }
 
-    /// Asks for every gettable property after four hours without a state message, then every four hours (6.6).
-    private func restartRefresh(_ device: DeviceAccessory) {
-        device.refresh?.cancel()
-        let interval = dependencies.refreshInterval
-        let keys = device.gettableKeys, topic = device.entry.commandTopic
-        guard !keys.isEmpty, let publisher else { return }
-        device.refresh = Task {
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: interval) } catch { return }
-                publisher.get(topic, keys)
+    /// Asks for every gettable property after four hours without a state message, then every four hours (6.6): one
+    /// task per device, started by its first state message, that sleeps until the device has been silent that long.
+    private func startRefresh(_ device: DeviceAccessory) {
+        guard !device.gettableKeys.isEmpty else { return }
+        let id = device.entry.deviceID, interval = dependencies.refreshInterval
+        device.refresh = Task { [weak self] in
+            while let wait = await self?.refreshWait(id, interval: interval) {
+                do { try await Task.sleep(for: wait) } catch { return }
             }
         }
+    }
+
+    /// Sends the `get` once the device was silent `interval`; answers how long until the next check, nil once it is gone.
+    private func refreshWait(_ id: String, interval: Duration) -> Duration? {
+        guard let device = devices[id], let last = device.lastState else { return nil }
+        let silent = ContinuousClock.now - last
+        guard silent >= interval else { return interval - silent }
+        publisher?.get(device.entry.commandTopic, device.gettableKeys)
+        device.lastState = .now
+        return interval
     }
 
     // MARK: Availability (10)
@@ -529,7 +545,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     /// No Response while Zigbee2MQTT says the device is offline, or while Zigbee2MQTT or the broker is.
     private func applyAvailability(_ device: DeviceAccessory) {
         let deviceOffline = device.availabilityEnabled && !device.online
-        let bridgeDown = !device.options.ignoreZ2MOnline && (brokerDown || (seenBridgeOffline && bridgeOffline))
+        let bridgeDown = !device.options.ignoreZ2MOnline && (brokerDown || bridgeOffline)
         let unavailable = deviceOffline || bridgeDown
         if device.accessory.isUnavailable != unavailable {
             log.debug("\(device.entry.friendlyName) is \(unavailable ? "unavailable" : "available")")
@@ -560,11 +576,10 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         bridgeOffline = offline
         if offline {
             log.error("Zigbee2MQTT is OFFLINE")
-            seenBridgeOffline = true
         } else {
             log.info("Zigbee2MQTT is online")
         }
-        if seenBridgeOffline { applyAvailabilityToAll() }
+        applyAvailabilityToAll()
     }
 
     private func receivedInfo(_ payload: Data) {

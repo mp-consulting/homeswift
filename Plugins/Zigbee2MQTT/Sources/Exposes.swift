@@ -71,6 +71,8 @@ struct Expose: Codable, Sendable, Equatable {
     var isNumericRange: Bool { hasProperty && type == "numeric" && valueMin != nil && valueMax != nil }
     var isBinary: Bool { hasProperty && type == "binary" && valueOn != nil && valueOff != nil }
     var isEnum: Bool { hasProperty && type == "enum" && !(values ?? []).isEmpty }
+    /// A range HomeKit may set and the device reports.
+    var isSettableRange: Bool { isNumericRange && isPublished && isSettable }
     /// The enum's values as text.
     var valueStrings: [String] { (values ?? []).map { $0.stringValue ?? $0.text() } }
 
