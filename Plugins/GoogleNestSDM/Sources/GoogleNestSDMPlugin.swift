@@ -139,7 +139,7 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
                 devicesLoaded = true
                 return
             } catch {
-                if attempt == 0 || (error as? NestError)?.isRateLimit == false {
+                if attempt == 0 || !((error as? NestError)?.isRateLimit ?? false) {
                     logger.error("Could not execute device LIST request: \(error)")
                 }
                 try? await Task.sleep(for: Self.retry.delay(attempt: attempt) * dependencies.timeScale)
@@ -169,7 +169,12 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
                     let camera = try NestCamera(device: device, options: options, tools: cameraTools(), log: logger)
                     await camera.start()
                     context.configureController(camera.controller, accessoryID: camera.accessory.id)
-                    try await context.publishExternal(camera.accessory)
+                    do {
+                        try await context.publishExternal(camera.accessory)
+                    } catch {
+                        await camera.stop()
+                        throw error
+                    }
                     keep.insert(camera.accessory.id)
                     cameras[device.name] = camera
                 }
@@ -301,7 +306,8 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
             if thermostat.apply(traits) { rebuild(resource) }
         }
         if event.events != nil, let camera = cameras[resource] {
-            await camera.handle(event)
+            // A camera's image fetch does not hold back the events after it.
+            Task { await camera.handle(event) }
         }
     }
 }

@@ -136,6 +136,14 @@ struct GoogleNestSDMTests {
         try await service[.heatingThresholdTemperature]?.write(.double(19))
         #expect(environment.google.command("ThermostatTemperatureSetpoint.SetRange").last
             == ["command": "sdm.devices.commands.ThermostatTemperatureSetpoint.SetRange", "params": ["heatCelsius": 19, "coolCelsius": 24]])
+        // Both handles of the slider at once: one command with both.
+        let heating = try #require(service[.heatingThresholdTemperature]), cooling = try #require(service[.coolingThresholdTemperature])
+        async let heat: Void = heating.write(.double(18.5))
+        async let cool: Void = cooling.write(.double(25))
+        _ = try await (heat, cool)
+        let ranges = environment.google.command("ThermostatTemperatureSetpoint.SetRange")
+        #expect(ranges.count == 2)
+        #expect(ranges.last?["params"] == ["heatCelsius": 18.5, "coolCelsius": 25])
         // The target temperature belongs to heat and cool.
         await #expect(throws: HAPStatusError.self) { try await service[.targetTemperature]?.write(.double(20)) }
         await host.stop()

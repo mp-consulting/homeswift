@@ -113,8 +113,14 @@ extension GoogleNestSDMPlugin {
     /// Plugin Settings as they are; the plugin has no per-device settings.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         guard var fields = block.objectValue, fields["clientSecret"] != nil || fields["refreshToken"] != nil else { return block }
-        // The block may only name a secret (a `vault:` reference, a sealed copy): the running configuration has it resolved.
-        let secret = configuration.clientSecret, token = configuration.refreshToken
+        // A plain value in the block is the person's latest; one it only names (a `vault:` reference, a sealed copy) is the
+        // running configuration's, resolved.
+        func value(_ key: String, running: String?) -> String? {
+            guard let text = fields[key]?.stringValue.nonEmptyText else { return nil }
+            let named = ["vault:", "env:", "file:", "enc:"].contains { text.hasPrefix($0) }
+            return named ? running : text
+        }
+        let secret = value("clientSecret", running: configuration.clientSecret), token = value("refreshToken", running: configuration.refreshToken)
         let context = context, tokenFile = tokens
         let held = context.credentials()?.objectValue ?? [:]
         await context.whenSettingsWritten {
@@ -126,8 +132,8 @@ extension GoogleNestSDMPlugin {
             // A refresh token put in the block is the person's latest: it replaces the one kept.
             if let token { try tokenFile.save(StoredToken(refreshToken: token)) }
         }
-        if secret != nil || held["clientSecret"] != nil { fields.removeValue(forKey: "clientSecret") }
-        if token != nil || tokens.load() != nil { fields.removeValue(forKey: "refreshToken") }
+        if secret != nil { fields.removeValue(forKey: "clientSecret") }
+        if token != nil { fields.removeValue(forKey: "refreshToken") }
         return .object(fields)
     }
 }

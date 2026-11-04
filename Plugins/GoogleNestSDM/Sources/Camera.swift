@@ -110,7 +110,8 @@ final class NestCamera: @unchecked Sendable {
             log.debug("\(device.displayName): camera event is too old (\(Int(now.timeIntervalSince(event.timestamp ?? now))) sec), ignoring.")
             return
         }
-        if let thread = event.threadState, thread != "STARTED" { return }
+        // Updates and ends of a thread repeat what its start said; a clip preview comes in an update when it is ready.
+        let started = event.threadState.map { $0 == "STARTED" } ?? true
         let webRTC = device.isWebRTC
         // An RTSP device's image comes first, once for a message whose motion and person share their event.
         var fetched: Set<String> = []
@@ -118,7 +119,7 @@ final class NestCamera: @unchecked Sendable {
             guard !webRTC, let id = value["eventId"]?.stringValue, fetched.insert(id).inserted else { return }
             await fetchImage(id)
         }
-        for (key, value) in events.sorted(by: { $0.key < $1.key }) {
+        for (key, value) in events.sorted(by: { $0.key < $1.key }) where started || key == "sdm.devices.events.CameraClipPreview.ClipPreview" {
             switch key {
             case "sdm.devices.events.CameraMotion.Motion", "sdm.devices.events.CameraPerson.Person":
                 await image(value)

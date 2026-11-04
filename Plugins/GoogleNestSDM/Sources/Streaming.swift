@@ -133,6 +133,8 @@ typealias StreamOpener = @Sendable () async throws -> RTSPStream
 /// interval) ends a stream nobody watches.
 actor NestStreamer: CameraStreamingDelegate {
     static let preparedLifetime: Duration = .seconds(60)
+    /// How long a stream may go without HomeKit's first RTCP report.
+    static let firstReportWait: Duration = .seconds(60)
 
     private let name: String
     private let webRTC: Bool
@@ -166,6 +168,8 @@ actor NestStreamer: CameraStreamingDelegate {
     private var prepared: [String: Prepared] = [:]
     private var sessions: [String: Session] = [:]
     private var nextToken = 0
+    /// Sessions whose SDM stream is being made; a stop takes them out.
+    private var starting: Set<String> = []
 
     init(name: String, webRTC: Bool, options: NestOptions, ffmpeg: NestFFmpeg, ports: RtpPortAllocator, open: @escaping StreamOpener,
          snapshot: @escaping @Sendable () async -> Data, log: Logger, timeScale: Double) {
@@ -235,14 +239,22 @@ actor NestStreamer: CameraStreamingDelegate {
         let video = request.video
         log.debug("\(name): video stream requested: \(video.width) x \(video.height), \(video.fps) fps, \(video.maxBitRate) kbps")
         let stream: RTSPStream
+        starting.insert(request.sessionID)
         do {
             stream = try await open()
         } catch {
+            starting.remove(request.sessionID)
             release(entry)
             log.error("\(name): \(error)")
             throw HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
         }
         let audio = await ffmpeg.liveAudioEncoder()
+        // A stop that came while the stream was made ends it here.
+        guard starting.remove(request.sessionID) != nil else {
+            release(entry)
+            await stream.stop()
+            return
+        }
         if audio == nil { log.warning("\(name): FFmpeg has no AAC-ELD encoder (libfdk_aac, or aac_at on macOS): the stream has no audio.") }
         let arguments = FFmpegArguments.live(input: FFmpegArguments.input(rtspURL: stream.url, options: options), request: request, target: entry.target,
                                              options: options, audioEncoder: audio)
@@ -280,11 +292,16 @@ actor NestStreamer: CameraStreamingDelegate {
         let reader = Task {
             for await _ in socket.datagrams { lastActivity.withLockedValue { $0 = .now } }
         }
+        let started = ContinuousClock.now
         return Task { [weak self] in
             defer { reader.cancel() }
             while !Task.isCancelled {
-                // The timer starts with the first datagram.
+                // The timer starts with the first datagram; one that never comes ends the stream after a minute.
                 guard let last = lastActivity.withLockedValue({ $0 }) else {
+                    if ContinuousClock.now - started > max(timeout, Self.firstReportWait) {
+                        await self?.inactive(sessionID: sessionID, token: token)
+                        return
+                    }
                     try? await Task.sleep(for: timeout)
                     continue
                 }
@@ -318,6 +335,7 @@ actor NestStreamer: CameraStreamingDelegate {
 
     /// Stops a stream: its watcher and socket, FFmpeg and the SDM stream.
     func stopStream(_ sessionID: String, token: Int? = nil) async {
+        if token == nil { starting.remove(sessionID) }
         if let entry = prepared.removeValue(forKey: sessionID) { release(entry) }
         guard let session = sessions[sessionID], token == nil || session.token == token else { return }
         sessions.removeValue(forKey: sessionID)
@@ -447,7 +465,8 @@ final class NestRecorder: CameraRecordingDelegate, @unchecked Sendable {
             }
         }
         process.stop()
-        await stream.stop()
+        // The recording ends by being cancelled: its stop is sent from a task of its own.
+        await Task { await stream.stop() }.value
         guard listening else { throw StreamError("FFmpeg process creation failed") }
         if corrupt { throw StreamError("FFmpeg wrote an invalid MP4 box") }
     }

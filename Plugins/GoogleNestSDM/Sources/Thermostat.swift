@@ -151,6 +151,8 @@ final class NestThermostat: @unchecked Sendable {
     private let log: Logger
     /// A slider sends one command, not one per step of the drag (the thermostat allows 5 a minute).
     private let setpoints = LatestCallGuard(delay: .milliseconds(600))
+    /// The thresholds written since the last SetRange, by Google's key.
+    private let pendingRange = NIOLockedValueBox<[String: Double]>([:])
 
     /// The Eco characteristic (section 5.1): its UUID is the Homebridge plugin's, so its iid stays.
     static let ecoType = CharacteristicType(
@@ -257,13 +259,18 @@ final class NestThermostat: @unchecked Sendable {
                 guard let self, let celsius = value.doubleValue else { return }
                 let state = state
                 guard state.canSetThresholds else { throw refused("Set the thresholds in auto, with eco off") }
+                // Both handles of the Home app's slider arrive together: the last write sends both, the other end of the
+                // range from the cache when only one moved.
+                pendingRange.withLockedValue { $0[key] = celsius }
                 guard await setpoints("range") else { return }
-                // The other end of the range is the one cached (or just written: the slider's other handle).
+                let moved = pendingRange.withLockedValue { pending in
+                    defer { pending = [:] }
+                    return pending
+                }
                 let current = self.state
                 var range: [String: JSONValue] = [:]
-                if let heat = current.heat { range["heatCelsius"] = .number(heat) }
-                if let cool = current.cool { range["coolCelsius"] = .number(cool) }
-                range[key] = .number(celsius)
+                if let heat = moved["heatCelsius"] ?? current.heat { range["heatCelsius"] = .number(heat) }
+                if let cool = moved["coolCelsius"] ?? current.cool { range["coolCelsius"] = .number(cool) }
                 try await command("ThermostatTemperatureSetpoint.SetRange", range)
             }
         }
