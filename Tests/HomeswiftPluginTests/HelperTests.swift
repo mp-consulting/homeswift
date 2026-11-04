@@ -249,3 +249,30 @@ struct PluginPicturesTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: core.directory.path).allSatisfy { !$0.contains("/") && !$0.hasPrefix(".") })
     }
 }
+
+struct AccountAnswerTests {
+    /// A plugin whose `accountAuthorized()` answers once its gate opens.
+    private struct Gated: HomeswiftPlugin {
+        struct Configuration: Decodable, Sendable {}
+        static let platform = "Gated"
+        let gate: AsyncStream<Void>
+        init(configuration: Configuration, context: PluginContext) async throws { gate = AsyncStream { $0.finish() } }
+        init(gate: AsyncStream<Void>) { self.gate = gate }
+        func start() async throws {}
+        func accountAuthorized() async -> Bool? {
+            for await _ in gate {}
+            return true
+        }
+    }
+
+    @Test func aPluginThatDoesNotAnswerInTimeIsNotWaitedFor() async {
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let late = await PluginHost.accountAnswer(of: Gated(gate: gate), within: .milliseconds(50))
+        #expect(late == nil)
+        open.finish()
+        let (shut, opened) = AsyncStream<Void>.makeStream()
+        opened.finish()
+        let prompt = await PluginHost.accountAnswer(of: Gated(gate: shut), within: .seconds(30))
+        #expect(prompt == true)
+    }
+}

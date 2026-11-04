@@ -254,15 +254,14 @@ public final class PluginHost: @unchecked Sendable {
             timings.follow(bridge)
         }
 
-        if configuration.accessoryBlockCount > 0 {
-            logger.warning("config.json has \(configuration.accessoryBlockCount) \"accessories\" block(s); Homeswift only runs platforms, they are ignored")
-        }
-
         // The Assistant's block is the runtime's, not a plugin's. A bad one never stops the bridge.
         let ai = Self.loadAIConfiguration(configuration, logger: logger)
         aiConfigurationBox = NIOLockedValueBox(ai)
         assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, storageDirectory: storageDirectory, transport: options.aiTransport, logger: logger) }
 
+        if configuration.ignoredAccessoryBlocks > 0 {
+            logger.warning("config.json has \(configuration.ignoredAccessoryBlocks) malformed \"accessories\" block(s) (no \"accessory\", or a bad \"_bridge\"); they are ignored")
+        }
         var instances: [Instance] = []
         for block in configuration.platforms where !options.systemPlatforms.contains(block.platform) {
             if configuration.disabledPlugins.contains(block.platform) {
@@ -645,8 +644,17 @@ public final class PluginHost: @unchecked Sendable {
     /// The plugin for a block; nil, with a line in the log, when no plugin compiled in provides its platform.
     private func entry(for block: HomeswiftConfiguration.Platform) -> PluginRegistry.Entry? {
         guard let entry = registry.entry(for: block.platform) else {
-            logger.warning("No plugin for platform \"\(block.platform)\"; the block \"\(block.name)\" is ignored (homeswift plugins lists the available ones)")
+            if block.accessoryBlocks > 0 {
+                logger.warning("No plugin for accessory \"\(block.platform)\"; its \(block.accessoryBlocks) \"accessories\" block(s) are ignored (homeswift plugins lists the available ones)")
+            } else {
+                logger.warning("No plugin for platform \"\(block.platform)\"; the block \"\(block.name)\" is ignored (homeswift plugins lists the available ones)")
+            }
             return nil
+        }
+        if block.accessoryBlocks > 0, !entry.runsAccessoryBlocks {
+            logger.warning("\(entry.name) runs platforms, not accessories: \(block.accessoryBlocks) \"accessories\" block(s) naming \"\(block.platform)\" are ignored")
+            // A block made only for them is not an instance of the platform plugin.
+            if block.isAdoptedOnly { return nil }
         }
         return entry
     }

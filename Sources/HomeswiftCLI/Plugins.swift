@@ -3,17 +3,24 @@ import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
 import HomeswiftDummy
 import HomeswiftDysonPureCool
+import HomeswiftESPHome
 import HomeswiftEWeLink
 import HomeswiftEcoFlow
 import HomeswiftElgatoKeyLights
 import HomeswiftGovee
+import HomeswiftHTTPWebhooks
 import HomeswiftLGThinQ
+import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftShelly
+import HomeswiftTPLinkSmarthome
+import HomeswiftTapo
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
 import HomeswiftWingman
+import HomeswiftZigbee2MQTT
 
 /// The plugins compiled into this binary.
 ///
@@ -37,5 +44,13 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
     registry.register(DummyPlugin.self)
+    registry.register(MQTTThingPlugin.self)
+    registry.register(ESPHomePlugin.self)
+    registry.register(ShellyNGPlugin.self)
+    registry.register(ShellyPlugin.self)
+    registry.register(TPLinkSmarthomePlugin.self)
+    registry.register(Zigbee2MQTTPlugin.self)
+    registry.register(TapoPlugin.self)
+    registry.register(HTTPWebhooksPlugin.self)
     return registry
 }

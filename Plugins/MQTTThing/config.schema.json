@@ -1,0 +1,52 @@
+{
+  "pluginAlias": "mqttthing",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Devices that speak MQTT, described topic by topic. Homebridge's `{\"accessory\": \"mqttthing\"}` blocks in config.json's `accessories` run here unchanged; each one's options are those of homebridge-mqttthing (see the plugin's README). A broker's password is not kept here: Setup asks for it and keeps it in the vault.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "description": "The plugin instance's name in the logs and the web UI.",
+        "type": "string",
+        "default": "mqttthing"
+      },
+      "accessories": {
+        "title": "Accessories",
+        "description": "homebridge-mqttthing accessory blocks: type, name, url, topics and the type's own options.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "x-rowTitle": ["name", "type"]
+        }
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {}
+  },
+  "i18n": {
+    "fr": {
+      "The plugin instance's name in the logs and the web UI.": "Le nom de l'instance de l'extension dans les journaux et l'interface web.",
+      "Name": "Nom",
+      "Accessories": "Accessoires",
+      "homebridge-mqttthing accessory blocks: type, name, url, topics and the type's own options.": "Blocs d'accessoires de homebridge-mqttthing : type, nom, url, sujets et options propres au type.",
+      "Devices that speak MQTT, described topic by topic. Homebridge's `{\"accessory\": \"mqttthing\"}` blocks in config.json's `accessories` run here unchanged; each one's options are those of homebridge-mqttthing (see the plugin's README). A broker's password is not kept here: Setup asks for it and keeps it in the vault.": "Des appareils qui parlent MQTT, décrits sujet par sujet. Les blocs `{\"accessory\": \"mqttthing\"}` de Homebridge dans `accessories` de config.json fonctionnent ici tels quels ; leurs options sont celles de homebridge-mqttthing (voir le README de l'extension). Le mot de passe d'un broker n'est pas gardé ici : la configuration le demande et le garde dans le coffre."
+    },
+    "es": {
+      "The plugin instance's name in the logs and the web UI.": "El nombre de la instancia del complemento en los registros y la interfaz web.",
+      "Name": "Nombre",
+      "Accessories": "Accesorios",
+      "homebridge-mqttthing accessory blocks: type, name, url, topics and the type's own options.": "Bloques de accesorios de homebridge-mqttthing: tipo, nombre, url, temas y las opciones propias del tipo.",
+      "Devices that speak MQTT, described topic by topic. Homebridge's `{\"accessory\": \"mqttthing\"}` blocks in config.json's `accessories` run here unchanged; each one's options are those of homebridge-mqttthing (see the plugin's README). A broker's password is not kept here: Setup asks for it and keeps it in the vault.": "Dispositivos que hablan MQTT, descritos tema por tema. Los bloques `{\"accessory\": \"mqttthing\"}` de Homebridge en `accessories` de config.json funcionan aquí sin cambios; sus opciones son las de homebridge-mqttthing (consulte el README del complemento). La contraseña de un broker no se guarda aquí: la configuración la pide y la guarda en la bóveda."
+    },
+    "pt": {
+      "The plugin instance's name in the logs and the web UI.": "O nome da instância do plugin nos registos e na interface web.",
+      "Name": "Nome",
+      "Accessories": "Acessórios",
+      "homebridge-mqttthing accessory blocks: type, name, url, topics and the type's own options.": "Blocos de acessórios do homebridge-mqttthing: tipo, nome, url, tópicos e as opções próprias do tipo.",
+      "Devices that speak MQTT, described topic by topic. Homebridge's `{\"accessory\": \"mqttthing\"}` blocks in config.json's `accessories` run here unchanged; each one's options are those of homebridge-mqttthing (see the plugin's README). A broker's password is not kept here: Setup asks for it and keeps it in the vault.": "Dispositivos que falam MQTT, descritos tópico a tópico. Os blocos `{\"accessory\": \"mqttthing\"}` do Homebridge em `accessories` do config.json funcionam aqui sem alterações; as suas opções são as do homebridge-mqttthing (veja o README do plugin). A palavra-passe de um broker não é guardada aqui: a configuração pede-a e guarda-a no cofre."
+    }
+  }
+}
