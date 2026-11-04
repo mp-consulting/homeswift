@@ -113,7 +113,9 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   and `localIPv4Networks()` for LAN discovery, `WebSocket`, `MQTTClient` (TCP, TLS with a client certificate,
   WebSocket; `Reconnect(firstConnection: true)` retries the first connection too), `TLSOptions` (bundled roots such
   as `.amazonRootCA1`, client identities, ALPN), `AWSSignatureV4`, `URLEncoding` (the JavaScript encodings, byte for
-  byte, for signed requests) and `Backoff` (retry delays with jitter). A plugin depends on it rather than adding a
+  byte, for signed requests), `Backoff` (retry delays with jitter), `TCPStream` (a plain TCP byte stream), `Protobuf`
+  (`ProtobufWriter` and `ProtobufMessage`: the wire format by field number, without a schema) and `Noise` (the
+  `Noise_NNpsk0_25519_ChaChaPoly_SHA256` handshake and cipher states, ESPHome's encryption). A plugin depends on it rather than adding a
   package; its tests take `FakeMQTTConnection` and `FakeWebSocket` from the `HomeswiftNetworkTestSupport` target.
 - **Helpers.** `Service(optional:)` with a type the service has already (`.targetTemperature.with(minValue: 30)`)
   changes its props; `accessory.takeValues(from: cached)` keeps the last values of a rebuilt accessory;
@@ -328,6 +330,20 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   (the default), `buttonPress` (a hub's link button), `deviceCode` (a PIN a device shows), `accountLogin` (an email or
   user name and password, perhaps a one-time code), `browserRedirect` (a sign-in page whose redirect comes back) or
   `apiKey`.
+- **`static let accountRequirement`**: whether the plugin's devices depend on that account. `.required` (the default):
+  its devices come with the account or are reached through it, so the plugin's card says **Needs sign-in** (or
+  **Needs pairing**, **Needs keys**) until it is set up, and its settings say its devices show once it is.
+  `.optional(adds:)`: the plugin works without it, and `adds` says what setting it up brings, one sentence in English
+  with its French, Spanish and Portuguese in the web UI's catalogs (`TranslationTests` reads it from the source):
+  `.optional(adds: "Protects the webhooks with a password.")`. A plugin left without an optional account shows
+  as running.
+- **A refused account**: when the account refuses what Setup gave (a password changed, a refresh token revoked; not a
+  cloud that does not answer), call `context.accountRefused("why, in English")`: the plugin's card and settings say it
+  Needs Authorization, required account or not, until the account's Setup is done again, new credentials are saved
+  (`saveCredentials` with a refreshed token) or removed, or `context.accountAccepted()`. A paused instance needs no one
+  until it is resumed. `accountAuthorized()` should answer at once: the Plugins page waits 2 seconds for it, then reads
+  the vault. `list_plugins` and `discover_devices` give it as `accountState`
+  (`none`, `setUp`, `notSetUp`, `refused`) and `needsAuthorization`.
 - **`discover()`**: the devices the plugin can find now (on the network, in the account, at the addresses its
   settings name), each a `DiscoveredDevice` with its Device Id (the part of its accessory's id after `<platform>:`), the
   Authorization it needs, whether it is set up (and `isReachable: false` for one set up that does not answer now: Not responding), and `excludedBySettings` for one the plugin's own Homebridge-shaped
@@ -587,6 +603,28 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `fakegato-history` | `EveHistory(kind, accessoryName:storageURL:)` in `HomeswiftPlugin`, its `service` on the accessory |
 | `dgram` | `HomeswiftNetwork.UDPSocket` |
 | `homebridge-ui/server.js`, `config.schema.json` | Keep the schema file; the settings page comes with the Homeswift UI |
+| `api.registerAccessory(name, Accessory)` | `static let runsAccessoryBlocks = true` with `platform = name`: see "Accessory plugins" below |
+
+### Accessory plugins
+
+A Homebridge accessory plugin's devices are top-level `accessories` blocks (`{"accessory": "mqttthing", …}`), one
+accessory each, rather than a platform's. Homeswift runs them in a plugin whose `platform` is the accessory's name and
+which says `static let runsAccessoryBlocks = true`:
+
+- `HomeswiftConfiguration.decode` appends each accessory block, as it is, to the `accessories` list of the platform
+  block of its name (the qualified `homebridge-mqttthing.mqttthing` names `mqttthing` too): the first one with the same
+  child bridge (`_bridge.username`, or none), else a block it makes, named after the platform or after the `_bridge`. So
+  every block of a bridge runs in one instance, which shares what the blocks share (MQTT Thing's connection per broker),
+  and a block with a `_bridge` gets its child bridge as a platform does. The plugin's `Configuration` reads
+  `accessories: [JSONValue]?`; a `{"platform": "mqttthing", "accessories": […]}` block written by hand works the same.
+- `Platform.accessoryBlocks` counts what a block took in. Secrets in accessory blocks are opened and resolved like a
+  platform block's, since they are part of it by the time the runtime reads them. The runtime warns about accessory blocks
+  that no plugin runs.
+- The Homebridge import (`HomebridgeImport`) turns a plugin's accessory blocks into such a platform block, its
+  secrets sealed, and skips the others with a warning. Declare `accessories` in the schema (an array of objects without
+  `properties`, so the import keeps every key).
+
+`Plugins/MQTTThing` is the example.
 
 Ten of the plugins under `Plugins/` are ported this way; between them they use every transport above, cameras
 (UniFi Protect) and external accessories (Philips TV). Three are Homeswift's own: Wingman mirrors the Home

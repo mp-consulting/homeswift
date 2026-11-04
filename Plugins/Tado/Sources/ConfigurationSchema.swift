@@ -1,0 +1,1170 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension TadoPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "TadoPlatform",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "TadoPlatform",
+        "description": "The plugin's name in the log"
+      },
+      "debug": {
+        "title": "Debug",
+        "type": "boolean",
+        "description": "Logs every request at info level"
+      },
+      "preferSiriTemperature": {
+        "title": "Prefer Siri's temperature",
+        "type": "boolean",
+        "description": "When Siri sets Auto and a temperature together, send the temperature (5 °C still means Auto)"
+      },
+      "dailyRequestLimit": {
+        "title": "Requests a day",
+        "type": "integer",
+        "minimum": 10,
+        "placeholder": 100,
+        "description": "What tado allows the account a day: about 100 without a subscription. Homes without Polling fit their polls in it"
+      },
+      "homes": {
+        "title": "Homes",
+        "type": "array",
+        "description": "The tado homes, each with its account",
+        "items": {
+          "title": "Home",
+          "type": "object",
+          "properties": {
+            "id": {
+              "title": "Home id",
+              "type": "integer",
+              "description": "tado's id of the home; without it, the account's first home of this name"
+            },
+            "name": {
+              "title": "Home name",
+              "type": "string",
+              "required": true,
+              "description": "The home's name in tado, the start of its accessories' names"
+            },
+            "username": {
+              "title": "Email",
+              "type": "string",
+              "required": true,
+              "description": "The tado account's email, or the path of a token file another program keeps (.json)"
+            },
+            "tadoApiUrl": {
+              "title": "API address",
+              "type": "string",
+              "placeholder": "https://my.tado.com",
+              "description": "Another address for tado's API, such as a caching proxy"
+            },
+            "skipAuth": {
+              "title": "No sign-in",
+              "type": "boolean",
+              "description": "Sends requests without a token (for a proxy that signs them)"
+            },
+            "polling": {
+              "title": "Polling (seconds)",
+              "type": "integer",
+              "minimum": 30,
+              "description": "Seconds between polls; without it, as often as the account's day allows"
+            },
+            "nightPolling": {
+              "title": "Night polling (seconds)",
+              "type": "integer",
+              "minimum": 30,
+              "description": "Seconds between polls from midnight to 6:00"
+            },
+            "addJitter": {
+              "title": "Jitter",
+              "type": "boolean",
+              "description": "Moves each poll by up to 10 %"
+            },
+            "temperatureUnit": {
+              "title": "Temperature unit",
+              "type": "string",
+              "oneOf": [
+                {
+                  "title": "Celsius",
+                  "enum": [
+                    "CELSIUS"
+                  ]
+                },
+                {
+                  "title": "Fahrenheit",
+                  "enum": [
+                    "FAHRENHEIT"
+                  ]
+                }
+              ],
+              "description": "The home's unit in tado; without it, asked of tado"
+            },
+            "geolocation": {
+              "title": "Location",
+              "type": "object",
+              "description": "Where the home is, as tado has it",
+              "properties": {
+                "latitude": {
+                  "title": "Latitude",
+                  "type": "string",
+                  "description": "In degrees"
+                },
+                "longitude": {
+                  "title": "Longitude",
+                  "type": "string",
+                  "description": "In degrees"
+                }
+              }
+            },
+            "zones": {
+              "title": "Zones",
+              "type": "array",
+              "description": "The home's tado zones; each zone's own options are in its accessory's settings",
+              "items": {
+                "title": "Zone",
+                "type": "object",
+                "properties": {
+                  "active": {
+                    "title": "Active",
+                    "type": "boolean",
+                    "description": "Puts the zone in HomeKit"
+                  },
+                  "id": {
+                    "title": "Zone id",
+                    "type": "integer",
+                    "description": "tado's id of the zone; without it, found by its name"
+                  },
+                  "name": {
+                    "title": "Zone name",
+                    "type": "string",
+                    "required": true,
+                    "description": "The zone's name in tado, exactly"
+                  },
+                  "type": {
+                    "title": "Type",
+                    "type": "string",
+                    "description": "What the zone controls",
+                    "oneOf": [
+                      {
+                        "title": "Heating",
+                        "enum": [
+                          "HEATING"
+                        ]
+                      },
+                      {
+                        "title": "Hot water",
+                        "enum": [
+                          "HOT_WATER"
+                        ]
+                      },
+                      {
+                        "title": "Air conditioning",
+                        "enum": [
+                          "AIR_CONDITIONING"
+                        ]
+                      }
+                    ]
+                  },
+                  "accTypeOpenWindowSwitch": {
+                    "title": "Open window switch type",
+                    "type": "string",
+                    "description": "Kept from Homebridge, not read"
+                  }
+                }
+              }
+            },
+            "presence": {
+              "title": "Presence",
+              "type": "object",
+              "description": "Sensors that show who is home, from tado's geofencing",
+              "properties": {
+                "anyone": {
+                  "title": "Anyone sensor",
+                  "type": "boolean",
+                  "description": "A sensor on while someone is home"
+                },
+                "accTypeAnyone": {
+                  "title": "Anyone sensor type",
+                  "type": "string",
+                  "description": "The kind of sensor",
+                  "oneOf": [
+                    {
+                      "title": "Occupancy sensor",
+                      "enum": [
+                        "OCCUPANCY"
+                      ]
+                    },
+                    {
+                      "title": "Motion sensor",
+                      "enum": [
+                        "MOTION"
+                      ]
+                    }
+                  ]
+                },
+                "user": {
+                  "title": "People",
+                  "type": "array",
+                  "description": "A sensor for each person's phone",
+                  "items": {
+                    "title": "Person",
+                    "type": "object",
+                    "properties": {
+                      "active": {
+                        "title": "Active",
+                        "type": "boolean",
+                        "description": "Puts the sensor in HomeKit"
+                      },
+                      "name": {
+                        "title": "Phone name",
+                        "type": "string",
+                        "description": "The name of the person's phone in tado"
+                      },
+                      "accType": {
+                        "title": "Sensor type",
+                        "type": "string",
+                        "description": "The kind of sensor",
+                        "oneOf": [
+                          {
+                            "title": "Occupancy sensor",
+                            "enum": [
+                              "OCCUPANCY"
+                            ]
+                          },
+                          {
+                            "title": "Motion sensor",
+                            "enum": [
+                              "MOTION"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "weather": {
+              "title": "Weather",
+              "type": "object",
+              "description": "tado's weather at the home",
+              "properties": {
+                "temperatureSensor": {
+                  "title": "Outside temperature",
+                  "type": "boolean",
+                  "description": "A temperature sensor with the outside temperature"
+                },
+                "solarIntensity": {
+                  "title": "Solar intensity",
+                  "type": "boolean",
+                  "description": "How much the sun shines, in percent"
+                },
+                "accTypeSolarIntensity": {
+                  "title": "Solar intensity as",
+                  "type": "string",
+                  "description": "The accessory that shows it",
+                  "oneOf": [
+                    {
+                      "title": "Lightbulb",
+                      "enum": [
+                        "LIGHTBULB"
+                      ]
+                    },
+                    {
+                      "title": "Light sensor",
+                      "enum": [
+                        "SENSOR"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "extras": {
+              "title": "Extras",
+              "type": "object",
+              "description": "Switches for the whole home",
+              "properties": {
+                "centralSwitch": {
+                  "title": "Central switch",
+                  "type": "boolean",
+                  "description": "Back to the schedule, or off, for every heating zone"
+                },
+                "runningInformation": {
+                  "title": "Heating hours",
+                  "type": "boolean",
+                  "description": "The day's, month's and year's heating hours on the central switch"
+                },
+                "boostSwitch": {
+                  "title": "Boost switch",
+                  "type": "boolean",
+                  "description": "Heats every heating zone to 25 °C"
+                },
+                "sheduleSwitch": {
+                  "title": "Schedule switch",
+                  "type": "boolean",
+                  "description": "Puts every heating zone back on its schedule"
+                },
+                "turnoffSwitch": {
+                  "title": "Off switch",
+                  "type": "boolean",
+                  "description": "Turns every heating zone off"
+                },
+                "dummySwitch": {
+                  "title": "Dummy switch",
+                  "type": "boolean",
+                  "description": "A switch that does nothing, for automations"
+                },
+                "presenceLock": {
+                  "title": "Presence lock",
+                  "type": "boolean",
+                  "description": "Sets the home to Home or Away, or back to geofencing"
+                },
+                "accTypePresenceLock": {
+                  "title": "Presence lock as",
+                  "type": "string",
+                  "description": "The accessory that shows it",
+                  "oneOf": [
+                    {
+                      "title": "Security system",
+                      "enum": [
+                        "ALARM"
+                      ]
+                    },
+                    {
+                      "title": "Two switches",
+                      "enum": [
+                        "SWITCH"
+                      ]
+                    }
+                  ]
+                },
+                "accTypeChildLock": {
+                  "title": "Child lock type",
+                  "type": "string",
+                  "description": "Kept from Homebridge, not read"
+                },
+                "childLockSwitches": {
+                  "title": "Child locks",
+                  "type": "array",
+                  "description": "A switch for the child lock of each radiator valve",
+                  "items": {
+                    "title": "Child lock",
+                    "type": "object",
+                    "properties": {
+                      "active": {
+                        "title": "Active",
+                        "type": "boolean",
+                        "description": "Puts the switch in HomeKit"
+                      },
+                      "name": {
+                        "title": "Name",
+                        "type": "string",
+                        "description": "The switch's name"
+                      },
+                      "serialNumber": {
+                        "title": "Serial number",
+                        "type": "string",
+                        "description": "The valve's serial number"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "telegram": {
+              "title": "Telegram",
+              "type": "object",
+              "description": "Messages to a Telegram chat; the bot's token is kept in the vault",
+              "properties": {
+                "active": {
+                  "title": "Active",
+                  "type": "boolean",
+                  "description": "Sends the messages"
+                },
+                "chatID": {
+                  "title": "Chat id",
+                  "type": "string",
+                  "description": "The chat the bot writes to"
+                },
+                "messages": {
+                  "title": "Messages",
+                  "type": "object",
+                  "description": "@ is the accessory's name, % the home's",
+                  "properties": {
+                    "presence": {
+                      "title": "Presence",
+                      "type": "object",
+                      "description": "When people come and go",
+                      "properties": {
+                        "user_in": {
+                          "title": "Someone came home",
+                          "type": "string",
+                          "description": "@ is the person"
+                        },
+                        "user_out": {
+                          "title": "Someone left",
+                          "type": "string",
+                          "description": "@ is the person"
+                        },
+                        "anyone_in": {
+                          "title": "Someone is home",
+                          "type": "string",
+                          "description": "The first one came home"
+                        },
+                        "anyone_out": {
+                          "title": "Nobody is home",
+                          "type": "string",
+                          "description": "The last one left"
+                        }
+                      }
+                    },
+                    "openWindow": {
+                      "title": "Open window",
+                      "type": "object",
+                      "description": "When a window sensor changes",
+                      "properties": {
+                        "opened": {
+                          "title": "A window opened",
+                          "type": "string",
+                          "description": "@ is the window"
+                        },
+                        "closed": {
+                          "title": "A window closed",
+                          "type": "string",
+                          "description": "@ is the window"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "mode": {
+        "title": "Overlay ends",
+        "type": "string",
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "oneOf": [
+          {
+            "title": "When changed again",
+            "enum": [
+              "MANUAL"
+            ]
+          },
+          {
+            "title": "At the next schedule block",
+            "enum": [
+              "AUTO"
+            ]
+          },
+          {
+            "title": "After the timer",
+            "enum": [
+              "TIMER"
+            ]
+          },
+          {
+            "title": "Off is manual, on goes back to the schedule",
+            "enum": [
+              "CUSTOM"
+            ]
+          }
+        ],
+        "description": "How a change made in HomeKit ends"
+      },
+      "modeTimer": {
+        "title": "Timer (minutes)",
+        "type": "integer",
+        "minimum": 1,
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "description": "For a change that ends after the timer"
+      },
+      "minValue": {
+        "title": "Lowest temperature",
+        "type": "number",
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "description": "In the home's unit"
+      },
+      "maxValue": {
+        "title": "Highest temperature",
+        "type": "number",
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "description": "In the home's unit"
+      },
+      "minStep": {
+        "title": "Temperature step",
+        "type": "number",
+        "minimum": 0.01,
+        "maximum": 1,
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "description": "1 at most"
+      },
+      "easyMode": {
+        "title": "On and off only",
+        "type": "boolean",
+        "x-kinds": [
+          "heating"
+        ],
+        "description": "A Heater Cooler rather than a Thermostat"
+      },
+      "noBattery": {
+        "title": "No battery",
+        "type": "boolean",
+        "x-kinds": [
+          "heating"
+        ],
+        "description": "Leaves out the Battery service"
+      },
+      "delaySwitch": {
+        "title": "Delay switch",
+        "type": "boolean",
+        "x-kinds": [
+          "heating",
+          "airConditioning"
+        ],
+        "description": "Holds back going back to the schedule for its timer"
+      },
+      "autoOffDelay": {
+        "title": "Delay switch turns itself off",
+        "type": "boolean",
+        "x-kinds": [
+          "heating",
+          "airConditioning"
+        ],
+        "description": "After its timer, without changing the heating"
+      },
+      "openWindowSensor": {
+        "title": "Window sensor",
+        "type": "boolean",
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "description": "A contact sensor open while tado sees an open window"
+      },
+      "openWindowSwitch": {
+        "title": "Open window switch",
+        "type": "boolean",
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "description": "A switch for tado's open window detection"
+      },
+      "separateTemperature": {
+        "title": "Separate temperature sensor",
+        "type": "boolean",
+        "x-kinds": [
+          "heating",
+          "hotWater",
+          "airConditioning"
+        ],
+        "description": "The zone's temperature on an accessory of its own"
+      },
+      "separateHumidity": {
+        "title": "Separate humidity sensor",
+        "type": "boolean",
+        "x-kinds": [
+          "heating",
+          "airConditioning"
+        ],
+        "description": "The zone's humidity on an accessory of its own"
+      },
+      "boilerTempSupport": {
+        "title": "Hot water temperature",
+        "type": "boolean",
+        "x-kinds": [
+          "hotWater"
+        ],
+        "description": "A Heater Cooler whose temperature you set"
+      },
+      "accTypeBoiler": {
+        "title": "Hot water as",
+        "type": "string",
+        "x-kinds": [
+          "hotWater"
+        ],
+        "description": "The accessory without a temperature",
+        "oneOf": [
+          {
+            "title": "Switch",
+            "enum": [
+              "SWITCH"
+            ]
+          },
+          {
+            "title": "Faucet",
+            "enum": [
+              "FAUCET"
+            ]
+          }
+        ]
+      },
+      "acFanSpeed": {
+        "title": "Fan speed",
+        "type": "boolean",
+        "x-kinds": [
+          "airConditioning"
+        ],
+        "description": "Sets the fan's level"
+      },
+      "acFanModeSwitch": {
+        "title": "Fan mode switch",
+        "type": "boolean",
+        "x-kinds": [
+          "airConditioning"
+        ],
+        "description": "A switch that turns on the fan mode"
+      },
+      "acDryModeSwitch": {
+        "title": "Dry mode switch",
+        "type": "boolean",
+        "x-kinds": [
+          "airConditioning"
+        ],
+        "description": "A switch that turns on the dry mode"
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "Name": "Nom",
+      "The plugin's name in the log": "Le nom du plugin dans le journal",
+      "Debug": "Débogage",
+      "Logs every request at info level": "Journalise chaque requête au niveau info",
+      "Prefer Siri's temperature": "Préférer la température de Siri",
+      "When Siri sets Auto and a temperature together, send the temperature (5 °C still means Auto)": "Quand Siri règle Auto et une température ensemble, envoyer la température (5 °C veut toujours dire Auto)",
+      "Requests a day": "Requêtes par jour",
+      "What tado allows the account a day: about 100 without a subscription. Homes without Polling fit their polls in it": "Ce que tado permet au compte par jour : environ 100 sans abonnement. Les domiciles sans Interrogation y font tenir leurs interrogations",
+      "Homes": "Domiciles",
+      "The tado homes, each with its account": "Les domiciles tado, chacun avec son compte",
+      "Home": "Domicile",
+      "Home id": "Id du domicile",
+      "tado's id of the home; without it, the account's first home of this name": "L’id du domicile chez tado ; sans lui, le premier domicile du compte portant ce nom",
+      "Home name": "Nom du domicile",
+      "The home's name in tado, the start of its accessories' names": "Le nom du domicile chez tado, le début du nom de ses accessoires",
+      "Email": "E-mail",
+      "The tado account's email, or the path of a token file another program keeps (.json)": "L’e-mail du compte tado, ou le chemin d’un fichier de jeton tenu par un autre programme (.json)",
+      "API address": "Adresse de l’API",
+      "Another address for tado's API, such as a caching proxy": "Une autre adresse pour l’API de tado, comme un proxy avec cache",
+      "No sign-in": "Sans connexion",
+      "Sends requests without a token (for a proxy that signs them)": "Envoie les requêtes sans jeton (pour un proxy qui les signe)",
+      "Polling (seconds)": "Interrogation (secondes)",
+      "Seconds between polls; without it, as often as the account's day allows": "Secondes entre deux interrogations ; sans elle, aussi souvent que la journée du compte le permet",
+      "Night polling (seconds)": "Interrogation de nuit (secondes)",
+      "Seconds between polls from midnight to 6:00": "Secondes entre deux interrogations de minuit à 6 h",
+      "Jitter": "Variation",
+      "Moves each poll by up to 10 %": "Décale chaque interrogation de 10 % au plus",
+      "Temperature unit": "Unité de température",
+      "The home's unit in tado; without it, asked of tado": "L’unité du domicile chez tado ; sans elle, demandée à tado",
+      "Celsius": "Celsius",
+      "Fahrenheit": "Fahrenheit",
+      "Location": "Emplacement",
+      "Where the home is, as tado has it": "Où se trouve le domicile, selon tado",
+      "Latitude": "Latitude",
+      "In degrees": "En degrés",
+      "Longitude": "Longitude",
+      "Zones": "Zones",
+      "The home's tado zones; each zone's own options are in its accessory's settings": "Les zones tado du domicile ; les options propres à chaque zone sont dans les réglages de son accessoire",
+      "Zone": "Zone",
+      "Active": "Actif",
+      "Puts the zone in HomeKit": "Met la zone dans HomeKit",
+      "Zone id": "Id de la zone",
+      "tado's id of the zone; without it, found by its name": "L’id de la zone chez tado ; sans lui, trouvée par son nom",
+      "Zone name": "Nom de la zone",
+      "The zone's name in tado, exactly": "Le nom exact de la zone chez tado",
+      "Type": "Type",
+      "What the zone controls": "Ce que la zone commande",
+      "Heating": "Chauffage",
+      "Hot water": "Eau chaude",
+      "Air conditioning": "Climatisation",
+      "Open window switch type": "Type d’interrupteur de fenêtre ouverte",
+      "Kept from Homebridge, not read": "Gardé de Homebridge, non lu",
+      "Presence": "Présence",
+      "Sensors that show who is home, from tado's geofencing": "Des capteurs qui montrent qui est à la maison, d’après la géolocalisation de tado",
+      "Anyone sensor": "Capteur Quelqu’un",
+      "A sensor on while someone is home": "Un capteur allumé tant que quelqu’un est à la maison",
+      "Anyone sensor type": "Type du capteur Quelqu’un",
+      "The kind of sensor": "Le genre de capteur",
+      "Occupancy sensor": "Capteur d’occupation",
+      "Motion sensor": "Détecteur de mouvement",
+      "People": "Personnes",
+      "A sensor for each person's phone": "Un capteur pour le téléphone de chaque personne",
+      "Person": "Personne",
+      "Puts the sensor in HomeKit": "Met le capteur dans HomeKit",
+      "Phone name": "Nom du téléphone",
+      "The name of the person's phone in tado": "Le nom du téléphone de la personne chez tado",
+      "Sensor type": "Type de capteur",
+      "Weather": "Météo",
+      "tado's weather at the home": "La météo de tado au domicile",
+      "Outside temperature": "Température extérieure",
+      "A temperature sensor with the outside temperature": "Un capteur de température avec la température extérieure",
+      "Solar intensity": "Ensoleillement",
+      "How much the sun shines, in percent": "À quel point le soleil brille, en pourcentage",
+      "Solar intensity as": "Ensoleillement comme",
+      "The accessory that shows it": "L’accessoire qui l’affiche",
+      "Lightbulb": "Ampoule",
+      "Light sensor": "Capteur de lumière",
+      "Extras": "Extras",
+      "Switches for the whole home": "Des interrupteurs pour tout le domicile",
+      "Central switch": "Interrupteur central",
+      "Back to the schedule, or off, for every heating zone": "Retour au programme, ou arrêt, pour chaque zone de chauffage",
+      "Heating hours": "Heures de chauffe",
+      "The day's, month's and year's heating hours on the central switch": "Les heures de chauffe du jour, du mois et de l’année sur l’interrupteur central",
+      "Boost switch": "Interrupteur Boost",
+      "Heats every heating zone to 25 °C": "Chauffe chaque zone de chauffage à 25 °C",
+      "Schedule switch": "Interrupteur Programme",
+      "Puts every heating zone back on its schedule": "Remet chaque zone de chauffage sur son programme",
+      "Off switch": "Interrupteur Arrêt",
+      "Turns every heating zone off": "Éteint chaque zone de chauffage",
+      "Dummy switch": "Interrupteur factice",
+      "A switch that does nothing, for automations": "Un interrupteur qui ne fait rien, pour les automatisations",
+      "Presence lock": "Verrou de présence",
+      "Sets the home to Home or Away, or back to geofencing": "Met le domicile sur Présent ou Absent, ou le rend à la géolocalisation",
+      "Presence lock as": "Verrou de présence comme",
+      "Security system": "Système de sécurité",
+      "Two switches": "Deux interrupteurs",
+      "Child lock type": "Type de verrouillage enfant",
+      "Child locks": "Verrouillages enfant",
+      "A switch for the child lock of each radiator valve": "Un interrupteur pour le verrouillage enfant de chaque tête de radiateur",
+      "Child lock": "Verrouillage enfant",
+      "Puts the switch in HomeKit": "Met l’interrupteur dans HomeKit",
+      "The switch's name": "Le nom de l’interrupteur",
+      "Serial number": "Numéro de série",
+      "The valve's serial number": "Le numéro de série de la tête",
+      "Telegram": "Telegram",
+      "Messages to a Telegram chat; the bot's token is kept in the vault": "Des messages vers une discussion Telegram ; le jeton du bot est gardé dans le coffre",
+      "Sends the messages": "Envoie les messages",
+      "Chat id": "Id de la discussion",
+      "The chat the bot writes to": "La discussion où le bot écrit",
+      "Messages": "Messages",
+      "@ is the accessory's name, % the home's": "@ est le nom de l’accessoire, % celui du domicile",
+      "When people come and go": "Quand des personnes arrivent et partent",
+      "Someone came home": "Quelqu’un est rentré",
+      "@ is the person": "@ est la personne",
+      "Someone left": "Quelqu’un est parti",
+      "Someone is home": "Quelqu’un est à la maison",
+      "The first one came home": "Le premier est rentré",
+      "Nobody is home": "Personne n’est à la maison",
+      "The last one left": "Le dernier est parti",
+      "Open window": "Fenêtre ouverte",
+      "When a window sensor changes": "Quand un capteur de fenêtre change",
+      "A window opened": "Une fenêtre s’est ouverte",
+      "@ is the window": "@ est la fenêtre",
+      "A window closed": "Une fenêtre s’est fermée",
+      "Overlay ends": "Fin d’un réglage manuel",
+      "How a change made in HomeKit ends": "Comment se termine un changement fait dans HomeKit",
+      "When changed again": "Au prochain changement",
+      "At the next schedule block": "Au prochain créneau du programme",
+      "After the timer": "Après la minuterie",
+      "Off is manual, on goes back to the schedule": "Arrêt manuel, marche revient au programme",
+      "Timer (minutes)": "Minuterie (minutes)",
+      "For a change that ends after the timer": "Pour un changement qui se termine après la minuterie",
+      "Lowest temperature": "Température la plus basse",
+      "In the home's unit": "Dans l’unité du domicile",
+      "Highest temperature": "Température la plus haute",
+      "Temperature step": "Pas de température",
+      "1 at most": "1 au plus",
+      "On and off only": "Marche et arrêt seulement",
+      "A Heater Cooler rather than a Thermostat": "Un Chauffage-climatiseur plutôt qu’un Thermostat",
+      "No battery": "Sans pile",
+      "Leaves out the Battery service": "Laisse de côté le service Batterie",
+      "Delay switch": "Interrupteur de délai",
+      "Holds back going back to the schedule for its timer": "Retarde le retour au programme pendant sa minuterie",
+      "Delay switch turns itself off": "L’interrupteur de délai s’éteint seul",
+      "After its timer, without changing the heating": "Après sa minuterie, sans changer le chauffage",
+      "Window sensor": "Capteur de fenêtre",
+      "A contact sensor open while tado sees an open window": "Un capteur de contact ouvert tant que tado voit une fenêtre ouverte",
+      "Open window switch": "Interrupteur de fenêtre ouverte",
+      "A switch for tado's open window detection": "Un interrupteur pour la détection de fenêtre ouverte de tado",
+      "Separate temperature sensor": "Capteur de température séparé",
+      "The zone's temperature on an accessory of its own": "La température de la zone sur un accessoire à part",
+      "Separate humidity sensor": "Capteur d’humidité séparé",
+      "The zone's humidity on an accessory of its own": "L’humidité de la zone sur un accessoire à part",
+      "Hot water temperature": "Température de l’eau chaude",
+      "A Heater Cooler whose temperature you set": "Un Chauffage-climatiseur dont vous réglez la température",
+      "Hot water as": "Eau chaude comme",
+      "The accessory without a temperature": "L’accessoire sans température",
+      "Switch": "Interrupteur",
+      "Faucet": "Robinet",
+      "Fan speed": "Vitesse du ventilateur",
+      "Sets the fan's level": "Règle le niveau du ventilateur",
+      "Fan mode switch": "Interrupteur du mode ventilation",
+      "A switch that turns on the fan mode": "Un interrupteur qui active le mode ventilation",
+      "Dry mode switch": "Interrupteur du mode déshumidification",
+      "A switch that turns on the dry mode": "Un interrupteur qui active le mode déshumidification"
+    },
+    "es": {
+      "Name": "Nombre",
+      "The plugin's name in the log": "El nombre del plugin en el registro",
+      "Debug": "Depuración",
+      "Logs every request at info level": "Registra cada solicitud en el nivel info",
+      "Prefer Siri's temperature": "Preferir la temperatura de Siri",
+      "When Siri sets Auto and a temperature together, send the temperature (5 °C still means Auto)": "Cuando Siri ajusta Auto y una temperatura a la vez, enviar la temperatura (5 °C sigue significando Auto)",
+      "Requests a day": "Solicitudes al día",
+      "What tado allows the account a day: about 100 without a subscription. Homes without Polling fit their polls in it": "Lo que tado permite a la cuenta al día: unas 100 sin suscripción. Las casas sin Sondeo ajustan sus sondeos a ello",
+      "Homes": "Casas",
+      "The tado homes, each with its account": "Las casas de tado, cada una con su cuenta",
+      "Home": "Casa",
+      "Home id": "Id de la casa",
+      "tado's id of the home; without it, the account's first home of this name": "El id de la casa en tado; sin él, la primera casa de la cuenta con este nombre",
+      "Home name": "Nombre de la casa",
+      "The home's name in tado, the start of its accessories' names": "El nombre de la casa en tado, el comienzo de los nombres de sus accesorios",
+      "Email": "Correo electrónico",
+      "The tado account's email, or the path of a token file another program keeps (.json)": "El correo de la cuenta de tado, o la ruta de un archivo de token que mantiene otro programa (.json)",
+      "API address": "Dirección de la API",
+      "Another address for tado's API, such as a caching proxy": "Otra dirección para la API de tado, como un proxy con caché",
+      "No sign-in": "Sin inicio de sesión",
+      "Sends requests without a token (for a proxy that signs them)": "Envía las solicitudes sin token (para un proxy que las firma)",
+      "Polling (seconds)": "Sondeo (segundos)",
+      "Seconds between polls; without it, as often as the account's day allows": "Segundos entre sondeos; sin él, tan a menudo como lo permite el día de la cuenta",
+      "Night polling (seconds)": "Sondeo nocturno (segundos)",
+      "Seconds between polls from midnight to 6:00": "Segundos entre sondeos de medianoche a las 6:00",
+      "Jitter": "Variación",
+      "Moves each poll by up to 10 %": "Desplaza cada sondeo hasta un 10 %",
+      "Temperature unit": "Unidad de temperatura",
+      "The home's unit in tado; without it, asked of tado": "La unidad de la casa en tado; sin ella, se pregunta a tado",
+      "Celsius": "Celsius",
+      "Fahrenheit": "Fahrenheit",
+      "Location": "Ubicación",
+      "Where the home is, as tado has it": "Dónde está la casa, según tado",
+      "Latitude": "Latitud",
+      "In degrees": "En grados",
+      "Longitude": "Longitud",
+      "Zones": "Zonas",
+      "The home's tado zones; each zone's own options are in its accessory's settings": "Las zonas de tado de la casa; las opciones propias de cada zona están en los ajustes de su accesorio",
+      "Zone": "Zona",
+      "Active": "Activo",
+      "Puts the zone in HomeKit": "Pone la zona en HomeKit",
+      "Zone id": "Id de la zona",
+      "tado's id of the zone; without it, found by its name": "El id de la zona en tado; sin él, se encuentra por su nombre",
+      "Zone name": "Nombre de la zona",
+      "The zone's name in tado, exactly": "El nombre exacto de la zona en tado",
+      "Type": "Tipo",
+      "What the zone controls": "Lo que controla la zona",
+      "Heating": "Calefacción",
+      "Hot water": "Agua caliente",
+      "Air conditioning": "Aire acondicionado",
+      "Open window switch type": "Tipo de interruptor de ventana abierta",
+      "Kept from Homebridge, not read": "Conservado de Homebridge, no se lee",
+      "Presence": "Presencia",
+      "Sensors that show who is home, from tado's geofencing": "Sensores que muestran quién está en casa, según la geolocalización de tado",
+      "Anyone sensor": "Sensor Alguien",
+      "A sensor on while someone is home": "Un sensor activo mientras alguien está en casa",
+      "Anyone sensor type": "Tipo del sensor Alguien",
+      "The kind of sensor": "El tipo de sensor",
+      "Occupancy sensor": "Sensor de ocupación",
+      "Motion sensor": "Sensor de movimiento",
+      "People": "Personas",
+      "A sensor for each person's phone": "Un sensor para el teléfono de cada persona",
+      "Person": "Persona",
+      "Puts the sensor in HomeKit": "Pone el sensor en HomeKit",
+      "Phone name": "Nombre del teléfono",
+      "The name of the person's phone in tado": "El nombre del teléfono de la persona en tado",
+      "Sensor type": "Tipo de sensor",
+      "Weather": "Tiempo",
+      "tado's weather at the home": "El tiempo de tado en la casa",
+      "Outside temperature": "Temperatura exterior",
+      "A temperature sensor with the outside temperature": "Un sensor de temperatura con la temperatura exterior",
+      "Solar intensity": "Intensidad solar",
+      "How much the sun shines, in percent": "Cuánto brilla el sol, en porcentaje",
+      "Solar intensity as": "Intensidad solar como",
+      "The accessory that shows it": "El accesorio que lo muestra",
+      "Lightbulb": "Bombilla",
+      "Light sensor": "Sensor de luz",
+      "Extras": "Extras",
+      "Switches for the whole home": "Interruptores para toda la casa",
+      "Central switch": "Interruptor central",
+      "Back to the schedule, or off, for every heating zone": "Volver al horario, o apagar, para cada zona de calefacción",
+      "Heating hours": "Horas de calefacción",
+      "The day's, month's and year's heating hours on the central switch": "Las horas de calefacción del día, del mes y del año en el interruptor central",
+      "Boost switch": "Interruptor Boost",
+      "Heats every heating zone to 25 °C": "Calienta cada zona de calefacción a 25 °C",
+      "Schedule switch": "Interruptor Horario",
+      "Puts every heating zone back on its schedule": "Vuelve a poner cada zona de calefacción en su horario",
+      "Off switch": "Interruptor Apagado",
+      "Turns every heating zone off": "Apaga cada zona de calefacción",
+      "Dummy switch": "Interruptor ficticio",
+      "A switch that does nothing, for automations": "Un interruptor que no hace nada, para las automatizaciones",
+      "Presence lock": "Bloqueo de presencia",
+      "Sets the home to Home or Away, or back to geofencing": "Pone la casa en En casa o Fuera, o la devuelve a la geolocalización",
+      "Presence lock as": "Bloqueo de presencia como",
+      "Security system": "Sistema de seguridad",
+      "Two switches": "Dos interruptores",
+      "Child lock type": "Tipo de bloqueo infantil",
+      "Child locks": "Bloqueos infantiles",
+      "A switch for the child lock of each radiator valve": "Un interruptor para el bloqueo infantil de cada válvula de radiador",
+      "Child lock": "Bloqueo infantil",
+      "Puts the switch in HomeKit": "Pone el interruptor en HomeKit",
+      "The switch's name": "El nombre del interruptor",
+      "Serial number": "Número de serie",
+      "The valve's serial number": "El número de serie de la válvula",
+      "Telegram": "Telegram",
+      "Messages to a Telegram chat; the bot's token is kept in the vault": "Mensajes a un chat de Telegram; el token del bot se guarda en la bóveda",
+      "Sends the messages": "Envía los mensajes",
+      "Chat id": "Id del chat",
+      "The chat the bot writes to": "El chat en el que escribe el bot",
+      "Messages": "Mensajes",
+      "@ is the accessory's name, % the home's": "@ es el nombre del accesorio, % el de la casa",
+      "When people come and go": "Cuando las personas llegan y se van",
+      "Someone came home": "Alguien ha llegado a casa",
+      "@ is the person": "@ es la persona",
+      "Someone left": "Alguien se ha ido",
+      "Someone is home": "Hay alguien en casa",
+      "The first one came home": "El primero ha llegado a casa",
+      "Nobody is home": "No hay nadie en casa",
+      "The last one left": "El último se ha ido",
+      "Open window": "Ventana abierta",
+      "When a window sensor changes": "Cuando cambia un sensor de ventana",
+      "A window opened": "Se ha abierto una ventana",
+      "@ is the window": "@ es la ventana",
+      "A window closed": "Se ha cerrado una ventana",
+      "Overlay ends": "Fin de un ajuste manual",
+      "How a change made in HomeKit ends": "Cómo termina un cambio hecho en HomeKit",
+      "When changed again": "Al cambiarlo de nuevo",
+      "At the next schedule block": "En el siguiente bloque del horario",
+      "After the timer": "Tras el temporizador",
+      "Off is manual, on goes back to the schedule": "Apagado es manual, encendido vuelve al horario",
+      "Timer (minutes)": "Temporizador (minutos)",
+      "For a change that ends after the timer": "Para un cambio que termina tras el temporizador",
+      "Lowest temperature": "Temperatura más baja",
+      "In the home's unit": "En la unidad de la casa",
+      "Highest temperature": "Temperatura más alta",
+      "Temperature step": "Paso de temperatura",
+      "1 at most": "1 como máximo",
+      "On and off only": "Solo encendido y apagado",
+      "A Heater Cooler rather than a Thermostat": "Un Calefactor-enfriador en lugar de un Termostato",
+      "No battery": "Sin pila",
+      "Leaves out the Battery service": "Omite el servicio Batería",
+      "Delay switch": "Interruptor de retardo",
+      "Holds back going back to the schedule for its timer": "Retrasa la vuelta al horario durante su temporizador",
+      "Delay switch turns itself off": "El interruptor de retardo se apaga solo",
+      "After its timer, without changing the heating": "Tras su temporizador, sin cambiar la calefacción",
+      "Window sensor": "Sensor de ventana",
+      "A contact sensor open while tado sees an open window": "Un sensor de contacto abierto mientras tado detecta una ventana abierta",
+      "Open window switch": "Interruptor de ventana abierta",
+      "A switch for tado's open window detection": "Un interruptor para la detección de ventana abierta de tado",
+      "Separate temperature sensor": "Sensor de temperatura aparte",
+      "The zone's temperature on an accessory of its own": "La temperatura de la zona en un accesorio propio",
+      "Separate humidity sensor": "Sensor de humedad aparte",
+      "The zone's humidity on an accessory of its own": "La humedad de la zona en un accesorio propio",
+      "Hot water temperature": "Temperatura del agua caliente",
+      "A Heater Cooler whose temperature you set": "Un Calefactor-enfriador cuya temperatura ajustas",
+      "Hot water as": "Agua caliente como",
+      "The accessory without a temperature": "El accesorio sin temperatura",
+      "Switch": "Interruptor",
+      "Faucet": "Grifo",
+      "Fan speed": "Velocidad del ventilador",
+      "Sets the fan's level": "Ajusta el nivel del ventilador",
+      "Fan mode switch": "Interruptor del modo ventilador",
+      "A switch that turns on the fan mode": "Un interruptor que activa el modo ventilador",
+      "Dry mode switch": "Interruptor del modo secado",
+      "A switch that turns on the dry mode": "Un interruptor que activa el modo secado"
+    },
+    "pt": {
+      "Name": "Nome",
+      "The plugin's name in the log": "O nome do plugin no registo",
+      "Debug": "Depuração",
+      "Logs every request at info level": "Regista cada pedido no nível info",
+      "Prefer Siri's temperature": "Preferir a temperatura da Siri",
+      "When Siri sets Auto and a temperature together, send the temperature (5 °C still means Auto)": "Quando a Siri define Auto e uma temperatura em conjunto, enviar a temperatura (5 °C continua a significar Auto)",
+      "Requests a day": "Pedidos por dia",
+      "What tado allows the account a day: about 100 without a subscription. Homes without Polling fit their polls in it": "O que a tado permite à conta por dia: cerca de 100 sem subscrição. As casas sem Consulta ajustam as suas consultas a isso",
+      "Homes": "Casas",
+      "The tado homes, each with its account": "As casas tado, cada uma com a sua conta",
+      "Home": "Casa",
+      "Home id": "Id da casa",
+      "tado's id of the home; without it, the account's first home of this name": "O id da casa na tado; sem ele, a primeira casa da conta com este nome",
+      "Home name": "Nome da casa",
+      "The home's name in tado, the start of its accessories' names": "O nome da casa na tado, o início dos nomes dos seus acessórios",
+      "Email": "E-mail",
+      "The tado account's email, or the path of a token file another program keeps (.json)": "O e-mail da conta tado, ou o caminho de um ficheiro de token mantido por outro programa (.json)",
+      "API address": "Endereço da API",
+      "Another address for tado's API, such as a caching proxy": "Outro endereço para a API da tado, como um proxy com cache",
+      "No sign-in": "Sem início de sessão",
+      "Sends requests without a token (for a proxy that signs them)": "Envia os pedidos sem token (para um proxy que os assina)",
+      "Polling (seconds)": "Consulta (segundos)",
+      "Seconds between polls; without it, as often as the account's day allows": "Segundos entre consultas; sem ele, tantas vezes quanto o dia da conta permite",
+      "Night polling (seconds)": "Consulta noturna (segundos)",
+      "Seconds between polls from midnight to 6:00": "Segundos entre consultas da meia-noite às 6:00",
+      "Jitter": "Variação",
+      "Moves each poll by up to 10 %": "Desloca cada consulta até 10 %",
+      "Temperature unit": "Unidade de temperatura",
+      "The home's unit in tado; without it, asked of tado": "A unidade da casa na tado; sem ela, perguntada à tado",
+      "Celsius": "Celsius",
+      "Fahrenheit": "Fahrenheit",
+      "Location": "Localização",
+      "Where the home is, as tado has it": "Onde fica a casa, segundo a tado",
+      "Latitude": "Latitude",
+      "In degrees": "Em graus",
+      "Longitude": "Longitude",
+      "Zones": "Zonas",
+      "The home's tado zones; each zone's own options are in its accessory's settings": "As zonas tado da casa; as opções próprias de cada zona estão nas definições do seu acessório",
+      "Zone": "Zona",
+      "Active": "Ativo",
+      "Puts the zone in HomeKit": "Coloca a zona no HomeKit",
+      "Zone id": "Id da zona",
+      "tado's id of the zone; without it, found by its name": "O id da zona na tado; sem ele, encontrada pelo nome",
+      "Zone name": "Nome da zona",
+      "The zone's name in tado, exactly": "O nome exato da zona na tado",
+      "Type": "Tipo",
+      "What the zone controls": "O que a zona controla",
+      "Heating": "Aquecimento",
+      "Hot water": "Água quente",
+      "Air conditioning": "Ar condicionado",
+      "Open window switch type": "Tipo de interruptor de janela aberta",
+      "Kept from Homebridge, not read": "Mantido do Homebridge, não lido",
+      "Presence": "Presença",
+      "Sensors that show who is home, from tado's geofencing": "Sensores que mostram quem está em casa, segundo a geolocalização da tado",
+      "Anyone sensor": "Sensor Alguém",
+      "A sensor on while someone is home": "Um sensor ativo enquanto alguém está em casa",
+      "Anyone sensor type": "Tipo do sensor Alguém",
+      "The kind of sensor": "O tipo de sensor",
+      "Occupancy sensor": "Sensor de ocupação",
+      "Motion sensor": "Sensor de movimento",
+      "People": "Pessoas",
+      "A sensor for each person's phone": "Um sensor para o telefone de cada pessoa",
+      "Person": "Pessoa",
+      "Puts the sensor in HomeKit": "Coloca o sensor no HomeKit",
+      "Phone name": "Nome do telefone",
+      "The name of the person's phone in tado": "O nome do telefone da pessoa na tado",
+      "Sensor type": "Tipo de sensor",
+      "Weather": "Meteorologia",
+      "tado's weather at the home": "A meteorologia da tado na casa",
+      "Outside temperature": "Temperatura exterior",
+      "A temperature sensor with the outside temperature": "Um sensor de temperatura com a temperatura exterior",
+      "Solar intensity": "Intensidade solar",
+      "How much the sun shines, in percent": "Quanto brilha o sol, em percentagem",
+      "Solar intensity as": "Intensidade solar como",
+      "The accessory that shows it": "O acessório que a mostra",
+      "Lightbulb": "Lâmpada",
+      "Light sensor": "Sensor de luz",
+      "Extras": "Extras",
+      "Switches for the whole home": "Interruptores para toda a casa",
+      "Central switch": "Interruptor central",
+      "Back to the schedule, or off, for every heating zone": "Voltar ao horário, ou desligar, para cada zona de aquecimento",
+      "Heating hours": "Horas de aquecimento",
+      "The day's, month's and year's heating hours on the central switch": "As horas de aquecimento do dia, do mês e do ano no interruptor central",
+      "Boost switch": "Interruptor Boost",
+      "Heats every heating zone to 25 °C": "Aquece cada zona de aquecimento a 25 °C",
+      "Schedule switch": "Interruptor Horário",
+      "Puts every heating zone back on its schedule": "Volta a pôr cada zona de aquecimento no seu horário",
+      "Off switch": "Interruptor Desligar",
+      "Turns every heating zone off": "Desliga cada zona de aquecimento",
+      "Dummy switch": "Interruptor fictício",
+      "A switch that does nothing, for automations": "Um interruptor que não faz nada, para as automatizações",
+      "Presence lock": "Bloqueio de presença",
+      "Sets the home to Home or Away, or back to geofencing": "Põe a casa em Em casa ou Fora, ou devolve-a à geolocalização",
+      "Presence lock as": "Bloqueio de presença como",
+      "Security system": "Sistema de segurança",
+      "Two switches": "Dois interruptores",
+      "Child lock type": "Tipo de bloqueio infantil",
+      "Child locks": "Bloqueios infantis",
+      "A switch for the child lock of each radiator valve": "Um interruptor para o bloqueio infantil de cada válvula de radiador",
+      "Child lock": "Bloqueio infantil",
+      "Puts the switch in HomeKit": "Coloca o interruptor no HomeKit",
+      "The switch's name": "O nome do interruptor",
+      "Serial number": "Número de série",
+      "The valve's serial number": "O número de série da válvula",
+      "Telegram": "Telegram",
+      "Messages to a Telegram chat; the bot's token is kept in the vault": "Mensagens para um chat do Telegram; o token do bot fica no cofre",
+      "Sends the messages": "Envia as mensagens",
+      "Chat id": "Id do chat",
+      "The chat the bot writes to": "O chat onde o bot escreve",
+      "Messages": "Mensagens",
+      "@ is the accessory's name, % the home's": "@ é o nome do acessório, % o da casa",
+      "When people come and go": "Quando as pessoas chegam e partem",
+      "Someone came home": "Alguém chegou a casa",
+      "@ is the person": "@ é a pessoa",
+      "Someone left": "Alguém saiu",
+      "Someone is home": "Está alguém em casa",
+      "The first one came home": "O primeiro chegou a casa",
+      "Nobody is home": "Não está ninguém em casa",
+      "The last one left": "O último saiu",
+      "Open window": "Janela aberta",
+      "When a window sensor changes": "Quando um sensor de janela muda",
+      "A window opened": "Abriu-se uma janela",
+      "@ is the window": "@ é a janela",
+      "A window closed": "Fechou-se uma janela",
+      "Overlay ends": "Fim de um ajuste manual",
+      "How a change made in HomeKit ends": "Como termina uma alteração feita no HomeKit",
+      "When changed again": "Na próxima alteração",
+      "At the next schedule block": "No próximo bloco do horário",
+      "After the timer": "Após o temporizador",
+      "Off is manual, on goes back to the schedule": "Desligar é manual, ligar volta ao horário",
+      "Timer (minutes)": "Temporizador (minutos)",
+      "For a change that ends after the timer": "Para uma alteração que termina após o temporizador",
+      "Lowest temperature": "Temperatura mais baixa",
+      "In the home's unit": "Na unidade da casa",
+      "Highest temperature": "Temperatura mais alta",
+      "Temperature step": "Passo de temperatura",
+      "1 at most": "1 no máximo",
+      "On and off only": "Apenas ligar e desligar",
+      "A Heater Cooler rather than a Thermostat": "Um Aquecedor-arrefecedor em vez de um Termóstato",
+      "No battery": "Sem pilha",
+      "Leaves out the Battery service": "Omite o serviço Bateria",
+      "Delay switch": "Interruptor de atraso",
+      "Holds back going back to the schedule for its timer": "Atrasa o regresso ao horário durante o seu temporizador",
+      "Delay switch turns itself off": "O interruptor de atraso desliga-se sozinho",
+      "After its timer, without changing the heating": "Após o seu temporizador, sem alterar o aquecimento",
+      "Window sensor": "Sensor de janela",
+      "A contact sensor open while tado sees an open window": "Um sensor de contacto aberto enquanto a tado deteta uma janela aberta",
+      "Open window switch": "Interruptor de janela aberta",
+      "A switch for tado's open window detection": "Um interruptor para a deteção de janela aberta da tado",
+      "Separate temperature sensor": "Sensor de temperatura separado",
+      "The zone's temperature on an accessory of its own": "A temperatura da zona num acessório próprio",
+      "Separate humidity sensor": "Sensor de humidade separado",
+      "The zone's humidity on an accessory of its own": "A humidade da zona num acessório próprio",
+      "Hot water temperature": "Temperatura da água quente",
+      "A Heater Cooler whose temperature you set": "Um Aquecedor-arrefecedor cuja temperatura define",
+      "Hot water as": "Água quente como",
+      "The accessory without a temperature": "O acessório sem temperatura",
+      "Switch": "Interruptor",
+      "Faucet": "Torneira",
+      "Fan speed": "Velocidade da ventoinha",
+      "Sets the fan's level": "Define o nível da ventoinha",
+      "Fan mode switch": "Interruptor do modo ventilação",
+      "A switch that turns on the fan mode": "Um interruptor que ativa o modo ventilação",
+      "Dry mode switch": "Interruptor do modo desumidificação",
+      "A switch that turns on the dry mode": "Um interruptor que ativa o modo desumidificação"
+    }
+  }
+}
+"""#
+}
