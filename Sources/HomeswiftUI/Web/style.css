@@ -4570,7 +4570,7 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 @media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before { transition: none; } }
 /* A closed group's count of settings, quiet at the end of its heading; a group's own words under it; a group in a
    group, a heading over its fields. */
-.group-box > summary > .group-count { margin-left: auto; font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); }
+.group-box > summary > .group-count { float: right; margin-left: auto; padding-left: var(--space-12); font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); }
 .group-box > .group-help { margin: 0 0 var(--space-8); }
 .form-subgroup { grid-column: 1 / -1; margin-top: var(--space-12); }
 .form-subgroup > h4 { margin: 0 0 2px; font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--text); }
