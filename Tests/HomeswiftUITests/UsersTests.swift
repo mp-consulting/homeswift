@@ -326,6 +326,9 @@ struct UsersServerTests {
         #expect(Int(refused.headers["retry-after"] ?? "") ?? 0 >= 1)
         #expect(try await admin.post("/api/assistant/chat", ["text": "hello"]).status == 429)
         #expect(try await admin.post("/api/assistant/config", ["platform": "ElgatoKeyLights", "request": "two lights"]).status == 429)
+        // The connection test and the Model menu ask the provider with the bridge's key: limited the same way.
+        #expect(try await admin.post("/api/assistant/test", [:]).status == 429)
+        #expect(try await admin.post("/api/assistant/models", [:]).status == 429)
         // Per user: someone else still has their requests.
         #expect(limiter.peek("milo").allowed)
     }
