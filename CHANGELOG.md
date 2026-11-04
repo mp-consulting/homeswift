@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Google Nest (`homebridge-google-nest-sdm`), experimental: Nest thermostats, cameras, doorbells and displays through
+  Google's Device Access, with Pub/Sub events, RTSP live view and HomeKit Secure Video (a clean-room implementation).
 - `get_settings` and `update_settings`, MCP tools (and through `homeswift mcp`, the command line's) that read and change
   the settings of an accessory, by its Accessory Id, or of a plugin instance: the current values with what each field
   is (its schema, whether it is a Core Accessory Setting, its plugin-wide default), a merge where `null` clears a key,

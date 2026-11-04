@@ -5,6 +5,7 @@ import HomeswiftDysonPureCool
 import HomeswiftEWeLink
 import HomeswiftEcoFlow
 import HomeswiftElgatoKeyLights
+import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftLGThinQ
 import HomeswiftPhilipsAmbilightTV
@@ -35,5 +36,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(GoogleNestSDMPlugin.self)
     return registry
 }
