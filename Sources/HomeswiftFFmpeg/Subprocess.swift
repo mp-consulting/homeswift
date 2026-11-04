@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import NIOConcurrencyHelpers
 #if canImport(Glibc)
 import Glibc
@@ -90,41 +91,13 @@ func resolveExecutable(_ command: String, environment: [String: String] = Proces
     return nil
 }
 
-/// Writing to a pipe whose reader is gone raises SIGPIPE, which ends the whole bridge. Darwin can turn it off per descriptor;
-/// Linux cannot for pipes, so the signal is ignored once, unless the program installed a handler of its own.
-private let ignoreSIGPIPEOnce: Void = {
-    #if os(Linux)
-    // Keep a handler the program installed (signal() returns nil for the default disposition).
-    if let previous = signal(SIGPIPE, SIG_IGN) {
-        _ = signal(SIGPIPE, previous)
-    }
-    #endif
-}()
 
-#if canImport(Glibc) || canImport(Musl)
-/// Serialises `Process.run` (see its use).
-private let launching = NSLock()
-
-/// Runs `body` with the signals that stop a process unblocked on this thread. posix_spawn gives the child the
-/// calling thread's signal mask, Foundation's `Process` does not reset it on Linux, and the threads Swift's
-/// concurrency and libdispatch run on block signals: FFmpeg started from one would ignore SIGTERM and only end
-/// with the SIGKILL failsafe.
-private func withStopSignalsUnblocked<T>(_ body: () throws -> T) rethrows -> T {
-    var stops = sigset_t()
-    sigemptyset(&stops)
-    for signal in [SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2] { sigaddset(&stops, signal) }
-    var previous = sigset_t()
-    pthread_sigmask(SIG_UNBLOCK, &stops, &previous)
-    defer { pthread_sigmask(SIG_SETMASK, &previous, nil) }
-    return try body()
-}
-#endif
 
 /// The most standard output kept for the first `onStdout` handler before one is registered (Node buffers a stream nobody reads
 /// yet as well). Beyond it, output is dropped.
 let SUBPROCESS_PENDING_STDOUT_LIMIT = 4 * 1024 * 1024
 
-/// The buffer a pipe's reads go to, reused for every read. Only touched on that pipe's read source queue, which is serial.
+/// The buffer a pipe's reads go to, reused for every read. Only touched on the child's reading thread.
 private final class ReadBuffer: @unchecked Sendable {
     var bytes = [UInt8](repeating: 0, count: 65536)
 }
@@ -159,7 +132,6 @@ final class Subprocess: @unchecked Sendable {
         var flushingStdout = false
     }
 
-    let process: Process
     private let stdinHandle: FileHandle
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
@@ -170,83 +142,72 @@ final class Subprocess: @unchecked Sendable {
     /// Only touched on `stdinQueue`.
     nonisolated(unsafe) private var stdinFDClosed = false
     private let state = NIOLockedValueBox(State())
-    /// The pipes' read sources by pipe (true for standard output), kept: a source nothing holds is released and
-    /// never fires. Its handler looks it up here rather than capturing it, which Linux's non-class-bound
-    /// `DispatchSourceRead` would not allow `unowned`, and a strong capture would keep alive.
-    private let readSources = NIOLockedValueBox<[Bool: any DispatchSourceRead]>([:])
     private let stdoutBuffer = ReadBuffer()
     private let stderrBuffer = ReadBuffer()
-    private let pidBox = NIOLockedValueBox<Int32>(0)
+    /// The process, set as soon as it is started.
+    private let processBox = NIOLockedValueBox<ChildProcess?>(nil)
 
     /// Starts `executable` (a name looked up in `PATH`, or a path). Nothing is read until `beginReading()`. The child keeps
     /// itself alive until the process has ended and its pipes are drained, as a Node child process does.
     static func launch(_ executable: String, arguments: [String]) throws(FfmpegProcessError) -> Subprocess {
-        _ = ignoreSIGPIPEOnce
+        ChildProcess.ignoreSIGPIPE()
         guard let path = resolveExecutable(executable) else { throw .notFound(executable) }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        let stdin = Pipe()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        // Close-on-exec on every end: a process another thread spawns meanwhile (tests run many at once) would otherwise
-        // inherit them, and a pipe whose write end it holds reaches end of file only when that process ends, so this one's
-        // exit waited for the fallback below. macOS spawns with POSIX_SPAWN_CLOEXEC_DEFAULT; Linux's Process does not. The
-        // child still gets its own ends: dup2 onto 0, 1 and 2 clears the flag.
-        for pipe in [stdin, stdout, stderr] {
-            for handle in [pipe.fileHandleForReading, pipe.fileHandleForWriting] { _ = fcntl(handle.fileDescriptor, F_SETFD, FD_CLOEXEC) }
-        }
-        process.standardInput = stdin
-        process.standardOutput = stdout
-        process.standardError = stderr
-        #if canImport(Darwin)
-        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-        #endif
-        let child = Subprocess(process: process, stdin: stdin.fileHandleForWriting, stdout: stdout.fileHandleForReading, stderr: stderr.fileHandleForReading)
-        process.terminationHandler = { process in
-            let status: FfmpegExitStatus = process.terminationReason == .uncaughtSignal
-                ? FfmpegExitStatus(exitCode: nil, signal: signalName(process.terminationStatus))
-                : FfmpegExitStatus(exitCode: process.terminationStatus, signal: nil)
-            child.terminated(status)
-        }
+        // Close-on-exec from the start (see ChildProcess.pipe): a process another thread spawns meanwhile would otherwise
+        // inherit them.
+        let stdin: (reading: FileHandle, writing: FileHandle), stdout: (reading: FileHandle, writing: FileHandle), stderr: (reading: FileHandle, writing: FileHandle)
         do {
-            #if canImport(Glibc) || canImport(Musl)
-            // One launch at a time: Linux Foundation's `Process.run` sets up its run loop sources and dispatch sources
-            // without guarding them, and two processes started at once on two threads crashed in libdispatch.
-            launching.lock()
-            defer { launching.unlock() }
-            try withStopSignalsUnblocked { try process.run() }
-            #else
-            try process.run()
-            #endif
+            stdin = try ChildProcess.pipe()
+            stdout = try ChildProcess.pipe()
+            stderr = try ChildProcess.pipe()
         } catch {
-            process.terminationHandler = nil
-            throw .launchFailed((error as NSError).localizedDescription)
+            throw .launchFailed(error.description)
         }
-        child.pidBox.withLockedValue { $0 = process.processIdentifier }
+        #if canImport(Darwin)
+        _ = fcntl(stdin.writing.fileDescriptor, F_SETNOSIGPIPE, 1)
+        #endif
+        let child = Subprocess(stdin: stdin.writing, stdout: stdout.reading, stderr: stderr.reading)
+        // Its exit handler holds the child until the process has ended, as a Node child process keeps itself alive.
+        let process: ChildProcess
+        do {
+            process = try ChildProcess.launch(
+                path, arguments: arguments,
+                standardInput: stdin.reading.fileDescriptor,
+                standardOutput: stdout.writing.fileDescriptor,
+                standardError: stderr.writing.fileDescriptor
+            ) { termination in
+                switch termination {
+                case .exited(let code): child.terminated(FfmpegExitStatus(exitCode: code, signal: nil))
+                case .signaled(let signal): child.terminated(FfmpegExitStatus(exitCode: nil, signal: signalName(signal)))
+                }
+            }
+        } catch {
+            for handle in [stdin.reading, stdin.writing, stdout.reading, stdout.writing,
+                           stderr.reading, stderr.writing] { try? handle.close() }
+            throw .launchFailed(error.description)
+        }
+        child.processBox.withLockedValue { $0 = process }
         // The parent keeps only its own ends of the pipes.
-        try? stdin.fileHandleForReading.close()
-        try? stdout.fileHandleForWriting.close()
-        try? stderr.fileHandleForWriting.close()
+        try? stdin.reading.close()
+        try? stdout.writing.close()
+        try? stderr.writing.close()
         return child
     }
 
-    private init(process: Process, stdin: FileHandle, stdout: FileHandle, stderr: FileHandle) {
-        self.process = process
+    private init(stdin: FileHandle, stdout: FileHandle, stderr: FileHandle) {
         self.stdinHandle = stdin
         self.stdoutHandle = stdout
         self.stderrHandle = stderr
         self.stdinFD = stdin.fileDescriptor
         self.stdoutFD = stdout.fileDescriptor
         self.stderrFD = stderr.fileDescriptor
-        // A spurious wake-up of a read source must never block its queue in `read`.
+        // A spurious wake-up of the poll must never block the reading thread in `read`.
         for fd in [stdoutFD, stderrFD] {
             let flags = fcntl(fd, F_GETFL)
             if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
         }
     }
 
-    var processIdentifier: Int32 { pidBox.withLockedValue { $0 } }
+    var processIdentifier: Int32 { processBox.withLockedValue { $0?.processIdentifier ?? 0 } }
 
     // MARK: Handlers
 
@@ -330,22 +291,42 @@ final class Subprocess: @unchecked Sendable {
             return !state.reading
         }
         guard first else { return }
-        // A read source per pipe rather than FileHandle's readabilityHandler: at end of file the source is
-        // cancelled from its own handler, and the pipe is closed in the cancel handler, once nothing watches its
-        // descriptor (closing it earlier makes libdispatch's event loop crash on Linux).
-        for (handle, isStdout) in [(stdoutHandle, true), (stderrHandle, false)] {
-            let source = DispatchSource.makeReadSource(fileDescriptor: handle.fileDescriptor, queue: DispatchQueue(label: "HomeswiftFFmpeg.read"))
-            source.setEventHandler { self.readable(isStdout: isStdout) }
-            source.setCancelHandler { try? handle.close() }
-            readSources.withLockedValue { $0[isStdout] = source }
-            source.resume()
-        }
+        // A thread of its own polls both pipes, rather than libdispatch read sources: on Linux, sources on pipes that
+        // children start and end around crashed libdispatch's event loop (a bad pointer in `_dispatch_event_loop_drain`)
+        // when processes were started and ended at once. The thread holds the child until both pipes have ended (or the
+        // fallback in `terminated` gave them up), then closes them.
+        let thread = Thread { self.readUntilEnd() }
+        thread.name = "homeswift-ffmpeg-read"
+        thread.start()
     }
 
-    /// Reads until the pipe is empty or ends. On Linux the source is edge-triggered: output and the end of file arriving
-    /// together are one event, and a single read left the end unseen until the fallback in `terminated` (2 s per exit).
-    private func readable(isStdout: Bool) {
-        while readOnce(isStdout: isStdout) {}
+    /// How long a poll waits before looking whether the pipes were given up (`terminated`'s fallback).
+    private static let pollInterval: Int32 = 100
+
+    private func readUntilEnd() {
+        defer {
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+        }
+        while true {
+            let (stdoutOpen, stderrOpen) = state.withLockedValue { (!$0.stdoutEOF, !$0.stderrEOF) }
+            var watched: [(isStdout: Bool, fd: pollfd)] = []
+            if stdoutOpen { watched.append((true, pollfd(fd: stdoutFD, events: Int16(POLLIN), revents: 0))) }
+            if stderrOpen { watched.append((false, pollfd(fd: stderrFD, events: Int16(POLLIN), revents: 0))) }
+            guard !watched.isEmpty else { return }
+            var fds = watched.map(\.fd)
+            let ready = poll(&fds, nfds_t(fds.count), Self.pollInterval)
+            if ready < 0 && errno != EINTR {
+                // Reported now rather than by the fallback.
+                giveUpPipes()
+                return
+            }
+            guard ready > 0 else { continue }
+            for (index, entry) in watched.enumerated() where fds[index].revents != 0 {
+                // Reads until the pipe is empty or ends: output and the end of file arriving together are one wake-up.
+                while readOnce(isStdout: entry.isStdout) {}
+            }
+        }
     }
 
     /// One read; returns whether data came, so the pipe may hold more.
@@ -363,7 +344,6 @@ final class Subprocess: @unchecked Sendable {
                 if isStdout { state.stdoutEOF = true } else { state.stderrEOF = true }
                 return Self.readyToDeliver(&state)
             }
-            readSources.withLockedValue { $0[isStdout] }?.cancel()
             if deliver { deliverExit() }
             return false
         }
@@ -398,8 +378,8 @@ final class Subprocess: @unchecked Sendable {
         }
     }
 
-    /// Whether either output pipe is still watched by its read source.
-    var isReadingOutput: Bool { readSources.withLockedValue { $0.values.contains { !$0.isCancelled } } }
+    /// Whether either output pipe is still read (until its end of file, or until the fallback in `terminated` gives it up).
+    var isReadingOutput: Bool { state.withLockedValue { $0.reading && (!$0.stdoutEOF || !$0.stderrEOF) } }
 
     /// Whether the parent's end of standard input is still open.
     var isStdinOpen: Bool { stdinQueue.sync { !stdinFDClosed } }
@@ -415,19 +395,22 @@ final class Subprocess: @unchecked Sendable {
             deliverExit()
         } else {
             // A grandchild holding the pipes open must not keep the exit from being reported, nor the pipes and
-            // their sources (which hold this process) from being let go. Weakly: when the ends of file come meanwhile,
-            // nothing is left to do and the process goes at once.
+            // their reading thread (which holds this process) from being let go: it stops at its next poll. Weakly:
+            // when the ends of file come meanwhile, nothing is left to do and the process goes at once.
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [weak self] in
-                guard let self else { return }
-                let deliver = self.state.withLockedValue { state -> Bool in
-                    state.stdoutEOF = true
-                    state.stderrEOF = true
-                    return Self.readyToDeliver(&state)
-                }
-                for source in self.readSources.withLockedValue({ Array($0.values) }) where !source.isCancelled { source.cancel() }
-                if deliver { self.deliverExit() }
+                self?.giveUpPipes()
             }
         }
+    }
+
+    /// Treats both pipes as at their end of file and reports the exit if the process has ended.
+    private func giveUpPipes() {
+        let deliver = state.withLockedValue { state -> Bool in
+            state.stdoutEOF = true
+            state.stderrEOF = true
+            return Self.readyToDeliver(&state)
+        }
+        if deliver { deliverExit() }
     }
 
     private static func readyToDeliver(_ state: inout State) -> Bool {
@@ -437,7 +420,7 @@ final class Subprocess: @unchecked Sendable {
     }
 
     // Runs once. Every handler is dropped (they often capture the child, which holds them) and standard input is closed, so an
-    // ended child frees its descriptors and itself. The read sources are cancelled by then (at end of file, or by the fallback).
+    // ended child frees its descriptors and itself. The pipes are given up by then (at end of file, or by the fallback).
     private func deliverExit() {
         let (status, handlers) = state.withLockedValue { state -> (FfmpegExitStatus, [ExitHandler]) in
             defer {
@@ -449,7 +432,6 @@ final class Subprocess: @unchecked Sendable {
             }
             return (state.terminated ?? FfmpegExitStatus(exitCode: nil, signal: nil), state.exitHandlers)
         }
-        process.terminationHandler = nil
         end()
         for handler in handlers { handler(status) }
     }
@@ -460,18 +442,10 @@ final class Subprocess: @unchecked Sendable {
     @discardableResult
     func kill(_ signal: Int32 = SIGTERM) -> Bool {
         state.withLockedValue { state in
-            guard state.terminated == nil, !state.delivered else { return false }
-            let pid = processIdentifier
-            guard pid > 0 else { return false }
-            #if canImport(Glibc)
-            let result = Glibc.kill(pid, signal)
-            #elseif canImport(Musl)
-            let result = Musl.kill(pid, signal)
-            #else
-            let result = Darwin.kill(pid, signal)
-            #endif
-            if result == 0 { state.killed = true }
-            return result == 0
+            guard state.terminated == nil, !state.delivered, let process = processBox.withLockedValue({ $0 }) else { return false }
+            let sent = process.signal(signal)
+            if sent { state.killed = true }
+            return sent
         }
     }
 

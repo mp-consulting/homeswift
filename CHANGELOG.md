@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Linux: starting FFmpeg, curl or an installer no longer crashes the bridge now and then. Foundation's `Process.run()`
+  read past the end of a directory entry while listing `/proc/self/fd` (fixed after Swift 6.2), and the read sources on
+  FFmpeg's pipes crashed libdispatch's event loop once processes started at once; tools now start through
+  `HomeswiftNetwork.ChildProcess` (`posix_spawn`), and FFmpeg's output is read on a thread of its own.
+
 ## [0.20.0] - 2026-11-04
 
 ### Added

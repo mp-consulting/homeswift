@@ -543,20 +543,6 @@ enum SubprocessRunner {
         defer { try? FileManager.default.removeItem(at: log) }
         let handle = try FileHandle(forWritingTo: log)
         defer { try? handle.close() }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        if let environment { process.environment = environment }
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = handle
-        process.standardError = handle
-        // Past the timeout, SIGTERM, then SIGKILL for a tool that ignores it: an install must end for another to start.
-        // Cancelled as the process ends; DispatchWorkItem is thread-safe, though not marked Sendable.
-        nonisolated(unsafe) let deadline = DispatchWorkItem { [process] in
-            guard process.isRunning else { return }
-            process.terminate()
-            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(10)) { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
-        }
         // Following the file while the tool runs: whole lines only, the last partial one waits for its end.
         let follower = onLine.map { onLine in
             Task {
@@ -577,15 +563,17 @@ enum SubprocessRunner {
             }
         }
         defer { follower?.cancel() }
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { deadline.cancel(); continuation.resume(returning: $0.terminationStatus) }
-            do { try process.run() } catch {
-                deadline.cancel()
-                continuation.resume(throwing: UpdateError(message: "cannot run \(path): \(error)"))
-                return
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(Int(timeout.components.seconds)), execute: deadline)
+        let child: ChildProcess
+        do {
+            child = try ChildProcess.launch(path, arguments: arguments, environment: environment,
+                                            standardOutput: handle.fileDescriptor, standardError: handle.fileDescriptor)
+        } catch {
+            throw UpdateError(message: "cannot run \(path): \(error)")
         }
+        // Past the timeout, SIGTERM, then SIGKILL for a tool that ignores it: an install must end for another to start.
+        let deadline = child.terminate(after: timeout, killAfter: .seconds(10))
+        let status = await child.wait().status
+        deadline.cancel()
         let output = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
         return Result(status: status, output: output)
     }

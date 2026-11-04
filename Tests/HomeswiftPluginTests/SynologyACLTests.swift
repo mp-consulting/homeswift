@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import Testing
 
 /// The Synology package's `app/acl.sh` under /bin/sh, against a fake synoacltool that prints what DSM 7 printed.
@@ -40,21 +41,9 @@ struct SynologyACLTests {
     }
 
     func shell(_ command: String, input: String = "", in directory: URL? = nil) throws -> Run {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", ". \"\(Self.script)\"; \(command)"]
-        if let directory { process.currentDirectoryURL = directory }
-        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-        process.standardInput = stdin
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        stdin.fileHandleForWriting.write(Data(input.utf8))
-        try stdin.fileHandleForWriting.close()
-        let output = stdout.fileHandleForReading.readDataToEndOfFile()
-        let error = stderr.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return Run(status: process.terminationStatus, output: String(decoding: output, as: UTF8.self), error: String(decoding: error, as: UTF8.self))
+        let enter = directory.map { "cd \"\($0.path)\" && " } ?? ""
+        let run = try ChildProcess.run("/bin/sh", arguments: ["-c", "\(enter). \"\(Self.script)\"; \(command)"], input: Data(input.utf8))
+        return Run(status: run.status, output: run.text, error: run.errorText)
     }
 
     @Test func entriesAndArchiveFlagsAreAnACL() throws {

@@ -128,65 +128,55 @@ struct CurlTransport: HTTPSending {
     }
 
     private func run(arguments: [String], timeout: Duration) async throws -> (Int32, Data, String) {
-        let process = Process()
-        if executable.contains("/") {
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [executable] + arguments
+        let (path, arguments) = executable.contains("/") ? (executable, arguments) : ("/usr/bin/env", [executable] + arguments)
+        // Close-on-exec from the start (see ChildProcess.pipe), so a process another thread starts meanwhile does not
+        // hold a write end open.
+        let output: (reading: FileHandle, writing: FileHandle), errors: (reading: FileHandle, writing: FileHandle)
+        do {
+            output = try ChildProcess.pipe()
+            errors = try ChildProcess.pipe()
+        } catch {
+            throw DaikinNetworkError(code: "ECURL", message: "httpTransport \"curl\" could not be started: \(error)")
         }
-        let output = Pipe()
-        let errors = Pipe()
-        process.standardOutput = output
-        process.standardError = errors
-        process.standardInput = FileHandle.nullDevice
-        // Install termination observation before launch: a short-lived child can exit before a later
-        // waitUntilExit() starts its run loop (the macOS CI hang). Drain both pipes independently too:
-        // reading stdout to EOF first can deadlock when the child fills stderr before closing stdout.
-        return try await withCheckedThrowingContinuation { continuation in
-            let completed = DispatchGroup()
-            let stdout = NIOLockedValueBox(Data())
-            let stderr = NIOLockedValueBox(Data())
-            let exitStatus = NIOLockedValueBox<Int32>(0)
-            completed.enter()
-            process.terminationHandler = { child in
-                exitStatus.withLockedValue { $0 = child.terminationStatus }
-                completed.leave()
+        // Both pipes are drained independently: reading stdout to EOF first can deadlock when the child fills stderr
+        // before closing stdout.
+        let child: ChildProcess
+        do {
+            child = try ChildProcess.launch(path, arguments: arguments,
+                                            standardOutput: output.writing.fileDescriptor,
+                                            standardError: errors.writing.fileDescriptor)
+        } catch {
+            for handle in [output.reading, output.writing, errors.reading, errors.writing] {
+                try? handle.close()
             }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                completed.leave()
-                continuation.resume(throwing: DaikinNetworkError(code: "ENOENT", message: "httpTransport \"curl\" requires the curl binary, but none was found on this system"))
-                return
+            throw DaikinNetworkError(code: "ENOENT", message: "httpTransport \"curl\" requires the curl binary, but none was found on this system")
+        }
+        // The parent keeps only its reading ends, so they reach end of file once curl exits.
+        try? output.writing.close()
+        try? errors.writing.close()
+        let watchdog = child.terminate(after: timeout, killAfter: .seconds(5))
+        defer { watchdog.cancel() }
+        async let stdout = Self.readToEnd(output.reading)
+        async let stderr = Self.readToEnd(errors.reading)
+        let (data, errorData, termination) = await (stdout, stderr, child.wait())
+        var status = termination.status
+        let message = String(decoding: errorData, as: UTF8.self)
+        // `env` answers 127 when it cannot find curl.
+        if status == 127, message.contains("No such file") { status = -1 }
+        return (status, data, status == -1 ? "httpTransport \"curl\" requires the curl binary, but none was found on this system" : message)
+    }
+
+    /// Reads a pipe to its end on a thread of its own, then closes it: not Swift's pool, nor the global dispatch queue,
+    /// which on macOS shares that pool's threads and would hold one for as long as curl runs.
+    private static func readToEnd(_ handle: FileHandle) async -> Data {
+        await withCheckedContinuation { continuation in
+            let thread = Thread {
+                let data = handle.readDataToEndOfFile()
+                try? handle.close()
+                continuation.resume(returning: data)
             }
-            let watchdog = Task {
-                do { try await Task.sleep(for: timeout) } catch { return }
-                if process.isRunning { process.terminate() }
-            }
-            completed.enter()
-            DispatchQueue.global().async {
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                stdout.withLockedValue { $0 = data }
-                completed.leave()
-            }
-            completed.enter()
-            DispatchQueue.global().async {
-                let data = errors.fileHandleForReading.readDataToEndOfFile()
-                stderr.withLockedValue { $0 = data }
-                completed.leave()
-            }
-            completed.notify(queue: .global()) {
-                watchdog.cancel()
-                process.terminationHandler = nil
-                var status = exitStatus.withLockedValue { $0 }
-                let errors = String(decoding: stderr.withLockedValue { $0 }, as: UTF8.self)
-                // `env` answers 127 when it cannot find curl.
-                if status == 127, errors.contains("No such file") { status = -1 }
-                continuation.resume(returning: (status, stdout.withLockedValue { $0 }, status == -1 ? "httpTransport \"curl\" requires the curl binary, but none was found on this system" : errors))
-            }
+            thread.name = "homeswift-curl-read"
+            thread.start()
         }
     }
 }
