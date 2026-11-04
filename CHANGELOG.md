@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- HTTP Webhooks (`HttpWebHooks`), experimental: homebridge-http-webhooks' virtual accessories, set by webhooks on the LAN
+  (Basic authentication, HTTPS) and calling URLs on HomeKit writes, written in a clean room from a functional spec.
 - A plugin whose account Needs Authorization (never set up, or refused since) is no longer shown as running: its card
   and its settings say **Needs sign-in**, **Needs pairing** or **Needs keys** in orange, and its card leads with
   **Set up**; one whose every accessory shows No Response says **Not responding**. Plugins say an account was refused
