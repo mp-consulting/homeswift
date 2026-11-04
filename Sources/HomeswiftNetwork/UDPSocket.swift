@@ -36,15 +36,11 @@ public final class UDPSocket: Sendable {
     /// Binds a socket. `reuseAddress` lets another process (or bridge) bind the same port, `broadcast` allows sends
     /// to broadcast addresses, `multicastGroup` joins that IPv4 group (on the interface whose IPv4 address is
     /// `multicastInterface`, when given; the system's choice otherwise). `bufferSize` datagrams wait at most for a
-    /// reader; older ones are dropped beyond.
-    public static func bind(
-        host: String = "0.0.0.0", port: Int = 0, reuseAddress: Bool = false, broadcast: Bool = false, multicastGroup: String? = nil,
-        multicastInterface: String? = nil, bufferSize: Int = 256, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
-    /// to broadcast addresses, `multicastGroup` joins that IPv4 group. `bufferSize` datagrams wait at most for a
     /// reader; older ones are dropped beyond. `senderPorts` hands them over in `datagramsWithPorts` instead of `datagrams`.
     public static func bind(
         host: String = "0.0.0.0", port: Int = 0, reuseAddress: Bool = false, broadcast: Bool = false, multicastGroup: String? = nil,
-        bufferSize: Int = 256, senderPorts: Bool = false, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        multicastInterface: String? = nil, bufferSize: Int = 256, senderPorts: Bool = false,
+        group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
     ) async throws -> UDPSocket {
         let (stream, plain) = AsyncStream<(data: Data, address: String)>.makeStream(bufferingPolicy: .bufferingNewest(bufferSize))
         let (withPorts, ported) = AsyncStream<Datagram>.makeStream(bufferingPolicy: .bufferingNewest(bufferSize))
