@@ -18,13 +18,14 @@ final class ESPHomeTestEnvironment: @unchecked Sendable {
     var plugin: ESPHomePlugin? { plugins.withLockedValue { $0.last } }
 
     /// The delays a hundred times shorter: a minute's retry is 0.6 s. The timeouts are ceilings, not waits, and stay
-    /// long: scaled to 0.3 s, a busy CI runner (every test target at once) missed a HelloResponse and reconnected.
+    /// long: scaled to 0.3 s, a busy CI runner (every test target at once) missed a HelloResponse and reconnected, and
+    /// with 2 s of silence allowed, a runner that stalled the tests that long reconnected a device answering its pings.
     static let timing: ESPHomeTiming = {
         var timing = ESPHomeTiming().scaled(by: 0.01)
         timing.connectTimeout = .seconds(10)
         timing.handshakeTimeout = .seconds(10)
         timing.responseTimeout = .seconds(10)
-        timing.liveness = .seconds(2)
+        timing.liveness = .seconds(10)
         return timing
     }()
 
@@ -361,8 +362,8 @@ struct ESPHomePluginTests {
         let host = try await environment.start(settings: ["devices": [["host": "quiet.local"]]])
         defer { Task { await host.stop() } }
         #expect(await eventually { host.accessory("esphome:Relay")?.isUnavailable == false })
-        // Pings every 0.2 s are answered: still connected well past the 2 s of silence it allows.
-        try? await Task.sleep(for: .milliseconds(3000))
+        // A ping every 0.2 s, each answered: the connection it started with stays up.
+        #expect(await eventually { device.pings >= 5 })
         #expect(device.connections == 1)
         #expect(host.accessory("esphome:Relay")?.isUnavailable == false)
     }
