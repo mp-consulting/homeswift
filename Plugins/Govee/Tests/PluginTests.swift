@@ -351,10 +351,8 @@ extension PluginHost {
         func request(_ path: String, _ body: JSONValue = .null) async throws -> PluginWebResponse {
             try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: path, body: body, user: "me"))
         }
-        let login: JSONValue = ["username": "user@example.com", "password": "pw"]
-        #expect(try await request("test-login", login).json == ["success": true, "message": "Login successful. Account ID: acc"])
-        #expect(try await request("test-login", ["username": "u"]).status == 400)
-        let found = try await request("discover", login)
+        // The instance's own login answers: the page sends no password.
+        let found = try await request("discover")
         #expect(found.json["devices"]?[0]?["deviceId"] == .string(lightID))
         #expect(found.json["devices"]?[0]?["deviceType"] == "lightDevices")
 
@@ -363,17 +361,11 @@ extension PluginHost {
         #expect(offline.json["source"] == "offline")
         #expect(offline.json["warning"] != nil)
         environment.govee.answer("app2.govee.com/appsku/v2/scences", ["data": ["categories": categories()]])
-        let cloud = try await request("scenes", ["deviceId": .string(lightID), "model": "h6173", "goodsType": 7, "username": "user@example.com", "password": "pw"])
+        let cloud = try await request("scenes", ["deviceId": .string(lightID), "model": "h6173", "goodsType": 7])
         #expect(cloud.json["source"] == "cloud")
         #expect(cloud.json["categories"]?[0]?["scenes"]?[0]?["name"] == "Forest")
         #expect(environment.govee.requests(to: "app2.govee.com/appsku/v2/scences").last?.query == ["sku": "H6173", "device": lightID, "goodsType": "7", "source": "0"])
         #expect(try await request("scenes", ["model": "H6173"]).status == 400)
-        environment.govee.answer("app2.govee.com/bff-app/v1/devices/detail/function-support", ["data": ["modes": [10, 8]]])
-        #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173", "username": "user@example.com", "password": "pw"]).json["modes"] == ["scene", "music"])
-        // Without a login in the body, the instance's account answers; Govee failing gives "unknown".
-        #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173"]).json["modes"] == ["scene", "music"])
-        environment.govee.fail("app2.govee.com/bff-app/v1/devices/detail/function-support")
-        #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173"]).json["modes"] == .null)
 
         // Icons: Govee's hosts only, images only, inlined.
         environment.icons.answer("d1f2504ijhdyjw.cloudfront.net/a.png", .string("raw:PNG"), headers: [("Content-Type", "image/png")])
@@ -403,7 +395,7 @@ extension PluginHost {
         #expect(try await request("cached-devices").json["devices"] == [])
     }
 
-    /// Without a login in the body, the routes use the instance's account.
+    /// The routes use the instance's account: the page sends no login.
     @Test func pageRoutesUseTheInstancesAccount() async throws {
         let environment = GoveeEnvironment()
         let host = try await environment.start()
@@ -414,10 +406,8 @@ extension PluginHost {
         #expect(found.json["devices"]?[0]?["deviceId"] == .string(lightID))
         #expect(environment.govee.requests(to: "app2.govee.com/device/rest/devices/v1/list").last?.headers.contains { $0 == ("Authorization", "Bearer token-1") } == true)
         #expect(environment.govee.requests(to: "app2.govee.com/account/rest/account/v2/login").count == logins)
-        // A username without its password is still refused.
-        #expect(try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "discover", body: ["username": "u"], user: "me")).status == 400)
 
-        // No account at all: the page is asked for credentials.
+        // No account at all: the page is told to sign in through Setup.
         let offline = GoveeEnvironment()
         offline.lan.scanReplies = [(lightID, "H6008", "192.168.1.20")]
         let lanOnly = try await offline.start(["lightDevices": [["deviceId": lightID]]])

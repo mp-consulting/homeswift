@@ -12,17 +12,16 @@ extension GoveePlugin {
     static let iconBatchSize = 60
     static let iconCacheSize = 800
 
-    /// The settings page's requests (`homebridge-ui/server.js`): `discover`, `test-login`, `cached-devices`,
-    /// `clear-cache`, `scenes`, `diys`, `device-capabilities` and `scene-icons`, plus `devices`, the instance's
-    /// devices and how it reaches them. `Web/` is the page, which writes no settings: those are the Settings page's.
+    /// The plugin page's requests (from `homebridge-ui/server.js`): `discover`, `cached-devices`, `clear-cache`,
+    /// `scenes`, `diys` and `scene-icons`, plus `devices`, the instance's devices and how it reaches them. All use the
+    /// instance's own login (the vault's, or config.json's): Setup signs in, so no password comes from the page.
+    /// `Web/` is the page, which writes no settings: those are the Settings page's.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch request.path {
         case "devices":
             return PluginWebResponse(["devices": .array(await deviceStatus()), "signedIn": .bool(account != nil || accountLogin() != nil)])
         case "discover":
-            return await discover(request.body)
-        case "test-login":
-            return await testLogin(request.body)
+            return await discover()
         case "cached-devices", "get-cached-devices":
             return PluginWebResponse(["devices": .array(cachedDevices())])
         case "clear-cache":
@@ -31,8 +30,6 @@ extension GoveePlugin {
             return await scenes(request.body)
         case "diys":
             return await diys(request.body)
-        case "device-capabilities":
-            return await capabilities(request.body)
         case "scene-icons":
             return PluginWebResponse(["icons": .object(await sceneIcons(request.body["urls"]?.arrayValue?.compactMap(\.stringValue) ?? []))])
         default:
@@ -66,56 +63,33 @@ extension GoveePlugin {
 
     // MARK: Account
 
-    private struct PageCredentials {
-        var username: String
-        var password: String
-        var code: String?
-    }
-
-    private func credentials(_ body: JSONValue) -> PageCredentials? {
-        guard let username = body["username"]?.stringValue?.trimmingCharacters(in: .whitespaces), !username.isEmpty,
-            let password = body["password"]?.stringValue, !password.isEmpty
-        else { return nil }
-        let code = body["code"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
-        return PageCredentials(username: username, password: password, code: code)
-    }
-
-    private func api(for username: String) -> GoveeAPI {
-        GoveeAPI(transport: dependencies.http, clientId: GoveeAPI.clientId(username: username))
-    }
-
-    /// Logs in for the page, reusing the last login while the same username and password are entered.
-    private func authenticate(_ credentials: PageCredentials) async throws -> (api: GoveeAPI, token: String) {
-        let key = Secrets.hex(SHA256.hash(data: Data("\(credentials.username)\u{0}\(credentials.password)".utf8)))
-        let api = api(for: credentials.username)
+    /// Logs in with the instance's login, reusing the last token while the username and password stay the same.
+    private func authenticate(_ login: AccountLogin) async throws -> (api: GoveeAPI, token: String) {
+        let key = Secrets.hex(SHA256.hash(data: Data("\(login.username)\u{0}\(login.password)".utf8)))
+        let api = GoveeAPI(transport: dependencies.http, clientId: GoveeAPI.clientId(username: login.username))
         if let session = pageSession, session.key == key { return (api, session.token) }
-        let login = try await api.login(username: credentials.username, password: credentials.password, code: credentials.code, audience: .settingsPage)
-        pageSession = (key, login.token)
-        return (api, login.token)
+        let answer = try await api.login(username: login.username, password: login.password, code: login.code)
+        pageSession = (key, answer.token)
+        return (api, answer.token)
     }
 
-    /// No login in the body, and none configured; or a username without its password.
+    /// No login: nothing in the vault, nor in config.json.
     struct MissingCredentials: Error, CustomStringConvertible {
         var description: String
         static let none = MissingCredentials(description: "Sign in to your Govee account on Add accessories first.")
-        static let incomplete = MissingCredentials(description: "Username and password are required")
     }
 
-    /// The login the body gives, or else the instance's own (its account's token, config.json's username and
-    /// password): the Assistant reads the account's devices and scenes without being handed the password.
-    private func session(_ body: JSONValue) async throws -> (api: GoveeAPI, token: String) {
-        if let credentials = credentials(body) { return try await authenticate(credentials) }
-        guard body["username"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty == nil else {
-            throw MissingCredentials.incomplete
-        }
+    /// The instance's login (its account's token, or else the vault's or config.json's username and password):
+    /// the page and the Assistant read the account's devices and scenes without being handed the password.
+    private func session() async throws -> (api: GoveeAPI, token: String) {
         if let account, let token = await account.token { return (account.api, token) }
         guard let login = accountLogin() else { throw MissingCredentials.none }
-        return try await authenticate(PageCredentials(username: login.username, password: login.password, code: login.code))
+        return try await authenticate(login)
     }
 
-    private func discover(_ body: JSONValue) async -> PluginWebResponse {
+    private func discover() async -> PluginWebResponse {
         do {
-            let (api, token) = try await session(body)
+            let (api, token) = try await session()
             let list = try await api.devices(token: token)
             let devices: [JSONValue] = list.map { device in
                 var entry: [String: JSONValue] = [
@@ -139,24 +113,6 @@ extension GoveePlugin {
         switch error {
         case .unauthorized(let status), .httpStatus(let status, _): status
         default: 500
-        }
-    }
-
-    private func testLogin(_ body: JSONValue) async -> PluginWebResponse {
-        guard let credentials = credentials(body) else { return .error(400, "Username and password are required") }
-        do {
-            let login = try await api(for: credentials.username).login(
-                username: credentials.username, password: credentials.password, code: credentials.code, audience: .settingsPage)
-            return PluginWebResponse(["success": true, "message": .string("Login successful. Account ID: \(login.accountId)")])
-        } catch let error as GoveeAPIError {
-            // A new-device challenge is not a failure: a code was just emailed, and the page asks for it.
-            var required = false
-            var invalid = false
-            if case .twoFactorRequired = error { required = true }
-            if case .twoFactorInvalid = error { invalid = true }
-            return PluginWebResponse(["success": false, "twoFactorRequired": .bool(required), "twoFactorInvalid": .bool(invalid), "message": .string(error.description)])
-        } catch {
-            return PluginWebResponse(["success": false, "twoFactorRequired": false, "twoFactorInvalid": false, "message": .string("\(error)")])
         }
     }
 
@@ -208,9 +164,7 @@ extension GoveePlugin {
     private func deviceRef(_ body: JSONValue) -> GoveeContent.DeviceRef? {
         let sku = (body["model"]?.stringValue ?? "").uppercased()
         guard !sku.isEmpty, let device = body["deviceId"]?.stringValue, !device.isEmpty else { return nil }
-        return GoveeContent.DeviceRef(
-            sku: sku, device: device, goodsType: Configuration.integer(body["goodsType"]), versionSoft: body["versionSoft"]?.stringValue,
-            versionHard: body["versionHard"]?.stringValue, pactType: Configuration.integer(body["pactType"]), pactCode: Configuration.integer(body["pactCode"]))
+        return GoveeContent.DeviceRef(sku: sku, device: device, goodsType: Configuration.integer(body["goodsType"]))
     }
 
     /// The device's scene library from Govee, or the bundled one when Govee cannot be reached or there is no
@@ -218,7 +172,7 @@ extension GoveePlugin {
     private func scenes(_ body: JSONValue) async -> PluginWebResponse {
         guard let ref = deviceRef(body) else { return .error(400, "A device ID and model are required to load scenes.") }
         do {
-            let (api, token) = try await session(body)
+            let (api, token) = try await session()
             return PluginWebResponse(GoveeContent.json(try await GoveeContent.sceneLibrary(api: api, token: token, ref: ref)))
         } catch {
             guard let offline = SceneCatalogue.library(sku: ref.sku, device: ref.device) else {
@@ -237,25 +191,11 @@ extension GoveePlugin {
     private func diys(_ body: JSONValue) async -> PluginWebResponse {
         guard let ref = deviceRef(body) else { return .error(400, "A device ID and model are required to load DIY effects.") }
         do {
-            let (api, token) = try await session(body)
+            let (api, token) = try await session()
             let entries = try await GoveeContent.diyEffects(api: api, token: token, ref: ref)
             return PluginWebResponse(["diys": .array(entries.map(GoveeContent.json))])
         } catch {
             return .error((error as? GoveeAPIError).map(Self.status) ?? 500, "\(error)")
-        }
-    }
-
-    /// The modes the device has; `modes: null` when unknown, which the page takes as "show everything".
-    private func capabilities(_ body: JSONValue) async -> PluginWebResponse {
-        guard let ref = deviceRef(body) else { return .error(400, "A device ID and model are required.") }
-        do {
-            let (api, token) = try await session(body)
-            let support = try await GoveeContent.functionSupport(api: api, token: token, ref: ref)
-            return PluginWebResponse([
-                "modes": support.modes.isEmpty ? .null : .array(support.modes.map(JSONValue.string)), "modeIds": .array(support.modeIds.map { .number(Double($0)) }),
-            ])
-        } catch {
-            return PluginWebResponse(["modes": .null, "modeIds": []])
         }
     }
 

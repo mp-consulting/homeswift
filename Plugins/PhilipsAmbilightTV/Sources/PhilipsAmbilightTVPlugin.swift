@@ -145,8 +145,8 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     /// `GET tvs` lists the TVs with their state; `GET sources?mac=` a TV's inputs in the wheel's order, for
     /// the page's Inputs, and `POST sources/refresh` the same after reading the TV's apps again; `GET current-app?mac=`
-    /// the app on screen; `GET mac?ip=` finds a TV's MAC address; `POST wake` sends Wake-on-LAN to any MAC address;
-    /// `POST key` sends a remote key. Pairing is Setup's (AmbilightSetup.swift), settings the Settings page's
+    /// the app on screen; `POST wake` sends Wake-on-LAN to any MAC address; `POST key` sends a remote key. Pairing
+    /// and finding a TV's MAC address are Setup's (AmbilightSetup.swift), settings the Settings page's
     /// (AmbilightSettings.swift): the page writes none. `Web/` is the page.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
@@ -176,19 +176,6 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                 return .error(502, "\(device.settings.name) did not list its apps. A TV that just woke is slow to: try again once its Home screen shows.")
             }
             return PluginWebResponse(["sources": .array(await sources(of: device))])
-        case ("GET", "mac"):
-            // "Get MAC": a configured TV is asked first, then this machine's ARP table, as the Homebridge plugin reads it.
-            guard let ip = request.query["ip"]?.trimmingCharacters(in: .whitespaces), WakeOnLAN.ipv4(ip) != nil else { return .error(400, "an IPv4 address is required") }
-            let mac: String?
-            if let device = devices.values.first(where: { $0.settings.ip == ip }) {
-                // Through the TV's own client: its queue (the TV copes badly with requests on top of each other)
-                // and the certificate it pinned.
-                mac = await lookUpMAC(ip: ip, client: device.client)
-            } else {
-                mac = await dependencies.lookUpARP(ip).flatMap(MACAddress.canonical)
-            }
-            guard let mac else { return .error(404, "No MAC address found for that IP. Make sure the TV is on.") }
-            return PluginWebResponse(["mac": .string(mac)])
         case ("GET", "current-app"):
             // "Detect from TV" for a custom app: whatever is in the foreground, unless it is the TV's own.
             guard let mac = request.query["mac"], let device = device(mac: mac) else { return .error(404, "no TV with that MAC") }

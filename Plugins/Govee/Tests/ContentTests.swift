@@ -138,15 +138,6 @@ func categories(_ overrides: [String: JSONValue] = [:]) -> JSONValue {
         #expect(decoded(String(try #require(code.split(separator: ",").last)))[3] == 212)
     }
 
-    @Test func modes() {
-        #expect(GoveeContent.modes[10] == "scene")
-        #expect(GoveeContent.modes[8] == "music")
-        #expect(GoveeContent.modes[11] == "diy")
-        #expect(GoveeContent.functionSupport(["modes": [10, ["componentId": 8], 99]]) == .init(modes: ["scene", "music"], modeIds: [10, 8, 99]))
-        #expect(GoveeContent.functionSupport(["components": [["componentId": "11"]]]).modes == ["diy"])
-        #expect(GoveeContent.functionSupport(nil).modeIds.isEmpty)
-    }
-
     @Test func diyEntries() {
         let entries = GoveeContent.diyEntries([["groupName": "Mine", "diys": [["diyId": 7, "diyName": "Party", "effectStr": "", "coverUrl": "https://x/y.png"], ["name": "no code"]]]])
         #expect(entries.count == 1)
@@ -289,8 +280,8 @@ func categories(_ overrides: [String: JSONValue] = [:]) -> JSONValue {
         let govee = FakeGovee()
         govee.answer(Self.login, ["status": 454])
         let api = GoveeAPI(transport: govee, clientId: "hb1")
-        await #expect(throws: GoveeAPIError.twoFactorInvalid(GoveeAPI.settingsCodeInvalid)) {
-            try await api.login(username: "user@example.com", password: "pw", code: "0000", audience: .settingsPage)
+        await #expect(throws: GoveeAPIError.twoFactorInvalid(Lang.twoFACodeInvalid)) {
+            try await api.login(username: "user@example.com", password: "pw", code: "0000")
         }
         #expect(govee.requests(to: Self.verification).isEmpty)
         #expect(govee.requests(to: Self.login).first?.body?["code"] == "0000")
