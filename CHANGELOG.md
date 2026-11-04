@@ -9,6 +9,9 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The Roborock plugin (experimental, `RoborockVacuumPlatform`, a clean-room implementation compatible with homebridge-roborock-vacuum's configuration): robot vacuums on the LAN (protocols 1.0 and L01) with the cloud's MQTT as a fallback, sign-in through Setup with a password or an emailed code; and `TCPSocket` in `HomeswiftNetwork`.
+- The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
+  opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
+  an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
 - `get_settings` and `update_settings`, MCP tools (and through `homeswift mcp`, the command line's) that read and change
   the settings of an accessory, by its Accessory Id, or of a plugin instance: the current values with what each field
   is (its schema, whether it is a Core Accessory Setting, its plugin-wide default), a merge where `null` clears a key,
