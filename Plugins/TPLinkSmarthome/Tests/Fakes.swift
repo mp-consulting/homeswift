@@ -79,6 +79,23 @@ final class FakeLAN: Sendable {
             guard let (module, methods) = request.objectValue?.first(where: { $0.key != "context" }), let method = methods.objectValue?.keys.first else {
                 throw KasaConnectionClosed()
             }
+            // A device shows what it was set to on the next round, as a real one does: without it, a round that
+            // lands between a write and the test's look at the value would put back the state from before it.
+            if var sysinfo = state.sysinfo[host], let arguments = methods.objectValue?[method]?.objectValue {
+                let childIDs = request.objectValue?["context"]?.objectValue?["child_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                if method == "set_relay_state", let on = arguments["state"]?.intValue {
+                    if childIDs.isEmpty {
+                        sysinfo = sysinfo.replacingOccurrences(of: #""relay_state":\#(1 - on)"#, with: #""relay_state":\#(on)"#)
+                    }
+                    // A strip of short ids (an older firmware) lists its outlets by their last two digits.
+                    for id in childIDs.flatMap({ [$0, String($0.suffix(2))] }) {
+                        sysinfo = sysinfo.replacingOccurrences(of: #"{"id":"\#(id)","state":\#(1 - on)"#, with: #"{"id":"\#(id)","state":\#(on)"#)
+                    }
+                } else if method.hasSuffix("light_state"), let on = arguments["on_off"]?.intValue {
+                    sysinfo = sysinfo.replacingOccurrences(of: #""light_state":{"on_off":\#(1 - on)"#, with: #""light_state":{"on_off":\#(on)"#)
+                }
+                state.sysinfo[host] = sysinfo
+            }
             let inner = module == "system" && method == "get_sysinfo"
                 ? state.sysinfo[host] ?? #"{"err_code":0}"#
                 : state.replies["\(module).\(method)"] ?? #"{"err_code":0}"#
