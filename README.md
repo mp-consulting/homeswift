@@ -165,6 +165,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 
 | Plugin | Platform | Devices |
 |---|---|---|
+| [APsystems ECU](Plugins/APsystemsECU) | `APsystemsECU` | Experimental: APsystems solar microinverters read from their ECU gateway (ECU-C, ECU-R, ECU-B) on the local network, with the production, an ECU-C's CT clamps and each inverter's power and temperature |
 | [Daikin Cloud](Plugins/DaikinCloud) | `DaikinCloud` | Daikin air conditioners and Altherma heat pumps, through the Onecta cloud |
 | [Dolphin Pool Cleaner](Plugins/DolphinPoolCleaner) | `DolphinPoolCleaner` | Maytronics Dolphin pool robots, through the MyDolphin Plus cloud |
 | [Dummy Accessories](Plugins/Dummy) | `HomebridgeDummy` | Experimental switches, sensors, locks, doors, thermostats and more that exist only in HomeKit, with schedules, conditions and webhooks |

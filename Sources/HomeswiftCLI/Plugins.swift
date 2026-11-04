@@ -1,3 +1,5 @@
+import HomeswiftAPsystemsECU
+import HomeswiftIPCameras
 import HomeswiftDaikinCloud
 import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
@@ -11,7 +13,6 @@ import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftHueSyncBox
-import HomeswiftIPCameras
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
@@ -74,5 +75,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HueSyncBoxPlugin.self)
     registry.register(TahomaPlugin.self)
     registry.register(V2CTrydanPlugin.self)
+    registry.register(APsystemsECUPlugin.self)
     return registry
 }

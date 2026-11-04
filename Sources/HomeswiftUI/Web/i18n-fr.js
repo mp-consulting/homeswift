@@ -74,7 +74,7 @@ HomeswiftI18n.add("fr", {
   "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Volets, chauffages et capteurs Somfy TaHoma, Connexoon et Cozytouch",
   "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
-  "Trydan EV chargers on the local network: charging, current, lock and power": "Bornes de recharge Trydan sur le réseau local : charge, courant, verrou et puissance",
+  "Trydan EV chargers on the local network: charging, current, lock and power", "Bornes de recharge Trydan sur le réseau local : charge, courant, verrou et puissance", "Solar production from an APsystems ECU on the local network", "La production solaire d’un ECU APsystems sur le réseau local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interrupteurs, lumières, capteurs, volets, ventilateurs et climatiseurs des appareils ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 et Gen4 : relais, volets, boutons, lumières et compteurs",
