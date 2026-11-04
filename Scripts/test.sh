@@ -60,9 +60,14 @@ status=0
 failed=()
 for index in "${!pids[@]}"; do
     name="${names[$index]}"
-    if wait "${pids[$index]}"; then
+    wait "${pids[$index]}"
+    code=$?
+    if [ "$code" -eq 0 ]; then
         summary="$(grep -a 'Test run with' "$logs/$name.log" | tail -n 1 | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/^[^T]*//')"
         printf '%-26s %s\n' "$name" "${summary:-no tests}"
+    elif [ "$code" -eq 69 ] && [ ${#tests[@]} -gt 0 ]; then
+        # Swift Testing's EX_UNAVAILABLE: a filter matched none of the bundle's tests.
+        printf '%-26s %s\n' "$name" "no matching tests"
     else
         status=1
         failed+=("$name")
