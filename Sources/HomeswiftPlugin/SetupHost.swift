@@ -82,7 +82,8 @@ extension PluginHost {
 
     /// Where the account of each instance the host runs stands, by `<platform>/<name>`, without a discovery: what its
     /// running plugin answers (`accountAuthorized()`), else whether the vault has its credentials, and refused when the
-    /// plugin said so. A paused instance, or one whose plugin did not start, is read from the vault.
+    /// plugin said so. A paused instance, or one whose plugin did not start, is read from the vault, and so is a plugin
+    /// that takes longer than `accountAnswerTimeout` to answer: a busy one does not hold up the Plugins page.
     public func accountStates() async -> [String: AccountState] {
         await withTaskGroup(of: (String, AccountState).self) { group in
             for instance in instances {
@@ -92,15 +93,32 @@ extension PluginHost {
                 group.addTask {
                     let id = "\(context.platform)/\(context.name)"
                     guard method != .none else { return (id, .none) }
-                    // Refused wins over what the plugin or the vault says, as in `discover`.
-                    if context.accountRefusal != nil { return (id, .refused) }
-                    let authorized = await plugin?.accountAuthorized() ?? context.haveCredentials([nil]).contains(nil)
-                    return (id, AccountState(method: method, refused: false, authorized: authorized))
+                    let refused = context.accountRefusal != nil
+                    var authorized = false
+                    if !refused {
+                        let answer = if let plugin { await Self.accountAnswer(of: plugin, within: Self.accountAnswerTimeout) } else { Bool?.none }
+                        authorized = answer ?? context.haveCredentials([nil]).contains(nil)
+                    }
+                    return (id, AccountState(method: method, refused: refused, authorized: authorized))
                 }
             }
             var states: [String: AccountState] = [:]
             for await (id, state) in group { states[id] = state }
             return states
+        }
+    }
+
+    /// How long `accountStates` waits for a plugin's `accountAuthorized()`.
+    static let accountAnswerTimeout: Duration = .seconds(2)
+
+    /// The plugin's `accountAuthorized()`, or nil when it has not answered within `timeout` (it goes on, unheard).
+    static func accountAnswer(of plugin: any HomeswiftPlugin, within timeout: Duration) async -> Bool? {
+        let pending = NIOLockedValueBox<CheckedContinuation<Bool?, Never>?>(nil)
+        let resume: @Sendable (Bool?) -> Void = { answer in pending.withLockedValue { continuation in continuation?.resume(returning: answer); continuation = nil } }
+        return await withCheckedContinuation { continuation in
+            pending.withLockedValue { $0 = continuation }
+            let timer = Task { try? await Task.sleep(for: timeout); resume(nil) }
+            Task { resume(await plugin.accountAuthorized()); timer.cancel() }
         }
     }
 

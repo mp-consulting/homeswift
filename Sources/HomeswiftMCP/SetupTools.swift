@@ -75,7 +75,7 @@ extension HomeswiftCatalog {
             "platform": .string(platform), "name": .string(name),
             "accountAuthorization": .string(method.rawValue),
             // An instance without an account has nothing to set up for it.
-            "accountSetUp": .bool(method == .none || found.accountAuthorized),
+            "accountSetUp": .bool(found.accountState == .none || found.accountState == .setUp),
             "accountState": .string(found.accountState.rawValue), "accountRequired": .bool(requirement.isRequired),
             "accountAdds": requirement.adds.map(JSONValue.string) ?? .null, "needsAuthorization": .bool(found.accountState.needsAuthorization(requirement)),
             "devices": .array(found.devices.map { device in
@@ -232,6 +232,8 @@ extension HomeswiftCatalog {
                 }
             }
         }
+        // An account set up again is no longer refused, whether the plugin keeps its credentials or the vault does.
+        if session.deviceID == nil { host.context(platform: session.platform, name: session.name)?.accountAccepted() }
         let names = ((applied?["reloaded"]?.arrayValue ?? []) + (applied?["started"]?.arrayValue ?? [])).compactMap(\.stringValue)
         if !names.contains(session.name) { await host.relaunch(platform: session.platform, name: session.name) }
         logger.info("Setup done", metadata: ["platform": "\(session.platform)", "name": "\(session.name)", "device": "\(deviceID ?? "account")"])

@@ -588,7 +588,7 @@ public struct HomeswiftCatalog: Sendable {
                 return [
                     "platform": .string(instance.platform), "name": .string(instance.name), "plugin": .string(instance.pluginName), "bridge": .string(instance.bridge.name),
                     "accessories": .number(Double(instance.accessoryIDs.count)), "paused": .bool(instance.paused),
-                    "accountState": .string(account.rawValue), "needsAuthorization": .bool(account.needsAuthorization(requirement)),
+                    "accountState": .string(account.rawValue), "needsAuthorization": .bool(!instance.paused && account.needsAuthorization(requirement)),
                     "noneResponding": .bool(!accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
                 ]
             }),
@@ -1064,7 +1064,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "list_plugins", title: "List plugins",
                 description: "The platform instances running, on which bridge and with how many accessories, and the platforms in config.json that no plugin provides. "
-                    + "An instance's accountState is none (no account), setUp, notSetUp or refused (the account refused its credentials); needsAuthorization says its account "
+                    + "An instance's accountState is none (no account), setUp, notSetUp or refused (the account refused its credentials); needsAuthorization (never while paused) says its account "
                     + "must be set up (again) with start_setup before its devices work (a plugin's accountRequired false: its devices work without it, accountAdds says what it adds); "
                     + "noneResponding, that every one of its accessories shows No Response.",
                 outputSchema: Output.plugins, scope: .read, idempotent: true

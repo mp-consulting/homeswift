@@ -337,8 +337,10 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   as running.
 - **A refused account**: when the account refuses what Setup gave (a password changed, a refresh token revoked; not a
   cloud that does not answer), call `context.accountRefused("why, in English")`: the plugin's card and settings say it
-  Needs Authorization, required account or not, until new credentials are saved (Setup's, or `saveCredentials` with a
-  refreshed token) or `context.accountAccepted()`. `list_plugins` and `discover_devices` give it as `accountState`
+  Needs Authorization, required account or not, until the account's Setup is done again, new credentials are saved
+  (`saveCredentials` with a refreshed token) or removed, or `context.accountAccepted()`. A paused instance needs no one
+  until it is resumed. `accountAuthorized()` should answer at once: the Plugins page waits 2 seconds for it, then reads
+  the vault. `list_plugins` and `discover_devices` give it as `accountState`
   (`none`, `setUp`, `notSetUp`, `refused`) and `needsAuthorization`.
 - **`discover()`**: the devices the plugin can find now (on the network, in the account, at the addresses its
   settings name), each a `DiscoveredDevice` with its Device Id (the part of its accessory's id after `<platform>:`), the

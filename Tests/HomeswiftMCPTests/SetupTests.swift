@@ -227,7 +227,6 @@ struct AccountStateTests {
     /// until new credentials are saved.
     @Test func aRequiredAccountNeedsAuthorizationUntilSetUpAndAgainOnceRefused() async throws {
         try await setup.host.start()
-        defer { Task { await setup.host.stop() } }
         #expect(await instance("Pairable")?["accountState"] == "notSetUp")
         #expect(await instance("Pairable")?["needsAuthorization"] == true)
         let found = try await setup.catalog.discoverDevices(platform: "Pairable", name: nil)
@@ -254,12 +253,12 @@ struct AccountStateTests {
         #expect(context.accountRefusal == nil)
         let removed = await instance("Pairable")?["accountState"]
         #expect(removed == "notSetUp")
+        await setup.host.stop()
     }
 
     /// An optional account left alone needs no one: the plugin runs as it should, and says what the account adds.
     @Test func anOptionalAccountNotSetUpNeedsNoOne() async throws {
         try await setup.host.start()
-        defer { Task { await setup.host.stop() } }
         #expect(await instance("Hooks")?["accountState"] == "notSetUp")
         #expect(await instance("Hooks")?["needsAuthorization"] == false)
         let plugin = await setup.catalog.pluginsJSON()["plugins"]?.arrayValue?.first { $0["platform"] == "OptionalAccount" }
@@ -270,17 +269,30 @@ struct AccountStateTests {
         // Refused, even an optional account needs someone: what it had no longer works.
         setup.host.context(platform: "OptionalAccount", name: "Hooks")?.accountRefused()
         #expect(await instance("Hooks")?["needsAuthorization"] == true)
+        await setup.host.stop()
+    }
+
+    /// A paused instance is waiting for no one, whatever its account: it is resumed first.
+    @Test func aPausedInstanceNeedsNoAuthorization() async throws {
+        let paused = try SetupTests(config: #"{ "bridge": { "name": "Test", "port": 0 }, "platforms": [ { "platform": "Pairable", "name": "Pairable", "_paused": true } ] }"#,
+                                    plugins: [PairablePlugin.self])
+        try await paused.host.start()
+        let json = await paused.catalog.pluginsJSON()["platforms"]?.arrayValue?.first
+        #expect(json?["paused"] == true)
+        #expect(json?["accountState"] == "notSetUp")
+        #expect(json?["needsAuthorization"] == false)
+        await paused.host.stop()
     }
 
     /// A plugin every accessory of which shows No Response says so; one answering again does not.
     @Test func aPluginNoneOfWhoseAccessoriesRespondsSaysSo() async throws {
         try await setup.host.start()
-        defer { Task { await setup.host.stop() } }
         #expect(await instance("Hooks")?["noneResponding"] == false)
         let accessories = try #require(setup.host.context(platform: "OptionalAccount", name: "Hooks")?.accessories)
         for accessory in accessories { accessory.isUnavailable = true }
         #expect(await instance("Hooks")?["noneResponding"] == true)
         accessories[0].isUnavailable = false
         #expect(await instance("Hooks")?["noneResponding"] == false)
+        await setup.host.stop()
     }
 }

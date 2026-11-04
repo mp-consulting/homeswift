@@ -23460,35 +23460,36 @@ HomeswiftI18n.add("pt", {
 
     // The account, for a plugin that signs in: where it stands and Set up (again once it has been), which opens Setup.
     // What the Plugins page knew draws it first; the discovery's answer then says where it stands now.
-    let accountState = instance?.accountState ?? null;
+    let accountState = null;
     const accountLine = el("span", { class: "help account-state", text: t("Checking…") });
     const accountButton = el("button", { type: "button", actionIcon: "pair", onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: () => devices.load() }) });
     const accountRow = accountMethod ? el("div", { class: "settings-row" },
       tile(accountMethod === "buttonPress" || accountMethod === "deviceCode" ? "pair" : accountMethod === "apiKey" ? "key" : "user", "orange"),
       el("div", { class: "who" }, el("strong", { text: t("Account") }), accountLine),
       accountButton) : null;
-    /// Where the account stands, in its row and the header's state: `found` is the discovery's answer.
-    const showAccount = (found) => {
+    const accountSection = accountRow ? section(t("Account"), " ", accountRow) : null;
+    const accountNote = accountSection?.querySelector(".settings-section-head .help");
+    /// Where the account stands (`state`, nil before anything says) and whether it Needs Authorization (the server's
+    /// `needsAuthorization`): in its row, its section's note and the header's state. The Plugins page's answer draws it
+    /// first, the discovery's once it comes.
+    const showAccount = (state, needs) => {
       if (!accountRow) return;
-      if (found) accountState = found.accountState;
-      const required = plugin?.accountRequired !== false;
-      // The server's answer (`AccountState.needsAuthorization`): the discovery's, else the Plugins page's.
-      const needs = Boolean(found ? found.needsAuthorization : instance?.needsAuthorization);
+      accountState = state;
       // Set up again only once there is something to set up again: a refused one too.
-      accountButton.textContent = !accountState || accountState === "notSetUp" ? t("Set up") : t("Set up again");
+      accountButton.textContent = !state || state === "notSetUp" ? t("Set up") : t("Set up again");
       accountButton.classList.toggle("primary", needs);
-      if (found) {
-        accountLine.textContent = accountState === "setUp" ? t("Set up")
-          : accountState === "refused" ? t("Refused: what it had no longer works. Set it up again.")
-          : required ? t("Not set up yet: its devices show once it is.")
+      accountNote.textContent = state === "notSetUp" ? t("Its sign-in is kept in the vault, never in these settings.")
+        : t("Its sign-in is kept in the vault, never in these settings: set it up again to change it.");
+      if (state) {
+        accountLine.textContent = state === "setUp" ? t("Set up")
+          : state === "refused" ? t("Refused: what it had no longer works. Set it up again.")
+          : plugin?.accountRequired !== false ? t("Not set up yet: its devices show once it is.")
           : t("Optional and not set up. {adds}", { adds: plugin.accountAdds ? t(plugin.accountAdds) : t("Its devices work without it.") });
         accountLine.dataset.tone = needs ? "away" : "";
       }
-      // The header says it too, once the discovery knows better than the Plugins page did (a Setup just done).
-      if (instance && found && Boolean(instance.needsAuthorization) !== needs) {
-        instance.needsAuthorization = needs;
-        instance.accountState = accountState;
-        const [text, tone] = kit.blockState(block, plugin, instance);
+      // The header says it too: a Setup just done changes it.
+      if (instance) {
+        const [text, tone] = kit.blockState(block, plugin, { ...instance, accountState: state, needsAuthorization: needs });
         statePill.className = `pill status ${tone}`;
         statePill.textContent = text;
       }
@@ -23501,7 +23502,7 @@ HomeswiftI18n.add("pt", {
 
     const [state, kind] = kit.blockState(block, plugin, instance);
     const statePill = el("span", { class: `pill status ${kind}`, text: state });
-    showAccount(null);
+    showAccount(instance?.accountState ?? null, Boolean(instance?.needsAuthorization));
     kit.setLeaveGuard(Object.assign(async () => !dirty() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?")), { quiet: () => !dirty() }));
     app().show(main,
       app().breadcrumb([t("Plugins"), "/plugins"], ...(hasPage ? [[kit.blockTitle(block), `/plugins/${block.slug}`]] : []), [hasPage ? t("Settings") : kit.blockTitle(block)]),
@@ -23515,8 +23516,7 @@ HomeswiftI18n.add("pt", {
           statePill,
           hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
       el("div", { class: "card plugin-settings" },
-        accountRow ? section(t("Account"), accountState === "notSetUp" ? t("Its sign-in is kept in the vault, never in these settings.")
-          : t("Its sign-in is kept in the vault, never in these settings: set it up again to change it."), accountRow) : null,
+        accountSection,
         el("section", { class: "settings-section" },
           el("div", { class: "settings-section-head" }, el("h3", { text: t("Settings") }), el("p", { class: "help", text: t("For {name} as a whole. A save reloads it once, its accessories kept.", { name: block.name }) })),
           // Describe your setup, a line of the section rather than a card of its own.
@@ -23567,7 +23567,7 @@ HomeswiftI18n.add("pt", {
       try {
         const found = await api("/api/setup/discover", { method: "POST", body: { platform: block.platform, name: block.name } });
         if (run !== loading) return;
-        showAccount(found);
+        showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
           : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));

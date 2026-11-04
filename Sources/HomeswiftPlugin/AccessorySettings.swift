@@ -212,8 +212,8 @@ extension PluginContext {
     }
 
     /// Says the account refused its credentials (a password changed, a token revoked or expired for good): the plugin's
-    /// card and settings show that it Needs Authorization, with Setup to set it up again, until new credentials are saved
-    /// (Setup's, or a refreshed token's) or `accountAccepted()`. `reason`, in English, is for the log and MCP clients,
+    /// card and settings show that it Needs Authorization, with Setup to set it up again, until the account's Setup is done
+    /// again, new credentials are saved (a refreshed token) or removed, or `accountAccepted()`. `reason`, in English, is for the log,
     /// never a secret. Not for a cloud that does not answer: that is no refusal.
     public func accountRefused(_ reason: String? = nil) {
         let first = accountRefusalBox.withLockedValue { refusal in
