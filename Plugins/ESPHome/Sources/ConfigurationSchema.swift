@@ -15,7 +15,8 @@ extension ESPHomePlugin {
         "title": "Name",
         "type": "string",
         "required": true,
-        "default": "ESPHome"
+        "default": "ESPHome",
+        "description": "Plugin name as shown in the logs"
       },
       "devices": {
         "title": "Devices",
@@ -23,6 +24,7 @@ extension ESPHomePlugin {
         "description": "ESPHome devices by address, for those mDNS does not reach. Set up a device in Add accessories to give its encryption key.",
         "items": {
           "type": "object",
+          "title": "Device",
           "properties": {
             "host": {
               "title": "Host",
@@ -109,6 +111,8 @@ extension ESPHomePlugin {
   "i18n": {
     "fr": {
       "Name": "Nom",
+      "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
+      "Device": "Appareil",
       "Devices": "Appareils",
       "ESPHome devices by address, for those mDNS does not reach. Set up a device in Add accessories to give its encryption key.": "Appareils ESPHome par adresse, pour ceux que mDNS n'atteint pas. Configurez un appareil dans Ajouter des accessoires pour donner sa clé de chiffrement.",
       "Host": "Hôte",
@@ -130,6 +134,8 @@ extension ESPHomePlugin {
     },
     "es": {
       "Name": "Nombre",
+      "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "Device": "Dispositivo",
       "Devices": "Dispositivos",
       "ESPHome devices by address, for those mDNS does not reach. Set up a device in Add accessories to give its encryption key.": "Dispositivos ESPHome por dirección, para los que mDNS no alcanza. Configure un dispositivo en Añadir accesorios para dar su clave de cifrado.",
       "Host": "Host",
@@ -151,6 +157,8 @@ extension ESPHomePlugin {
     },
     "pt": {
       "Name": "Nome",
+      "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "Device": "Dispositivo",
       "Devices": "Dispositivos",
       "ESPHome devices by address, for those mDNS does not reach. Set up a device in Add accessories to give its encryption key.": "Dispositivos ESPHome por endereço, para os que o mDNS não alcança. Configure um dispositivo em Adicionar acessórios para indicar a sua chave de encriptação.",
       "Host": "Host",

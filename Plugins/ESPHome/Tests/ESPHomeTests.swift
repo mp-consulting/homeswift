@@ -332,7 +332,8 @@ struct ESPHomePluginTests {
         #expect(host.accessory("esphome:Relay") == nil)
 
         device.reachable = true
-        #expect(await eventually { host.accessory("esphome:Relay")?.isUnavailable == false })
+        // Connected, and its state shown: the write below changes the value.
+        #expect(await eventually { host.accessory("esphome:Relay")?.service(.switch)?.characteristic(.on).value == .bool(true) })
         let accessory = try #require(host.accessory("esphome:Relay"))
         device.reachable = false
         device.drop()
