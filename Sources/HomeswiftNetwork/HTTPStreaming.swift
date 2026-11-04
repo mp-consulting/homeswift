@@ -74,7 +74,7 @@ extension HTTPClient: HTTPStreaming {
     /// Sends `request` and answers once the response's head arrives; `request.timeout` covers connecting and the head,
     /// not the body, which may go on for hours. The body's bytes come on `HTTPStreamingResponse.body`.
     public func stream(_ request: HTTPRequest) async throws -> HTTPStreamingResponse {
-        guard let scheme = request.url.scheme?.lowercased(), scheme == "http" || scheme == "https", let host = request.url.host, !host.isEmpty else {
+        guard let scheme = request.url.scheme?.lowercased(), scheme == "http" || scheme == "https", let host = request.url.host, !host.isEmpty, request.validTarget else {
             throw HTTPClientError.invalidURL(redactingPassword(request.url))
         }
         let secure = scheme == "https"

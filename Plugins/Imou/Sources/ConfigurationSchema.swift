@@ -1,0 +1,462 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension ImouPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "Imou",
+  "pluginType": "platform",
+  "singular": false,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "description": "Plugin name as shown in the logs",
+        "required": true,
+        "default": "Imou"
+      },
+      "appId": {
+        "title": "App Id",
+        "type": "string",
+        "description": "The App Id of your app on the IMOU Open Platform (open.imoulife.com, My App, App Information). Setup asks for it with its App Secret, which goes in the vault."
+      },
+      "region": {
+        "title": "Region",
+        "type": "string",
+        "description": "Where your IMOU developer app was made: it must match the portal's region.",
+        "default": "sg",
+        "oneOf": [
+          {
+            "title": "Asia Pacific (Singapore)",
+            "enum": [
+              "sg"
+            ]
+          },
+          {
+            "title": "Europe (Frankfurt)",
+            "enum": [
+              "eu"
+            ]
+          },
+          {
+            "title": "North America (Oregon)",
+            "enum": [
+              "na"
+            ]
+          },
+          {
+            "title": "China",
+            "enum": [
+              "cn"
+            ]
+          }
+        ]
+      },
+      "apiUrl": {
+        "title": "API Address",
+        "type": "string",
+        "description": "Overrides the region's host: a host name or a whole base address such as https://openapi.easy4ip.com/openapi."
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (in seconds)",
+        "type": "integer",
+        "description": "How often the cloud is asked for the cameras' switches, from 30 to 900. Each poll costs calls of the account's 20,000 a day.",
+        "placeholder": 300,
+        "minimum": 30,
+        "maximum": 900
+      },
+      "alarmPollInterval": {
+        "title": "Cloud Alarm Interval (in seconds)",
+        "type": "integer",
+        "description": "How often the cloud's alarms stand in for motion events. Empty: every 60 seconds, only for a camera whose local event stream is down. 0: never. 30 or more: that often, also for cameras without a local address.",
+        "minimum": 0
+      },
+      "motionTimeout": {
+        "title": "Motion Duration (in seconds)",
+        "type": "integer",
+        "description": "How long a motion lasts when the camera does not say it ended.",
+        "placeholder": 15,
+        "minimum": 1
+      },
+      "resolution": {
+        "title": "Cloud Video",
+        "type": "string",
+        "description": "The stream cloud live video uses, when the camera cannot be reached on the local network.",
+        "default": "HD",
+        "oneOf": [
+          {
+            "title": "HD (main stream)",
+            "enum": [
+              "HD"
+            ]
+          },
+          {
+            "title": "SD (sub stream)",
+            "enum": [
+              "SD"
+            ]
+          }
+        ]
+      },
+      "snapshotWait": {
+        "title": "Cloud Snapshot Wait (in seconds)",
+        "type": "number",
+        "description": "How long the camera is given to upload a cloud snapshot before it is downloaded, from 1 to 9.",
+        "placeholder": 3,
+        "minimum": 1,
+        "maximum": 9
+      },
+      "wakeWait": {
+        "title": "Wake-up Wait (in seconds)",
+        "type": "number",
+        "description": "How long a sleeping battery camera is given to wake up before a stream or a snapshot.",
+        "placeholder": 4,
+        "minimum": 1
+      },
+      "dormantRetryWait": {
+        "title": "Sleeping Camera Retry (in seconds)",
+        "type": "integer",
+        "description": "How long a change to a sleeping camera waits before its one retry, from 5 to 60.",
+        "placeholder": 5,
+        "minimum": 5,
+        "maximum": 60
+      },
+      "videoProcessor": {
+        "title": "FFmpeg",
+        "type": "string",
+        "description": "The FFmpeg to run for video: a path, or a name on the PATH.",
+        "placeholder": "ffmpeg"
+      },
+      "encoder": {
+        "title": "Video Encoder",
+        "type": "string",
+        "description": "FFmpeg's video encoder and its options for live video; copy sends the camera's own H.264.",
+        "placeholder": "libx264 -preset ultrafast -tune zerolatency"
+      },
+      "devices": {
+        "title": "Cameras by Address",
+        "type": "array",
+        "description": "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.",
+        "items": {
+          "title": "Camera",
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "description": "The camera's name in HomeKit."
+            },
+            "host": {
+              "title": "Address",
+              "type": "string",
+              "description": "The camera's IP address or host name on the local network.",
+              "required": true,
+              "format": "hostname"
+            }
+          }
+        }
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "host": {
+        "title": "Address",
+        "type": "string",
+        "description": "The camera's address on the local network: with its safety code, video, snapshots and events come from it rather than the cloud.",
+        "format": "hostname",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "httpPort": {
+        "title": "HTTP Port",
+        "type": "integer",
+        "description": "The port of the camera's web interface, for snapshots and events.",
+        "placeholder": 80,
+        "minimum": 1,
+        "maximum": 65535,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "rtspPort": {
+        "title": "RTSP Port",
+        "type": "integer",
+        "description": "The port of the camera's video stream.",
+        "placeholder": 554,
+        "minimum": 1,
+        "maximum": 65535,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "username": {
+        "title": "User Name",
+        "type": "string",
+        "description": "The camera's local user; its password is the safety code, kept in the vault by Setup.",
+        "placeholder": "admin",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "localEvents": {
+        "title": "Local Events",
+        "type": "boolean",
+        "description": "Motion and doorbell presses from the camera's own event stream.",
+        "default": true,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "motionTimeout": {
+        "title": "Motion Duration (in seconds)",
+        "type": "integer",
+        "description": "How long a motion lasts when the camera does not say it ended.",
+        "minimum": 1,
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "motionTimeout"
+      },
+      "privacySwitch": {
+        "title": "Privacy Switch",
+        "type": "boolean",
+        "description": "A switch that closes the camera (IMOU's privacy mode), through the cloud.",
+        "default": true,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "motionDetectSwitch": {
+        "title": "Motion Detection Switch",
+        "type": "boolean",
+        "description": "A switch for the camera's own motion detection, through the cloud.",
+        "default": true,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "sirenSwitch": {
+        "title": "Siren Switch",
+        "type": "boolean",
+        "description": "A switch that sounds the camera's siren, through the cloud.",
+        "default": true,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "lightSwitch": {
+        "title": "Spotlight",
+        "type": "boolean",
+        "description": "A light for the camera's spotlight, through the cloud.",
+        "default": true,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "recording": {
+        "title": "HomeKit Secure Video",
+        "type": "boolean",
+        "description": "Lets HomeKit record the camera's local stream.",
+        "default": true,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "encoder": {
+        "title": "Video Encoder",
+        "type": "string",
+        "description": "FFmpeg's video encoder and its options for live video; copy sends the camera's own H.264.",
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "encoder"
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "A light for the camera's spotlight, through the cloud.": "Une lumière pour le projecteur de la caméra, par le cloud.",
+      "A switch for the camera's own motion detection, through the cloud.": "Un interrupteur pour la détection de mouvement de la caméra, par le cloud.",
+      "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Un interrupteur qui ferme la caméra (le mode confidentialité d'IMOU), par le cloud.",
+      "A switch that sounds the camera's siren, through the cloud.": "Un interrupteur qui fait sonner la sirène de la caméra, par le cloud.",
+      "API Address": "Adresse de l'API",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire.",
+      "Address": "Adresse",
+      "App Id": "App Id",
+      "Asia Pacific (Singapore)": "Asie-Pacifique (Singapour)",
+      "Camera": "Caméra",
+      "Cameras by Address": "Caméras par adresse",
+      "China": "Chine",
+      "Cloud Alarm Interval (in seconds)": "Intervalle des alarmes du cloud (en secondes)",
+      "Cloud Snapshot Wait (in seconds)": "Attente d'un instantané du cloud (en secondes)",
+      "Cloud Video": "Vidéo du cloud",
+      "Europe (Frankfurt)": "Europe (Francfort)",
+      "FFmpeg": "FFmpeg",
+      "FFmpeg's video encoder and its options for live video; copy sends the camera's own H.264.": "L'encodeur vidéo de FFmpeg et ses options pour la vidéo en direct ; copy envoie le H.264 de la caméra tel quel.",
+      "HD (main stream)": "HD (flux principal)",
+      "HTTP Port": "Port HTTP",
+      "HomeKit Secure Video": "HomeKit Secure Video",
+      "How long a change to a sleeping camera waits before its one retry, from 5 to 60.": "Le temps qu'attend une modification d'une caméra endormie avant son unique nouvel essai, de 5 à 60.",
+      "How long a motion lasts when the camera does not say it ended.": "Durée d'un mouvement quand la caméra ne dit pas qu'il a pris fin.",
+      "How long a sleeping battery camera is given to wake up before a stream or a snapshot.": "Le temps laissé à une caméra sur batterie endormie pour se réveiller avant un flux ou un instantané.",
+      "How long the camera is given to upload a cloud snapshot before it is downloaded, from 1 to 9.": "Le temps laissé à la caméra pour envoyer un instantané au cloud avant son téléchargement, de 1 à 9.",
+      "How often the cloud is asked for the cameras' switches, from 30 to 900. Each poll costs calls of the account's 20,000 a day.": "Fréquence à laquelle le cloud est interrogé sur les interrupteurs des caméras, de 30 à 900. Chaque interrogation coûte des appels sur les 20 000 par jour du compte.",
+      "How often the cloud's alarms stand in for motion events. Empty: every 60 seconds, only for a camera whose local event stream is down. 0: never. 30 or more: that often, also for cameras without a local address.": "Fréquence à laquelle les alarmes du cloud remplacent les événements de mouvement. Vide : toutes les 60 secondes, seulement pour une caméra dont le flux d'événements local est coupé. 0 : jamais. 30 ou plus : à cette fréquence, aussi pour les caméras sans adresse locale.",
+      "Lets HomeKit record the camera's local stream.": "Permet à HomeKit d'enregistrer le flux local de la caméra.",
+      "Local Events": "Événements locaux",
+      "Motion Detection Switch": "Interrupteur Détection de mouvement",
+      "Motion Duration (in seconds)": "Durée d'un mouvement (en secondes)",
+      "Motion and doorbell presses from the camera's own event stream.": "Les mouvements et les appuis sur la sonnette depuis le flux d'événements de la caméra.",
+      "Name": "Nom",
+      "North America (Oregon)": "Amérique du Nord (Oregon)",
+      "Overrides the region's host: a host name or a whole base address such as https://openapi.easy4ip.com/openapi.": "Remplace l'hôte de la région : un nom d'hôte ou une adresse de base complète comme https://openapi.easy4ip.com/openapi.",
+      "Plugin name as shown in the logs": "Nom du plugin dans le journal",
+      "Polling Interval (in seconds)": "Intervalle d'interrogation (en secondes)",
+      "Privacy Switch": "Interrupteur Confidentialité",
+      "RTSP Port": "Port RTSP",
+      "Region": "Région",
+      "SD (sub stream)": "SD (flux secondaire)",
+      "Siren Switch": "Interrupteur Sirène",
+      "Sleeping Camera Retry (in seconds)": "Nouvel essai d'une caméra endormie (en secondes)",
+      "Spotlight": "Projecteur",
+      "The App Id of your app on the IMOU Open Platform (open.imoulife.com, My App, App Information). Setup asks for it with its App Secret, which goes in the vault.": "L'App Id de votre application sur l'IMOU Open Platform (open.imoulife.com, My App, App Information). Le Setup le demande avec son App Secret, qui va dans le coffre.",
+      "The FFmpeg to run for video: a path, or a name on the PATH.": "Le FFmpeg à lancer pour la vidéo : un chemin, ou un nom dans le PATH.",
+      "The camera's IP address or host name on the local network.": "L'adresse IP ou le nom d'hôte de la caméra sur le réseau local.",
+      "The camera's address on the local network: with its safety code, video, snapshots and events come from it rather than the cloud.": "L'adresse de la caméra sur le réseau local : avec son code de sécurité, la vidéo, les instantanés et les événements viennent d'elle plutôt que du cloud.",
+      "The camera's local user; its password is the safety code, kept in the vault by Setup.": "L'utilisateur local de la caméra ; son mot de passe est le code de sécurité, gardé dans le coffre par le Setup.",
+      "The camera's name in HomeKit.": "Le nom de la caméra dans HomeKit.",
+      "The port of the camera's video stream.": "Le port du flux vidéo de la caméra.",
+      "The port of the camera's web interface, for snapshots and events.": "Le port de l'interface web de la caméra, pour les instantanés et les événements.",
+      "The stream cloud live video uses, when the camera cannot be reached on the local network.": "Le flux qu'utilise la vidéo en direct du cloud, quand la caméra n'est pas joignable sur le réseau local.",
+      "User Name": "Nom d'utilisateur",
+      "Video Encoder": "Encodeur vidéo",
+      "Wake-up Wait (in seconds)": "Attente du réveil (en secondes)",
+      "Where your IMOU developer app was made: it must match the portal's region.": "Où votre application de développeur IMOU a été créée : elle doit correspondre à la région du portail."
+    },
+    "es": {
+      "A light for the camera's spotlight, through the cloud.": "Una luz para el foco de la cámara, a través de la nube.",
+      "A switch for the camera's own motion detection, through the cloud.": "Un interruptor para la detección de movimiento de la cámara, a través de la nube.",
+      "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Un interruptor que cierra la cámara (el modo de privacidad de IMOU), a través de la nube.",
+      "A switch that sounds the camera's siren, through the cloud.": "Un interruptor que hace sonar la sirena de la cámara, a través de la nube.",
+      "API Address": "Dirección de la API",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio.",
+      "Address": "Dirección",
+      "App Id": "App Id",
+      "Asia Pacific (Singapore)": "Asia-Pacífico (Singapur)",
+      "Camera": "Cámara",
+      "Cameras by Address": "Cámaras por dirección",
+      "China": "China",
+      "Cloud Alarm Interval (in seconds)": "Intervalo de alarmas de la nube (en segundos)",
+      "Cloud Snapshot Wait (in seconds)": "Espera de una instantánea de la nube (en segundos)",
+      "Cloud Video": "Vídeo de la nube",
+      "Europe (Frankfurt)": "Europa (Fráncfort)",
+      "FFmpeg": "FFmpeg",
+      "FFmpeg's video encoder and its options for live video; copy sends the camera's own H.264.": "El codificador de vídeo de FFmpeg y sus opciones para el vídeo en directo; copy envía el H.264 propio de la cámara.",
+      "HD (main stream)": "HD (flujo principal)",
+      "HTTP Port": "Puerto HTTP",
+      "HomeKit Secure Video": "HomeKit Secure Video",
+      "How long a change to a sleeping camera waits before its one retry, from 5 to 60.": "Cuánto espera un cambio a una cámara dormida antes de su único reintento, de 5 a 60.",
+      "How long a motion lasts when the camera does not say it ended.": "Cuánto dura un movimiento cuando la cámara no dice que terminó.",
+      "How long a sleeping battery camera is given to wake up before a stream or a snapshot.": "El tiempo que se da a una cámara de batería dormida para despertar antes de un flujo o una instantánea.",
+      "How long the camera is given to upload a cloud snapshot before it is downloaded, from 1 to 9.": "El tiempo que se da a la cámara para subir una instantánea a la nube antes de descargarla, de 1 a 9.",
+      "How often the cloud is asked for the cameras' switches, from 30 to 900. Each poll costs calls of the account's 20,000 a day.": "Con qué frecuencia se consulta a la nube por los interruptores de las cámaras, de 30 a 900. Cada consulta gasta llamadas de las 20 000 diarias de la cuenta.",
+      "How often the cloud's alarms stand in for motion events. Empty: every 60 seconds, only for a camera whose local event stream is down. 0: never. 30 or more: that often, also for cameras without a local address.": "Con qué frecuencia las alarmas de la nube sustituyen a los eventos de movimiento. Vacío: cada 60 segundos, solo para una cámara cuyo flujo de eventos local está caído. 0: nunca. 30 o más: con esa frecuencia, también para cámaras sin dirección local.",
+      "Lets HomeKit record the camera's local stream.": "Permite que HomeKit grabe el flujo local de la cámara.",
+      "Local Events": "Eventos locales",
+      "Motion Detection Switch": "Interruptor de detección de movimiento",
+      "Motion Duration (in seconds)": "Duración del movimiento (en segundos)",
+      "Motion and doorbell presses from the camera's own event stream.": "Los movimientos y las pulsaciones del timbre desde el flujo de eventos de la propia cámara.",
+      "Name": "Nombre",
+      "North America (Oregon)": "Norteamérica (Oregón)",
+      "Overrides the region's host: a host name or a whole base address such as https://openapi.easy4ip.com/openapi.": "Sustituye el host de la región: un nombre de host o una dirección base completa como https://openapi.easy4ip.com/openapi.",
+      "Plugin name as shown in the logs": "Nombre del plugin en el registro",
+      "Polling Interval (in seconds)": "Intervalo de sondeo (en segundos)",
+      "Privacy Switch": "Interruptor de privacidad",
+      "RTSP Port": "Puerto RTSP",
+      "Region": "Región",
+      "SD (sub stream)": "SD (flujo secundario)",
+      "Siren Switch": "Interruptor de sirena",
+      "Sleeping Camera Retry (in seconds)": "Reintento de una cámara dormida (en segundos)",
+      "Spotlight": "Foco",
+      "The App Id of your app on the IMOU Open Platform (open.imoulife.com, My App, App Information). Setup asks for it with its App Secret, which goes in the vault.": "El App Id de su aplicación en IMOU Open Platform (open.imoulife.com, My App, App Information). La configuración lo pide con su App Secret, que va a la bóveda.",
+      "The FFmpeg to run for video: a path, or a name on the PATH.": "El FFmpeg que se ejecuta para el vídeo: una ruta, o un nombre en el PATH.",
+      "The camera's IP address or host name on the local network.": "La dirección IP o el nombre de host de la cámara en la red local.",
+      "The camera's address on the local network: with its safety code, video, snapshots and events come from it rather than the cloud.": "La dirección de la cámara en la red local: con su código de seguridad, el vídeo, las instantáneas y los eventos vienen de ella en lugar de la nube.",
+      "The camera's local user; its password is the safety code, kept in the vault by Setup.": "El usuario local de la cámara; su contraseña es el código de seguridad, guardado en la bóveda por la configuración.",
+      "The camera's name in HomeKit.": "El nombre de la cámara en HomeKit.",
+      "The port of the camera's video stream.": "El puerto del flujo de vídeo de la cámara.",
+      "The port of the camera's web interface, for snapshots and events.": "El puerto de la interfaz web de la cámara, para instantáneas y eventos.",
+      "The stream cloud live video uses, when the camera cannot be reached on the local network.": "El flujo que usa el vídeo en directo de la nube, cuando la cámara no está accesible en la red local.",
+      "User Name": "Nombre de usuario",
+      "Video Encoder": "Codificador de vídeo",
+      "Wake-up Wait (in seconds)": "Espera del despertar (en segundos)",
+      "Where your IMOU developer app was made: it must match the portal's region.": "Dónde se creó su aplicación de desarrollador IMOU: debe coincidir con la región del portal."
+    },
+    "pt": {
+      "A light for the camera's spotlight, through the cloud.": "Uma luz para o projetor da câmara, através da nuvem.",
+      "A switch for the camera's own motion detection, through the cloud.": "Um interruptor para a deteção de movimento da câmara, através da nuvem.",
+      "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Um interruptor que fecha a câmara (o modo de privacidade da IMOU), através da nuvem.",
+      "A switch that sounds the camera's siren, through the cloud.": "Um interruptor que faz soar a sirene da câmara, através da nuvem.",
+      "API Address": "Endereço da API",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório.",
+      "Address": "Endereço",
+      "App Id": "App Id",
+      "Asia Pacific (Singapore)": "Ásia-Pacífico (Singapura)",
+      "Camera": "Câmara",
+      "Cameras by Address": "Câmaras por endereço",
+      "China": "China",
+      "Cloud Alarm Interval (in seconds)": "Intervalo de alarmes da nuvem (em segundos)",
+      "Cloud Snapshot Wait (in seconds)": "Espera de um instantâneo da nuvem (em segundos)",
+      "Cloud Video": "Vídeo da nuvem",
+      "Europe (Frankfurt)": "Europa (Frankfurt)",
+      "FFmpeg": "FFmpeg",
+      "FFmpeg's video encoder and its options for live video; copy sends the camera's own H.264.": "O codificador de vídeo do FFmpeg e as suas opções para o vídeo em direto; copy envia o H.264 da própria câmara.",
+      "HD (main stream)": "HD (fluxo principal)",
+      "HTTP Port": "Porta HTTP",
+      "HomeKit Secure Video": "HomeKit Secure Video",
+      "How long a change to a sleeping camera waits before its one retry, from 5 to 60.": "Quanto espera uma alteração a uma câmara adormecida antes da sua única nova tentativa, de 5 a 60.",
+      "How long a motion lasts when the camera does not say it ended.": "Quanto dura um movimento quando a câmara não diz que terminou.",
+      "How long a sleeping battery camera is given to wake up before a stream or a snapshot.": "O tempo dado a uma câmara de bateria adormecida para acordar antes de um fluxo ou de um instantâneo.",
+      "How long the camera is given to upload a cloud snapshot before it is downloaded, from 1 to 9.": "O tempo dado à câmara para enviar um instantâneo para a nuvem antes de o descarregar, de 1 a 9.",
+      "How often the cloud is asked for the cameras' switches, from 30 to 900. Each poll costs calls of the account's 20,000 a day.": "Com que frequência a nuvem é consultada sobre os interruptores das câmaras, de 30 a 900. Cada consulta gasta chamadas das 20 000 diárias da conta.",
+      "How often the cloud's alarms stand in for motion events. Empty: every 60 seconds, only for a camera whose local event stream is down. 0: never. 30 or more: that often, also for cameras without a local address.": "Com que frequência os alarmes da nuvem substituem os eventos de movimento. Vazio: a cada 60 segundos, só para uma câmara cujo fluxo de eventos local está em baixo. 0: nunca. 30 ou mais: com essa frequência, também para câmaras sem endereço local.",
+      "Lets HomeKit record the camera's local stream.": "Permite que o HomeKit grave o fluxo local da câmara.",
+      "Local Events": "Eventos locais",
+      "Motion Detection Switch": "Interruptor de deteção de movimento",
+      "Motion Duration (in seconds)": "Duração do movimento (em segundos)",
+      "Motion and doorbell presses from the camera's own event stream.": "Os movimentos e os toques da campainha a partir do fluxo de eventos da própria câmara.",
+      "Name": "Nome",
+      "North America (Oregon)": "América do Norte (Oregon)",
+      "Overrides the region's host: a host name or a whole base address such as https://openapi.easy4ip.com/openapi.": "Substitui o anfitrião da região: um nome de anfitrião ou um endereço base completo como https://openapi.easy4ip.com/openapi.",
+      "Plugin name as shown in the logs": "Nome do plugin no registo",
+      "Polling Interval (in seconds)": "Intervalo de consulta (em segundos)",
+      "Privacy Switch": "Interruptor de privacidade",
+      "RTSP Port": "Porta RTSP",
+      "Region": "Região",
+      "SD (sub stream)": "SD (fluxo secundário)",
+      "Siren Switch": "Interruptor da sirene",
+      "Sleeping Camera Retry (in seconds)": "Nova tentativa de uma câmara adormecida (em segundos)",
+      "Spotlight": "Projetor",
+      "The App Id of your app on the IMOU Open Platform (open.imoulife.com, My App, App Information). Setup asks for it with its App Secret, which goes in the vault.": "O App Id da sua aplicação na IMOU Open Platform (open.imoulife.com, My App, App Information). A configuração pede-o com o seu App Secret, que vai para o cofre.",
+      "The FFmpeg to run for video: a path, or a name on the PATH.": "O FFmpeg a executar para o vídeo: um caminho, ou um nome no PATH.",
+      "The camera's IP address or host name on the local network.": "O endereço IP ou o nome de anfitrião da câmara na rede local.",
+      "The camera's address on the local network: with its safety code, video, snapshots and events come from it rather than the cloud.": "O endereço da câmara na rede local: com o seu código de segurança, o vídeo, os instantâneos e os eventos vêm dela em vez da nuvem.",
+      "The camera's local user; its password is the safety code, kept in the vault by Setup.": "O utilizador local da câmara; a sua palavra-passe é o código de segurança, guardado no cofre pela configuração.",
+      "The camera's name in HomeKit.": "O nome da câmara no HomeKit.",
+      "The port of the camera's video stream.": "A porta do fluxo de vídeo da câmara.",
+      "The port of the camera's web interface, for snapshots and events.": "A porta da interface web da câmara, para instantâneos e eventos.",
+      "The stream cloud live video uses, when the camera cannot be reached on the local network.": "O fluxo que o vídeo em direto da nuvem usa, quando a câmara não está acessível na rede local.",
+      "User Name": "Nome de utilizador",
+      "Video Encoder": "Codificador de vídeo",
+      "Wake-up Wait (in seconds)": "Espera do despertar (em segundos)",
+      "Where your IMOU developer app was made: it must match the portal's region.": "Onde a sua aplicação de programador IMOU foi criada: tem de corresponder à região do portal."
+    }
+  }
+}
+"""#
+}

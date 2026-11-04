@@ -13,6 +13,7 @@ import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftHueSyncBox
+import HomeswiftImou
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
 import HomeswiftMagicHome
@@ -80,5 +81,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(APsystemsECUPlugin.self)
     registry.register(MagicHomePlugin.self)
     registry.register(RenaultPlugin.self)
+    registry.register(ImouPlugin.self)
     return registry
 }
