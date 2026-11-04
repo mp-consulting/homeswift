@@ -85,10 +85,13 @@ extension EWeLinkPlugin {
     /// Whether a device's state changes stay out of the log: its own `disableDeviceLogging`, else the plugin's.
     static func deviceLoggingDisabled(_ configuration: Configuration, _ deviceID: String) -> Bool {
         let id = DeviceLimits.parentDeviceID(deviceID)
-        let own = configuration.single(id)?.disableDeviceLogging ?? configuration.multi(id)?.disableDeviceLogging ?? configuration.thermostat(id)?.disableDeviceLogging
-            ?? configuration.light(id)?.disableDeviceLogging ?? configuration.fan(id)?.disableDeviceLogging ?? configuration.sensor(id)?.disableDeviceLogging
-            ?? configuration.rf(id)?.disableDeviceLogging
-        return own ?? configuration.disableDeviceLogging ?? false
+        // A list rather than one chain of `??`: Linux's type checker gives up on the chain.
+        let entries: [Bool?] = [
+            configuration.single(id)?.disableDeviceLogging, configuration.multi(id)?.disableDeviceLogging, configuration.thermostat(id)?.disableDeviceLogging,
+            configuration.light(id)?.disableDeviceLogging, configuration.fan(id)?.disableDeviceLogging, configuration.sensor(id)?.disableDeviceLogging,
+            configuration.rf(id)?.disableDeviceLogging,
+        ]
+        return entries.lazy.compactMap { $0 }.first ?? configuration.disableDeviceLogging ?? false
     }
 
     // MARK: The canonical shape

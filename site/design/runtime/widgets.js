@@ -1712,6 +1712,15 @@
     ipCamera: ["camera", "grey"], videoDoorbell: ["bell", "grey"], faucet: ["drop", "blue"], sprinkler: ["drop", "blue"], securitySystem: ["shield", "violet"],
   };
 
+  /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
+  const kindIcons = {
+    camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
+    wingman: "bridge", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
+    multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
+    climatecontrol: "thermo", domestichotwatertank: "thermo", kettle: "thermo", ac: "thermo", airconditioner: "thermo",
+    airpurifier: "wind", aerotower: "wind", humidifier: "wind", scene: "sparkle", robot: "poolRobot",
+  };
+
   /// What no widget claims: the power in the header and the primary service's rows; in full, the rest under More.
   const inspector = {
     name: "inspector", size: "medium",
@@ -2171,6 +2180,9 @@
   window.HomeswiftWidgets = {
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
+    /// paused plugin's camera, a device not set up yet); undefined for a kind none fits.
+    deviceIcon: (device) => categoryIcons[device?.category]?.[0] ?? kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")],
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {
