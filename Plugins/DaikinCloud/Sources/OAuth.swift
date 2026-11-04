@@ -4,6 +4,7 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 
 /// The Developer Portal login: OAuth 2.0 authorization code with the app's Client ID and Secret, its
 /// redirect caught by the callback server (`CallbackServer`) or pasted on the settings page.
@@ -187,6 +188,7 @@ struct MobileOAuth: Sendable {
                 return try await completeRegistration(regToken: regToken, result: result, cookies: cookies)
             }
         }
+        if let rejected = result.rejection(context: "Login failed") { throw rejected }
         return try result.requireLoginToken(context: "Login failed")
     }
 
@@ -260,11 +262,18 @@ struct MobileOAuth: Sendable {
         var regToken: String? { json["regToken"]?.stringValue }
         var loginToken: String? { json["sessionInfo"]?["login_token"]?.stringValue }
 
+        private var detail: String {
+            json["errorMessage"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? json["errorDetails"]?.stringValue ?? "undefined"
+        }
+
+        /// The credentials themselves were refused: a Gigya code from 400000 to 499999.
+        func rejection(context: String) -> CredentialsRejected? {
+            guard CredentialsRejected.isRequestError(errorCode) else { return nil }
+            return CredentialsRejected(message: "\(context) (\(errorCode)): \(detail)", gigyaErrorCode: errorCode)
+        }
+
         func requireLoginToken(context: String) throws -> String {
-            if errorCode != 0 {
-                let detail = json["errorMessage"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? json["errorDetails"]?.stringValue ?? "undefined"
-                throw DaikinError("\(context) (\(errorCode)): \(detail)")
-            }
+            if errorCode != 0 { throw DaikinError("\(context) (\(errorCode)): \(detail)") }
             guard let loginToken else { throw DaikinError("No login_token in \(context) response") }
             return loginToken
         }
@@ -317,8 +326,43 @@ struct MobileOAuth: Sendable {
     }
 
     /// The token client of a Mobile App login.
-    static func client(file: TokenLocation, http: DaikinHTTP, log: @escaping @Sendable (String) -> Void, onError: @escaping @Sendable (String) -> Void) -> TokenClient {
-        let refresher = MobileOAuth(email: "", password: "", http: http, log: log)
-        return TokenClient(file: file, onError: onError) { refreshToken in try await refresher.refresh(refreshToken) }
+    ///
+    /// When the refresh token itself is refused (`invalid_grant`), it logs in again with the configured email and
+    /// password: they are in the config, so there is nothing for the user to do. This runs inside the client's one
+    /// refresh at a time, so polling, HomeKit writes and the WebSocket all recover and share one login. Once Gigya has
+    /// refused the credentials, it does not send them again until a refresh succeeds (after a sign-in through Setup,
+    /// say): each attempt would count towards an account lockout.
+    static func client(
+        file: TokenLocation, credentials: (email: String, password: String)?, http: DaikinHTTP, log: @escaping @Sendable (String) -> Void,
+        onError: @escaping @Sendable (String) -> Void, sleep: (@Sendable (Duration) async throws -> Void)? = nil
+    ) -> TokenClient {
+        var login = MobileOAuth(email: credentials?.email ?? "", password: credentials?.password ?? "", http: http, log: log)
+        if let sleep { login.sleep = sleep }
+        let canLogIn = credentials != nil
+        // The last refusal of the configured credentials, shared by this client's refreshes.
+        let rejected = NIOLockedValueBox<CredentialsRejected?>(nil)
+        return TokenClient(file: file, onError: onError) { [login] refreshToken in
+            do {
+                let tokens = try await login.refresh(refreshToken)
+                rejected.withLockedValue { $0 = nil }
+                return tokens
+            } catch let error as OAuthError where error.isInvalidGrant && canLogIn {
+                if let earlier = rejected.withLockedValue({ $0 }) {
+                    throw CredentialsRejected(
+                        message: "Refresh token rejected, and the configured credentials were rejected earlier (\(earlier.message)). "
+                            + "Check the email and password, then sign in again on Add accessories in the Homeswift UI.",
+                        gigyaErrorCode: earlier.gigyaErrorCode)
+                }
+                log("Refresh token rejected (invalid_grant), logging in again with the configured credentials...")
+                do {
+                    let tokens = try await login.authenticate()
+                    rejected.withLockedValue { $0 = nil }
+                    return tokens
+                } catch let refused as CredentialsRejected {
+                    rejected.withLockedValue { $0 = refused }
+                    throw refused
+                }
+            }
+        }
     }
 }

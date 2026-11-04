@@ -4,7 +4,8 @@ Roborock robot vacuums in HomeKit. Each robot is an accessory with:
 
 - a **Fan** (the primary service) whose Active starts a clean, and stops it and sends the robot to its dock when turned
   off; it is on while the robot cleans, returns or washes its mop, with Status Fault on a robot error and Status Active
-  while the robot answers;
+  while the robot answers. It stands for a cleaning robot, so the bridge's Matter bridge shows it as a Robotic Vacuum
+  Cleaner (start, stop, pause and go home; its battery from the Battery);
 - its **Battery**: level, low below 20 %, charging (an off-peak robot waiting on its dock is not charging);
 - **Start Mop Washing**, a switch, on docks that wash the mop: on while the dock washes, also for washes started
   elsewhere;
@@ -75,7 +76,8 @@ Untested on hardware: written and tested against fakes only. Known gaps:
 - **The current room to MQTT** (`currentRoomMqtt`) is not implemented; the block's option is read and ignored.
 - The Homebridge plugin's optional polls (carpet, dust collection, dryer settings) change nothing HomeKit shows and are
   not sent. Matter-only features (rooms, multi-floor maps, clean modes) are not ported: the bridge's Matter bridge works
-  from the HomeKit services, and a Fan v2 is not a robotic vacuum there.
+  from the HomeKit services. There the fan's Active is the robot's state: it shows running while the robot returns or
+  washes its mop, and Pause, like Stop, sends it to its dock.
 - An L01 robot reached through the cloud needs the nonces of a LAN handshake; without a LAN connection its cloud
   requests fail.
 

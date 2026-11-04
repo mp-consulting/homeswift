@@ -224,6 +224,11 @@ actor DaikinAPI: DaikinDeviceWriting {
             guard attempt < Self.maxRetries else { throw DaikinError("Unauthorized (401): Token expired or invalid") }
             do {
                 try await sharedRefresh()
+            } catch let error as OAuthError where error.isInvalidGrant {
+                // Kept as they are: the session decides on them (stop retrying, ask for a sign-in).
+                throw error
+            } catch let error as CredentialsRejected {
+                throw error
             } catch {
                 throw DaikinError("Unauthorized (401): Token refresh failed. Please re-authenticate.")
             }
