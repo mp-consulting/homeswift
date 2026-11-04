@@ -59,6 +59,16 @@ actor HouseholdPlugin: HomeswiftPlugin {
         try context.add(Accessory(id: "Household:robot", name: "Robot", category: .switch, services: [robot]))
     }
 
+    /// A robot vacuum as Roborock's plugin makes it: a Fan v2 whose Active cleans, and a battery.
+    func addVacuum() throws -> (fan: Service, battery: Service) {
+        let fan = Service(.fanv2, name: "Vacuum", isPrimary: true)
+        fan.standsFor = .cleaningRobot
+        let battery = Service(.battery, name: "Battery", optional: [.batteryLevel])
+        battery[.batteryLevel]?.value = .int(80)
+        try context.add(Accessory(id: "Household:vacuum", name: "Vacuum", category: .other, services: [fan, battery]))
+        return (fan, battery)
+    }
+
     /// A purifier and the filter it links.
     func addPurifier() throws -> Service {
         let filter = Service(.filterMaintenance, name: "Filter", optional: [.filterLifeLevel])
@@ -142,6 +152,19 @@ struct BridgeFixture {
 
     func read(_ id: String, _ cluster: ClusterID, _ attribute: AttributeID) async throws -> TLVValue {
         try await commissioner.client.read(endpoint: try await endpoint(id), cluster: cluster, attribute: attribute, session: session)
+    }
+
+    /// Waits until the accessory's device is of `type` (its first device type).
+    func waitForDeviceType(_ id: String, _ type: DeviceType) async throws {
+        try await eventually {
+            let types = try? await read(id, DescriptorCluster.id, DescriptorCluster.Attribute.deviceTypeList)
+            return types?.elements?.first?.value[0]?.uint == UInt64(type.id)
+        }
+    }
+
+    /// Invokes a command on the accessory's device endpoint.
+    func invoke(_ id: String, _ cluster: ClusterID, _ command: CommandID, fields: TLVValue = .structure([])) async throws {
+        _ = try await commissioner.client.invoke(CommandPath(endpoint: try await endpoint(id), cluster: cluster, command: command), fields: fields, session: session)
     }
 
     func stop() async {
@@ -577,23 +600,58 @@ struct MatterMappingTests {
         for command in [DeviceCommand.stopCleaning, .pauseCleaning, .returnToDock] { #expect(mapping.writes(for: command).map(\.1) == [.bool(false)]) }
     }
 
+    @Test func mapsAVacuumsFanToARobotVacuum() throws {
+        let fan = Service(.fanv2, name: "Vacuum", optional: [.rotationSpeed])
+        // A plain Fan v2 is a fan; one that stands for a cleaning robot runs it on Active.
+        #expect(ServiceMapping(fan, exposeSecurity: false)?.role == .fan(rocking: false, direction: false))
+        fan.standsFor = .cleaningRobot
+        let mapping = try #require(ServiceMapping(fan, exposeSecurity: false))
+        #expect(mapping.role == .cleaningRobot)
+        #expect(mapping.kind.deviceTypes.map(\.id) == [DeviceTypes.roboticVacuumCleaner.id])
+        #expect(mapping.states() == [.robot(.stopped)])
+        fan[.active]?.value = .int(1)
+        #expect(mapping.states(changed: CharacteristicType.active.uuid) == [.robot(.running)])
+        // The suction is not a robot's state.
+        #expect(mapping.states(changed: CharacteristicType.rotationSpeed.uuid).isEmpty)
+        let start = mapping.writes(for: .startCleaning)
+        #expect(start.map(\.0.type.uuid) == [CharacteristicType.active.uuid] && start.map(\.1) == [.int(1)])
+        for command in [DeviceCommand.stopCleaning, .pauseCleaning, .returnToDock] { #expect(mapping.writes(for: command).map(\.1) == [.int(0)]) }
+    }
+
+    @Test func bridgesAVacuumsFanAsARobotWithItsBattery() async throws { try await withFixture { fixture in
+        let (fan, battery) = try await fixture.plugin.addVacuum()
+        try await fixture.waitForDeviceType("Household:vacuum", DeviceTypes.roboticVacuumCleaner)
+        // The Battery beside it is the device's Power Source, in half percents.
+        let remaining: @Sendable () async throws -> TLVValue = {
+            try await fixture.read("Household:vacuum", PowerSourceCluster.id, PowerSourceCluster.Attribute.batPercentRemaining)
+        }
+        try await eventually { (try? await remaining()) == .unsigned(160) }
+        battery[.batteryLevel]?.value = .int(45)
+        try await eventually { (try? await remaining()) == .unsigned(90) }
+
+        typealias Operational = RvcOperationalStateCluster
+        let state: @Sendable () async throws -> TLVValue = { try await fixture.read("Household:vacuum", Operational.id, Operational.Attribute.operationalState) }
+        // Cleaning mode sets Active; the robot reports running.
+        try await fixture.invoke("Household:vacuum", RvcRunModeCluster.id, RvcRunModeCluster.Command.changeToMode, fields: .structure([.field(0, .unsigned(1))]))
+        #expect(fan[.active]?.value == .int(1))
+        try await eventually { (try? await state()) == .unsigned(Operational.OperationalStateEnum.running) }
+        // Going home turns it off.
+        try await fixture.invoke("Household:vacuum", Operational.id, Operational.Command.goHome)
+        #expect(fan[.active]?.value == .int(0))
+        try await eventually { (try? await state()) == .unsigned(Operational.OperationalStateEnum.stopped) }
+        // The plugin's own report reaches Matter.
+        fan[.active]?.value = .int(1)
+        try await eventually { (try? await state()) == .unsigned(Operational.OperationalStateEnum.running) }
+    } }
+
     @Test func reportsAPausedRobotAsPausedUntilItRunsAgain() async throws { try await withFixture { fixture in
         try await fixture.plugin.addRobot(standsFor: .cleaningRobot)
-        try await eventually {
-            let types = try? await fixture.read("Household:robot", DescriptorCluster.id, DescriptorCluster.Attribute.deviceTypeList)
-            return types?.elements?.first?.value[0]?.uint == UInt64(DeviceTypes.roboticVacuumCleaner.id)
-        }
+        try await fixture.waitForDeviceType("Household:robot", DeviceTypes.roboticVacuumCleaner)
         typealias Operational = RvcOperationalStateCluster
         let state: @Sendable () async throws -> TLVValue = { try await fixture.read("Household:robot", Operational.id, Operational.Attribute.operationalState) }
-        let robot = try await fixture.endpoint("Household:robot")
-        func invoke(_ command: CommandID) async throws {
-            _ = try await fixture.commissioner.client.invoke(CommandPath(endpoint: robot, cluster: Operational.id, command: command),
-                                                             session: fixture.session)
-        }
+        func invoke(_ command: CommandID) async throws { try await fixture.invoke("Household:robot", Operational.id, command) }
         // Start cleaning, then pause: the switch goes off, and the robot is paused, so Resume is accepted.
-        _ = try await fixture.commissioner.client.invoke(
-            CommandPath(endpoint: robot, cluster: RvcRunModeCluster.id, command: RvcRunModeCluster.Command.changeToMode),
-            fields: .structure([.field(0, .unsigned(1))]), session: fixture.session)
+        try await fixture.invoke("Household:robot", RvcRunModeCluster.id, RvcRunModeCluster.Command.changeToMode, fields: .structure([.field(0, .unsigned(1))]))
         try await eventually { (try? await state()) == .unsigned(RvcOperationalStateCluster.OperationalStateEnum.running) }
         try await invoke(Operational.Command.pause)
         try await eventually { (try? await state()) == .unsigned(RvcOperationalStateCluster.OperationalStateEnum.paused) }
@@ -603,10 +661,7 @@ struct MatterMappingTests {
 
     @Test func reportsAFiltersWearOnItsPurifier() async throws { try await withFixture { fixture in
         let filter = try await fixture.plugin.addPurifier()
-        try await eventually {
-            let types = try? await fixture.read("Household:purifier", DescriptorCluster.id, DescriptorCluster.Attribute.deviceTypeList)
-            return types?.elements?.first?.value[0]?.uint == UInt64(DeviceTypes.airPurifier.id)
-        }
+        try await fixture.waitForDeviceType("Household:purifier", DeviceTypes.airPurifier)
         // The filter is another service: its change reaches the purifier's HEPA filter all the same.
         filter[.filterLifeLevel]?.value = .double(12)
         try await eventually {
@@ -618,10 +673,7 @@ struct MatterMappingTests {
         // A plugin replaces its cached switch with one that stands for a cleaning robot: the plug becomes a robot vacuum,
         // on the same endpoint.
         try await fixture.plugin.addRobot(standsFor: .cleaningRobot)
-        try await eventually {
-            let types = try? await fixture.read("Household:robot", DescriptorCluster.id, DescriptorCluster.Attribute.deviceTypeList)
-            return types?.elements?.first?.value[0]?.uint == UInt64(DeviceTypes.roboticVacuumCleaner.id)
-        }
+        try await fixture.waitForDeviceType("Household:robot", DeviceTypes.roboticVacuumCleaner)
     } }
 
     @Test func mapsAlarmsValvesAndMeters() throws {

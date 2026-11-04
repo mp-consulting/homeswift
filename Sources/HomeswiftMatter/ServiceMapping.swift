@@ -34,7 +34,7 @@ struct ServiceMapping: Sendable {
         /// A smoke alarm, or a carbon monoxide one.
         case alarm(smoke: Bool)
         case valve
-        /// A Switch that runs a cleaning robot (`Service.standsFor`): a Robotic Vacuum Cleaner.
+        /// A service whose On or Active runs a cleaning robot (`Service.standsFor`: a Switch, a Fan v2): a Robotic Vacuum Cleaner.
         case cleaningRobot
 
         /// The role without its details (`light`, `airQuality`): the Status page picks an icon by it.
@@ -71,9 +71,9 @@ struct ServiceMapping: Sendable {
         func has(_ characteristic: CharacteristicType) -> Bool { service[characteristic] != nil }
         let role: Role
         switch type {
+        case _ where service.standsFor == .cleaningRobot && (has(.on) || has(.active)): role = .cleaningRobot
         case ServiceType.lightbulb.uuid:
             role = .light(dimmable: has(.brightness), colorTemperature: has(.colorTemperature), hueSaturation: has(.hue) && has(.saturation))
-        case ServiceType.switch.uuid where service.standsFor == .cleaningRobot: role = .cleaningRobot
         case ServiceType.outlet.uuid, ServiceType.switch.uuid: role = .plug
         case ServiceType.contactSensor.uuid: role = .contact
         case ServiceType.motionSensor.uuid, ServiceType.occupancySensor.uuid: role = .occupancy
@@ -198,7 +198,7 @@ struct ServiceMapping: Sendable {
                 states.append(.coveringPosition(percent100ths: UInt16((100 - min(max(open, 0), 100)) * 100)))
             }
         case .fan, .airPurifier:
-            if changedType == nil || [CharacteristicType.on.uuid, CharacteristicType.active.uuid, CharacteristicType.rotationSpeed.uuid].contains(changedType) {
+            if changedType.map({ Self.runningTypes.contains($0) || $0 == CharacteristicType.rotationSpeed.uuid }) ?? true {
                 states.append(.fanSpeed(percent: fanPercent))
             }
             if let swing = value(.swingMode).flatMap(Self.flag) { states.append(.fanRocking(swing)) }
@@ -259,8 +259,8 @@ struct ServiceMapping: Sendable {
             // In Use says whether water flows: the valve is open. A faucet has only Active.
             if let open = value(service[.inUse] != nil ? .inUse : .active).flatMap(Self.flag) { states.append(.valveOpen(open)) }
         case .cleaningRobot:
-            // The switch says only whether it cleans: running, else stopped (where it is is not known).
-            if let on = value(.on)?.boolValue { states.append(.robot(on ? .running : .stopped)) }
+            // Active or On says only whether it cleans: running, else stopped (where it is is not known).
+            if changedType.map(Self.runningTypes.contains) ?? true, let running = isRunning { states.append(.robot(running ? .running : .stopped)) }
         }
         if isMetered {
             if let watts = value(EveCharacteristic.currentConsumption) { states.append(.power(watts: watts.doubleValue)) }
@@ -279,9 +279,16 @@ struct ServiceMapping: Sendable {
         }
     }
 
+    /// The characteristics that say whether a fan or a robot runs.
+    private static let runningTypes: Set<HAPUUID> = [CharacteristicType.active.uuid, CharacteristicType.on.uuid]
+
+    /// Whether a fan or a robot runs: Active when it has it (a Fan v2), else On, as `run` in `writes(for:)` writes.
+    private var isRunning: Bool? {
+        service[.active]?.value.intValue.map { $0 == 1 } ?? service[.on]?.value.boolValue
+    }
+
     private var fanPercent: UInt8 {
-        let running = service[.active]?.value.intValue.map { $0 == 1 } ?? service[.on]?.value.boolValue ?? false
-        guard running else { return 0 }
+        guard isRunning ?? false else { return 0 }
         return UInt8(clamping: Int((service[.rotationSpeed]?.value.doubleValue ?? 100).rounded()))
     }
 
@@ -299,6 +306,10 @@ struct ServiceMapping: Sendable {
             } else {
                 writes.append((characteristic, value))
             }
+        }
+        // A fan or a robot runs on Active when it has it (a Fan v2), else on On.
+        func run(_ running: Bool) {
+            if service[.active] != nil { write(.active, .int(running ? 1 : 0)) } else { write(.on, .bool(running)) }
         }
         switch command {
         case .setOn(let on):
@@ -332,7 +343,7 @@ struct ServiceMapping: Sendable {
             }
         case .setFanSpeed(let percent):
             let running = percent > 0
-            if service[.active] != nil { write(.active, .int(running ? 1 : 0)) } else { write(.on, .bool(running)) }
+            run(running)
             if running { write(.rotationSpeed, .double(Double(percent))) }
         case .setFanRocking(let rocking):
             write(.swingMode, .int(rocking ? 1 : 0))
@@ -358,10 +369,10 @@ struct ServiceMapping: Sendable {
         case .setValveOpen(let open):
             write(.active, .int(open ? 1 : 0))
         case .startCleaning, .resumeCleaning:
-            if role == .cleaningRobot { write(.on, .bool(true)) }
+            if role == .cleaningRobot { run(true) }
         case .stopCleaning, .pauseCleaning, .returnToDock:
-            // The switch only starts and stops: pausing and going home stop it, and the robot goes back by itself.
-            if role == .cleaningRobot { write(.on, .bool(false)) }
+            // The service only starts and stops: pausing and going home stop it, and the robot goes back by itself.
+            if role == .cleaningRobot { run(false) }
         case .setClosureOpen(let open):
             // Target Door State: open 0, closed 1.
             write(.targetDoorState, .int(open ? 0 : 1))
