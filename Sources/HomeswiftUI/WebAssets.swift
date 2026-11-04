@@ -5468,8 +5468,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           }
           reset.hidden = unset;
         }
-        container.addEventListener("change", () => { followDefault(); paint(); });
-        queueMicrotask(() => { followDefault(); paint(); });
         paint();
         return { element, get: () => chosen };
       }
