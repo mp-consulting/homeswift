@@ -206,6 +206,7 @@ public actor SonosPlugin: HomeswiftPlugin {
         if let household = hit.household { player.household = household }
         let previousBoot = player.advanceBootSeq(hit.bootSeq)
         players[hit.id] = player
+        player.client.seen()
         seen(hit.id)
         if let previousBoot, let bootSeq = hit.bootSeq { reboot(hit.id, from: previousBoot, to: bootSeq) }
         if !player.probed, !player.probing { probe(hit.id) }
@@ -304,6 +305,11 @@ public actor SonosPlugin: HomeswiftPlugin {
         for (household, record) in households.sorted(by: { $0.key < $1.key }) {
             logTree(household, record)
             if let associated = record.associated, record.subscribed != associated {
+                if let previous = record.subscribed {
+                    let keys = permanent.filter { $0.player == previous }
+                    permanent.subtract(keys)
+                    tasks.add { [weak self] in for key in keys { await self?.unsubscribe(key) } }
+                }
                 households[household]?.subscribed = associated
                 logger.info("\(household): associated player: \(name(of: associated))")
                 tasks.add { [weak self] in await self?.associate(household: household, player: associated) }
@@ -429,6 +435,7 @@ public actor SonosPlugin: HomeswiftPlugin {
             let seed = String(accessory.id.dropFirst(prefix.count))
             let playerID = Self.deviceID(ofAccessory: seed) ?? seed
             guard players[playerID]?.probed == true else { continue }
+            if let entry = topologyPlayers[playerID], entry.role != .master, zones[entry.zone] == nil { continue }
             let id = accessory.id
             let context = context
             tasks.add {
@@ -441,6 +448,7 @@ public actor SonosPlugin: HomeswiftPlugin {
     // MARK: Subscriptions
 
     private func ensureListener() async -> (any EventListening)? {
+        guard !tasks.isStopped else { return nil }
         if let listener { return listener }
         if let listenerStart { return await listenerStart.value }
         let listen = dependencies.listen
@@ -458,6 +466,11 @@ public actor SonosPlugin: HomeswiftPlugin {
         listenerStart = task
         let started = await task.value
         listenerStart = nil
+        // A stop while binding: the server it bound is closed rather than kept.
+        if tasks.isStopped {
+            await started?.close()
+            return nil
+        }
         listener = started
         if let started {
             logger.info("listening on http://\(dependencies.localAddress(players.values.first?.client.address ?? "")):\(started.port)/notify")
@@ -470,11 +483,16 @@ public actor SonosPlugin: HomeswiftPlugin {
     private func subscribe(_ key: SubscriptionKey) async -> Bool {
         if subscriptions[key] != nil { return true }
         guard let listener = await ensureListener(), let client = players[key.player]?.client else { return false }
+        guard !tasks.isStopped else { return false }
         if subscriptions[key] != nil { return true }
         received.remove(key)
         let callback = "http://\(dependencies.localAddress(client.address)):\(listener.port)/notify/\(key.player)\(key.service.eventPath)"
         do {
             let subscription = try await client.subscribe(key.service.eventPath, callback: callback, seconds: settings.subscriptionTimeout + 30)
+            guard !tasks.isStopped else {
+                try? await client.unsubscribe(key.service.eventPath, sid: subscription.sid, timeout: .seconds(2))
+                return false
+            }
             subscriptions[key] = Subscription(sid: subscription.sid)
             scheduleRenewal(key, granted: subscription.timeout)
             return true
@@ -672,6 +690,15 @@ public actor SonosPlugin: HomeswiftPlugin {
         }
         for id in topology.vanished { setLost(id, true) }
         guard previous != topology else { return }
+        // A stereo pair split or made: a player's accessory changes kind under the same id.
+        for (id, entry) in topology.players {
+            if entry.role == .master, slaves[id] != nil { slaves[id] = nil }
+            if entry.role != .master, let zone = zones.removeValue(forKey: id), let tv = zone.tv.withLockedValue({ $0 }) {
+                let context = context
+                tasks.add { try? await context.remove(id: tv.accessory.id) }
+            }
+        }
+        for id in topology.order { expose(id) }
         for zone in zones.values where topologyHousehold[zone.id] == household {
             guard let entry = topology.players[zone.id] else { continue }
             zone.applyTopology(entry, coordinator: zones[entry.zoneGroup])
@@ -762,7 +789,7 @@ public actor SonosPlugin: HomeswiftPlugin {
     }
 
     private func setLost(_ id: String, _ lost: Bool) {
-        guard players[id] != nil || zones[id] != nil || slaves[id] != nil else { return }
+        guard players[id] != nil || zones[id] != nil || slaves[id] != nil, players[id]?.lost != lost else { return }
         players[id]?.lost = lost
         if lost { logger.warning("\(name(of: id)): lost") }
         zones[id]?.setLost(lost)

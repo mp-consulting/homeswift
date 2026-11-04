@@ -79,27 +79,28 @@ enum XML {
         var index = 0
         var stack: [XElement] = [XElement(name: "")]
 
-        func starts(with prefix: String) -> Bool {
-            let prefix = Array(prefix.utf8)
-            return index + prefix.count <= bytes.count && Array(bytes[index..<index + prefix.count]) == prefix
+        func starts(with prefix: StaticString) -> Bool {
+            let count = prefix.utf8CodeUnitCount
+            guard index + count <= bytes.count else { return false }
+            return prefix.withUTF8Buffer { bytes[index..<index + count].elementsEqual($0) }
         }
-        func skip(past terminator: String) throws {
-            let terminator = Array(terminator.utf8)
-            while index + terminator.count <= bytes.count {
-                if Array(bytes[index..<index + terminator.count]) == terminator {
-                    index += terminator.count
+        func skip(past terminator: StaticString) throws {
+            let count = terminator.utf8CodeUnitCount
+            while index + count <= bytes.count {
+                if terminator.withUTF8Buffer({ bytes[index..<index + count].elementsEqual($0) }) {
+                    index += count
                     return
                 }
                 index += 1
             }
-            throw XMLError.malformed("unterminated \(String(decoding: terminator, as: UTF8.self))")
+            throw XMLError.malformed("unterminated \(terminator)")
         }
         func isNameByte(_ byte: UInt8) -> Bool {
             !(byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == UInt8(ascii: ">") || byte == UInt8(ascii: "/")
                 || byte == UInt8(ascii: "=") || byte == UInt8(ascii: "<"))
         }
         func skipSpace() {
-            while index < bytes.count, [0x20, 0x09, 0x0A, 0x0D].contains(bytes[index]) { index += 1 }
+            while index < bytes.count, bytes[index] == 0x20 || bytes[index] == 0x09 || bytes[index] == 0x0A || bytes[index] == 0x0D { index += 1 }
         }
         func readName() throws -> String {
             let start = index
