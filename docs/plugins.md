@@ -113,7 +113,9 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   and `localIPv4Networks()` for LAN discovery, `WebSocket`, `MQTTClient` (TCP, TLS with a client certificate,
   WebSocket; `Reconnect(firstConnection: true)` retries the first connection too), `TLSOptions` (bundled roots such
   as `.amazonRootCA1`, client identities, ALPN), `AWSSignatureV4`, `URLEncoding` (the JavaScript encodings, byte for
-  byte, for signed requests) and `Backoff` (retry delays with jitter). A plugin depends on it rather than adding a
+  byte, for signed requests), `Backoff` (retry delays with jitter), `TCPStream` (a plain TCP byte stream), `Protobuf`
+  (`ProtobufWriter` and `ProtobufMessage`: the wire format by field number, without a schema) and `Noise` (the
+  `Noise_NNpsk0_25519_ChaChaPoly_SHA256` handshake and cipher states, ESPHome's encryption). A plugin depends on it rather than adding a
   package; its tests take `FakeMQTTConnection` and `FakeWebSocket` from the `HomeswiftNetworkTestSupport` target.
 - **Helpers.** `Service(optional:)` with a type the service has already (`.targetTemperature.with(minValue: 30)`)
   changes its props; `accessory.takeValues(from: cached)` keeps the last values of a rebuilt accessory;
