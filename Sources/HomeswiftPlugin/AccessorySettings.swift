@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftAI
+import Logging
 
 /// What a person sets for one device of a plugin instance (GLOSSARY.md, "Accessory Settings"), kept in the block's
 /// `_accessories` by Device Id (docs/adr/0001-canonical-accessory-settings.md):
@@ -195,6 +196,8 @@ extension PluginContext {
     /// Replaces them: a refreshed token. The bridge saves an Authorization's own when it is done.
     public func saveCredentials(_ credentials: JSONValue, for deviceID: String? = nil) throws {
         try credentialsFile(for: deviceID).save(credentials)
+        // New credentials for the account have not been refused yet.
+        if deviceID == nil { accountAccepted() }
     }
 
     public func saveCredentials<T: Encodable>(_ credentials: T, for deviceID: String? = nil) throws {
@@ -205,6 +208,26 @@ extension PluginContext {
     public func removeCredentials(for deviceID: String? = nil) {
         credentialsFile(for: deviceID).remove()
     }
+
+    /// Says the account refused its credentials (a password changed, a token revoked or expired for good): the plugin's
+    /// card and settings show that it Needs Authorization, with Setup to set it up again, until new credentials are saved
+    /// (Setup's, or a refreshed token's) or `accountAccepted()`. `reason`, in English, is for the log and MCP clients,
+    /// never a secret. Not for a cloud that does not answer: that is no refusal.
+    public func accountRefused(_ reason: String? = nil) {
+        let first = accountRefusalBox.withLockedValue { refusal in
+            defer { refusal = reason ?? "the account refused its credentials" }
+            return refusal == nil
+        }
+        if first { logger.warning("The account refused its credentials\(reason.map { ": \($0)" } ?? ""): set it up again") }
+    }
+
+    /// Says the account took its credentials again, after `accountRefused(_:)`.
+    public func accountAccepted() {
+        accountRefusalBox.withLockedValue { $0 = nil }
+    }
+
+    /// Why the account refused its credentials, when the plugin said it did (`accountRefused(_:)`).
+    public var accountRefusal: String? { accountRefusalBox.withLockedValue { $0 } }
 
     /// `plugin.<instance>.account`, or `plugin.<instance>.device-<deviceID>`.
     func credentialsFile(for deviceID: String?, legacyFile: String? = nil) -> SecretFile<JSONValue> {

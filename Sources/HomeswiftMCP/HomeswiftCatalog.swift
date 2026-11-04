@@ -572,12 +572,24 @@ public struct HomeswiftCatalog: Sendable {
             ?? [AIConfiguration.platform: Self.assistantIcon, "HomeswiftMatter": Self.matterIcon, "HomeswiftUI": Self.webUIIcon][canonical]
     }
 
-    public func pluginsJSON() -> JSONValue {
+    /// The plugins compiled in and the instances running. Each instance says where its account stands (`accountState`:
+    /// `none`, `setUp`, `notSetUp` or `refused`), `needsAuthorization` when someone has to set it up (again) before its
+    /// devices work, and `noneResponding` when it has accessories and every one shows No Response while it runs.
+    public func pluginsJSON() async -> JSONValue {
         let configured = Set(host.configuration.platforms.map(\.platform))
         let running = host.platforms
+        let accounts = await host.accountStates()
         return [
-            "platforms": .array(running.map {
-                ["platform": .string($0.platform), "name": .string($0.name), "plugin": .string($0.pluginName), "bridge": .string($0.bridge.name), "accessories": .number(Double($0.accessoryIDs.count)), "paused": .bool($0.paused)]
+            "platforms": .array(running.map { instance in
+                let account = accounts["\(instance.platform)/\(instance.name)"] ?? AccountState.none
+                let requirement = host.registry.entry(for: instance.platform)?.accountRequirement ?? .required
+                let accessories = host.context(platform: instance.platform, name: instance.name)?.accessories ?? []
+                return [
+                    "platform": .string(instance.platform), "name": .string(instance.name), "plugin": .string(instance.pluginName), "bridge": .string(instance.bridge.name),
+                    "accessories": .number(Double(instance.accessoryIDs.count)), "paused": .bool(instance.paused),
+                    "accountState": .string(account.rawValue), "needsAuthorization": .bool(account.needsAuthorization(requirement)),
+                    "noneResponding": .bool(!instance.paused && !accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
+                ]
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
             // The Assistant is a runtime block, not a compiled-in plugin, but it can be added, so it is listed as one.
@@ -586,6 +598,7 @@ public struct HomeswiftCatalog: Sendable {
                     "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
                     "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
                     "accountAuthorization": .string(entry.accountAuthorization.rawValue),
+                    "accountRequired": .bool(entry.accountRequirement.isRequired), "accountAdds": entry.accountRequirement.adds.map(JSONValue.string) ?? .null,
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
             } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
@@ -1049,9 +1062,12 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "list_plugins", title: "List plugins",
-                description: "The platform instances running, on which bridge and with how many accessories, and the platforms in config.json that no plugin provides.",
+                description: "The platform instances running, on which bridge and with how many accessories, and the platforms in config.json that no plugin provides. "
+                    + "An instance's accountState is none (no account), setUp, notSetUp or refused (the account refused its credentials); needsAuthorization says its account "
+                    + "must be set up (again) with start_setup before its devices work (a plugin's accountRequired false: its devices work without it, accountAdds says what it adds); "
+                    + "noneResponding, that every one of its accessories shows No Response.",
                 outputSchema: Output.plugins, scope: .read, idempotent: true
-            ) { _ in .json(catalog.pluginsJSON()) },
+            ) { _ in .json(await catalog.pluginsJSON()) },
             MCPTool(
                 name: "get_plugin_config_schema", title: "A plugin's config schema",
                 description: "The config.schema.json of a plugin compiled into this bridge, for writing or checking its platform block: schema (its Plugin Settings) "

@@ -60,11 +60,12 @@ struct SetupTests {
     let host: PluginHost
     let catalog: HomeswiftCatalog
 
-    init(config: String = #"{ "bridge": { "name": "Test", "port": 0 }, "platforms": [ { "platform": "Pairable", "name": "Pairable" } ] }"#) throws {
+    init(config: String = #"{ "bridge": { "name": "Test", "port": 0 }, "platforms": [ { "platform": "Pairable", "name": "Pairable" } ] }"#,
+         plugins: [any HomeswiftPlugin.Type] = [PairablePlugin.self]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("config.json")
         try Data(config.utf8).write(to: configURL)
-        let registry = PluginRegistry([PairablePlugin.self])
+        let registry = PluginRegistry(plugins)
         host = try PluginHost(
             configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory,
             options: PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() })
@@ -191,5 +192,88 @@ struct SetupTests {
         #expect(setup.host.context(platform: "Pairable", name: nil)?.credentials()?["token"] == "account-token")
         #expect(await eventually { setup.accessoryIDs().contains("Pairable:lamp") })
         await setup.host.stop()
+    }
+}
+
+/// A plugin whose account adds something its devices do without: a password on its webhooks.
+actor OptionalAccountPlugin: HomeswiftPlugin {
+    struct Configuration: Decodable, Sendable {}
+    static let platform = "OptionalAccount"
+    static let accountAuthorization = AuthorizationMethod.apiKey
+    static let accountRequirement = AccountRequirement.optional(adds: "Protects the webhooks with a password.")
+
+    let context: PluginContext
+    init(configuration: Configuration, context: PluginContext) { self.context = context }
+    func start() async throws {
+        try context.add(Accessory(id: "OptionalAccount:hook", name: "Hook", category: .switch, services: [Service(.switch, name: "Hook", isPrimary: true)]))
+    }
+}
+
+/// Where a plugin instance's account stands, as the Plugins page and its settings show it.
+@Suite(.timeLimit(.minutes(1)))
+struct AccountStateTests {
+    let setup: SetupTests
+
+    init() throws {
+        setup = try SetupTests(config: #"{ "bridge": { "name": "Test", "port": 0 }, "platforms": [ { "platform": "Pairable", "name": "Pairable" }, { "platform": "OptionalAccount", "name": "Hooks" } ] }"#,
+                               plugins: [PairablePlugin.self, OptionalAccountPlugin.self])
+    }
+
+    func instance(_ name: String) async -> JSONValue? {
+        await setup.catalog.pluginsJSON()["platforms"]?.arrayValue?.first { $0["name"]?.stringValue == name }
+    }
+
+    /// Never set up, an account its devices come with Needs Authorization; set up, it does not; refused, it does again
+    /// until new credentials are saved.
+    @Test func aRequiredAccountNeedsAuthorizationUntilSetUpAndAgainOnceRefused() async throws {
+        try await setup.host.start()
+        defer { Task { await setup.host.stop() } }
+        #expect(await instance("Pairable")?["accountState"] == "notSetUp")
+        #expect(await instance("Pairable")?["needsAuthorization"] == true)
+        let found = try await setup.catalog.discoverDevices(platform: "Pairable", name: nil)
+        #expect(found["accountState"] == "notSetUp" && found["needsAuthorization"] == true && found["accountRequired"] == true)
+
+        let first = try await setup.catalog.startSetup(platform: "Pairable", name: nil, deviceID: nil)
+        let session = try #require(first["session"]?.stringValue)
+        #expect(try await setup.catalog.continueSetup(session, answers: ["email": "a@b.c", "password": "account-pass"])["status"] == "done")
+        #expect(await eventually { await instance("Pairable")?["accountState"] == "setUp" })
+        #expect(await instance("Pairable")?["needsAuthorization"] == false)
+
+        // The plugin says the account refused its token: the card says so until new credentials are saved.
+        let context = try #require(setup.host.context(platform: "Pairable", name: nil))
+        context.accountRefused("token revoked")
+        #expect(await instance("Pairable")?["accountState"] == "refused")
+        #expect(await instance("Pairable")?["needsAuthorization"] == true)
+        #expect(try await setup.catalog.discoverDevices(platform: "Pairable", name: nil)["accountState"] == "refused")
+        try context.saveCredentials(["token": "new-token"])
+        #expect(await instance("Pairable")?["accountState"] == "setUp")
+    }
+
+    /// An optional account left alone needs no one: the plugin runs as it should, and says what the account adds.
+    @Test func anOptionalAccountNotSetUpNeedsNoOne() async throws {
+        try await setup.host.start()
+        defer { Task { await setup.host.stop() } }
+        #expect(await instance("Hooks")?["accountState"] == "notSetUp")
+        #expect(await instance("Hooks")?["needsAuthorization"] == false)
+        let plugin = await setup.catalog.pluginsJSON()["plugins"]?.arrayValue?.first { $0["platform"] == "OptionalAccount" }
+        #expect(plugin?["accountRequired"] == false)
+        #expect(plugin?["accountAdds"] == "Protects the webhooks with a password.")
+        let found = try await setup.catalog.discoverDevices(platform: "OptionalAccount", name: "Hooks")
+        #expect(found["needsAuthorization"] == false && found["accountRequired"] == false)
+        // Refused, even an optional account needs someone: what it had no longer works.
+        setup.host.context(platform: "OptionalAccount", name: "Hooks")?.accountRefused()
+        #expect(await instance("Hooks")?["needsAuthorization"] == true)
+    }
+
+    /// A plugin every accessory of which shows No Response says so; one answering again does not.
+    @Test func aPluginNoneOfWhoseAccessoriesRespondsSaysSo() async throws {
+        try await setup.host.start()
+        defer { Task { await setup.host.stop() } }
+        #expect(await instance("Hooks")?["noneResponding"] == false)
+        let accessories = try #require(setup.host.context(platform: "OptionalAccount", name: "Hooks")?.accessories)
+        for accessory in accessories { accessory.isUnavailable = true }
+        #expect(await instance("Hooks")?["noneResponding"] == true)
+        accessories[0].isUnavailable = false
+        #expect(await instance("Hooks")?["noneResponding"] == false)
     }
 }

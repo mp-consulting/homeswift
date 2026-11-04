@@ -74,7 +74,30 @@ extension PluginHost {
                 device.isSetUp = !device.isExcluded && !device.excludedBySettings && (device.isSetUp || published || authorized.contains(device.deviceID) && configured.contains(device.deviceID))
                 return device
             }
-            return Discovery(devices: marked, accountAuthorized: await pluginAnswer ?? authorized.contains(nil))
+            return Discovery(devices: marked, accountAuthorized: await pluginAnswer ?? authorized.contains(nil), accountRefused: context.accountRefusal != nil)
+        }
+    }
+
+    /// Where the account of each instance the host runs stands, by `<platform>/<name>`, without a discovery: what its
+    /// running plugin answers (`accountAuthorized()`), else whether the vault has its credentials, and refused when the
+    /// plugin said so. A paused instance, or one whose plugin did not start, is read from the vault.
+    public func accountStates() async -> [String: AccountState] {
+        await withTaskGroup(of: (String, AccountState).self) { group in
+            for instance in instances {
+                let method = instance.entry.accountAuthorization
+                let plugin = instance.block.paused ? nil : instance.plugin.withLockedValue { $0 }
+                let context = instance.context
+                group.addTask {
+                    let id = "\(context.platform)/\(context.name)"
+                    guard method != .none else { return (id, .none) }
+                    if context.accountRefusal != nil { return (id, .refused) }
+                    let authorized = await plugin?.accountAuthorized() ?? context.haveCredentials([nil]).contains(nil)
+                    return (id, authorized ? .setUp : .notSetUp)
+                }
+            }
+            var states: [String: AccountState] = [:]
+            for await (id, state) in group { states[id] = state }
+            return states
         }
     }
 

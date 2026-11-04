@@ -374,6 +374,12 @@ needs the page added to the home screen.
 Every platform block of config.json, with whether it runs, is paused, and on which bridge; then **Add a plugin**, the
 plugins compiled into this homeswift, with a search and a sort.
 
+A running plugin shows a quiet green dot only when its devices can work. One whose account Needs Authorization (never set
+up, or refused since: a password changed, a token revoked) says what it needs instead, **Needs sign-in**, **Needs
+pairing** or **Needs keys**, in orange, and its card leads with **Set up** (**Set up again** once it has been), which
+opens the Setup sheet over the list; an optional account left alone needs no one. One whose every accessory shows No
+Response says **Not responding**. Sorted by **Needs attention first**, they come first.
+
 - **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, and removes it; its name
   opens its page (its Settings when it has none). Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
   there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
@@ -387,15 +393,18 @@ plugins compiled into this homeswift, with a search and a sort.
 - **Settings** (`/plugins/<slug>/settings`; a plugin without a page of its own has them at `/plugins/<slug>`, and a
   plugin's page links to them at the right of its breadcrumb, before Pause; the old `/expert` and `/expert/json`
   addresses lead there). One surface in sections:
-  - **Account**, for a plugin that signs in to an account or pairs with a hub: where it stands and **Set up again**,
-    which opens the Setup sheet. Its sign-in is kept in the vault, never in the form.
+  - **Account**, for a plugin that signs in to an account or pairs with a hub: where it stands and **Set up** (**Set up
+    again** once it has been), which opens the Setup sheet. An account the plugin's devices come with reads "Not set up
+    yet: its devices show once it is"; an optional one (`AccountRequirement.optional`) says what it adds, and one the
+    account refused says so in orange. The header's state says the same as the plugin's card. Its sign-in is kept in the
+    vault, never in the form.
   - **Settings**: the Plugin Settings as a form built from the plugin's schema (the same `config.schema.json` the
     Homebridge version ships), read and saved through `GET`/`PATCH /api/settings/plugins/<platform>/<name>`. One Save
     sends what changed from the form as it opened (a key taken out is cleared; one the form does not show, such as a
     secret kept in the vault, is left alone); the plugin reloads once, its accessories kept.
   - **Devices**: every Discovered Device of the instance, as Setup's discovery finds them, with where each stands: one set
-    up opens its accessory's Settings sheet, an Excluded one has **Include**, one that Needs Authorization has **Set up
-    again**. **Find again** asks the plugin again. `?accessory=<Accessory Id>` opens that accessory's sheet over the
+    up opens its accessory's Settings sheet, an Excluded one has **Include**, one that Needs Authorization has **Set
+    up**. **Find again** asks the plugin again. `?accessory=<Accessory Id>` opens that accessory's sheet over the
     page (a plugin page's link to one of its devices, or to a scene through `scenePictures`' `settings` option), and the
     address loses it once the sheet closes.
   - What the form does not show is in config.json: the page links to its editor (Settings › Config), the one place to

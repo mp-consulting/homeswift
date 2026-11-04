@@ -328,6 +328,18 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   (the default), `buttonPress` (a hub's link button), `deviceCode` (a PIN a device shows), `accountLogin` (an email or
   user name and password, perhaps a one-time code), `browserRedirect` (a sign-in page whose redirect comes back) or
   `apiKey`.
+- **`static let accountRequirement`**: whether the plugin's devices depend on that account. `.required` (the default):
+  its devices come with the account or are reached through it, so the plugin's card says **Needs sign-in** (or
+  **Needs pairing**, **Needs keys**) until it is set up, and its settings say its devices show once it is.
+  `.optional(adds:)`: the plugin works without it, and `adds` says what setting it up brings, one sentence in English
+  with its French, Spanish and Portuguese in the web UI's catalogs (`TranslationTests` reads it from the source):
+  `.optional(adds: "Protects the webhooks with a password.")`. A plugin left without an optional account shows
+  as running.
+- **A refused account**: when the account refuses what Setup gave (a password changed, a refresh token revoked; not a
+  cloud that does not answer), call `context.accountRefused("why, in English")`: the plugin's card and settings say it
+  Needs Authorization, required account or not, until new credentials are saved (Setup's, or `saveCredentials` with a
+  refreshed token) or `context.accountAccepted()`. `list_plugins` and `discover_devices` give it as `accountState`
+  (`none`, `setUp`, `notSetUp`, `refused`) and `needsAuthorization`.
 - **`discover()`**: the devices the plugin can find now (on the network, in the account, at the addresses its
   settings name), each a `DiscoveredDevice` with its Device Id (the part of its accessory's id after `<platform>:`), the
   Authorization it needs, whether it is set up (and `isReachable: false` for one set up that does not answer now: Not responding), and `excludedBySettings` for one the plugin's own Homebridge-shaped

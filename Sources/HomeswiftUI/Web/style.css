@@ -3787,6 +3787,9 @@ select option:disabled { color: var(--muted); }
 .setup-instance-toggle .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-instance-toggle .who .muted { font-size: var(--text-sm); }
 .setup-instance-toggle .who .muted[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+/* Where the account stands is a sentence to read, not a label: it wraps rather than losing its end. */
+.settings-row .who .help.account-state { white-space: normal; overflow: visible; text-overflow: clip; text-wrap-style: pretty; }
+.settings-row .who .help.account-state[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
 @media (hover: hover) and (pointer: fine) { .setup-instance-head:has(.setup-instance-toggle:hover) { background: var(--material-thin); } }
 .setup-chevron { flex: none; width: 8px; height: 8px; margin: 0 var(--space-4); border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
   transform: rotate(-45deg); transition: transform 200ms var(--ease-out); cursor: pointer; }
