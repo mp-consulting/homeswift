@@ -25,6 +25,8 @@ final class LGThinQPlatform {
     private var mqttStarted = false
     /// Set by `stop()`: start-up work that was waiting on LG adds nothing and starts nothing afterwards.
     private(set) var stopped = false
+    /// The account's appliances as LG last listed them for every home; nil until it did.
+    private(set) var knownDevices: [KnownDevice]?
     /// Overridable in tests.
     var discoveryRetryDelay = ThinQConstants.deviceDiscoveryDelay
 
@@ -126,6 +128,7 @@ final class LGThinQPlatform {
         let listing = await thinq.deviceListing()
         guard !stopped else { return }
         let devices = listing.devices
+        remember(listing)
         if devices.isEmpty { logger.warning("No ThinQ devices in your account.") }
         var kept = Set<String>()
         for device in devices {
@@ -140,6 +143,7 @@ final class LGThinQPlatform {
                 logger.info("Device excluded: \(device.id)")
                 continue
             }
+            // A Homebridge block's allow list, until its first settings write moves it into `_accessories`.
             let block = configuredDevices.first { $0.id == device.id }
             if !configuredDevices.isEmpty, block == nil {
                 logger.info("Device skipped: \(device.id)")
@@ -158,7 +162,8 @@ final class LGThinQPlatform {
                 logger.debug("\(device.id) - unregistered!")
                 continue
             }
-            let environment = DeviceEnvironment(thinq: thinq, logger: logger, settings: DeviceSettings(type: device.type, block: block?.raw))
+            let options = LGThinQPlugin.deviceOptions(legacy: block?.raw, own: context.accessorySettings(for: device.id).plugin)
+            let environment = DeviceEnvironment(thinq: thinq, logger: logger, settings: DeviceSettings(type: device.type, block: options))
             let handler = kind.init(device: device, environment: environment)
             handlers[device.id]?.destroy()
             handler.updateAccessoryCharacteristic(device)
@@ -202,6 +207,23 @@ final class LGThinQPlatform {
         }
         await context.removeAccessories(keeping: keep, message: "Removing accessory")
     }
+
+    /// Keeps the account's appliances once LG answered for every home, for `canonicalSettings` and the Device Kinds.
+    func remember(_ listing: (devices: [ThinQDevice], complete: Bool)) {
+        guard listing.complete, !listing.devices.isEmpty else { return }
+        knownDevices = listing.devices.map { device in
+            KnownDevice(id: device.id, name: device.name, type: device.type, supported: DeviceRegistry.handler(for: device.type, platform: device.platform) != nil)
+        }
+    }
+
+    /// LG's type name of one of the account's appliances, from what runs or LG last listed.
+    func type(of deviceID: String) -> String? {
+        if let handler = handlers[deviceID] { return handler.device.type }
+        return knownDevices?.first { $0.id == deviceID }.map(\.type).flatMap { $0 == "undefined" ? nil : $0 }
+    }
+
+    /// The refresh token the account signed in with (an email and password's, once signed in); nil before.
+    var signedInRefreshToken: String? { thinq.api.session.refreshToken.nonEmpty }
 
     // MARK: Monitoring
 

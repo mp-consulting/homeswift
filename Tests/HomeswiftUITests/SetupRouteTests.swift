@@ -7,9 +7,12 @@ import Testing
 @Suite struct SetupRouteTests {
     /// Setup writes config.json and the vault: an administrator's, whatever the route.
     @Test func setupNeedsAnAdministrator() {
-        for route in [["setup", "discover"], ["setup", "start"], ["setup", "exclude"], ["setup", "abc"], ["setup", "abc", "cancel"]] {
+        for route in [["setup", "discover"], ["setup", "start"], ["setup", "abc"], ["setup", "abc", "cancel"]] {
             #expect(UIServer.requiredScope(.POST, route) == .admin, "\(route)")
         }
+        // So are settings, read or written.
+        #expect(UIServer.requiredScope(.GET, ["settings", "accessories", "Lamps:lamp"]) == .admin)
+        #expect(UIServer.requiredScope(.PATCH, ["settings", "plugins", "Lamps", "Lamps"]) == .admin)
     }
 
     /// Discovery, a device it did not find, and Exclude writing the device's Accessory Settings.
@@ -31,13 +34,27 @@ import Testing
         #expect(try await browser.post("/api/setup/unknown-session", ["answers": [:]]).status == 400)
         #expect(try await browser.post("/api/setup/unknown-session/cancel", [:]).json?["cancelled"] == false)
 
-        #expect(try await browser.post("/api/setup/exclude", ["platform": "Lamps", "name": "Lamps", "deviceID": "lamp", "excluded": true]).status == 200)
+        // Exclude is an Accessory Setting: the device's, by its Accessory Id.
+        #expect(try await browser.patch("/api/settings/accessories/Lamps:lamp", ["excluded": true]).status == 200)
         let config = try JSONValue(data: Data(contentsOf: environment.configURL))
         let block = config["platforms"]?.arrayValue?.first { $0["platform"] == "Lamps" }
         #expect(block?["_accessories"] == ["lamp": ["excluded": true]])
-        let include = try await browser.post("/api/setup/exclude", ["platform": "Lamps", "name": "Lamps", "deviceID": "lamp", "excluded": false])
+        let read = try await browser.get("/api/settings/accessories/Lamps:lamp")
+        #expect(read.json?["settings"] == ["excluded": true] && read.json?["fields"]?["excluded"]?["core"] == true)
+        let include = try await browser.patch("/api/settings/accessories/Lamps:lamp", ["excluded": nil])
         #expect(include.status == 200, "\(include.body)")
         let again = try JSONValue(data: Data(contentsOf: environment.configURL))
         #expect(again["platforms"]?.arrayValue?.first { $0["platform"] == "Lamps" }?["_accessories"] == nil)
+
+        // The routes the settings replace are gone.
+        #expect(try await browser.post("/api/setup/exclude", ["platform": "Lamps", "name": "Lamps", "deviceID": "lamp", "excluded": true]).status == 400)
+        #expect(try await browser.put("/api/accessories/Lamps:lamp/name", ["name": "Desk"]).status == 404)
+        #expect(try await browser.put("/api/accessories/Lamps:lamp/homekit", ["visible": false]).status == 404)
+
+        // Plugin Settings: secrets as the placeholder, a write checked and merged.
+        let plugin = try await browser.get("/api/settings/plugins/Lamps/Lamps")
+        #expect(plugin.status == 200 && plugin.json?["platform"] == "Lamps")
+        #expect(try await browser.patch("/api/settings/plugins/Lamps/Lamps", ["_paused": true]).status == 400)
+        #expect(try await browser.patch("/api/settings/plugins/Lamps/Nowhere", [:]).status == 404)
     }
 }

@@ -675,19 +675,10 @@ struct TelevisionTests {
         #expect(try await plugin.handleWebRequest(.init(method: "POST", path: "sources/refresh", body: ["mac": "00:00:00:00:00:01"], user: "admin")).status == 404)
     }
 
-    @Test func findsMACAddressesAndWakesAnyTV() async throws {
+    @Test func wakesAnyTV() async throws {
         let host = try await environment.start(settings: ["devices": [livingRoom]])
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        // A configured TV is asked; another address comes from the ARP table.
-        let configured = try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "192.168.1.20"], user: "admin"))
-        #expect(configured.json["mac"] == "AA:BB:CC:DD:EE:FF")
-        environment.arpTable.withLockedValue { $0["192.168.1.30"] = "0a:0b:0c:0d:0e:0f" }
-        let other = try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "192.168.1.30"], user: "admin"))
-        #expect(other.json["mac"] == "0A:0B:0C:0D:0E:0F")
-        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "192.168.1.31"], user: "admin")).status == 404)
-        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "nope"], user: "admin")).status == 400)
-
         // Wake-on-LAN to any MAC address, as the Homebridge plugin's page sends it; a configured TV's own address.
         let woke = try await plugin.handleWebRequest(.init(method: "POST", path: "wake", body: ["mac": "0a-0b-0c-0d-0e-0f", "ip": "192.168.1.30"], user: "admin"))
         #expect(woke.status == 200 && woke.json["woke"] == "0A:0B:0C:0D:0E:0F")

@@ -4,7 +4,8 @@ Dyson Pure Cool, Hot+Cool, Humidify+Cool, Big+Quiet purifiers and the Dyson Cool
 device's local MQTT broker. The Homeswift port of
 [`@mp-consulting/homebridge-dyson-pure-cool`](https://github.com/mp-consulting/homebridge-dyson-pure-cool), originally by
 Lukas Rogner, under the MIT license (notice in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)):
-same platform name (`DysonPureCool`), same `config.json` block, same settings wizard.
+same platform name (`DysonPureCool`); a Homebridge `config.json` block loads unchanged, and what Homeswift writes is its
+canonical shape ([Configuration](#configuration)).
 
 ## What it does
 
@@ -32,53 +33,56 @@ lost connection is retried five times with backoff, then every five minutes. A d
 configured address is looked up over mDNS; the new address is kept in `ip-overrides.json` (in the plugin's storage
 directory, owner-only) and used at the next launch while config.json still names the old one.
 
-## The settings page
+## Setting up
 
-**Plugins › Dyson Pure Cool › Open** is the Homebridge plugin's wizard:
+Devices come in through Setup: **Add accessories** (the Dyson Pure Cool row), or an AI agent through the MCP server's
+`start_setup` and `continue_setup`. The account asks your Dyson email and country, then your password with the 6-digit
+code Dyson emails (the password is never kept); the account's token goes in the bridge's vault. Each supported device
+of the account is then a Discovered Device: setting one up reads its local credential into the vault under its serial
+number, and its product type, name and firmware into its Accessory Settings. A device whose credential stops working
+is set up again the same way.
 
-1. **Account**: your Dyson email, password and country. Dyson emails a 6-digit code.
-2. **Code**: the code, within ten minutes. The password is held in memory until then, never saved.
-3. **Devices**: the account's devices with their local credentials, decrypted; pick the ones to add, name them,
-   set continuous monitoring, offsets, Fahrenheit logging and the heating service.
-4. **Options**: sensors, controls, polling interval. **Save** writes the block (keys the wizard does not show, such
-   as `_bridge` or per-device overrides, are kept) and the plugin reloads with it.
-
-Once devices are set up, the page lists them with their connection state and live readings; changes are saved as
-you make them, and **Re-sync from Dyson Cloud** signs in again to add devices or refresh credentials. When the
-Assistant is set up (a `HomeswiftAiKit` block), failed sign-ins and unreachable devices get an **Explain** button;
-it never sees the email, password, codes, credentials, serial numbers or addresses.
+**Plugins › Dyson Pure Cool › Open** lists the devices this instance runs with their connection state and live
+readings (fan, temperature, humidity, PM2.5, filter), and switches each one's continuous monitoring, which is the
+device's own state. A device's **Settings** opens its options on the plugin's Settings page
+(`/plugins/<slug>/settings?accessory=DysonPureCool:<serial>`), where it is also Excluded or Forgotten. The page writes no
+settings. When the Assistant is set up (a `HomeswiftAiKit` block), unreachable devices get an **Explain** button; it
+never sees the credentials, serial numbers or addresses.
 
 The Assistant (the web UI's chat, MCP clients) can also list the devices with their state, list the product
-types, check a device and, after you confirm, switch its continuous monitoring (`Sources/AssistantActions.swift`).
-Those tools name a configured device by its serial number and see its address; the credentials stay in the
-bridge, and the Dyson sign-in is not one of them.
+types, check a device and, after you confirm, switch its continuous monitoring (`Sources/AssistantActions.swift`),
+and read and write the settings with `get_settings` and `update_settings`. Those tools name a device by its serial
+number and see its address; the credentials stay in the bridge, and the Dyson sign-in is Setup's.
 
 ## Configuration
+
+What Homeswift writes (docs/adr/0001-canonical-accessory-settings.md): the plugin's settings in the block, each device's
+in `_accessories` by its serial number (its Device Id), the credentials in the vault.
 
 ```json
 {
   "platform": "DysonPureCool",
   "name": "Dyson Pure Cool",
   "countryCode": "GB",
-  "devices": [
-    {
+  "enableFilterStatus": true,
+  "_accessories": {
+    "ABC-AB-12345678": {
       "name": "Living Room Purifier",
-      "serial": "ABC-AB-12345678",
       "productType": "438",
-      "localCredentials": "the credential the wizard fetched",
       "ipAddress": "192.168.1.100",
       "temperatureOffset": -2,
-      "humidityOffset": 5
+      "humidityOffset": 5,
+      "enableNightMode": false
     }
-  ]
+  }
 }
 ```
 
-### Platform options
+### Plugin Settings
 
-| Option | Type | Default | Description |
+| Setting | Type | Default | Description |
 |--------|------|---------|-------------|
-| `countryCode` | string | `US` | The Dyson account's country (the wizard signs in with it) |
+| `countryCode` | string | `US` | The Dyson account's country (Setup sets it) |
 | `discoveryTimeout` | number | `10` | mDNS scan length in seconds (values over 60 are read as milliseconds) |
 | `pollingInterval` | number | `60` | Seconds between state requests (10-300) |
 | `enableTemperature` | boolean | `true` | Temperature sensor |
@@ -92,30 +96,37 @@ bridge, and the Dyson sign-in is not one of them.
 | `enableFilterStatus` | boolean | `false` | Filter life; shown when the key is absent, as in the Homebridge plugin |
 | `enableAutoMode`, `isSingleAccessoryModeEnabled`, `isSingleSensorAccessoryModeEnabled` | boolean | | Accepted; the Homebridge plugin never acted on them either |
 
-### Per-device options
+The `enable*` switches are plugin-wide defaults: each is also an Accessory Setting of the same name, which overrules it
+for one device.
 
-| Option | Type | Default | Description |
+### Accessory Settings
+
+Each device's (the schema's `accessorySchema`), besides its Name and Excluded; the Device Kind is `purifier`, `heater`
+(Hot+Cool) or `humidifier` (Humidify+Cool), from the product type.
+
+| Setting | Type | Default | Description |
 |--------|------|---------|-------------|
-| `serial` | string | | Required |
-| `productType` | string | | Required: the Dyson product type code (`438`, `527K`, …) |
-| `localCredentials` (or `credentials`) | string | | Required: the local MQTT password |
-| `name` | string | `Dyson <serial>` | |
+| `productType` | string | | The Dyson product type code (`438`, `527K`, …), Setup's |
 | `ipAddress` | string | | Leave empty for mDNS |
-| `firmwareVersion` | string | | Shown as the firmware revision |
+| `firmwareVersion` | string | | Shown as the firmware revision, Setup's |
 | `temperatureOffset` | number | `0` | °C |
 | `humidityOffset` | number | `0` | % |
 | `useFahrenheit` | boolean | `false` | Log temperatures in °F |
-| `isTemperatureIgnored`, `isHumidityIgnored`, `isAirQualityIgnored` | boolean | `false` | Hide a sensor |
-| `isHeatingDisabled` | boolean | `false` | Hide heating |
-| `heatingServiceType` | string | `thermostat` | `thermostat`, `heater-cooler` or `both` |
-| `fullRangeHumidity` | boolean | `false` | 0-100 % instead of 30-70 % |
+| `enableTemperature`, `enableHumidity`, `enableAirQuality` | boolean | the plugin's | Show a sensor |
+| `enableNightMode`, `enableJetFocus`, `enableContinuousMonitoring` | boolean | the plugin's | Show a switch |
+| `enableFilterStatus` | boolean | the plugin's | Show the filter life |
+| `enableHeater`, `heatingServiceType` | | the plugin's, `thermostat` | `heater` only: show heating; `thermostat`, `heater-cooler` or `both` |
+| `enableHumidifier`, `fullRangeHumidity` | boolean | the plugin's, `false` | `humidifier` only: show the humidifier; 0-100 % instead of 30-70 % |
 | `enableAutoModeWhenActivating`, `enableOscillationWhenActivating`, `enableNightModeWhenActivating` | boolean | `false` | Switched on with the device, in the same command |
-| `isNightModeEnabled`, `isJetFocusEnabled` | boolean | `true` | |
-| `isContinuousMonitoringEnabled` | boolean | `false` | |
-| `isFilterStatusDisabled`, `isHumidifierDisabled` | boolean | `false` | |
-| `isHeatingSafetyIgnored` | boolean | `false` | Accepted, not used (as in the Homebridge plugin) |
 
-A device's own keys win over the platform's toggles. Numbers and booleans written as strings are accepted.
+A Homebridge block still loads: its `devices` list, by `serial`, with `localCredentials` (or `credentials`) and the
+per-device keys above, of which `isTemperatureIgnored`, `isHumidityIgnored`, `isAirQualityIgnored`,
+`isHeatingDisabled`, `isHumidifierDisabled` and `isFilterStatusDisabled` are the inverse of the `enable*` switches and
+`isNightModeEnabled`, `isJetFocusEnabled` and `isContinuousMonitoringEnabled` the same; it is read where
+`_accessories` says nothing. The first settings write (the Settings page, `update_settings`, Setup) moves each entry
+into `_accessories` (`name` as the Name, the inverse keys turned around, `isHeatingSafetyIgnored`, which nothing read,
+dropped) and its credential into the vault, and drops `devices`; an entry whose credential is a reference the bridge
+cannot read stays. Numbers and booleans written as strings are accepted.
 
 ## Supported devices
 
@@ -147,7 +158,11 @@ A device's own keys win over the platform's toggles. Numbers and booleans writte
 - With continuous monitoring off and the fan idle, a Link model reports its temperature and humidity as `OFF`: the
   sensors keep their last reading with **Status Active** off, so the Home app shows them as not current, and turn
   active again with the next reading. Homebridge showed the old reading as current.
-- The settings page uses the bridge's connection to a device when there is one, instead of a second MQTT session.
+- The page uses the bridge's connection to a device when there is one, instead of a second MQTT session. It no
+  longer signs in or writes the devices (the Homebridge wizard's `authenticate`, `verify-otp` and `get-devices`):
+  Setup does, and the local credentials never reach the browser.
 - A Dyson cloud answer of 401 or 403 with an empty body fails the request ("Session expired" for the device list);
   Homebridge read it as an empty success and listed no devices.
-- `config.schema.json` is the Homebridge plugin's, with the CF1 added to the product types.
+- `config.schema.json` declares the Plugin Settings and, in `accessorySchema`, each device's, with positive switches
+  in place of the Homebridge keys' inverses; the CF1 is among the product types, and 358K is the PH05 (the Homebridge
+  schema called it an HP06).

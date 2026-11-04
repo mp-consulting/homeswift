@@ -447,8 +447,7 @@ Each device is one accessory with:
   "platforms": [
     {
       "platform": "__PLATFORM__",
-      "name": "__DISPLAY__",
-      "devices": [{ "id": "TODO", "name": "Living Room" }]
+      "name": "__DISPLAY__"
     }
   ]
 }
@@ -457,7 +456,10 @@ Each device is one accessory with:
 | Option | Default | |
 |---|---|---|
 | `pollingInterval` | 30 | Seconds between polls, 5 at least |
-| `devices` | | `id` and `name` of a device, to rename it |
+
+Each device's settings (its name, room, Excluded) are in its Accessory Settings, under `_accessories` by device id,
+edited on the plugin's Settings page. A Homebridge block's `devices` list (`id` and `name`) still loads, and moves
+there with the next settings write.
 
 ## Tests
 
@@ -485,19 +487,11 @@ let schema = #"""
         "required": false,
         "placeholder": 30,
         "minimum": 5
-      },
-      "devices": {
-        "title": "Devices",
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "id": { "title": "ID", "type": "string", "required": true },
-            "name": { "title": "Name", "type": "string" }
-          }
-        }
       }
     }
+  },
+  "accessorySchema": {
+    "properties": {}
   }
 }
 
@@ -646,6 +640,7 @@ public actor __NAME__Plugin: HomeswiftPlugin {
         public var name: String?
         /// Seconds between polls; 5 at least, 30 by default.
         public var pollingInterval: Int?
+        /// Homebridge-shaped names by device id: read until `canonicalSettings` moves them into `_accessories`.
         public var devices: [Device]?
     }
 
@@ -713,8 +708,40 @@ public actor __NAME__Plugin: HomeswiftPlugin {
     // `static let accountAuthorization` or the device's `authorization`, and answer the steps in `authorize(_:)`.
     public func discover() async throws -> [DiscoveredDevice] {
         try await dependencies.api.devices().map { device in
-            DiscoveredDevice(deviceID: device.id, name: configuration.devices?.first { $0.id == device.id }?.name ?? device.name, isSetUp: true)
+            DiscoveredDevice(deviceID: device.id, name: configuration.devices?.first { $0.id == device.id }?.name ?? device.name, isSetUp: true, kind: Self.deviceKind)
         }
+    }
+
+    // Settings (docs/plugins.md, "Settings"): a device's own options go in config.schema.json's `accessorySchema`
+    // (`x-kinds` for the Device Kinds a field is for, `x-default` for the Plugin Setting it falls back on) and are read
+    // with `context.accessorySettings(for: device.id)`. Its Name, room and Excluded are the runtime's.
+
+    /// Every device is of one Device Kind; a plugin with several names each (`x-kinds` picks the fields it shows).
+    static let deviceKind = "device"
+
+    public func deviceKind(of deviceID: String) async -> String? { Self.deviceKind }
+
+    /// The block in its canonical shape, which the bridge writes with each settings write (and asks for on a dry run, so
+    /// it only answers: a token it moves into the vault goes in `context.whenSettingsWritten { … }`).
+    public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
+        Self.canonical(block)
+    }
+
+    /// The block with the Homebridge-shaped `devices` moved into `_accessories` by id, each `name` as the device's Name
+    /// unless it has one there already; an entry without an id stays in `devices`.
+    static func canonical(_ block: JSONValue) -> JSONValue {
+        guard var fields = block.objectValue, let list = fields["devices"]?.arrayValue else { return block }
+        var entries = fields["_accessories"]?.objectValue ?? [:]
+        var left: [JSONValue] = []
+        for item in list {
+            guard let id = item["id"]?.stringValue, !id.isEmpty else { left.append(item); continue }
+            var entry = entries[id]?.objectValue ?? [:]
+            if entry["name"] == nil, let name = item["name"]?.stringValue, !name.isEmpty { entry["name"] = .string(name) }
+            if !entry.isEmpty { entries[id] = .object(entry) }
+        }
+        if left.isEmpty { fields.removeValue(forKey: "devices") } else { fields["devices"] = .array(left) }
+        if !entries.isEmpty { fields["_accessories"] = .object(entries) }
+        return .object(fields)
     }
 
     /// Adds an accessory for each new device and shows the values of the others.
@@ -907,6 +934,15 @@ struct __NAME__Tests {
         await host.stop()
     }
 \#(writeTest)\#(changeTest)
+    @Test func canonicalSettingsMovesTheDevicesList() throws {
+        let block = try JSONValue(string: #"{"platform":"__PLATFORM__","devices":[{"id":"dev-1","name":"Desk"},{"name":"No id"}]}"#)
+        let canonical = __NAME__Plugin.canonical(block)
+        #expect(canonical["_accessories"]?["dev-1"]?["name"] == "Desk")
+        #expect(canonical["devices"]?.arrayValue?.count == 1)
+        // Written again, it changes nothing.
+        #expect(__NAME__Plugin.canonical(canonical) == canonical)
+    }
+
     /// The plugin's directory, from this file's.
     static var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent() }
 

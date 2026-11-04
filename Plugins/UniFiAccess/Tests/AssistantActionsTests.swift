@@ -19,7 +19,7 @@ struct AssistantActionsTests {
         let host = try await environment.start(devices: [uah(), ugt(), ultra()], doors: AccessHubTests.gateDoors)
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        #expect(Set(UniFiAccessPlugin.assistantActions.map(\.name)) == ["list_controllers", "list_options", "discover", "check_controller"])
+        #expect(Set(UniFiAccessPlugin.assistantActions.map(\.name)) == ["list_controllers", "discover", "check_controller"])
         #expect(UniFiAccessPlugin.assistantActions.allSatisfy { $0.access == .read && !$0.confirm })
 
         let controllers = try await call(plugin, "list_controllers")
@@ -35,9 +35,6 @@ struct AssistantActionsTests {
         #expect(byId[gateID]?["sideDoor"] == "closed")
         #expect(byId[ultraID]?["accessMethods"]?["Face Unlock"] == true)
         #expect(byId[ultraID]?["accessMethods"]?["PIN"] == false)
-
-        let options = try await call(plugin, "list_options")
-        #expect(options.json["categories"]?.arrayValue?.isEmpty == false)
 
         let discover = try await call(plugin, "discover")
         #expect(discover.json["devices"]?[0]?["ip"] == "10.0.0.1")

@@ -9,6 +9,11 @@ struct ServiceContext: Sendable {
     var logger: Logger
     /// Schedules the (debounced) poll that catches the cache up with the cloud after a write.
     var forceUpdate: @Sendable () -> Void = {}
+    /// The device the accessory is built for: its own `show*` switches overrule the plugin's.
+    var deviceID: String? = nil
+
+    /// Whether a feature's switch is shown: the device's own setting, else the plugin's.
+    func isEnabled(_ feature: FeatureKey) -> Bool { settings.isEnabled(feature, for: deviceID) }
 
     /// Runs a write from HomeKit: on success the refresh is scheduled; on failure a warning is logged and the
     /// Home app gets "No Response" instead of a stale success.

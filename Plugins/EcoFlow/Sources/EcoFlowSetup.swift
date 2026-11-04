@@ -5,23 +5,32 @@ import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the instance's account is read through the route Setup asks for first (`route`): the
 // developer API's keys, an API Key the bridge keeps in the vault once a read of the devices works with them, the EcoFlow
-// app's email and password, checked with a sign-in and kept as Plugin Settings (sealed), or both. The block's
-// `accessKey` and `secretKey` still work, and go when Setup keeps the keys.
+// app's email and password, checked with a sign-in (the email a Plugin Setting, the password in the vault), or both. The
+// block's `accessKey`, `secretKey` and `password` still work, and go when Setup keeps them or at the next settings change
+// (EcoFlowSettings.swift). Each device comes with the account, of the Device Kind `stream`, `home`, `portable` or
+// `powerBank`.
 extension EcoFlowPlugin {
     public static let accountAuthorization = AuthorizationMethod.apiKey
 
-    /// The developer keys Setup kept.
-    struct DeveloperKeys: Codable, Sendable {
-        var accessKey: String
-        var secretKey: String
+    /// What the vault keeps for the account: the developer keys, the app's password, or both.
+    struct AccountCredentials: Codable, Sendable, Equatable {
+        var accessKey: String?
+        var secretKey: String?
+        var password: String?
+
+        var hasKeys: Bool { accessKey?.isEmpty == false && secretKey?.isEmpty == false }
+        var hasPassword: Bool { password?.isEmpty == false }
     }
 
-    /// The configuration with the keys from the vault in place of the block's, when Setup kept some.
+    /// The configuration with the keys and the password from the vault in place of the block's, when the vault has them.
     static func withStoredKeys(_ configuration: Configuration, _ context: PluginContext) -> Configuration {
-        guard let keys = context.credentials(as: DeveloperKeys.self) else { return configuration }
+        guard let saved = context.credentials(as: AccountCredentials.self) else { return configuration }
         var configuration = configuration
-        configuration.accessKey = keys.accessKey
-        configuration.secretKey = keys.secretKey
+        if saved.hasKeys {
+            configuration.accessKey = saved.accessKey
+            configuration.secretKey = saved.secretKey
+        }
+        if saved.hasPassword { configuration.password = saved.password }
         return configuration
     }
 
@@ -30,7 +39,11 @@ extension EcoFlowPlugin {
     }
 
     public func discover() async throws -> [DiscoveredDevice] {
-        latest.map { found in DiscoveredDevice(deviceID: found.id, name: configuration.devices?.first { $0.id == found.id }?.name ?? found.name, isSetUp: true) }
+        latest.map { found in
+            DiscoveredDevice(
+                deviceID: found.id, name: configuration.devices?.first { $0.id == found.id }?.name ?? found.name, model: found.model?.name, isSetUp: true,
+                kind: found.kind.rawValue)
+        }
     }
 
     /// The route first, the block's picked; then the developer keys, checked with a read of the devices, and the app's
@@ -78,7 +91,7 @@ extension EcoFlowPlugin {
             if route == .both { return .ask(appPrompt, state: .object(state)) }
         }
         var settings: [String: JSONValue] = [:]
-        var credentials: JSONValue?
+        var credentials = AccountCredentials()
         if route != .developer {
             guard let email = request.answer("email"), let password = request.secret("password") else { return .ask(appPrompt, state: .object(state)) }
             do {
@@ -88,15 +101,17 @@ extension EcoFlowPlugin {
             }
             logger.info("EcoFlow app sign-in checked through Setup")
             settings["email"] = .string(email)
-            settings["password"] = .string(password)
+            settings["password"] = .null
+            credentials.password = password
         }
         if let keys = state["keys"], let accessKey = keys["accessKey"]?.stringValue, let secretKey = keys["secretKey"]?.stringValue {
-            credentials = try JSONValue(encoding: DeveloperKeys(accessKey: accessKey, secretKey: secretKey))
+            credentials.accessKey = accessKey
+            credentials.secretKey = secretKey
             settings["accessKey"] = .null
             settings["secretKey"] = .null
             if let region = keys["region"]?.stringValue { settings["region"] = .string(region) }
         }
-        return .done(SetupOutcome(credentials: credentials, settings: settings))
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: credentials), settings: settings))
     }
 
     private var appPrompt: SetupPrompt {

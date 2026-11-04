@@ -50,7 +50,7 @@ struct SetupTests {
             Issue.record("expected done"); return
         }
         #expect(outcome.credentials == ["refreshToken": "direct"])
-        #expect(outcome.settings == ["auth_mode": "token", "country": "FR", "language": "fr-FR", "refresh_token": .null])
+        #expect(outcome.settings == ["auth_mode": "token", "country": "FR", "language": "fr-FR", "refresh_token": .null, "username": .null, "password": .null])
     }
 
     /// `auth_mode: account` signs in with the account's email and password, and is picked when Setup asks how.
@@ -83,8 +83,9 @@ struct SetupTests {
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["username": "me@example.com", "password": "good"], state: state)) else {
             Issue.record("expected done"); return
         }
-        #expect(outcome.credentials == ["refreshToken": "the-refresh-token"])
-        #expect(outcome.settings == ["auth_mode": "account", "username": "me@example.com", "refresh_token": .null])
+        // The email goes in the vault with the token; a Homebridge block's sign-in leaves the block.
+        #expect(outcome.credentials == ["refreshToken": "the-refresh-token", "username": "me@example.com"])
+        #expect(outcome.settings == ["auth_mode": "account", "username": .null, "password": .null, "refresh_token": .null])
     }
 
     /// The vault's refresh token is the one the plugin signs in with, over the block's.
@@ -121,6 +122,8 @@ struct SetupTests {
         let byName = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0) })
         #expect(Set(byName.keys) == ["Styler", "Oven", "Old hood", "Second styler"])
         #expect(byName["Styler"]?.deviceID == stylerID && byName["Styler"]?.excludedBySettings == false && byName["Styler"]?.authorization == AuthorizationMethod.none)
+        // Each of the Device Kind of its LG type.
+        #expect(byName["Styler"]?.kind == "STYLER" && byName["Oven"]?.kind == "OVEN" && byName["Old hood"]?.kind == "HOOD")
         #expect(byName["Oven"]?.excludedBySettings == true && byName["Old hood"]?.excludedBySettings == true)
 
         // A plugin made only for Setup signs in for the question.

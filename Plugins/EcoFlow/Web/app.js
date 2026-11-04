@@ -1,8 +1,9 @@
 // The EcoFlow page: each device the plugin reads, its battery, and its power as IN and OUT, laid out by kind as the
-// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin.
+// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin. It writes no
+// settings: the devices come with the account (Setup), and each one's name is its Settings'.
 (() => {
   "use strict";
-  const { t, tn } = HomeswiftI18n;
+  const { t } = HomeswiftI18n;
   const { $, el, request } = homeswift;
 
   const list = $("#devices");
@@ -438,37 +439,6 @@
     if (focused) list.querySelector(`.device[data-id="${CSS.escape(focused)}"] .handle`)?.focus({ preventScroll: true });
   }
 
-  // The devices the plugin reads that the configuration's `devices` does not list, with the button that adds them
-  // under the name they report: listed, a device is read by its serial number, and its name can be changed in the
-  // plugin's settings.
-  const unsaved = $("#unsaved");
-  // Drawn again only when the devices it lists change: a button made anew at every reading would lose a click.
-  let unsavedShown = "";
-  function renderUnsaved() {
-    const missing = known.filter((device) => device.configured === false);
-    const key = missing.map((device) => `${device.id}\n${device.name}`).join("\n");
-    if (key === unsavedShown) return;
-    unsavedShown = key;
-    unsaved.classList.toggle("hidden", missing.length === 0);
-    if (missing.length === 0) return;
-    unsaved.replaceChildren(
-      el("p", { class: "note", text: tn("{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.",
-        "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.", missing.length) }),
-      el("button", { actionIcon: "plus", class: "primary", text: t("Add to the configuration"),
-        onclick: (event) => homeswift.act(event.currentTarget, () => addToConfiguration(missing)) }));
-  }
-
-  // Each device once in the block's `devices`, an entry already there kept as it is. The plugin reloads with them.
-  async function addToConfiguration(devices) {
-    await homeswift.updateDevices((entries) => {
-      for (const device of devices) {
-        if (!entries.some((entry) => entry.id === device.id)) entries.push({ id: device.id, name: device.name });
-      }
-    });
-    lastAnswer = "";
-    await refresh();
-  }
-
   // The cards are drawn again only when the readings changed: the plugin's values change at its own poll.
   let lastAnswer = "";
   async function refresh() {
@@ -485,7 +455,6 @@
       pending = body.waiting ?? [];
       loadHistory(true);
       render();
-      renderUnsaved();
     } catch (error) {
       lastAnswer = "";
       // A card being dragged, or an order being saved, keeps the cards: the next poll says it again.

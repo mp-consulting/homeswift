@@ -36,6 +36,8 @@ struct HueLight: Sendable, Equatable {
     var gradientPoints: [HueXY] = []
     var gradientCapacity = 0
     var reachable = true
+    /// Its device's Zigbee MAC, with the light's place among the device's lights when it has several; nil without one.
+    var serialNumber: String?
 
     var hasColour: Bool { xy != nil }
     var hasColourTemperature: Bool { mirekRange != nil }
@@ -119,6 +121,8 @@ struct HueSensorDevice: Sendable, Equatable {
     var battery: Battery?
     var buttons: [Button] = []
     var reachable = true
+    /// Its Zigbee MAC; nil without one.
+    var serialNumber: String?
     /// The room its device is in, as the Hue app puts it.
     var roomID: String?
     var room: String?
@@ -232,6 +236,8 @@ struct HueSnapshot: Sendable, Equatable {
         var devices: [String: JSONValue] = [:]
         var groupedLights: [String: (on: Bool, brightness: Double?)] = [:]
         var unreachable: Set<String> = []
+        // The v2 API has no serial number; the Zigbee MAC is the device's own, as v1's `uniqueid` was.
+        var macOfDevice: [String: String] = [:]
         var roomOfDevice: [String: (id: String, name: String)] = [:]
         // What each room (devices) or zone (lights) holds, resolved to lights once every light is read.
         var members: [String: (devices: [String], lights: [String])] = [:]
@@ -245,10 +251,10 @@ struct HueSnapshot: Sendable, Equatable {
             case "device": devices[id] = resource
             case "grouped_light": groupedLights[id] = (resource["on"]?["on"]?.boolValue ?? false, resource["dimming"]?["brightness"]?.doubleValue)
             case "zigbee_connectivity":
+                guard let owner = resource["owner"]?["rid"]?.stringValue else { continue }
                 // A light the bridge cannot reach reports `connectivity_issue` on its device's connectivity.
-                if let status = resource["status"]?.stringValue, status != "connected", let owner = resource["owner"]?["rid"]?.stringValue {
-                    unreachable.insert(owner)
-                }
+                if let status = resource["status"]?.stringValue, status != "connected" { unreachable.insert(owner) }
+                if let mac = resource["mac_address"]?.stringValue, !mac.isEmpty { macOfDevice[owner] = mac }
             case "bridge": bridgeID = resource["bridge_id"]?.stringValue
             default: break
             }
@@ -286,7 +292,14 @@ struct HueSnapshot: Sendable, Equatable {
             }
         }
         for index in lights.indices {
-            (lights[index].roomID, lights[index].room) = (roomOfDevice[lights[index].deviceID]?.id, roomOfDevice[lights[index].deviceID]?.name)
+            let deviceID = lights[index].deviceID
+            (lights[index].roomID, lights[index].room) = (roomOfDevice[deviceID]?.id, roomOfDevice[deviceID]?.name)
+            if let mac = macOfDevice[deviceID] {
+                // A device with several lights (a Dymera's two sides) gives each its place, so serial numbers stay apart.
+                let siblings = devices[deviceID]?["services"]?.arrayValue?.filter { $0["rtype"]?.stringValue == "light" }.compactMap { $0["rid"]?.stringValue } ?? []
+                let place = siblings.count > 1 ? siblings.firstIndex(of: lights[index].id) : nil
+                lights[index].serialNumber = place.map { "\(mac)-\($0 + 1)" } ?? mac
+            }
         }
         for index in groups.indices {
             guard let held = members[groups[index].id] else { continue }
@@ -297,6 +310,7 @@ struct HueSnapshot: Sendable, Equatable {
         for (id, device) in devices where !lightDevices.contains(id) {
             guard var sensor = HueSensorDevice.make(device: device, id: id, resources: byID, reachable: !unreachable.contains(id)) else { continue }
             (sensor.roomID, sensor.room) = (roomOfDevice[id]?.id, roomOfDevice[id]?.name)
+            sensor.serialNumber = macOfDevice[id]
             sensors.append(sensor)
         }
         sensors.sort { ($0.name, $0.id) < ($1.name, $1.id) }

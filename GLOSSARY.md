@@ -10,7 +10,8 @@ What a person sets for the bridge itself: its name, port, setup code and identit
 _Avoid_: Global settings, server settings
 
 **Plugin Settings**:
-What a person sets for one plugin instance as a whole, such as an account, a host or a polling interval.
+What a person sets for one plugin instance as a whole, such as a host or a polling interval. Its account's
+credentials are not Plugin Settings: they come from Authorization, and change only by setting it up again.
 _Avoid_: Plugin config, platform options
 
 **Accessory Settings**:
@@ -19,13 +20,24 @@ Accessory Settings); the rest a plugin declares for its own accessories (Plugin 
 _Avoid_: Device settings, device options, overrides, feature options
 
 **Core Accessory Settings**:
-The Accessory Settings every accessory has whatever its plugin, such as its room or whether it is Excluded.
+The Accessory Settings every accessory has whatever its plugin: its Name, its room, whether it is Excluded, Hidden
+or Not in Home, and which of its Parts are included.
 _Avoid_: Layout, common settings
 
+**Arrangement**:
+Where accessories sit on the wall and which are favourites. It is how a page is laid out, not an Accessory Setting.
+_Avoid_: Layout, settings
+
 **Plugin Accessory Settings**:
-The Accessory Settings one plugin declares for its accessories, such as a sensor's offset or a camera's motion
-duration.
-_Avoid_: Device config, per-device options
+The Accessory Settings one plugin declares for its accessories, such as a sensor's offset, a camera's motion
+duration or the type a switch shows as. A plugin may declare some for one Device Kind only, and give one a
+plugin-wide default in its Plugin Settings, which an accessory's own value overrules.
+_Avoid_: Device config, per-device options, feature options
+
+**Room Sync**:
+A Bridge Setting that keeps Homeswift's Rooms in step with the hubs' rooms of the same name: renaming a Room
+renames theirs, and moving an accessory moves it in Apple Home, in both directions.
+_Avoid_: Sync room names, hub rooms
 
 ## Accessories
 
@@ -38,6 +50,10 @@ _Avoid_: MAC, serial, serialNumber, deviceId, host, address
 The one name an accessory goes by in settings: its plugin's platform name and its Device Id
 (`ElgatoKeyLights:<MAC>`). Display names are not addresses.
 _Avoid_: MAC, serial, aid
+
+**Name**:
+The one name an accessory goes by, on the bridge's pages and in Apple Home alike.
+_Avoid_: Display name, label, HomeKit name, displayName
 
 **Excluded**:
 A device its plugin does not make into an accessory at all: not polled, not on the wall, not in Apple Home or Matter.
@@ -64,8 +80,19 @@ it and publishing it.
 _Avoid_: Onboarding, pairing, adding a device
 
 **Discovered Device**:
-A device a plugin has found and can tell apart by its Device Id, whether or not it is set up yet.
+A device a plugin has found and can tell apart by its Device Id, whether or not it is set up yet. A scene a hub
+keeps is one too, Excluded like any other.
 _Avoid_: Candidate, scan result, found device
+
+**Device Kind**:
+What sort of device a plugin says a Discovered Device is, such as a camera or a sensor, which decides the Plugin
+Accessory Settings it has.
+_Avoid_: Model, category, accessory type
+
+**Room**:
+One of the bridge's places that accessories are in. An accessory's room is a Core Accessory Setting naming one;
+with Room Sync on it is also the accessory's room in Apple Home.
+_Avoid_: Zone, area, group
 
 **Authorization**:
 What a device or an account asks before the bridge may talk to it. A plugin instance may need one for its account,

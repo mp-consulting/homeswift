@@ -398,6 +398,13 @@ public actor GoveePlugin: HomeswiftPlugin {
         ignoredDevices.contains(id) || (configuration.ignoreMatter && model.map { GoveeConstants.matterModels.contains($0.uppercased()) } == true)
     }
 
+    /// A device the person asked for: one with settings, or already on the bridge. A Name alone never reaches the plugin
+    /// (it applies live), so a LAN device set up with only a Name, or whose Homebridge entry held only its label, is known
+    /// by its accessory staying in the cache.
+    func isConfigured(_ id: String) -> Bool {
+        deviceSettings[id] != nil || context.accessory(id: "\(Self.platform):\(id)") != nil
+    }
+
     private func initializeDevices() async throws {
         var initialised = false
         var skipped = Set<String>()
@@ -419,7 +426,7 @@ public actor GoveePlugin: HomeswiftPlugin {
             let id = lanDevice.device
             guard !isIgnored(id, model: lanDevice.sku) else { continue }
             // LAN discovery is unauthenticated: with the account's list, only its devices and the configured ones.
-            if account != nil, deviceSettings[id] == nil {
+            if account != nil, !isConfigured(id) {
                 logger.info("[LAN] \(Lang.lanUnknownSkipped) [\(id)].")
                 skipped.insert(id)
                 continue

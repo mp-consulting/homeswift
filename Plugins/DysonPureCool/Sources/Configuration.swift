@@ -86,8 +86,10 @@ extension DysonPureCoolPlugin {
         }
 
         public var name: String?
-        /// The Dyson account's country; the settings page signs in with it.
+        /// The Dyson account's country; Setup signs in with it.
         public var countryCode: String?
+        /// The Homebridge plugin's devices, read where `_accessories` says nothing until `canonicalSettings` moves them
+        /// (DysonSettings.swift).
         public var devices: [Device]?
         /// Seconds to look for devices over mDNS (the Homebridge plugin took milliseconds; both are understood).
         public var discoveryTimeout: Double?
@@ -100,7 +102,7 @@ extension DysonPureCoolPlugin {
         public var enableHumidity: Bool?
         public var enableAirQuality: Bool?
         public var enableNightMode: Bool?
-        /// The settings page writes it; the air purifier's Auto/Manual control is always there.
+        /// The Homebridge wizard wrote it; the air purifier's Auto/Manual control is always there.
         public var enableAutoMode: Bool?
         public var enableContinuousMonitoring: Bool?
         public var enableJetFocus: Bool?

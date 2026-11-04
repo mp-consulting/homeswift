@@ -613,13 +613,18 @@
 
   /// A change in a sentence, from the tool and its arguments.
   function describe({ tool, arguments: args = {} }) {
-    const entry = args.entry || {};
     const settings = Object.keys(args.settings || {});
     switch (tool) {
-    case "put_list_entry":
-      return entry.name || entry.mac
-        ? t("Save “{entry}” in {block}?", { entry: entry.name || entry.mac, block: args.name || args.platform })
-        : t("Save this entry in {block}?", { block: args.name || args.platform });
+    case "update_settings":
+      if (args.accessories) return tn("Change the settings of one accessory?", "Change the settings of {n} accessories?", Object.keys(args.accessories).length);
+      if (args.accessory) {
+        return settings.length
+          ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.accessory })
+          : t("Change the settings of {block}?", { block: args.accessory });
+      }
+      return settings.length
+        ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.plugin?.name || args.plugin?.platform })
+        : t("Change the settings of {block}?", { block: args.plugin?.name || args.plugin?.platform });
     case "patch_config":
       return settings.length
         ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.name || args.platform })

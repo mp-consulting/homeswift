@@ -1,5 +1,5 @@
 /* The Philips Hue page on the UI's materials: the bridge (or the card leading to its Setup), the lights as the Accessories page's
-   widgets, the scenes of each room as tiles painted with their palette, and the settings. The bridge card, tabs,
+   widgets, the scenes of each room as tiles painted with their palette. The bridge card, tabs,
    scene tiles, speed scale and save bar are style.css's, shared with the DIRIGERA page. */
 
 .page-head { align-items: center; }
@@ -22,9 +22,6 @@ h2 { margin: 0 0 10px; }
 .scene .loop svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .scene.light:not(.pictured) .loop { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 .scene:has(.loop) .name { padding-right: 28px; }
-
-/* A scene's speed dialog: whether it follows the Settings speed, under the scale. */
-.scene-speed-note { margin: 10px 0 14px; font-size: 0.875rem; }
 
 /* Lights as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
 .accessory-walls { margin: 0; }

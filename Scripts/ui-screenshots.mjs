@@ -85,13 +85,24 @@ await api("/api/preferences", "PUT", { wallpaper: "none" });
 // A kept backup, for the Backups page's list.
 await api("/api/backups", "POST", {});
 
+// What a plugin's discovery answers in the shots: demonstration lights, never what this network has.
+const discovery = {
+  platform: "ElgatoKeyLights", name: "Desk Lights", accountAuthorization: "none", accountSetUp: true,
+  devices: [
+    { deviceID: "3C:6A:9D:00:00:01", accessoryID: "ElgatoKeyLights:3C:6A:9D:00:00:01", name: "Key Light Left", model: "Elgato Key Light", address: "192.168.1.41", authorization: "none", status: "setUp", kind: "light", category: "lightbulb" },
+    { deviceID: "3C:6A:9D:00:00:02", accessoryID: "ElgatoKeyLights:3C:6A:9D:00:00:02", name: "Key Light Right", model: "Elgato Key Light", address: "192.168.1.42", authorization: "none", status: "setUp", kind: "light", category: "lightbulb" },
+    { deviceID: "3C:6A:9D:00:00:03", accessoryID: "ElgatoKeyLights:3C:6A:9D:00:00:03", name: "Ring Light", model: "Elgato Ring Light", address: "192.168.1.43", authorization: "none", status: "excluded", kind: "light" },
+  ],
+};
 // Runs in the page before its own scripts: the machine's name and the folder's paths become demonstration ones.
 const replacements = [[storage, "/Users/demo/.homeswift"], [hostname(), "homeswift-mac"], [hostname().replace(/\.local$/, ""), "homeswift-mac"]];
 const pageScript = `(() => {
   const pairs = ${literal(replacements)};
   const clean = (text) => pairs.reduce((s, [real, shown]) => s.split(real).join(shown), text);
+  const discovery = ${literal(discovery)};
   const original = window.fetch;
   window.fetch = async (input, init) => {
+    if (String(input).includes("/api/setup/discover")) return new Response(JSON.stringify(discovery), { status: 200, headers: { "Content-Type": "application/json" } });
     const response = await original(input, init);
     const type = response.headers.get("content-type") || "";
     if (!type.includes("json") || !response.ok) return response;
@@ -168,7 +179,9 @@ try {
   // The bridge as the Home app pairs it: its setup code and QR code.
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });
   await shot("plugins", "/plugins", { ready: ".card", tall: 1000 });
-  await shot("plugin-form", "/plugins/desk-lights/expert", { ready: "form, .group-box, .field", tall: 1000 });
+  await shot("plugin-settings", "/plugins/desk-lights/settings", { ready: ".settings-device", tall: 1400 });
+  await shot("accessory-settings", "/plugins/desk-lights/settings", { ready: ".settings-device button.settings-open",
+    prepare: 'document.querySelector(".settings-device button.settings-open").click(); for (let i = 0; i < 40 && !document.querySelector(".accessory-settings-sheet .settings-danger"); i++) await new Promise((r) => setTimeout(r, 100));' });
   await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });

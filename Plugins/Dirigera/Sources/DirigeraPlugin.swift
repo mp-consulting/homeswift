@@ -15,10 +15,12 @@ import Logging
 /// colour, as the hub wants them one at a time) with the transition of `transitionMs`. The hub pushes changes over its
 /// websocket, so the Home app follows the IKEA app and the remotes at once.
 ///
-/// The block is homebridge-dirigera's (`hubs`, each with `host` and an optional `token`). A hub without a token pairs
+/// A homebridge-dirigera block loads (`hubs`, each with `host` and an optional `token`); what the bridge writes is the
+/// canonical shape (DirigeraSettings.swift). A hub pairs
 /// through Setup (the instance's account, a Button Press: DirigeraSetup.swift, from Add accessories or an AI agent's
 /// `start_setup`): it asks for the hub's action button, and the token is kept sealed in the vault (`hubs.json` in the plugin's directory before,
-/// moved there when read), never in config.json; it wins over a `token` config.json still has. See README.md here.
+/// moved there when read), never in config.json; it wins over a `token` config.json still has, which moves into the vault
+/// at the next settings change. See README.md here.
 public actor DirigeraPlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
         public struct Hub: Decodable, Sendable {
@@ -32,7 +34,9 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         /// Milliseconds a light takes to reach a new level or colour; 100 by default.
         public var transitionMs: Int?
         public var scenes: Bool?
+        /// Homebridge-shaped: device names or ids left out (`canonicalSettings` moves them).
         public var excludeDevices: [String]?
+        /// Homebridge-shaped: scene names or ids left out.
         public var excludeScenes: [String]?
     }
 
@@ -70,7 +74,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     let configuration: Configuration
     /// `excludeDevices` and `excludeScenes`, lowercased once: every refresh checks each device and scene against them.
     let excludedDevices: Set<String>
-    private let excludedScenes: Set<String>
+    let excludedScenes: Set<String>
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
@@ -309,14 +313,14 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         excludedDevices.contains(device.name.lowercased()) || excludedDevices.contains(device.id.lowercased())
     }
 
-    /// The hub's scenes shown as switches: runnable, not in `excludeScenes`, and none when the hub's scenes accessory
-    /// (`scenes:<host>`) is Excluded.
+    /// The hub's scenes shown as switches: runnable, not Excluded (by their Accessory Settings or `excludeScenes`), and
+    /// none when the hub's scenes accessory (`scenes:<host>`) is Excluded, as it was before each scene was a device.
     func visibleScenes(_ hub: Hub) -> [DirigeraScene] {
         context.isExcluded("scenes:\(hub.host)") ? [] : visibleScenes(hub.scenes)
     }
 
     func visibleScenes(_ scenes: [DirigeraScene]) -> [DirigeraScene] {
-        scenes.filter { $0.isRunnable && !excludedScenes.contains($0.name.lowercased()) && !excludedScenes.contains($0.id.lowercased()) }
+        scenes.filter { $0.isRunnable && !context.isExcluded($0.id) && !excludedBySettings($0) }
     }
 
     /// The name of a hub's scenes accessory: the hub's name in config.json, with Scenes.

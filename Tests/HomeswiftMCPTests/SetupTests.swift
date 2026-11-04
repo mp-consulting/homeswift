@@ -127,12 +127,12 @@ struct SetupTests {
     @Test func aPartLeftOutIsKeptInTheDevicesAccessorySettings() async throws {
         try await host.start()
         defer { Task { await host.stop() } }
-        _ = try await catalog.setPart(platform: "Pairable", name: nil, deviceID: "lamp", part: "Night", included: false)
+        _ = try await catalog.updateAccessorySettings([("Pairable:lamp", ["parts": ["Night": false]])])
         #expect(try block()?["_accessories"]?["lamp"]?["parts"] == ["Night": false])
         let settings = AccessorySettings(json: try #require(try block()?["_accessories"]?["lamp"]))
         #expect(settings.parts == ["Night": false] && settings.plugin.isEmpty)
         #expect(settings.json == ["parts": ["Night": false]])
-        _ = try await catalog.setPart(platform: "Pairable", name: nil, deviceID: "lamp", part: "Night", included: true)
+        _ = try await catalog.updateAccessorySettings([("Pairable:lamp", ["parts": ["Night": true]])])
         #expect(try block()?["_accessories"]?["lamp"]?["parts"] == ["Night": true])
     }
 

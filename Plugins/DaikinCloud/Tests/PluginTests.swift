@@ -112,6 +112,7 @@ final class DaikinEnvironment: @unchecked Sendable {
     }
 
     var storage: URL { storageBox.withLockedValue { $0! } }
+    var context: PluginContext { contextBox.withLockedValue { $0! } }
     private let contextBox = NIOLockedValueBox<PluginContext?>(nil)
 
     /// The instance's token set in the vault, by the Homebridge file's name it is kept under.
@@ -209,6 +210,50 @@ struct PluginTests {
         #expect(await eventually { second.mainBridge.server.accessories.count == 2 })
         #expect(!second.mainBridge.server.accessories.contains { $0.id == dx4ID })
         #expect(environment.log.contains("is excluded, don't add accessory"))
+    }
+
+    /// A device Excluded in its Accessory Settings leaves too; its own feature switch shows on its accessory alone.
+    @Test func accessorySettingsExcludeAndTuneDevices() async throws {
+        let environment = DaikinEnvironment()
+        environment.tokens = (.developerPortal, DaikinEnvironment.validToken)
+        let host = try await environment.start(developerBlock.merging([
+            "_accessories": ["10b029e7-484c-4519-b22e-c14be4b7a71c": ["excluded": true], "ca043bde-8db6-488b-a69e-f43949a24020": ["showEconoMode": true]],
+        ]) { $1 })
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.mainBridge.server.accessories.map(\.id) == ["bridge", dx4ID] })
+        let dx4 = try #require(host.mainBridge.server.accessories.first { $0.id == dx4ID })
+        #expect(dx4.services.contains { $0.subtype?.hasSuffix(":econo_mode") == true })
+        #expect(!dx4.services.contains { $0.subtype?.hasSuffix(":powerful_mode") == true })
+        // Device Kinds: an air conditioner, an Altherma with its tank.
+        let devices = try await host.discover(platform: DaikinCloudPlugin.platform, name: "Daikin Cloud").devices
+        #expect(devices.first { $0.deviceID == "ca043bde-8db6-488b-a69e-f43949a24020" }?.kind == "climateControl")
+        let altherma = try #require(devices.first { $0.deviceID == "10b029e7-484c-4519-b22e-c14be4b7a71c" })
+        #expect(altherma.kind == "domesticHotWaterTank" && !altherma.excludedBySettings && altherma.isExcluded)
+        #expect(await host.deviceKind(platform: DaikinCloudPlugin.platform, name: "Daikin Cloud", deviceID: "ca043bde-8db6-488b-a69e-f43949a24020") == "climateControl")
+        let list = try await environment.request("GET", "devices/list")
+        #expect(list.json["devices"]?.arrayValue?.first { $0["id"] == "10b029e7-484c-4519-b22e-c14be4b7a71c" }?["excluded"] == true)
+    }
+
+    /// The running instance moves a Homebridge block's credentials into the vault and out of the block, and a plugin with
+    /// them only in the vault signs in with them.
+    @Test func canonicalSettingsMoveTheCredentialsIntoTheVault() async throws {
+        let environment = DaikinEnvironment()
+        environment.tokens = (.developerPortal, DaikinEnvironment.validToken)
+        let first = try await environment.start(developerBlock)
+        var block = try JSONValue(any: developerBlock).objectValue ?? [:]
+        block["platform"] = "DaikinCloud"
+        block["name"] = "Daikin Cloud"
+        // Nothing moves until the block is written (a dry run asks for it too); the block is answered as if it had.
+        let (canonical, whenWritten): (block: JSONValue, whenWritten: SettingsWrite.Effects) =
+            await first.canonicalSettings(platform: DaikinCloudPlugin.platform, name: "Daikin Cloud", block: .object(block))
+        #expect(canonical["clientId"] == nil && canonical["clientSecret"] == nil && canonical["callbackServerExternalAddress"] == "127.0.0.1")
+        #expect(environment.context.credentials() == nil)
+        try await whenWritten.run()
+        #expect(environment.context.credentials() == ["clientId": "client", "clientSecret": "secret"])
+        await first.stop()
+        let second = try await environment.start(developerBlock.filter { $0.key != "clientId" && $0.key != "clientSecret" })
+        defer { Task { await second.stop() } }
+        #expect(await eventually { second.mainBridge.server.accessories.count == 3 })
     }
 
     @Test func invalidGrantRemovesTheTokenFile() async throws {
@@ -429,7 +474,9 @@ struct PluginTests {
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: [
             "authMode": "mobile_app", "email": "me@example.com", "password": "right",
         ])) else { Issue.record("expected done"); return }
-        #expect(outcome.settings["authMode"] == "mobile_app" && outcome.settings["daikinEmail"] == "me@example.com")
+        // The login goes to the vault; the block's keys for it go.
+        #expect(outcome.credentials == ["email": "me@example.com", "password": "right"])
+        #expect(outcome.settings["authMode"] == "mobile_app" && outcome.settings["daikinEmail"] == .null && outcome.settings["daikinPassword"] == .null)
         #expect(outcome.settings["updateIntervalInMinutes"] == 5 && outcome.settings["enableWebSocket"] == true)
         let status = try await environment.request("GET", "auth/status")
         #expect(status.json["authMode"] == "mobile_app")
@@ -521,7 +568,8 @@ struct PluginTests {
         let code = try #require(URLQuery.parameter("state", in: url))
         #expect(await plugin.callbackRequest("/?code=good-code&state=\(code)").status == 200)
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, state: state)) else { Issue.record("expected done"); return }
-        #expect(outcome.credentials == nil && outcome.settings == ["authMode": "developer_portal"])
+        #expect(outcome.credentials == ["clientId": "client", "clientSecret": "secret"])
+        #expect(outcome.settings == ["authMode": "developer_portal", "clientId": .null, "clientSecret": .null])
         #expect(await plugin.accountAuthorized() == true)
     }
 

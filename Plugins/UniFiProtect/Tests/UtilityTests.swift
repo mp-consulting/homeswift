@@ -80,7 +80,8 @@ import Glibc
     @Test func schemaIsEmbedded() throws {
         let schema = try JSONValue(string: try #require(UniFiProtectPlugin.configurationSchemaJSON))
         #expect(schema.string("pluginAlias") == "UniFi Protect")
-        #expect(schema.at("schema.properties.controllers.items.properties.cameraOverrides") != nil)
+        #expect(schema.at("accessorySchema.properties.rtspUrl") != nil)
+        #expect(schema.at("schema.properties.controllers.items.properties.password") == nil)
         #expect(UniFiProtectPlugin.webFiles["index.html"] != nil)
     }
 

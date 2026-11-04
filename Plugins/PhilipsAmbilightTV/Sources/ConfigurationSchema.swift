@@ -22,30 +22,18 @@ extension PhilipsAmbilightTVPlugin {
         "description": "Plugin name as displayed in the log."
       },
       "devices": {
-        "title": "TV Devices",
-        "description": "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.",
+        "title": "TVs to Find by Address",
         "type": "array",
+        "description": "TVs Add accessories does not find on the network (another subnet, Bonjour blocked): each one's name and IP address, and its MAC address if you know it. Setup pairs it there and keeps it in its own settings.",
         "items": {
           "type": "object",
           "title": "TV",
-          "required": [
-            "name",
-            "ip"
-          ],
-          "additionalProperties": false,
           "properties": {
             "name": {
               "title": "TV Name",
               "type": "string",
               "default": "My Philips TV",
               "description": "The name of the TV as it will appear in HomeKit."
-            },
-            "mac": {
-              "title": "MAC Address",
-              "type": "string",
-              "pattern": "^([A-Fa-f0-9]{2}[:-]){5}[A-Fa-f0-9]{2}$",
-              "placeholder": "AA:BB:CC:DD:EE:FF",
-              "description": "The MAC address of the TV (required for Wake-on-LAN)."
             },
             "ip": {
               "title": "IP Address",
@@ -54,310 +42,703 @@ extension PhilipsAmbilightTVPlugin {
               "placeholder": "192.168.1.100",
               "description": "The IP address of the TV on the local network."
             },
-            "username": {
-              "title": "Username",
+            "mac": {
+              "title": "MAC Address",
               "type": "string",
-              "description": "The username obtained during TV pairing."
-            },
-            "password": {
-              "title": "Password",
+              "pattern": "^([A-Fa-f0-9]{2}[:-]){5}[A-Fa-f0-9]{2}$",
+              "placeholder": "AA:BB:CC:DD:EE:FF",
+              "description": "The MAC address of the TV (required for Wake-on-LAN)."
+            }
+          },
+          "required": [
+            "ip"
+          ]
+        }
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "ip": {
+        "title": "IP Address",
+        "type": "string",
+        "format": "ipv4",
+        "placeholder": "192.168.1.100",
+        "description": "The IP address of the TV on the local network."
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (ms)",
+        "type": "integer",
+        "default": 10000,
+        "minimum": 1000,
+        "maximum": 60000,
+        "description": "How often to poll the TV for state updates (in milliseconds)."
+      },
+      "wakeOnLanEnabled": {
+        "title": "Wake-on-LAN",
+        "type": "boolean",
+        "default": true,
+        "description": "Enable Wake-on-LAN to turn on the TV from standby."
+      },
+      "ambilightMode": {
+        "title": "Ambilight Mode",
+        "type": "string",
+        "default": "FOLLOW_VIDEO/NATURAL",
+        "description": "The ambilight mode to activate when turning on via HomeKit.",
+        "oneOf": [
+          {
+            "title": "Follow Video - Standard",
+            "enum": [
+              "FOLLOW_VIDEO/STANDARD"
+            ]
+          },
+          {
+            "title": "Follow Video - Natural",
+            "enum": [
+              "FOLLOW_VIDEO/NATURAL"
+            ]
+          },
+          {
+            "title": "Follow Video - Vivid",
+            "enum": [
+              "FOLLOW_VIDEO/VIVID"
+            ]
+          },
+          {
+            "title": "Follow Video - Game",
+            "enum": [
+              "FOLLOW_VIDEO/GAME"
+            ]
+          },
+          {
+            "title": "Follow Video - Comfort",
+            "enum": [
+              "FOLLOW_VIDEO/COMFORT"
+            ]
+          },
+          {
+            "title": "Follow Video - Relax",
+            "enum": [
+              "FOLLOW_VIDEO/RELAX"
+            ]
+          },
+          {
+            "title": "Follow Video - Football",
+            "enum": [
+              "FOLLOW_VIDEO/FOOTBALL"
+            ]
+          },
+          {
+            "title": "Follow Audio - Energy Brightness",
+            "enum": [
+              "FOLLOW_AUDIO/ENERGY_ADAPTIVE_BRIGHTNESS"
+            ]
+          },
+          {
+            "title": "Follow Audio - Energy Colors",
+            "enum": [
+              "FOLLOW_AUDIO/ENERGY_ADAPTIVE_COLORS"
+            ]
+          },
+          {
+            "title": "Follow Audio - VU Meter",
+            "enum": [
+              "FOLLOW_AUDIO/VU_METER"
+            ]
+          },
+          {
+            "title": "Follow Audio - Spectrum",
+            "enum": [
+              "FOLLOW_AUDIO/SPECTRUM_ANALYZER"
+            ]
+          },
+          {
+            "title": "Follow Audio - Party",
+            "enum": [
+              "FOLLOW_AUDIO/PARTY"
+            ]
+          },
+          {
+            "title": "Lounge Light",
+            "enum": [
+              "Lounge light"
+            ]
+          }
+        ]
+      },
+      "ambilightOnStart": {
+        "title": "Start Ambilight when TV turns on",
+        "type": "boolean",
+        "default": false,
+        "description": "Automatically turn Ambilight on (in the mode above) whenever the TV powers on."
+      },
+      "infoButtonKey": {
+        "title": "Info Button Key",
+        "type": "string",
+        "default": "Source",
+        "description": "The TV key that the HomeKit remote's information button sends.",
+        "oneOf": [
+          {
+            "title": "Source (input picker)",
+            "enum": [
+              "Source"
+            ]
+          },
+          {
+            "title": "Info (program details)",
+            "enum": [
+              "Info"
+            ]
+          },
+          {
+            "title": "Options (context menu)",
+            "enum": [
+              "Options"
+            ]
+          },
+          {
+            "title": "Find (search)",
+            "enum": [
+              "Find"
+            ]
+          }
+        ]
+      },
+      "backButtonKey": {
+        "title": "Back Button Key",
+        "type": "string",
+        "default": "Back",
+        "description": "The TV key that the HomeKit remote's back button sends.",
+        "oneOf": [
+          {
+            "title": "Back",
+            "enum": [
+              "Back"
+            ]
+          },
+          {
+            "title": "Home",
+            "enum": [
+              "Home"
+            ]
+          },
+          {
+            "title": "Source (input picker)",
+            "enum": [
+              "Source"
+            ]
+          },
+          {
+            "title": "Options (context menu)",
+            "enum": [
+              "Options"
+            ]
+          }
+        ]
+      },
+      "playPauseButtonKey": {
+        "title": "Play/Pause Button Key",
+        "type": "string",
+        "default": "PlayPause",
+        "description": "The TV key that the HomeKit remote's play/pause button sends.",
+        "oneOf": [
+          {
+            "title": "Play/Pause",
+            "enum": [
+              "PlayPause"
+            ]
+          },
+          {
+            "title": "Home",
+            "enum": [
+              "Home"
+            ]
+          },
+          {
+            "title": "Source (input picker)",
+            "enum": [
+              "Source"
+            ]
+          },
+          {
+            "title": "Online (smart TV portal)",
+            "enum": [
+              "Online"
+            ]
+          }
+        ]
+      },
+      "inputs": {
+        "title": "Custom Input Sources",
+        "type": "array",
+        "description": "Custom input sources to display in HomeKit. If not specified, apps will be fetched from the TV.",
+        "items": {
+          "type": "object",
+          "title": "Input",
+          "required": [
+            "name",
+            "type",
+            "identifier"
+          ],
+          "properties": {
+            "name": {
+              "title": "Name",
               "type": "string",
-              "description": "The password (auth key) obtained during TV pairing.",
-              "x-schema-form": {
-                "type": "password"
-              }
+              "description": "The display name for this input source."
             },
-            "certFingerprint": {
-              "title": "Certificate Fingerprint",
+            "type": {
+              "title": "Type",
               "type": "string",
-              "description": "SHA-256 fingerprint of the TV's certificate, captured automatically during pairing and verified on every connection. Leave empty to connect without verification."
+              "oneOf": [
+                {
+                  "title": "App",
+                  "enum": [
+                    "app"
+                  ]
+                },
+                {
+                  "title": "Source",
+                  "enum": [
+                    "source"
+                  ]
+                },
+                {
+                  "title": "Channel",
+                  "enum": [
+                    "channel"
+                  ]
+                }
+              ],
+              "description": "The type of input source."
             },
-            "pollingInterval": {
-              "title": "Polling Interval (ms)",
+            "identifier": {
+              "title": "Identifier",
+              "type": "string",
+              "description": "The app package name, source ID, or channel number."
+            },
+            "displayOrder": {
+              "title": "Display Order",
               "type": "integer",
-              "default": 10000,
-              "minimum": 1000,
-              "maximum": 60000,
-              "description": "How often to poll the TV for state updates (in milliseconds)."
+              "minimum": 0,
+              "description": "The order in which this input appears in HomeKit."
+            }
+          }
+        }
+      },
+      "sourceSwitches": {
+        "title": "Source Switches",
+        "type": "boolean",
+        "default": false,
+        "description": "Expose each input source as a separate Switch accessory for use in HomeKit automations and scenes."
+      },
+      "ambilightHueSwitch": {
+        "title": "Ambilight + Hue Switch",
+        "type": "boolean",
+        "default": false,
+        "description": "Expose the Ambilight + Hue integration (Philips Hue lamps following Ambilight) as a separate Switch, toggleable independently of the main Ambilight controls."
+      },
+      "customApps": {
+        "title": "Custom Apps",
+        "type": "array",
+        "description": "Apps the TV does not report via its app list (e.g. sideloaded apps). Added in addition to auto-discovered apps. Tip: open the app on your TV and use \"Detect from TV\" to fill these in automatically.",
+        "items": {
+          "type": "object",
+          "title": "App",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "description": "Display name shown in HomeKit."
             },
-            "wakeOnLanEnabled": {
-              "title": "Wake-on-LAN",
+            "packageName": {
+              "title": "Package Name",
+              "type": "string",
+              "description": "Android package name, e.g. com.ug.eon.android.tv"
+            },
+            "className": {
+              "title": "Launch Activity",
+              "type": "string",
+              "description": "Launch activity class name. Required for reliable launching."
+            },
+            "action": {
+              "title": "Intent Action",
+              "type": "string",
+              "description": "Intent action (defaults to android.intent.action.MAIN)."
+            }
+          },
+          "required": [
+            "name",
+            "packageName"
+          ]
+        }
+      },
+      "customButtons": {
+        "title": "Custom Buttons",
+        "type": "array",
+        "description": "Switches that send a single remote key when turned on, then turn themselves back off. Useful with apps on the TV (e.g. Button Mapper) that remap a key to an action the TV's API doesn't offer, such as the power menu.",
+        "items": {
+          "type": "object",
+          "title": "Button",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "description": "Display name shown in HomeKit."
+            },
+            "key": {
+              "title": "Remote Key",
+              "type": "string",
+              "oneOf": [
+                {
+                  "title": "Standby",
+                  "enum": [
+                    "Standby"
+                  ]
+                },
+                {
+                  "title": "Back",
+                  "enum": [
+                    "Back"
+                  ]
+                },
+                {
+                  "title": "Find (search)",
+                  "enum": [
+                    "Find"
+                  ]
+                },
+                {
+                  "title": "Red",
+                  "enum": [
+                    "RedColour"
+                  ]
+                },
+                {
+                  "title": "Green",
+                  "enum": [
+                    "GreenColour"
+                  ]
+                },
+                {
+                  "title": "Yellow",
+                  "enum": [
+                    "YellowColour"
+                  ]
+                },
+                {
+                  "title": "Blue",
+                  "enum": [
+                    "BlueColour"
+                  ]
+                },
+                {
+                  "title": "Home",
+                  "enum": [
+                    "Home"
+                  ]
+                },
+                {
+                  "title": "Volume Up",
+                  "enum": [
+                    "VolumeUp"
+                  ]
+                },
+                {
+                  "title": "Volume Down",
+                  "enum": [
+                    "VolumeDown"
+                  ]
+                },
+                {
+                  "title": "Mute",
+                  "enum": [
+                    "Mute"
+                  ]
+                },
+                {
+                  "title": "Options (context menu)",
+                  "enum": [
+                    "Options"
+                  ]
+                },
+                {
+                  "title": "Dot",
+                  "enum": [
+                    "Dot"
+                  ]
+                },
+                {
+                  "title": "Digit 0",
+                  "enum": [
+                    "Digit0"
+                  ]
+                },
+                {
+                  "title": "Digit 1",
+                  "enum": [
+                    "Digit1"
+                  ]
+                },
+                {
+                  "title": "Digit 2",
+                  "enum": [
+                    "Digit2"
+                  ]
+                },
+                {
+                  "title": "Digit 3",
+                  "enum": [
+                    "Digit3"
+                  ]
+                },
+                {
+                  "title": "Digit 4",
+                  "enum": [
+                    "Digit4"
+                  ]
+                },
+                {
+                  "title": "Digit 5",
+                  "enum": [
+                    "Digit5"
+                  ]
+                },
+                {
+                  "title": "Digit 6",
+                  "enum": [
+                    "Digit6"
+                  ]
+                },
+                {
+                  "title": "Digit 7",
+                  "enum": [
+                    "Digit7"
+                  ]
+                },
+                {
+                  "title": "Digit 8",
+                  "enum": [
+                    "Digit8"
+                  ]
+                },
+                {
+                  "title": "Digit 9",
+                  "enum": [
+                    "Digit9"
+                  ]
+                },
+                {
+                  "title": "Info (program details)",
+                  "enum": [
+                    "Info"
+                  ]
+                },
+                {
+                  "title": "Cursor Up",
+                  "enum": [
+                    "CursorUp"
+                  ]
+                },
+                {
+                  "title": "Cursor Down",
+                  "enum": [
+                    "CursorDown"
+                  ]
+                },
+                {
+                  "title": "Cursor Left",
+                  "enum": [
+                    "CursorLeft"
+                  ]
+                },
+                {
+                  "title": "Cursor Right",
+                  "enum": [
+                    "CursorRight"
+                  ]
+                },
+                {
+                  "title": "Confirm (OK)",
+                  "enum": [
+                    "Confirm"
+                  ]
+                },
+                {
+                  "title": "Next",
+                  "enum": [
+                    "Next"
+                  ]
+                },
+                {
+                  "title": "Previous",
+                  "enum": [
+                    "Previous"
+                  ]
+                },
+                {
+                  "title": "Adjust",
+                  "enum": [
+                    "Adjust"
+                  ]
+                },
+                {
+                  "title": "Watch TV",
+                  "enum": [
+                    "WatchTV"
+                  ]
+                },
+                {
+                  "title": "View Mode",
+                  "enum": [
+                    "Viewmode"
+                  ]
+                },
+                {
+                  "title": "Teletext",
+                  "enum": [
+                    "Teletext"
+                  ]
+                },
+                {
+                  "title": "Subtitles",
+                  "enum": [
+                    "Subtitle"
+                  ]
+                },
+                {
+                  "title": "Channel Up",
+                  "enum": [
+                    "ChannelStepUp"
+                  ]
+                },
+                {
+                  "title": "Channel Down",
+                  "enum": [
+                    "ChannelStepDown"
+                  ]
+                },
+                {
+                  "title": "Source (input picker)",
+                  "enum": [
+                    "Source"
+                  ]
+                },
+                {
+                  "title": "Ambilight On/Off",
+                  "enum": [
+                    "AmbilightOnOff"
+                  ]
+                },
+                {
+                  "title": "Play/Pause",
+                  "enum": [
+                    "PlayPause"
+                  ]
+                },
+                {
+                  "title": "Pause",
+                  "enum": [
+                    "Pause"
+                  ]
+                },
+                {
+                  "title": "Fast Forward",
+                  "enum": [
+                    "FastForward"
+                  ]
+                },
+                {
+                  "title": "Stop",
+                  "enum": [
+                    "Stop"
+                  ]
+                },
+                {
+                  "title": "Rewind",
+                  "enum": [
+                    "Rewind"
+                  ]
+                },
+                {
+                  "title": "Record",
+                  "enum": [
+                    "Record"
+                  ]
+                },
+                {
+                  "title": "Online (smart TV portal)",
+                  "enum": [
+                    "Online"
+                  ]
+                }
+              ],
+              "description": "The remote key sent when the switch is turned on. Each key can be used by one button only."
+            }
+          },
+          "required": [
+            "name",
+            "key"
+          ]
+        }
+      },
+      "stateSensors": {
+        "title": "State Sensors",
+        "type": "array",
+        "uniqueItems": true,
+        "description": "Expose TV states as MotionSensor services for HomeKit automations. Motion is detected when the state is active.",
+        "items": {
+          "type": "string",
+          "oneOf": [
+            {
+              "title": "Power (TV On/Off)",
+              "enum": [
+                "power"
+              ]
+            },
+            {
+              "title": "Ambilight (Active/Inactive)",
+              "enum": [
+                "ambilight"
+              ]
+            },
+            {
+              "title": "Muted (Yes/No)",
+              "enum": [
+                "mute"
+              ]
+            }
+          ]
+        }
+      },
+      "sources": {
+        "title": "Source Configuration",
+        "type": "array",
+        "description": "Order, visibility and names of the inputs in the Home app's input wheel. The plugin's page shows the TV's inputs in that order, with their IDs.",
+        "items": {
+          "type": "object",
+          "title": "Source",
+          "properties": {
+            "id": {
+              "title": "Source ID",
+              "type": "string",
+              "description": "The unique identifier for this source."
+            },
+            "order": {
+              "title": "Display Order",
+              "type": "integer",
+              "minimum": 0,
+              "description": "The order in which this source appears in HomeKit."
+            },
+            "visible": {
+              "title": "Visible",
               "type": "boolean",
               "default": true,
-              "description": "Enable Wake-on-LAN to turn on the TV from standby."
+              "description": "Whether this source is visible in HomeKit."
             },
-            "ambilightMode": {
-              "title": "Ambilight Mode",
+            "customName": {
+              "title": "Custom Name",
               "type": "string",
-              "default": "FOLLOW_VIDEO/NATURAL",
-              "description": "The ambilight mode to activate when turning on via HomeKit.",
-              "oneOf": [
-                { "title": "Follow Video - Standard", "enum": ["FOLLOW_VIDEO/STANDARD"] },
-                { "title": "Follow Video - Natural", "enum": ["FOLLOW_VIDEO/NATURAL"] },
-                { "title": "Follow Video - Vivid", "enum": ["FOLLOW_VIDEO/VIVID"] },
-                { "title": "Follow Video - Game", "enum": ["FOLLOW_VIDEO/GAME"] },
-                { "title": "Follow Video - Comfort", "enum": ["FOLLOW_VIDEO/COMFORT"] },
-                { "title": "Follow Video - Relax", "enum": ["FOLLOW_VIDEO/RELAX"] },
-                { "title": "Follow Video - Football", "enum": ["FOLLOW_VIDEO/FOOTBALL"] },
-                { "title": "Follow Audio - Energy Brightness", "enum": ["FOLLOW_AUDIO/ENERGY_ADAPTIVE_BRIGHTNESS"] },
-                { "title": "Follow Audio - Energy Colors", "enum": ["FOLLOW_AUDIO/ENERGY_ADAPTIVE_COLORS"] },
-                { "title": "Follow Audio - VU Meter", "enum": ["FOLLOW_AUDIO/VU_METER"] },
-                { "title": "Follow Audio - Spectrum", "enum": ["FOLLOW_AUDIO/SPECTRUM_ANALYZER"] },
-                { "title": "Follow Audio - Party", "enum": ["FOLLOW_AUDIO/PARTY"] },
-                { "title": "Lounge Light", "enum": ["Lounge light"] }
-              ]
-            },
-            "ambilightOnStart": {
-              "title": "Start Ambilight when TV turns on",
-              "type": "boolean",
-              "default": false,
-              "description": "Automatically turn Ambilight on (in the mode above) whenever the TV powers on."
-            },
-            "infoButtonKey": {
-              "title": "Info Button Key",
-              "type": "string",
-              "default": "Source",
-              "description": "The TV key that the HomeKit remote's information button sends.",
-              "oneOf": [
-                { "title": "Source (input picker)", "enum": ["Source"] },
-                { "title": "Info (program details)", "enum": ["Info"] },
-                { "title": "Options (context menu)", "enum": ["Options"] },
-                { "title": "Find (search)", "enum": ["Find"] }
-              ]
-            },
-            "backButtonKey": {
-              "title": "Back Button Key",
-              "type": "string",
-              "default": "Back",
-              "description": "The TV key that the HomeKit remote's back button sends.",
-              "oneOf": [
-                { "title": "Back", "enum": ["Back"] },
-                { "title": "Home", "enum": ["Home"] },
-                { "title": "Source (input picker)", "enum": ["Source"] },
-                { "title": "Options (context menu)", "enum": ["Options"] }
-              ]
-            },
-            "playPauseButtonKey": {
-              "title": "Play/Pause Button Key",
-              "type": "string",
-              "default": "PlayPause",
-              "description": "The TV key that the HomeKit remote's play/pause button sends.",
-              "oneOf": [
-                { "title": "Play/Pause", "enum": ["PlayPause"] },
-                { "title": "Home", "enum": ["Home"] },
-                { "title": "Source (input picker)", "enum": ["Source"] },
-                { "title": "Online (smart TV portal)", "enum": ["Online"] }
-              ]
-            },
-            "inputs": {
-              "title": "Custom Input Sources",
-              "type": "array",
-              "description": "Custom input sources to display in HomeKit. If not specified, apps will be fetched from the TV.",
-              "items": {
-                "type": "object",
-                "title": "Input",
-                "required": [
-                  "name",
-                  "type",
-                  "identifier"
-                ],
-                "properties": {
-                  "name": {
-                    "title": "Name",
-                    "type": "string",
-                    "description": "The display name for this input source."
-                  },
-                  "type": {
-                    "title": "Type",
-                    "type": "string",
-                    "oneOf": [
-                      { "title": "App", "enum": ["app"] },
-                      { "title": "Source", "enum": ["source"] },
-                      { "title": "Channel", "enum": ["channel"] }
-                    ],
-                    "description": "The type of input source."
-                  },
-                  "identifier": {
-                    "title": "Identifier",
-                    "type": "string",
-                    "description": "The app package name, source ID, or channel number."
-                  },
-                  "displayOrder": {
-                    "title": "Display Order",
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "The order in which this input appears in HomeKit."
-                  }
-                }
-              }
-            },
-            "sourceSwitches": {
-              "title": "Source Switches",
-              "type": "boolean",
-              "default": false,
-              "description": "Expose each input source as a separate Switch accessory for use in HomeKit automations and scenes."
-            },
-            "ambilightHueSwitch": {
-              "title": "Ambilight + Hue Switch",
-              "type": "boolean",
-              "default": false,
-              "description": "Expose the Ambilight + Hue integration (Philips Hue lamps following Ambilight) as a separate Switch, toggleable independently of the main Ambilight controls."
-            },
-            "customApps": {
-              "title": "Custom Apps",
-              "type": "array",
-              "description": "Apps the TV does not report via its app list (e.g. sideloaded apps). Added in addition to auto-discovered apps. Tip: open the app on your TV and use \"Detect from TV\" to fill these in automatically.",
-              "items": {
-                "type": "object",
-                "title": "App",
-                "properties": {
-                  "name": {
-                    "title": "Name",
-                    "type": "string",
-                    "description": "Display name shown in HomeKit."
-                  },
-                  "packageName": {
-                    "title": "Package Name",
-                    "type": "string",
-                    "description": "Android package name, e.g. com.ug.eon.android.tv"
-                  },
-                  "className": {
-                    "title": "Launch Activity",
-                    "type": "string",
-                    "description": "Launch activity class name. Required for reliable launching."
-                  },
-                  "action": {
-                    "title": "Intent Action",
-                    "type": "string",
-                    "description": "Intent action (defaults to android.intent.action.MAIN)."
-                  }
-                },
-                "required": [
-                  "name",
-                  "packageName"
-                ]
-              }
-            },
-            "customButtons": {
-              "title": "Custom Buttons",
-              "type": "array",
-              "description": "Switches that send a single remote key when turned on, then turn themselves back off. Useful with apps on the TV (e.g. Button Mapper) that remap a key to an action the TV's API doesn't offer, such as the power menu.",
-              "items": {
-                "type": "object",
-                "title": "Button",
-                "properties": {
-                  "name": {
-                    "title": "Name",
-                    "type": "string",
-                    "description": "Display name shown in HomeKit."
-                  },
-                  "key": {
-                    "title": "Remote Key",
-                    "type": "string",
-                    "oneOf": [
-                      { "title": "Standby", "enum": ["Standby"] },
-                      { "title": "Back", "enum": ["Back"] },
-                      { "title": "Find (search)", "enum": ["Find"] },
-                      { "title": "Red", "enum": ["RedColour"] },
-                      { "title": "Green", "enum": ["GreenColour"] },
-                      { "title": "Yellow", "enum": ["YellowColour"] },
-                      { "title": "Blue", "enum": ["BlueColour"] },
-                      { "title": "Home", "enum": ["Home"] },
-                      { "title": "Volume Up", "enum": ["VolumeUp"] },
-                      { "title": "Volume Down", "enum": ["VolumeDown"] },
-                      { "title": "Mute", "enum": ["Mute"] },
-                      { "title": "Options (context menu)", "enum": ["Options"] },
-                      { "title": "Dot", "enum": ["Dot"] },
-                      { "title": "Digit 0", "enum": ["Digit0"] },
-                      { "title": "Digit 1", "enum": ["Digit1"] },
-                      { "title": "Digit 2", "enum": ["Digit2"] },
-                      { "title": "Digit 3", "enum": ["Digit3"] },
-                      { "title": "Digit 4", "enum": ["Digit4"] },
-                      { "title": "Digit 5", "enum": ["Digit5"] },
-                      { "title": "Digit 6", "enum": ["Digit6"] },
-                      { "title": "Digit 7", "enum": ["Digit7"] },
-                      { "title": "Digit 8", "enum": ["Digit8"] },
-                      { "title": "Digit 9", "enum": ["Digit9"] },
-                      { "title": "Info (program details)", "enum": ["Info"] },
-                      { "title": "Cursor Up", "enum": ["CursorUp"] },
-                      { "title": "Cursor Down", "enum": ["CursorDown"] },
-                      { "title": "Cursor Left", "enum": ["CursorLeft"] },
-                      { "title": "Cursor Right", "enum": ["CursorRight"] },
-                      { "title": "Confirm (OK)", "enum": ["Confirm"] },
-                      { "title": "Next", "enum": ["Next"] },
-                      { "title": "Previous", "enum": ["Previous"] },
-                      { "title": "Adjust", "enum": ["Adjust"] },
-                      { "title": "Watch TV", "enum": ["WatchTV"] },
-                      { "title": "View Mode", "enum": ["Viewmode"] },
-                      { "title": "Teletext", "enum": ["Teletext"] },
-                      { "title": "Subtitles", "enum": ["Subtitle"] },
-                      { "title": "Channel Up", "enum": ["ChannelStepUp"] },
-                      { "title": "Channel Down", "enum": ["ChannelStepDown"] },
-                      { "title": "Source (input picker)", "enum": ["Source"] },
-                      { "title": "Ambilight On/Off", "enum": ["AmbilightOnOff"] },
-                      { "title": "Play/Pause", "enum": ["PlayPause"] },
-                      { "title": "Pause", "enum": ["Pause"] },
-                      { "title": "Fast Forward", "enum": ["FastForward"] },
-                      { "title": "Stop", "enum": ["Stop"] },
-                      { "title": "Rewind", "enum": ["Rewind"] },
-                      { "title": "Record", "enum": ["Record"] },
-                      { "title": "Online (smart TV portal)", "enum": ["Online"] }
-                    ],
-                    "description": "The remote key sent when the switch is turned on. Each key can be used by one button only."
-                  }
-                },
-                "required": [
-                  "name",
-                  "key"
-                ]
-              }
-            },
-            "stateSensors": {
-              "title": "State Sensors",
-              "type": "array",
-              "uniqueItems": true,
-              "description": "Expose TV states as MotionSensor services for HomeKit automations. Motion is detected when the state is active.",
-              "items": {
-                "type": "string",
-                "enum": [
-                  "power",
-                  "ambilight",
-                  "mute"
-                ]
-              }
-            },
-            "sources": {
-              "title": "Source Configuration",
-              "type": "array",
-              "description": "Order, visibility and names of the inputs, as the plugin's Inputs page saves them.",
-              "items": {
-                "type": "object",
-                "title": "Source",
-                "properties": {
-                  "id": {
-                    "title": "Source ID",
-                    "type": "string",
-                    "description": "The unique identifier for this source."
-                  },
-                  "order": {
-                    "title": "Display Order",
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "The order in which this source appears in HomeKit."
-                  },
-                  "visible": {
-                    "title": "Visible",
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Whether this source is visible in HomeKit."
-                  },
-                  "customName": {
-                    "title": "Custom Name",
-                    "type": "string",
-                    "description": "Optional custom name to display instead of the default."
-                  }
-                }
-              }
+              "description": "Optional custom name to display instead of the default."
             }
           }
         }
@@ -366,94 +747,12 @@ extension PhilipsAmbilightTVPlugin {
   },
   "layout": [
     "name",
-    {
-      "type": "fieldset",
-      "title": "TV Devices",
-      "expandable": true,
-      "expanded": true,
-      "items": [
-        {
-          "key": "devices",
-          "type": "array",
-          "orderable": true,
-          "buttonText": "Add TV",
-          "items": [
-            "devices[].name",
-            "devices[].ip",
-            "devices[].mac",
-            "devices[].username",
-            "devices[].password",
-            {
-              "key": "devices[].pollingInterval",
-              "description": "Polling interval in milliseconds (default: 10000)"
-            },
-            "devices[].wakeOnLanEnabled",
-            "devices[].ambilightMode",
-            "devices[].ambilightOnStart",
-            "devices[].infoButtonKey",
-            "devices[].backButtonKey",
-            "devices[].playPauseButtonKey",
-            "devices[].sourceSwitches",
-            "devices[].ambilightHueSwitch",
-            {
-              "key": "devices[].stateSensors",
-              "type": "checkboxes",
-              "title": "State Sensors (for HomeKit automations)",
-              "description": "Select which states to expose as MotionSensor services. Motion is detected when the state is active (e.g., TV is on, Ambilight is active).",
-              "titleMap": {
-                "power": "Power (TV On/Off)",
-                "ambilight": "Ambilight (Active/Inactive)",
-                "mute": "Muted (Yes/No)"
-              }
-            },
-            {
-              "key": "devices[].inputs",
-              "type": "array",
-              "title": "Custom Input Sources (Optional)",
-              "expandable": true,
-              "expanded": false,
-              "buttonText": "Add Input",
-              "items": [
-                "devices[].inputs[].name",
-                "devices[].inputs[].type",
-                "devices[].inputs[].identifier",
-                "devices[].inputs[].displayOrder"
-              ]
-            },
-            {
-              "key": "devices[].customButtons",
-              "type": "array",
-              "title": "Custom Buttons (Optional)",
-              "expandable": true,
-              "expanded": false,
-              "buttonText": "Add Button",
-              "items": [
-                "devices[].customButtons[].name",
-                "devices[].customButtons[].key"
-              ]
-            },
-            {
-              "key": "devices[].customApps",
-              "type": "array",
-              "title": "Custom Apps (Optional)",
-              "expandable": true,
-              "expanded": false,
-              "buttonText": "Add App",
-              "items": [
-                "devices[].customApps[].name",
-                "devices[].customApps[].packageName",
-                "devices[].customApps[].className",
-                "devices[].customApps[].action"
-              ]
-            }
-          ]
-        }
-      ]
-    }
+    "devices"
   ],
   "i18n": {
     "fr": {
       "Adjust": "Ajuster",
+      "Ambilight (Active/Inactive)": "Ambilight (actif ou inactif)",
       "Ambilight + Hue Switch": "Interrupteur Ambilight + Hue",
       "Ambilight Mode": "Mode Ambilight",
       "Ambilight On/Off": "Ambilight marche/arrêt",
@@ -465,7 +764,6 @@ extension PhilipsAmbilightTVPlugin {
       "Back Button Key": "Touche du bouton Retour",
       "Blue": "Bleu",
       "Button": "Bouton",
-      "Certificate Fingerprint": "Empreinte du certificat",
       "Channel": "Chaîne",
       "Channel Down": "Chaîne précédente",
       "Channel Up": "Chaîne suivante",
@@ -475,11 +773,8 @@ extension PhilipsAmbilightTVPlugin {
       "Cursor Right": "Curseur droite",
       "Cursor Up": "Curseur haut",
       "Custom Apps": "Apps personnalisées",
-      "Custom Apps (Optional)": "Apps personnalisées (facultatif)",
       "Custom Buttons": "Boutons personnalisés",
-      "Custom Buttons (Optional)": "Boutons personnalisés (facultatif)",
       "Custom Input Sources": "Sources d'entrée personnalisées",
-      "Custom Input Sources (Optional)": "Sources d'entrée personnalisées (facultatif)",
       "Custom Name": "Nom personnalisé",
       "Custom input sources to display in HomeKit. If not specified, apps will be fetched from the TV.": "Sources d'entrée personnalisées à afficher dans HomeKit. Sans elles, les apps sont récupérées sur le téléviseur.",
       "Digit 0": "Chiffre 0",
@@ -528,25 +823,25 @@ extension PhilipsAmbilightTVPlugin {
       "Lounge Light": "Lounge Light",
       "MAC Address": "Adresse MAC",
       "Mute": "Muet",
+      "Muted (Yes/No)": "Son coupé (oui ou non)",
       "Name": "Nom",
       "Next": "Suivant",
       "Online (smart TV portal)": "Online (portail Smart TV)",
       "Optional custom name to display instead of the default.": "Nom personnalisé facultatif, affiché à la place du nom par défaut.",
       "Options (context menu)": "Options (menu contextuel)",
-      "Order, visibility and names of the inputs, as the plugin's Inputs page saves them.": "Ordre, visibilité et noms des entrées, tels que la page Entrées du plugin les enregistre.",
+      "Order, visibility and names of the inputs in the Home app's input wheel. The plugin's page shows the TV's inputs in that order, with their IDs.": "Ordre, visibilité et noms des entrées dans la roue des entrées de l'app Maison. La page du plugin montre les entrées du téléviseur dans cet ordre, avec leurs identifiants.",
       "Package Name": "Nom du paquet",
-      "Password": "Mot de passe",
       "Pause": "Pause",
       "Play/Pause": "Lecture/Pause",
       "Play/Pause Button Key": "Touche du bouton Lecture/Pause",
       "Plugin name as displayed in the log.": "Nom du plugin tel qu'il apparaît dans le journal.",
       "Polling Interval (ms)": "Intervalle d'interrogation (ms)",
+      "Power (TV On/Off)": "Alimentation (téléviseur allumé ou éteint)",
       "Previous": "Précédent",
       "Record": "Enregistrer",
       "Red": "Rouge",
       "Remote Key": "Touche de la télécommande",
       "Rewind": "Retour rapide",
-      "SHA-256 fingerprint of the TV's certificate, captured automatically during pairing and verified on every connection. Leave empty to connect without verification.": "Empreinte SHA-256 du certificat du téléviseur, relevée automatiquement lors du jumelage et vérifiée à chaque connexion. Laissez vide pour vous connecter sans vérification.",
       "Source": "Source",
       "Source (input picker)": "Source (choix de l'entrée)",
       "Source Configuration": "Configuration des sources",
@@ -555,17 +850,16 @@ extension PhilipsAmbilightTVPlugin {
       "Standby": "Veille",
       "Start Ambilight when TV turns on": "Lancer Ambilight à l'allumage du téléviseur",
       "State Sensors": "Capteurs d'état",
-      "State Sensors (for HomeKit automations)": "Capteurs d'état (pour les automatisations HomeKit)",
       "Stop": "Arrêt",
       "Subtitles": "Sous-titres",
       "Switches that send a single remote key when turned on, then turn themselves back off. Useful with apps on the TV (e.g. Button Mapper) that remap a key to an action the TV's API doesn't offer, such as the power menu.": "Interrupteurs qui envoient une touche de télécommande quand on les allume, puis s'éteignent d'eux-mêmes. Utile avec les apps du téléviseur (par exemple Button Mapper) qui associent une touche à une action que l'API du téléviseur n'offre pas, comme le menu d'alimentation.",
       "TV": "Téléviseur",
-      "TV Devices": "Téléviseurs",
       "TV Name": "Nom du téléviseur",
+      "TVs Add accessories does not find on the network (another subnet, Bonjour blocked): each one's name and IP address, and its MAC address if you know it. Setup pairs it there and keeps it in its own settings.": "Les téléviseurs qu'Ajouter des accessoires ne trouve pas sur le réseau (autre sous-réseau, Bonjour bloqué) : le nom et l'adresse IP de chacun, et son adresse MAC si vous la connaissez. Setup l'y appaire et le garde dans ses propres réglages.",
+      "TVs to Find by Address": "Téléviseurs à trouver par leur adresse",
       "Teletext": "Télétexte",
       "The IP address of the TV on the local network.": "L'adresse IP du téléviseur sur le réseau local.",
       "The MAC address of the TV (required for Wake-on-LAN).": "L'adresse MAC du téléviseur (nécessaire pour Wake-on-LAN).",
-      "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.": "Les téléviseurs Philips à contrôler depuis HomeKit. Ajouter des accessoires les jumelle et garde leurs clés dans le coffre : un téléviseur que Bonjour ne trouve pas n'a besoin ici que de son nom et de son adresse IP pour y être jumelé.",
       "The TV key that the HomeKit remote's back button sends.": "La touche du téléviseur qu'envoie le bouton Retour de la télécommande HomeKit.",
       "The TV key that the HomeKit remote's information button sends.": "La touche du téléviseur qu'envoie le bouton d'information de la télécommande HomeKit.",
       "The TV key that the HomeKit remote's play/pause button sends.": "La touche du téléviseur qu'envoie le bouton lecture/pause de la télécommande HomeKit.",
@@ -575,13 +869,10 @@ extension PhilipsAmbilightTVPlugin {
       "The name of the TV as it will appear in HomeKit.": "Le nom du téléviseur tel qu'il apparaîtra dans HomeKit.",
       "The order in which this input appears in HomeKit.": "L'ordre dans lequel cette entrée apparaît dans HomeKit.",
       "The order in which this source appears in HomeKit.": "L'ordre dans lequel cette source apparaît dans HomeKit.",
-      "The password (auth key) obtained during TV pairing.": "Le mot de passe (clé d'authentification) obtenu lors du jumelage du téléviseur.",
       "The remote key sent when the switch is turned on. Each key can be used by one button only.": "La touche de télécommande envoyée quand l'interrupteur est allumé. Chaque touche ne peut servir qu'à un seul bouton.",
       "The type of input source.": "Le type de source d'entrée.",
       "The unique identifier for this source.": "L'identifiant unique de cette source.",
-      "The username obtained during TV pairing.": "Le nom d'utilisateur obtenu lors du jumelage du téléviseur.",
       "Type": "Type",
-      "Username": "Nom d'utilisateur",
       "View Mode": "Mode d'affichage",
       "Visible": "Visible",
       "Volume Down": "Baisser le volume",
@@ -593,6 +884,7 @@ extension PhilipsAmbilightTVPlugin {
     },
     "es": {
       "Adjust": "Ajustar",
+      "Ambilight (Active/Inactive)": "Ambilight (activo o inactivo)",
       "Ambilight + Hue Switch": "Interruptor Ambilight + Hue",
       "Ambilight Mode": "Modo Ambilight",
       "Ambilight On/Off": "Ambilight encendido/apagado",
@@ -604,7 +896,6 @@ extension PhilipsAmbilightTVPlugin {
       "Back Button Key": "Tecla del botón Atrás",
       "Blue": "Azul",
       "Button": "Botón",
-      "Certificate Fingerprint": "Huella del certificado",
       "Channel": "Canal",
       "Channel Down": "Canal anterior",
       "Channel Up": "Canal siguiente",
@@ -614,11 +905,8 @@ extension PhilipsAmbilightTVPlugin {
       "Cursor Right": "Cursor derecha",
       "Cursor Up": "Cursor arriba",
       "Custom Apps": "Apps personalizadas",
-      "Custom Apps (Optional)": "Apps personalizadas (opcional)",
       "Custom Buttons": "Botones personalizados",
-      "Custom Buttons (Optional)": "Botones personalizados (opcional)",
       "Custom Input Sources": "Fuentes de entrada personalizadas",
-      "Custom Input Sources (Optional)": "Fuentes de entrada personalizadas (opcional)",
       "Custom Name": "Nombre personalizado",
       "Custom input sources to display in HomeKit. If not specified, apps will be fetched from the TV.": "Fuentes de entrada personalizadas que se muestran en HomeKit. Si no indicas ninguna, las apps se obtienen del televisor.",
       "Digit 0": "Dígito 0",
@@ -667,25 +955,25 @@ extension PhilipsAmbilightTVPlugin {
       "Lounge Light": "Lounge Light",
       "MAC Address": "Dirección MAC",
       "Mute": "Silencio",
+      "Muted (Yes/No)": "Silenciado (sí o no)",
       "Name": "Nombre",
       "Next": "Siguiente",
       "Online (smart TV portal)": "Online (portal Smart TV)",
       "Optional custom name to display instead of the default.": "Nombre personalizado opcional que se muestra en lugar del predeterminado.",
       "Options (context menu)": "Opciones (menú contextual)",
-      "Order, visibility and names of the inputs, as the plugin's Inputs page saves them.": "Orden, visibilidad y nombres de las entradas, tal como los guarda la página Entradas del plugin.",
+      "Order, visibility and names of the inputs in the Home app's input wheel. The plugin's page shows the TV's inputs in that order, with their IDs.": "Orden, visibilidad y nombres de las entradas en la rueda de entradas de la app Casa. La página del plugin muestra las entradas del televisor en ese orden, con sus identificadores.",
       "Package Name": "Nombre del paquete",
-      "Password": "Contraseña",
       "Pause": "Pausa",
       "Play/Pause": "Reproducir/Pausa",
       "Play/Pause Button Key": "Tecla del botón Reproducir/Pausa",
       "Plugin name as displayed in the log.": "Nombre del plugin tal como aparece en el registro.",
       "Polling Interval (ms)": "Intervalo de consulta (ms)",
+      "Power (TV On/Off)": "Encendido (televisor encendido o apagado)",
       "Previous": "Anterior",
       "Record": "Grabar",
       "Red": "Rojo",
       "Remote Key": "Tecla del mando",
       "Rewind": "Retroceso rápido",
-      "SHA-256 fingerprint of the TV's certificate, captured automatically during pairing and verified on every connection. Leave empty to connect without verification.": "Huella SHA-256 del certificado del televisor, obtenida automáticamente durante el emparejamiento y comprobada en cada conexión. Déjalo vacío para conectarte sin verificación.",
       "Source": "Fuente",
       "Source (input picker)": "Fuente (selector de entrada)",
       "Source Configuration": "Configuración de fuentes",
@@ -694,17 +982,16 @@ extension PhilipsAmbilightTVPlugin {
       "Standby": "En espera",
       "Start Ambilight when TV turns on": "Iniciar Ambilight al encender el televisor",
       "State Sensors": "Sensores de estado",
-      "State Sensors (for HomeKit automations)": "Sensores de estado (para automatizaciones de HomeKit)",
       "Stop": "Detener",
       "Subtitles": "Subtítulos",
       "Switches that send a single remote key when turned on, then turn themselves back off. Useful with apps on the TV (e.g. Button Mapper) that remap a key to an action the TV's API doesn't offer, such as the power menu.": "Interruptores que envían una tecla del mando al encenderse y luego se apagan solos. Útil con apps del televisor (por ejemplo, Button Mapper) que asignan a una tecla una acción que la API del televisor no ofrece, como el menú de encendido.",
       "TV": "Televisor",
-      "TV Devices": "Televisores",
       "TV Name": "Nombre del televisor",
+      "TVs Add accessories does not find on the network (another subnet, Bonjour blocked): each one's name and IP address, and its MAC address if you know it. Setup pairs it there and keeps it in its own settings.": "Los televisores que Añadir accesorios no encuentra en la red (otra subred, Bonjour bloqueado): el nombre y la dirección IP de cada uno, y su dirección MAC si la conoces. Setup lo empareja allí y lo guarda en sus propios ajustes.",
+      "TVs to Find by Address": "Televisores que buscar por su dirección",
       "Teletext": "Teletexto",
       "The IP address of the TV on the local network.": "La dirección IP del televisor en la red local.",
       "The MAC address of the TV (required for Wake-on-LAN).": "La dirección MAC del televisor (necesaria para Wake-on-LAN).",
-      "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.": "Los televisores Philips que se controlan desde HomeKit. Añadir accesorios los empareja y guarda sus claves en la bóveda: un televisor que Bonjour no encuentra solo necesita aquí su nombre y su dirección IP para emparejarse allí.",
       "The TV key that the HomeKit remote's back button sends.": "La tecla del televisor que envía el botón Atrás del mando de HomeKit.",
       "The TV key that the HomeKit remote's information button sends.": "La tecla del televisor que envía el botón de información del mando de HomeKit.",
       "The TV key that the HomeKit remote's play/pause button sends.": "La tecla del televisor que envía el botón de reproducir/pausa del mando de HomeKit.",
@@ -714,13 +1001,10 @@ extension PhilipsAmbilightTVPlugin {
       "The name of the TV as it will appear in HomeKit.": "El nombre del televisor tal como aparecerá en HomeKit.",
       "The order in which this input appears in HomeKit.": "El orden en que esta entrada aparece en HomeKit.",
       "The order in which this source appears in HomeKit.": "El orden en que esta fuente aparece en HomeKit.",
-      "The password (auth key) obtained during TV pairing.": "La contraseña (clave de autenticación) obtenida durante el emparejamiento del televisor.",
       "The remote key sent when the switch is turned on. Each key can be used by one button only.": "La tecla del mando que se envía al encender el interruptor. Cada tecla solo puede usarla un botón.",
       "The type of input source.": "El tipo de fuente de entrada.",
       "The unique identifier for this source.": "El identificador único de esta fuente.",
-      "The username obtained during TV pairing.": "El nombre de usuario obtenido durante el emparejamiento del televisor.",
       "Type": "Tipo",
-      "Username": "Nombre de usuario",
       "View Mode": "Modo de visualización",
       "Visible": "Visible",
       "Volume Down": "Bajar volumen",
@@ -732,6 +1016,7 @@ extension PhilipsAmbilightTVPlugin {
     },
     "pt": {
       "Adjust": "Ajustar",
+      "Ambilight (Active/Inactive)": "Ambilight (ativo ou inativo)",
       "Ambilight + Hue Switch": "Interruptor Ambilight + Hue",
       "Ambilight Mode": "Modo Ambilight",
       "Ambilight On/Off": "Ambilight ligar/desligar",
@@ -743,7 +1028,6 @@ extension PhilipsAmbilightTVPlugin {
       "Back Button Key": "Tecla do botão Voltar",
       "Blue": "Azul",
       "Button": "Botão",
-      "Certificate Fingerprint": "Impressão digital do certificado",
       "Channel": "Canal",
       "Channel Down": "Canal anterior",
       "Channel Up": "Canal seguinte",
@@ -753,11 +1037,8 @@ extension PhilipsAmbilightTVPlugin {
       "Cursor Right": "Cursor para a direita",
       "Cursor Up": "Cursor para cima",
       "Custom Apps": "Apps personalizadas",
-      "Custom Apps (Optional)": "Apps personalizadas (opcional)",
       "Custom Buttons": "Botões personalizados",
-      "Custom Buttons (Optional)": "Botões personalizados (opcional)",
       "Custom Input Sources": "Fontes de entrada personalizadas",
-      "Custom Input Sources (Optional)": "Fontes de entrada personalizadas (opcional)",
       "Custom Name": "Nome personalizado",
       "Custom input sources to display in HomeKit. If not specified, apps will be fetched from the TV.": "Fontes de entrada personalizadas a apresentar no HomeKit. Sem nenhuma, as apps são obtidas do televisor.",
       "Digit 0": "Dígito 0",
@@ -806,25 +1087,25 @@ extension PhilipsAmbilightTVPlugin {
       "Lounge Light": "Lounge Light",
       "MAC Address": "Endereço MAC",
       "Mute": "Sem som",
+      "Muted (Yes/No)": "Sem som (sim ou não)",
       "Name": "Nome",
       "Next": "Seguinte",
       "Online (smart TV portal)": "Online (portal Smart TV)",
       "Optional custom name to display instead of the default.": "Nome personalizado opcional, apresentado em vez do predefinido.",
       "Options (context menu)": "Opções (menu de contexto)",
-      "Order, visibility and names of the inputs, as the plugin's Inputs page saves them.": "Ordem, visibilidade e nomes das entradas, tal como a página Entradas do plugin os guarda.",
+      "Order, visibility and names of the inputs in the Home app's input wheel. The plugin's page shows the TV's inputs in that order, with their IDs.": "Ordem, visibilidade e nomes das entradas na roda de entradas da app Casa. A página do plugin mostra as entradas do televisor nessa ordem, com os seus identificadores.",
       "Package Name": "Nome do pacote",
-      "Password": "Palavra-passe",
       "Pause": "Pausa",
       "Play/Pause": "Reproduzir/Pausa",
       "Play/Pause Button Key": "Tecla do botão Reproduzir/Pausa",
       "Plugin name as displayed in the log.": "Nome do plugin tal como aparece no registo.",
       "Polling Interval (ms)": "Intervalo de consulta (ms)",
+      "Power (TV On/Off)": "Energia (televisor ligado ou desligado)",
       "Previous": "Anterior",
       "Record": "Gravar",
       "Red": "Vermelho",
       "Remote Key": "Tecla do comando",
       "Rewind": "Retrocesso rápido",
-      "SHA-256 fingerprint of the TV's certificate, captured automatically during pairing and verified on every connection. Leave empty to connect without verification.": "Impressão digital SHA-256 do certificado do televisor, obtida automaticamente durante o emparelhamento e verificada em cada ligação. Deixe vazio para ligar sem verificação.",
       "Source": "Fonte",
       "Source (input picker)": "Fonte (seletor de entrada)",
       "Source Configuration": "Configuração das fontes",
@@ -833,17 +1114,16 @@ extension PhilipsAmbilightTVPlugin {
       "Standby": "Modo de espera",
       "Start Ambilight when TV turns on": "Iniciar o Ambilight quando o televisor liga",
       "State Sensors": "Sensores de estado",
-      "State Sensors (for HomeKit automations)": "Sensores de estado (para automatizações do HomeKit)",
       "Stop": "Parar",
       "Subtitles": "Legendas",
       "Switches that send a single remote key when turned on, then turn themselves back off. Useful with apps on the TV (e.g. Button Mapper) that remap a key to an action the TV's API doesn't offer, such as the power menu.": "Interruptores que enviam uma tecla do comando quando são ligados e depois se desligam sozinhos. Útil com apps do televisor (por exemplo, Button Mapper) que associam a uma tecla uma ação que a API do televisor não oferece, como o menu de energia.",
       "TV": "Televisor",
-      "TV Devices": "Televisores",
       "TV Name": "Nome do televisor",
+      "TVs Add accessories does not find on the network (another subnet, Bonjour blocked): each one's name and IP address, and its MAC address if you know it. Setup pairs it there and keeps it in its own settings.": "Os televisores que Adicionar acessórios não encontra na rede (outra sub-rede, Bonjour bloqueado): o nome e o endereço IP de cada um, e o endereço MAC se o souber. O Setup emparelha-o aí e guarda-o nas suas próprias definições.",
+      "TVs to Find by Address": "Televisores a encontrar pelo endereço",
       "Teletext": "Teletexto",
       "The IP address of the TV on the local network.": "O endereço IP do televisor na rede local.",
       "The MAC address of the TV (required for Wake-on-LAN).": "O endereço MAC do televisor (necessário para o Wake-on-LAN).",
-      "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.": "Os televisores Philips a controlar a partir do HomeKit. Adicionar acessórios emparelha-os e guarda as suas chaves no cofre: um televisor que o Bonjour não encontra só precisa aqui do nome e do endereço IP para ser emparelhado lá.",
       "The TV key that the HomeKit remote's back button sends.": "A tecla do televisor que o botão Voltar do comando do HomeKit envia.",
       "The TV key that the HomeKit remote's information button sends.": "A tecla do televisor que o botão de informação do comando do HomeKit envia.",
       "The TV key that the HomeKit remote's play/pause button sends.": "A tecla do televisor que o botão de reproduzir/pausa do comando do HomeKit envia.",
@@ -853,13 +1133,10 @@ extension PhilipsAmbilightTVPlugin {
       "The name of the TV as it will appear in HomeKit.": "O nome do televisor tal como aparecerá no HomeKit.",
       "The order in which this input appears in HomeKit.": "A ordem pela qual esta entrada aparece no HomeKit.",
       "The order in which this source appears in HomeKit.": "A ordem pela qual esta fonte aparece no HomeKit.",
-      "The password (auth key) obtained during TV pairing.": "A palavra-passe (chave de autenticação) obtida durante o emparelhamento do televisor.",
       "The remote key sent when the switch is turned on. Each key can be used by one button only.": "A tecla do comando enviada quando o interruptor é ligado. Cada tecla só pode ser usada por um botão.",
       "The type of input source.": "O tipo de fonte de entrada.",
       "The unique identifier for this source.": "O identificador único desta fonte.",
-      "The username obtained during TV pairing.": "O nome de utilizador obtido durante o emparelhamento do televisor.",
       "Type": "Tipo",
-      "Username": "Nome de utilizador",
       "View Mode": "Modo de visualização",
       "Visible": "Visível",
       "Volume Down": "Diminuir volume",

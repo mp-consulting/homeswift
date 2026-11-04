@@ -355,7 +355,6 @@ final class DysonTestEnvironment: @unchecked Sendable {
     private let plugins = NIOLockedValueBox<[DysonPureCoolPlugin]>([])
     private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
     var offlineRetry: Duration = .seconds(300)
-    var pendingSignInLifetime: Duration = DysonPureCoolPlugin.pendingSignInLifetime
 
     init(productState: [String: String] = FakeStates.tp04) {
         dyson = FakeDyson(productState: productState)
@@ -377,7 +376,7 @@ final class DysonTestEnvironment: @unchecked Sendable {
                 scans.withLockedValue { $0 += 1 }
                 return found.withLockedValue { $0 }
             },
-            http: cloud, backoff: { _ in .milliseconds(10) }, offlineRetry: offlineRetry, pendingSignInLifetime: pendingSignInLifetime)
+            http: cloud, backoff: { _ in .milliseconds(10) }, offlineRetry: offlineRetry)
     }
 
     func host(settings: [String: Any]) throws -> PluginHost {

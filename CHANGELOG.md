@@ -6,6 +6,69 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `get_settings` and `update_settings`, MCP tools (and through `homeswift mcp`, the command line's) that read and change
+  the settings of an accessory, by its Accessory Id, or of a plugin instance: the current values with what each field
+  is (its schema, whether it is a Core Accessory Setting, its plugin-wide default), a merge where `null` clears a key,
+  every key checked against the plugin's schema, several accessories in one write. The web UI has the same at
+  `GET`/`PATCH /api/settings/accessories/<id>` (`PATCH /api/settings/accessories` for several) and
+  `/api/settings/plugins/<platform>/<name>`.
+- A plugin's config.schema.json declares its Plugin Accessory Settings in `accessorySchema`: a field may be for some
+  Device Kinds only (`x-kinds`) and take a plugin-wide default from a Plugin Setting (`x-default`). Saves check the
+  `_accessories` entries they change. Plugins can answer a device's kind (`deviceKind(of:)`, `DiscoveredDevice.kind`)
+  and put their Homebridge-shaped blocks in the canonical shape before each settings write (`canonicalSettings`).
+- Forget: `forget_device`, an MCP tool that asks first and has a dry run, and the web UI's
+  `DELETE /api/settings/accessories/<id>`, drop a device's Authorization (its credentials in the vault) and every
+  Accessory Setting of it and its other accessories; its plugin reloads without it, and it is only a Discovered Device
+  again.
+
+- An accessory's Settings, one sheet from its ⋯ menu's **Settings…**, from its plugin's Devices and as Setup's last step:
+  Name, room (saying whether the Home app follows), Hidden, Not in Home, Parts, the plugin's own Accessory Settings
+  ("Default (X)" while a plugin-wide default applies), then Exclude and Forget, each field saved as it is changed. The
+  plugin's settings form and these fields share one renderer.
+- A plugin's Settings page, `/plugins/<slug>/settings` (`/plugins/<slug>` for a plugin without a page of its own): its
+  account with **Set up again**, its Plugin Settings saved in one write (the plugin reloads once), and every device it
+  finds, each opening its Settings, included again or set up again.
+
+### Changed
+
+- The accessory menu's Rename, room, Hide and Visible in Home app items are gone: they are in its Settings sheet. The
+  Expert form and its JSON tab are gone: `/plugins/<slug>/expert` and `/expert/json` lead to the plugin's Settings, a
+  plugin's page links to them beside Pause, and config.json's editor is the one place to write a block as it is.
+- `update_settings` asks first only for a change that Excludes an accessory, puts it Not in Home, changes its Parts, or
+  changes Plugin Settings: a rename, a room, Hidden and a plugin's own Accessory Settings run at once. A tool that is not
+  destructive can ask for some calls (`MCPTool.confirmsWhen`).
+- A settings write that changes only live Accessory Settings (a Name, a room, Hidden, Not in Home: a page's, a rename in
+  the Home app, a move Room Sync follows) keeps no config.json backup, and its answer has no `backup`: they no longer
+  push the restorable ones (Plugin Settings, an Exclude, Parts, a plugin's own Accessory Settings, Forget) out of the
+  last 20. The first write to a block in Homebridge's shape keeps one, of the block as it was; when the canonical shape
+  is all it changes of what the plugin reads, the plugin keeps running on it rather than reloading. Forget reloads the
+  plugin even for a device with live settings only.
+
+- An accessory's room, Hidden and Not in Home are Accessory Settings, in its plugin's block's `_accessories` beside its
+  Name, Excluded and Parts (docs/adr/0003-room-and-visibility-in-accessory-settings.md); they apply without reloading
+  the plugin. Rooms, Hidden and display names in `accessory-layout.json`, and a block's `_hiddenFromHomeKit`, are read
+  and move into the settings with the accessory's next write; the layout keeps the Arrangement (the rooms' order, Quick
+  Controls). Room Sync is a Bridge Setting, `roomSync` in config.json's bridge block, applied without a restart.
+  Renaming or removing a room changes the settings that name it. An Apple Home accessory (Wingman's) moves in Apple
+  Home whenever its room changes, and its Name is read-only.
+- `PUT /api/config/block/<platform>/<name>` (plugins' pages, pausing) is checked against the plugin's schema like every
+  other save.
+- **Breaking:** the MCP tools `rename_accessory`, `set_homekit_visibility`, `set_device_excluded`, `set_device_part` and
+  `put_list_entry` are removed (`update_settings` does what they did), and `set_accessory_layout` no longer takes an
+  accessory's room, hidden or name. The web UI's `PUT /api/accessories/<id>/name`, `PUT /api/accessories/<id>/homekit`,
+  `POST /api/setup/exclude` and `POST /api/setup/part` are removed, and `PUT /api/rooms` no longer takes an accessory's
+  room, hidden or name. **Name on these pages**, the web UI's own name for an accessory, is gone: an accessory has one
+  Name.
+
+### Fixed
+
+- The Home app shows a real serial number for Philips Hue lights and sensors, their device's Zigbee MAC (with the
+  light's place after it on a device with several lights, such as a Dymera), rather than the bridge's resource id; a
+  device without one keeps the id, as scene switches do. Wingman's mirrors show the serial number Apple Home has for
+  the device, rather than its HomeKit id, when there is one.
+
 ## [0.19.0] - 2026-11-02
 
 ### Added

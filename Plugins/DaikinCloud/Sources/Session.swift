@@ -99,9 +99,10 @@ actor DaikinSession {
 
     var tokenFile: TokenLocation { context.secretFile(mode.tokenFileName, as: JSONValue.self) }
 
-    var serviceContext: ServiceContext {
+    /// What a device's accessory is built with: its own feature switches among the settings.
+    func serviceContext(for deviceID: String) -> ServiceContext {
         let continuation = continuation
-        return ServiceContext(settings: settings, logger: logger) { continuation.yield(.forceUpdate) }
+        return ServiceContext(settings: settings, logger: logger, forceUpdate: { continuation.yield(.forceUpdate) }, deviceID: deviceID)
     }
 
     // MARK: Starting
@@ -213,7 +214,7 @@ actor DaikinSession {
                 logger.info("[Platform] Adding new accessory: \(name) (id: \(device.id))")
             }
             do {
-                let accessory = try DaikinAccessory(device: device, context: serviceContext)
+                let accessory = try DaikinAccessory(device: device, context: serviceContext(for: device.id))
                 try context.add(accessory.accessory)
                 accessories[device.id] = accessory
                 logger.debug("[Platform] Created \(accessory.profile.displayName) accessory")
@@ -233,7 +234,7 @@ actor DaikinSession {
             return
         }
         do {
-            let rebuilt = try DaikinAccessory(device: accessory.device, context: serviceContext, previous: accessory)
+            let rebuilt = try DaikinAccessory(device: accessory.device, context: serviceContext(for: deviceID), previous: accessory)
             try context.add(rebuilt.accessory)
             accessories[deviceID] = rebuilt
         } catch {

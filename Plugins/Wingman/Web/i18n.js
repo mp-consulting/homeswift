@@ -22,11 +22,10 @@ HomeswiftI18n.add({
     "Show its log": "Afficher son journal",
     "Ask the Assistant": "Demander à l'Assistant",
     "About my Wingman {name}: ": "À propos de mon Wingman {name} : ",
-    "Remove": "Supprimer",
-    "Remove {name}? Its Apple Home accessories leave Homeswift. Remove this bridge from Wingman's Paired Bridges too.": "Supprimer {name} ? Ses accessoires de l'app Maison quittent Homeswift. Retirez aussi ce pont des ponts jumelés de Wingman.",
     "Paired": "Jumelé",
     "Pair": "Jumeler",
-    "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Astuce : ajoutez un bloc {block} à config.json pour avoir l'Assistant, qui explique ici les problèmes de connexion."
+    "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Astuce : ajoutez un bloc {block} à config.json pour avoir l'Assistant, qui explique ici les problèmes de connexion.",
+    "Settings": "Réglages"
   },
   "es": {
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Los accesorios de la app Casa en Homeswift, a través de Homeswift Wingman en un Mac. Se suman a la página Accesorios, las escenas y el Asistente, y quedan fuera de HomeKit, que ya los tiene.",
@@ -50,11 +49,10 @@ HomeswiftI18n.add({
     "Show its log": "Ver su registro",
     "Ask the Assistant": "Preguntar al Asistente",
     "About my Wingman {name}: ": "Sobre mi Wingman {name}: ",
-    "Remove": "Eliminar",
-    "Remove {name}? Its Apple Home accessories leave Homeswift. Remove this bridge from Wingman's Paired Bridges too.": "¿Eliminar {name}? Sus accesorios de la app Casa salen de Homeswift. Quita también este puente de los puentes emparejados de Wingman.",
     "Paired": "Emparejado",
     "Pair": "Emparejar",
-    "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Consejo: añade un bloque {block} a config.json para tener el Asistente, que explica aquí los problemas de conexión."
+    "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Consejo: añade un bloque {block} a config.json para tener el Asistente, que explica aquí los problemas de conexión.",
+    "Settings": "Ajustes"
   },
   "pt": {
     "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Os acessórios da app Casa no Homeswift, através do Homeswift Wingman num Mac. Juntam-se à página Acessórios, às cenas e ao Assistente, e ficam fora do HomeKit, que já os tem.",
@@ -78,10 +76,9 @@ HomeswiftI18n.add({
     "Show its log": "Ver o seu registo",
     "Ask the Assistant": "Perguntar ao Assistente",
     "About my Wingman {name}: ": "Sobre o meu Wingman {name}: ",
-    "Remove": "Remover",
-    "Remove {name}? Its Apple Home accessories leave Homeswift. Remove this bridge from Wingman's Paired Bridges too.": "Remover {name}? Os seus acessórios da app Casa saem do Homeswift. Retire também esta ponte das pontes emparelhadas do Wingman.",
     "Paired": "Emparelhado",
     "Pair": "Emparelhar",
-    "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Dica: adicione um bloco {block} ao config.json para ter o Assistente, que explica aqui os problemas de ligação."
-  },
+    "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Dica: adicione um bloco {block} ao config.json para ter o Assistente, que explica aqui os problemas de ligação.",
+    "Settings": "Definições"
+  }
 });

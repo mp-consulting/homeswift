@@ -6,7 +6,10 @@ extension PhilipsAmbilightTVPlugin {
     public static let assistantActions: [AssistantAction] = [
         AssistantAction(
             name: "list_tvs", title: "Look at the TVs",
-            description: "The TVs this instance runs, by MAC address, with their address, power, input, Ambilight and whether they answer.",
+            description: "The TVs this instance runs, by MAC address (the Device Id: the accessory is PhilipsAmbilightTV:<MAC>), with their address, "
+                + "power, input, Ambilight and whether they answer. A TV's settings (its Name, Excluded, ip, pollingInterval, ambilightMode, the remote's keys, "
+                + "inputs, customApps, customButtons, stateSensors, sources…) are read with get_settings and written with update_settings by accessory; "
+                + "the TVs to find by address (devices: name, ip) by plugin.",
             path: "tvs", access: .read),
         AssistantAction(
             name: "wake", title: "Wake a TV",
@@ -34,7 +37,7 @@ extension PhilipsAmbilightTVPlugin {
         A TV is added through Setup (Add accessories in the web UI, or discover_devices and start_setup): discovery looks \
         for the Android TV remote service over mDNS (_androidtvremote2._tcp) for about 5 seconds, so the TV must be on \
         (not in deep standby) and on the same subnet/VLAN as Homeswift with mDNS allowed; otherwise add an entry with \
-        only its ip (and a name) to the block's devices, and Setup finds it there. Pairing: the plugin asks the TV for a \
+        only its ip (and a name) to the Plugin Setting devices (update_settings by plugin), and Setup finds it there. Pairing: the plugin asks the TV for a \
         PIN (pair/request), the TV shows a 4-digit PIN, and the grant (pair/grant) returns the username and password \
         (auth key), kept in the vault under the TV's MAC. Pairing errors from the TV: 401 invalid PIN, 403 the \
         TV rejected the pairing request, 404 pairing endpoint not found (older or non-Android TVs without JointSpace v6 \
@@ -47,7 +50,7 @@ extension PhilipsAmbilightTVPlugin {
         Chromecast setting must be enabled; Docker or several networks can send the packet out the wrong interface). A TV \
         that just woke is slow to list its apps, so "Refresh from TV" can fail until the Home screen shows. "Detect from \
         TV" for custom apps needs the app open in the foreground, not live TV or Home; "Could not launch ...: set the app's \
-        launch activity" means the app needs its className in customApps. The plugin keeps inputs-<mac>.json and \
+        launch activity" means the app needs its className in the TV's customApps (update_settings by accessory). The plugin keeps inputs-<mac>.json and \
         switch-names-<mac>.json in its storage directory (plugins/PhilipsAmbilightTV-<instance>/ under the Homeswift \
         configuration directory). Changing the MAC address makes the TV a new HomeKit accessory. Never ask the user for \
         the pairing username, password (auth key) or API keys.

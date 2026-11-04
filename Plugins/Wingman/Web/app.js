@@ -1,28 +1,19 @@
 // The Wingman page: the paired Wingmen, refreshed every two seconds while the page is visible, a card redrawn only
 // when it changed. A Wingman is found and paired on Add accessories (Setup: the certificate to compare, then the
-// six-digit code its menu shows): the page leads there.
+// six-digit code its menu shows): the page leads there. It writes no settings (docs/adr/0002-schema-declares-every-setting.md):
+// a Wingman's Settings sheet Excludes or Forgets it, and the plugin's Settings list the mirrored accessories and bridges.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, tile, fact, request, explain, assistant, api, platform, name: instance, updateBlock, poll, renderKeyed, setupCard, setupAddress } = homeswift;
+  const { $, el, tile, fact, request, explain, assistant, platform, poll, renderKeyed, setupCard, setupAddress } = homeswift;
   const { ago } = HomeswiftCommon;
 
   const list = $("#wingmen");
 
-  // MARK: config.json: a Wingman paired before Setup has an entry in the block's `devices`, by its id; one Setup paired
-  // has its Accessory Settings (`_accessories`, by its id), and leaves as Add accessories excludes it.
+  // MARK: Where settings are edited: the plugin's Settings page (its devices: the Wingmen, the mirrored accessories and
+  // the bridges), and each Wingman's Settings sheet there.
 
-  async function removeEntry(id) {
-    let listed = false;
-    await updateBlock((block) => {
-      const devices = block.devices || [];
-      listed = devices.some((d) => d.id === id);
-      if (!listed) return;
-      block.devices = devices.filter((d) => d.id !== id);
-      if (!block.devices.length) delete block.devices;
-    });
-    if (!listed) await api("/api/setup/exclude", { method: "POST", body: { platform, name: instance, deviceID: id, excluded: true } });
-  }
+  const settingsOf = (id) => homeswift.accessorySettings(`${platform}:${id}`);
 
   // MARK: The paired Wingmen
 
@@ -62,14 +53,8 @@
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: wingman.name }), () => [
           { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(homeswift.platform)}` },
           window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my Wingman {name}: ", { name: wingman.name })) } : null,
-          { label: t("Remove"), icon: "trash", danger: true, onSelect: () => forget(wingman) },
+          { label: t("Settings"), icon: "gear", href: settingsOf(wingman.id) },
         ])));
-  }
-
-  async function forget(wingman) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove {name}? Its Apple Home accessories leave Homeswift. Remove this bridge from Wingman's Paired Bridges too.", { name: wingman.name }))) return;
-    await removeEntry(wingman.id);
-    setTimeout(refresh, 600);
   }
 
   const shown = new Set();

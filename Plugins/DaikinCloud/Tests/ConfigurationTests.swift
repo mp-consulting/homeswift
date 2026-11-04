@@ -195,17 +195,56 @@ import Testing
         for key in FeatureKey.allCases { #expect(!settings([:]).isEnabled(key)) }
     }
 
-    /// The feature keys, the schema and the page agree (the Homebridge plugin's feature-config-keys test).
-    @Test func featureKeysMatchTheSchemaAndThePage() throws {
+    /// The feature keys and the schema agree (the Homebridge plugin's feature-config-keys test): each is a Plugin
+    /// Setting and a Plugin Accessory Setting of the climate controls and heat pumps, defaulting to the plugin's; the
+    /// legacy catch-all and the credentials are not declared. The page writes no settings.
+    @Test func featureKeysMatchTheSchema() throws {
         #expect(Set(FeatureKey.extra + FeatureKey.standalone).count == FeatureKey.allCases.count)
         let schema = try JSONValue(string: DaikinCloudPlugin.configurationSchemaJSON!)
-        let shown = Set((schema["schema"]?["properties"]?.objectValue ?? [:]).keys.filter { $0.hasPrefix("show") && $0 != "showExtraFeatures" })
-        #expect(shown == Set(FeatureKey.allCases.map(\.rawValue)))
-        // No default on an extra feature: absent means "follow showExtraFeatures".
-        for key in FeatureKey.extra { #expect(schema["schema"]?["properties"]?[key.rawValue]?["default"] == nil) }
+        let properties = schema["schema"]?["properties"]?.objectValue ?? [:]
+        #expect(Set(properties.keys.filter { $0.hasPrefix("show") }) == Set(FeatureKey.allCases.map(\.rawValue)))
+        for key in ["showExtraFeatures", "clientId", "clientSecret", "daikinEmail", "daikinPassword", "excludedDevicesByDeviceId"] { #expect(properties[key] == nil, "\(key)") }
+        // No default on an extra feature: absent is off.
+        for key in FeatureKey.extra { #expect(properties[key.rawValue]?["default"] == nil) }
+        let fields = schema["accessorySchema"]?["properties"]?.objectValue ?? [:]
+        #expect(Set(fields.keys) == Set(FeatureKey.allCases.map(\.rawValue)))
+        for (key, field) in fields {
+            #expect(field["x-default"] == .string(key) && field["x-kinds"] == ["climateControl", "domesticHotWaterTank"])
+        }
         let page = try #require(DaikinCloudPlugin.webFiles["app.js"]?.body)
-        for key in FeatureKey.extra { #expect(page.contains("\"\(key.rawValue)\""), "\(key) missing from the page") }
-        #expect(page.contains(#"const STANDALONE_KEYS = ["showSeparateFanControl", "showFirmwareUpdateSwitch"]"#))
+        #expect(!page.contains("updateBlock") && !page.contains("readBlock"))
+    }
+
+    /// A device's own switch overrules the plugin's; the vault's credentials win over the block's.
+    @Test func accessorySettingsAndVaultCredentials() {
+        let settings = DaikinSettings(
+            .init(["showPowerfulMode": true, "daikinEmail": "old@example.com", "clientSecret": "old"]),
+            credentials: ["email": "me@example.com", "password": "pw", "clientSecret": "new"],
+            accessorySettings: ["quiet": AccessorySettings(plugin: ["showPowerfulMode": false, "showEconoMode": true]), "gone": AccessorySettings(excluded: true)])
+        #expect(settings.isEnabled(.showPowerfulMode, for: "other") && !settings.isEnabled(.showPowerfulMode, for: "quiet"))
+        #expect(settings.isEnabled(.showEconoMode, for: "quiet") && !settings.isEnabled(.showEconoMode, for: nil))
+        #expect(settings.mobileCredentials?.email == "me@example.com" && settings.clientSecret == "new")
+        #expect(settings.isExcluded("gone") && !settings.listedDeviceIDs.contains("gone"))
+    }
+
+    /// The Homebridge shapes move: credentials the vault holds leave the block, excluded ids become Excluded devices, and
+    /// `showExtraFeatures` the switches it stood for.
+    @Test func canonicalSettings() throws {
+        let block: JSONValue = [
+            "platform": "DaikinCloud", "authMode": "mobile_app", "daikinEmail": "me@example.com", "password": "pw", "clientId": "id",
+            "excludedDevicesByDeviceId": ["abc", ""], "showExtraFeatures": true, "showEconoMode": false, "updateIntervalInMinutes": 5,
+            "_accessories": ["abc": ["name": "Attic"]],
+        ]
+        let canonical = DaikinCloudPlugin.canonical(block, credentialsInVault: ["email", "password"])
+        var expected: [String: JSONValue] = [
+            "platform": "DaikinCloud", "authMode": "mobile_app", "clientId": "id", "excludedDevicesByDeviceId": [""], "updateIntervalInMinutes": 5,
+            "showEconoMode": false, "_accessories": ["abc": ["name": "Attic", "excluded": true]],
+        ]
+        for key in FeatureKey.extra where key != .showEconoMode { expected[key.rawValue] = true }
+        #expect(canonical == .object(expected))
+        #expect(DaikinCloudPlugin.canonical(canonical, credentialsInVault: ["email", "password"]) == canonical)
+        // Off, the catch-all was the default: it only goes.
+        #expect(DaikinCloudPlugin.canonical(["platform": "DaikinCloud", "showExtraFeatures": false], credentialsInVault: []) == ["platform": "DaikinCloud"])
     }
 }
 

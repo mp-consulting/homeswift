@@ -7,8 +7,8 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* The Homebridge plugin's setup wizard on the UI's materials, without its sign-in (Setup signs in): the account's
-     robots, then a robot's settings. One step shows at a time. */
+  /* The Homebridge plugin's setup wizard on the UI's materials, without its sign-in (Setup signs in) or its settings
+     (the Settings page has them): the account's robots. */
   .page-head { align-items: center; }
   .tile.pool { background: linear-gradient(160deg, #5ba0e9, #2e5a8b); }
   .step { animation: materialize var(--normal) var(--ease-out); }
@@ -18,6 +18,7 @@
   .step > p.muted:first-of-type { margin-top: 4px; }
 
   .robots { display: grid; gap: 14px; }
+  a.robot { color: inherit; text-decoration: none; }
   .robot { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0; padding: 0; overflow: hidden; cursor: pointer; text-align: left;
     transition: transform 160ms var(--ease-out), box-shadow var(--normal) ease; }
   .robot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -36,25 +37,10 @@
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .picture { background: linear-gradient(180deg, #1e3a4c 0%, #0d2233 100%); } }
   :root[data-theme="dark"] .picture { background: linear-gradient(180deg, #1e3a4c 0%, #0d2233 100%); }
 
-  .found { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-  .found .robot-panel { padding: 0; overflow: hidden; margin: 0; }
-  .found .robot-panel .body { padding: 14px 18px 18px; }
-  .found .settings { margin: 0; }
-  .details { display: grid; gap: 0; margin-top: 10px; }
-  .details div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 0.8125rem; }
-  .details div:last-child { border-bottom: 0; }
-  .details span { color: var(--muted); white-space: nowrap; }
-  .details b { font-weight: 500; font-family: var(--mono); text-align: right; overflow-wrap: anywhere; }
-
-  .mode-info { margin: 10px 0 4px; padding: 10px 14px; border-radius: 0 14px 14px 0; border-left: 3px solid #1f6fe0; background: var(--material-thin); font-size: 0.8125rem; }
-  .mode-info strong { display: block; font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; color: #1f6fe0; margin-bottom: 4px; }
-  .mode-info p { margin: 0 0 6px; }
-  .mode-info .muted { padding-top: 6px; border-top: 1px solid var(--line); }
-
   .account-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 
   @media (max-width: 640px) {
-    .robot, .found { grid-template-columns: 1fr; }
+    .robot { grid-template-columns: 1fr; }
     .picture { min-height: 120px; }
     .picture img, .picture svg { max-width: 140px; max-height: 100px; }
     .robot .facts { grid-template-columns: 1fr; }
@@ -73,7 +59,7 @@
     <span class="tile large pool" aria-hidden="true"></span>
     <div>
       <h1>Dolphin Pool Cleaner</h1>
-      <p class="muted" data-i18n>Connect your MyDolphin Plus account, then choose how your robot appears in the Home app.</p>
+      <p class="muted" data-i18n>The pool robots of your MyDolphin Plus account: their cleaning, filter and water temperature, straight from the cloud.</p>
     </div>
   </div>
   <div id="wizard"></div>

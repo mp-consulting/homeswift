@@ -178,12 +178,34 @@ actor DevicesPlugin: HomeswiftPlugin {
     /// The rooms the hub put Homeswift's accessories in, by accessory id.
     let hubMoves: NIOLockedValueBox<[String: String]>
 
-    /// The hub keeps the desk lamp in a room, and refuses the room "Attic".
+    /// The hub keeps the desk lamp in a room, and the mirrored bulb (Apple Home's, as Wingman's are), and refuses the room
+    /// "Attic".
     func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool {
-        guard accessoryID == "Devices:lamp" else { return false }
+        guard accessoryID == "Devices:lamp" || accessoryID == "Devices:mirrored" else { return false }
         guard room != "Attic" else { throw PluginRoomError("that name is taken") }
         hubMoves.withLockedValue { $0[accessoryID] = room }
         return true
+    }
+
+    /// The lamp is a light, the lock a lock; the others say nothing.
+    func deviceKind(of deviceID: String) async -> String? {
+        ["lamp": "light", "lock": "lock"][deviceID]
+    }
+
+    /// The Homebridge shape it reads: `legacyExcluded`, a list of Device Ids, becomes Excluded in `_accessories`, and is
+    /// kept in the account's vault entry once the block is written (as a plugin moves a legacy token there).
+    func canonicalSettings(_ block: JSONValue) async -> JSONValue {
+        guard var object = block.objectValue, let ids = object.removeValue(forKey: "legacyExcluded")?.arrayValue else { return block }
+        let context = self.context
+        await context.whenSettingsWritten { try context.saveCredentials(["legacyExcluded": .array(ids)]) }
+        var entries = object["_accessories"]?.objectValue ?? [:]
+        for id in ids.compactMap(\.stringValue) {
+            var entry = entries[id]?.objectValue ?? [:]
+            entry["excluded"] = true
+            entries[id] = .object(entry)
+        }
+        object["_accessories"] = .object(entries)
+        return .object(object)
     }
 
     /// The devices' hub's automations, by id.

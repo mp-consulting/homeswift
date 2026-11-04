@@ -5,9 +5,11 @@ import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the DIRIGERA hubs are the instance's account, each authorized by a Button Press on its
 // action button; the token stays in the plugin's own entry, sealed in the vault (`hubs.json`), so the plugin
-// says itself whether the account is Authorized. The hubs' lights, outlets, sensor groups and scenes are the devices,
-// by the id their accessory goes by (`Dirigera:<id>`, `Dirigera:scenes:<host>`): they need nothing more, and
-// `excludeDevices` or `excludeScenes` may leave them out.
+// says itself whether the account is Authorized. The hubs' lights, outlets, sensor groups and scenes are the devices
+// (Device Kinds `light`, `outlet`, `sensor`, `blinds`, `airPurifier`, `controller`, `scene`): a device by the id its
+// accessory goes by (`Dirigera:<id>`), a scene by its id on the hub, its switch on the hub's scenes accessory
+// (`Dirigera:scenes:<host>`). They need nothing more, and their Accessory Settings (or, in a Homebridge block,
+// `excludeDevices` and `excludeScenes`) may leave them out.
 extension DirigeraPlugin {
     public static let accountAuthorization = AuthorizationMethod.buttonPress
 
@@ -18,8 +20,9 @@ extension DirigeraPlugin {
         return hubHosts.contains { token(for: $0) != nil }
     }
 
-    /// Every device and scenes accessory of the hubs with a token, read once from a hub this plugin has not read yet (an
-    /// instance made only for Setup). A hub that does not answer is left out, unless none does.
+    /// Every device and scene of the hubs with a token, read once from a hub this plugin has not read yet (an instance
+    /// made only for Setup). A hub that does not answer is left out, unless none does. Wake-up and playlist scenes run on
+    /// the hub's schedule, with no switch: they are left out.
     public func discover() async throws -> [DiscoveredDevice] {
         stored = store.load() ?? stored
         var found: [DiscoveredDevice] = []
@@ -41,19 +44,22 @@ extension DirigeraPlugin {
                 }
             }
             for device in devices.sorted(by: { $0.name < $1.name }) where device.isStandalone {
-                found.append(DiscoveredDevice(deviceID: device.id, name: device.name, model: device.model, isSetUp: true, excludedBySettings: excludedBySettings(device)))
+                found.append(DiscoveredDevice(
+                    deviceID: device.id, name: device.name, model: device.model, isSetUp: true, excludedBySettings: excludedBySettings(device),
+                    kind: Self.kind(of: device.kind)))
             }
             for group in Self.groups(of: devices) {
                 let lead = group.devices[0]
                 found.append(DiscoveredDevice(
-                    deviceID: group.id, name: lead.name, model: lead.model, isSetUp: true, excludedBySettings: excludedBySettings(group: group.devices, id: group.id)))
+                    deviceID: group.id, name: lead.name, model: lead.model, isSetUp: true, excludedBySettings: excludedBySettings(group: group.devices, id: group.id),
+                    kind: Self.kind(of: lead.kind)))
             }
-            // The scenes' switches on one accessory: left out when scenes are off, or when `excludeScenes` takes every one.
-            let scenesOff = configuration.scenes == false
-            if scenesOff || scenes.contains(where: \.isRunnable) {
+            // Each scene a switch on the hub's scenes accessory, which a scenes accessory Excluded before leaves out.
+            let scenesOff = context.isExcluded("scenes:\(host)")
+            for scene in scenes.sorted(by: { $0.name < $1.name }) where scene.isRunnable {
                 found.append(DiscoveredDevice(
-                    deviceID: "scenes:\(host)", name: sceneAccessoryName(host: host), model: "DIRIGERA scenes", address: host, isSetUp: true,
-                    excludedBySettings: scenesOff || visibleScenes(scenes).isEmpty))
+                    deviceID: scene.id, name: scene.name, model: "DIRIGERA scene", address: host, isSetUp: true,
+                    excludedBySettings: scenesOff || excludedBySettings(scene), kind: Self.sceneKind))
             }
         }
         if found.isEmpty, let failure { throw SetupError("The DIRIGERA hub did not answer: \(failure)") }
