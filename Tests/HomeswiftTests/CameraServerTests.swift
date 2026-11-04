@@ -7,6 +7,16 @@ import Testing
 @testable import Homeswift
 
 /// A HomeKit Data Stream client: the controller's side of the socket.
+/// Waits for `condition`, polling, for up to `timeout`: what follows a closed connection happens on the server's time.
+private func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return await condition()
+}
+
 final class HDSTestClient: @unchecked Sendable {
     private var channel: (any Channel)!
     private var iterator: AsyncStream<ByteBuffer>.AsyncIterator!
@@ -161,8 +171,8 @@ struct CameraServerTests {
 
         // The stream ends with the connection.
         await controller.close()
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(streaming.requests.withLockedValue { $0.last } == .stop(sessionID: CameraTLVTests.session))
+        let streaming = streaming
+        #expect(await eventually { streaming.requests.withLockedValue { $0.last } == .stop(sessionID: CameraTLVTests.session) })
         await server.stop()
     }
 
@@ -307,7 +317,9 @@ struct CameraServerTests {
         recording.packets = []
         let controller = try await pairedController()
         let hds = try await setupDataStream(controller, hello: false)
-        try await hds.send(payload: Data(repeating: 0, count: DataStreamConnection.maxUnidentifiedFrame + 1))
+        // The server closes once it has read the length, so the rest of the write may fail (EPIPE, a reset): what
+        // matters is that the socket closes.
+        try? await hds.send(payload: Data(repeating: 0, count: DataStreamConnection.maxUnidentifiedFrame + 1))
         await #expect(throws: (any Error).self) { _ = try await hds.next() }
         await hds.close()
         await controller.close()

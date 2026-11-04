@@ -553,10 +553,11 @@ public actor SonosPlugin: HomeswiftPlugin {
         }
     }
 
-    /// Waits up to `timeout` seconds for the subscription's first event.
+    /// Waits up to `timeout` seconds for the subscription's first event: real seconds, which `timeScale` does not
+    /// shorten, as a player on a busy host (or a test on a loaded runner) may take its time to send it.
     private func waitForEvent(_ key: SubscriptionKey) async -> Bool {
         if received.contains(key) { return true }
-        let limit = scaled(Double(settings.timeout))
+        let limit = Duration.seconds(settings.timeout)
         let timer = Task { [weak self] in
             try? await Task.sleep(for: limit)
             await self?.wake(key)

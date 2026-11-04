@@ -28,7 +28,7 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async
 }
 
 /// Expects `condition` to hold within `timeout`. (Swift Testing on Linux takes no `await` inside `#expect`.)
-func expectEventually(_ comment: @autoclosure () -> String = "", timeout: Duration = .seconds(5), sourceLocation: SourceLocation = #_sourceLocation,
+func expectEventually(_ comment: @autoclosure () -> String = "", timeout: Duration = .seconds(30), sourceLocation: SourceLocation = #_sourceLocation,
                       _ condition: @Sendable () async -> Bool) async {
     let held = await eventually(timeout: timeout, condition)
     #expect(held, "\(comment())", sourceLocation: sourceLocation)

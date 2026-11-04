@@ -335,8 +335,12 @@ actor ShellyRPC {
                 guard !Task.isCancelled else { return }
                 do {
                     try await socket.ping(timeout: settings.requestTimeoutDuration)
-                } catch {
+                } catch WebSocketError.timeout {
                     await self?.kill(socket)
+                    return
+                } catch {
+                    // The socket closed under the ping: its receive loop reports how (a close the device meant
+                    // does not reconnect), which killing it first would turn into a ping timeout.
                     return
                 }
             }

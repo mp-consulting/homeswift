@@ -223,7 +223,8 @@ struct ShellyNGTests {
         let host = try await environment.start(settings: ["devices": [["id": "shellyplusi4-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
         let buttonsID = "ShellyNG:shellyplusi4-aabbccddeeff-buttons"
-        await expectEventually { host.accessory(buttonsID) != nil }
+        // The device's accessories are added one after the other: wait for the last one, not the first.
+        await expectEventually { host.accessory(buttonsID) != nil && host.accessory("ShellyNG:shellyplusi4-aabbccddeeff-switch1") != nil }
         let readOnly = try #require(host.accessory("ShellyNG:shellyplusi4-aabbccddeeff-switch1")?.services.first { $0.type == .switch })
         #expect(readOnly.subtype == "readonly-switch-1")
         #expect(readOnly.characteristic(.on).value == .bool(true))

@@ -83,22 +83,30 @@ struct AccessoryTests {
             block("contactSensor", "Door", topics: ["getContactSensorState": "door"], ["resetStateAfterms": 1000]),
         ])
         defer { Task { await host.stop() } }
+        // Scaled down, the states last 10 to 50 ms: each value is recorded as it is set, as a poll can miss one on a
+        // busy runner.
+        func record(_ id: String, _ service: ServiceType, _ characteristic: CharacteristicType) async throws -> ValueLog {
+            #expect(await eventually { host.service(id, service)?[characteristic] != nil })
+            let log = ValueLog()
+            _ = try #require(host.service(id, service)?[characteristic]).observe { log.add($0.newValue) }
+            return log
+        }
+        let timed = try await record("mqttthing:Timed", .switch, .on)
+        let motion = try await record("mqttthing:PIR", .motionSensor, .motionDetected)
+        let door = try await record("mqttthing:Door", .contactSensor, .contactSensorState)
+
         await broker.send("timed", "true")
-        let check7 = await eventually { host.value("mqttthing:Timed", .switch, .on) == .bool(true) }
+        let check7 = await eventually { timed.went(from: .bool(true), to: .bool(false)) }
         #expect(check7)
         let check8 = await broker.waitFor("timed/set") == ["false"]
         #expect(check8)
         #expect(host.value("mqttthing:Timed", .switch, .on) == .bool(false))
         await broker.send("pir", "true")
-        let check9 = await eventually { host.value("mqttthing:PIR", .motionSensor, .motionDetected) == .bool(true) }
+        let check9 = await eventually { motion.went(from: .bool(true), to: .bool(false)) }
         #expect(check9)
-        let check10 = await eventually { host.value("mqttthing:PIR", .motionSensor, .motionDetected) == .bool(false) }
-        #expect(check10)
         await broker.send("door", "true")
-        let check11 = await eventually { host.value("mqttthing:Door", .contactSensor, .contactSensorState) == .int(1) }
+        let check11 = await eventually { door.went(from: .int(1), to: .int(0)) }
         #expect(check11)
-        let check12 = await eventually { host.value("mqttthing:Door", .contactSensor, .contactSensorState) == .int(0) }
-        #expect(check12)
         #expect(broker.published(on: "pir").isEmpty)
     }
 
@@ -505,4 +513,17 @@ final class NIOLockedBox: Sendable {
     private let box = NIOLockedValueBox<[HAPValue]>([])
     var values: [HAPValue] { box.withLockedValue { $0 } }
     func append(_ value: HAPValue) { box.withLockedValue { $0.append(value) } }
+}
+
+/// The values a characteristic took, in order.
+final class ValueLog: Sendable {
+    private let box = NIOLockedValueBox<[HAPValue]>([])
+    var values: [HAPValue] { box.withLockedValue { $0 } }
+    func add(_ value: HAPValue) { box.withLockedValue { $0.append(value) } }
+    /// Whether it took `first`, then `second` after it, and still has it.
+    func went(from first: HAPValue, to second: HAPValue) -> Bool {
+        let values = values
+        guard let index = values.firstIndex(of: first) else { return false }
+        return values[(index + 1)...].contains(second) && values.last == second
+    }
 }
