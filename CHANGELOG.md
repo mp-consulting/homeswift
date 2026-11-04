@@ -80,6 +80,9 @@ All notable changes to this project are documented here. The format follows
 - A plugin's Settings page, `/plugins/<slug>/settings` (`/plugins/<slug>` for a plugin without a page of its own): its
   account with **Set up again**, its Plugin Settings saved in one write (the plugin reloads once), and every device it
   finds, each opening its Settings, included again or set up again.
+- The Accessories wall's Filters menu has the Graph's filters: bridges (`?bridge=<name>`) and device types
+  (`?type=<category>`), each chosen as often as wanted and kept in the address, with their counts. The Graph's Filters
+  menu has the wall's **Only from Apple Home** (the accessories Wingman brings in).
 
 ### Changed
 
@@ -128,6 +131,15 @@ All notable changes to this project are documented here. The format follows
   light's place after it on a device with several lights, such as a Dymera), rather than the bridge's resource id; a
   device without one keeps the id, as scene switches do. Wingman's mirrors show the serial number Apple Home has for
   the device, rather than its HomeKit id, when there is one.
+- A large widget's row of chips (a fan's Swing, Night Mode, Jet Focus) stops short of the ⋯ menu in its corner rather
+  than running under it.
+- Daikin Cloud no longer stays without its devices until a restart when the cloud is unreachable as it starts: the
+  start is tried again after a minute, then up to every five minutes. An account without devices and a sign-in Daikin
+  refuses are not tried again.
+- Daikin Cloud with the Mobile App login logs in again with the configured email and password when Daikin refuses its
+  refresh token, rather than asking for a sign-in; polls, writes from HomeKit and the WebSocket all recover. Once
+  Daikin refuses the email or password, it does not send them again until a sign-in, to avoid locking the account.
+- Daikin Cloud fetches the devices when the WebSocket pushes a group change, which names no device and was dropped.
 
 ## [0.19.0] - 2026-11-02
 
