@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **tado°** plugin (`TadoPlatform`, new, experimental): tado° thermostats, radiator valves, hot water and air conditioners
+  through tado's cloud, signed in through Setup with tado's device code, polled in one request for all zones and as
+  often as the account's 100 requests a day allow. A clean-room implementation compatible with homebridge-tado's block.
 - The Roborock plugin (experimental, `RoborockVacuumPlatform`, a clean-room implementation compatible with homebridge-roborock-vacuum's configuration): robot vacuums on the LAN (protocols 1.0 and L01) with the cloud's MQTT as a fallback, sign-in through Setup with a password or an emailed code; and `TCPSocket` in `HomeswiftNetwork`.
 - Google Nest (`homebridge-google-nest-sdm`), experimental: Nest thermostats, cameras, doorbells and displays through
   Google's Device Access, with Pub/Sub events, RTSP live view and HomeKit Secure Video (a clean-room implementation).
