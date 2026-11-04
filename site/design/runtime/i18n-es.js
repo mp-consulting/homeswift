@@ -57,6 +57,7 @@ HomeswiftI18n.add("es", {
   "Answers questions, explains errors and writes a daily digest": "Responde a preguntas, explica los errores y redacta un resumen diario",
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Aires acondicionados y bombas de calor Altherma a través de la nube Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luces, enchufes, sensores, persianas, purificadores y escenas, en local",
+  "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luces, sensores, persianas y mandos Zigbee de Zigbee2MQTT, por MQTT",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscina: iniciar y detener la limpieza, temperatura del agua y filtro",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",

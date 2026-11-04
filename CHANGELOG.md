@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Zigbee2MQTT plugin (`zigbee2mqtt`, experimental): a Zigbee2MQTT installation's devices and groups over its MQTT broker, with homebridge-z2m's configuration; a clean-room implementation.
 - TP-Link Tapo plugin (`TapoP100`, experimental): P100, P105 and P110 plugs and L510E, L520E and L530E bulbs on the local
   network, with KLAP and the older securePassthrough, the P110's and L530's power on Eve's characteristics, and
   Adaptive Lighting on the white and colour bulbs; a homebridge-tapo block works unchanged and keeps its accessories.
