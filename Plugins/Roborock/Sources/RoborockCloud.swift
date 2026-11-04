@@ -279,28 +279,15 @@ struct RoborockHawkAPI: Sendable {
     }
 
     /// The clock's offset from the server's `Date` header, in seconds, when it has one.
+    /// Read only after a 401, so a formatter of its own each time (DateFormatter is not Sendable).
     static func skew(date: String?, now: Date) -> TimeInterval? {
-        guard let date, let server = httpDate.withLock({ $0.date(from: date) }) else { return nil }
-        return now.timeIntervalSince(server)
-    }
-
-    /// An HTTP `Date` header's format; DateFormatter is not thread-safe, hence the lock.
-    private static let httpDate = HTTPDateBox()
-}
-
-/// A DateFormatter for HTTP dates behind a lock.
-final class HTTPDateBox: NSLock, @unchecked Sendable {
-    private let formatter: DateFormatter = {
+        guard let date else { return nil }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "GMT")
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return formatter
-    }()
-
-    func withLock<T>(_ body: (DateFormatter) -> T) -> T {
-        lock()
-        defer { unlock() }
-        return body(formatter)
+        guard let server = formatter.date(from: date) else { return nil }
+        return now.timeIntervalSince(server)
     }
 }
+
