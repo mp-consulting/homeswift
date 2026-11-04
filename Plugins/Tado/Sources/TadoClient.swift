@@ -217,7 +217,7 @@ actor TadoAccount {
     static func fileName(username: String) -> String { ".tado-token-\(TadoHash.username(username)).json" }
 
     /// Whether the vault has a refresh token for the account (or it needs none).
-    var isAuthorized: Bool { tokenFile != nil || (file?.load()?.refreshToken).map { !$0.isEmpty } == true }
+    var isAuthorized: Bool { tokenFile != nil || (refreshToken != nil && !signInRequired) || (file?.load()?.refreshToken).map { !$0.isEmpty } == true }
 
     /// A valid access token: the current one, else one refreshed (once for all callers at a time).
     func token() async throws -> String {

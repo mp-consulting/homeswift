@@ -37,9 +37,16 @@ actor RequestCounter {
 
     static let berlin = TimeZone(identifier: "Europe/Berlin") ?? TimeZone(secondsFromGMT: 3600)!
 
-    static func day(of date: Date) -> String {
+    static let berlinCalendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = berlin
+        return calendar
+    }()
+
+    static func day(of date: Date) -> String { day(of: date, calendar: berlinCalendar) }
+
+    /// `yyyy-MM-dd` in a calendar.
+    static func day(of date: Date, calendar: Calendar) -> String {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }

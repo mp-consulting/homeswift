@@ -21,12 +21,13 @@ extension CharacteristicType {
     static let tadoActivityDay = custom("Activity Day", "43C89074-B70A-480C-8239-51697A9DB445", .float, min: 0, max: 99999, step: 0.01)
     static let tadoActivityMonth = custom("Activity Month", "1874332A-D7DD-4E45-9D65-A4BAA6D11121", .float, min: 0, max: 99999, step: 0.01)
     static let tadoActivityYear = custom("Activity Year", "D105B9F7-AFE7-44A2-9CBE-F079BA499733", .float, min: 0, max: 99999, step: 0.01)
-    static let eveValvePosition = custom("Valve Position", "E863F12E-079E-48FF-8F27-9C2605A29F52", .uint8, min: 0, max: 100, step: 1, unit: .percentage)
-    static let eveLastActivation = custom("Last Activation", "E863F11A-079E-48FF-8F27-9C2605A29F52", .uint32, unit: .seconds)
-    static let eveTimesOpened = custom("Times Opened", "E863F129-079E-48FF-8F27-9C2605A29F52", .uint32)
-    static let eveResetTotal = custom("Reset Total", "E863F112-079E-48FF-8F27-9C2605A29F52", .uint32, write: true, unit: .seconds)
-    static let eveOpenDuration = custom("Open Duration", "E863F118-079E-48FF-8F27-9C2605A29F52", .uint32, write: true, unit: .seconds)
-    static let eveClosedDuration = custom("Closed Duration", "E863F119-079E-48FF-8F27-9C2605A29F52", .uint32, write: true, unit: .seconds)
+    // Eve's, as HomeswiftPlugin defines them.
+    static let eveValvePosition = EveCharacteristic.valvePosition
+    static let eveLastActivation = EveCharacteristic.lastActivation
+    static let eveTimesOpened = EveCharacteristic.timesOpened
+    static let eveResetTotal = EveCharacteristic.resetTotal
+    static let eveOpenDuration = EveCharacteristic.openDuration
+    static let eveClosedDuration = EveCharacteristic.closedDuration
 }
 
 /// The services of one zone, on its accessories.

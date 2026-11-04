@@ -206,7 +206,7 @@ struct HomeSettings: Sendable {
         }
         skipAuth = json["skipAuth"]?.flag ?? false
         addJitter = json["addJitter"]?.flag ?? false
-        polling = json["polling"]?.intValue.map { max($0, 30) }
+        polling = json["polling"]?.intValue.map { max($0, TadoBudget.minimumPolling) }
         nightPolling = json["nightPolling"]?.intValue.flatMap { $0 > 0 ? $0 : nil }
         temperatureUnit = json["temperatureUnit"]?.stringValue.flatMap(TemperatureUnit.init(rawValue:))
         let presence = json["presence"]

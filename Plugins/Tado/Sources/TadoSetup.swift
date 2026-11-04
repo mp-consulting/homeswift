@@ -139,7 +139,8 @@ extension TadoPlugin {
     /// A zone's Device Kind is its type (`heating`, `hotWater`, `airConditioning`); the home's other accessories are
     /// `presence`, `weather` or `switch`.
     public func deviceKind(of deviceID: String) async -> String? {
-        try? await discover().first { $0.deviceID == deviceID }?.kind
+        // A zone's Device Id ends with its type's word; the others fall back on what discovery said.
+        ZoneType.allCases.first { deviceID.hasSuffix(" \($0.suffix)") }?.deviceKind
     }
 
     /// A zone's keys that are its Accessory Settings.

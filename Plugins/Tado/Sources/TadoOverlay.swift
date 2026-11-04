@@ -156,10 +156,7 @@ enum TadoOverlay {
 
     /// `from` (and `to`) of the day's, the month's and the year's running time, as `yyyy-MM-dd` in the local calendar.
     static func runningTimeRanges(today: Date, calendar: Calendar = .current) -> [(aggregate: String, from: String, to: String?)] {
-        func text(_ date: Date) -> String {
-            let parts = calendar.dateComponents([.year, .month, .day], from: date)
-            return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
-        }
+        func text(_ date: Date) -> String { RequestCounter.day(of: date, calendar: calendar) }
         let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
         let monthStart = calendar.date(byAdding: .month, value: -1, to: yesterday) ?? yesterday
         let thisMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today

@@ -94,6 +94,7 @@ actor TadoHome {
         var added: [Accessory] = []
         var names = Set<String>()
         func add(_ accessory: Accessory) {
+            guard !context.isExcluded(accessoryID: accessory.id) else { return }
             guard names.insert(accessory.name).inserted else {
                 logger.warning("There is already an accessory named \(accessory.name): the second one is skipped")
                 return
@@ -230,6 +231,15 @@ actor TadoHome {
                 logger.error("Could not add \(accessory.name): \(error)")
             }
         }
+        // What is not on the bridge (Excluded) is not polled.
+        func kept(_ name: String) -> Bool { accessoryIDs.contains("\(TadoPlugin.platform):\(home) \(name)") }
+        if !kept("Weather") { weather = nil }
+        if !kept("Solar Intensity") { solar = nil }
+        if !kept("Central Switch") { central.removeAll() }
+        if !kept("Presence Lock") { presenceLockService = nil; homeSwitch = nil; awaySwitch = nil }
+        if !kept("Child Lock") { childLocks.removeAll() }
+        if !kept("Anyone") { anyone = nil }
+        presence = presence.filter { kept($0.key) }
     }
 
     /// The zones the central switch drives: the active HEATING zones with an id (the Homebridge plugin took the inactive
@@ -294,11 +304,10 @@ actor TadoHome {
             primary[.tadoDelayTimer]?.onWrite { _ in }
         }
         if let window = services.window {
-            window[.eveResetTotal]?.onWrite { [weak self] _ in
+            window[.eveResetTotal]?.onWrite { _ in
                 let since2001 = Int(Date().timeIntervalSinceReferenceDate)
                 window[.eveResetTotal]?.value = .int(since2001)
                 window[.eveTimesOpened]?.value = .int(0)
-                _ = self
             }
         }
     }
@@ -306,27 +315,35 @@ actor TadoHome {
     // MARK: Polling (sections 7.1, 7.6, 7.7)
 
     /// The requests a poll makes, and those made every 6 hours, a day: what the default interval is fitted to.
-    var requestsPerPoll: Int {
-        (settings.activeZones.isEmpty ? 0 : 1) + (settings.users.isEmpty ? 0 : 1) + (settings.weatherTemperature || settings.solarIntensity ? 1 : 0)
-            + (settings.presenceLock ? 1 : 0) + (settings.childLocks.isEmpty ? 0 : 1)
-    }
+    var requestsPerPoll: Int { [pollsZones, pollsPresence, pollsWeather, pollsPresenceLock, pollsChildLocks].filter { $0 }.count }
 
     var slowRequestsPerDay: Int {
         let perDay = Int(86400 / TadoBudget.slowInterval)
-        return (settings.activeZones.isEmpty ? 0 : perDay) + (settings.centralSwitch && settings.runningInformation && !settings.hasCustomAPI ? 3 * perDay : 0)
+        return (pollsZones ? perDay : 0) + (pollsRunningTime ? 3 * perDay : 0)
     }
+
+    // What a poll asks for: what the home's added accessories show (an Excluded one costs nothing).
+    private var pollsZones: Bool { !zones.isEmpty }
+    private var pollsPresence: Bool { !presence.isEmpty }
+    private var pollsWeather: Bool { weather != nil || solar != nil }
+    private var pollsRunningTime: Bool { central["Central"] != nil && settings.runningInformation && !settings.hasCustomAPI }
+    private var pollsPresenceLock: Bool { presenceLockService != nil || homeSwitch != nil }
+    private var pollsChildLocks: Bool { !childLocks.isEmpty }
+
+    /// The account's day shared by its homes.
+    private func dailyShare(homesOnAccount: Int) -> Int { max(options.dailyLimit / max(homesOnAccount, 1), 1) }
 
     /// Seconds between polls: the block's `polling`, else what fits a share of the account's day (`homesOnAccount`).
     func pollingInterval(homesOnAccount: Int) -> Int {
         if let polling = settings.polling { return polling }
         return TadoBudget.interval(requestsPerPoll: requestsPerPoll, slowRequestsPerDay: slowRequestsPerDay,
-                                   dailyLimit: max(options.dailyLimit / max(homesOnAccount, 1), 1))
+                                   dailyLimit: dailyShare(homesOnAccount: homesOnAccount))
     }
 
     /// Polls until stopped, the first at once; each next one an interval after the last ended.
     func startPolling(homesOnAccount: Int, sleep: @escaping @Sendable (Duration) async throws -> Void) {
         let interval = pollingInterval(homesOnAccount: homesOnAccount)
-        let share = max(options.dailyLimit / max(homesOnAccount, 1), 1)
+        let share = dailyShare(homesOnAccount: homesOnAccount)
         let perDay = TadoBudget.requestsPerDay(requestsPerPoll: requestsPerPoll, slowRequestsPerDay: slowRequestsPerDay, interval: interval)
         if settings.polling != nil, perDay > TadoBudget.pollingBudget(dailyLimit: share, slowRequestsPerDay: 0) {
             logger.warning("Home \(settings.name) polls every \(interval) s: about \(perDay) tado° requests a day, more than the \(share) its account may make (dailyRequestLimit). Leave polling out to fit the day")
@@ -348,7 +365,7 @@ actor TadoHome {
     /// The night's interval between 00:00 and 05:59, ±10 % with `addJitter`.
     private func nextInterval(base: Int) -> Int {
         var seconds = Double(base)
-        if let night = settings.nightPolling, Calendar.current.component(.hour, from: now()) < 6 { seconds = Double(max(night, base, 30)) }
+        if let night = settings.nightPolling, Calendar.current.component(.hour, from: now()) < 6 { seconds = Double(max(night, base, TadoBudget.minimumPolling)) }
         if settings.addJitter { seconds *= Double.random(in: 0.9...1.1) }
         return Int(seconds.rounded())
     }
@@ -365,12 +382,12 @@ actor TadoHome {
     func poll() async -> Int {
         do {
             let home = try await resolveHome()
-            if !settings.activeZones.isEmpty { try await pollZones(home) }
-            if !settings.users.isEmpty { try await pollPresence(home) }
-            if settings.weatherTemperature || settings.solarIntensity { try await pollWeather(home) }
-            if settings.centralSwitch, settings.runningInformation, !settings.hasCustomAPI, isDue(lastRunningTime) { try await pollRunningTime(home) }
-            if settings.presenceLock { try await pollPresenceLock(home) }
-            if !settings.childLocks.isEmpty { try await pollChildLocks(home) }
+            if pollsZones { try await pollZones(home) }
+            if pollsPresence { try await pollPresence(home) }
+            if pollsWeather { try await pollWeather(home) }
+            if pollsRunningTime, isDue(lastRunningTime) { try await pollRunningTime(home) }
+            if pollsPresenceLock { try await pollPresenceLock(home) }
+            if pollsChildLocks { try await pollChildLocks(home) }
             if failures > 0 { logger.info("tado° answers home \(settings.name) again") }
             failures = 0
         } catch is CancellationError {
@@ -761,7 +778,7 @@ actor TadoHome {
 
     /// Sends a heating or hot water zone's action.
     private func send(_ services: ZoneServices, _ action: Action) async {
-        try? await writing(services.deviceID, label: { () -> String in
+        try? await writing(services, label: { () -> String in
             switch action {
             case .off: "State: 0"
             case .schedule: "State: 3"
@@ -794,7 +811,7 @@ actor TadoHome {
 
     private func setHotWater(zone: String, on: Bool) async {
         guard let services = zones[zone] else { return }
-        try? await writing(services.deviceID, label: "On: \(on)") { home, zoneID in
+        try? await writing(services, label: "On: \(on)") { home, zoneID in
             let settings = services.zone
             let body = TadoOverlay.zone(type: .hotWater, power: on, celsius: nil,
                                         termination: TadoOverlay.termination(mode: settings.mode, modeTimer: settings.modeTimer), current: self.states[zoneID]?.setting)
@@ -820,7 +837,7 @@ actor TadoHome {
 
     private func sendAC(_ services: ZoneServices, power: Bool, mode: String?, temperature: Double?, fanLevel: String? = nil) async {
         let zone = services.zone
-        try? await writing(services.deviceID, label: power ? "Mode: \(mode ?? "")" : "State: 0") { home, zoneID in
+        try? await writing(services, label: power ? "Mode: \(mode ?? "")" : "State: 0") { home, zoneID in
             let capabilities = try? await self.capabilities(home: home, zone: zoneID)
             let level = zone.acFanSpeed ? (fanLevel ?? self.acFanLevels[zone.name]) : nil
             let body = TadoOverlay.airConditioner(power: power, mode: mode ?? "COOL", celsius: temperature, fanLevel: level, current: self.states[zoneID]?.setting,
@@ -874,14 +891,14 @@ actor TadoHome {
 
     private func setOpenWindow(zone: String, _ enabled: Bool) async throws {
         guard let services = zones[zone] else { return }
-        try await writing(services.deviceID, label: "\(zone) Window: \(enabled)", throwing: true) { home, zoneID in
+        try await writing(services, label: "\(zone) Window: \(enabled)", throwing: true) { home, zoneID in
             try await self.api.setOpenWindow(home, zone: zoneID, enabled)
             self.openWindowEnabled[zoneID] = enabled
         }
     }
 
     private func setChildLock(_ serial: String, _ enabled: Bool) async throws {
-        guard let home = homeID else { throw HAPStatusError(.serviceCommunicationFailure) }
+        guard homeID != nil else { throw HAPStatusError(.serviceCommunicationFailure) }
         logger.info("\(settings.name) Child Lock: \(serial): \(enabled)")
         do {
             try await api.setChildLock(serial: serial, enabled)
@@ -889,7 +906,6 @@ actor TadoHome {
             logger.error("\(settings.name) Child Lock: failed to set states: \(error)")
             throw HAPStatusError(.serviceCommunicationFailure)
         }
-        _ = home
     }
 
     private func setPresenceLock(target: Int) async throws {
@@ -967,9 +983,9 @@ actor TadoHome {
     /// Runs a write of a zone with its id: marks the home as writing (a poll then leaves the values alone), logs it, and
     /// logs a failure (HomeKit keeps the written value until the next poll, as with the Homebridge plugin) or, with
     /// `throwing`, answers it with No Response.
-    private func writing(_ accessory: String, label: String, throwing: Bool = false, _ body: (Int, Int) async throws -> Void) async throws {
-        let zone = zones.values.first { $0.deviceID == accessory }?.zone
-        guard let home = homeID, let zoneName = zone?.name, let zoneID = zoneIDs[zoneName] else {
+    private func writing(_ services: ZoneServices, label: String, throwing: Bool = false, _ body: (Int, Int) async throws -> Void) async throws {
+        let accessory = services.deviceID
+        guard let home = homeID, let zoneID = zoneIDs[services.zone.name] else {
             logger.error("\(accessory): cannot find the tado° zone: no request sent")
             if throwing { throw HAPStatusError(.serviceCommunicationFailure) }
             return

@@ -89,7 +89,7 @@ public actor TadoPlugin: HomeswiftPlugin {
     }
 
     /// The account of a username, made once.
-    func account(for username: String, skipAuth: Bool = false) -> TadoAccount {
+    func account(for username: String) -> TadoAccount {
         let key = username.lowercased()
         if let account = accounts[key] { return account }
         let counter = RequestCounter(file: context.jsonFile("tado-api-\(TadoHash.username(key)).json", as: RequestCounter.Stored.self), now: dependencies.now)
