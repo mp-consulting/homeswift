@@ -1,0 +1,587 @@
+{
+  "pluginAlias": "Tahoma",
+  "pluginType": "platform",
+  "singular": false,
+  "headerDisplay": "Somfy TaHoma, Connexoon and Switch, Atlantic Cozytouch and the other Overkiz setups. Sign in through Add accessories.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "description": "Plugin name as shown in the logs",
+        "required": true,
+        "default": "TaHoma"
+      },
+      "service": {
+        "title": "Service",
+        "type": "string",
+        "description": "The vendor's cloud the account belongs to, or a Somfy gateway's local API.",
+        "default": "somfy_europe",
+        "oneOf": [
+          {
+            "title": "Somfy TaHoma or Connexoon, Europe",
+            "enum": [
+              "somfy_europe"
+            ]
+          },
+          {
+            "title": "Somfy gateway on the local network (Developer Mode)",
+            "enum": [
+              "local"
+            ]
+          },
+          {
+            "title": "Somfy Connexoon RTS, Oceania",
+            "enum": [
+              "somfy_australia"
+            ]
+          },
+          {
+            "title": "Somfy TaHoma, North America",
+            "enum": [
+              "somfy_north_america"
+            ]
+          },
+          {
+            "title": "Atlantic, Thermor or Sauter Cozytouch",
+            "enum": [
+              "cozytouch"
+            ]
+          },
+          {
+            "title": "Bouygues Flexom",
+            "enum": [
+              "flexom"
+            ]
+          },
+          {
+            "title": "Rexel Energeasy Connect",
+            "enum": [
+              "rexel"
+            ]
+          },
+          {
+            "title": "Hitachi Hi Kumo",
+            "enum": [
+              "hi_kumo"
+            ]
+          }
+        ]
+      },
+      "pollingPeriod": {
+        "title": "Event period (seconds)",
+        "type": "integer",
+        "description": "How often the server is asked for changes while nothing runs; at least 10 on a cloud, 0 asks only while a command runs.",
+        "placeholder": 60,
+        "minimum": 0
+      },
+      "refreshPeriod": {
+        "title": "Full refresh (minutes)",
+        "type": "integer",
+        "description": "How often every device's state is read again, which catches changes made with remotes.",
+        "placeholder": 30,
+        "minimum": 1
+      },
+      "exposeScenarios": {
+        "title": "Scenarios as switches",
+        "type": "boolean",
+        "description": "Puts the setup's scenarios in HomeKit, each as a switch that runs it.",
+        "default": false
+      },
+      "exclude": {
+        "title": "Exclude",
+        "type": "array",
+        "description": "uiClasses, widgets, protocols (rts, hue), devices or scenarios to leave out. A device or a scenario named here moves to its accessory's settings.",
+        "items": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "devicesConfig": {
+        "title": "Options by kind",
+        "type": "array",
+        "description": "Options for every device of a uiClass, a widget or a protocol. A device's own options are in its accessory's settings.",
+        "items": {
+          "title": "Options",
+          "type": "object",
+          "x-rowTitle": "key",
+          "properties": {
+            "key": {
+              "title": "Key",
+              "type": "string",
+              "description": "A uiClass, a widget or a protocol (rts, io) whose devices these options are for.",
+              "required": true
+            },
+            "reverse": {
+              "title": "Reverse",
+              "type": "boolean",
+              "description": "Swaps open and closed for a cover that moves the other way."
+            },
+            "defaultPosition": {
+              "title": "Position after a move",
+              "type": "integer",
+              "description": "For a cover that reports no position: the position shown once a command ends (0 shows the target).",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "initPosition": {
+              "title": "Initial position",
+              "type": "integer",
+              "description": "For a window that reports no position: the position shown at start.",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "movementDuration": {
+              "title": "Travel time (seconds)",
+              "type": "number",
+              "description": "For a cover that reports no position: how long it takes to open fully, so it can stop halfway.",
+              "minimum": 0
+            },
+            "offsetMovementDuration": {
+              "title": "Travel time offset (seconds)",
+              "type": "number",
+              "description": "Added to every timed move."
+            },
+            "blindMode": {
+              "title": "Slats on the main slider",
+              "type": "boolean",
+              "description": "The main slider turns the slats of a venetian blind instead of raising it."
+            },
+            "blindsOnRollerShutter": {
+              "title": "Blinds on a roller shutter motor",
+              "type": "boolean",
+              "description": "After a move, opens a little (2 %) to open the slats."
+            },
+            "lowSpeed": {
+              "title": "Low speed",
+              "type": "string",
+              "description": "For a shutter with low-speed management: always, or a daily window such as 22:00-07:30."
+            },
+            "cyclic": {
+              "title": "One-button opener",
+              "type": "boolean",
+              "description": "The same command opens and closes it; it shows closed again after the cycle."
+            },
+            "cycleDuration": {
+              "title": "Cycle (seconds)",
+              "type": "integer",
+              "description": "How long a one-button opener stays open.",
+              "minimum": 0
+            },
+            "pedestrianDuration": {
+              "title": "Pedestrian opening (seconds)",
+              "type": "integer",
+              "description": "For a gate without a pedestrian command: how long it opens before stopping.",
+              "minimum": 0
+            },
+            "stayZones": {
+              "title": "Home zones",
+              "type": "string",
+              "description": "The alarm zones armed for Home, such as A or A,C."
+            },
+            "nightZones": {
+              "title": "Night zones",
+              "type": "string",
+              "description": "The alarm zones armed for Night."
+            },
+            "derogationDuration": {
+              "title": "Override (hours)",
+              "type": "integer",
+              "description": "How long a temperature set from HomeKit overrides the heating's schedule.",
+              "minimum": 1
+            },
+            "comfort": {
+              "title": "Comfort temperature",
+              "type": "number",
+              "description": "For a pilot-wire heater: the temperature shown for comfort."
+            },
+            "eco": {
+              "title": "Eco temperature",
+              "type": "number",
+              "description": "For a pilot-wire heater: the temperature shown for eco."
+            }
+          }
+        }
+      },
+      "preferLocalAPI": {
+        "title": "Prefer the local API",
+        "type": "boolean",
+        "description": "For a Somfy account with one gateway: makes a Developer Mode token and talks to the gateway on the local network, the cloud when it does not answer.",
+        "default": true
+      },
+      "execPollingPeriod": {
+        "title": "Event period while a command runs (seconds)",
+        "type": "integer",
+        "description": "How often the server is asked for changes while a command runs.",
+        "placeholder": 5,
+        "minimum": 1
+      },
+      "debug": {
+        "title": "Debug",
+        "type": "boolean",
+        "description": "Logs the debug lines at info level.",
+        "default": false
+      },
+      "proxy": {
+        "title": "Proxy",
+        "type": "string",
+        "description": "A base URL every request goes to instead, with X-Forward-Host naming the server.",
+        "format": "uri"
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "reverse": {
+        "title": "Reverse",
+        "type": "boolean",
+        "description": "Swaps open and closed for a cover that moves the other way.",
+        "x-kinds": [
+          "cover",
+          "venetianBlind"
+        ]
+      },
+      "defaultPosition": {
+        "title": "Position after a move",
+        "type": "integer",
+        "description": "For a cover that reports no position: the position shown once a command ends (0 shows the target).",
+        "minimum": 0,
+        "maximum": 100,
+        "x-kinds": [
+          "cover",
+          "venetianBlind"
+        ]
+      },
+      "initPosition": {
+        "title": "Initial position",
+        "type": "integer",
+        "description": "For a window that reports no position: the position shown at start.",
+        "minimum": 0,
+        "maximum": 100,
+        "x-kinds": [
+          "cover"
+        ]
+      },
+      "movementDuration": {
+        "title": "Travel time (seconds)",
+        "type": "number",
+        "description": "For a cover that reports no position: how long it takes to open fully, so it can stop halfway.",
+        "minimum": 0,
+        "x-kinds": [
+          "cover",
+          "venetianBlind"
+        ]
+      },
+      "offsetMovementDuration": {
+        "title": "Travel time offset (seconds)",
+        "type": "number",
+        "description": "Added to every timed move.",
+        "x-kinds": [
+          "cover",
+          "venetianBlind"
+        ]
+      },
+      "blindMode": {
+        "title": "Slats on the main slider",
+        "type": "boolean",
+        "description": "The main slider turns the slats of a venetian blind instead of raising it.",
+        "x-kinds": [
+          "venetianBlind"
+        ]
+      },
+      "blindsOnRollerShutter": {
+        "title": "Blinds on a roller shutter motor",
+        "type": "boolean",
+        "description": "After a move, opens a little (2 %) to open the slats.",
+        "x-kinds": [
+          "cover",
+          "venetianBlind"
+        ]
+      },
+      "lowSpeed": {
+        "title": "Low speed",
+        "type": "string",
+        "description": "For a shutter with low-speed management: always, or a daily window such as 22:00-07:30.",
+        "x-kinds": [
+          "cover"
+        ]
+      },
+      "cyclic": {
+        "title": "One-button opener",
+        "type": "boolean",
+        "description": "The same command opens and closes it; it shows closed again after the cycle.",
+        "x-kinds": [
+          "garageDoor",
+          "gate"
+        ]
+      },
+      "cycleDuration": {
+        "title": "Cycle (seconds)",
+        "type": "integer",
+        "description": "How long a one-button opener stays open.",
+        "minimum": 0,
+        "x-kinds": [
+          "garageDoor",
+          "gate"
+        ]
+      },
+      "pedestrianDuration": {
+        "title": "Pedestrian opening (seconds)",
+        "type": "integer",
+        "description": "For a gate without a pedestrian command: how long it opens before stopping.",
+        "minimum": 0,
+        "x-kinds": [
+          "gate"
+        ]
+      },
+      "stayZones": {
+        "title": "Home zones",
+        "type": "string",
+        "description": "The alarm zones armed for Home, such as A or A,C.",
+        "x-kinds": [
+          "alarm"
+        ]
+      },
+      "nightZones": {
+        "title": "Night zones",
+        "type": "string",
+        "description": "The alarm zones armed for Night.",
+        "x-kinds": [
+          "alarm"
+        ]
+      },
+      "derogationDuration": {
+        "title": "Override (hours)",
+        "type": "integer",
+        "description": "How long a temperature set from HomeKit overrides the heating's schedule.",
+        "minimum": 1,
+        "x-kinds": [
+          "heating"
+        ]
+      },
+      "comfort": {
+        "title": "Comfort temperature",
+        "type": "number",
+        "description": "For a pilot-wire heater: the temperature shown for comfort.",
+        "x-kinds": [
+          "heating"
+        ]
+      },
+      "eco": {
+        "title": "Eco temperature",
+        "type": "number",
+        "description": "For a pilot-wire heater: the temperature shown for eco.",
+        "x-kinds": [
+          "heating"
+        ]
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "A base URL every request goes to instead, with X-Forward-Host naming the server.": "Une URL de base à laquelle va chaque requête à la place, X-Forward-Host nommant le serveur.",
+      "A uiClass, a widget or a protocol (rts, io) whose devices these options are for.": "Une uiClass, un widget ou un protocole (rts, io) dont les appareils reçoivent ces options.",
+      "Added to every timed move.": "Ajouté à chaque mouvement minuté.",
+      "After a move, opens a little (2 %) to open the slats.": "Après un mouvement, rouvre un peu (2 %) pour ouvrir les lames.",
+      "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch Atlantic, Thermor ou Sauter",
+      "Blinds on a roller shutter motor": "Store sur un moteur de volet roulant",
+      "Bouygues Flexom": "Bouygues Flexom",
+      "Comfort temperature": "Température confort",
+      "Cycle (seconds)": "Cycle (secondes)",
+      "Debug": "Débogage",
+      "Eco temperature": "Température éco",
+      "Event period (seconds)": "Période des événements (secondes)",
+      "Event period while a command runs (seconds)": "Période des événements pendant une commande (secondes)",
+      "Exclude": "Exclure",
+      "For a Somfy account with one gateway: makes a Developer Mode token and talks to the gateway on the local network, the cloud when it does not answer.": "Pour un compte Somfy avec une seule box : crée un jeton du mode développeur et parle à la box sur le réseau local, au cloud quand elle ne répond pas.",
+      "For a cover that reports no position: how long it takes to open fully, so it can stop halfway.": "Pour un volet qui n'indique pas sa position : le temps qu'il met à s'ouvrir entièrement, pour pouvoir s'arrêter à mi-course.",
+      "For a cover that reports no position: the position shown once a command ends (0 shows the target).": "Pour un volet qui n'indique pas sa position : celle affichée une fois une commande terminée (0 affiche la cible).",
+      "For a gate without a pedestrian command: how long it opens before stopping.": "Pour un portail sans commande piéton : le temps qu'il s'ouvre avant de s'arrêter.",
+      "For a pilot-wire heater: the temperature shown for comfort.": "Pour un radiateur à fil pilote : la température affichée pour confort.",
+      "For a pilot-wire heater: the temperature shown for eco.": "Pour un radiateur à fil pilote : la température affichée pour éco.",
+      "For a shutter with low-speed management: always, or a daily window such as 22:00-07:30.": "Pour un volet à vitesse lente : always (toujours), ou une plage horaire comme 22:00-07:30.",
+      "For a window that reports no position: the position shown at start.": "Pour une fenêtre qui n'indique pas sa position : celle affichée au démarrage.",
+      "Full refresh (minutes)": "Actualisation complète (minutes)",
+      "Hitachi Hi Kumo": "Hitachi Hi Kumo",
+      "Home zones": "Zones à la maison",
+      "How long a one-button opener stays open.": "Le temps qu'un ouvre-porte à un bouton reste ouvert.",
+      "How long a temperature set from HomeKit overrides the heating's schedule.": "Combien de temps une température réglée depuis HomeKit remplace le programme du chauffage.",
+      "How often every device's state is read again, which catches changes made with remotes.": "La fréquence à laquelle l'état de chaque appareil est relu, ce qui rattrape les changements faits avec les télécommandes.",
+      "How often the server is asked for changes while a command runs.": "La fréquence à laquelle le serveur est interrogé pendant une commande.",
+      "How often the server is asked for changes while nothing runs; at least 10 on a cloud, 0 asks only while a command runs.": "La fréquence à laquelle le serveur est interrogé quand rien ne tourne ; au moins 10 sur un cloud, 0 n'interroge que pendant une commande.",
+      "Initial position": "Position initiale",
+      "Key": "Clé",
+      "Logs the debug lines at info level.": "Écrit les lignes de débogage au niveau info.",
+      "Low speed": "Vitesse lente",
+      "Name": "Nom",
+      "Night zones": "Zones de nuit",
+      "One-button opener": "Ouvre-porte à un bouton",
+      "Options": "Options",
+      "Options by kind": "Options par type",
+      "Options for every device of a uiClass, a widget or a protocol. A device's own options are in its accessory's settings.": "Options pour tous les appareils d'une uiClass, d'un widget ou d'un protocole. Les options propres à un appareil sont dans les réglages de son accessoire.",
+      "Override (hours)": "Dérogation (heures)",
+      "Pedestrian opening (seconds)": "Ouverture piéton (secondes)",
+      "Plugin name as shown in the logs": "Nom du plugin tel qu'il apparaît dans les journaux",
+      "Position after a move": "Position après un mouvement",
+      "Prefer the local API": "Préférer l'API locale",
+      "Proxy": "Proxy",
+      "Puts the setup's scenarios in HomeKit, each as a switch that runs it.": "Met les scénarios de l'installation dans HomeKit, chacun comme un interrupteur qui le lance.",
+      "Reverse": "Inverser",
+      "Rexel Energeasy Connect": "Rexel Energeasy Connect",
+      "Scenarios as switches": "Scénarios en interrupteurs",
+      "Service": "Service",
+      "Slats on the main slider": "Lames sur le curseur principal",
+      "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Océanie",
+      "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma ou Connexoon, Europe",
+      "Somfy TaHoma, Connexoon and Switch, Atlantic Cozytouch and the other Overkiz setups. Sign in through Add accessories.": "Somfy TaHoma, Connexoon et Switch, Atlantic Cozytouch et les autres installations Overkiz. Connectez-vous depuis Ajouter des accessoires.",
+      "Somfy TaHoma, North America": "Somfy TaHoma, Amérique du Nord",
+      "Somfy gateway on the local network (Developer Mode)": "Box Somfy sur le réseau local (mode développeur)",
+      "Swaps open and closed for a cover that moves the other way.": "Inverse ouvert et fermé pour un volet qui bouge dans l'autre sens.",
+      "The alarm zones armed for Home, such as A or A,C.": "Les zones d'alarme armées pour À la maison, comme A ou A,C.",
+      "The alarm zones armed for Night.": "Les zones d'alarme armées pour Nuit.",
+      "The main slider turns the slats of a venetian blind instead of raising it.": "Le curseur principal oriente les lames d'un store vénitien au lieu de le lever.",
+      "The same command opens and closes it; it shows closed again after the cycle.": "La même commande l'ouvre et le ferme ; il s'affiche à nouveau fermé après le cycle.",
+      "The vendor's cloud the account belongs to, or a Somfy gateway's local API.": "Le cloud du fabricant auquel appartient le compte, ou l'API locale d'une box Somfy.",
+      "Travel time (seconds)": "Durée de course (secondes)",
+      "Travel time offset (seconds)": "Décalage de la durée de course (secondes)",
+      "uiClasses, widgets, protocols (rts, hue), devices or scenarios to leave out. A device or a scenario named here moves to its accessory's settings.": "uiClasses, widgets, protocoles (rts, hue), appareils ou scénarios à laisser de côté. Un appareil ou un scénario nommé ici passe dans les réglages de son accessoire."
+    },
+    "es": {
+      "A base URL every request goes to instead, with X-Forward-Host naming the server.": "Una URL base a la que va cada petición en su lugar, con X-Forward-Host indicando el servidor.",
+      "A uiClass, a widget or a protocol (rts, io) whose devices these options are for.": "Una uiClass, un widget o un protocolo (rts, io) a cuyos dispositivos se aplican estas opciones.",
+      "Added to every timed move.": "Se suma a cada movimiento cronometrado.",
+      "After a move, opens a little (2 %) to open the slats.": "Tras un movimiento, abre un poco (2 %) para abrir las lamas.",
+      "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch de Atlantic, Thermor o Sauter",
+      "Blinds on a roller shutter motor": "Estor con motor de persiana enrollable",
+      "Bouygues Flexom": "Bouygues Flexom",
+      "Comfort temperature": "Temperatura de confort",
+      "Cycle (seconds)": "Ciclo (segundos)",
+      "Debug": "Depuración",
+      "Eco temperature": "Temperatura eco",
+      "Event period (seconds)": "Periodo de eventos (segundos)",
+      "Event period while a command runs (seconds)": "Periodo de eventos durante una orden (segundos)",
+      "Exclude": "Excluir",
+      "For a Somfy account with one gateway: makes a Developer Mode token and talks to the gateway on the local network, the cloud when it does not answer.": "Para una cuenta Somfy con una sola pasarela: crea un token del modo desarrollador y habla con la pasarela en la red local, con la nube cuando no responde.",
+      "For a cover that reports no position: how long it takes to open fully, so it can stop halfway.": "Para una persiana que no indica su posición: lo que tarda en abrirse del todo, para poder pararla a medio camino.",
+      "For a cover that reports no position: the position shown once a command ends (0 shows the target).": "Para una persiana que no indica su posición: la que se muestra al terminar una orden (0 muestra el objetivo).",
+      "For a gate without a pedestrian command: how long it opens before stopping.": "Para una cancela sin orden peatonal: lo que se abre antes de pararse.",
+      "For a pilot-wire heater: the temperature shown for comfort.": "Para un radiador de hilo piloto: la temperatura que se muestra en confort.",
+      "For a pilot-wire heater: the temperature shown for eco.": "Para un radiador de hilo piloto: la temperatura que se muestra en eco.",
+      "For a shutter with low-speed management: always, or a daily window such as 22:00-07:30.": "Para una persiana con velocidad lenta: always (siempre), o una franja diaria como 22:00-07:30.",
+      "For a window that reports no position: the position shown at start.": "Para una ventana que no indica su posición: la que se muestra al inicio.",
+      "Full refresh (minutes)": "Actualización completa (minutos)",
+      "Hitachi Hi Kumo": "Hitachi Hi Kumo",
+      "Home zones": "Zonas en casa",
+      "How long a one-button opener stays open.": "Lo que un abridor de un botón permanece abierto.",
+      "How long a temperature set from HomeKit overrides the heating's schedule.": "Cuánto tiempo una temperatura fijada desde HomeKit sustituye la programación de la calefacción.",
+      "How often every device's state is read again, which catches changes made with remotes.": "Con qué frecuencia se vuelve a leer el estado de cada dispositivo, lo que recoge los cambios hechos con mandos.",
+      "How often the server is asked for changes while a command runs.": "Con qué frecuencia se consulta al servidor durante una orden.",
+      "How often the server is asked for changes while nothing runs; at least 10 on a cloud, 0 asks only while a command runs.": "Con qué frecuencia se consulta al servidor cuando no hay nada en curso; al menos 10 en una nube, 0 solo consulta durante una orden.",
+      "Initial position": "Posición inicial",
+      "Key": "Clave",
+      "Logs the debug lines at info level.": "Escribe las líneas de depuración en el nivel info.",
+      "Low speed": "Velocidad lenta",
+      "Name": "Nombre",
+      "Night zones": "Zonas de noche",
+      "One-button opener": "Abridor de un botón",
+      "Options": "Opciones",
+      "Options by kind": "Opciones por tipo",
+      "Options for every device of a uiClass, a widget or a protocol. A device's own options are in its accessory's settings.": "Opciones para todos los dispositivos de una uiClass, un widget o un protocolo. Las opciones propias de un dispositivo están en los ajustes de su accesorio.",
+      "Override (hours)": "Derogación (horas)",
+      "Pedestrian opening (seconds)": "Apertura peatonal (segundos)",
+      "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "Position after a move": "Posición tras un movimiento",
+      "Prefer the local API": "Preferir la API local",
+      "Proxy": "Proxy",
+      "Puts the setup's scenarios in HomeKit, each as a switch that runs it.": "Añade los escenarios de la instalación a HomeKit, cada uno como un interruptor que lo ejecuta.",
+      "Reverse": "Invertir",
+      "Rexel Energeasy Connect": "Rexel Energeasy Connect",
+      "Scenarios as switches": "Escenarios como interruptores",
+      "Service": "Servicio",
+      "Slats on the main slider": "Lamas en el control principal",
+      "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Oceanía",
+      "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma o Connexoon, Europa",
+      "Somfy TaHoma, Connexoon and Switch, Atlantic Cozytouch and the other Overkiz setups. Sign in through Add accessories.": "Somfy TaHoma, Connexoon y Switch, Atlantic Cozytouch y las demás instalaciones Overkiz. Inicie sesión desde Añadir accesorios.",
+      "Somfy TaHoma, North America": "Somfy TaHoma, Norteamérica",
+      "Somfy gateway on the local network (Developer Mode)": "Pasarela Somfy en la red local (modo desarrollador)",
+      "Swaps open and closed for a cover that moves the other way.": "Intercambia abierto y cerrado para una persiana que se mueve al revés.",
+      "The alarm zones armed for Home, such as A or A,C.": "Las zonas de alarma armadas para En casa, como A o A,C.",
+      "The alarm zones armed for Night.": "Las zonas de alarma armadas para Noche.",
+      "The main slider turns the slats of a venetian blind instead of raising it.": "El control principal orienta las lamas de una veneciana en lugar de subirla.",
+      "The same command opens and closes it; it shows closed again after the cycle.": "La misma orden lo abre y lo cierra; vuelve a mostrarse cerrado tras el ciclo.",
+      "The vendor's cloud the account belongs to, or a Somfy gateway's local API.": "La nube del fabricante a la que pertenece la cuenta, o la API local de una pasarela Somfy.",
+      "Travel time (seconds)": "Tiempo de recorrido (segundos)",
+      "Travel time offset (seconds)": "Ajuste del tiempo de recorrido (segundos)",
+      "uiClasses, widgets, protocols (rts, hue), devices or scenarios to leave out. A device or a scenario named here moves to its accessory's settings.": "uiClasses, widgets, protocolos (rts, hue), dispositivos o escenarios que se dejan fuera. Un dispositivo o escenario indicado aquí pasa a los ajustes de su accesorio."
+    },
+    "pt": {
+      "A base URL every request goes to instead, with X-Forward-Host naming the server.": "Um URL base para onde vai cada pedido em vez disso, com X-Forward-Host a indicar o servidor.",
+      "A uiClass, a widget or a protocol (rts, io) whose devices these options are for.": "Uma uiClass, um widget ou um protocolo (rts, io) a cujos dispositivos se aplicam estas opções.",
+      "Added to every timed move.": "Somado a cada movimento cronometrado.",
+      "After a move, opens a little (2 %) to open the slats.": "Após um movimento, abre um pouco (2 %) para abrir as lâminas.",
+      "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch da Atlantic, Thermor ou Sauter",
+      "Blinds on a roller shutter motor": "Estore num motor de estore de enrolar",
+      "Bouygues Flexom": "Bouygues Flexom",
+      "Comfort temperature": "Temperatura de conforto",
+      "Cycle (seconds)": "Ciclo (segundos)",
+      "Debug": "Depuração",
+      "Eco temperature": "Temperatura eco",
+      "Event period (seconds)": "Período dos eventos (segundos)",
+      "Event period while a command runs (seconds)": "Período dos eventos durante um comando (segundos)",
+      "Exclude": "Excluir",
+      "For a Somfy account with one gateway: makes a Developer Mode token and talks to the gateway on the local network, the cloud when it does not answer.": "Para uma conta Somfy com um só gateway: cria um token do modo de programador e fala com o gateway na rede local, com a nuvem quando não responde.",
+      "For a cover that reports no position: how long it takes to open fully, so it can stop halfway.": "Para um estore que não indica a posição: o tempo que demora a abrir totalmente, para poder parar a meio.",
+      "For a cover that reports no position: the position shown once a command ends (0 shows the target).": "Para um estore que não indica a posição: a mostrada quando um comando termina (0 mostra o alvo).",
+      "For a gate without a pedestrian command: how long it opens before stopping.": "Para um portão sem comando pedonal: o tempo que abre antes de parar.",
+      "For a pilot-wire heater: the temperature shown for comfort.": "Para um radiador de fio piloto: a temperatura mostrada em conforto.",
+      "For a pilot-wire heater: the temperature shown for eco.": "Para um radiador de fio piloto: a temperatura mostrada em eco.",
+      "For a shutter with low-speed management: always, or a daily window such as 22:00-07:30.": "Para um estore com velocidade lenta: always (sempre), ou um intervalo diário como 22:00-07:30.",
+      "For a window that reports no position: the position shown at start.": "Para uma janela que não indica a posição: a mostrada no arranque.",
+      "Full refresh (minutes)": "Atualização completa (minutos)",
+      "Hitachi Hi Kumo": "Hitachi Hi Kumo",
+      "Home zones": "Zonas em casa",
+      "How long a one-button opener stays open.": "O tempo que um abridor de um botão fica aberto.",
+      "How long a temperature set from HomeKit overrides the heating's schedule.": "Quanto tempo uma temperatura definida no HomeKit substitui a programação do aquecimento.",
+      "How often every device's state is read again, which catches changes made with remotes.": "Com que frequência o estado de cada dispositivo é lido de novo, o que apanha as alterações feitas com comandos.",
+      "How often the server is asked for changes while a command runs.": "Com que frequência o servidor é consultado durante um comando.",
+      "How often the server is asked for changes while nothing runs; at least 10 on a cloud, 0 asks only while a command runs.": "Com que frequência o servidor é consultado quando nada está a correr; pelo menos 10 numa nuvem, 0 só consulta durante um comando.",
+      "Initial position": "Posição inicial",
+      "Key": "Chave",
+      "Logs the debug lines at info level.": "Escreve as linhas de depuração no nível info.",
+      "Low speed": "Velocidade lenta",
+      "Name": "Nome",
+      "Night zones": "Zonas de noite",
+      "One-button opener": "Abridor de um botão",
+      "Options": "Opções",
+      "Options by kind": "Opções por tipo",
+      "Options for every device of a uiClass, a widget or a protocol. A device's own options are in its accessory's settings.": "Opções para todos os dispositivos de uma uiClass, um widget ou um protocolo. As opções próprias de um dispositivo estão nas definições do seu acessório.",
+      "Override (hours)": "Derrogação (horas)",
+      "Pedestrian opening (seconds)": "Abertura pedonal (segundos)",
+      "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "Position after a move": "Posição após um movimento",
+      "Prefer the local API": "Preferir a API local",
+      "Proxy": "Proxy",
+      "Puts the setup's scenarios in HomeKit, each as a switch that runs it.": "Coloca os cenários da instalação no HomeKit, cada um como um interruptor que o executa.",
+      "Reverse": "Inverter",
+      "Rexel Energeasy Connect": "Rexel Energeasy Connect",
+      "Scenarios as switches": "Cenários como interruptores",
+      "Service": "Serviço",
+      "Slats on the main slider": "Lâminas no controlo principal",
+      "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Oceânia",
+      "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma ou Connexoon, Europa",
+      "Somfy TaHoma, Connexoon and Switch, Atlantic Cozytouch and the other Overkiz setups. Sign in through Add accessories.": "Somfy TaHoma, Connexoon e Switch, Atlantic Cozytouch e as outras instalações Overkiz. Inicie sessão em Adicionar acessórios.",
+      "Somfy TaHoma, North America": "Somfy TaHoma, América do Norte",
+      "Somfy gateway on the local network (Developer Mode)": "Gateway Somfy na rede local (modo de programador)",
+      "Swaps open and closed for a cover that moves the other way.": "Troca aberto e fechado para um estore que se move ao contrário.",
+      "The alarm zones armed for Home, such as A or A,C.": "As zonas de alarme armadas para Em casa, como A ou A,C.",
+      "The alarm zones armed for Night.": "As zonas de alarme armadas para Noite.",
+      "The main slider turns the slats of a venetian blind instead of raising it.": "O controlo principal orienta as lâminas de um estore veneziano em vez de o subir.",
+      "The same command opens and closes it; it shows closed again after the cycle.": "O mesmo comando abre-o e fecha-o; volta a aparecer fechado após o ciclo.",
+      "The vendor's cloud the account belongs to, or a Somfy gateway's local API.": "A nuvem do fabricante a que pertence a conta, ou a API local de um gateway Somfy.",
+      "Travel time (seconds)": "Tempo de curso (segundos)",
+      "Travel time offset (seconds)": "Ajuste do tempo de curso (segundos)",
+      "uiClasses, widgets, protocols (rts, hue), devices or scenarios to leave out. A device or a scenario named here moves to its accessory's settings.": "uiClasses, widgets, protocolos (rts, hue), dispositivos ou cenários a deixar de fora. Um dispositivo ou cenário indicado aqui passa para as definições do seu acessório."
+    }
+  }
+}
