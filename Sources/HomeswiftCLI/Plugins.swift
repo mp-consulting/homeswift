@@ -1,4 +1,4 @@
-import HomeswiftCameraFFmpeg
+import HomeswiftIPCameras
 import HomeswiftDaikinCloud
 import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
@@ -36,6 +36,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
-    registry.register(CameraFFmpegPlugin.self)
+    registry.register(IPCamerasPlugin.self)
     return registry
 }

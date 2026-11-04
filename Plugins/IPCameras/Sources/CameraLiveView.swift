@@ -5,7 +5,7 @@ import HomeswiftFFmpeg
 // The web UI's live view of a camera (docs/plugins.md, "Live video in the web UI"): FFmpeg copies the source's video into
 // fragmented MP4 while a card is on screen, and stops when it leaves. The source's own codec is sent, so a camera whose
 // video is not H.264 or H.265 (MJPEG) keeps its snapshots only.
-extension CameraFFmpegPlugin {
+extension IPCamerasPlugin {
     /// How long a viewer waits for the first picture.
     static let liveFeedTimeout: Duration = .seconds(15)
 

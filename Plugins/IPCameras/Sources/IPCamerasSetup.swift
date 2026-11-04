@@ -6,7 +6,7 @@ import Logging
 // Setup (GLOSSARY.md, "Setup"): each camera is a device whose Device Id is its name (`Camera-ffmpeg:<name>`), of the
 // Device Kind `camera`, listed from the block's `cameras` and asking nothing: its credentials are in its `source`. The
 // account is the MQTT broker's sign-in, kept in the vault; Homebridge's `passmqtt` moves there at the next settings write.
-extension CameraFFmpegPlugin {
+extension IPCamerasPlugin {
     /// What the vault keeps for the account.
     struct BrokerCredentials: Codable, Sendable {
         var password: String?

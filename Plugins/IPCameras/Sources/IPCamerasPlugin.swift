@@ -6,13 +6,13 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 
-/// Any camera FFmpeg can read (RTSP, HTTP, MJPEG…) in HomeKit, as homebridge-camera-ffmpeg puts it there: live
+/// IP cameras over RTSP, HTTP snapshots or MJPEG in HomeKit, as homebridge-camera-ffmpeg puts them there: live
 /// streams and snapshots through FFmpeg, two-way audio, HomeKit Secure Video with an optional prebuffer, and a motion
 /// sensor, a doorbell and trigger switches driven by MQTT messages or a small HTTP API. Each camera is an accessory of
 /// its own (`context.publishExternal`), added in the Home app with the bridge's setup code. The configuration is that
 /// plugin's `Camera-ffmpeg` block, so a Homebridge block works unchanged; docs/clean-room/CameraFFmpeg.md is the
 /// functional specification it was written from. See README.md.
-public actor CameraFFmpegPlugin: HomeswiftPlugin {
+public actor IPCamerasPlugin: HomeswiftPlugin {
     /// What the plugin reaches the world with; tests swap them.
     struct Dependencies: Sendable {
         var connectMQTT: @Sendable (MQTTConfiguration) -> any MQTTConnection = { MQTTClient($0) }
@@ -33,9 +33,9 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
     }
 
     public static let platform = "Camera-ffmpeg"
-    public static let name = "FFmpeg Cameras"
+    public static let name = "IP Cameras"
     public static let icon: String? = "camera"
-    public static let summary: String? = "Any camera FFmpeg can read, with HomeKit Secure Video, motion and doorbell"
+    public static let summary: String? = "IP cameras over RTSP, HTTP or MJPEG, with HomeKit Secure Video, motion and doorbell"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 
     /// Every camera is of this Device Kind.

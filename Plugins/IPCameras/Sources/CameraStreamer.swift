@@ -14,7 +14,7 @@ actor CameraStreamer: CameraStreamingDelegate {
     /// A prepared stream HomeKit never started gives its ports back after this long.
     static let preparedLifetime: Duration = .seconds(60)
 
-    let video: CameraFFmpegPlugin.VideoConfig
+    let video: IPCamerasPlugin.VideoConfig
     let log: CameraLog
     let tools: FFmpegTools
     private let ports: RtpPortAllocator
@@ -50,7 +50,7 @@ actor CameraStreamer: CameraStreamingDelegate {
     /// The live views' FFmpeg processes, which the plugin's stop ends.
     var liveViews: [ObjectIdentifier: FfmpegProcess] = [:]
 
-    init(video: CameraFFmpegPlugin.VideoConfig, log: CameraLog, tools: FFmpegTools, ports: RtpPortAllocator, timeScale: Double = 1) {
+    init(video: IPCamerasPlugin.VideoConfig, log: CameraLog, tools: FFmpegTools, ports: RtpPortAllocator, timeScale: Double = 1) {
         self.video = video
         self.log = log
         self.tools = tools
@@ -98,7 +98,7 @@ actor CameraStreamer: CameraStreamingDelegate {
         return (try await task.value, false)
     }
 
-    private static func fetchSnapshot(video: CameraFFmpegPlugin.VideoConfig, snapFilter: String, tools: FFmpegTools, log: CameraLog) async throws -> Data {
+    private static func fetchSnapshot(video: IPCamerasPlugin.VideoConfig, snapFilter: String, tools: FFmpegTools, log: CameraLog) async throws -> Data {
         let arguments = FFmpegArguments.snapshotFetch(video, snapFilter: snapFilter)
         let started = ContinuousClock.now
         let result = await FfmpegExec(tools.options, commandLineArgs: arguments, logErrors: video.debug).exec(timeout: snapshotTimeout)

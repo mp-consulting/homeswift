@@ -6,7 +6,7 @@ import NIOConcurrencyHelpers
 /// HomeKit Secure Video for one camera (sections 9.1 to 9.4): each recording is an FFmpeg reading the source (or the
 /// prebuffer) and writing fragmented MP4, cut into the initialization segment and `moof` + `mdat` fragments.
 final class CameraRecorder: CameraRecordingDelegate, @unchecked Sendable {
-    let video: CameraFFmpegPlugin.VideoConfig
+    let video: IPCamerasPlugin.VideoConfig
     let log: CameraLog
     let tools: FFmpegTools
     let prebuffer: Prebuffer?
@@ -25,7 +25,7 @@ final class CameraRecorder: CameraRecordingDelegate, @unchecked Sendable {
 
     private let state = NIOLockedValueBox(State())
 
-    init(video: CameraFFmpegPlugin.VideoConfig, log: CameraLog, tools: FFmpegTools, prebuffer: Prebuffer?) {
+    init(video: IPCamerasPlugin.VideoConfig, log: CameraLog, tools: FFmpegTools, prebuffer: Prebuffer?) {
         self.video = video
         self.log = log
         self.tools = tools
@@ -212,7 +212,7 @@ final class Prebuffer: @unchecked Sendable {
     /// Boxes beyond this many bytes go first, whatever their age.
     static let maximumBytes = 64 * 1024 * 1024
 
-    let video: CameraFFmpegPlugin.VideoConfig
+    let video: IPCamerasPlugin.VideoConfig
     let log: CameraLog
     let tools: FFmpegTools
 
@@ -229,7 +229,7 @@ final class Prebuffer: @unchecked Sendable {
 
     private let state = NIOLockedValueBox(State())
 
-    init(video: CameraFFmpegPlugin.VideoConfig, log: CameraLog, tools: FFmpegTools) {
+    init(video: IPCamerasPlugin.VideoConfig, log: CameraLog, tools: FFmpegTools) {
         self.video = video
         self.log = log
         self.tools = tools

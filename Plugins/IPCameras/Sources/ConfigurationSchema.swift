@@ -1,3 +1,9 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension IPCamerasPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
 {
   "pluginAlias": "Camera-ffmpeg",
   "pluginType": "platform",
@@ -10,7 +16,7 @@
         "type": "string",
         "description": "Plugin name as shown in the logs",
         "required": true,
-        "default": "FFmpeg Cameras"
+        "default": "IP Cameras"
       },
       "videoProcessor": {
         "title": "Video Processor",
@@ -611,4 +617,6 @@
       "Video Stream": "Faixa de vídeo"
     }
   }
+}
+"""#
 }

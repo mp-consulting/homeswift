@@ -6,7 +6,7 @@ import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
-@testable import HomeswiftCameraFFmpeg
+@testable import HomeswiftIPCameras
 
 /// Real cameras, on demand: `CAMERA_FFMPEG_FEEDS` names a file of `<name> <rtsp(s)://…>` lines (kept out of the repository:
 /// the URLs carry credentials, and nothing here prints them), `CAMERA_FFMPEG_OUTPUT` a directory for the snapshots, and

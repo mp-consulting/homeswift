@@ -1,9 +1,10 @@
-# FFmpeg Cameras
+# IP Cameras
 
-Any camera FFmpeg can read (RTSP, HTTP, MJPEG, a file…) in HomeKit: snapshots and live video through FFmpeg, audio,
-two-way audio, HomeKit Secure Video with an optional prebuffer, and a motion sensor, a doorbell and trigger switches
-driven by MQTT messages or a small HTTP API. Each camera is an accessory of its own, on a HAP server of its own, which
-the Home app adds with the bridge's setup code (the banner and the Status page list it with the bridges).
+IP cameras over RTSP, HTTP snapshots or MJPEG, through FFmpeg (any source FFmpeg can read, a file included) in
+HomeKit: snapshots and live video, audio, two-way audio, HomeKit Secure Video with an optional prebuffer, and a motion
+sensor, a doorbell and trigger switches driven by MQTT messages or a small HTTP API. Each camera is an accessory of its
+own, on a HAP server of its own, which the Home app adds with the bridge's setup code (the banner and the Status page
+list it with the bridges).
 
 It reads the `Camera-ffmpeg` block of homebridge-camera-ffmpeg as it is, so a Homebridge configuration works unchanged.
 
@@ -17,7 +18,7 @@ It reads the `Camera-ffmpeg` block of homebridge-camera-ffmpeg as it is, so a Ho
   "platforms": [
     {
       "platform": "Camera-ffmpeg",
-      "name": "FFmpeg Cameras",
+      "name": "IP Cameras",
       "cameras": [
         { "name": "Front Door", "videoConfig": { "source": "-i rtsp://user:password@192.168.1.20:554/stream1" } }
       ]
@@ -129,7 +130,7 @@ and a password, both optional). The Add accessories page lists the cameras of th
 
 ## How it was tested
 
-`swift test --filter CameraFFmpegTests`: the configuration (the spec's example blocks, truthiness), the identity
+`swift test --filter IPCamerasTests`: the configuration (the spec's example blocks, truthiness), the identity
 vectors, every FFmpeg command line against the spec's vectors, the MP4 box framing, the motion and doorbell triggers
 and their timers, the MQTT routes on a fake broker, the HTTP API's vectors and its server on the loopback, and, with a
 shell script standing in for FFmpeg, snapshots and their cache, stream start, stop and inactivity, the live view, and a recording cut

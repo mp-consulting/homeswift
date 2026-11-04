@@ -38,7 +38,7 @@ struct MQTTRoutes: Sendable {
     /// The topics in the order they were first registered.
     private(set) var topics: [String] = []
 
-    mutating func register(camera name: String, mqtt: CameraFFmpegPlugin.CameraMQTT, triggers: CameraTriggers) {
+    mutating func register(camera name: String, mqtt: IPCamerasPlugin.CameraMQTT, triggers: CameraTriggers) {
         func add(_ topic: String?, _ message: String?, _ action: TriggerAction) {
             guard let topic else { return }
             if routes[topic] == nil { topics.append(topic) }
@@ -63,7 +63,7 @@ final class MQTTAutomation: Sendable {
     let connection: any MQTTConnection
     private let tasks = TaskBag()
 
-    init(configuration: CameraFFmpegPlugin.Configuration, host: String, password: String?, routes: MQTTRoutes, logger: Logger,
+    init(configuration: IPCamerasPlugin.Configuration, host: String, password: String?, routes: MQTTRoutes, logger: Logger,
          connect: @Sendable (MQTTConfiguration) -> any MQTTConnection) {
         let port = configuration.mqttPort
         let transport: MQTTConfiguration.Transport = configuration.mqttTLS ? .tls(host: host, port: port) : .tcp(host: host, port: port)

@@ -6,7 +6,7 @@ import HomeswiftPlugin
 // JavaScript truthiness (absent, null, false, 0 and "" are all "off"), ports may be numbers or numeric strings, and
 // unknown keys (`unbridge`, `hflip`, a top-level `topic`…) are ignored. docs/clean-room/CameraFFmpeg.md, section 3.
 
-extension CameraFFmpegPlugin {
+extension IPCamerasPlugin {
     public struct Configuration: Decodable, Sendable {
         /// `videoProcessor`: the FFmpeg executable (a path, or a name in PATH); `ffmpeg` when unset.
         public var videoProcessor: String?

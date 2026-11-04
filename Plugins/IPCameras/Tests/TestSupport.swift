@@ -6,7 +6,7 @@ import Logging
 import NIOConcurrencyHelpers
 
 @testable import Homeswift
-@testable import HomeswiftCameraFFmpeg
+@testable import HomeswiftIPCameras
 
 /// The log in tests: set HOMESWIFT_TEST_LOG to a level (trace, debug, ...) to see it.
 let testLogger: Logger = {
@@ -17,29 +17,29 @@ let testLogger: Logger = {
 
 /// A host with one `Camera-ffmpeg` block, its MQTT broker in memory and its timers shortened.
 final class TestEnvironment: Sendable {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-CameraFFmpeg-tests-\(UUID().uuidString)")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-IPCameras-tests-\(UUID().uuidString)")
     let mqtt = FakeMQTTConnection()
     let timeScale: Double
-    private let plugins = NIOLockedValueBox<[CameraFFmpegPlugin]>([])
+    private let plugins = NIOLockedValueBox<[IPCamerasPlugin]>([])
 
     init(timeScale: Double = 0.01) {
         self.timeScale = timeScale
     }
 
-    var plugin: CameraFFmpegPlugin? { plugins.withLockedValue { $0.last } }
+    var plugin: IPCamerasPlugin? { plugins.withLockedValue { $0.last } }
 
     func start(_ settings: [String: Any]) async throws -> PluginHost {
         var registry = PluginRegistry()
         let mqtt = mqtt
         let timeScale = timeScale
-        registry.register(platform: CameraFFmpegPlugin.platform, name: CameraFFmpegPlugin.name) { json, context in
-            let configuration = try JSONDecoder().decode(CameraFFmpegPlugin.Configuration.self, from: json)
-            let plugin = CameraFFmpegPlugin(configuration: configuration, context: context,
+        registry.register(platform: IPCamerasPlugin.platform, name: IPCamerasPlugin.name) { json, context in
+            let configuration = try JSONDecoder().decode(IPCamerasPlugin.Configuration.self, from: json)
+            let plugin = IPCamerasPlugin(configuration: configuration, context: context,
                                             dependencies: .init(connectMQTT: { _ in mqtt }, timeScale: timeScale, capabilities: { _, _ in FFmpegCapabilities(known: nil) }))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
-        let block = try HomeswiftConfiguration.Platform(platform: CameraFFmpegPlugin.platform, name: CameraFFmpegPlugin.name, settings: settings)
+        let block = try HomeswiftConfiguration.Platform(platform: IPCamerasPlugin.platform, name: IPCamerasPlugin.name, settings: settings)
         let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
         let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         let host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: directory, options: options)
@@ -49,7 +49,7 @@ final class TestEnvironment: Sendable {
 
     /// The accessory published on its own server for a camera.
     func accessory(_ host: PluginHost, named name: String) -> Accessory? {
-        host.bridges.dropFirst().flatMap { $0.server.accessories }.first { $0.id == CameraFFmpegPlugin.accessoryID(name: name) }
+        host.bridges.dropFirst().flatMap { $0.server.accessories }.first { $0.id == IPCamerasPlugin.accessoryID(name: name) }
     }
 
     /// A shell script standing in for FFmpeg: a recording prints a few MP4 boxes, a snapshot fetch prints `IMAGE`, a
@@ -85,8 +85,8 @@ func eventually(timeout: Duration = .seconds(10), _ condition: @Sendable () asyn
 }
 
 /// A camera's video settings from JSON, as a block gives them.
-func videoConfig(_ json: [String: Any]) throws -> CameraFFmpegPlugin.VideoConfig {
-    CameraFFmpegPlugin.VideoConfig(json: try JSONValue(any: json))
+func videoConfig(_ json: [String: Any]) throws -> IPCamerasPlugin.VideoConfig {
+    IPCamerasPlugin.VideoConfig(json: try JSONValue(any: json))
 }
 
 /// What HomeKit sends to start a stream (the spec's vector by default).

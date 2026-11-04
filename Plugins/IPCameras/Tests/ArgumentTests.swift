@@ -3,7 +3,7 @@ import HomeswiftFFmpeg
 import Testing
 
 @testable import Homeswift
-@testable import HomeswiftCameraFFmpeg
+@testable import HomeswiftIPCameras
 
 /// The FFmpeg command lines against the vectors of docs/clean-room/CameraFFmpeg.md, sections 7 and 9.
 struct ArgumentTests {

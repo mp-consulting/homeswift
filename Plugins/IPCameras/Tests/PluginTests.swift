@@ -7,12 +7,12 @@ import NIOPosix
 import Testing
 
 @testable import Homeswift
-@testable import HomeswiftCameraFFmpeg
+@testable import HomeswiftIPCameras
 
 @Suite(.timeLimit(.minutes(1)))
 struct ConfigurationTests {
     @Test func aMinimalBlockDecodes() throws {
-        let configuration = try JSONDecoder().decode(CameraFFmpegPlugin.Configuration.self, from: Data("""
+        let configuration = try JSONDecoder().decode(IPCamerasPlugin.Configuration.self, from: Data("""
             { "platform": "Camera-ffmpeg", "cameras": [ { "name": "Front Door", "videoConfig": { "source": "-i rtsp://u:p@10.0.0.5:554/s1" } } ] }
             """.utf8))
         #expect(configuration.mqttHost == nil && configuration.httpPort == nil)
@@ -25,7 +25,7 @@ struct ConfigurationTests {
     }
 
     @Test func theFullAutomationBlockDecodes() throws {
-        let configuration = try JSONDecoder().decode(CameraFFmpegPlugin.Configuration.self, from: Data("""
+        let configuration = try JSONDecoder().decode(IPCamerasPlugin.Configuration.self, from: Data("""
             { "platform": "Camera-ffmpeg", "mqtt": "127.0.0.1", "portmqtt": 1883, "usermqtt": "hb", "passmqtt": "secret",
               "porthttp": "8080", "localhttp": true, "unbridge": true, "topic": "legacy",
               "cameras": [ { "name": "Front Door", "motion": true, "doorbell": true, "switches": true, "motionTimeout": 15, "motionDoorbell": false,
@@ -51,15 +51,15 @@ struct ConfigurationTests {
         #expect(video.maxStreams == 3 && video.vcodec == "libx264" && video.packetSize == 1316)
         // The prebuffer needs recording.
         #expect(!video.prebuffer)
-        let configuration = CameraFFmpegPlugin.Configuration(json: try JSONValue(any: ["portmqtt": 0, "porthttp": 0, "tlsmqtt": 1, "mqtt": ""]))
+        let configuration = IPCamerasPlugin.Configuration(json: try JSONValue(any: ["portmqtt": 0, "porthttp": 0, "tlsmqtt": 1, "mqtt": ""]))
         #expect(configuration.mqttPort == 1883 && configuration.httpPort == nil && configuration.mqttTLS && configuration.mqttHost == nil)
     }
 
     @Test func passmqttLeavesTheBlock() throws {
         let block = try JSONValue(string: #"{"platform":"Camera-ffmpeg","mqtt":"broker","usermqtt":"hb","passmqtt":"secret"}"#)
-        let canonical = CameraFFmpegPlugin.canonical(block)
+        let canonical = IPCamerasPlugin.canonical(block)
         #expect(canonical["passmqtt"] == nil && canonical["usermqtt"] == "hb")
-        #expect(CameraFFmpegPlugin.canonical(canonical) == canonical)
+        #expect(IPCamerasPlugin.canonical(canonical) == canonical)
     }
 
     @Test func cameraOptionsMoveIntoAccessorySettings() throws {
@@ -67,23 +67,23 @@ struct ConfigurationTests {
             {"platform":"Camera-ffmpeg","_accessories":{"Front Door":{"motionTimeout":30}},
              "cameras":[{"name":"Front Door","motion":true,"motionTimeout":15,"videoConfig":{"source":"-i x"}},{"videoConfig":{"source":"-i y"},"doorbell":true}]}
             """)
-        let canonical = CameraFFmpegPlugin.canonical(block)
+        let canonical = IPCamerasPlugin.canonical(block)
         #expect(canonical["_accessories"]?["Front Door"]?["motion"] == true)
         // What the Accessory Settings hold already wins.
         #expect(canonical["_accessories"]?["Front Door"]?["motionTimeout"] == 30)
         #expect(canonical["cameras"]?[0]?["motion"] == nil && canonical["cameras"]?[0]?["videoConfig"]?["source"] == "-i x")
         // An unnamed camera has no Device Id yet: its options stay.
         #expect(canonical["cameras"]?[1]?["doorbell"] == true)
-        #expect(CameraFFmpegPlugin.canonical(canonical) == canonical)
+        #expect(IPCamerasPlugin.canonical(canonical) == canonical)
         // Read back, the settings are the camera's.
-        let camera = CameraFFmpegPlugin.Camera(json: try #require(canonical["cameras"]?[0])).with(settings: try #require(canonical["_accessories"]?["Front Door"]?.objectValue))
+        let camera = IPCamerasPlugin.Camera(json: try #require(canonical["cameras"]?[0])).with(settings: try #require(canonical["_accessories"]?["Front Door"]?.objectValue))
         #expect(camera.motion && camera.motionTimeout == 30)
     }
 
     @Test func identityVectors() {
-        #expect(CameraFFmpegPlugin.hapUUID("Front Door") == "4ffef822-6592-43bb-898a-028dd181bd69")
-        #expect(CameraFFmpegPlugin.hapUUID("Camera Name") == "727c22f8-f330-4b78-9226-010e5d64a283")
-        #expect(CameraFFmpegPlugin.hapUUID("Camera 1") == "404d3fda-a266-4712-a3f1-18a7efa9eddf")
+        #expect(IPCamerasPlugin.hapUUID("Front Door") == "4ffef822-6592-43bb-898a-028dd181bd69")
+        #expect(IPCamerasPlugin.hapUUID("Camera Name") == "727c22f8-f330-4b78-9226-010e5d64a283")
+        #expect(IPCamerasPlugin.hapUUID("Camera 1") == "404d3fda-a266-4712-a3f1-18a7efa9eddf")
     }
 
     @Test func camerasAreCheckedInOrder() throws {
@@ -94,8 +94,8 @@ struct ConfigurationTests {
             ["name": "Camera 1", "videoConfig": ["source": "-i b"]],
             ["name": "Garden", "videoConfig": ["source": "rtsp://c"]],
             [:],
-        ].map { CameraFFmpegPlugin.Camera(json: try JSONValue(any: $0)) }
-        let accepted = CameraFFmpegPlugin.accept(cameras, logger: testLogger)
+        ].map { IPCamerasPlugin.Camera(json: try JSONValue(any: $0)) }
+        let accepted = IPCamerasPlugin.accept(cameras, logger: testLogger)
         // The unnamed first is Camera 1, so the named Camera 1 is a duplicate; a source without -i is kept; the
         // unnamed last one, Camera 3, has no videoConfig.
         #expect(accepted.map(\.name) == ["Camera 1", "Garden"])
@@ -104,9 +104,9 @@ struct ConfigurationTests {
     @Test func schemaIsCurrent() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let file = try String(contentsOf: root.appendingPathComponent("config.schema.json"), encoding: .utf8)
-        #expect(CameraFFmpegPlugin.configurationSchemaJSON == file.trimmingCharacters(in: .whitespacesAndNewlines),
-                "run: swift Scripts/embed-assets.swift plugin Plugins/CameraFFmpeg CameraFFmpegPlugin")
-        let schema = try JSONValue(string: try #require(CameraFFmpegPlugin.configurationSchemaJSON))
+        #expect(IPCamerasPlugin.configurationSchemaJSON == file.trimmingCharacters(in: .whitespacesAndNewlines),
+                "run: swift Scripts/embed-assets.swift plugin Plugins/IPCameras IPCamerasPlugin")
+        let schema = try JSONValue(string: try #require(IPCamerasPlugin.configurationSchemaJSON))
         #expect(schema["pluginAlias"] == "Camera-ffmpeg")
     }
 }
@@ -188,10 +188,10 @@ struct AutomationTests {
         let (front, _, _, _, _) = triggers()
         let (back, _, _, _, _) = triggers()
         var routes = MQTTRoutes()
-        routes.register(camera: "Front Door", mqtt: CameraFFmpegPlugin.CameraMQTT(json: try JSONValue(any: [
+        routes.register(camera: "Front Door", mqtt: IPCamerasPlugin.CameraMQTT(json: try JSONValue(any: [
             "motionTopic": "home/camera", "motionMessage": "ON", "motionResetTopic": "home/camera", "motionResetMessage": "OFF", "doorbellTopic": "home/doorbell",
         ])), triggers: front)
-        routes.register(camera: "Back", mqtt: CameraFFmpegPlugin.CameraMQTT(json: try JSONValue(any: ["motionTopic": "homebridge/motion"])), triggers: back)
+        routes.register(camera: "Back", mqtt: IPCamerasPlugin.CameraMQTT(json: try JSONValue(any: ["motionTopic": "homebridge/motion"])), triggers: back)
         #expect(routes.topics == ["home/camera", "home/doorbell", "homebridge/motion"])
         #expect(routes.matching(topic: "home/camera", payload: Data("ON".utf8)).map(\.action) == [.motion])
         #expect(routes.matching(topic: "home/camera", payload: Data("OFF".utf8)).map(\.action) == [.motionReset])
@@ -444,7 +444,7 @@ struct PluginTests {
         let host = try await environment.start(try block([["name": "Front Door", "videoConfig": ["source": "-i rtsp://cam/s1"]]]))
         #expect(await eventually { environment.accessory(host, named: "Front Door") != nil })
         let plugin = try #require(environment.plugin)
-        let feed = try #require(try await plugin.liveFeed(accessoryID: CameraFFmpegPlugin.accessoryID(name: "Front Door")))
+        let feed = try #require(try await plugin.liveFeed(accessoryID: IPCamerasPlugin.accessoryID(name: "Front Door")))
         func box(_ type: String, _ payload: String = "") -> Data { Data([0, 0, 0, UInt8(8 + payload.utf8.count)]) + Data((type + payload).utf8) }
         #expect(feed.initSegment == box("ftyp") + box("moov"))
         var fragments: [Data] = []
@@ -467,7 +467,7 @@ struct PluginTests {
         let host = try await environment.start(try block([["name": "Front Door", "videoConfig": ["source": "-i rtsp://cam/s1"]]],
                                                          ["mqtt": "broker", "usermqtt": "hb"]))
         let plugin = try #require(environment.plugin)
-        #expect(CameraFFmpegPlugin.accountAuthorization == .accountLogin)
+        #expect(IPCamerasPlugin.accountAuthorization == .accountLogin)
         #expect(await plugin.accountAuthorized() == false)
         guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .account)) else {
             Issue.record("the account's first step asks")

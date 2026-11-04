@@ -31,7 +31,7 @@ enum FFmpegArguments {
         var resizeFilter: String?
     }
 
-    static func filters(_ video: CameraFFmpegPlugin.VideoConfig, width: Int, height: Int, snapshot: Bool) -> Filters {
+    static func filters(_ video: IPCamerasPlugin.VideoConfig, width: Int, height: Int, snapshot: Bool) -> Filters {
         var w = width
         var h = height
         if !snapshot {
@@ -58,7 +58,7 @@ enum FFmpegArguments {
 
     // MARK: Snapshots (7.2)
 
-    static func snapshotFetch(_ video: CameraFFmpegPlugin.VideoConfig, snapFilter: String) -> [String] {
+    static func snapshotFetch(_ video: IPCamerasPlugin.VideoConfig, snapFilter: String) -> [String] {
         let input = video.stillImageSource ?? video.source ?? ""
         return split(input + " -frames:v 1" + (snapFilter.isEmpty ? "" : " -filter:v " + snapFilter) + " -f image2 - -hide_banner -loglevel error")
     }
@@ -95,7 +95,7 @@ enum FFmpegArguments {
         var bitrate: Int
     }
 
-    static func streamValues(_ video: CameraFFmpegPlugin.VideoConfig, request: VideoInfo) -> StreamValues {
+    static func streamValues(_ video: IPCamerasPlugin.VideoConfig, request: VideoInfo) -> StreamValues {
         let vcodec = video.vcodec
         let encoderOptions = video.encoderOptions ?? (vcodec == "libx264" ? "-preset ultrafast -tune zerolatency" : nil)
         var filters = filters(video, width: request.width, height: request.height, snapshot: false)
@@ -120,7 +120,7 @@ enum FFmpegArguments {
     static let libfdkAACELD = ["-codec:a", "libfdk_aac", "-profile:a", "aac_eld"]
 
     static func stream(
-        _ video: CameraFFmpegPlugin.VideoConfig, values: StreamValues, request: StartStreamRequest, target: Target,
+        _ video: IPCamerasPlugin.VideoConfig, values: StreamValues, request: StartStreamRequest, target: Target,
         aacELDEncoder: [String]? = libfdkAACELD
     ) -> (arguments: [String], unsupportedAudio: Bool) {
         var arguments: [String] = []
@@ -161,7 +161,7 @@ enum FFmpegArguments {
     // MARK: Two-way audio (7.7)
 
     /// `decoder`: libfdk_aac's, the original's, or none for FFmpeg's own AAC-ELD decoder.
-    static func returnAudio(_ video: CameraFFmpegPlugin.VideoConfig, decoder: [String] = ["-c:a", "libfdk_aac"]) -> [String] {
+    static func returnAudio(_ video: IPCamerasPlugin.VideoConfig, decoder: [String] = ["-c:a", "libfdk_aac"]) -> [String] {
         ["-hide_banner", "-protocol_whitelist", "pipe,udp,rtp,file,crypto", "-f", "sdp"] + decoder + ["-i", "pipe:"]
             + split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
     }
@@ -188,7 +188,7 @@ enum FFmpegArguments {
 
     /// The prebuffer's FFmpeg: the source copied into fragmented MP4 on its standard output (the original sends it to a TCP
     /// server of its own; a pipe exposes nothing on the network).
-    static func prebuffer(_ video: CameraFFmpegPlugin.VideoConfig) -> [String] {
+    static func prebuffer(_ video: IPCamerasPlugin.VideoConfig) -> [String] {
         splitOnSpaces(video.source ?? "") + ["-f", "mp4", "-vcodec", "copy", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
     }
 
@@ -198,7 +198,7 @@ enum FFmpegArguments {
 
     /// The recording FFmpeg: the source, or with the prebuffer the buffered MP4 on standard input (the original reads it
     /// from a TCP server of its own), encoded as HomeKit selected.
-    static func recording(_ video: CameraFFmpegPlugin.VideoConfig, configuration: CameraRecordingConfiguration, prebuffered: Bool) throws -> [String] {
+    static func recording(_ video: IPCamerasPlugin.VideoConfig, configuration: CameraRecordingConfiguration, prebuffered: Bool) throws -> [String] {
         var arguments = ["-hide_banner"]
         if prebuffered {
             arguments += ["-f", "mp4", "-i", "pipe:0"]
@@ -242,7 +242,7 @@ enum FFmpegArguments {
     }
 
     /// The web UI's live view without a prebuffer: the source's video copied into fragmented MP4, no audio.
-    static func liveFeed(_ video: CameraFFmpegPlugin.VideoConfig) -> [String] {
+    static func liveFeed(_ video: IPCamerasPlugin.VideoConfig) -> [String] {
         split(video.source ?? "") + ["-an", "-sn", "-dn", "-codec:v", "copy", "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
     }
 
