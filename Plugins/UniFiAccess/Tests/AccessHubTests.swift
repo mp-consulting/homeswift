@@ -263,7 +263,7 @@ struct AccessHubTests {
     // MARK: Doorbells
 
     @Test func doorbell() async throws {
-        let host = try await environment.start(devices: [uah()], options: ["Enable.Hub.Doorbell.Trigger"], extra: ["mqttUrl": "mqtt://broker", "ringDelay": 100])
+        let host = try await environment.start(devices: [uah()], options: ["Enable.Hub.Doorbell.Trigger"], extra: ["mqttUrl": "mqtt://broker", "ringDelay": 10_000])
         defer { Task { await host.stop() } }
         let ring: (String) -> Void = { id in
             self.environment.send(AccessEventType.doorbellRing, "x", data: ["connected_uah_id": "test-device-unique-id", "request_id": .string(id)])
@@ -284,7 +284,8 @@ struct AccessHubTests {
         #expect(await eventually { self.environment.mqtt.connection.published(on: "unifi/access/AABBCCDDEEFF/doorbell") == ["true", "false"] })
         #expect(environment.log.contains("Doorbell ring cancelled."))
 
-        // Within the ring delay (a hundred units, 3 s, so a slow runner stays inside it), the next ring is not passed on.
+        // Within the ring delay, the next ring is not passed on. Ten thousand units (5 minutes): a hundred, 3 s, ran out
+        // on a loaded runner between the two rings.
         ring("ring-2")
         #expect(await eventually { self.environment.log.contains("Doorbell ring suppressed") })
 

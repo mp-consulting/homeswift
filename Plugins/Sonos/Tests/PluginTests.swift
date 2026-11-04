@@ -115,7 +115,7 @@ struct PluginTests {
 
     @Test func subscriptionsHonourTheConfiguredDuration() async throws {
         let host = try await started(["subscriptionTimeout": 5])
-        #expect(await eventually { environment.sonos.subscribes.contains { $0.path == "/MediaRenderer/AVTransport/Event" } })
+        #expect(await eventually { environment.sonos.subscribes.contains { $0.path == "/MediaRenderer/AVTransport/Event" && $0.address == "192.168.1.10" } })
         let subscribe = try #require(environment.sonos.subscribes.first { $0.path == "/MediaRenderer/AVTransport/Event" && $0.address == "192.168.1.10" })
         #expect(subscribe.headers["TIMEOUT"] == "Second-330")
         #expect(subscribe.headers["NT"] == "upnp:event")
@@ -123,7 +123,7 @@ struct PluginTests {
         // Renewed with the SID alone (time scaled down in tests).
         #expect(await eventually { environment.sonos.subscribes.contains { $0.headers["SID"] != nil && $0.headers["CALLBACK"] == nil && $0.headers["TIMEOUT"] == "Second-330" } })
         // Probing subscribed to the topology for a moment, then unsubscribed.
-        #expect(environment.sonos.subscribes.contains { $0.method == "UNSUBSCRIBE" && $0.path == "/ZoneGroupTopology/Event" })
+        #expect(await eventually { environment.sonos.subscribes.contains { $0.method == "UNSUBSCRIBE" && $0.path == "/ZoneGroupTopology/Event" } })
         await host.stop()
     }
 

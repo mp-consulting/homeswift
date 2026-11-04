@@ -162,24 +162,28 @@ import Testing
 
     @Test func renamesWhenAnotherDeviceHasTheName() async throws {
         let (responder, wire) = try makeResponder()
-        _ = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
-        // Another bridge has the name and answers every probe for it, with its own port: as a real device
-        // defends its name, whenever this test gets to run.
+        // Another bridge has the name and answers each probe for it as it goes out, with its own port, as a real device
+        // defends its name. Answered from the test's polling loop instead, a busy runner let the three probes (25 ms
+        // apart here) all pass first: the name was announced, the late answer only made it probe again, and so on.
         let original = DNSName(["Homeswift", "_hap", "_tcp", "local"])
         let theirs = DNSRecord(
             name: original, data: .srv(priority: 0, weight: 0, port: 40000, target: DNSName(dotted: "Other.local")), ttl: 120, cacheFlush: true)
-        let renamed = DNSRecord.Data.ptr(DNSName(["Homeswift (2)", "_hap", "_tcp", "local"]))
-        var announcement: DNSMessage?
-        let deadline = ContinuousClock.now + .seconds(10)
-        while announcement == nil, ContinuousClock.now < deadline {
-            let sent = wire.take()
-            if sent.contains(where: { !$0.message.isResponse && $0.message.questions.contains { $0.name == original } }) {
-                try deliver(DNSMessage(isResponse: true, answers: [theirs]), to: responder)
+        let answer = DNSMessage(isResponse: true, answers: [theirs]).encode()
+        let peer = Self.peer, index = Self.interface.index
+        try responder.loop.submit {
+            let record = responder.send
+            responder.send = { [weak responder] interface, destination, bytes in
+                record?(interface, destination, bytes)
+                guard let responder, let message = try? DNSMessage(bytes: bytes), !message.isResponse,
+                      message.questions.contains(where: { $0.name == original }) else { return }
+                responder.loop.execute { responder.received(answer, from: peer, interface: index) }
             }
-            announcement = sent.first { $0.message.isResponse && $0.message.answers.contains { $0.data == renamed } }?.message
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        let renamedAnnouncement = try #require(announcement)
+        }.wait()
+        _ = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
+        let renamed = DNSRecord.Data.ptr(DNSName(["Homeswift (2)", "_hap", "_tcp", "local"]))
+        let isRenamedAnnouncement: @Sendable (DNSMessage) -> Bool = { $0.isResponse && $0.answers.contains { $0.data == renamed } }
+        try await wire.wait(.seconds(30)) { $0.contains { isRenamedAnnouncement($0.message) } }
+        let renamedAnnouncement = try #require(wire.take().first { isRenamedAnnouncement($0.message) }?.message)
         #expect(!renamedAnnouncement.answers.contains { $0.data == .ptr(original) })
         #expect(renamedAnnouncement.answers.contains { $0.name == DNSName(dotted: "Homeswift-2.local") && $0.type == DNSType.a })
     }
