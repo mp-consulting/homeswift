@@ -308,6 +308,7 @@ public actor TahomaPlugin: HomeswiftPlugin {
     /// listener when there is none; a failure waits 10 s, doubling up to 10 minutes, and is logged once per outage.
     private func pollEvents() async {
         var listener: String?
+        var session = 0
         var failures = 0
         let backoff = Backoff(initial: scaled(10), maximum: scaled(600), jitter: .proportional(0.1))
         let polling = pollingPeriod()
@@ -322,6 +323,12 @@ public actor TahomaPlugin: HomeswiftPlugin {
             }
             if listener != nil { await wakeup.wait(for: scaled(period)) }
             guard !Task.isCancelled, let client else { return }
+            // A refreshed Somfy token is a new session, whose listener is a new one (11.4).
+            let generation = await client.sessionGeneration
+            if generation != session {
+                session = generation
+                listener = nil
+            }
             let registering = listener == nil
             do {
                 if registering { listener = try await client.registerListener() }

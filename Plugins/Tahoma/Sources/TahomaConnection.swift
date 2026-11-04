@@ -12,6 +12,12 @@ struct TahomaAccount: Codable, Sendable, Equatable {
     var password: String
 }
 
+/// Somfy's refresh token (docs/clean-room/Tahoma.md 11.4), kept in the vault so a restart refreshes rather than sending
+/// the password again.
+struct SomfyRefreshToken: Codable, Sendable, Equatable {
+    var refreshToken: String
+}
+
 /// A Developer Mode token the plugin minted through the cloud for a gateway (3.5), kept in the vault.
 struct LocalToken: Codable, Sendable, Equatable {
     var gatewayPin: String
@@ -122,7 +128,21 @@ extension TahomaPlugin {
 
     func makeClient(_ endpoint: OverkizEndpoint, http: any HTTPSending, refusesAccount: Bool) -> OverkizClient {
         let context = context
-        return OverkizClient(endpoint: endpoint, transport: .init(http: http, timeout: scaled(15)), proxy: configuration.proxy, logger: logger, onAccount: { refusal in
+        var store: RefreshTokenStore?
+        if refusesAccount {
+            let file = context.secretFile("somfy-oauth.json", as: SomfyRefreshToken.self)
+            let logger = logger
+            store = RefreshTokenStore(load: { file.load()?.refreshToken }) { token in
+                do {
+                    if let token { try file.save(SomfyRefreshToken(refreshToken: token)) } else { file.remove() }
+                } catch {
+                    logger.warning("Could not keep Somfy's refresh token: \(error)")
+                }
+            }
+        }
+        return OverkizClient(
+            endpoint: endpoint, transport: .init(http: http, timeout: scaled(15)), proxy: configuration.proxy, logger: logger, tokenStore: store,
+            onAccount: { refusal in
             guard refusesAccount else { return }
             if let refusal { context.accountRefused("The account refused to sign in: \(refusal.message)") } else { context.accountAccepted() }
         })

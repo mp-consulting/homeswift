@@ -90,7 +90,8 @@ struct TahomaPluginTests {
         #expect(await eventually { environment.server.requests("/fetch").count >= 5 })
         #expect(environment.server.requests("/events/register").count == 1)
         #expect(environment.server.requests("/setup/devices", method: "GET").count == 1)
-        #expect(environment.server.requests("/login").count == 1)
+        #expect(environment.server.tokenRequests.count == 1)
+        #expect(environment.server.requests("/login").isEmpty)
         let fetches = environment.server.requests("/fetch").count
         let others = environment.server.requests.count - fetches
         #expect(others == 4, "login, devices, location, register and nothing else: \(environment.server.requests.map(\.path))")
@@ -173,9 +174,9 @@ struct TahomaPluginTests {
 
         let blind = try #require(host.accessory("io://1234-5678-9012/100")?.service(.windowCovering))
         #expect(blind.characteristic(.currentHorizontalTiltAngle).value == -36)
-        async let position: Void = blind.characteristic(.targetPosition).writeFromHomeKit(100)
-        async let tilt: Void = blind.characteristic(.targetHorizontalTiltAngle).writeFromHomeKit(0)
-        _ = try await (position, tilt)
+        try await blind.characteristic(.targetHorizontalTiltAngle).writeFromHomeKit(0)
+        #expect(server.applies.last?.body?["actions"]?[0]?["commands"] == [["type": 1, "name": "setClosureAndOrientation", "parameters": [50, 50]]])
+        try await blind.characteristic(.targetPosition).writeFromHomeKit(100)
         #expect(server.applies.last?.body?["actions"]?[0]?["commands"] == [["type": 1, "name": "setClosureAndOrientation", "parameters": [0, 50]]])
 
         let alarm = try #require(host.accessory("internal://1234-5678-9012/alarm/0")?.service(.securitySystem))
@@ -282,7 +283,7 @@ struct TahomaPluginTests {
         environment.server.setPassword("changed")
         let host = try await environment.start()
         #expect(await eventually { await environment.plugin?.context.accountRefusal != nil })
-        #expect(environment.server.requests("/login").count == 1)
+        #expect(environment.server.tokenRequests.count == 1)
         await host.stop()
     }
 
@@ -298,6 +299,7 @@ struct TahomaPluginTests {
         #expect(version.url.port == 8443)
         #expect(environment.localPins.withLockedValue { $0 } == ["1234-5678-9012"])
         #expect(environment.server.requests("/login").isEmpty)
+        #expect(environment.server.tokenRequests.isEmpty)
         #expect(environment.server.requests("/setup/location").isEmpty)
         await host.stop()
     }
@@ -309,16 +311,32 @@ struct TahomaPluginTests {
         let host = try await environment.start(settings: settings)
         #expect(await eventually { host.accessory(shutter) != nil })
         #expect(environment.server.mintedTokens.count == 1)
+        // Over the OAuth session: Developer Mode turned on, a token generated, then activated with exactly three keys.
+        #expect(environment.server.requests("/setup/gateways/1234-5678-9012/developerMode", method: "GET").first?.headers["authorization"]?.hasPrefix("Bearer ") == true)
+        #expect(environment.server.developerMode)
         let activation = try #require(environment.server.requests("/config/1234-5678-9012/local/tokens", method: "POST").first)
-        #expect(activation.body?["label"] == "Homeswift")
-        #expect(activation.body?["scope"] == "devmode")
+        #expect(activation.body == ["label": "Homeswift", "token": "minted-token-1", "scope": "devmode"])
+        #expect(activation.headers["cookie"] == nil)
         #expect(environment.server.requests("/setup/devices").first?.url.host == "192.168.1.50")
         await host.stop()
 
         // The next start uses the kept token.
         let again = try await environment.start(settings: settings)
-        #expect(await eventually { again.accessory(shutter) != nil })
+        #expect(await eventually { environment.server.requests("/setup/devices").count >= 2 })
         #expect(environment.server.mintedTokens.count == 1)
+        await again.stop()
+    }
+
+    @Test func theRefreshTokenIsKeptBetweenRuns() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(shutter) != nil })
+        await host.stop()
+        environment.server.expireAccessTokens()
+        let again = try await environment.start()
+        // The accessories come back from the cache at once: wait for the sign-in itself.
+        #expect(await eventually { environment.server.tokenRequests.count == 2 })
+        #expect(environment.server.tokenRequests.map { $0.form["grant_type"] } == ["password", "refresh_token"])
         await again.stop()
     }
 

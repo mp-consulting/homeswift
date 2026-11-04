@@ -172,10 +172,10 @@ struct TahomaClientTests {
 
     @Test func signsInWithASessionAndAgainWhenItExpires() async throws {
         let server = FakeOverkiz()
-        let client = client(server, endpoint: .cloud(.somfyEurope, user: "user@example.com", password: "secret"))
+        let client = client(server, endpoint: .cloud(.somfyAustralia, user: "user@example.com", password: "secret"))
         _ = try await client.devices()
         let login = try #require(server.requests("/login").first)
-        #expect(login.url.absoluteString == "https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/login")
+        #expect(login.url.absoluteString == "https://ha201-1.overkiz.com/enduser-mobile-web/enduserAPI/login")
         #expect(login.form == ["userId": "user@example.com", "userPassword": "secret"])
         #expect(server.requests("/setup/devices").first?.headers["cookie"] == "JSESSIONID=ABCDEF0123456789")
         server.expireSession()
@@ -188,7 +188,7 @@ struct TahomaClientTests {
         let server = FakeOverkiz()
         server.setPassword("other")
         let refused = NIOLockedBox()
-        let client = client(server, endpoint: .cloud(.somfyEurope, user: "user@example.com", password: "secret"), refused: refused)
+        let client = client(server, endpoint: .cloud(.somfyNorthAmerica, user: "user@example.com", password: "secret"), refused: refused)
         await #expect(throws: OverkizError.self) { try await client.devices() }
         #expect(refused.value?.isBadCredentials == true)
         await #expect(throws: OverkizError.self) { try await client.devices() }
@@ -198,7 +198,7 @@ struct TahomaClientTests {
     @Test func serverErrorsDoNotLockOut() async throws {
         let server = FakeOverkiz()
         server.setLoginStatus(503)
-        let client = client(server, endpoint: .cloud(.somfyEurope, user: "user@example.com", password: "secret"))
+        let client = client(server, endpoint: .cloud(.flexom, user: "user@example.com", password: "secret"))
         await #expect(throws: OverkizError.self) { try await client.devices() }
         server.setLoginStatus(nil)
         _ = try await client.devices()
@@ -225,6 +225,126 @@ struct TahomaClientTests {
         #expect(version.url.absoluteString == "https://192.168.1.50:8443/enduser-mobile-web/1/enduserAPI/apiVersion")
         #expect(version.headers["authorization"] == "Bearer 0123456789abcdef0123")
         #expect(server.applies.first?.path.hasSuffix("/exec/apply") == true)
+    }
+}
+
+/// Somfy's token endpoint answering the spec's vectors (11.8) in turn, and an Overkiz that answers everything.
+final class ScriptedSomfy: HTTPSending, Sendable {
+    let answers: NIOLockedValueBox<[JSONValue]>
+    let recorded = NIOLockedValueBox<[HomeswiftNetwork.HTTPRequest]>([])
+    /// Bearers Overkiz refuses, as expired.
+    let refused = NIOLockedValueBox<Set<String>>([])
+
+    init(_ answers: [JSONValue]) { self.answers = NIOLockedValueBox(answers) }
+
+    var requests: [HomeswiftNetwork.HTTPRequest] { recorded.withLockedValue { $0 } }
+    var tokenBodies: [String] {
+        requests.filter { $0.url.host == "accounts.somfy.com" }.map { String(decoding: $0.body ?? Data(), as: UTF8.self) }
+    }
+
+    func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+        recorded.withLockedValue { $0.append(request) }
+        if request.url.host == "accounts.somfy.com" {
+            let answer = answers.withLockedValue { $0.isEmpty ? ["message": "error.invalid.grant"] : $0.removeFirst() }
+            return HomeswiftNetwork.HTTPResponse(status: 200, body: answer.encoded())
+        }
+        if let bearer = request.header("Authorization"), refused.withLockedValue({ $0.contains(String(bearer.dropFirst(7))) }) {
+            return HomeswiftNetwork.HTTPResponse(status: 401, body: Data(#"{"errorCode":"RESOURCE_ACCESS_DENIED","error":"Not authenticated"}"#.utf8))
+        }
+        return HomeswiftNetwork.HTTPResponse(status: 200, body: Data("[]".utf8))
+    }
+}
+
+/// A clock a test moves.
+final class TestClock: Sendable {
+    private let instant = NIOLockedValueBox(ContinuousClock.now)
+    var now: ContinuousClock.Instant { instant.withLockedValue { $0 } }
+    func advance(_ duration: Duration) { instant.withLockedValue { $0 += duration } }
+}
+
+@Suite(.timeLimit(.minutes(1)))
+struct SomfyOAuthTests {
+    static let first: JSONValue = [
+        "access_token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl", "refresh_token": "rt-7f3c2a10-0000-4000-8000-000000000001",
+        "expires_in": 900, "token_type": "bearer",
+    ]
+    static let second: JSONValue = [
+        "access_token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0MiJ9.c2lnbmF0dXJlMg", "refresh_token": "rt-7f3c2a10-0000-4000-8000-000000000002",
+        "expires_in": 900,
+    ]
+
+    func client(_ server: ScriptedSomfy, clock: TestClock, refused: NIOLockedBox = NIOLockedBox(), stored: NIOLockedValueBox<String?> = NIOLockedValueBox(nil)) -> OverkizClient {
+        OverkizClient(
+            endpoint: .cloud(.somfyEurope, user: "user@example.com", password: "Secr3t"), transport: .init(http: server), logger: testLogger,
+            tokenStore: RefreshTokenStore(load: { stored.withLockedValue { $0 } }) { token in stored.withLockedValue { $0 = token } }, now: { clock.now },
+            onAccount: { refused.set($0) })
+    }
+
+    @Test func thePasswordGrantGivesABearer() async throws {
+        let server = ScriptedSomfy([Self.first, Self.second])
+        let clock = TestClock()
+        let stored = NIOLockedValueBox<String?>(nil)
+        let client = client(server, clock: clock, stored: stored)
+        _ = try await client.request("GET", "/setup")
+        #expect(server.tokenBodies == [
+            "grant_type=password&client_id=0d8e920c-1478-11e7-a377-02dd59bd3041_1ewvaqmclfogo4kcsoo0c8k4kso884owg08sg8c40sk4go4ksg&client_secret=12k73w1n540g8o4cokg0cw84cog840k84cwggscwg884004kgk&username=user%40example.com&password=Secr3t",
+        ])
+        let setup = try #require(server.requests.last)
+        #expect(setup.url.absoluteString == "https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/setup")
+        #expect(setup.header("Authorization") == "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl")
+        #expect(setup.header("Cookie") == nil)
+        #expect(!server.requests.contains { $0.url.path.hasSuffix("/login") })
+        #expect(stored.withLockedValue { $0 } == "rt-7f3c2a10-0000-4000-8000-000000000001")
+
+        // 12:14:50: not due yet. 12:14:55: refreshed before the request.
+        clock.advance(.seconds(890))
+        _ = try await client.request("GET", "/setup")
+        #expect(server.tokenBodies.count == 1)
+        clock.advance(.seconds(5))
+        _ = try await client.request("GET", "/setup")
+        #expect(server.tokenBodies.last == "grant_type=refresh_token&client_id=\(SomfyOAuth.clientID)&client_secret=\(SomfyOAuth.clientSecret)&refresh_token=rt-7f3c2a10-0000-4000-8000-000000000001")
+        #expect(server.requests.last?.header("Authorization") == "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0MiJ9.c2lnbmF0dXJlMg")
+        #expect(stored.withLockedValue { $0 } == "rt-7f3c2a10-0000-4000-8000-000000000002")
+        #expect(await client.sessionGeneration == 1)
+    }
+
+    @Test func anExpiredBearerIsANewPasswordGrant() async throws {
+        let server = ScriptedSomfy([Self.first, Self.second])
+        let client = client(server, clock: TestClock())
+        _ = try await client.request("GET", "/setup")
+        server.refused.withLockedValue { _ = $0.insert("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl") }
+        _ = try await client.request("GET", "/setup")
+        #expect(server.tokenBodies.count == 2)
+        #expect(server.tokenBodies.last?.hasPrefix("grant_type=password&") == true)
+        #expect(server.requests.last?.header("Authorization") == "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0MiJ9.c2lnbmF0dXJlMg")
+        #expect(server.requests.filter { $0.url.path.hasSuffix("/setup") }.count == 3)
+    }
+
+    @Test func aRefusedGrantNeedsAuthorizationWithoutRetrying() async throws {
+        let server = ScriptedSomfy([["message": "error.invalid.grant"]])
+        let refused = NIOLockedBox()
+        let client = client(server, clock: TestClock(), refused: refused)
+        await #expect(throws: OverkizError.self) { try await client.request("GET", "/setup") }
+        #expect(refused.value?.isBadCredentials == true)
+        await #expect(throws: OverkizError.self) { try await client.request("GET", "/setup") }
+        #expect(server.tokenBodies.count == 1)
+        #expect(!server.requests.contains { $0.url.host != "accounts.somfy.com" })
+    }
+
+    @Test func aKeptRefreshTokenSparesThePassword() async throws {
+        let server = ScriptedSomfy([Self.second])
+        let stored = NIOLockedValueBox<String?>("rt-7f3c2a10-0000-4000-8000-000000000001")
+        let client = client(server, clock: TestClock(), stored: stored)
+        _ = try await client.request("GET", "/setup")
+        #expect(server.tokenBodies.first?.hasPrefix("grant_type=refresh_token&") == true)
+        #expect(stored.withLockedValue { $0 } == "rt-7f3c2a10-0000-4000-8000-000000000002")
+    }
+
+    @Test func onlySomfyEuropeUsesOAuth() async {
+        for service in OverkizService.allCases where service != .local {
+            let client = OverkizClient(endpoint: .cloud(service, user: "u", password: "p"), transport: .init(http: ScriptedSomfy([])), logger: testLogger)
+            #expect(await client.usesOAuth == (service == .somfyEurope))
+        }
     }
 }
 

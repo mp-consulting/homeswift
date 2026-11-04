@@ -43,6 +43,12 @@ final class FakeOverkiz: HTTPSending, Sendable {
         var mintedTokens: [String] = []
         var applyFailures: [Int] = []
         var countryCode = "GB"
+        var accessTokens: Set<String> = []
+        var refreshTokens: Set<String> = []
+        var grants = 0
+        var expiresIn: Double? = 900
+        var developerMode = false
+        var invalidGrantStatus = 200
     }
 
     private let state = NIOLockedValueBox(State())
@@ -67,6 +73,12 @@ final class FakeOverkiz: HTTPSending, Sendable {
     /// The next applies answer these statuses (400 is a full queue), then succeed.
     func failApplies(_ statuses: [Int]) { state.withLockedValue { $0.applyFailures = statuses } }
     func queue(_ events: [JSONValue]) { state.withLockedValue { $0.events += events } }
+    /// Somfy forgets every access token it gave (they expired), keeping the refresh tokens.
+    func expireAccessTokens() { state.withLockedValue { $0.accessTokens = [] } }
+    func revokeRefreshTokens() { state.withLockedValue { $0.refreshTokens = [] } }
+    func setExpiresIn(_ seconds: Double?) { state.withLockedValue { $0.expiresIn = seconds } }
+    var developerMode: Bool { state.withLockedValue { $0.developerMode } }
+    var tokenRequests: [Recorded] { requests.filter { $0.url.host == "accounts.somfy.com" } }
 
     func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
         let body = request.body.flatMap { try? JSONValue(data: $0) }
@@ -95,6 +107,26 @@ final class FakeOverkiz: HTTPSending, Sendable {
             }
             return HomeswiftNetwork.HTTPResponse(status: 200, body: Data("\"jwt-from-atlantic\"\n".utf8))
         }
+        if request.url.host == "accounts.somfy.com" {
+            guard path == "/oauth/oauth/v2/token/jwt", request.form["client_id"] == SomfyOAuth.clientID, request.form["client_secret"] == SomfyOAuth.clientSecret else {
+                return json(["message": "error.invalid.client"], status: 400)
+            }
+            switch request.form["grant_type"] {
+            case "password" where request.form["password"] == state.password:
+                break
+            case "refresh_token" where state.refreshTokens.contains(request.form["refresh_token"] ?? ""):
+                state.refreshTokens.remove(request.form["refresh_token"] ?? "")
+            default:
+                return json(["message": "error.invalid.grant"], status: state.invalidGrantStatus)
+            }
+            state.grants += 1
+            let access = "access-\(state.grants)", refresh = "refresh-\(state.grants)"
+            state.accessTokens.insert(access)
+            state.refreshTokens.insert(refresh)
+            var answer: [String: JSONValue] = ["access_token": .string(access), "refresh_token": .string(refresh), "token_type": "bearer"]
+            if let expiresIn = state.expiresIn { answer["expires_in"] = .number(expiresIn) }
+            return json(.object(answer))
+        }
         if path.hasSuffix("/login") {
             if let status = state.loginStatus { return json(["errorCode": "AUTHENTICATION_ERROR", "error": "Too many requests, try again later"], status: status) }
             let good = request.form["userPassword"] == state.password || request.form["jwt"] == "jwt-from-atlantic"
@@ -106,6 +138,13 @@ final class FakeOverkiz: HTTPSending, Sendable {
         if local {
             guard request.headers["authorization"] == "Bearer \(state.token)" else {
                 return json(["errorCode": "RESOURCE_ACCESS_DENIED", "error": "Not authenticated."], status: 401)
+            }
+        } else if let bearer = request.headers["authorization"] {
+            if request.headers["cookie"] != nil {
+                return json(["errorCode": "UNSPECIFIED_ERROR", "error": "Cannot use JSESSIONID and bearer token in same request"], status: 400)
+            }
+            guard bearer.hasPrefix("Bearer "), state.accessTokens.contains(String(bearer.dropFirst(7))) else {
+                return json(["errorCode": "RESOURCE_ACCESS_DENIED", "error": "Not authenticated"], status: 401)
             }
         } else {
             guard state.sessionValid, request.headers["cookie"] == "JSESSIONID=ABCDEF0123456789" else {
@@ -120,6 +159,10 @@ final class FakeOverkiz: HTTPSending, Sendable {
         case ("GET", "/actionGroups"): return json(state.scenarios)
         case ("GET", "/setup/location"): return json(["countryCode": .string(state.countryCode)])
         case ("GET", "/setup/gateways"): return json(.array(state.gateways.map { ["gatewayId": .string($0)] }))
+        case ("GET", let p) where p.hasSuffix("/developerMode"): return json(["active": .bool(state.developerMode)])
+        case ("POST", let p) where p.hasSuffix("/developerMode"):
+            state.developerMode = true
+            return json(.null, status: 204)
         case ("POST", "/events/register"): return json(["id": .string(state.listener)])
         case ("POST", "/setup/devices/states/refresh"): return json(.null, status: 204)
         case ("GET", let p) where p.hasSuffix("/local/tokens/generate"):

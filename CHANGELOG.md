@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
+  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
+  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
+  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
+  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
@@ -19,11 +27,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
-  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
-  through their cloud or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
-  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
-  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
 - Matter: a Fan v2 that stands for a cleaning robot (`Service.standsFor = .cleaningRobot`) is a Robotic Vacuum Cleaner,
   cleaning as its Active says, with the accessory's battery; Roborock's robots set it, so Google Home, Alexa and the other
   Matter ecosystems see robot vacuums rather than fans (and the Accessories page shows a vacuum). The device changes kind

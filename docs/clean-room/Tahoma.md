@@ -1081,3 +1081,201 @@ Errors (from [PY] fixtures, shapes only):
     stop for stateless RTS covers (standalone executions, cancel vs `stop`); the Cozytouch double token flow; mDNS PIN
     lookup with Avahi on Linux (browse `_kizboxdev._tcp`, match the instance name); and keeping HomeKit targets stable during
     in-flight executions.
+
+---
+
+## 11. Somfy OAuth sign-in (from pyoverkiz)
+
+Addendum. Every fact in this section comes from [PY] 2.3.1 (commit `5f31858570e14be4f58e6cc58b7a448000556449`), from its
+constants, its auth strategies and their tests. Neither homebridge-tahoma nor overkiz-client implements this flow. Where
+[PY] does not say something (for example the HTTP status of an error), this section says so instead of guessing.
+
+### 11.1 Which servers use which sign-in (as of pyoverkiz 2.3.1)
+
+| [PY] server | Overkiz base URL | Sign-in [PY] uses |
+|---|---|---|
+| `somfy_europe` | `https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/` | **Somfy OAuth password grant** (11.2), Bearer token |
+| `somfy` (multi-site) | chosen per site: EMEA `ha101-1`, APAC `ha201-1`, SNABA `ha401-1` (same path) | OAuth password grant, then a Keycloak token exchange and site-scoped tokens (11.6) |
+| `somfy_oceania` | `https://ha201-1.overkiz.com/enduser-mobile-web/enduserAPI/` | old session login: `POST <base>login`, form `userId`, `userPassword` |
+| `somfy_america` | `https://ha401-1.overkiz.com/enduser-mobile-web/enduserAPI/` | old session login |
+| `simu_livein2`, `flexom`, `hi_kumo_*`, `hexaom_hexaconnect`, `ubiwizz` | their `haNNN-1` host | old session login |
+| `atlantic_cozytouch`, `thermor_cozytouch`, `sauter_cozytouch` | `ha110-1` | Atlantic token, then a JWT, then `login` with `jwt` (3.2) |
+| `brandt`, `sauter_smart_control`, `nexity`, `rexel` | various | their own middleware or OAuth flows (not the Somfy one) |
+
+So in [PY] the Somfy OAuth flow applies only to `somfy_europe` and to `somfy`. Somfy Oceania (Australia) and Somfy North
+America still go through the `userId`/`userPassword` session login. There is **one** OAuth token endpoint for all Somfy
+regions; the region only changes the Overkiz host the token is then used against. [PY] does not state whether `ha101-1`
+still accepts the old `/login` form. It simply no longer sends it for Somfy Europe. The plugin (overkiz-client) still sends
+`/login` for every Somfy region.
+
+### 11.2 Password grant (`somfy_europe`, and the first step of `somfy`)
+
+- Endpoint: `POST https://accounts.somfy.com/oauth/oauth/v2/token/jwt`
+- Header: `Content-Type: application/x-www-form-urlencoded`
+- Form fields (exactly these five; no `scope`):
+  - `grant_type` = `password`
+  - `client_id` = `0d8e920c-1478-11e7-a377-02dd59bd3041_1ewvaqmclfogo4kcsoo0c8k4kso884owg08sg8c40sk4go4ksg`
+  - `client_secret` = `12k73w1n540g8o4cokg0cw84cog840k84cwggscwg884004kgk`
+  - `username` = the Somfy account e-mail
+  - `password` = the account password
+- The `client_id` and `client_secret` above are the TaHoma app's constants exactly as [PY] publishes them. [PY] comments that
+  these OAuth client secrets are public by design, because they are embedded in the mobile apps.
+- The JSON answer is used as follows:
+  - `access_token` is required.
+  - `refresh_token` is optional (if absent, no refresh is possible and the next expiry leads to a new password grant).
+  - `expires_in`, in seconds, is optional. The expiry time is now + `expires_in`. With no `expires_in`, the token counts as
+    never expiring until the server rejects it.
+  - Other fields, such as `token_type`, are ignored.
+- [PY] sends no `User-Agent` override on this call. The Overkiz calls carry `User-Agent: pyoverkiz/<version>`.
+
+### 11.3 Using the token against Overkiz
+
+- Every Overkiz request goes to the server's base URL (for `somfy_europe`
+  `https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/`, with paths such as `setup`, `events/register`,
+  `exec/apply`). Each request carries `Authorization: Bearer <access_token>`.
+- **No `login` call is made and no JSESSIONID cookie is used** afterwards. Overkiz rejects a request that carries both a
+  cookie session and a Bearer token, with the error "Cannot use JSESSIONID and bearer token in same request"
+  (`errorCode` `UNSPECIFIED_ERROR`). An implementation that switches a client from the old flow to OAuth must therefore drop
+  any stored cookie.
+- After authenticating, [PY]'s `login` registers the event listener (`POST events/register`) unless asked not to. It does
+  not call any login endpoint on Overkiz.
+
+### 11.4 Refresh
+
+- Trigger: before **every** Overkiz request, [PY] checks the expiry. The token is due when now ≥ expiry − 5 seconds. Only a
+  known expiry and a stored refresh token lead to a refresh; otherwise the request goes out as is.
+- Request: `POST https://accounts.somfy.com/oauth/oauth/v2/token/jwt`, form-urlencoded. Fields:
+  - `grant_type` = `refresh_token`
+  - `client_id` (same value as in 11.2)
+  - `client_secret` (same value as in 11.2)
+  - `refresh_token` = the stored refresh token
+- The answer has the same fields as in 11.2. The new values replace the old ones, including a new `refresh_token` when one is
+  given.
+- After a successful refresh, if an event listener was registered, [PY] registers a new one, because listener ids are tied
+  to the old session.
+- A reactive path also exists: an Overkiz answer of `RESOURCE_ACCESS_DENIED` / "Not authenticated" (HTTP 401 in the cloud
+  fixtures) makes [PY] sign in again from scratch with a new password grant, not a refresh. It then retries the request once
+  (backoff with jitter: 2 tries, at most 60 s).
+
+### 11.5 Errors
+
+- **Bad credentials, password grant:** the JSON body `{"message": "error.invalid.grant"}`. [PY] does not check the HTTP
+  status for this; its tests return the body with status 200. It reports bad credentials whenever that `message` appears.
+- **No access token:** an answer without `access_token` (for example only `{"token_type": "bearer"}`) is reported as a Somfy
+  service error.
+- **Server errors:** any 5xx answer from the token endpoint is treated as a temporary outage (service unavailable). This
+  includes HTML pages and pages containing `is down for maintenance`.
+- **Rejected refresh, single-site:** the same `{"message": "error.invalid.grant"}` maps to bad credentials, so the user has
+  to sign in again.
+- **Rejected refresh, multi-site** (11.6, the Keycloak endpoint): a non-200 answer whose JSON has
+  `"error": "invalid_grant"` (with `error_description`) is bad credentials. Its test uses status 400 and gives a revoked
+  refresh token after a password change as the cause. Other non-200 answers are service errors.
+- **Expired or invalid Bearer at Overkiz:** HTTP 401 with `{"errorCode": "RESOURCE_ACCESS_DENIED", "error": "Not
+  authenticated"}`. A missing header gives `"Missing authorization token."` with the same `errorCode`. Repeated invalid
+  tokens give `UNSPECIFIED_ERROR` `"Too many attempts with an invalid token, temporarily banned"`.
+
+**Recommendation:** treat `error.invalid.grant` and `invalid_grant` as terminal (ask the user to sign in again in Setup;
+do not retry in a loop), and treat 5xx as retryable with backoff.
+
+### 11.6 Multi-site variant (`somfy`), for reference
+
+[PY] says this flow copies how the TaHoma app signs in and may change within pyoverkiz 2.x. It works as follows:
+
+1. Do the password grant of 11.2.
+2. Exchange the token: `POST https://ginaite-prod.ovkube.net/realms/somfy-tahoma/protocol/openid-connect/token`, form
+   fields:
+   - `grant_type` = `urn:ietf:params:oauth:grant-type:token-exchange`
+   - `client_id` = the same Somfy client id, used as a public client (no secret)
+   - `subject_token` = the access token from step 1
+   - `subject_issuer` = `somfy-customer`
+   - `subject_token_type` = `urn:ietf:params:oauth:token-type:access_token`
+
+   The answer gives an account-wide token (`access_token`, `refresh_token`, `expires_in`). A non-200 answer is a service
+   error.
+3. List the sites: `GET https://backoffice-service.ovkube.net/site-api/public/v1/sites?withGateways=true&limit=20&offset=<n>`.
+   Headers: `Authorization: Bearer <account token>` and `X-Api-Key: 184638B3FBE874ACD24C14FBD657B`. Pages of 20, stopping
+   at 200 sites. The answer has `results` (sites with `site_oid`, `name`, `country`, `roles`, `sub_sites` with `gateways` of
+   `gateway_id`) and `total_count`. If there is exactly one site it is selected automatically.
+4. Select a site:
+   - its country gives the region (EMEA by default) and so the Overkiz host;
+   - the token is then refreshed with `refresh_token` at the Keycloak URL with `?siteOID=<site oid>` appended. Form fields:
+     `grant_type=refresh_token`, `client_id`, `refresh_token`, no secret. The answer is a site-scoped token used as the
+     Bearer, with no gateway header;
+   - if the answer has no `expires_in`, the token is assumed to last 5 minutes.
+5. Keycloak **rotates** the refresh token on each refresh and invalidates the old one. Refreshes must therefore be
+   serialised, and the new refresh token must be stored each time it changes.
+
+### 11.7 Local Developer Mode token from an OAuth session
+
+All the calls below go to the Overkiz cloud base URL with the OAuth Bearer from 11.3. `<pin>` is the gateway id, for
+example `1234-5678-9012` (from `GET setup/gateways`, field `gatewayId`).
+
+1. Developer Mode (optional check):
+   - `GET setup/gateways/<pin>/developerMode` answers `{"active": true|false}`.
+   - If it is not active, `POST setup/gateways/<pin>/developerMode` with no body switches it on. [PY] says Somfy gateways
+     need this before local tokens can be used.
+   - [PY] also has a `DELETE` on the same path to switch it off, but warns that some gateways answer
+     `Request method 'DELETE' not supported`.
+2. Generate: `GET config/<pin>/local/tokens/generate` answers `{"token": "<token>"}`.
+3. Activate: `POST config/<pin>/local/tokens` with the JSON body
+   `{"label": "<label>", "token": "<token from step 2>", "scope": "devmode"}`, exactly these three keys. It answers
+   `{"requestId": "<id>"}`. (overkiz-client also adds `"gatewayId": "<pin>"` to this body.) A generated token is not usable
+   until it has been activated.
+4. List: `GET config/<pin>/local/tokens/devmode` answers an array of
+   `{"label", "gatewayId", "uuid", "scope", ...}`. Revoke: `DELETE config/<pin>/local/tokens/<uuid>`.
+5. Use the token against `https://<gateway>:8443/enduser-mobile-web/1/enduserAPI/` with `Authorization: Bearer <token>`
+   (3.4).
+6. Errors seen:
+   - `RESOURCE_ACCESS_DENIED` `"Access denied to gateway #<pin> for action ADD_TOKEN"` when the account may not add tokens
+     to that gateway;
+   - `UNSPECIFIED_ERROR` `"Not such token with UUID: <uuid>"` on a delete of an unknown token.
+
+The same calls work over the old cookie session (overkiz-client). For Somfy Oceania and North America that session is the
+only cloud sign-in [PY] offers.
+
+**Recommendation (Homeswift Setup):** for Somfy Europe, run the password grant in `authorize`. Keep the access token and
+refresh token in memory only. Generate and activate a token labelled "Homeswift", store that local token with
+`context.secretFile`, and then use only the local API. Never log the tokens, the client secret or the `requestId`.
+
+### 11.8 Test vectors (invented values)
+
+Password grant request body (form-urlencoded; the `@` is encoded):
+
+    grant_type=password&client_id=0d8e920c-1478-11e7-a377-02dd59bd3041_1ewvaqmclfogo4kcsoo0c8k4kso884owg08sg8c40sk4go4ksg&client_secret=12k73w1n540g8o4cokg0cw84cog840k84cwggscwg884004kgk&username=user%40example.com&password=Secr3t
+
+Token answer:
+
+    { "access_token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl",
+      "refresh_token": "rt-7f3c2a10-0000-4000-8000-000000000001",
+      "expires_in": 900, "token_type": "bearer" }
+
+Expected:
+- Received at 12:00:00, so the token is due for refresh from 12:14:55.
+- The next Overkiz request is `GET https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/setup` with
+  `Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl` and no `Cookie`.
+
+Refresh request at 12:15:00:
+
+    grant_type=refresh_token&client_id=0d8e920c-...&client_secret=12k73w...&refresh_token=rt-7f3c2a10-0000-4000-8000-000000000001
+
+Answer:
+
+    { "access_token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0MiJ9.c2lnbmF0dXJlMg",
+      "refresh_token": "rt-7f3c2a10-0000-4000-8000-000000000002", "expires_in": 900 }
+
+Expected: both tokens are replaced, and the event listener is registered again.
+
+Bad credentials: `{"message": "error.invalid.grant"}`. Expected: bad credentials and no retry.
+
+Expired Bearer at Overkiz: `401 {"errorCode": "RESOURCE_ACCESS_DENIED", "error": "Not authenticated"}`. Expected: a new
+password grant, then one retry of the request.
+
+Local token:
+
+    GET  .../enduserAPI/config/1234-5678-9012/local/tokens/generate  → { "token": "9f8e7d6c5b4a39281706" }
+    POST .../enduserAPI/config/1234-5678-9012/local/tokens
+         { "label": "Homeswift", "token": "9f8e7d6c5b4a39281706", "scope": "devmode" }
+                                                                     → { "requestId": "req-0000-0001" }
+    GET  .../enduserAPI/config/1234-5678-9012/local/tokens/devmode
+         → [ { "label": "Homeswift", "gatewayId": "1234-5678-9012", "uuid": "c0ffee00-0000-4000-8000-000000000001",
+               "scope": "devmode", "gatewayCreationTime": 1767225600000, "expirationTime": 1798761600000 } ]

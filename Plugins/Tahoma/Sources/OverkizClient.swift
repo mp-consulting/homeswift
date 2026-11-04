@@ -24,7 +24,7 @@ struct OverkizError: Error, CustomStringConvertible, Equatable {
     var isBadCredentials: Bool {
         let text = message.lowercased()
         return text.contains("bad credentials") || text.contains("no such user") || text.contains("invalid credentials")
-            || text.contains("invalid_grant") || (status == 401 && errorCode == nil && text.contains("not authenticated"))
+            || text.contains("invalid_grant") || text.contains("invalid.grant") || errorCode == "invalid_grant" || (status == 401 && errorCode == nil && text.contains("not authenticated"))
     }
 
     /// A limit the server sets for a while (4.5): too many executions, a full queue, concurrent requests.
@@ -45,6 +45,23 @@ struct OverkizError: Error, CustomStringConvertible, Equatable {
         }
         self.init(status: response.status, errorCode: code, message: message.isEmpty ? "HTTP \(response.status)" : message)
     }
+}
+
+/// Somfy's OAuth sign-in (docs/clean-room/Tahoma.md 11): one token endpoint for every region, and the TaHoma app's
+/// client, public by design (it is in the mobile apps).
+enum SomfyOAuth {
+    static let tokenURL = "https://accounts.somfy.com/oauth/oauth/v2/token/jwt"
+    static let clientID = "0d8e920c-1478-11e7-a377-02dd59bd3041_1ewvaqmclfogo4kcsoo0c8k4kso884owg08sg8c40sk4go4ksg"
+    static let clientSecret = "12k73w1n540g8o4cokg0cw84cog840k84cwggscwg884004kgk"
+    /// A token is refreshed when it has this long left.
+    static let refreshMargin: Duration = .seconds(5)
+}
+
+/// Where the client keeps Somfy's refresh token between runs (the plugin's `context.secretFile`); nil keeps it in
+/// memory only (Setup).
+struct RefreshTokenStore: Sendable {
+    var load: @Sendable () -> String?
+    var save: @Sendable (String?) -> Void
 }
 
 /// How the client reaches the setup: a cloud with its sign-in, or a gateway's local API with a token.
@@ -77,13 +94,22 @@ actor OverkizClient {
     private let now: @Sendable () -> ContinuousClock.Instant
     private var cookie: String?
     private var signedIn = false
+    /// Somfy OAuth: the Bearer, its refresh token and when it expires (nil: until the server refuses it).
+    private var accessToken: String?
+    private var refreshToken: String?
+    private var expiresAt: ContinuousClock.Instant?
+    /// After a 401, the next sign-in is a new password grant rather than a refresh (11.4).
+    private var passwordGrantNext = false
+    private let tokenStore: RefreshTokenStore?
+    /// Changes when the session does (a refreshed token): an event listener belongs to the session it was made in.
+    private(set) var sessionGeneration = 0
     private var lockedUntil: ContinuousClock.Instant?
     private var lockout: Duration = .seconds(60)
     /// Called with the error when the account refuses the credentials, and with nil once it accepts them.
     private let onAccount: @Sendable (OverkizError?) -> Void
 
     init(
-        endpoint: OverkizEndpoint, transport: Transport, proxy: String? = nil, logger: Logger,
+        endpoint: OverkizEndpoint, transport: Transport, proxy: String? = nil, logger: Logger, tokenStore: RefreshTokenStore? = nil,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, onAccount: @escaping @Sendable (OverkizError?) -> Void = { _ in }
     ) {
         self.endpoint = endpoint
@@ -92,6 +118,14 @@ actor OverkizClient {
         self.logger = logger
         self.now = now
         self.onAccount = onAccount
+        self.tokenStore = tokenStore
+    }
+
+    /// Whether this client signs in with Somfy's OAuth: Somfy Europe (11.1). Oceania and North America keep the session
+    /// login, as do the other brands.
+    var usesOAuth: Bool {
+        if case .cloud(.somfyEurope, _, _) = endpoint { return true }
+        return false
     }
 
     /// The API's base URL: the cloud's, or the gateway's on port 8443 (with the extra `/1`).
@@ -109,12 +143,15 @@ actor OverkizClient {
     @discardableResult
     func request(_ method: String, _ path: String, json: JSONValue? = nil, reconnect: Bool = true) async throws -> JSONValue {
         try await signIn()
+        try await refreshIfDue()
         do {
             return try await send(method, path, json: json)
         } catch let error as OverkizError where error.status == 401 {
             if signedIn { logger.debug("Session expired: \(error)") }
             signedIn = false
             cookie = nil
+            accessToken = nil
+            passwordGrantNext = true
             guard reconnect else { throw error }
             try await signIn()
             return try await send(method, path, json: json)
@@ -125,7 +162,13 @@ actor OverkizClient {
         var headers: [(name: String, value: String)] = [("Accept", "application/json")]
         switch endpoint {
         case .local(_, _, let token): headers.append(("Authorization", "Bearer \(token)"))
-        case .cloud: if let cookie { headers.append(("Cookie", cookie)) }
+        case .cloud:
+            // Never both: Overkiz refuses a request with a session cookie and a Bearer (11.3).
+            if usesOAuth {
+                if let accessToken { headers.append(("Authorization", "Bearer \(accessToken)")) }
+            } else if let cookie {
+                headers.append(("Cookie", cookie))
+            }
         }
         var body: Data?
         if let json {
@@ -181,7 +224,9 @@ actor OverkizClient {
                 let version = try await send("GET", "/apiVersion", json: nil)
                 logger.debug("Local API version \(version["protocolVersion"]?.stringValue ?? "unknown")")
             case .cloud(let service, let user, let password):
-                if service == .cozytouch {
+                if usesOAuth {
+                    try await oauthSignIn(user: user, password: password)
+                } else if service == .cozytouch {
                     let jwt = try await cozytouchJWT(user: user, password: password)
                     try await sessionLogin(form: [("jwt", jwt)])
                 } else {
@@ -199,6 +244,69 @@ actor OverkizClient {
                 if error.isBadCredentials || (endpoint.isLocal && status == 401) { onAccount(error) }
             }
             throw error
+        }
+    }
+
+    // MARK: Somfy OAuth (11)
+
+    /// A refresh with the kept refresh token, else (or when it is refused, or after a 401) the password grant.
+    private func oauthSignIn(user: String, password: String) async throws {
+        cookie = nil
+        if !passwordGrantNext, let kept = refreshToken ?? tokenStore?.load() {
+            do {
+                try await grant([("grant_type", "refresh_token"), ("client_id", SomfyOAuth.clientID), ("client_secret", SomfyOAuth.clientSecret), ("refresh_token", kept)])
+                return
+            } catch let error as OverkizError where error.isBadCredentials {
+                logger.debug("Somfy refused the kept refresh token: signing in with the password")
+                refreshToken = nil
+                tokenStore?.save(nil)
+            }
+        }
+        passwordGrantNext = false
+        try await grant([
+            ("grant_type", "password"), ("client_id", SomfyOAuth.clientID), ("client_secret", SomfyOAuth.clientSecret),
+            ("username", user), ("password", password),
+        ])
+    }
+
+    /// Refreshes a token that expires within 5 s, before a request (11.4); a refused refresh signs in with the password.
+    private func refreshIfDue() async throws {
+        guard usesOAuth, signedIn, let expiresAt, let refreshToken, now() >= expiresAt - SomfyOAuth.refreshMargin else { return }
+        do {
+            try await grant([("grant_type", "refresh_token"), ("client_id", SomfyOAuth.clientID), ("client_secret", SomfyOAuth.clientSecret), ("refresh_token", refreshToken)])
+            sessionGeneration += 1
+        } catch let error as OverkizError where error.isBadCredentials {
+            self.refreshToken = nil
+            tokenStore?.save(nil)
+            signedIn = false
+            passwordGrantNext = true
+            try await signIn()
+            sessionGeneration += 1
+        }
+    }
+
+    /// One request to Somfy's token endpoint; keeps the access token, its expiry, and a new refresh token.
+    private func grant(_ form: [(String, String)]) async throws {
+        let response = try await http(
+            "POST", SomfyOAuth.tokenURL, headers: [("Content-Type", "application/x-www-form-urlencoded"), ("Accept", "application/json")],
+            body: Data(URLEncoding.form(form).utf8))
+        let body = (try? JSONValue(data: response.body)) ?? .null
+        // A refused password or refresh token, whatever the status (Somfy may answer it with 200).
+        if body["message"]?.stringValue == "error.invalid.grant" || body["error"]?.stringValue == "invalid_grant" {
+            throw OverkizError(status: 400, errorCode: "invalid_grant", message: "error.invalid.grant")
+        }
+        guard response.isSuccess else {
+            if response.status >= 500 { throw OverkizError(message: "Somfy's sign-in is unavailable (HTTP \(response.status))") }
+            throw OverkizError(response: response)
+        }
+        guard let access = body["access_token"]?.stringValue, !access.isEmpty else {
+            throw OverkizError(message: "Somfy's sign-in gave no access token")
+        }
+        accessToken = access
+        expiresAt = body["expires_in"]?.number.map { now() + .seconds(min(max(0, $0), 1e9)) }
+        if let refresh = body["refresh_token"]?.stringValue, !refresh.isEmpty, refresh != refreshToken {
+            refreshToken = refresh
+            tokenStore?.save(refresh)
         }
     }
 
@@ -310,14 +418,20 @@ actor OverkizClient {
         try await request("POST", "/setup/devices/\(Self.component(deviceURL))/states/refresh")
     }
 
-    /// Mints a Developer Mode token for a gateway and activates it (3.5); answers the token.
+    /// Mints a Developer Mode token for a gateway and activates it (3.5, 11.7); answers the token. Developer Mode is
+    /// switched on first when the gateway says it is off; a gateway that does not answer that check is tried anyway.
     func mintLocalToken(pin: String, label: String) async throws -> String {
+        let mode = "/setup/gateways/\(Self.component(pin))/developerMode"
+        if let active = (try? await request("GET", mode))?["active"]?.boolValue, !active {
+            try await request("POST", mode)
+            logger.info("Turned on the gateway's Developer Mode")
+        }
         guard let token = try await request("GET", "/config/\(Self.component(pin))/local/tokens/generate")["token"]?.stringValue, !token.isEmpty else {
             throw OverkizError(message: "the server gave no token")
         }
         try await request(
             "POST", "/config/\(Self.component(pin))/local/tokens",
-            json: ["label": .string(label), "token": .string(token), "scope": "devmode", "gatewayId": .string(pin)])
+            json: ["label": .string(label), "token": .string(token), "scope": "devmode"])
         return token
     }
 
