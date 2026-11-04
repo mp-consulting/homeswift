@@ -63,6 +63,7 @@ HomeswiftI18n.add("pt", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
+  "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, fechaduras, luzes e comandos IV através da nuvem da SwitchBot",
   "Thermostats, radiator valves, hot water and air conditioners of a tado° account": "Termóstatos, válvulas de radiador, água quente e ares condicionados de uma conta tado°",
   "Nest thermostats, cameras and doorbells through Google's Device Access": "Termóstatos, câmaras e campainhas Nest, através do Device Access da Google",
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interruptores, sensores e mais que só existem no HomeKit, para automações",

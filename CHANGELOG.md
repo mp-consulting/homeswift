@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- SwitchBot (experimental): Bots, Relay Switches, plugs, curtains, Blind Tilts, meters, hubs, sensors, locks, lights,
+  humidifiers, fans, vacuums, air purifiers and IR remotes through SwitchBot's OpenAPI, within the account's daily
+  requests, with its webhook; a clean-room implementation that reads `@switchbot/homebridge-switchbot`'s blocks.
 - **tado°** plugin (`TadoPlatform`, new, experimental): tado° thermostats, radiator valves, hot water and air conditioners
   through tado's cloud, signed in through Setup with tado's device code, polled in one request for all zones and as
   often as the account's 100 requests a day allow. A clean-room implementation compatible with homebridge-tado's block.

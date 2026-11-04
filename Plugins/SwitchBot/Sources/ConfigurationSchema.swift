@@ -1,0 +1,1479 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension SwitchBotPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "SwitchBot",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "title": "Name",
+        "description": "The name of this platform in the logs",
+        "default": "SwitchBot"
+      },
+      "options": {
+        "type": "object",
+        "title": "Options",
+        "description": "Polling, commands and the webhook",
+        "properties": {
+          "refreshRate": {
+            "type": "number",
+            "title": "Refresh rate",
+            "description": "Seconds between two status polls of a device (300 by default, 30 at least), stretched to keep within the day's requests",
+            "minimum": 30
+          },
+          "updateRate": {
+            "type": "number",
+            "title": "Update rate",
+            "description": "Seconds between polls while a curtain or a blind moves (5 by default)",
+            "minimum": 1
+          },
+          "pushRate": {
+            "type": "number",
+            "title": "Push rate",
+            "description": "Seconds HomeKit's writes are gathered before a command is sent (0.1 by default)",
+            "minimum": 0
+          },
+          "maxRetries": {
+            "type": "integer",
+            "title": "Attempts",
+            "description": "Attempts of a request that gets no answer (2 by default)",
+            "minimum": 1
+          },
+          "delayBetweenRetries": {
+            "type": "number",
+            "title": "Delay between attempts",
+            "description": "Milliseconds between two attempts (3000 by default)",
+            "minimum": 0
+          },
+          "hostname": {
+            "type": "string",
+            "title": "API address",
+            "description": "Another address for SwitchBot's OpenAPI (https://api.switch-bot.com by default)"
+          },
+          "webhookURL": {
+            "type": "string",
+            "title": "Webhook URL",
+            "description": "The address, reachable from the Internet, where SwitchBot's cloud posts changes. The bridge listens on its port and adds a secret segment to its path"
+          },
+          "logging": {
+            "type": "string",
+            "title": "Logging",
+            "description": "How much the plugin logs",
+            "oneOf": [
+              {
+                "enum": [
+                  "standard"
+                ],
+                "title": "Standard"
+              },
+              {
+                "enum": [
+                  "debug"
+                ],
+                "title": "Debug"
+              },
+              {
+                "enum": [
+                  "none"
+                ],
+                "title": "None"
+              }
+            ]
+          },
+          "allowInvalidCharacters": {
+            "type": "boolean",
+            "title": "Keep names as they are",
+            "description": "Do not remove from device names the characters HomeKit does not take"
+          },
+          "deviceConfig": {
+            "type": "object",
+            "title": "Options by device type",
+            "description": "Options for every device of a type, by its OpenAPI type (Bot, Curtain, Hub 2…)",
+            "additionalProperties": {
+              "type": "object"
+            }
+          },
+          "irdeviceConfig": {
+            "type": "object",
+            "title": "Options by remote type",
+            "description": "Options for every IR remote of a type, by its remote type (TV, Fan, Others…)",
+            "additionalProperties": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "openApiRefreshRate": {
+        "type": "number",
+        "title": "Refresh rate (5.x)",
+        "description": "The refresh rate of the plugin's 5.x block, read when options.refreshRate is not set",
+        "minimum": 30
+      },
+      "dailyApiLimit": {
+        "type": "integer",
+        "title": "Daily requests",
+        "description": "Requests SwitchBot allows the account a day (10,000)",
+        "minimum": 1000
+      },
+      "dailyApiReserveForCommands": {
+        "type": "integer",
+        "title": "Reserved for commands",
+        "description": "Requests of the day kept for commands: polls stop when only these are left (1,000)",
+        "minimum": 0
+      },
+      "dailyApiResetLocalMidnight": {
+        "type": "boolean",
+        "title": "Count from local midnight",
+        "description": "Count the day's requests from local midnight instead of midnight UTC"
+      },
+      "co2AbnormalThreshold": {
+        "type": "number",
+        "title": "CO₂ alert level",
+        "description": "Parts per million from which a Meter Pro CO2 reports abnormal carbon dioxide (1000)",
+        "minimum": 400,
+        "maximum": 5000
+      },
+      "writeDebounceMs": {
+        "type": "number",
+        "title": "Write debounce (5.x)",
+        "description": "Milliseconds HomeKit's writes are gathered, from the plugin's 5.x block, read when options.pushRate is not set",
+        "minimum": 0
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "configDeviceType": {
+        "type": "string",
+        "title": "Device type",
+        "description": "The OpenAPI type, when the cloud reports none",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "sensor",
+          "lock",
+          "light",
+          "humidifier",
+          "fan",
+          "vacuum",
+          "airPurifier"
+        ]
+      },
+      "configRemoteType": {
+        "type": "string",
+        "title": "Remote type",
+        "description": "The remote's type, when the cloud reports none",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "connectionType": {
+        "type": "string",
+        "title": "Connection",
+        "description": "How the device is reached. Bluetooth is not supported: only the cloud works",
+        "oneOf": [
+          {
+            "enum": [
+              "OpenAPI"
+            ],
+            "title": "Cloud (OpenAPI)"
+          },
+          {
+            "enum": [
+              "BLE/OpenAPI"
+            ],
+            "title": "Bluetooth, then the cloud"
+          },
+          {
+            "enum": [
+              "BLE"
+            ],
+            "title": "Bluetooth"
+          },
+          {
+            "enum": [
+              "Disabled"
+            ],
+            "title": "Disabled"
+          }
+        ]
+      },
+      "refreshRate": {
+        "type": "number",
+        "title": "Refresh rate",
+        "description": "Seconds between two status polls of this device",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "sensor",
+          "lock",
+          "light",
+          "humidifier",
+          "fan",
+          "vacuum",
+          "airPurifier"
+        ],
+        "minimum": 30
+      },
+      "updateRate": {
+        "type": "number",
+        "title": "Update rate",
+        "description": "Seconds between polls while it moves",
+        "x-kinds": [
+          "curtain",
+          "blindTilt"
+        ],
+        "minimum": 1
+      },
+      "pushRate": {
+        "type": "number",
+        "title": "Push rate",
+        "description": "Seconds HomeKit's writes to it are gathered before a command is sent",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "sensor",
+          "lock",
+          "light",
+          "humidifier",
+          "fan",
+          "vacuum",
+          "airPurifier"
+        ],
+        "minimum": 0
+      },
+      "webhook": {
+        "type": "boolean",
+        "title": "Webhook",
+        "description": "Show the changes SwitchBot's webhook reports for this device",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "sensor",
+          "lock",
+          "light",
+          "humidifier",
+          "fan",
+          "vacuum",
+          "airPurifier"
+        ]
+      },
+      "offline": {
+        "type": "boolean",
+        "title": "Offline as off",
+        "description": "Show the device off, closed or locked when nothing can reach it",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "sensor",
+          "lock",
+          "light",
+          "humidifier",
+          "fan",
+          "vacuum",
+          "airPurifier"
+        ]
+      },
+      "external": {
+        "type": "boolean",
+        "title": "Accessory of its own",
+        "description": "Publish it as an accessory of its own instead of on the bridge (a DIY remote is by default)"
+      },
+      "firmware": {
+        "type": "string",
+        "title": "Firmware",
+        "description": "The firmware revision to show instead of the reported one"
+      },
+      "logging": {
+        "type": "string",
+        "title": "Logging",
+        "description": "How much the plugin logs",
+        "oneOf": [
+          {
+            "enum": [
+              "standard"
+            ],
+            "title": "Standard"
+          },
+          {
+            "enum": [
+              "debug"
+            ],
+            "title": "Debug"
+          },
+          {
+            "enum": [
+              "none"
+            ],
+            "title": "None"
+          }
+        ]
+      },
+      "disableCaching": {
+        "type": "boolean",
+        "title": "Always send the position",
+        "description": "Send the position even when it is already there",
+        "x-kinds": [
+          "curtain",
+          "blindTilt"
+        ]
+      },
+      "type": {
+        "type": "string",
+        "title": "Shown as",
+        "description": "The HomeKit service a Bot, a Relay Switch or an Others remote shows as (a switch by default; an outlet for a remote)",
+        "x-kinds": [
+          "bot",
+          "remote"
+        ],
+        "oneOf": [
+          {
+            "enum": [
+              "switch"
+            ],
+            "title": "Switch"
+          },
+          {
+            "enum": [
+              "outlet"
+            ],
+            "title": "Outlet"
+          },
+          {
+            "enum": [
+              "garagedoor"
+            ],
+            "title": "Garage door"
+          },
+          {
+            "enum": [
+              "door"
+            ],
+            "title": "Door"
+          },
+          {
+            "enum": [
+              "window"
+            ],
+            "title": "Window"
+          },
+          {
+            "enum": [
+              "windowcovering"
+            ],
+            "title": "Window covering"
+          },
+          {
+            "enum": [
+              "lock"
+            ],
+            "title": "Lock"
+          },
+          {
+            "enum": [
+              "faucet"
+            ],
+            "title": "Faucet"
+          },
+          {
+            "enum": [
+              "fan"
+            ],
+            "title": "Fan"
+          },
+          {
+            "enum": [
+              "stateful"
+            ],
+            "title": "Programmable switch"
+          }
+        ]
+      },
+      "mode": {
+        "type": "string",
+        "title": "Mode",
+        "description": "The Bot's mode: a switch, a press, or as many presses as HomeKit's writes",
+        "x-kinds": [
+          "bot"
+        ],
+        "oneOf": [
+          {
+            "enum": [
+              "switch"
+            ],
+            "title": "Switch"
+          },
+          {
+            "enum": [
+              "press"
+            ],
+            "title": "Press"
+          },
+          {
+            "enum": [
+              "multipress"
+            ],
+            "title": "Several presses"
+          }
+        ]
+      },
+      "doublePress": {
+        "type": "integer",
+        "title": "Repeats",
+        "description": "Times each command is sent",
+        "x-kinds": [
+          "bot"
+        ],
+        "minimum": 1,
+        "maximum": 10
+      },
+      "pushRatePress": {
+        "type": "number",
+        "title": "Seconds between repeats",
+        "description": "Seconds between two sends of a repeated command (15)",
+        "x-kinds": [
+          "bot"
+        ],
+        "minimum": 0
+      },
+      "allowPush": {
+        "type": "boolean",
+        "title": "Send unchanged",
+        "description": "Send the command even when the state does not change",
+        "x-kinds": [
+          "bot"
+        ]
+      },
+      "hide_temperature": {
+        "type": "boolean",
+        "title": "Hide the temperature",
+        "description": "Leave out the temperature sensor",
+        "x-kinds": [
+          "sensor",
+          "humidifier"
+        ]
+      },
+      "hide_humidity": {
+        "type": "boolean",
+        "title": "Hide the humidity",
+        "description": "Leave out the humidity sensor",
+        "x-kinds": [
+          "sensor"
+        ]
+      },
+      "hide_co2": {
+        "type": "boolean",
+        "title": "Hide the CO₂ sensor",
+        "description": "Leave out the carbon dioxide sensor",
+        "x-kinds": [
+          "sensor"
+        ]
+      },
+      "convertUnitTo": {
+        "type": "string",
+        "title": "Webhook temperature unit",
+        "description": "4.x's conversion of the webhook's temperatures; Fahrenheit is converted to Celsius anyway",
+        "x-kinds": [
+          "sensor",
+          "humidifier"
+        ],
+        "oneOf": [
+          {
+            "enum": [
+              "CELSIUS"
+            ],
+            "title": "Celsius"
+          },
+          {
+            "enum": [
+              "FAHRENHEIT"
+            ],
+            "title": "Fahrenheit"
+          }
+        ]
+      },
+      "hide_lightsensor": {
+        "type": "boolean",
+        "title": "Hide the light sensor",
+        "description": "Leave out the light sensor",
+        "x-kinds": [
+          "curtain",
+          "blindTilt",
+          "sensor"
+        ]
+      },
+      "set_minLux": {
+        "type": "number",
+        "title": "Lowest lux",
+        "description": "Lux shown for the dimmest level (1)",
+        "x-kinds": [
+          "curtain",
+          "blindTilt",
+          "sensor"
+        ],
+        "minimum": 0
+      },
+      "set_maxLux": {
+        "type": "number",
+        "title": "Highest lux",
+        "description": "Lux shown for the brightest level (6001)",
+        "x-kinds": [
+          "curtain",
+          "blindTilt",
+          "sensor"
+        ],
+        "minimum": 0,
+        "maximum": 100000
+      },
+      "hide_motionsensor": {
+        "type": "boolean",
+        "title": "Hide the motion sensor",
+        "description": "Leave out a Contact Sensor's motion sensor",
+        "x-kinds": [
+          "sensor"
+        ]
+      },
+      "hide_contactsensor": {
+        "type": "boolean",
+        "title": "Hide the door sensor",
+        "description": "Leave out the lock's door contact sensor",
+        "x-kinds": [
+          "lock"
+        ]
+      },
+      "activate_latchbutton": {
+        "type": "boolean",
+        "title": "Latch switch",
+        "description": "Show the Latch switch, which unlocks at once (shown unless turned off)",
+        "x-kinds": [
+          "lock"
+        ]
+      },
+      "hide_leak": {
+        "type": "boolean",
+        "title": "Hide the leak sensor",
+        "description": "Leave out the Water Detector's leak sensor",
+        "x-kinds": [
+          "sensor"
+        ]
+      },
+      "dry": {
+        "type": "boolean",
+        "title": "Invert the leak",
+        "description": "Report a leak when the Water Detector reports dry",
+        "x-kinds": [
+          "sensor"
+        ]
+      },
+      "set_min": {
+        "type": "number",
+        "title": "Lower threshold",
+        "description": "A curtain at or above this position shows open, a blind at or below it closed; a fan remote's lowest speed",
+        "x-kinds": [
+          "curtain",
+          "blindTilt",
+          "remote"
+        ],
+        "minimum": 0,
+        "maximum": 100
+      },
+      "set_max": {
+        "type": "number",
+        "title": "Upper threshold",
+        "description": "A curtain at or below this position shows closed, a blind at or above it open; a fan remote's highest speed",
+        "x-kinds": [
+          "curtain",
+          "blindTilt",
+          "remote"
+        ],
+        "minimum": 0,
+        "maximum": 100
+      },
+      "set_minStep": {
+        "type": "number",
+        "title": "Step",
+        "description": "The step of the position, brightness, humidity or speed",
+        "x-kinds": [
+          "curtain",
+          "blindTilt",
+          "light",
+          "humidifier",
+          "remote"
+        ],
+        "minimum": 1
+      },
+      "setOpenMode": {
+        "type": "string",
+        "title": "Opening speed",
+        "description": "The speed of the moves that open it",
+        "x-kinds": [
+          "curtain",
+          "blindTilt"
+        ],
+        "oneOf": [
+          {
+            "enum": [
+              "0"
+            ],
+            "title": "Performance"
+          },
+          {
+            "enum": [
+              "1"
+            ],
+            "title": "Silent"
+          }
+        ]
+      },
+      "setCloseMode": {
+        "type": "string",
+        "title": "Closing speed",
+        "description": "The speed of the moves that close it",
+        "x-kinds": [
+          "curtain",
+          "blindTilt"
+        ],
+        "oneOf": [
+          {
+            "enum": [
+              "0"
+            ],
+            "title": "Performance"
+          },
+          {
+            "enum": [
+              "1"
+            ],
+            "title": "Silent"
+          }
+        ]
+      },
+      "silentModeSwitch": {
+        "type": "boolean",
+        "title": "Silent mode switches",
+        "description": "Two switches that make the next moves silent",
+        "x-kinds": [
+          "curtain",
+          "blindTilt"
+        ]
+      },
+      "disable_group": {
+        "type": "boolean",
+        "title": "Show the group's other curtain",
+        "description": "Show the secondary curtain of a group too (the master moves the group)",
+        "x-kinds": [
+          "curtain",
+          "blindTilt"
+        ]
+      },
+      "mapping": {
+        "type": "string",
+        "title": "Position mapping",
+        "description": "How the blind's tilt becomes a HomeKit position",
+        "x-kinds": [
+          "blindTilt"
+        ],
+        "oneOf": [
+          {
+            "enum": [
+              "only_up"
+            ],
+            "title": "Up only"
+          },
+          {
+            "enum": [
+              "only_down"
+            ],
+            "title": "Down only"
+          },
+          {
+            "enum": [
+              "down_and_up"
+            ],
+            "title": "Down, then up"
+          },
+          {
+            "enum": [
+              "up_and_down"
+            ],
+            "title": "Up, then down"
+          },
+          {
+            "enum": [
+              "use_tilt_for_direction"
+            ],
+            "title": "Tilt gives the direction"
+          }
+        ]
+      },
+      "adaptiveLightingShift": {
+        "type": "number",
+        "title": "Adaptive Lighting shift",
+        "description": "Mireds added to Adaptive Lighting's colour temperature; -1 turns Adaptive Lighting off",
+        "x-kinds": [
+          "light"
+        ],
+        "minimum": -1
+      },
+      "customize": {
+        "type": "boolean",
+        "title": "Learned buttons",
+        "description": "Send the learned buttons On button and Off button instead of on and off",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "customOn": {
+        "type": "string",
+        "title": "On button",
+        "description": "The learned button that turns it on",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "customOff": {
+        "type": "string",
+        "title": "Off button",
+        "description": "The learned button that turns it off",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "commandType": {
+        "type": "string",
+        "title": "Command type",
+        "description": "The commandType sent with the learned buttons (customize by default)",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "disablePushOn": {
+        "type": "boolean",
+        "title": "Do not send on",
+        "description": "Never send the on command",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "disablePushOff": {
+        "type": "boolean",
+        "title": "Do not send off",
+        "description": "Never send the off command",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "disablePushDetail": {
+        "type": "boolean",
+        "title": "Only on and off",
+        "description": "Never send other commands (volume, speed, settings)",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "rotation_speed": {
+        "type": "boolean",
+        "title": "Speed",
+        "description": "Show a speed for a fan remote",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "swing_mode": {
+        "type": "boolean",
+        "title": "Oscillation",
+        "description": "Show oscillation for a fan remote",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "stateless": {
+        "type": "boolean",
+        "title": "Two buttons",
+        "description": "Show a light remote as an On and an Off button",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "hide_automode": {
+        "type": "boolean",
+        "title": "No auto mode",
+        "description": "Leave out an air conditioner's auto mode",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "set_max_heat": {
+        "type": "number",
+        "title": "Highest heating",
+        "description": "An air conditioner's highest heating temperature, °C (35)",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "set_min_heat": {
+        "type": "number",
+        "title": "Lowest heating",
+        "description": "An air conditioner's lowest heating temperature, °C (0)",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "set_max_cool": {
+        "type": "number",
+        "title": "Highest cooling",
+        "description": "An air conditioner's highest cooling temperature, °C (35)",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "set_min_cool": {
+        "type": "number",
+        "title": "Lowest cooling",
+        "description": "An air conditioner's lowest cooling temperature, °C (0)",
+        "x-kinds": [
+          "remote"
+        ]
+      },
+      "meterType": {
+        "type": "string",
+        "title": "Linked meter type",
+        "description": "The type of the SwitchBot meter whose temperature an air conditioner shows",
+        "x-kinds": [
+          "remote"
+        ],
+        "oneOf": [
+          {
+            "enum": [
+              "Hub 2"
+            ],
+            "title": "Hub 2"
+          },
+          {
+            "enum": [
+              "Hub Mini 2"
+            ],
+            "title": "Hub Mini 2"
+          },
+          {
+            "enum": [
+              "Meter"
+            ],
+            "title": "Meter"
+          },
+          {
+            "enum": [
+              "MeterPlus"
+            ],
+            "title": "MeterPlus"
+          },
+          {
+            "enum": [
+              "Meter Plus (JP)"
+            ],
+            "title": "Meter Plus (JP)"
+          },
+          {
+            "enum": [
+              "Meter Pro"
+            ],
+            "title": "Meter Pro"
+          },
+          {
+            "enum": [
+              "MeterPro(CO2)"
+            ],
+            "title": "MeterPro(CO2)"
+          },
+          {
+            "enum": [
+              "WoIOSensor"
+            ],
+            "title": "WoIOSensor"
+          },
+          {
+            "enum": [
+              "Humidifier"
+            ],
+            "title": "Humidifier"
+          }
+        ]
+      },
+      "meterId": {
+        "type": "string",
+        "title": "Linked meter",
+        "description": "The device id of that meter",
+        "x-kinds": [
+          "remote"
+        ]
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "4.x's conversion of the webhook's temperatures; Fahrenheit is converted to Celsius anyway": "La conversion des températures du webhook de la version 4.x ; les Fahrenheit sont convertis en Celsius de toute façon",
+      "A curtain at or above this position shows open, a blind at or below it closed; a fan remote's lowest speed": "Un rideau à cette position ou au-dessus est montré ouvert, un store à cette position ou en dessous fermé ; la vitesse la plus basse d'une télécommande de ventilateur",
+      "A curtain at or below this position shows closed, a blind at or above it open; a fan remote's highest speed": "Un rideau à cette position ou en dessous est montré fermé, un store à cette position ou au-dessus ouvert ; la vitesse la plus haute d'une télécommande de ventilateur",
+      "API address": "Adresse de l'API",
+      "Accessory of its own": "Accessoire à part",
+      "Adaptive Lighting shift": "Décalage de l'éclairage adaptatif",
+      "Always send the position": "Toujours envoyer la position",
+      "An air conditioner's highest cooling temperature, °C (35)": "La température de refroidissement la plus haute d'un climatiseur, °C (35)",
+      "An air conditioner's highest heating temperature, °C (35)": "La température de chauffage la plus haute d'un climatiseur, °C (35)",
+      "An air conditioner's lowest cooling temperature, °C (0)": "La température de refroidissement la plus basse d'un climatiseur, °C (0)",
+      "An air conditioner's lowest heating temperature, °C (0)": "La température de chauffage la plus basse d'un climatiseur, °C (0)",
+      "Another address for SwitchBot's OpenAPI (https://api.switch-bot.com by default)": "Une autre adresse pour l'OpenAPI de SwitchBot (https://api.switch-bot.com par défaut)",
+      "Attempts": "Tentatives",
+      "Attempts of a request that gets no answer (2 by default)": "Tentatives d'une requête restée sans réponse (2 par défaut)",
+      "Bluetooth": "Bluetooth",
+      "Bluetooth, then the cloud": "Bluetooth, puis le cloud",
+      "CO₂ alert level": "Seuil d'alerte CO₂",
+      "Celsius": "Celsius",
+      "Closing speed": "Vitesse de fermeture",
+      "Cloud (OpenAPI)": "Cloud (OpenAPI)",
+      "Command type": "Type de commande",
+      "Connection": "Connexion",
+      "Count from local midnight": "Compter depuis minuit, heure locale",
+      "Count the day's requests from local midnight instead of midnight UTC": "Compter les requêtes du jour depuis minuit en heure locale plutôt qu'en UTC",
+      "Daily requests": "Requêtes par jour",
+      "Debug": "Débogage",
+      "Delay between attempts": "Délai entre deux tentatives",
+      "Device type": "Type d'appareil",
+      "Disabled": "Désactivée",
+      "Do not remove from device names the characters HomeKit does not take": "Ne pas retirer des noms des appareils les caractères que HomeKit refuse",
+      "Do not send off": "Ne pas envoyer arrêt",
+      "Do not send on": "Ne pas envoyer marche",
+      "Door": "Porte",
+      "Down only": "Vers le bas seulement",
+      "Down, then up": "Bas, puis haut",
+      "Fahrenheit": "Fahrenheit",
+      "Fan": "Ventilateur",
+      "Faucet": "Robinet",
+      "Firmware": "Micrologiciel",
+      "Garage door": "Porte de garage",
+      "Hide the CO₂ sensor": "Masquer le capteur de CO₂",
+      "Hide the door sensor": "Masquer le capteur de porte",
+      "Hide the humidity": "Masquer l'humidité",
+      "Hide the leak sensor": "Masquer le détecteur de fuite",
+      "Hide the light sensor": "Masquer le capteur de lumière",
+      "Hide the motion sensor": "Masquer le détecteur de mouvement",
+      "Hide the temperature": "Masquer la température",
+      "Highest cooling": "Refroidissement maximum",
+      "Highest heating": "Chauffage maximum",
+      "Highest lux": "Lux maximum",
+      "How much the plugin logs": "Ce que le plugin écrit dans le journal",
+      "How the blind's tilt becomes a HomeKit position": "Comment l'inclinaison du store devient une position dans HomeKit",
+      "How the device is reached. Bluetooth is not supported: only the cloud works": "Comment l'appareil est joint. Le Bluetooth n'est pas pris en charge : seul le cloud fonctionne",
+      "Hub 2": "Hub 2",
+      "Hub Mini 2": "Hub Mini 2",
+      "Humidifier": "Humidificateur",
+      "Invert the leak": "Inverser la fuite",
+      "Keep names as they are": "Garder les noms tels quels",
+      "Latch switch": "Interrupteur du pêne",
+      "Learned buttons": "Boutons appris",
+      "Leave out a Contact Sensor's motion sensor": "Laisser de côté le détecteur de mouvement d'un Contact Sensor",
+      "Leave out an air conditioner's auto mode": "Laisser de côté le mode auto d'un climatiseur",
+      "Leave out the Water Detector's leak sensor": "Laisser de côté le détecteur de fuite du Water Detector",
+      "Leave out the carbon dioxide sensor": "Laisser de côté le capteur de dioxyde de carbone",
+      "Leave out the humidity sensor": "Laisser de côté le capteur d'humidité",
+      "Leave out the light sensor": "Laisser de côté le capteur de lumière",
+      "Leave out the lock's door contact sensor": "Laisser de côté le capteur d'ouverture de la porte de la serrure",
+      "Leave out the temperature sensor": "Laisser de côté le capteur de température",
+      "Linked meter": "Thermomètre lié",
+      "Linked meter type": "Type du thermomètre lié",
+      "Lock": "Serrure",
+      "Logging": "Journal",
+      "Lower threshold": "Seuil bas",
+      "Lowest cooling": "Refroidissement minimum",
+      "Lowest heating": "Chauffage minimum",
+      "Lowest lux": "Lux minimum",
+      "Lux shown for the brightest level (6001)": "Lux montrés pour le niveau le plus lumineux (6001)",
+      "Lux shown for the dimmest level (1)": "Lux montrés pour le niveau le plus sombre (1)",
+      "Meter": "Meter",
+      "Meter Plus (JP)": "Meter Plus (JP)",
+      "Meter Pro": "Meter Pro",
+      "MeterPlus": "MeterPlus",
+      "MeterPro(CO2)": "MeterPro(CO2)",
+      "Milliseconds HomeKit's writes are gathered, from the plugin's 5.x block, read when options.pushRate is not set": "Millisecondes de regroupement des changements de HomeKit, du bloc 5.x du plugin, lues quand options.pushRate n'est pas donné",
+      "Milliseconds between two attempts (3000 by default)": "Millisecondes entre deux tentatives (3000 par défaut)",
+      "Mireds added to Adaptive Lighting's colour temperature; -1 turns Adaptive Lighting off": "Mireds ajoutés à la température de couleur de l'éclairage adaptatif ; -1 désactive l'éclairage adaptatif",
+      "Mode": "Mode",
+      "Name": "Nom",
+      "Never send other commands (volume, speed, settings)": "Ne jamais envoyer d'autres commandes (volume, vitesse, réglages)",
+      "Never send the off command": "Ne jamais envoyer la commande arrêt",
+      "Never send the on command": "Ne jamais envoyer la commande marche",
+      "No auto mode": "Sans mode auto",
+      "None": "Aucun",
+      "Off button": "Bouton arrêt",
+      "Offline as off": "Hors ligne comme éteint",
+      "On button": "Bouton marche",
+      "Only on and off": "Marche et arrêt seulement",
+      "Opening speed": "Vitesse d'ouverture",
+      "Options": "Options",
+      "Options by device type": "Options par type d'appareil",
+      "Options by remote type": "Options par type de télécommande",
+      "Options for every IR remote of a type, by its remote type (TV, Fan, Others…)": "Options de toutes les télécommandes infrarouges d'un type, par leur type (TV, Fan, Others…)",
+      "Options for every device of a type, by its OpenAPI type (Bot, Curtain, Hub 2…)": "Options de tous les appareils d'un type, par leur type OpenAPI (Bot, Curtain, Hub 2…)",
+      "Oscillation": "Oscillation",
+      "Outlet": "Prise",
+      "Parts per million from which a Meter Pro CO2 reports abnormal carbon dioxide (1000)": "Parties par million à partir desquelles un Meter Pro CO2 signale un taux anormal (1000)",
+      "Performance": "Performance",
+      "Polling, commands and the webhook": "Lectures, commandes et webhook",
+      "Position mapping": "Correspondance des positions",
+      "Press": "Appui",
+      "Programmable switch": "Interrupteur programmable",
+      "Publish it as an accessory of its own instead of on the bridge (a DIY remote is by default)": "Le publier comme un accessoire à part plutôt que sur le pont (par défaut pour une télécommande DIY)",
+      "Push rate": "Délai d'envoi",
+      "Refresh rate": "Fréquence de mise à jour",
+      "Refresh rate (5.x)": "Fréquence de mise à jour (5.x)",
+      "Remote type": "Type de télécommande",
+      "Repeats": "Répétitions",
+      "Report a leak when the Water Detector reports dry": "Signaler une fuite quand le Water Detector signale le sec",
+      "Requests SwitchBot allows the account a day (10,000)": "Requêtes que SwitchBot accorde au compte par jour (10 000)",
+      "Requests of the day kept for commands: polls stop when only these are left (1,000)": "Requêtes du jour gardées pour les commandes : les lectures s'arrêtent quand il ne reste qu'elles (1 000)",
+      "Reserved for commands": "Réservées aux commandes",
+      "Seconds HomeKit's writes are gathered before a command is sent (0.1 by default)": "Secondes pendant lesquelles les changements de HomeKit sont regroupés avant l'envoi d'une commande (0,1 par défaut)",
+      "Seconds HomeKit's writes to it are gathered before a command is sent": "Secondes de regroupement de ses changements dans HomeKit avant l'envoi d'une commande",
+      "Seconds between polls while a curtain or a blind moves (5 by default)": "Secondes entre deux lectures pendant qu'un rideau ou un store bouge (5 par défaut)",
+      "Seconds between polls while it moves": "Secondes entre deux lectures pendant qu'il bouge",
+      "Seconds between repeats": "Secondes entre deux répétitions",
+      "Seconds between two sends of a repeated command (15)": "Secondes entre deux envois d'une commande répétée (15)",
+      "Seconds between two status polls of a device (300 by default, 30 at least), stretched to keep within the day's requests": "Secondes entre deux lectures de l'état d'un appareil (300 par défaut, 30 au moins), allongées pour tenir dans les requêtes du jour",
+      "Seconds between two status polls of this device": "Secondes entre deux lectures de l'état de cet appareil",
+      "Send the command even when the state does not change": "Envoyer la commande même quand l'état ne change pas",
+      "Send the learned buttons On button and Off button instead of on and off": "Envoyer les boutons appris Bouton marche et Bouton arrêt au lieu de marche et arrêt",
+      "Send the position even when it is already there": "Envoyer la position même quand il y est déjà",
+      "Send unchanged": "Envoyer sans changement",
+      "Several presses": "Plusieurs appuis",
+      "Show a light remote as an On and an Off button": "Montrer une télécommande de lumière comme un bouton On et un bouton Off",
+      "Show a speed for a fan remote": "Montrer une vitesse pour une télécommande de ventilateur",
+      "Show oscillation for a fan remote": "Montrer l'oscillation pour une télécommande de ventilateur",
+      "Show the Latch switch, which unlocks at once (shown unless turned off)": "Montrer l'interrupteur Latch, qui déverrouille aussitôt (montré sauf s'il est désactivé)",
+      "Show the changes SwitchBot's webhook reports for this device": "Montrer les changements que le webhook de SwitchBot signale pour cet appareil",
+      "Show the device off, closed or locked when nothing can reach it": "Montrer l'appareil éteint, fermé ou verrouillé quand rien ne peut le joindre",
+      "Show the group's other curtain": "Montrer l'autre rideau du groupe",
+      "Show the secondary curtain of a group too (the master moves the group)": "Montrer aussi le rideau secondaire d'un groupe (le principal fait bouger le groupe)",
+      "Shown as": "Présenté comme",
+      "Silent": "Silencieux",
+      "Silent mode switches": "Interrupteurs du mode silencieux",
+      "Speed": "Vitesse",
+      "Standard": "Standard",
+      "Step": "Pas",
+      "Switch": "Interrupteur",
+      "The Bot's mode: a switch, a press, or as many presses as HomeKit's writes": "Le mode du Bot : un interrupteur, un appui, ou autant d'appuis que de changements dans HomeKit",
+      "The HomeKit service a Bot, a Relay Switch or an Others remote shows as (a switch by default; an outlet for a remote)": "Le service HomeKit sous lequel un Bot, un Relay Switch ou une télécommande Others apparaît (un interrupteur par défaut ; une prise pour une télécommande)",
+      "The OpenAPI type, when the cloud reports none": "Le type OpenAPI, quand le cloud n'en donne pas",
+      "The address, reachable from the Internet, where SwitchBot's cloud posts changes. The bridge listens on its port and adds a secret segment to its path": "L'adresse, joignable depuis Internet, où le cloud de SwitchBot envoie les changements. Le pont écoute sur son port et ajoute un segment secret à son chemin",
+      "The commandType sent with the learned buttons (customize by default)": "Le commandType envoyé avec les boutons appris (customize par défaut)",
+      "The device id of that meter": "L'identifiant de ce thermomètre",
+      "The firmware revision to show instead of the reported one": "La version du micrologiciel à montrer à la place de celle signalée",
+      "The learned button that turns it off": "Le bouton appris qui l'éteint",
+      "The learned button that turns it on": "Le bouton appris qui l'allume",
+      "The name of this platform in the logs": "Le nom de cette plateforme dans le journal",
+      "The refresh rate of the plugin's 5.x block, read when options.refreshRate is not set": "La fréquence du bloc 5.x du plugin, lue quand options.refreshRate n'est pas donné",
+      "The remote's type, when the cloud reports none": "Le type de la télécommande, quand le cloud n'en donne pas",
+      "The speed of the moves that close it": "La vitesse des mouvements qui le ferment",
+      "The speed of the moves that open it": "La vitesse des mouvements qui l'ouvrent",
+      "The step of the position, brightness, humidity or speed": "Le pas de la position, de la luminosité, de l'humidité ou de la vitesse",
+      "The type of the SwitchBot meter whose temperature an air conditioner shows": "Le type du thermomètre SwitchBot dont un climatiseur montre la température",
+      "Tilt gives the direction": "L'inclinaison donne le sens",
+      "Times each command is sent": "Nombre d'envois de chaque commande",
+      "Two buttons": "Deux boutons",
+      "Two switches that make the next moves silent": "Deux interrupteurs qui rendent les mouvements suivants silencieux",
+      "Up only": "Vers le haut seulement",
+      "Up, then down": "Haut, puis bas",
+      "Update rate": "Fréquence pendant un mouvement",
+      "Upper threshold": "Seuil haut",
+      "Webhook": "Webhook",
+      "Webhook URL": "URL du webhook",
+      "Webhook temperature unit": "Unité des températures du webhook",
+      "Window": "Fenêtre",
+      "Window covering": "Store",
+      "WoIOSensor": "WoIOSensor",
+      "Write debounce (5.x)": "Regroupement des changements (5.x)"
+    },
+    "es": {
+      "4.x's conversion of the webhook's temperatures; Fahrenheit is converted to Celsius anyway": "La conversión de las temperaturas del webhook de la versión 4.x; los Fahrenheit se convierten a Celsius de todos modos",
+      "A curtain at or above this position shows open, a blind at or below it closed; a fan remote's lowest speed": "Una cortina en esta posición o por encima se muestra abierta, un estor en ella o por debajo cerrado; la velocidad más baja de un mando de ventilador",
+      "A curtain at or below this position shows closed, a blind at or above it open; a fan remote's highest speed": "Una cortina en esta posición o por debajo se muestra cerrada, un estor en ella o por encima abierto; la velocidad más alta de un mando de ventilador",
+      "API address": "Dirección de la API",
+      "Accessory of its own": "Accesorio propio",
+      "Adaptive Lighting shift": "Desplazamiento de la iluminación adaptativa",
+      "Always send the position": "Enviar siempre la posición",
+      "An air conditioner's highest cooling temperature, °C (35)": "La temperatura de refrigeración más alta de un aire acondicionado, °C (35)",
+      "An air conditioner's highest heating temperature, °C (35)": "La temperatura de calefacción más alta de un aire acondicionado, °C (35)",
+      "An air conditioner's lowest cooling temperature, °C (0)": "La temperatura de refrigeración más baja de un aire acondicionado, °C (0)",
+      "An air conditioner's lowest heating temperature, °C (0)": "La temperatura de calefacción más baja de un aire acondicionado, °C (0)",
+      "Another address for SwitchBot's OpenAPI (https://api.switch-bot.com by default)": "Otra dirección para la OpenAPI de SwitchBot (https://api.switch-bot.com por defecto)",
+      "Attempts": "Intentos",
+      "Attempts of a request that gets no answer (2 by default)": "Intentos de una solicitud que no recibe respuesta (2 por defecto)",
+      "Bluetooth": "Bluetooth",
+      "Bluetooth, then the cloud": "Bluetooth y luego la nube",
+      "CO₂ alert level": "Nivel de alerta de CO₂",
+      "Celsius": "Celsius",
+      "Closing speed": "Velocidad de cierre",
+      "Cloud (OpenAPI)": "Nube (OpenAPI)",
+      "Command type": "Tipo de orden",
+      "Connection": "Conexión",
+      "Count from local midnight": "Contar desde la medianoche local",
+      "Count the day's requests from local midnight instead of midnight UTC": "Contar las solicitudes del día desde la medianoche local en lugar de la medianoche UTC",
+      "Daily requests": "Solicitudes por día",
+      "Debug": "Depuración",
+      "Delay between attempts": "Retardo entre intentos",
+      "Device type": "Tipo de dispositivo",
+      "Disabled": "Desactivada",
+      "Do not remove from device names the characters HomeKit does not take": "No quitar de los nombres de los dispositivos los caracteres que HomeKit no admite",
+      "Do not send off": "No enviar apagar",
+      "Do not send on": "No enviar encender",
+      "Door": "Puerta",
+      "Down only": "Solo hacia abajo",
+      "Down, then up": "Abajo y luego arriba",
+      "Fahrenheit": "Fahrenheit",
+      "Fan": "Ventilador",
+      "Faucet": "Grifo",
+      "Firmware": "Firmware",
+      "Garage door": "Puerta de garaje",
+      "Hide the CO₂ sensor": "Ocultar el sensor de CO₂",
+      "Hide the door sensor": "Ocultar el sensor de puerta",
+      "Hide the humidity": "Ocultar la humedad",
+      "Hide the leak sensor": "Ocultar el sensor de fugas",
+      "Hide the light sensor": "Ocultar el sensor de luz",
+      "Hide the motion sensor": "Ocultar el sensor de movimiento",
+      "Hide the temperature": "Ocultar la temperatura",
+      "Highest cooling": "Refrigeración máxima",
+      "Highest heating": "Calefacción máxima",
+      "Highest lux": "Lux máximo",
+      "How much the plugin logs": "Cuánto registra el plugin",
+      "How the blind's tilt becomes a HomeKit position": "Cómo la inclinación del estor se convierte en una posición de HomeKit",
+      "How the device is reached. Bluetooth is not supported: only the cloud works": "Cómo se llega al dispositivo. Bluetooth no es compatible: solo funciona la nube",
+      "Hub 2": "Hub 2",
+      "Hub Mini 2": "Hub Mini 2",
+      "Humidifier": "Humidificador",
+      "Invert the leak": "Invertir la fuga",
+      "Keep names as they are": "Mantener los nombres tal cual",
+      "Latch switch": "Interruptor del pestillo",
+      "Learned buttons": "Botones aprendidos",
+      "Leave out a Contact Sensor's motion sensor": "Dejar fuera el sensor de movimiento de un Contact Sensor",
+      "Leave out an air conditioner's auto mode": "Dejar fuera el modo automático de un aire acondicionado",
+      "Leave out the Water Detector's leak sensor": "Dejar fuera el sensor de fugas del Water Detector",
+      "Leave out the carbon dioxide sensor": "Dejar fuera el sensor de dióxido de carbono",
+      "Leave out the humidity sensor": "Dejar fuera el sensor de humedad",
+      "Leave out the light sensor": "Dejar fuera el sensor de luz",
+      "Leave out the lock's door contact sensor": "Dejar fuera el sensor de contacto de la puerta de la cerradura",
+      "Leave out the temperature sensor": "Dejar fuera el sensor de temperatura",
+      "Linked meter": "Termómetro vinculado",
+      "Linked meter type": "Tipo del termómetro vinculado",
+      "Lock": "Cerradura",
+      "Logging": "Registro",
+      "Lower threshold": "Umbral inferior",
+      "Lowest cooling": "Refrigeración mínima",
+      "Lowest heating": "Calefacción mínima",
+      "Lowest lux": "Lux mínimo",
+      "Lux shown for the brightest level (6001)": "Lux que se muestran para el nivel más luminoso (6001)",
+      "Lux shown for the dimmest level (1)": "Lux que se muestran para el nivel más oscuro (1)",
+      "Meter": "Meter",
+      "Meter Plus (JP)": "Meter Plus (JP)",
+      "Meter Pro": "Meter Pro",
+      "MeterPlus": "MeterPlus",
+      "MeterPro(CO2)": "MeterPro(CO2)",
+      "Milliseconds HomeKit's writes are gathered, from the plugin's 5.x block, read when options.pushRate is not set": "Milisegundos de agrupación de los cambios de HomeKit, del bloque 5.x del plugin, leídos cuando options.pushRate no está definido",
+      "Milliseconds between two attempts (3000 by default)": "Milisegundos entre dos intentos (3000 por defecto)",
+      "Mireds added to Adaptive Lighting's colour temperature; -1 turns Adaptive Lighting off": "Mireds añadidos a la temperatura de color de la iluminación adaptativa; -1 desactiva la iluminación adaptativa",
+      "Mode": "Modo",
+      "Name": "Nombre",
+      "Never send other commands (volume, speed, settings)": "No enviar nunca otras órdenes (volumen, velocidad, ajustes)",
+      "Never send the off command": "No enviar nunca la orden de apagar",
+      "Never send the on command": "No enviar nunca la orden de encender",
+      "No auto mode": "Sin modo automático",
+      "None": "Ninguno",
+      "Off button": "Botón de apagado",
+      "Offline as off": "Sin conexión como apagado",
+      "On button": "Botón de encendido",
+      "Only on and off": "Solo encender y apagar",
+      "Opening speed": "Velocidad de apertura",
+      "Options": "Opciones",
+      "Options by device type": "Opciones por tipo de dispositivo",
+      "Options by remote type": "Opciones por tipo de mando",
+      "Options for every IR remote of a type, by its remote type (TV, Fan, Others…)": "Opciones de todos los mandos infrarrojos de un tipo, por su tipo (TV, Fan, Others…)",
+      "Options for every device of a type, by its OpenAPI type (Bot, Curtain, Hub 2…)": "Opciones de todos los dispositivos de un tipo, por su tipo OpenAPI (Bot, Curtain, Hub 2…)",
+      "Oscillation": "Oscilación",
+      "Outlet": "Enchufe",
+      "Parts per million from which a Meter Pro CO2 reports abnormal carbon dioxide (1000)": "Partes por millón a partir de las que un Meter Pro CO2 indica un nivel anormal (1000)",
+      "Performance": "Rendimiento",
+      "Polling, commands and the webhook": "Consultas, órdenes y webhook",
+      "Position mapping": "Correspondencia de posiciones",
+      "Press": "Pulsación",
+      "Programmable switch": "Interruptor programable",
+      "Publish it as an accessory of its own instead of on the bridge (a DIY remote is by default)": "Publicarlo como un accesorio propio en lugar de en el puente (por defecto para un mando DIY)",
+      "Push rate": "Retardo de envío",
+      "Refresh rate": "Frecuencia de actualización",
+      "Refresh rate (5.x)": "Frecuencia de actualización (5.x)",
+      "Remote type": "Tipo de mando",
+      "Repeats": "Repeticiones",
+      "Report a leak when the Water Detector reports dry": "Indicar una fuga cuando el Water Detector indica seco",
+      "Requests SwitchBot allows the account a day (10,000)": "Solicitudes que SwitchBot permite a la cuenta al día (10.000)",
+      "Requests of the day kept for commands: polls stop when only these are left (1,000)": "Solicitudes del día guardadas para las órdenes: las consultas se detienen cuando solo quedan esas (1.000)",
+      "Reserved for commands": "Reservadas para órdenes",
+      "Seconds HomeKit's writes are gathered before a command is sent (0.1 by default)": "Segundos durante los que se agrupan los cambios de HomeKit antes de enviar una orden (0,1 por defecto)",
+      "Seconds HomeKit's writes to it are gathered before a command is sent": "Segundos de agrupación de sus cambios en HomeKit antes de enviar una orden",
+      "Seconds between polls while a curtain or a blind moves (5 by default)": "Segundos entre consultas mientras una cortina o un estor se mueve (5 por defecto)",
+      "Seconds between polls while it moves": "Segundos entre consultas mientras se mueve",
+      "Seconds between repeats": "Segundos entre repeticiones",
+      "Seconds between two sends of a repeated command (15)": "Segundos entre dos envíos de una orden repetida (15)",
+      "Seconds between two status polls of a device (300 by default, 30 at least), stretched to keep within the day's requests": "Segundos entre dos consultas del estado de un dispositivo (300 por defecto, 30 como mínimo), alargados para no pasar de las solicitudes del día",
+      "Seconds between two status polls of this device": "Segundos entre dos consultas del estado de este dispositivo",
+      "Send the command even when the state does not change": "Enviar la orden aunque el estado no cambie",
+      "Send the learned buttons On button and Off button instead of on and off": "Enviar los botones aprendidos Botón de encendido y Botón de apagado en lugar de encender y apagar",
+      "Send the position even when it is already there": "Enviar la posición aunque ya esté en ella",
+      "Send unchanged": "Enviar sin cambios",
+      "Several presses": "Varias pulsaciones",
+      "Show a light remote as an On and an Off button": "Mostrar un mando de luz como un botón On y un botón Off",
+      "Show a speed for a fan remote": "Mostrar una velocidad para un mando de ventilador",
+      "Show oscillation for a fan remote": "Mostrar la oscilación para un mando de ventilador",
+      "Show the Latch switch, which unlocks at once (shown unless turned off)": "Mostrar el interruptor Latch, que desbloquea al instante (se muestra salvo que se desactive)",
+      "Show the changes SwitchBot's webhook reports for this device": "Mostrar los cambios que el webhook de SwitchBot indica para este dispositivo",
+      "Show the device off, closed or locked when nothing can reach it": "Mostrar el dispositivo apagado, cerrado o bloqueado cuando nada puede llegar a él",
+      "Show the group's other curtain": "Mostrar la otra cortina del grupo",
+      "Show the secondary curtain of a group too (the master moves the group)": "Mostrar también la cortina secundaria de un grupo (la principal mueve el grupo)",
+      "Shown as": "Mostrado como",
+      "Silent": "Silencioso",
+      "Silent mode switches": "Interruptores del modo silencioso",
+      "Speed": "Velocidad",
+      "Standard": "Estándar",
+      "Step": "Paso",
+      "Switch": "Interruptor",
+      "The Bot's mode: a switch, a press, or as many presses as HomeKit's writes": "El modo del Bot: un interruptor, una pulsación o tantas pulsaciones como cambios en HomeKit",
+      "The HomeKit service a Bot, a Relay Switch or an Others remote shows as (a switch by default; an outlet for a remote)": "El servicio de HomeKit con el que aparece un Bot, un Relay Switch o un mando Others (un interruptor por defecto; un enchufe para un mando)",
+      "The OpenAPI type, when the cloud reports none": "El tipo OpenAPI, cuando la nube no da ninguno",
+      "The address, reachable from the Internet, where SwitchBot's cloud posts changes. The bridge listens on its port and adds a secret segment to its path": "La dirección, accesible desde Internet, a la que la nube de SwitchBot envía los cambios. El puente escucha en su puerto y añade un segmento secreto a su ruta",
+      "The commandType sent with the learned buttons (customize by default)": "El commandType enviado con los botones aprendidos (customize por defecto)",
+      "The device id of that meter": "El identificador de ese termómetro",
+      "The firmware revision to show instead of the reported one": "La versión de firmware que se muestra en lugar de la indicada",
+      "The learned button that turns it off": "El botón aprendido que lo apaga",
+      "The learned button that turns it on": "El botón aprendido que lo enciende",
+      "The name of this platform in the logs": "El nombre de esta plataforma en el registro",
+      "The refresh rate of the plugin's 5.x block, read when options.refreshRate is not set": "La frecuencia del bloque 5.x del plugin, leída cuando options.refreshRate no está definido",
+      "The remote's type, when the cloud reports none": "El tipo del mando, cuando la nube no da ninguno",
+      "The speed of the moves that close it": "La velocidad de los movimientos que la cierran",
+      "The speed of the moves that open it": "La velocidad de los movimientos que la abren",
+      "The step of the position, brightness, humidity or speed": "El paso de la posición, el brillo, la humedad o la velocidad",
+      "The type of the SwitchBot meter whose temperature an air conditioner shows": "El tipo del termómetro SwitchBot cuya temperatura muestra un aire acondicionado",
+      "Tilt gives the direction": "La inclinación da el sentido",
+      "Times each command is sent": "Veces que se envía cada orden",
+      "Two buttons": "Dos botones",
+      "Two switches that make the next moves silent": "Dos interruptores que hacen silenciosos los siguientes movimientos",
+      "Up only": "Solo hacia arriba",
+      "Up, then down": "Arriba y luego abajo",
+      "Update rate": "Frecuencia durante un movimiento",
+      "Upper threshold": "Umbral superior",
+      "Webhook": "Webhook",
+      "Webhook URL": "URL del webhook",
+      "Webhook temperature unit": "Unidad de las temperaturas del webhook",
+      "Window": "Ventana",
+      "Window covering": "Estor",
+      "WoIOSensor": "WoIOSensor",
+      "Write debounce (5.x)": "Agrupación de cambios (5.x)"
+    },
+    "pt": {
+      "4.x's conversion of the webhook's temperatures; Fahrenheit is converted to Celsius anyway": "A conversão das temperaturas do webhook da versão 4.x; os Fahrenheit são convertidos em Celsius de qualquer forma",
+      "A curtain at or above this position shows open, a blind at or below it closed; a fan remote's lowest speed": "Uma cortina nesta posição ou acima é mostrada aberta, um estore nela ou abaixo fechado; a velocidade mais baixa de um comando de ventoinha",
+      "A curtain at or below this position shows closed, a blind at or above it open; a fan remote's highest speed": "Uma cortina nesta posição ou abaixo é mostrada fechada, um estore nela ou acima aberto; a velocidade mais alta de um comando de ventoinha",
+      "API address": "Endereço da API",
+      "Accessory of its own": "Acessório próprio",
+      "Adaptive Lighting shift": "Desvio da iluminação adaptativa",
+      "Always send the position": "Enviar sempre a posição",
+      "An air conditioner's highest cooling temperature, °C (35)": "A temperatura de arrefecimento mais alta de um ar condicionado, °C (35)",
+      "An air conditioner's highest heating temperature, °C (35)": "A temperatura de aquecimento mais alta de um ar condicionado, °C (35)",
+      "An air conditioner's lowest cooling temperature, °C (0)": "A temperatura de arrefecimento mais baixa de um ar condicionado, °C (0)",
+      "An air conditioner's lowest heating temperature, °C (0)": "A temperatura de aquecimento mais baixa de um ar condicionado, °C (0)",
+      "Another address for SwitchBot's OpenAPI (https://api.switch-bot.com by default)": "Outro endereço para a OpenAPI da SwitchBot (https://api.switch-bot.com por omissão)",
+      "Attempts": "Tentativas",
+      "Attempts of a request that gets no answer (2 by default)": "Tentativas de um pedido sem resposta (2 por omissão)",
+      "Bluetooth": "Bluetooth",
+      "Bluetooth, then the cloud": "Bluetooth e depois a nuvem",
+      "CO₂ alert level": "Nível de alerta de CO₂",
+      "Celsius": "Celsius",
+      "Closing speed": "Velocidade de fecho",
+      "Cloud (OpenAPI)": "Nuvem (OpenAPI)",
+      "Command type": "Tipo de comando",
+      "Connection": "Ligação",
+      "Count from local midnight": "Contar a partir da meia-noite local",
+      "Count the day's requests from local midnight instead of midnight UTC": "Contar os pedidos do dia a partir da meia-noite local em vez da meia-noite UTC",
+      "Daily requests": "Pedidos por dia",
+      "Debug": "Depuração",
+      "Delay between attempts": "Intervalo entre tentativas",
+      "Device type": "Tipo de dispositivo",
+      "Disabled": "Desativada",
+      "Do not remove from device names the characters HomeKit does not take": "Não retirar dos nomes dos dispositivos os caracteres que o HomeKit não aceita",
+      "Do not send off": "Não enviar desligar",
+      "Do not send on": "Não enviar ligar",
+      "Door": "Porta",
+      "Down only": "Só para baixo",
+      "Down, then up": "Baixo e depois cima",
+      "Fahrenheit": "Fahrenheit",
+      "Fan": "Ventoinha",
+      "Faucet": "Torneira",
+      "Firmware": "Firmware",
+      "Garage door": "Portão de garagem",
+      "Hide the CO₂ sensor": "Ocultar o sensor de CO₂",
+      "Hide the door sensor": "Ocultar o sensor de porta",
+      "Hide the humidity": "Ocultar a humidade",
+      "Hide the leak sensor": "Ocultar o sensor de fugas",
+      "Hide the light sensor": "Ocultar o sensor de luz",
+      "Hide the motion sensor": "Ocultar o sensor de movimento",
+      "Hide the temperature": "Ocultar a temperatura",
+      "Highest cooling": "Arrefecimento máximo",
+      "Highest heating": "Aquecimento máximo",
+      "Highest lux": "Lux máximo",
+      "How much the plugin logs": "Quanto o plugin regista",
+      "How the blind's tilt becomes a HomeKit position": "Como a inclinação do estore se torna uma posição do HomeKit",
+      "How the device is reached. Bluetooth is not supported: only the cloud works": "Como se chega ao dispositivo. O Bluetooth não é suportado: só a nuvem funciona",
+      "Hub 2": "Hub 2",
+      "Hub Mini 2": "Hub Mini 2",
+      "Humidifier": "Humidificador",
+      "Invert the leak": "Inverter a fuga",
+      "Keep names as they are": "Manter os nomes como estão",
+      "Latch switch": "Interruptor do trinco",
+      "Learned buttons": "Botões aprendidos",
+      "Leave out a Contact Sensor's motion sensor": "Deixar de fora o sensor de movimento de um Contact Sensor",
+      "Leave out an air conditioner's auto mode": "Deixar de fora o modo automático de um ar condicionado",
+      "Leave out the Water Detector's leak sensor": "Deixar de fora o sensor de fugas do Water Detector",
+      "Leave out the carbon dioxide sensor": "Deixar de fora o sensor de dióxido de carbono",
+      "Leave out the humidity sensor": "Deixar de fora o sensor de humidade",
+      "Leave out the light sensor": "Deixar de fora o sensor de luz",
+      "Leave out the lock's door contact sensor": "Deixar de fora o sensor de contacto da porta da fechadura",
+      "Leave out the temperature sensor": "Deixar de fora o sensor de temperatura",
+      "Linked meter": "Termómetro associado",
+      "Linked meter type": "Tipo do termómetro associado",
+      "Lock": "Fechadura",
+      "Logging": "Registo",
+      "Lower threshold": "Limiar inferior",
+      "Lowest cooling": "Arrefecimento mínimo",
+      "Lowest heating": "Aquecimento mínimo",
+      "Lowest lux": "Lux mínimo",
+      "Lux shown for the brightest level (6001)": "Lux mostrados para o nível mais luminoso (6001)",
+      "Lux shown for the dimmest level (1)": "Lux mostrados para o nível mais escuro (1)",
+      "Meter": "Meter",
+      "Meter Plus (JP)": "Meter Plus (JP)",
+      "Meter Pro": "Meter Pro",
+      "MeterPlus": "MeterPlus",
+      "MeterPro(CO2)": "MeterPro(CO2)",
+      "Milliseconds HomeKit's writes are gathered, from the plugin's 5.x block, read when options.pushRate is not set": "Milissegundos de agrupamento das alterações do HomeKit, do bloco 5.x do plugin, lidos quando options.pushRate não está definido",
+      "Milliseconds between two attempts (3000 by default)": "Milissegundos entre duas tentativas (3000 por omissão)",
+      "Mireds added to Adaptive Lighting's colour temperature; -1 turns Adaptive Lighting off": "Mireds acrescentados à temperatura de cor da iluminação adaptativa; -1 desativa a iluminação adaptativa",
+      "Mode": "Modo",
+      "Name": "Nome",
+      "Never send other commands (volume, speed, settings)": "Nunca enviar outros comandos (volume, velocidade, definições)",
+      "Never send the off command": "Nunca enviar o comando de desligar",
+      "Never send the on command": "Nunca enviar o comando de ligar",
+      "No auto mode": "Sem modo automático",
+      "None": "Nenhum",
+      "Off button": "Botão de desligar",
+      "Offline as off": "Sem ligação como desligado",
+      "On button": "Botão de ligar",
+      "Only on and off": "Só ligar e desligar",
+      "Opening speed": "Velocidade de abertura",
+      "Options": "Opções",
+      "Options by device type": "Opções por tipo de dispositivo",
+      "Options by remote type": "Opções por tipo de comando",
+      "Options for every IR remote of a type, by its remote type (TV, Fan, Others…)": "Opções de todos os comandos de infravermelhos de um tipo, pelo seu tipo (TV, Fan, Others…)",
+      "Options for every device of a type, by its OpenAPI type (Bot, Curtain, Hub 2…)": "Opções de todos os dispositivos de um tipo, pelo seu tipo OpenAPI (Bot, Curtain, Hub 2…)",
+      "Oscillation": "Oscilação",
+      "Outlet": "Tomada",
+      "Parts per million from which a Meter Pro CO2 reports abnormal carbon dioxide (1000)": "Partes por milhão a partir das quais um Meter Pro CO2 indica um nível anormal (1000)",
+      "Performance": "Desempenho",
+      "Polling, commands and the webhook": "Leituras, comandos e webhook",
+      "Position mapping": "Correspondência de posições",
+      "Press": "Toque",
+      "Programmable switch": "Interruptor programável",
+      "Publish it as an accessory of its own instead of on the bridge (a DIY remote is by default)": "Publicá-lo como um acessório próprio em vez de na ponte (por omissão para um comando DIY)",
+      "Push rate": "Atraso de envio",
+      "Refresh rate": "Frequência de atualização",
+      "Refresh rate (5.x)": "Frequência de atualização (5.x)",
+      "Remote type": "Tipo de comando",
+      "Repeats": "Repetições",
+      "Report a leak when the Water Detector reports dry": "Indicar uma fuga quando o Water Detector indica seco",
+      "Requests SwitchBot allows the account a day (10,000)": "Pedidos que a SwitchBot permite à conta por dia (10 000)",
+      "Requests of the day kept for commands: polls stop when only these are left (1,000)": "Pedidos do dia guardados para os comandos: as leituras param quando só restam esses (1 000)",
+      "Reserved for commands": "Reservados para comandos",
+      "Seconds HomeKit's writes are gathered before a command is sent (0.1 by default)": "Segundos durante os quais as alterações do HomeKit são agrupadas antes de enviar um comando (0,1 por omissão)",
+      "Seconds HomeKit's writes to it are gathered before a command is sent": "Segundos de agrupamento das suas alterações no HomeKit antes de enviar um comando",
+      "Seconds between polls while a curtain or a blind moves (5 by default)": "Segundos entre leituras enquanto uma cortina ou um estore se move (5 por omissão)",
+      "Seconds between polls while it moves": "Segundos entre leituras enquanto se move",
+      "Seconds between repeats": "Segundos entre repetições",
+      "Seconds between two sends of a repeated command (15)": "Segundos entre dois envios de um comando repetido (15)",
+      "Seconds between two status polls of a device (300 by default, 30 at least), stretched to keep within the day's requests": "Segundos entre duas leituras do estado de um dispositivo (300 por omissão, 30 no mínimo), alargados para caber nos pedidos do dia",
+      "Seconds between two status polls of this device": "Segundos entre duas leituras do estado deste dispositivo",
+      "Send the command even when the state does not change": "Enviar o comando mesmo quando o estado não muda",
+      "Send the learned buttons On button and Off button instead of on and off": "Enviar os botões aprendidos Botão de ligar e Botão de desligar em vez de ligar e desligar",
+      "Send the position even when it is already there": "Enviar a posição mesmo quando já lá está",
+      "Send unchanged": "Enviar sem alteração",
+      "Several presses": "Vários toques",
+      "Show a light remote as an On and an Off button": "Mostrar um comando de luz como um botão On e um botão Off",
+      "Show a speed for a fan remote": "Mostrar uma velocidade para um comando de ventoinha",
+      "Show oscillation for a fan remote": "Mostrar a oscilação para um comando de ventoinha",
+      "Show the Latch switch, which unlocks at once (shown unless turned off)": "Mostrar o interruptor Latch, que destranca de imediato (mostrado salvo se for desativado)",
+      "Show the changes SwitchBot's webhook reports for this device": "Mostrar as alterações que o webhook da SwitchBot indica para este dispositivo",
+      "Show the device off, closed or locked when nothing can reach it": "Mostrar o dispositivo desligado, fechado ou trancado quando nada lhe consegue chegar",
+      "Show the group's other curtain": "Mostrar a outra cortina do grupo",
+      "Show the secondary curtain of a group too (the master moves the group)": "Mostrar também a cortina secundária de um grupo (a principal move o grupo)",
+      "Shown as": "Mostrado como",
+      "Silent": "Silencioso",
+      "Silent mode switches": "Interruptores do modo silencioso",
+      "Speed": "Velocidade",
+      "Standard": "Padrão",
+      "Step": "Passo",
+      "Switch": "Interruptor",
+      "The Bot's mode: a switch, a press, or as many presses as HomeKit's writes": "O modo do Bot: um interruptor, um toque ou tantos toques quantas as alterações no HomeKit",
+      "The HomeKit service a Bot, a Relay Switch or an Others remote shows as (a switch by default; an outlet for a remote)": "O serviço do HomeKit com que aparece um Bot, um Relay Switch ou um comando Others (um interruptor por omissão; uma tomada para um comando)",
+      "The OpenAPI type, when the cloud reports none": "O tipo OpenAPI, quando a nuvem não indica nenhum",
+      "The address, reachable from the Internet, where SwitchBot's cloud posts changes. The bridge listens on its port and adds a secret segment to its path": "O endereço, acessível a partir da Internet, para onde a nuvem da SwitchBot envia as alterações. A ponte escuta na sua porta e acrescenta um segmento secreto ao seu caminho",
+      "The commandType sent with the learned buttons (customize by default)": "O commandType enviado com os botões aprendidos (customize por omissão)",
+      "The device id of that meter": "O identificador desse termómetro",
+      "The firmware revision to show instead of the reported one": "A versão de firmware a mostrar em vez da indicada",
+      "The learned button that turns it off": "O botão aprendido que o desliga",
+      "The learned button that turns it on": "O botão aprendido que o liga",
+      "The name of this platform in the logs": "O nome desta plataforma no registo",
+      "The refresh rate of the plugin's 5.x block, read when options.refreshRate is not set": "A frequência do bloco 5.x do plugin, lida quando options.refreshRate não está definido",
+      "The remote's type, when the cloud reports none": "O tipo do comando, quando a nuvem não indica nenhum",
+      "The speed of the moves that close it": "A velocidade dos movimentos que a fecham",
+      "The speed of the moves that open it": "A velocidade dos movimentos que a abrem",
+      "The step of the position, brightness, humidity or speed": "O passo da posição, do brilho, da humidade ou da velocidade",
+      "The type of the SwitchBot meter whose temperature an air conditioner shows": "O tipo do termómetro SwitchBot cuja temperatura um ar condicionado mostra",
+      "Tilt gives the direction": "A inclinação dá o sentido",
+      "Times each command is sent": "Vezes que cada comando é enviado",
+      "Two buttons": "Dois botões",
+      "Two switches that make the next moves silent": "Dois interruptores que tornam silenciosos os movimentos seguintes",
+      "Up only": "Só para cima",
+      "Up, then down": "Cima e depois baixo",
+      "Update rate": "Frequência durante um movimento",
+      "Upper threshold": "Limiar superior",
+      "Webhook": "Webhook",
+      "Webhook URL": "URL do webhook",
+      "Webhook temperature unit": "Unidade das temperaturas do webhook",
+      "Window": "Janela",
+      "Window covering": "Estore",
+      "WoIOSensor": "WoIOSensor",
+      "Write debounce (5.x)": "Agrupamento de alterações (5.x)"
+    }
+  }
+}
+"""#
+}
