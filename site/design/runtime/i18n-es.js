@@ -81,6 +81,7 @@ HomeswiftI18n.add("es", {
   "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Encendido, entradas, volumen, mando y Ambilight de los televisores Philips Android",
   "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Luces, escenas, efectos y sensores de un puente Hue, en local",
   "Door locks, hubs and readers, followed in real time": "Cerraduras, hubs y lectores de puerta, seguidos en tiempo real",
+  "IP cameras over RTSP, HTTP or MJPEG, with HomeKit Secure Video, motion and doorbell": "Cámaras IP por RTSP, HTTP o MJPEG, con HomeKit Secure Video, movimiento y timbre",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Cámaras y timbres con HomeKit Secure Video, sensores y luces",
   "Apple Home's accessories in Homeswift, through a Mac": "Los accesorios de la app Casa en Homeswift, a través de un Mac",
   "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores y cerraduras virtuales controlados por webhooks",

@@ -70,6 +70,18 @@ struct CameraTLVTests {
             logger: logger, disabledThroughOperatingMode: { false })
     }
 
+    /// The controller's address reaches delegates' FFmpeg command lines and SDPs: a numeric address of its family only.
+    @Test func controllerAddressesAreNumeric() {
+        #expect(RTPStreamManagement.isIPAddress("192.168.1.20", .ipv4))
+        #expect(RTPStreamManagement.isIPAddress("fe80::1", .ipv6))
+        #expect(RTPStreamManagement.isIPAddress("fe80::1%en0", .ipv6))
+        #expect(!RTPStreamManagement.isIPAddress("fe80::1", .ipv4))
+        #expect(!RTPStreamManagement.isIPAddress("192.168.1.20%en0", .ipv4))
+        #expect(!RTPStreamManagement.isIPAddress("1.2.3.4 -y /tmp/out.mp4", .ipv4))
+        #expect(!RTPStreamManagement.isIPAddress("fe80::1%en0\r\na=x", .ipv6))
+        #expect(!RTPStreamManagement.isIPAddress("camera.local", .ipv4))
+    }
+
     @Test func supportedStreamingConfigurations() throws {
         let rtp = try Self.management(FakeStreamingDelegate())
         #expect(rtp.supportedRTPConfiguration.base64EncodedString() == "AgEA")

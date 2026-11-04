@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The IP Cameras plugin (`Camera-ffmpeg`, experimental): IP cameras over RTSP, HTTP snapshots or MJPEG in HomeKit
+  through FFmpeg, each on its own accessory, with snapshots, live streams, two-way audio, HomeKit Secure Video with a
+  prebuffer, and a motion sensor, a doorbell and trigger switches driven over MQTT or an HTTP API; it reads
+  homebridge-camera-ffmpeg's block as it is.
 - The Sonos plugin (platform `ZP`, homebridge-zp's block): zones found by SSDP and mDNS and followed through UPnP events, their
   group's playback, volume and sleep timer, a Speakers service, LEDs, alarms and a TV per zone with the favourites as inputs;
   `HomeswiftNetwork.SSDP`, an SSDP search and listener for plugins. Experimental: written from a clean-room spec.

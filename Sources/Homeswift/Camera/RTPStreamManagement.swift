@@ -1,6 +1,7 @@
 import Foundation
 import Logging
 import NIOConcurrencyHelpers
+import NIOCore
 
 /// One Camera RTP Stream Management service (HAP-NodeJS's RTPStreamManagement): the supported configurations,
 /// Setup Endpoints (where each side sends RTP, SRTP keys, SSRCs), the selected stream configuration (start,
@@ -326,9 +327,12 @@ final class RTPStreamManagement: @unchecked Sendable {
                     srtpCryptoSuite: SRTPCryptoSuite(rawValue: srtp[1]?.first ?? 2) ?? .none,
                     srtpKey: srtp[2] ?? Data(), srtpSalt: srtp[3] ?? Data())
             }
+            // A numeric address of the declared family only: delegates put it in FFmpeg's command lines, URLs and SDPs.
+            let targetAddress = String(decoding: address[2] ?? Data(), as: UTF8.self)
+            guard Self.isIPAddress(targetAddress, version) else { throw HAPStatusError(.invalidValueInRequest) }
             request = PrepareStreamRequest(
                 sessionID: sessionIdentifier, sourceAddress: context.localAddress ?? "",
-                targetAddress: String(decoding: address[2] ?? Data(), as: UTF8.self), addressVersion: version,
+                targetAddress: targetAddress, addressVersion: version,
                 video: try source(videoSRTP, port: address[3]), audio: try source(audioSRTP, port: address[4]))
         } catch {
             handleSessionClosed()
@@ -500,5 +504,22 @@ final class RTPStreamManagement: @unchecked Sendable {
     func deserialize(_ serialized: Serialized) {
         guard serialized.id == id else { return }
         service.characteristic(.active).value = .bool(serialized.active)
+    }
+}
+
+extension RTPStreamManagement {
+    /// Whether `address` is a numeric IPv4 or IPv6 address of `version` (an IPv6 one may carry a zone, `fe80::1%en0`).
+    static func isIPAddress(_ address: String, _ version: IPAddressVersion) -> Bool {
+        let parts = address.split(separator: "%", maxSplits: 1, omittingEmptySubsequences: false)
+        if parts.count == 2 {
+            guard version == .ipv6, !parts[1].isEmpty,
+                  parts[1].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-") }) else { return false }
+        }
+        guard let parsed = try? SocketAddress(ipAddress: String(parts[0]), port: 0) else { return false }
+        switch parsed {
+        case .v4: return version == .ipv4
+        case .v6: return version == .ipv6
+        default: return false
+        }
     }
 }

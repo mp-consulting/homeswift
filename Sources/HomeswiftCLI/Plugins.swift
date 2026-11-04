@@ -1,3 +1,4 @@
+import HomeswiftIPCameras
 import HomeswiftDaikinCloud
 import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
@@ -49,6 +50,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(IPCamerasPlugin.self)
     registry.register(SonosPlugin.self)
     registry.register(TuyaPlugin.self)
     registry.register(SwitchBotPlugin.self)
