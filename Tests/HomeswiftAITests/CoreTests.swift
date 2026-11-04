@@ -169,6 +169,7 @@ import Testing
         #expect(Redaction.isSecretKey("Authorization") && Redaction.isSecretKey("sessionId") && Redaction.isSecretKey("sid"))
         #expect(!Redaction.isSecretKey("session") && !Redaction.isSecretKey("sensor"))
         #expect(Redaction.isSecretKey("encryptionKey") && Redaction.isSecretKey("encryption_key"))
+        #expect(Redaction.isSecretKey("safetyCode") && Redaction.isSecretKey("safety_code"))
         #expect(!Redaction.redactText("encryptionKey: QRTIErOb/fcE9Ukd").contains("QRTIErOb"))
 
         let banner = "Setup code: 8518-2617\nSetup URI:  X-HM://0024VNBFDNEMH\npin=031-45-154 pass: hunter3 on 2026-10-21"
