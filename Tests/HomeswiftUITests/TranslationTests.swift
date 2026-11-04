@@ -76,8 +76,12 @@ import Testing
                                                       ("HomeswiftMatter", MatterConfiguration.schemaJSON)]
         let plugins = Self.root.appendingPathComponent("Plugins")
         for name in try FileManager.default.contentsOfDirectory(atPath: plugins.path).sorted() {
-            let file = plugins.appendingPathComponent(name).appendingPathComponent("config.schema.json")
-            if FileManager.default.fileExists(atPath: file.path) { schemas.append((name, try String(contentsOf: file, encoding: .utf8))) }
+            // A directory with two platforms has a second schema, `config.<platform>.schema.json`.
+            let directory = plugins.appendingPathComponent(name)
+            for file in try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+            where file.hasPrefix("config.") && file.hasSuffix(".schema.json") {
+                schemas.append(("\(name)/\(file)", try String(contentsOf: directory.appendingPathComponent(file), encoding: .utf8)))
+            }
         }
         for (name, text) in schemas {
             let root = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], "\(name): the schema is not a JSON object")

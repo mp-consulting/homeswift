@@ -16,11 +16,12 @@ public final class UDPSocket: Sendable {
     }
 
     /// Binds a socket. `reuseAddress` lets another process (or bridge) bind the same port, `broadcast` allows sends
-    /// to broadcast addresses, `multicastGroup` joins that IPv4 group. `bufferSize` datagrams wait at most for a
+    /// to broadcast addresses, `multicastGroup` joins that IPv4 group (on the interface whose IPv4 address is
+    /// `multicastInterface`, when given; the system's choice otherwise). `bufferSize` datagrams wait at most for a
     /// reader; older ones are dropped beyond.
     public static func bind(
         host: String = "0.0.0.0", port: Int = 0, reuseAddress: Bool = false, broadcast: Bool = false, multicastGroup: String? = nil,
-        bufferSize: Int = 256, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
+        multicastInterface: String? = nil, bufferSize: Int = 256, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
     ) async throws -> UDPSocket {
         let (stream, continuation) = AsyncStream<(data: Data, address: String)>.makeStream(bufferingPolicy: .bufferingNewest(bufferSize))
         var bootstrap = DatagramBootstrap(group: group)
@@ -41,7 +42,13 @@ public final class UDPSocket: Sendable {
         if let multicastGroup {
             do {
                 guard let multicast = channel as? any MulticastChannel else { throw ChannelError.operationUnsupported }
-                try await multicast.joinGroup(try SocketAddress(ipAddress: multicastGroup, port: 0)).get()
+                let device = try multicastInterface.map { address in
+                    guard let device = try System.enumerateDevices().first(where: { $0.address?.ipAddress == address }) else {
+                        throw ChannelError.unknownLocalAddress
+                    }
+                    return device
+                }
+                try await multicast.joinGroup(try SocketAddress(ipAddress: multicastGroup, port: 0), device: device).get()
             } catch {
                 try? await channel.close()
                 throw error
