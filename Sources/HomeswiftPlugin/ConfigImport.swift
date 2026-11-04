@@ -96,7 +96,8 @@ public enum HomebridgeImport {
     static func supportedPlatforms(_ registry: PluginRegistry) -> [String: Supported] {
         var supported: [String: Supported] = [:]
         for entry in registry.entries {
-            supported[entry.platform] = Supported(schema: entry.configurationSchemaJSON.flatMap { try? JSONValue(string: $0) }.flatMap(schemaRoot))
+            supported[entry.platform] = Supported(
+                schema: entry.configurationSchemaJSON.flatMap { try? JSONValue(string: $0) }.flatMap(schemaRoot), runsAccessoryBlocks: entry.runsAccessoryBlocks)
         }
         supported[AIConfiguration.platform] = Supported(schema: (try? JSONValue(string: AIConfiguration.schemaJSON)).flatMap(schemaRoot))
         return supported
@@ -111,6 +112,7 @@ public enum HomebridgeImport {
 
     struct Supported {
         var schema: JSONValue?
+        var runsAccessoryBlocks = false
     }
 
     /// The name a Homebridge package and a platform name share: `homebridge-unifi-protect` and `UniFi Protect`.
@@ -166,9 +168,6 @@ public enum HomebridgeImport {
                     report.problems.append(Message("bridgeNotObject"))
                 }
             }
-            if let accessories = top["accessories"]?.arrayValue, !accessories.isEmpty {
-                report.warnings.append(Message("accessoriesSkipped", ["count": String(accessories.count)]))
-            }
             var disabled: [String] = []
             if let list = top["disabledPlugins"] {
                 if let names = list.arrayValue {
@@ -185,6 +184,9 @@ public enum HomebridgeImport {
                 } else {
                     report.problems.append(Message("platformsNotList"))
                 }
+            }
+            if let accessories = top["accessories"]?.arrayValue, !accessories.isEmpty {
+                try convertAccessories(accessories, disabled: disabled)
             }
             for name in disabled where !seenPlatforms.contains(HomebridgeImport.normalized(name)) {
                 report.warnings.append(Message("disabledMatchesNothing", ["name": name]))
@@ -340,6 +342,20 @@ public enum HomebridgeImport {
                 }
             }
             kept.append(.object(block))
+        }
+
+        /// Homebridge's accessory blocks: those of a plugin that runs them go, as the runtime reads them
+        /// (`HomeswiftConfiguration.adoptAccessoryBlocks`), into one platform block per platform and child bridge, in its
+        /// `accessories` list; the others are skipped, counted in one warning.
+        mutating func convertAccessories(_ accessories: [JSONValue], disabled: [String]) throws {
+            let supported = accessories.filter { block in
+                block["accessory"]?.stringValue.flatMap(HomeswiftConfiguration.accessoryPlatform).map { platforms[$0]?.runsAccessoryBlocks == true } == true
+            }
+            // The blocks the runtime would make for them (`AccessoryAdoption`), on their own: an import adds blocks.
+            let adoption = AccessoryAdoption(.object(["accessories": .array(supported)]))
+            let skipped = accessories.count - supported.count + adoption.ignored
+            if skipped > 0 { report.warnings.append(Message("accessoriesSkipped", ["count": String(skipped)])) }
+            for block in adoption.blocks { try convertPlatform(block, index: -1, disabled: disabled) }
         }
 
         mutating func convertChild(_ object: [String: JSONValue], group: String) throws -> JSONValue {

@@ -285,8 +285,9 @@ public final class HTTPClient: HTTPSending, Sendable {
 }
 
 /// The `Host` header for a host and port: an IPv6 address in brackets, no port when it is the scheme's default.
-/// Shared by the HTTP and WebSocket clients and AWS signing, so the signed `Host` is the one sent.
-func hostHeader(host: String, port: Int, defaultPort: Int) -> String {
+/// Shared by the HTTP and WebSocket clients and AWS signing, so the signed `Host` is the one sent; plugins show
+/// addresses with it.
+public func hostHeader(host: String, port: Int, defaultPort: Int) -> String {
     let name = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
     return port == defaultPort ? name : "\(name):\(port)"
 }

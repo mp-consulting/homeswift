@@ -168,6 +168,8 @@ import Testing
         for secret in ["c00kie", "s3ss10n", "5ig", "abcdefghijklmnop"] { #expect(!headers.contains(secret), "\(secret)") }
         #expect(Redaction.isSecretKey("Authorization") && Redaction.isSecretKey("sessionId") && Redaction.isSecretKey("sid"))
         #expect(!Redaction.isSecretKey("session") && !Redaction.isSecretKey("sensor"))
+        #expect(Redaction.isSecretKey("encryptionKey") && Redaction.isSecretKey("encryption_key"))
+        #expect(!Redaction.redactText("encryptionKey: QRTIErOb/fcE9Ukd").contains("QRTIErOb"))
 
         let banner = "Setup code: 8518-2617\nSetup URI:  X-HM://0024VNBFDNEMH\npin=031-45-154 pass: hunter3 on 2026-10-21"
         let masked = Redaction.redactText(banner)

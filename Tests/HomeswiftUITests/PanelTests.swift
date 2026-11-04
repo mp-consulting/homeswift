@@ -299,7 +299,7 @@ struct PanelTests {
         #expect(try await milo.put("/api/preferences", ["theme": "dark"]).json?["theme"] == "dark")
         #expect(try await admin.get("/api/preferences").json?["theme"] == "auto")   // each user's own
         #expect(try await milo.post("/api/assistant/cancel", ["requestId": "x"]).status == 200)
-        for (method, path) in [("POST", "/api/assistant/digest"), ("POST", "/api/assistant/ask"), ("POST", "/api/assistant/diagnose"), ("POST", "/api/assistant/test"),
+        for (method, path) in [("POST", "/api/assistant/digest"), ("POST", "/api/assistant/ask"), ("POST", "/api/assistant/diagnose"), ("POST", "/api/assistant/test"), ("POST", "/api/assistant/models"),
                                ("GET", "/api/assistant/usage"), ("GET", "/api/logs/download"), ("POST", "/api/logs/truncate")] {
             #expect(try await milo.send(method, path, body: method == "GET" ? nil : "{}").status == 403, "\(method) \(path)")
         }
