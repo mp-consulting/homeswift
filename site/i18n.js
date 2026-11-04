@@ -46,5 +46,7 @@
   const self = document.currentScript ? new URL(document.currentScript.src) : new URL('i18n.js', location.href);
   const catalogURL = new URL(`i18n-${language}.js`, self);
   catalogURL.search = self.search;
-  document.write(`<script src="${catalogURL.pathname}${catalogURL.search}"><\/script>`);
+  // The URL as an attribute value: a URL encodes these already, and escaping says so.
+  const attribute = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  document.write(`<script src="${attribute(catalogURL.pathname + catalogURL.search)}"><\/script>`);
 })();
