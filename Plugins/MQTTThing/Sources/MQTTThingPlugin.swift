@@ -34,6 +34,8 @@ public actor MQTTThingPlugin: HomeswiftPlugin {
     public static let summary: String? = "Devices that speak MQTT, described topic by topic"
     public static let runsAccessoryBlocks = true
     public static let accountAuthorization: AuthorizationMethod = .accountLogin
+    /// Optional: each accessory comes from its block, and a broker may take anonymous clients or the block's own password.
+    public static let accountRequirement = AccountRequirement.optional(adds: "Signs in to the MQTT broker for the accessories whose block has no password.")
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 
     let configuration: Configuration
