@@ -59,7 +59,7 @@
       },
       "oidcCallbackServerBindAddr": {
         "title": "Callback Server Bind Address",
-        "description": "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the Homebridge host itself, in which case 127.0.0.1 keeps the server off the network.",
+        "description": "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the bridge's machine itself, in which case 127.0.0.1 keeps the server off the network.",
         "type": "string",
         "required": false,
         "default": "0.0.0.0",
@@ -71,7 +71,7 @@
             ]
           },
           {
-            "title": "127.0.0.1 (localhost only - browser on the Homebridge host)",
+            "title": "127.0.0.1 (localhost only - browser on the bridge's machine)",
             "enum": [
               "127.0.0.1"
             ]
@@ -80,7 +80,7 @@
         "x-schema-form": {
           "titleMap": {
             "0.0.0.0": "0.0.0.0 (all network interfaces)",
-            "127.0.0.1": "127.0.0.1 (localhost only - browser on the Homebridge host)"
+            "127.0.0.1": "127.0.0.1 (localhost only - browser on the bridge's machine)"
           },
           "condition": "model.authMode !== 'mobile_app'"
         }
@@ -403,9 +403,9 @@
       "Callback Server Port": "Port du serveur de rappel",
       "Port of the OAuth callback server (1-65535), also part of the redirect URI registered in the Developer Portal": "Port du serveur de rappel OAuth (1-65535), qui fait aussi partie de l'URI de redirection enregistrée dans le Developer Portal",
       "Callback Server Bind Address": "Adresse d'écoute du serveur de rappel",
-      "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the Homebridge host itself, in which case 127.0.0.1 keeps the server off the network.": "Interface réseau sur laquelle écoute le serveur de rappel OAuth temporaire pendant l'authentification. Le navigateur avec lequel vous vous connectez doit pouvoir le joindre : utilisez 0.0.0.0, sauf si ce navigateur tourne sur la machine du pont elle-même ; 127.0.0.1 garde alors le serveur hors du réseau.",
+      "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the bridge's machine itself, in which case 127.0.0.1 keeps the server off the network.": "Interface réseau sur laquelle écoute le serveur de rappel OAuth temporaire pendant l'authentification. Le navigateur avec lequel vous vous connectez doit pouvoir le joindre : utilisez 0.0.0.0, sauf si ce navigateur tourne sur la machine du pont elle-même ; 127.0.0.1 garde alors le serveur hors du réseau.",
       "0.0.0.0 (all network interfaces)": "0.0.0.0 (toutes les interfaces réseau)",
-      "127.0.0.1 (localhost only - browser on the Homebridge host)": "127.0.0.1 (localhost uniquement - navigateur sur la machine du pont)",
+      "127.0.0.1 (localhost only - browser on the bridge's machine)": "127.0.0.1 (localhost uniquement - navigateur sur la machine du pont)",
       "Powerful Mode Switch": "Interrupteur du mode Powerful",
       "Econo Mode Switch": "Interrupteur du mode Econo",
       "Streamer Mode Switch": "Interrupteur du mode Streamer",
@@ -460,9 +460,9 @@
       "Callback Server Port": "Puerto del servidor de retorno",
       "Port of the OAuth callback server (1-65535), also part of the redirect URI registered in the Developer Portal": "Puerto del servidor de retorno de OAuth (1-65535), que también forma parte del URI de redirección registrado en el Developer Portal",
       "Callback Server Bind Address": "Dirección de escucha del servidor de retorno",
-      "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the Homebridge host itself, in which case 127.0.0.1 keeps the server off the network.": "Interfaz de red en la que escucha el servidor de retorno de OAuth temporal durante la autenticación. El navegador con el que inicias sesión debe poder llegar a él: usa 0.0.0.0, salvo que ese navegador se ejecute en la propia máquina del puente; en ese caso, 127.0.0.1 deja el servidor fuera de la red.",
+      "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the bridge's machine itself, in which case 127.0.0.1 keeps the server off the network.": "Interfaz de red en la que escucha el servidor de retorno de OAuth temporal durante la autenticación. El navegador con el que inicias sesión debe poder llegar a él: usa 0.0.0.0, salvo que ese navegador se ejecute en la propia máquina del puente; en ese caso, 127.0.0.1 deja el servidor fuera de la red.",
       "0.0.0.0 (all network interfaces)": "0.0.0.0 (todas las interfaces de red)",
-      "127.0.0.1 (localhost only - browser on the Homebridge host)": "127.0.0.1 (solo localhost - navegador en la máquina del puente)",
+      "127.0.0.1 (localhost only - browser on the bridge's machine)": "127.0.0.1 (solo localhost - navegador en la máquina del puente)",
       "Powerful Mode Switch": "Interruptor del modo Powerful",
       "Econo Mode Switch": "Interruptor del modo Econo",
       "Streamer Mode Switch": "Interruptor del modo Streamer",
@@ -517,9 +517,9 @@
       "Callback Server Port": "Porta do servidor de retorno",
       "Port of the OAuth callback server (1-65535), also part of the redirect URI registered in the Developer Portal": "Porta do servidor de retorno OAuth (1-65535), que também faz parte do URI de redirecionamento registado no Developer Portal",
       "Callback Server Bind Address": "Endereço de escuta do servidor de retorno",
-      "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the Homebridge host itself, in which case 127.0.0.1 keeps the server off the network.": "Interface de rede em que o servidor de retorno OAuth temporário escuta durante a autenticação. O navegador usado para iniciar sessão tem de conseguir chegar a ele: use 0.0.0.0, exceto se esse navegador correr na própria máquina da ponte; nesse caso, 127.0.0.1 mantém o servidor fora da rede.",
+      "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the bridge's machine itself, in which case 127.0.0.1 keeps the server off the network.": "Interface de rede em que o servidor de retorno OAuth temporário escuta durante a autenticação. O navegador usado para iniciar sessão tem de conseguir chegar a ele: use 0.0.0.0, exceto se esse navegador correr na própria máquina da ponte; nesse caso, 127.0.0.1 mantém o servidor fora da rede.",
       "0.0.0.0 (all network interfaces)": "0.0.0.0 (todas as interfaces de rede)",
-      "127.0.0.1 (localhost only - browser on the Homebridge host)": "127.0.0.1 (apenas localhost - navegador na máquina da ponte)",
+      "127.0.0.1 (localhost only - browser on the bridge's machine)": "127.0.0.1 (apenas localhost - navegador na máquina da ponte)",
       "Powerful Mode Switch": "Interruptor do modo Powerful",
       "Econo Mode Switch": "Interruptor do modo Econo",
       "Streamer Mode Switch": "Interruptor do modo Streamer",

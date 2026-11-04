@@ -21,7 +21,7 @@ extension LGThinQPlugin {
         "default": "LG ThinQ"
       },
       "auth_mode": {
-        "title": "Auth Mode",
+        "title": "Sign-In Method",
         "description": "How Setup signs in to LG: its sign-in page or the account's email and password. Setup sets it, and keeps the sign-in in the vault.",
         "type": "string",
         "default": "token",
@@ -55,13 +55,13 @@ extension LGThinQPlugin {
         "required": true
       },
       "thinq1": {
-        "title": "Enable ThinQ1 Support?",
+        "title": "ThinQ1 Devices",
         "description": "Also adds the account's older ThinQ1 devices, which are polled.",
         "type": "boolean",
         "default": false
       },
       "refresh_interval": {
-        "title": "Refresh interval (in second)",
+        "title": "ThinQ1 Polling Interval (seconds)",
         "description": "Seconds between polls of ThinQ1 devices.",
         "type": "number",
         "default": 60,
@@ -74,12 +74,12 @@ extension LGThinQPlugin {
   "accessorySchema": {
     "properties": {
       "serial_number": {
-        "title": "Serial Number (optional)",
+        "title": "Serial Number",
         "description": "The serial number shown in the Home app. Empty uses the one LG reports.",
         "type": "string"
       },
       "ac_air_quality": {
-        "title": "Enable Air Quality",
+        "title": "Air Quality Sensor",
         "description": "Adds an air quality sensor, on units that have one.",
         "type": "boolean",
         "default": false,
@@ -88,7 +88,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_mode": {
-        "title": "AC Mode (Heating or Cooling or Both)",
+        "title": "Air Conditioner Modes",
         "description": "The modes the Home app offers: heating, cooling or both.",
         "type": "string",
         "oneOf": [
@@ -117,7 +117,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_swing_mode": {
-        "title": "Swing Mode (vertical or horizontal)",
+        "title": "Swing Direction",
         "description": "The axes swing turns on and off: vertical, horizontal or both.",
         "type": "string",
         "oneOf": [
@@ -146,7 +146,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_temperature_sensor": {
-        "title": "Current temperature as sensor",
+        "title": "Temperature Sensor",
         "description": "Adds the current temperature as a separate sensor.",
         "type": "boolean",
         "default": false,
@@ -155,7 +155,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_humidity_sensor": {
-        "title": "Enable humidity sensor",
+        "title": "Humidity Sensor",
         "description": "Adds the current humidity as a separate sensor.",
         "type": "boolean",
         "default": false,
@@ -164,7 +164,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_led_control": {
-        "title": "Enable led panel control",
+        "title": "Display Light",
         "description": "Shows the unit's display light as a light in the Home app.",
         "type": "boolean",
         "default": false,
@@ -173,7 +173,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_fan_control": {
-        "title": "Enable separate fan control",
+        "title": "Separate Fan",
         "description": "Adds a separate fan with automatic and manual speed and swing.",
         "type": "boolean",
         "default": false,
@@ -182,7 +182,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_jet_control": {
-        "title": "Enable separate jet control",
+        "title": "Jet Mode Switch",
         "description": "Adds a Jet Mode switch, on models that have it.",
         "type": "boolean",
         "default": false,
@@ -191,7 +191,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_buttons": {
-        "title": "Customize AC buttons",
+        "title": "Operation Mode Switches",
         "description": "Switches that each select one of the unit's operation modes, by LG's mode number (op_mode).",
         "type": "array",
         "items": {
@@ -204,7 +204,7 @@ extension LGThinQPlugin {
               "type": "string"
             },
             "op_mode": {
-              "title": "Operation mode",
+              "title": "Operation Mode Number",
               "description": "LG's number for the operation mode the switch selects; the switch is on while the unit is in that mode.",
               "type": "integer"
             }
@@ -215,7 +215,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_energy_save": {
-        "title": "Energy save as switch",
+        "title": "Energy Saving Switch",
         "description": "Adds an energy saving switch, on models that have it.",
         "type": "boolean",
         "default": true,
@@ -224,7 +224,7 @@ extension LGThinQPlugin {
         ]
       },
       "ac_air_clean": {
-        "title": "Air purify as switch",
+        "title": "Air Purifying Switch",
         "description": "Adds an air purifying switch, on models that have it.",
         "type": "boolean",
         "default": true,
@@ -256,7 +256,7 @@ extension LGThinQPlugin {
         ]
       },
       "washer_trigger": {
-        "title": "Enable program finished trigger?",
+        "title": "Program Finished Sensor",
         "description": "Adds a Program Finished occupancy sensor that stays on for ten minutes when a program ends.",
         "type": "boolean",
         "default": false,
@@ -269,7 +269,7 @@ extension LGThinQPlugin {
         ]
       },
       "washer_tub_clean": {
-        "title": "Enable Tub Clean Event",
+        "title": "Tub Clean Sensor",
         "description": "Adds a Tub Clean Coach sensor that turns on from 30 cycles, when the tub needs cleaning.",
         "type": "boolean",
         "default": false,
@@ -282,7 +282,7 @@ extension LGThinQPlugin {
         ]
       },
       "washer_door_lock": {
-        "title": "Enable door lock status",
+        "title": "Door Lock",
         "description": "Shows the door lock as a lock in the Home app, on ThinQ2 washers and dryers.",
         "type": "boolean",
         "default": false,
@@ -295,7 +295,7 @@ extension LGThinQPlugin {
         ]
       },
       "dishwasher_trigger": {
-        "title": "Enable program finished trigger?",
+        "title": "Program Finished Sensor",
         "description": "Adds a Program Finished occupancy sensor that turns on when a program ends.",
         "type": "boolean",
         "default": false,
@@ -358,7 +358,7 @@ extension LGThinQPlugin {
   ],
   "i18n": {
     "fr": {
-      "AC Mode (Heating or Cooling or Both)": "Mode du climatiseur (chauffage, refroidissement ou les deux)",
+      "Air Conditioner Modes": "Modes du climatiseur",
       "Adds a Jet Mode switch, on models that have it.": "Ajoute un interrupteur Jet Mode, sur les modèles qui l'ont.",
       "Adds a Program Finished occupancy sensor that stays on for ten minutes when a program ends.": "Ajoute un capteur de présence Programme terminé qui reste actif dix minutes à la fin d'un programme.",
       "Adds a Program Finished occupancy sensor that turns on when a program ends.": "Ajoute un capteur de présence Programme terminé qui s'active à la fin d'un programme.",
@@ -374,29 +374,29 @@ extension LGThinQPlugin {
       "Adds the current humidity as a separate sensor.": "Ajoute l'humidité actuelle comme capteur distinct.",
       "Adds the current temperature as a separate sensor.": "Ajoute la température actuelle comme capteur distinct.",
       "Air Fast Mode": "Mode Air Fast",
-      "Air purify as switch": "Purification de l'air comme interrupteur",
+      "Air Purifying Switch": "Interrupteur de purification de l'air",
       "Also adds the account's older ThinQ1 devices, which are polled.": "Ajoute aussi les anciens appareils ThinQ1 du compte, qui sont interrogés régulièrement.",
-      "Auth Mode": "Mode d'authentification",
+      "Sign-In Method": "Méthode de connexion",
       "Both Heating and Cooling mode": "Chauffage et refroidissement",
       "Both vertical and horizontal swing": "Oscillation verticale et horizontale",
       "Button": "Bouton",
       "Celsius": "Celsius",
       "Cooling mode only": "Refroidissement uniquement",
       "Country": "Pays",
-      "Current temperature as sensor": "Température actuelle comme capteur",
-      "Customize AC buttons": "Personnaliser les boutons du climatiseur",
+      "Temperature Sensor": "Capteur de température",
+      "Operation Mode Switches": "Interrupteurs de mode de fonctionnement",
       "Eco Friendly": "Mode éco",
       "Email and password": "E-mail et mot de passe",
-      "Enable Air Quality": "Activer la qualité de l'air",
-      "Enable ThinQ1 Support?": "Activer la prise en charge de ThinQ1 ?",
-      "Enable Tub Clean Event": "Activer l'alerte de nettoyage de la cuve",
-      "Enable door lock status": "Activer l'état du verrouillage de la porte",
-      "Enable humidity sensor": "Activer le capteur d'humidité",
-      "Enable led panel control": "Activer la commande du panneau LED",
-      "Enable program finished trigger?": "Activer le déclencheur de fin de programme ?",
-      "Enable separate fan control": "Activer la commande séparée du ventilateur",
-      "Enable separate jet control": "Activer la commande séparée du mode Jet",
-      "Energy save as switch": "Économie d'énergie comme interrupteur",
+      "Air Quality Sensor": "Capteur de qualité de l'air",
+      "ThinQ1 Devices": "Appareils ThinQ1",
+      "Tub Clean Sensor": "Capteur de nettoyage de la cuve",
+      "Door Lock": "Verrouillage de la porte",
+      "Humidity Sensor": "Capteur d'humidité",
+      "Display Light": "Éclairage de l'écran",
+      "Program Finished Sensor": "Capteur de fin de programme",
+      "Separate Fan": "Ventilateur séparé",
+      "Jet Mode Switch": "Interrupteur du mode Jet",
+      "Energy Saving Switch": "Interrupteur d'économie d'énergie",
       "Express Freezer / Ice Plus": "Congélation express / Ice Plus",
       "Express Fridge": "Réfrigération express",
       "Fahrenheit": "Fahrenheit",
@@ -407,13 +407,13 @@ extension LGThinQPlugin {
       "LG's sign-in page": "Page de connexion de LG",
       "Language": "Langue",
       "Name": "Nom",
-      "Operation mode": "Mode de fonctionnement",
-      "Refresh interval (in second)": "Intervalle d'actualisation (en secondes)",
+      "Operation Mode Number": "Numéro du mode de fonctionnement",
+      "ThinQ1 Polling Interval (seconds)": "Intervalle d'interrogation ThinQ1 (secondes)",
       "Seconds between polls of ThinQ1 devices.": "Secondes entre deux interrogations des appareils ThinQ1.",
-      "Serial Number (optional)": "Numéro de série (facultatif)",
+      "Serial Number": "Numéro de série",
       "Shows the door lock as a lock in the Home app, on ThinQ2 washers and dryers.": "Affiche le verrouillage de la porte comme une serrure dans l'app Maison, sur les lave-linge et sèche-linge ThinQ2.",
       "Shows the unit's display light as a light in the Home app.": "Affiche l'éclairage de l'écran de l'appareil comme une lampe dans l'app Maison.",
-      "Swing Mode (vertical or horizontal)": "Oscillation (verticale ou horizontale)",
+      "Swing Direction": "Sens de l'oscillation",
       "Switches that each select one of the unit's operation modes, by LG's mode number (op_mode).": "Des interrupteurs qui choisissent chacun un mode de fonctionnement de l'appareil, par le numéro de mode de LG (op_mode).",
       "Temperature Unit": "Unité de température",
       "The account's country, as a two-letter code such as US or FR.": "Le pays du compte, en code à deux lettres comme US ou FR.",
@@ -427,7 +427,7 @@ extension LGThinQPlugin {
       "Vertical swing only": "Oscillation verticale uniquement"
     },
     "es": {
-      "AC Mode (Heating or Cooling or Both)": "Modo del aire acondicionado (calefacción, refrigeración o ambos)",
+      "Air Conditioner Modes": "Modos del aire acondicionado",
       "Adds a Jet Mode switch, on models that have it.": "Añade un interruptor Jet Mode, en los modelos que lo tienen.",
       "Adds a Program Finished occupancy sensor that stays on for ten minutes when a program ends.": "Añade un sensor de presencia Programa terminado que se queda activo diez minutos al acabar un programa.",
       "Adds a Program Finished occupancy sensor that turns on when a program ends.": "Añade un sensor de presencia Programa terminado que se activa al acabar un programa.",
@@ -443,29 +443,29 @@ extension LGThinQPlugin {
       "Adds the current humidity as a separate sensor.": "Añade la humedad actual como un sensor aparte.",
       "Adds the current temperature as a separate sensor.": "Añade la temperatura actual como un sensor aparte.",
       "Air Fast Mode": "Modo Air Fast",
-      "Air purify as switch": "Purificación del aire como interruptor",
+      "Air Purifying Switch": "Interruptor de purificación del aire",
       "Also adds the account's older ThinQ1 devices, which are polled.": "Añade también los dispositivos ThinQ1 antiguos de la cuenta, que se consultan periódicamente.",
-      "Auth Mode": "Modo de autenticación",
+      "Sign-In Method": "Método de inicio de sesión",
       "Both Heating and Cooling mode": "Calefacción y refrigeración",
       "Both vertical and horizontal swing": "Oscilación vertical y horizontal",
       "Button": "Botón",
       "Celsius": "Celsius",
       "Cooling mode only": "Solo refrigeración",
       "Country": "País",
-      "Current temperature as sensor": "Temperatura actual como sensor",
-      "Customize AC buttons": "Personalizar los botones del aire acondicionado",
+      "Temperature Sensor": "Sensor de temperatura",
+      "Operation Mode Switches": "Interruptores de modo de funcionamiento",
       "Eco Friendly": "Modo eco",
       "Email and password": "Correo electrónico y contraseña",
-      "Enable Air Quality": "Activar la calidad del aire",
-      "Enable ThinQ1 Support?": "¿Activar la compatibilidad con ThinQ1?",
-      "Enable Tub Clean Event": "Activar el aviso de limpieza del tambor",
-      "Enable door lock status": "Activar el estado del bloqueo de la puerta",
-      "Enable humidity sensor": "Activar el sensor de humedad",
-      "Enable led panel control": "Activar el control del panel LED",
-      "Enable program finished trigger?": "¿Activar el aviso de programa terminado?",
-      "Enable separate fan control": "Activar el control aparte del ventilador",
-      "Enable separate jet control": "Activar el control aparte del modo Jet",
-      "Energy save as switch": "Ahorro de energía como interruptor",
+      "Air Quality Sensor": "Sensor de calidad del aire",
+      "ThinQ1 Devices": "Dispositivos ThinQ1",
+      "Tub Clean Sensor": "Sensor de limpieza del tambor",
+      "Door Lock": "Bloqueo de la puerta",
+      "Humidity Sensor": "Sensor de humedad",
+      "Display Light": "Luz de la pantalla",
+      "Program Finished Sensor": "Sensor de programa terminado",
+      "Separate Fan": "Ventilador aparte",
+      "Jet Mode Switch": "Interruptor del modo Jet",
+      "Energy Saving Switch": "Interruptor de ahorro de energía",
       "Express Freezer / Ice Plus": "Congelación exprés / Ice Plus",
       "Express Fridge": "Refrigeración exprés",
       "Fahrenheit": "Fahrenheit",
@@ -476,13 +476,13 @@ extension LGThinQPlugin {
       "LG's sign-in page": "Página de inicio de sesión de LG",
       "Language": "Idioma",
       "Name": "Nombre",
-      "Operation mode": "Modo de funcionamiento",
-      "Refresh interval (in second)": "Intervalo de actualización (en segundos)",
+      "Operation Mode Number": "Número del modo de funcionamiento",
+      "ThinQ1 Polling Interval (seconds)": "Intervalo de consulta de ThinQ1 (segundos)",
       "Seconds between polls of ThinQ1 devices.": "Segundos entre consultas a los dispositivos ThinQ1.",
-      "Serial Number (optional)": "Número de serie (opcional)",
+      "Serial Number": "Número de serie",
       "Shows the door lock as a lock in the Home app, on ThinQ2 washers and dryers.": "Muestra el bloqueo de la puerta como una cerradura en la app Casa, en lavadoras y secadoras ThinQ2.",
       "Shows the unit's display light as a light in the Home app.": "Muestra la luz de la pantalla del equipo como una luz en la app Casa.",
-      "Swing Mode (vertical or horizontal)": "Oscilación (vertical u horizontal)",
+      "Swing Direction": "Dirección de la oscilación",
       "Switches that each select one of the unit's operation modes, by LG's mode number (op_mode).": "Interruptores que eligen cada uno un modo de funcionamiento del equipo, por el número de modo de LG (op_mode).",
       "Temperature Unit": "Unidad de temperatura",
       "The account's country, as a two-letter code such as US or FR.": "El país de la cuenta, como código de dos letras, por ejemplo US o FR.",
@@ -496,7 +496,7 @@ extension LGThinQPlugin {
       "Vertical swing only": "Solo oscilación vertical"
     },
     "pt": {
-      "AC Mode (Heating or Cooling or Both)": "Modo do ar condicionado (aquecimento, arrefecimento ou ambos)",
+      "Air Conditioner Modes": "Modos do ar condicionado",
       "Adds a Jet Mode switch, on models that have it.": "Adiciona um interruptor Jet Mode, nos modelos que o têm.",
       "Adds a Program Finished occupancy sensor that stays on for ten minutes when a program ends.": "Adiciona um sensor de ocupação Programa terminado que fica ativo dez minutos quando um programa termina.",
       "Adds a Program Finished occupancy sensor that turns on when a program ends.": "Adiciona um sensor de ocupação Programa terminado que se ativa quando um programa termina.",
@@ -512,29 +512,29 @@ extension LGThinQPlugin {
       "Adds the current humidity as a separate sensor.": "Adiciona a humidade atual como um sensor à parte.",
       "Adds the current temperature as a separate sensor.": "Adiciona a temperatura atual como um sensor à parte.",
       "Air Fast Mode": "Modo Air Fast",
-      "Air purify as switch": "Purificação do ar como interruptor",
+      "Air Purifying Switch": "Interruptor de purificação do ar",
       "Also adds the account's older ThinQ1 devices, which are polled.": "Adiciona também os dispositivos ThinQ1 antigos da conta, que são consultados periodicamente.",
-      "Auth Mode": "Modo de autenticação",
+      "Sign-In Method": "Método de início de sessão",
       "Both Heating and Cooling mode": "Aquecimento e arrefecimento",
       "Both vertical and horizontal swing": "Oscilação vertical e horizontal",
       "Button": "Botão",
       "Celsius": "Celsius",
       "Cooling mode only": "Apenas arrefecimento",
       "Country": "País",
-      "Current temperature as sensor": "Temperatura atual como sensor",
-      "Customize AC buttons": "Personalizar os botões do ar condicionado",
+      "Temperature Sensor": "Sensor de temperatura",
+      "Operation Mode Switches": "Interruptores de modo de funcionamento",
       "Eco Friendly": "Modo eco",
       "Email and password": "E-mail e palavra-passe",
-      "Enable Air Quality": "Ativar a qualidade do ar",
-      "Enable ThinQ1 Support?": "Ativar o suporte de ThinQ1?",
-      "Enable Tub Clean Event": "Ativar o aviso de limpeza do tambor",
-      "Enable door lock status": "Ativar o estado do bloqueio da porta",
-      "Enable humidity sensor": "Ativar o sensor de humidade",
-      "Enable led panel control": "Ativar o controlo do painel LED",
-      "Enable program finished trigger?": "Ativar o aviso de programa terminado?",
-      "Enable separate fan control": "Ativar o controlo separado da ventoinha",
-      "Enable separate jet control": "Ativar o controlo separado do modo Jet",
-      "Energy save as switch": "Poupança de energia como interruptor",
+      "Air Quality Sensor": "Sensor de qualidade do ar",
+      "ThinQ1 Devices": "Dispositivos ThinQ1",
+      "Tub Clean Sensor": "Sensor de limpeza do tambor",
+      "Door Lock": "Bloqueio da porta",
+      "Humidity Sensor": "Sensor de humidade",
+      "Display Light": "Luz do ecrã",
+      "Program Finished Sensor": "Sensor de programa terminado",
+      "Separate Fan": "Ventoinha separada",
+      "Jet Mode Switch": "Interruptor do modo Jet",
+      "Energy Saving Switch": "Interruptor de poupança de energia",
       "Express Freezer / Ice Plus": "Congelação rápida / Ice Plus",
       "Express Fridge": "Refrigeração rápida",
       "Fahrenheit": "Fahrenheit",
@@ -545,13 +545,13 @@ extension LGThinQPlugin {
       "LG's sign-in page": "Página de início de sessão da LG",
       "Language": "Idioma",
       "Name": "Nome",
-      "Operation mode": "Modo de funcionamento",
-      "Refresh interval (in second)": "Intervalo de atualização (em segundos)",
+      "Operation Mode Number": "Número do modo de funcionamento",
+      "ThinQ1 Polling Interval (seconds)": "Intervalo de consulta ThinQ1 (segundos)",
       "Seconds between polls of ThinQ1 devices.": "Segundos entre consultas aos dispositivos ThinQ1.",
-      "Serial Number (optional)": "Número de série (opcional)",
+      "Serial Number": "Número de série",
       "Shows the door lock as a lock in the Home app, on ThinQ2 washers and dryers.": "Mostra o bloqueio da porta como uma fechadura na app Casa, nas máquinas de lavar e de secar roupa ThinQ2.",
       "Shows the unit's display light as a light in the Home app.": "Mostra a luz do ecrã da unidade como uma luz na app Casa.",
-      "Swing Mode (vertical or horizontal)": "Oscilação (vertical ou horizontal)",
+      "Swing Direction": "Direção da oscilação",
       "Switches that each select one of the unit's operation modes, by LG's mode number (op_mode).": "Interruptores que escolhem cada um modo de funcionamento da unidade, pelo número de modo da LG (op_mode).",
       "Temperature Unit": "Unidade de temperatura",
       "The account's country, as a two-letter code such as US or FR.": "O país da conta, como código de duas letras, por exemplo US ou FR.",
