@@ -5,11 +5,11 @@ import HomeswiftPlugin
 import Logging
 
 /// Dyson Pure Cool, Hot+Cool, Humidify+Cool and Big+Quiet purifiers and the Cool fan, over their local MQTT
-/// broker: found by mDNS or at a configured address, with the credentials the settings page fetches from the
-/// Dyson account. See README.md.
+/// broker: found by mDNS or at a configured address, with the credentials Setup reads from the Dyson account
+/// (DysonSetup.swift). See README.md.
 ///
-/// The configuration is the one of `@mp-consulting/homebridge-dyson-pure-cool`, so a Homebridge block works
-/// unchanged; the plugin's page in the web UI is the Homebridge plugin's setup wizard.
+/// A block of `@mp-consulting/homebridge-dyson-pure-cool` still loads; what the bridge writes is the canonical shape
+/// (DysonSettings.swift). The plugin's page in the web UI shows the devices and their state, and writes no settings.
 public actor DysonPureCoolPlugin: HomeswiftPlugin {
     public static let platform = "DysonPureCool"
     public static let icon: String? = "wind"
@@ -20,12 +20,10 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
 
     /// A device that cannot be reached is tried again this often.
     static let offlineRetry: Duration = .seconds(300)
-    /// The settings page looks for a device this long.
+    /// The page looks for a device this long.
     static let pageDiscoveryDuration: Duration = .seconds(5)
-    /// The settings page's MQTT connections give up after this long.
+    /// The page's MQTT connections give up after this long.
     static let pageMQTTTimeout: Duration = .seconds(10)
-    /// The password the sign-in holds until the emailed code comes back.
-    static let pendingSignInLifetime: Duration = .seconds(600)
     static let ipOverridesFile = "ip-overrides.json"
 
     /// What the plugin uses to reach devices and the cloud; tests swap them for fakes.
@@ -35,7 +33,6 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         var http: any HTTPSending = HTTPClient(tls: .system)
         var backoff: @Sendable (Int) -> Duration = DysonMQTTClient.exponentialBackoff
         var offlineRetry: Duration = DysonPureCoolPlugin.offlineRetry
-        var pendingSignInLifetime: Duration = DysonPureCoolPlugin.pendingSignInLifetime
     }
 
     /// One configured device and what runs it.
@@ -48,30 +45,14 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         var observers: [UUID]
     }
 
-    /// The sign-in between the code request and the code.
-    private struct PendingSignIn {
-        var email: String
-        var password: String
-        var countryCode: String
-        var challengeID: String?
-        var expires: ContinuousClock.Instant
-        /// Tells this sign-in from a later one, for the timer that drops it.
-        var id = UUID()
-    }
-
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
     var logger: Logger { context.logger }
-    private var managed: [String: Managed] = [:]
+    private(set) var managed: [String: Managed] = [:]
     private var retries: [String: Task<Void, Never>] = [:]
     private let tasks = TaskBag()
     private var discovery: Task<[String: String], Never>?
-    private var pendingSignIn: PendingSignIn? {
-        didSet { if pendingSignIn?.id != oldValue?.id { pendingSignInExpiry?.cancel() } }
-    }
-    /// Drops the pending sign-in, and the password with it, when its time is up.
-    private var pendingSignInExpiry: Task<Void, Never>?
     private var stopping = false
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -158,8 +139,6 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
 
     public func stop() async {
         stopping = true
-        pendingSignIn = nil
-        pendingSignInExpiry?.cancel()
         tasks.cancelAll()
         for task in retries.values { task.cancel() }
         retries.removeAll()
@@ -393,15 +372,13 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// The routes of the Homebridge plugin's UI server (`authenticate`, `verify-otp`, `get-devices`,
-    /// `get-product-types`, `get-device-state`, `set-continuous-monitoring`), plus `devices`: the devices this
-    /// instance runs and whether they are connected. `Web/` is the page.
+    /// The routes of the Homebridge plugin's UI server the page and the Assistant still use (`get-product-types`,
+    /// `get-device-state`, `set-continuous-monitoring`), plus `devices`: the devices this instance runs and whether they
+    /// are connected. `Web/` is the page. Its sign-in and device list (`authenticate`, `verify-otp`, `get-devices`) are
+    /// Setup's now (DysonSetup.swift), which keeps the credentials in the vault: the browser never sees them.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         do {
             switch request.path {
-            case "authenticate": return try await authenticate(request.body)
-            case "verify-otp": return try await verifyCode(request.body)
-            case "get-devices": return try await cloudDevices(request.body)
             case "get-product-types": return productTypes()
             case "get-device-state": return try await deviceState(request.body, retried: false)
             case "set-continuous-monitoring": return try await setContinuousMonitoring(request.body, retried: false)
@@ -414,87 +391,6 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
     }
 
     var cloud: DysonCloud { DysonCloud(transport: dependencies.http, logger: logger) }
-
-    private func authenticate(_ body: JSONValue) async throws -> PluginWebResponse {
-        let email = try CloudInput.email(body["email"])
-        let password = try CloudInput.password(body["password"])
-        let countryCode = try CloudInput.countryCode(body["countryCode"])
-        // A new attempt drops the previous challenge; the password is held for ten minutes at most.
-        let lifetime = dependencies.pendingSignInLifetime
-        let signIn = PendingSignIn(email: email, password: password, countryCode: countryCode, expires: .now + lifetime)
-        pendingSignIn = signIn
-        pendingSignInExpiry = Task { [weak self] in
-            do { try await Task.sleep(for: lifetime) } catch { return }
-            await self?.expirePendingSignIn(signIn.id)
-        }
-        do {
-            switch try await cloud.requestCode(email: email, countryCode: countryCode) {
-            case .code(let challengeID):
-                pendingSignIn?.challengeID = challengeID
-                return PluginWebResponse(["success": true, "requires2FA": true])
-            case .token(let token):
-                pendingSignIn = nil
-                return PluginWebResponse(["success": true, "requires2FA": false, "token": .string(token)])
-            }
-        } catch {
-            logger.error("Auth error: \(error)")
-            pendingSignIn = nil
-            throw error
-        }
-    }
-
-    private func expirePendingSignIn(_ id: UUID) {
-        guard pendingSignIn?.id == id else { return }
-        logger.info("Clearing stale pending auth (timeout)")
-        pendingSignIn = nil
-    }
-
-    /// Whether a sign-in waits for its code. For tests.
-    var hasPendingSignIn: Bool { pendingSignIn != nil }
-
-    private func verifyCode(_ body: JSONValue) async throws -> PluginWebResponse {
-        let code = try CloudInput.code(body["otpCode"])
-        if let pending = pendingSignIn, pending.expires < .now {
-            logger.info("Clearing stale pending auth (timeout)")
-            pendingSignIn = nil
-        }
-        guard let pending = pendingSignIn, let challengeID = pending.challengeID else {
-            throw DysonCloud.Failure(status: 400, message: "No pending authentication")
-        }
-        logger.info("Verify OTP")
-        do {
-            let token = try await cloud.verify(email: pending.email, password: pending.password, challengeID: challengeID, code: code, countryCode: pending.countryCode)
-            pendingSignIn = nil
-            logger.info("Verify success")
-            return PluginWebResponse(["success": true, "token": .string(token)])
-        } catch let failure as DysonCloud.Failure where failure.message.contains("Invalid") {
-            // A mistyped code can be tried again while the sign-in lasts.
-            logger.error("Verify error: \(failure)")
-            throw DysonCloud.Failure(status: 401, message: "Invalid verification code")
-        } catch {
-            logger.error("Verify error: \(error)")
-            pendingSignIn = nil
-            throw error
-        }
-    }
-
-    private func cloudDevices(_ body: JSONValue) async throws -> PluginWebResponse {
-        guard let token = body["token"]?.stringValue, !token.isEmpty else { throw DysonCloud.Failure(status: 400, message: "Token is required") }
-        let names = DeviceCatalog.displayNames
-        let devices: [JSONValue] = try await cloud.devices(token: token).map { device in
-            let features = DeviceCatalog.features(device.productType)
-            var entry: [String: JSONValue] = [
-                "serial": .string(device.serial), "productType": .string(device.productType),
-                "productName": .string(names[device.productType] ?? "Unknown (\(device.productType))"), "version": .string(device.version),
-                "localCredentials": .string(device.localCredentials), "autoUpdate": .bool(device.autoUpdate),
-                "newVersionAvailable": .bool(device.newVersionAvailable), "hasHeating": .bool(features.heating),
-                "hasHumidifier": .bool(features.humidifier), "hasOscillation": .bool(features.oscillation), "hasJetFocus": .bool(features.frontAirflow),
-            ]
-            entry["name"] = device.name.map { .string($0) } ?? .null
-            return .object(entry)
-        }
-        return PluginWebResponse(["success": true, "devices": .array(devices)])
-    }
 
     private func productTypes() -> PluginWebResponse {
         let names = DeviceCatalog.displayNames

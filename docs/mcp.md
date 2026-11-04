@@ -92,7 +92,7 @@ do, and **Allow**. The connector is then there in the Claude apps signed in to t
 What it may do is one of the scopes below, chosen on that page up to the user's role: an administrator may
 give `admin`, any other user `control` at most, and the page never picks `admin` in advance, whatever the app
 asks. As in the web UI, an app of a user who is not an administrator controls accessories and runs scenes but
-does not see the log, config.json, the pairings or the child bridges' health (those tools, resources and
+does not see the log, config.json (nor `get_settings`, which reads it), the pairings or the child bridges' health (those tools, resources and
 prompts are not listed for it), nor writes the daily digest again. The user's role is read again at every
 request, so demoting a user narrows the apps they connected, and `readOnly` caps them all at `read`. Sessions show in the audit log as the app and its user,
 `Claude (rosaly)`. **Account › Connected apps** lists a user's apps, with what each may do and when it last
@@ -200,9 +200,9 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `set_homekit_visibility`, `rename_accessory`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -222,10 +222,34 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   list of `changes`, or one `characteristic` and `value` for the accessories that `ids` or `filter` (the same
   filters) pick; it refuses when more than `maxTargets` (25 by default, at most 200) would change, and skips
   and reports accessories without the characteristic and security controls.
-- **config.json.** `update_config`, `patch_config` and `put_list_entry` check what they change in a plugin's block
+- **Settings** (GLOSSARY.md, docs/adr/0002 and 0003). `get_settings` and `update_settings` address an accessory by its
+  Accessory Id (`accessory`, `list_accessories`' id or `discover_devices`' `accessoryID` for a device not on the bridge,
+  with `plugin.name` when its platform has several blocks) or a plugin instance (`plugin`: `platform` and, when there
+  are several, `name`). For an accessory `get_settings` answers `settings`, its current Accessory Settings (Core:
+  `name`, `room`, `hidden`, `notInHome`, `excluded`, `parts`; and the plugin's own), and `fields`, each with its JSON
+  schema, `core`, `readOnly` (a mirrored accessory's Name) and `default` `{setting, value}` when a Plugin Setting gives
+  it a plugin-wide default; `kind` is its Device Kind, which decides the plugin's fields shown. For a plugin it answers
+  its Plugin Settings (secrets as handles and MCP tokens redacted, as `get_config` gives them), its `schema` and `accessorySchema`.
+  `update_settings` merges `settings` into them (objects key by key, `null` clears a key) or, with `accessories`,
+  settings by Accessory Id in one write; every key must be declared (Core, or the plugin's schema), its value is checked,
+  and the answer gives each accessory's `settings` and the keys `changed`, and what reloaded. Name, room, Hidden and Not
+  in Home apply at once without reloading the plugin; Excluded, Parts, Plugin Accessory Settings and Plugin Settings
+  reload it. A mirrored accessory's Name is read-only, and its room always moves on its hub; another accessory moves on
+  the hubs that keep rooms when Room Sync is on (`hubMoves`). It is not destructive as a whole: a Name, a room, Hidden,
+  an Include and Plugin Accessory Settings apply without asking, while a change that Excludes an accessory, puts it Not
+  in Home or changes its Parts, and every change of Plugin Settings, asks first ([Confirmations](#confirmations)), with
+  its dry run's changes. `forget_device` (an `accessory`, `plugin.name` when its platform has several blocks) Forgets a
+  device: its Authorization (the credentials Setup kept in the vault) and every Accessory Setting of it and of its other
+  accessories go, the plugin reloads without it, and it is only a Discovered Device again if the plugin still finds it.
+  It is destructive and has a dry run (`settingsDropped`, `credentialsDropped`); the web UI's `DELETE
+  /api/settings/accessories/<id>` is the same. Room, Hidden and a display name an older version kept in `accessory-layout.json`, and a block's
+  `_hiddenFromHomeKit`, are read until the accessory's next write moves them into its settings.
+- **config.json.** `update_config` and `patch_config` check what they change in a plugin's block
   against its `config.schema.json` (and the runtime's own blocks against theirs): a setting added or changed, a
   required one removed, a new block whole. What they leave as it was is not checked, so an old mistake in a
-  block never stops a change to another setting. A refusal names each problem with its place
+  block never stops a change to another setting. Its `_accessories` are checked too: Core Accessory Settings by type,
+  and those the plugin declares against its `accessorySchema` (a key it does not declare is let through here, so an older
+  block still saves; `update_settings` refuses it). A refusal names each problem with its place
   (`ElgatoKeyLights: pollingRate must be >= 250`), the dry run's too. `ignoreSchema: true` saves anyway, for a
   value the plugin accepts that its schema does not list; `restore_config` puts a backup back unchecked.
 - **Setup** ([plugins.md](plugins.md#setup)). `discover_devices` lists what a plugin finds, each device with its
@@ -234,16 +258,17 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   message for the person, the fields to answer, a page to open or a wait; `continue_setup` answers it, and
   `cancel_setup` ends it. `start_setup` for a platform with no block of that name adds the plugin once its account's
   Setup is done. A secret field takes only a `vault:` reference: the person adds the entry on the Vault page, or finishes
-  in the web UI. What a device or a plugin says is wrapped in `<untrusted-data>`. `set_device_excluded` excludes a device
-  or includes it again (destructive: it asks first), and `set_device_part` includes or leaves out one of its parts (a
-  gate's side door, a door sensor, a camera's occupancy sensor).
-- **Rooms.** The Home app's rooms never reach a bridge; these are the web UI's (Glass UI's accessory layout,
-  `accessory-layout.json`). `get_accessory_layout` lists the rooms with their accessories (and `displayName`,
-  `hidden`, `favourite`) and those in no room; `set_accessory_layout` puts accessories in rooms (a new name adds
-  the room), hides them, names them for the web UI or makes them Quick Controls, and orders (`rooms`), renames
-  (`renameRoom`) or removes (`removeRooms`) rooms. HomeKit is not changed. `syncRoomNames: true` (kept with the layout,
-  off by default) makes a later `renameRoom` rename the rooms of the same name on the plugins' hubs too (Philips Hue,
-  IKEA DIRIGERA, eWeLink; case and accents aside); `hubRooms` in the answer says what each hub did.
+  in the web UI. What a device or a plugin says is wrapped in `<untrusted-data>`. `update_settings` with a device's
+  `accessoryID` excludes it or includes it again (`excluded`) and includes or leaves out one of its parts (`parts`, by the
+  part's id: a gate's side door, a door sensor, a camera's occupancy sensor).
+- **Rooms.** The Home app's rooms never reach a bridge; these are Homeswift's. An accessory's room is its `room`
+  Accessory Setting (`update_settings`; a new name adds the room, `""` puts it in none). `get_accessory_layout` lists the
+  rooms with their accessories (and `displayName`, `hidden`, `favourite`) and those in no room; `set_accessory_layout`
+  changes the Arrangement (`accessory-layout.json`): it orders (`rooms`), renames (`renameRoom`, which every accessory's
+  `room` in it follows) or removes (`removeRooms`) rooms, and makes accessories Quick Controls (`favourite`). HomeKit is
+  not changed. `syncRoomNames: true` turns Room Sync on (a Bridge Setting, `bridge.roomSync` in config.json, off by
+  default, applied without a restart): a later `renameRoom` renames the rooms of the same name on the plugins' hubs too
+  (Philips Hue, IKEA DIRIGERA, eWeLink; case and accents aside), and `hubRooms` in the answer says what each hub did.
 - **The wall.** `get_wall_layout` answers the Accessories page's wall as it is drawn (`ui-layout.json`): its grouping,
   the sections in order with their accessories in order and the sizes chosen, the default size of each kind of
   widget, and the accessory groups where they stand. `set_wall_layout` arranges it: `groups` makes accessories that
@@ -255,7 +280,7 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   null to let one flow, for the wall's grouping; `clearPositions` lets the whole wall flow), so a layout can leave gaps
   between widgets; `get_wall_layout` gives each widget's `position`. The tool's description tells the model the
   grid: as many 176-px columns as fit, rows of about 64 px, and each size's span. A group needs a control its members share (on and off, or a position) and never takes a
-  security control. With `set_accessory_layout`'s rooms,
+  security control. With the accessories' rooms,
   that is what the Assistant needs to compose a wall ("arrange my wall by room"). An open Accessories page draws
   the wall again when it or the rooms change, whoever changed them (a `layout` event on the web UI's event stream).
 - **Scenes.** `list_scenes` lists the web UI's scenes with their room, whether they are active now, their actions,
@@ -287,8 +312,9 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   allow (`dryRun` shows the change); an action on a lock, a garage door or an alarm is refused, as are accessory triggers
   and conditions, which the Home app edits. `delete_hub_automation` removes one after the user confirms. New Apple Home
   automations are made in the Home app; Homeswift's own are its scenes with triggers.
-- **Apple Home's rooms.** With the layout's `syncRoomNames` on, `set_accessory_layout`'s `renameRoom` and an
-  accessory's `room` reach the Home app through Wingman (`hubRooms`, `hubMoves` say what each hub did).
+- **Apple Home's rooms.** With Room Sync on, `set_accessory_layout`'s `renameRoom` and an accessory's `room`
+  (`update_settings`) reach the Home app through Wingman (`hubRooms`, `hubMoves` say what each hub did); an accessory of
+  Apple Home's own moves there whether Room Sync is on or not.
 - **How scenes change lights.** Only lightbulbs move in an animation, never a security control. Homeswift's player
   writes every light of a step at the same time, at least a quarter of a second a step since many lights fade; a scene
   started on lights another plays on takes them over and puts them back as they were before the first; one that takes
@@ -355,10 +381,11 @@ theirs carries `structuredContent`; a client on an older protocol version gets t
 
 ## Confirmations
 
-`set_security_accessory`, `update_config`, `patch_config`, `restore_config`, `put_list_entry`,
+`set_security_accessory`, `update_config`, `patch_config`, `restore_config`, `forget_device`,
 `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `remove_cached_accessory`,
 `reset_cached_accessories`, `reset_pairings`, `remove_matter_fabric`, `update_bridge_settings`, `migrate_to_vault` and `truncate_logs` ask the user before running, as do plugin actions marked
-to confirm. When the client supports MCP elicitation, the server asks
+to confirm and `update_settings` for a change that Excludes an accessory, puts it Not in Home, changes its Parts or
+changes Plugin Settings (its `destructiveHint` is false: a rename or a room never asks; `MCPTool.confirmsWhen`). When the client supports MCP elicitation, the server asks
 through it. A tool with a dry run is run as one first: the question lists what would change, each setting
 with its new value, and carries the dry run's answer in `_meta` (`homeswift/preview`) for a client that
 shows it; a call the dry run says would fail comes back with that error, not as a question. Other tools show

@@ -5,7 +5,8 @@ to 4, the apps the TV reports or the ones you list), the remote, volume and mute
 and optional switches and sensors so scenes and automations can use the TV's state.
 
 A port of [`homebridge-philips-ambilight-tv`](https://github.com/mp-consulting/homebridge-philips-ambilight-tv).
-The platform block is the same, so a Homebridge configuration works unchanged. Each TV is published as an
+A Homebridge configuration loads unchanged; what Homeswift writes is its canonical shape ([Configuration](#configuration)).
+Each TV is published as an
 accessory of its own, as Homebridge does: HomeKit allows one television per bridge, so a TV appears in the
 Home app as a second accessory to add, with the same setup code as the bridge.
 
@@ -19,30 +20,33 @@ TVs on the network (they announce themselves only while on) and sets one up with
 and its address and settings in its Accessory Settings. The plugin reloads with it at once, no restart. A wrong PIN
 says so and is asked again.
 
-A TV Bonjour does not reach (another subnet, a container without multicast) is added by its address: an entry of
-`devices` with only its `name` and `ip`, and Add accessories lists it to pair. After a reset of the TV, **Set up again**
-on Add accessories pairs it again; the TV keeps its MAC address, so its place in the Home app. The settings page of the
-Homebridge plugin produces the same keys, and a block that has them in `devices` works as it is.
+A TV Bonjour does not reach (another subnet, a container without multicast) is added by its address: an entry of the
+Plugin Setting `devices` (the plugin's Settings page, or `update_settings`) with only its `name` and `ip`, and Add
+accessories lists it to pair. After a reset of the TV, **Set up again** on Add accessories pairs it again; the TV keeps
+its MAC address, so its place in the Home app. A Homebridge block whose `devices` hold the keys its settings page
+produced works as it is.
 
 ## The web page
 
-The page does what the Homebridge plugin's settings page does, but pairing: its card leads to Add accessories. Each TV
-has a card with its state and a remote, and:
+The page shows the TVs and controls them; pairing is Add accessories' (its card leads there), and it writes no settings.
+Each TV has a card with its state and a remote, and:
 
-- **Inputs**: the order of the input wheel by drag and drop (or Alt and an arrow key), inputs hidden or
-  shown, renamed in place; it writes the `sources` keys. **Refresh from TV** reads the TV's apps at once
-  rather than at the next hourly refresh.
-- **Edit**: General (name, address, MAC with **Get MAC**, Ambilight style, Wake-on-LAN, polling), Remote (the keys of the
-  Info, Back and Play/Pause buttons), Automations (source switches, the Ambilight+hue switch, state
-  sensors), Apps (custom apps, with **Detect from TV** reading the app in the foreground) and Buttons
-  (custom buttons), and **Pair again**, which opens Add accessories. A TV Setup paired keeps these settings in its
-  Accessory Settings, and its MAC address as Setup read it.
-- **Remove** takes the TV out of the block, and out of the Home app (a TV Setup paired is Excluded, as Add accessories
-  does it, and can be included again there).
+- **Inputs**: the TV's inputs in the Home app's wheel order, shown then hidden, with the names the TV gives them and
+  their IDs, the ones its Settings' `sources` take. **Refresh from TV** reads the TV's apps at once rather than at the
+  next hourly refresh; **Detect from TV** names the app in the foreground (its package and launch activity), for
+  `customApps`.
+- **Settings…** opens the TV's Settings sheet on the plugin's Settings page
+  (`/plugins/<slug>/settings?accessory=PhilipsAmbilightTV:<MAC>`): its Name, room, its options (address, Ambilight
+  style, Wake-on-LAN, polling, the remote's keys, source switches, the Ambilight+hue switch, state sensors, inputs,
+  custom apps, custom buttons, sources) and **Exclude** or **Forget**, which take it out of the Home app.
 
-Every save applies at once: the plugin reloads and the TV keeps its place in the Home app.
+Every settings change applies at once: the plugin reloads and the TV keeps its place in the Home app.
 
 ## Configuration
+
+What Homeswift writes (docs/adr/0001-canonical-accessory-settings.md): each paired TV's settings in `_accessories` by
+its MAC address (its Device Id, uppercase as in its accessory id), its keys in the vault, and in `devices` only the TVs
+to find by address.
 
 ```json
 {
@@ -50,28 +54,22 @@ Every save applies at once: the plugin reloads and the TV keeps its place in the
     {
       "platform": "PhilipsAmbilightTV",
       "name": "Philips Ambilight TV",
-      "devices": [
-        {
-          "name": "Living Room TV",
-          "ip": "192.168.1.20",
-          "mac": "AA:BB:CC:DD:EE:FF",
-          "username": "2b8a0f6e5c1d4a7e",
-          "password": "6f…",
-          "certFingerprint": "c434…"
-        }
-      ]
+      "devices": [{ "name": "Bedroom TV", "ip": "10.0.20.31" }],
+      "_accessories": {
+        "AA:BB:CC:DD:EE:FF": { "name": "Living Room TV", "ip": "192.168.1.20", "ambilightOnStart": true, "stateSensors": ["power"] }
+      }
     }
   ]
 }
 ```
 
-Per TV, `name`, `ip`, `mac`, `username` and `password` are needed (the MAC and keys from the vault when the TV was paired
-on Add accessories); an entry with only `name` and `ip` waits to be paired there, and a TV with another one missing is
-skipped with a line in the log. The options:
+The Plugin Setting `devices` lists TVs Add accessories does not find on the network, each with its `name` and `ip`
+(and `mac`, when known, for Wake-on-LAN before it is paired). Each TV's Accessory Settings (the schema's
+`accessorySchema`; every TV is of the Device Kind `tv`), besides its Name and Excluded:
 
-| Option | Default | What it does |
+| Accessory Setting | Default | What it does |
 |---|---|---|
-| `certFingerprint` | | SHA-256 of the TV's certificate, recorded at pairing: connections are refused when the TV presents another. Without it the first certificate seen is pinned for the run, and the log says the value to add |
+| `ip` | | The TV's IPv4 address, Setup's; give it a fixed one in your router |
 | `pollingInterval` | `10000` | Milliseconds between state polls, 1000 to 60000 (outside, the default with a warning). Once the TV's own push channel delivers, polls slow to once a minute |
 | `wakeOnLanEnabled` | `true` | Send a Wake-on-LAN packet before switching on; a TV in deep standby hears nothing else |
 | `ambilightMode` | `FOLLOW_VIDEO/NATURAL` | The style (and algorithm) Ambilight takes when switched on from HomeKit |
@@ -84,6 +82,18 @@ skipped with a line in the log. The options:
 | `ambilightHueSwitch` | `false` | A Switch for the TV's Ambilight+hue feature (`HueLamp/power`) |
 | `customButtons` | `[]` | Momentary switches that send a key (`name`, `key`); one per key |
 | `stateSensors` | `[]` | Motion sensors mirroring `power`, `ambilight` and `mute`, for automations; they follow HomeKit's writes at once, and standby clears them |
+
+The keys a pairing gives (`username`, `password` and `certFingerprint`, the SHA-256 of the TV's certificate: connections
+are refused when the TV presents another; without it the first certificate seen is pinned for the run, and the log
+says so) are in the vault under the TV's MAC.
+
+A Homebridge block still loads: its `devices`, each TV with `name`, `ip`, `mac`, `username`, `password`,
+`certFingerprint` and the options above, read where `_accessories` and the vault say nothing (a TV with something
+missing is skipped with a line in the log). The first settings write (the Settings page, `update_settings`, Setup)
+moves each paired TV (keys in its entry or in the vault) into `_accessories` under its MAC (`name` as the Name, the
+options as they are) and its keys into the vault, and folds an entry with only an address into the TV Setup paired
+there; TVs still to pair stay in `devices`, as do entries whose MAC is not one or whose keys are a reference the bridge
+cannot read. The accessory keeps its id, `PhilipsAmbilightTV:<MAC>`, and its HAP server.
 
 ## In the Home app
 

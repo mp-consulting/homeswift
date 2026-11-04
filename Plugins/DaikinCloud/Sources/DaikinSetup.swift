@@ -5,7 +5,9 @@ import HomeswiftPlugin
 // Setup (GLOSSARY.md, "Setup"): the Daikin account is the instance's. With the Developer Portal (`authMode`'s default)
 // it is a Browser Redirect: Daikin's sign-in page, whose redirect the callback server catches, or whose address the
 // person pastes. With the Onecta app's login it is an Account Login. The tokens stay where the plugin keeps and
-// refreshes them (its own vault entries, `tokenFile`); the client and the login are Plugin Settings, sealed.
+// refreshes them (its own vault entries, `tokenFile`); the client (`clientId`, `clientSecret`) and the login (`email`,
+// `password`) are the account's credentials, in the vault, never Plugin Settings: a Homebridge block's keys for them go.
+// Each device is of the Device Kind `climateControl`, `domesticHotWaterTank` (an Altherma with its tank) or `gateway`.
 extension DaikinCloudPlugin {
     public static let accountAuthorization = AuthorizationMethod.browserRedirect
 
@@ -17,7 +19,7 @@ extension DaikinCloudPlugin {
         return (listed["devices"]?.arrayValue ?? []).compactMap { device in
             guard let id = device["id"]?.stringValue else { return nil }
             return DiscoveredDevice(deviceID: id, name: device["name"]?.stringValue ?? id, model: device["model"]?.stringValue, isSetUp: !settings.isExcluded(id),
-                                    excludedBySettings: settings.isExcluded(id))
+                                    excludedBySettings: settings.listedDeviceIDs.contains(id), kind: device["kind"]?.stringValue)
         }
     }
 
@@ -60,7 +62,10 @@ extension DaikinCloudPlugin {
         }
         let result = await testMobileLogin(["email": .string(email), "password": .string(password)])
         guard result["success"] == true else { throw SetupError(result["message"]?.stringValue ?? "Daikin refused the sign-in") }
-        return .done(SetupOutcome(settings: ["daikinEmail": .string(email), "daikinPassword": .string(password)]))
+        // The login goes to the vault, and the block's own keys for it go.
+        return .done(SetupOutcome(
+            credentials: accountCredentials(["email": .string(email), "password": .string(password)]),
+            settings: ["daikinEmail": .null, "daikinPassword": .null, "email": .null, "password": .null]))
     }
 
     /// The client, when the block has none, with the callback server's address and port, which make the app's redirect
@@ -102,24 +107,29 @@ extension DaikinCloudPlugin {
                 throw SetupError(message(of: error))
             }
             guard let url = started["authUrl"]?.stringValue else { throw SetupError("Daikin's sign-in did not start") }
+            // The client goes to the vault when the sign-in is done (`client`, kept on the bridge with the step); the
+            // callback server's address and port, typed, are Plugin Settings.
             var typed: [String: JSONValue] = [:]
-            if request.answer("clientId") != nil { typed["clientId"] = .string(clientID) }
-            if request.answer("clientSecret") != nil { typed["clientSecret"] = .string(clientSecret) }
             if let typedAddress { typed["callbackServerExternalAddress"] = .string(typedAddress) }
             if typedPort != nil { typed["callbackServerPort"] = .number(Double(port)) }
-            return .ask(redirectPrompt(url), state: ["url": .string(url), "settings": .object(typed)])
+            return .ask(redirectPrompt(url), state: [
+                "url": .string(url), "settings": .object(typed), "client": ["clientId": .string(clientID), "clientSecret": .string(clientSecret)],
+            ])
         }
         let typed = request.state["settings"]?.objectValue ?? [:]
+        let client = request.state["client"]?.objectValue ?? [:]
+        // The client in the vault, out of the block.
+        let done = SetupOutcome(credentials: accountCredentials(client), settings: typed.merging(["clientId": .null, "clientSecret": .null]) { $1 })
         if let pasted = request.answer("callbackUrl") {
             do {
                 _ = try await completeAuthorization(["callbackUrl": .string(pasted)])
             } catch {
                 throw SetupError(message(of: error))
             }
-            return .done(SetupOutcome(settings: typed))
+            return .done(done)
         }
         let result = await pollAuthorization()
-        if result["success"] == true { return .done(SetupOutcome(settings: typed)) }
+        if result["success"] == true { return .done(done) }
         if let error = result["error"]?.stringValue { throw SetupError(error) }
         guard pendingAuth != nil else { throw SetupError("The sign-in ended: start it again") }
         return .ask(redirectPrompt(request.state["url"]?.stringValue ?? ""), state: request.state)

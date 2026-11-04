@@ -31,7 +31,10 @@ extension PhilipsHuePlugin {
         "The Homeswift Philips Hue plugin talks to a Hue Bridge on the local network through its API v2 (CLIP v2), without the cloud.",
         "It pairs through Setup (Add accessories, or start_setup) with the bridge's link button and keeps the application key in the vault. Each light is a HomeKit lightbulb, each",
         "room's and zone's scenes are switches on one accessory, effects are switches on their light. A light marked not responding has a",
-        "Zigbee connectivity issue on the bridge (switched off at the wall, out of range). Never ask the user for passwords, tokens or keys.",
+        "Zigbee connectivity issue on the bridge (switched off at the wall, out of range). Settings are read with get_settings and written with",
+        "update_settings: by plugin for its options (transitionMs, effects, sensors…), by accessory for a light (PhilipsHue:<light id>), a",
+        "sensor (PhilipsHue:device:<id>) or a scene (PhilipsHue:<scene id>): excluded, a light's effects, flashSwitch and gradientPoints, a",
+        "scene's transitionMs. Never ask the user for passwords, tokens or keys.",
     ].joined(separator: " ")
 
     /// The scenes as the Assistant reads them: compact, with their look in words.

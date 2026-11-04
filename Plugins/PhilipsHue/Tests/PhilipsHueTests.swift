@@ -143,7 +143,7 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
          "gradient": ["points_capable": 5, "points": [["color": ["xy": ["x": 0.6915, "y": 0.3083]]], ["color": ["xy": ["x": 0.17, "y": 0.7]]]]]],
         ["id": "light-2", "type": "light", "owner": ["rid": "dev-2", "rtype": "device"], "on": ["on": false],
          "dimming": ["brightness": 80.0], "color_temperature": ["mirek": 366, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]]],
-        ["id": "zc-2", "type": "zigbee_connectivity", "owner": ["rid": "dev-2", "rtype": "device"], "status": "connected"],
+        ["id": "zc-2", "type": "zigbee_connectivity", "owner": ["rid": "dev-2", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0b:aa:bb:02"],
         ["id": "room-1", "type": "room", "metadata": ["name": "Living room"], "children": [["rid": "dev-1", "rtype": "device"]],
          "services": [["rid": "group-1", "rtype": "grouped_light"]]],
         ["id": "group-1", "type": "grouped_light", "on": ["on": true], "dimming": ["brightness": 60.0]],
@@ -167,7 +167,7 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
         ["id": "lux-3", "type": "light_level", "owner": ["rid": "dev-3", "rtype": "device"], "enabled": true,
          "light": ["light_level": 20001, "light_level_valid": true, "light_level_report": ["changed": "2026-10-28T08:00:00.000Z", "light_level": 20001]]],
         ["id": "power-3", "type": "device_power", "owner": ["rid": "dev-3", "rtype": "device"], "power_state": ["battery_state": "normal", "battery_level": 87]],
-        ["id": "zc-3", "type": "zigbee_connectivity", "owner": ["rid": "dev-3", "rtype": "device"], "status": "connected"],
+        ["id": "zc-3", "type": "zigbee_connectivity", "owner": ["rid": "dev-3", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0c:aa:bb:03"],
         ["id": "dev-4", "type": "device", "metadata": ["name": "Bedroom dimmer"],
          "product_data": ["model_id": "RWL022", "manufacturer_name": "Signify Netherlands B.V.", "product_name": "Hue dimmer switch", "software_version": "2.45.2"],
          "services": [["rid": "button-1", "rtype": "button"], ["rid": "button-2", "rtype": "button"], ["rid": "button-3", "rtype": "button"],
@@ -447,6 +447,7 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// A Homebridge block's exclude lists still load.
     @Test func excludedLightsAndScenesStayOut() async throws {
         let host = try await environment.start(settings: ["host": "192.0.2.10", "excludeLights": ["desk"], "excludeScenes": ["Living room/Concentrate"]])
         let scenes = try await accessory(host, scenesID)
@@ -764,6 +765,73 @@ struct PhilipsHueTests {
         #expect(SceneLook.describe(colours: [], whites: []) == "no colours set")
     }
 
+    // MARK: Settings
+
+    /// The Homebridge-shaped lists move into `_accessories` as far as the bridge's names resolve them: Excluded lights,
+    /// sensors and scenes, a scene's transition ("Room/Scene" before its name); names it does not have stay.
+    @Test func canonicalSettingsMovesTheListsByTheBridgesNames() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let block = try JSONValue(any: [
+            "platform": "PhilipsHue", "name": "Philips Hue", "host": "192.0.2.10", "transitionMs": 400,
+            "excludeLights": ["desk", "Gone"], "excludeSensors": ["Bedroom dimmer"], "excludeScenes": ["Living room/Concentrate"],
+            "sceneTransitions": [["scene": "Savanna sunset", "transitionMs": 500], ["scene": "living room/Savanna sunset", "transitionMs": 3000], ["scene": "Nowhere", "transitionMs": 1]],
+            "_accessories": ["light-2": ["name": "Desk lamp"]],
+        ] as [String: Any])
+        let canonical = await host.canonicalSettings(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name, block: block)
+        #expect(canonical == (try JSONValue(any: [
+            "platform": "PhilipsHue", "name": "Philips Hue", "host": "192.0.2.10", "transitionMs": 400,
+            "excludeLights": ["Gone"], "sceneTransitions": [["scene": "Nowhere", "transitionMs": 1]],
+            "_accessories": [
+                "light-2": ["name": "Desk lamp", "excluded": true], "device:dev-4": ["excluded": true], "scene-2": ["excluded": true],
+                "scene-1": ["transitionMs": 3000],
+            ],
+        ] as [String: Any])))
+        // Before the bridge was read, nothing moves.
+        #expect(PhilipsHuePlugin.canonical(block, snapshot: HueSnapshot()) == block)
+        await host.stop()
+    }
+
+    /// The canonical shape does what the lists did: Excluded lights, sensors and scenes stay out (the scenes' accessory
+    /// keeping its id), a scene takes its own transition, a light its own effects and Flash switch.
+    @Test func accessorySettingsExcludeAndTuneLightsAndScenes() async throws {
+        let host = try await environment.start(settings: [
+            "host": "192.0.2.10", "transitionMs": 400,
+            "_accessories": [
+                "light-2": ["excluded": true], "device:dev-4": ["excluded": true], "scene-2": ["excluded": true],
+                "scene-1": ["transitionMs": 3000], "light-1": ["effects": false, "flashSwitch": true],
+            ],
+        ])
+        let scenes = try await accessory(host, scenesID)
+        #expect(scenes.service(.switch, subtype: "scene:scene-2") == nil)
+        try await scenes.service(.switch, subtype: "scene:scene-1")![.on]!.write(.bool(true))
+        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "active", "duration": 3000]])
+        let strip = try await accessory(host, stripID)
+        #expect(strip.service(.switch, subtype: "effect:candle") == nil && strip.service(.switch, subtype: "flash") != nil)
+        _ = try await accessory(host, PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-3"))
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == deskID || $0.id == PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-4") })
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.scenes().map(\.id) == ["smart-1", "scene-1"])
+        await host.stop()
+    }
+
+    /// Each light, sensor, switch and scene is a Discovered Device of its Device Kind.
+    @Test func devicesHaveTheirKinds() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let kinds = Dictionary(try await plugin.discover().map { ($0.deviceID, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        #expect(kinds["light-1"] == "light" && kinds["device:dev-3"] == "sensor" && kinds["device:dev-4"] == "switch")
+        #expect(kinds["scene-1"] == "scene" && kinds["smart-1"] == "scene")
+        for (id, kind) in [("light-2", "light"), ("device:dev-4", "switch"), ("scene-2", "scene")] {
+            #expect(await host.deviceKind(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name, deviceID: id) == kind)
+        }
+        let schema = try JSONValue(string: try #require(PhilipsHuePlugin.configurationSchemaJSON))
+        #expect(schema["accessorySchema"]?["properties"]?["transitionMs"]?["x-kinds"] == ["scene"])
+        #expect(schema["schema"]?["properties"]?["excludeScenes"] == nil)
+        await host.stop()
+    }
+
     @Test func schemaIsCurrent() throws {
         let file = try String(contentsOf: Self.root.appendingPathComponent("config.schema.json"), encoding: .utf8)
         #expect(PhilipsHuePlugin.configurationSchemaJSON == file.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -812,6 +880,31 @@ struct HueSensorTests {
         #expect(dimmer.service(.serviceLabel)?[.serviceLabelNamespace]?.value == 1)
         #expect(dimmer.service(.battery)?[.statusLowBattery]?.value == 1)
         await host.stop()
+    }
+
+    /// HomeKit shows a device's Zigbee MAC as its serial number, not the bridge's resource id; a device without one keeps
+    /// the id.
+    @Test func serialNumbersAreTheDevicesZigbeeMACs() async throws {
+        let host = try await environment.start()
+        let serial = { (accessory: Accessory) in accessory.information.characteristic(.serialNumber).value }
+        #expect(serial(try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-2"))) == .string("00:17:88:01:0b:aa:bb:02"))
+        #expect(serial(try await accessory(host, sensorID)) == .string("00:17:88:01:0c:aa:bb:03"))
+        #expect(serial(try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-1"))) == .string("light-1"))
+        #expect(serial(try await accessory(host, dimmerID)) == .string("dev-4"))
+        await host.stop()
+    }
+
+    /// A device with two lights (a Dymera) gives each its place after the MAC, so their serial numbers stay apart.
+    @Test func lightsOfOneDeviceHaveTheirOwnSerialNumbers() {
+        let snapshot = HueSnapshot(resources: [
+            ["id": "dev-9", "type": "device", "metadata": ["name": "Dymera"],
+             "services": [["rid": "zc-9", "rtype": "zigbee_connectivity"], ["rid": "up-9", "rtype": "light"], ["rid": "down-9", "rtype": "light"]]],
+            ["id": "up-9", "type": "light", "owner": ["rid": "dev-9", "rtype": "device"], "on": ["on": false]],
+            ["id": "down-9", "type": "light", "owner": ["rid": "dev-9", "rtype": "device"], "on": ["on": false]],
+            ["id": "zc-9", "type": "zigbee_connectivity", "owner": ["rid": "dev-9", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0d:aa:bb:09"],
+        ])
+        let serials = Dictionary(uniqueKeysWithValues: snapshot.lights.map { ($0.id, $0.serialNumber) })
+        #expect(serials == ["up-9": "00:17:88:01:0d:aa:bb:09-1", "down-9": "00:17:88:01:0d:aa:bb:09-2"])
     }
 
     @Test func theSensorsOptionAndExclusionsLeaveThemOut() async throws {

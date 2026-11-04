@@ -52,7 +52,8 @@ struct EcoFlowSetupTests {
         await host.stop()
     }
 
-    /// The app's route: its email and password, checked with a sign-in, are kept as settings (sealed); no keys asked.
+    /// The app's route: its email and password, checked with a sign-in, the email kept as a setting and the password in
+    /// the vault; no keys asked.
     @Test func checksTheAppsSignInBeforeKeepingIt() async throws {
         let environment = TestEnvironment()
         let host = try await environment.start(settings: ["route": "app"], appSignIn: { _, password in
@@ -69,8 +70,8 @@ struct EcoFlowSetupTests {
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["email": "me@example.com", "password": "good"], state: chosen)) else {
             Issue.record("expected done"); return
         }
-        #expect(outcome.credentials == nil)
-        #expect(outcome.settings == ["route": "app", "email": "me@example.com", "password": "good"])
+        #expect(outcome.credentials == ["password": "good"])
+        #expect(outcome.settings == ["route": "app", "email": "me@example.com", "password": .null])
         await host.stop()
     }
 
@@ -87,8 +88,55 @@ struct EcoFlowSetupTests {
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["email": "me@example.com", "password": "pw"], state: appState)) else {
             Issue.record("expected done"); return
         }
-        #expect(outcome.credentials == ["accessKey": "a", "secretKey": "s"])
-        #expect(outcome.settings == ["route": "both", "email": "me@example.com", "password": "pw", "accessKey": .null, "secretKey": .null])
+        #expect(outcome.credentials == ["accessKey": "a", "secretKey": "s", "password": "pw"])
+        #expect(outcome.settings == ["route": "both", "email": "me@example.com", "password": .null, "accessKey": .null, "secretKey": .null])
         await host.stop()
+    }
+
+    /// The block's keys and password move into the vault once the block is written without them, the vault's own
+    /// winning; `devices` become each device's Name. A pasted block still runs with its own.
+    @Test func canonicalSettingsMovesTheSecretsAndTheNames() async throws {
+        let environment = TestEnvironment()
+        let settings: [String: Any] = [
+            "route": "both", "email": "me@example.com", "password": "pw", "accessKey": "a", "secretKey": "s",
+            "devices": [["id": "BK11", "name": "Garage"], ["id": "R651"]],
+        ]
+        let host = try await environment.start(settings: settings, developerAPI: { _, _, _ in Checked(refuse: false) }, appSignIn: { _, _ in })
+        let block = try JSONValue(any: settings.merging(["platform": "EcoFlow", "name": "EcoFlow"]) { $1 })
+        let (canonical, whenWritten) = await host.canonicalSettings(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name, block: block)
+        #expect(canonical == (try JSONValue(any: [
+            "platform": "EcoFlow", "name": "EcoFlow", "route": "both", "email": "me@example.com",
+            "_accessories": ["BK11": ["name": "Garage"]],
+        ] as [String: Any])))
+        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
+        #expect(context.credentials() == nil)
+        try await whenWritten.run()
+        #expect(context.credentials(as: EcoFlowPlugin.AccountCredentials.self) == .init(accessKey: "a", secretKey: "s", password: "pw"))
+        let restored = EcoFlowPlugin.withStoredKeys(try JSONDecoder().decode(EcoFlowPlugin.Configuration.self, from: Data(#"{"email":"me@example.com"}"#.utf8)), context)
+        #expect(restored.password == "pw" && restored.accessKey == "a" && restored.secretKey == "s")
+        // Without the vault, the block keeps them.
+        let kept = EcoFlowPlugin.canonical(block, vaultHasKeys: false, vaultHasPassword: false)
+        #expect(kept["password"] == "pw" && kept["accessKey"] == "a")
+        await host.stop()
+    }
+
+    /// Each device is of its model's Device Kind.
+    @Test func devicesHaveTheirKinds() async throws {
+        let environment = TestEnvironment()
+        await environment.api.add(EcoFlowDevice(id: "R651ZEB5XF000000", name: "RIVER 3", online: true, model: EcoFlowModel.model(serial: "R651ZEB5XF000000")))
+        let host = try await environment.start(settings: [:])
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { (try? await plugin.discover().count) ?? 0 >= 1 })
+        let devices = try await plugin.discover()
+        #expect(devices.first { $0.deviceID == "R651ZEB5XF000000" }?.kind == "portable")
+        #expect(await plugin.deviceKind(of: "R651ZEB5XF000000") == "portable")
+        #expect(await plugin.deviceKind(of: "BK11ZEB5XF000000") == "stream")
+        await host.stop()
+    }
+
+    /// The schema keeps no secret and no list of devices.
+    @Test func theSchemaDeclaresNoSecrets() throws {
+        let schema = try JSONValue(string: try #require(EcoFlowPlugin.configurationSchemaJSON))
+        for key in ["password", "accessKey", "secretKey", "devices"] { #expect(schema["schema"]?["properties"]?[key] == nil, "\(key)") }
     }
 }

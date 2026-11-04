@@ -189,6 +189,7 @@ final class Browser: @unchecked Sendable {
     func get(_ path: String) async throws -> Response { try await send("GET", path) }
     func post(_ path: String, _ json: JSONValue) async throws -> Response { try await send("POST", path, body: json.text()) }
     func put(_ path: String, _ json: JSONValue) async throws -> Response { try await send("PUT", path, body: json.text()) }
+    func patch(_ path: String, _ json: JSONValue) async throws -> Response { try await send("PATCH", path, body: json.text()) }
 }
 
 @Suite struct AuthTests {
@@ -754,7 +755,7 @@ struct UIServerTests {
         #expect(try await browser.get("/plugins/nope/app.js").status == 404)
         #expect(try await browser.get("/plugin.js").status == 200)
         // The UI's views are the UI's page, whatever their path.
-        for path in ["/plugins/lamps/expert/json", "/plugins/nope", "/logs/desk-lamp?since=24h", "/accessories"] {
+        for path in ["/plugins/lamps/settings", "/plugins/lamps/expert/json", "/plugins/nope", "/logs/desk-lamp?since=24h", "/accessories"] {
             let view = try await browser.get(path)
             #expect(view.status == 200 && view.body.contains("<title>Homeswift</title>"), "\(path)")
         }

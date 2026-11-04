@@ -13,7 +13,7 @@ import Testing
         let toolbox = await ChatToolbox(server: environment.server, user: "admin")
         let tools = toolbox.agentTools { _ in false }
         let names = Set(tools.map(\.definition.name))
-        #expect(names.isSuperset(of: ["list_accessories", "put_list_entry", "patch_config", "Devices_pair"]))
+        #expect(names.isSuperset(of: ["list_accessories", "update_settings", "patch_config", "Devices_pair"]))
         // Anthropic refuses a request whose tool names leave ^[a-zA-Z0-9_-]{1,128}$ (UniFi Protect's space).
         #expect(names.allSatisfy { $0.wholeMatch(of: /[a-zA-Z0-9_-]{1,128}/) != nil })
         #expect(HomeswiftCatalog.actionToolName(platform: "UniFi Protect", action: "discover") == "UniFi_Protect_discover")
@@ -22,7 +22,7 @@ import Testing
         #expect(patch.definition.inputSchema["properties"]?["dryRun"] != nil)
 
         let readOnly = await ChatToolbox(server: environment.server, user: "viewer", scope: .read)
-        #expect(!readOnly.agentTools { _ in false }.contains { $0.definition.name == "put_list_entry" })
+        #expect(!readOnly.agentTools { _ in false }.contains { $0.definition.name == "update_settings" })
         await environment.stop()
     }
 
@@ -44,7 +44,7 @@ import Testing
                 entry["name"] = "Bedroom TV"
                 return ChatResult(
                     model: "scripted-1", text: "",
-                    toolCalls: [HomeswiftAI.ToolCall(id: "2", name: "put_list_entry", arguments: ["platform": "Devices", "entry": .object(entry)])],
+                    toolCalls: [HomeswiftAI.ToolCall(id: "2", name: "update_settings", arguments: ["plugin": ["platform": "Devices"], "settings": ["devices": [.object(entry)]]])],
                     usage: .zero, stopReason: .toolCalls)
             },
             ScriptedProvider.answer("Bedroom TV is added."),
@@ -62,16 +62,16 @@ import Testing
         #expect(!provider.sentText.contains("s3cret-pass"))
         #expect(provider.sentText.contains("__SECRET_"))
         let confirmation = try #require(asked.all.first)
-        #expect(confirmation.tool == "put_list_entry")
-        #expect(confirmation.arguments["entry"]?["password"]?.stringValue.map(SecretVault.isHandle) == true)
+        #expect(confirmation.tool == "update_settings")
+        #expect(confirmation.arguments["settings"]?["devices"]?[0]?["password"]?.stringValue.map(SecretVault.isHandle) == true)
         #expect(confirmation.preview != nil)
         let config = try JSONValue(data: Data(contentsOf: environment.configURL))
         let devices = config["platforms"]?[0]?["devices"]?.arrayValue ?? []
         #expect(devices.count == 1)
         #expect(devices.first?["password"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
         #expect(devices.first?["name"] == "Bedroom TV")
-        #expect(events.started == ["Devices_pair", "put_list_entry"])
-        #expect(environment.auditEntries.contains { $0["tool"] == "put_list_entry" && $0["client"] == "web UI chat" && $0["ok"] == true })
+        #expect(events.started == ["Devices_pair", "update_settings"])
+        #expect(environment.auditEntries.contains { $0["tool"] == "update_settings" && $0["client"] == "web UI chat" && $0["ok"] == true })
         await environment.stop()
     }
 
@@ -81,40 +81,25 @@ import Testing
         let toolbox = await ChatToolbox(server: environment.server, user: "admin")
         let before = try Data(contentsOf: environment.configURL)
         let tools = toolbox.agentTools { _ in false }
-        let put = try #require(tools.first { $0.definition.name == "put_list_entry" })
-        let output = await put.run(["platform": "Devices", "entry": ["mac": "AA:BB:CC:00:11:22", "name": "Lamp"]])
+        let update = try #require(tools.first { $0.definition.name == "update_settings" })
+        let output = await update.run(["plugin": ["platform": "Devices"], "settings": ["pollingRate": 500]])
         #expect(output.isError)
         #expect(output.text.contains("did not confirm"))
         #expect(try Data(contentsOf: environment.configURL) == before)
         await environment.stop()
     }
 
-    @Test func replacesTheEntryWithTheSameMAC() async throws {
+    /// A secret's placeholder keeps the stored secret.
+    @Test func keepsASecretThroughItsPlaceholder() async throws {
         let environment = try MCPTestEnvironment()
         try await environment.start()
         let toolbox = await ChatToolbox(server: environment.server, user: "admin")
-        let put = try #require(toolbox.agentTools { _ in true }.first { $0.definition.name == "put_list_entry" })
-        _ = await put.run(["platform": "Devices", "entry": ["mac": "AA:BB:CC:00:11:22", "name": "One"]])
-        _ = await put.run(["platform": "Devices", "entry": ["mac": "aa-bb-cc-00-11-22", "name": "Two"]])
-        _ = await put.run(["platform": "Devices", "entry": ["mac": "AA:BB:CC:00:11:33", "name": "Three"]])
-        let config = try JSONValue(data: Data(contentsOf: environment.configURL))
-        let names = (config["platforms"]?[0]?["devices"]?.arrayValue ?? []).compactMap { $0["name"]?.stringValue }
-        #expect(names == ["Two", "Three"])
-        await environment.stop()
-    }
-
-    /// A rename changes the fields secrets are matched on: the entry it replaces gives them back.
-    @Test func renamesAnEntryAndKeepsItsSecret() async throws {
-        let environment = try MCPTestEnvironment()
-        try await environment.start()
-        let toolbox = await ChatToolbox(server: environment.server, user: "admin")
-        let put = try #require(toolbox.agentTools { _ in true }.first { $0.definition.name == "put_list_entry" })
-        _ = await put.run(["platform": "Devices", "entry": ["mac": "AA:BB:CC:00:11:22", "name": "Old", "password": "kept-secret"]])
-        let output = await put.run(["platform": "Devices", "entry": ["mac": "AA:BB:CC:00:11:22", "name": "New", "password": "__REDACTED__"]])
+        let update = try #require(toolbox.agentTools { _ in true }.first { $0.definition.name == "update_settings" })
+        let output = await update.run(["plugin": ["platform": "Devices"], "settings": ["token": "__REDACTED__", "pollingRate": 500]])
         #expect(!output.isError, "\(output.text)")
-        let config = try JSONValue(data: Data(contentsOf: environment.configURL))
-        #expect(config["platforms"]?[0]?["devices"]?[0]?["name"] == "New")
-        #expect(config["platforms"]?[0]?["devices"]?[0]?["password"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
+        let running = try #require(environment.host.configuration.platforms.first { $0.platform == "Devices" })
+        #expect(try JSONValue(data: running.json)["token"] == "secret-token")
+        #expect(try JSONValue(data: running.json)["pollingRate"] == 500)
         await environment.stop()
     }
 
@@ -127,8 +112,8 @@ import Testing
         let put = try #require(toolbox.agentTools { confirmation in
             asked.add(confirmation)
             return true
-        }.first { $0.definition.name == "put_list_entry" })
-        let output = await put.run(["platform": "Devices", "entry": ["mac": "AA:BB:CC:00:11:99", "password": "__REDACTED__"]])
+        }.first { $0.definition.name == "update_settings" })
+        let output = await put.run(["plugin": ["platform": "Devices"], "settings": ["devices": [["mac": "AA:BB:CC:00:11:99", "password": "__REDACTED__"]]]])
         #expect(output.isError)
         #expect(output.text.contains("no matching value"))
         #expect(asked.all.isEmpty)

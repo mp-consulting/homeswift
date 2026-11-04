@@ -15,59 +15,29 @@
     <span class="tile large light" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
     <div class="who">
       <h1>Govee</h1>
-      <p class="muted" data-i18n>Your Govee account, the devices it brings to the Home app and how each one appears, scenes and music mode for lights, and the connections the plugin uses.</p>
+      <p class="muted" data-i18n>The devices your Govee account and the LAN bring to the Home app, how the plugin reaches each one, and the scenes of your lights.</p>
     </div>
   </div>
 
   <div class="group tabs main-tabs" role="tablist">
-    <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n>Devices</button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
-    <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools" data-i18n>Tools</button>
+    <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n data-action-icon="bulb">Devices</button>
+    <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools" data-i18n data-action-icon="sliders">Tools</button>
   </div>
 
   <section id="tab-devices" class="tab-pane" role="tabpanel">
     <div class="card discover">
       <div class="discover-head">
-        <p id="discover-intro" class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
-        <button id="discover" class="primary" data-i18n data-action-icon="search">Discover Devices</button>
+        <p class="muted" data-i18n>The devices of your Govee account and of the LAN, as the plugin found them at its start. A device's Settings name it, leave it out, or choose how it appears in the Home app.</p>
+        <button id="discover" data-i18n data-action-icon="search">Discover Devices</button>
+      </div>
+      <div id="signed-out" class="hidden">
+        <p class="notice" data-i18n>Not signed in to a Govee account: the plugin uses LAN and Bluetooth only. Add accessories signs in.</p>
+        <a id="sign-in" class="button" data-i18n data-action-icon="key">Sign in</a>
       </div>
       <div id="discover-result"></div>
     </div>
     <div id="device-types"></div>
-    <div id="editor" class="card editor hidden"></div>
-  </section>
-
-  <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
-    <div class="card">
-      <h2 data-i18n>Account</h2>
-      <div class="fields">
-        <label class="field"><span class="field-title" data-i18n>Email</span>
-          <input type="email" id="username" data-i18n placeholder="your-email@example.com" autocomplete="username">
-          <span class="help" data-i18n>The email address you use to log in to the Govee app. Required for cloud control and device discovery.</span></label>
-        <label class="field"><span class="field-title" data-i18n>Password</span>
-          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password" data-i18n data-action-icon="eye">Show</button></span>
-          <span class="help" data-i18n>Your Govee account password. Stored in config.json and used only to authenticate with Govee's servers.</span></label>
-        <label class="field"><span class="field-title" data-i18n>Verification Code</span>
-          <input type="text" id="code" data-i18n placeholder="e.g. 1234" autocomplete="one-time-code" inputmode="numeric">
-          <span class="help" data-i18n>Only needed the first time, or when Govee flags a new device. If Test Connection reports that a code was emailed to you, paste it here and test again. Ignored once login succeeds.</span></label>
-      </div>
-      <div class="actions"><button id="test-login" data-i18n>Test Connection</button></div>
-      <div id="login-result"></div>
-    </div>
-
-    <div class="card">
-      <h2 data-i18n>General</h2>
-      <div id="general"></div>
-    </div>
-
-    <div class="card">
-      <h2 data-i18n>Connection</h2>
-      <div class="connections">
-        <div><h3>AWS IoT</h3><div id="connection-aws"></div></div>
-        <div><h3>LAN</h3><div id="connection-lan"></div></div>
-        <div><h3>Bluetooth (BLE)</h3><div id="connection-ble"></div></div>
-      </div>
-    </div>
+    <div id="library" class="card editor hidden"></div>
   </section>
 
   <section id="tab-tools" class="tab-pane hidden" role="tabpanel">
@@ -88,9 +58,6 @@
     </div>
   </section>
 
-  <div class="card save-card">
-    <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n data-action-icon="check">Save Configuration</button></div>
-  </div>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>

@@ -6,8 +6,12 @@
   const instance = document.querySelector('meta[name="homeswift-plugin"]')?.dataset ?? {};
   const platform = instance.platform || "";
   const name = instance.name || platform;
-  /// The page's address, /plugins/<slug>: its Expert part is below it.
+  /// The page's address, /plugins/<slug>: its Settings are at /plugins/<slug>/settings.
   const address = `/plugins/${location.pathname.split("/")[2] || ""}`;
+  /// Where this instance's settings are edited (its Plugin Settings and its devices), and one accessory's there (its
+  /// Accessory Settings, over the page): a page links to them and writes no settings itself.
+  const settingsAddress = `${address}/settings`;
+  const accessorySettings = (accessoryID) => `${settingsAddress}?accessory=${encodeURIComponent(accessoryID)}`;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
@@ -251,6 +255,8 @@
     // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
     // keeps its session) until Resume, which a banner offers while it is paused.
     const nav = el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail);
+    // Its Settings (the Plugin Settings, its account and its devices), at the right of the breadcrumb, before Pause.
+    nav.append(el("a", { class: "button small settings-link", href: settingsAddress, actionIcon: "gear", text: t("Settings") }));
     main.prepend(nav);
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
@@ -273,32 +279,6 @@
           el("button", { actionIcon: "play", class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
       }
     }).catch(() => {});
-    // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
-    // keeps it, as a form or as JSON, for what the page itself does not set.
-    const expert = (mode) => `${address}/expert${mode === "json" ? "/json" : ""}`;
-    const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
-      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: t("Expert") })),
-      el("div", { class: "card page-note" },
-        el("p", { class: "muted", text: t("Every setting of this plugin's block, as config.json keeps it, including what this page does not show.") }),
-        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form") }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Form") })), el("a", { class: "button", href: expert("json") }, HomeswiftCommon.icon("code"), el("span", { text: "JSON" })))));
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
-    else main.append(section);
-  }
-
-  // ---- This instance's block of config.json -------------------------------------------------------------
-  // Read and written by platform and name: a write applies at once (the plugin reloads), and the page never
-  // handles the rest of the file.
-
-  const blockPath = `/api/config/block/${encodeURIComponent(platform)}/${encodeURIComponent(name)}`;
-
-  /// This instance's block of config.json.
-  const readBlock = () => api(blockPath);
-
-  /// Changes the block (`change` edits it, or returns its replacement) and writes it; answers what the write
-  /// did (applied, or what waits for a restart).
-  async function updateBlock(change) {
-    const block = await readBlock();
-    return api(blockPath, { method: "PUT", body: change(block) ?? block });
   }
 
   /// A MAC address however it is spelled, octets without their leading zero too, as AA:BB:CC:DD:EE:FF (the
@@ -309,42 +289,6 @@
     const digits = octets.length === 6 && octets.every((octet) => /^[0-9a-f]{1,2}$/i.test(octet))
       ? octets.map((octet) => octet.padStart(2, "0")).join("") : text.replace(/[:\-. ]/g, "");
     return /^[0-9a-f]{12}$/i.test(digits) ? digits.toUpperCase().replace(/(..)(?!$)/g, "$1:") : text.toUpperCase();
-  }
-  const isMAC = (mac) => /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(canonicalMAC(mac));
-  const sameMAC = (a, b) => canonicalMAC(a) === canonicalMAC(b);
-
-  /// The block's `devices`, changed in place by `change` and written; an empty list leaves the block.
-  function updateDevices(change) {
-    return updateBlock((block) => {
-      const devices = block.devices || [];
-      change(devices);
-      if (devices.length) block.devices = devices; else delete block.devices;
-    });
-  }
-
-  /// One device's entry, by MAC: `change` edits it in place, returns its replacement, or returns null to remove it.
-  function updateDevice(mac, change) {
-    return updateDevices((devices) => {
-      const index = devices.findIndex((device) => sameMAC(device.mac, mac));
-      if (index < 0) throw new Error(t("This device is not in the configuration."));
-      const replacement = change(devices[index]);
-      if (replacement === null) devices.splice(index, 1);
-      else if (replacement) devices[index] = replacement;
-    });
-  }
-
-  /// Adds an entry, or replaces the one with its MAC.
-  const putDevice = (entry) => updateDevices((devices) => {
-    const index = devices.findIndex((device) => sameMAC(device.mac, entry.mac));
-    if (index >= 0) devices[index] = entry; else devices.push(entry);
-  });
-
-  /// The entry of a device in the block, or null.
-  const findDevice = async (mac) => ((await readBlock()).devices || []).find((device) => sameMAC(device.mac, mac)) ?? null;
-
-  /// Sets a key of a draft entry, or removes it when it holds the default: config.json keeps what was chosen.
-  function setKey(draft, key, value, fallback) {
-    if (value === undefined || value === "" || value === fallback) delete draft[key]; else draft[key] = value;
   }
 
   /// Calls `refresh` now and every `interval` while the page is visible.
@@ -377,24 +321,6 @@
   /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; answers what `work`
   /// answers. Errors go to `report`; with `report` null they are thrown to the caller once the button is back.
   const act = (button, work, report = alert) => HomeswiftCommon.busyButton(button, work, { delay: 150, report: report === null ? null : (e) => report(e.message) });
-
-  /// Adds `name` to the block's list `key` (an exclude list such as `excludeScenes`), or takes it out when it is
-  /// there (in any case), and writes the block at once; an empty list leaves the block. Answers the block as
-  /// written, or null after an error, which it shows.
-  async function toggleList(key, name) {
-    try {
-      await updateBlock((draft) => {
-        const list = draft[key] || [];
-        const index = list.findIndex((item) => item.toLowerCase() === name.toLowerCase());
-        if (index >= 0) list.splice(index, 1); else list.push(name);
-        if (list.length) draft[key] = list; else delete draft[key];
-      });
-      return await readBlock();
-    } catch (e) {
-      HomeswiftCommon.showAlert(e.message);
-      return null;
-    }
-  }
 
   // ---- Pieces of the lighting pages (Philips Hue, IKEA DIRIGERA) ------------------------------------------
 
@@ -448,50 +374,17 @@
     return dark > white ? "light" : "";
   }
 
-  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a
-  // value between steps showing as the nearest. Step 9, 100 ms, is the default.
-  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
-  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
-
-  /// The Transition field: a slider over the speed scale, its reading, the scale's names under it and `help`.
-  /// `onInput` runs when a person moves it. Answers `{ element, set(ms), value() }`: `set` shows a duration (100 ms
-  /// when none) without calling `onInput`, `value` answers the chosen one in milliseconds.
-  function speedScale({ help, onInput } = {}) {
-    const names = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
-    const nameOf = (step) => names.find(([last]) => step <= last)[1];
-    const reading = el("output");
-    const slider = el("input", { type: "range", class: "speed", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
-    const show = () => {
-      const step = Number(slider.value);
-      const ms = speedSteps[step - 1];
-      reading.textContent = ms === 0 ? t("{speed} · at once", { speed: nameOf(step) }) : t("{speed} · {ms} ms", { speed: nameOf(step), ms });
-      slider.setAttribute("aria-valuetext", reading.textContent);
-    };
-    slider.addEventListener("input", () => { show(); onInput?.(); });
-    // The names under the scale, each as wide as its steps.
-    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, names.map(([last, text], index) =>
-      el("span", { text, style: `grid-column: span ${last - (names[index - 1]?.[0] ?? 0)}` })));
-    const element = el("label", { class: "field" },
-      el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), reading), slider, scale,
-      help ? el("span", { class: "help", text: help }) : null);
-    show();
-    return {
-      element,
-      set(ms) { slider.value = stepFor(ms ?? 100); show(); },
-      value: () => speedSteps[Number(slider.value) - 1],
-    };
-  }
-
   // A picture a person gave a scene takes no drop outside a tile, so one dropped beside a tile does not open.
   let pictureDropGuard = false;
 
   /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
   /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
   /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
-  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back; `more(scene)`
-  /// the page's own items for the menu. Answers `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes
+  /// runs after a change; `settings(scene, deviceID)`, the address of the scene's Settings (a scene a plugin makes a
+  /// Discovered Device is Excluded there: `accessorySettings(<Accessory Id>)`), gives the menu a Settings… link.
+  /// `more(scene)` is the page's own items for the menu. Answers `decorate(tileNode, scene, deviceID)`, which adds the tile's menu, takes
   /// drops and paints the picture.
-  function scenePictures({ refresh, toggleHidden, more = () => [], gallery = false }) {
+  function scenePictures({ refresh, settings = null, more = () => [], gallery = false }) {
     let artworks = [];
     const normalize = (name) => name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
     const matchedArtwork = (scene) => artworks.find((item) => normalize(item.name) === normalize(scene.name) || (scene.smart && item.id === "first-light"));
@@ -581,15 +474,15 @@
       });
     }
 
-    /// The tile's menu: a picture for it, and whether the Home app shows it. A click on it (menuButton stops those)
+    /// The tile's menu: a picture for it, and its settings. A click on it (menuButton stops those)
     /// or a key does not reach the tile.
-    function sceneMenu(scene, tileNode, hideKey) {
+    function sceneMenu(scene, tileNode, deviceID) {
       const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
         gallery ? { label: t("Scene image"), icon: "image", onSelect: () => chooseGallery(scene, tileNode) } : null,
         { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
         scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
         ...more(scene),
-        { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) },
+        settings ? { label: t("Settings…"), icon: "gear", href: settings(scene, deviceID) } : null,
       ]);
       button.classList.add("eye");
       button.addEventListener("keydown", (event) => event.stopPropagation());
@@ -598,8 +491,8 @@
 
     return {
       hasPicture: (scene) => Boolean(scene.picture || matchedArtwork(scene)),
-      decorate(tileNode, scene, hideKey) {
-        tileNode.append(sceneMenu(scene, tileNode, hideKey));
+      decorate(tileNode, scene, deviceID) {
+        tileNode.append(sceneMenu(scene, tileNode, deviceID));
         dropZone(tileNode, scene);
         // The picture once loaded; the colours stay until then, and when there is none.
         Promise.all([pictureFor(scene), galleryReady]).then(([data]) => {
@@ -626,14 +519,14 @@
       el("a", { class: "button primary", href: setupAddress({ start }), actionIcon: glyph, text: action }));
   }
 
-  /// The names a block's list leaves out of the Home app, as buttons that bring one back (`onShow(name)`); drawn again
-  /// only when they change.
+  /// The names of the Excluded devices, as buttons that open one's settings, where it is included again
+  /// (`onShow(name)`); drawn again only when they change.
   function drawHidden(container, names, onShow) {
     const key = JSON.stringify(names);
     if (container.dataset.json === key) return;
     container.dataset.json = key;
-    container.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
-      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => onShow(name) }))] : []));
+    container.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Excluded:") }),
+      ...names.map((name) => el("button", { actionIcon: "gear", text: name, title: t("Settings of {name}", { name }), onclick: () => onShow(name) }))] : []));
   }
 
   /// Text as a search compares it: accents aside, any case.
@@ -789,8 +682,8 @@
   }
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
-    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, finder,
+    settingsAddress, accessorySettings, drawHidden, poll, renderKeyed,
+    canonicalMAC, tabs, textStyle, scenePictures, finder,
     setupAddress, setupCard,
   };
 })();

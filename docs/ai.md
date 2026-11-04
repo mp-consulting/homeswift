@@ -152,16 +152,16 @@ scopes, schema checks, confirmations and the audit log are the MCP server's. A d
 run first; its answer goes on the page's confirmation card, and the user's choice answers the session's
 elicitation. `docs/ui.md` describes the chat.
 
-The Assistant sets up accessories through Setup's tools (`discover_devices`, `start_setup`, `continue_setup`,
-`set_device_excluded`, `set_device_part`), from Add accessories' **Ask the Assistant** or any message. A step it
+The Assistant sets up accessories through Setup's tools (`discover_devices`, `start_setup`, `continue_setup`, and
+`update_settings` for a device's Excluded and Parts), from Add accessories' **Ask the Assistant** or any message. A step it
 must not see or cannot do, a password or keys, a sign-in page, a button to press (`HomeswiftCatalog.needsThePage`), is
 handed to the page: `ChatToolbox` tells the conversation, which shows a card whose **Continue in the Setup sheet** opens
 that very Setup in the sheet (`/api/setup/<session>/state`), where the person types the secret; the model is told to
 point to the card and never to ask for the secret in the chat.
 
 With the Wingman plugin, the Assistant works on Apple Home too (`chat.md`, and Wingman's `assistantBackground`): "move
-the lamp to the kitchen in Apple Home" and "rename the Salon room" through `set_accessory_layout` while `syncRoomNames`
-is on; "make a Movie scene" kept in Apple Home through `save_scene`'s `hub`, and its scenes run, renamed or removed with
+the lamp to the kitchen in Apple Home" through `update_settings` (the lamp's room) and "rename the Salon room" through
+`set_accessory_layout` while Room Sync (`syncRoomNames`) is on; "make a Movie scene" kept in Apple Home through `save_scene`'s `hub`, and its scenes run, renamed or removed with
 `run_scene`, `update_hub_scene` and `delete_hub_scene`; its automations listed, turned on or off, renamed, moved in
 time or given other scenes and actions with `list_hub_automations` and `update_hub_automation`, and removed with
 `delete_hub_automation`, which asks first. "Turn the porch light on at sunset" changes an Apple Home automation that

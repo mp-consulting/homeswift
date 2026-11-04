@@ -97,9 +97,6 @@
   .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
 
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
-  .card.unsaved { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
-  .card.unsaved.hidden { display: none; }
-  .card.unsaved .note { flex: 1 1 20em; }
 
   /* No readings yet: the shared empty card, with a sentence on why and when the page looks again. */
   .card.empty { text-align: center; padding: 28px 20px; }
@@ -129,7 +126,6 @@
       <p class="note" data-i18n>Solar, home, grid and battery power, as the devices report them now. IN is power coming in, OUT is power going out.</p>
     </div>
   </div>
-  <section id="unsaved" class="card unsaved hidden" aria-live="polite"></section>
   <section id="devices" class="devices" aria-live="polite"></section>
 </main>
 <script src="/i18n.js"></script>

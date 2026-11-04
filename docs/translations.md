@@ -157,7 +157,6 @@ HomeswiftUI, JSON, MCP, OAuth, plugins' and brands' names, units.
 | usage, budget (tokens) | utilisation, budget | uso, presupuesto | utilização, orçamento |
 | token (a model's, in usage and budgets) | token | token | token |
 | connected apps | apps connectées | apps conectadas | apps ligadas |
-| expert view | vue expert | vista experta | vista avançada |
 | camera, doorbell | caméra, sonnette | cámara, timbre | câmara, campainha |
 | light, lightbulb | lampe, ampoule | luz, bombilla | luz, lâmpada |
 | switch, outlet | interrupteur, prise | interruptor, enchufe | interruptor, tomada |

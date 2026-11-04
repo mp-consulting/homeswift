@@ -351,10 +351,8 @@ extension PluginHost {
         func request(_ path: String, _ body: JSONValue = .null) async throws -> PluginWebResponse {
             try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: path, body: body, user: "me"))
         }
-        let login: JSONValue = ["username": "user@example.com", "password": "pw"]
-        #expect(try await request("test-login", login).json == ["success": true, "message": "Login successful. Account ID: acc"])
-        #expect(try await request("test-login", ["username": "u"]).status == 400)
-        let found = try await request("discover", login)
+        // The instance's own login answers: the page sends no password.
+        let found = try await request("discover")
         #expect(found.json["devices"]?[0]?["deviceId"] == .string(lightID))
         #expect(found.json["devices"]?[0]?["deviceType"] == "lightDevices")
 
@@ -363,17 +361,11 @@ extension PluginHost {
         #expect(offline.json["source"] == "offline")
         #expect(offline.json["warning"] != nil)
         environment.govee.answer("app2.govee.com/appsku/v2/scences", ["data": ["categories": categories()]])
-        let cloud = try await request("scenes", ["deviceId": .string(lightID), "model": "h6173", "goodsType": 7, "username": "user@example.com", "password": "pw"])
+        let cloud = try await request("scenes", ["deviceId": .string(lightID), "model": "h6173", "goodsType": 7])
         #expect(cloud.json["source"] == "cloud")
         #expect(cloud.json["categories"]?[0]?["scenes"]?[0]?["name"] == "Forest")
         #expect(environment.govee.requests(to: "app2.govee.com/appsku/v2/scences").last?.query == ["sku": "H6173", "device": lightID, "goodsType": "7", "source": "0"])
         #expect(try await request("scenes", ["model": "H6173"]).status == 400)
-        environment.govee.answer("app2.govee.com/bff-app/v1/devices/detail/function-support", ["data": ["modes": [10, 8]]])
-        #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173", "username": "user@example.com", "password": "pw"]).json["modes"] == ["scene", "music"])
-        // Without a login in the body, the instance's account answers; Govee failing gives "unknown".
-        #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173"]).json["modes"] == ["scene", "music"])
-        environment.govee.fail("app2.govee.com/bff-app/v1/devices/detail/function-support")
-        #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173"]).json["modes"] == .null)
 
         // Icons: Govee's hosts only, images only, inlined.
         environment.icons.answer("d1f2504ijhdyjw.cloudfront.net/a.png", .string("raw:PNG"), headers: [("Content-Type", "image/png")])
@@ -403,7 +395,7 @@ extension PluginHost {
         #expect(try await request("cached-devices").json["devices"] == [])
     }
 
-    /// Without a login in the body, the routes use the instance's account.
+    /// The routes use the instance's account: the page sends no login.
     @Test func pageRoutesUseTheInstancesAccount() async throws {
         let environment = GoveeEnvironment()
         let host = try await environment.start()
@@ -414,10 +406,8 @@ extension PluginHost {
         #expect(found.json["devices"]?[0]?["deviceId"] == .string(lightID))
         #expect(environment.govee.requests(to: "app2.govee.com/device/rest/devices/v1/list").last?.headers.contains { $0 == ("Authorization", "Bearer token-1") } == true)
         #expect(environment.govee.requests(to: "app2.govee.com/account/rest/account/v2/login").count == logins)
-        // A username without its password is still refused.
-        #expect(try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "discover", body: ["username": "u"], user: "me")).status == 400)
 
-        // No account at all: the page is asked for credentials.
+        // No account at all: the page is told to sign in through Setup.
         let offline = GoveeEnvironment()
         offline.lan.scanReplies = [(lightID, "H6008", "192.168.1.20")]
         let lanOnly = try await offline.start(["lightDevices": [["deviceId": lightID]]])
@@ -602,6 +592,101 @@ extension PluginHost {
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         #expect(environment.govee.requests(to: Self.loginPath).count == 1)
+    }
+
+    // MARK: Settings
+
+    /// The twelve `…Devices` lists move into `_accessories` by device id: `label` as the Name, `ignoreDevice` as Excluded,
+    /// the rest as it is (booleans and integers typed); what is there already stays, an entry without an id stays.
+    @Test func canonicalSettingsMovesTheTypedLists() throws {
+        let block = try JSONValue(any: [
+            "platform": "Govee", "name": "Govee", "username": "user@example.com", "httpRefreshTime": 60,
+            "lightDevices": [
+                ["deviceId": "aa:bb:cc:dd:ee:ff:00:11", "label": "Desk Light", "showAs": "switch", "customIPAddress": "192.168.1.50",
+                 "brightnessStep": "5", "lanScenes": "true", "musicModeLive": ["enabled": true, "effect": "rolling"],
+                 "scenes": [["name": "Forest", "sceneCode": "owABAQ==", "sceneId": 7, "kind": "scene"]], "scene": ["sceneCode": "AA==", "showAs": "switch"]],
+                ["label": "No id"],
+            ],
+            "switchDevices": [["deviceId": "AA:BB:CC:DD:EE:FF:00:22", "showAs": "heater", "temperatureSource": thermoID]],
+            "thermoDevices": [["deviceId": thermoID, "lowBattThreshold": "15", "showExtraSwitch": 1, "ignoreDevice": false]],
+            "leakDevices": [["deviceId": "AA:BB:CC:DD:EE:FF:00:44", "ignoreDevice": true, "label": "Kept?"]],
+            "kettleDevices": [["deviceId": "AA:BB:CC:DD:EE:FF:00:55", "hideModeCoffee": true, "lowBattThreshold": 0]],
+            "_accessories": ["AA:BB:CC:DD:EE:FF:00:44": ["name": "Basement"]],
+        ] as [String: Any])
+        let canonical = GoveePlugin.canonical(block)
+        #expect(canonical == (try JSONValue(any: [
+            "platform": "Govee", "name": "Govee", "username": "user@example.com", "httpRefreshTime": 60,
+            "lightDevices": [["label": "No id"]],
+            "_accessories": [
+                "AA:BB:CC:DD:EE:FF:00:11": [
+                    "name": "Desk Light", "showAs": "switch", "customIPAddress": "192.168.1.50", "brightnessStep": 5, "lanScenes": true,
+                    "musicModeLive": ["enabled": true, "effect": "rolling"],
+                    "scenes": [["name": "Forest", "sceneCode": "owABAQ==", "sceneId": 7, "kind": "scene"]], "scene": ["sceneCode": "AA==", "showAs": "switch"],
+                ],
+                "AA:BB:CC:DD:EE:FF:00:22": ["showAs": "heater", "temperatureSource": thermoID],
+                thermoID: ["lowBattThreshold": 15, "showExtraSwitch": true],
+                "AA:BB:CC:DD:EE:FF:00:44": ["name": "Basement", "excluded": true],
+                "AA:BB:CC:DD:EE:FF:00:55": ["hideModeCoffee": true],
+            ],
+        ] as [String: Any])))
+        // Canonical already: unchanged.
+        #expect(GoveePlugin.canonical(canonical) == canonical)
+    }
+
+    /// The canonical block runs as the Homebridge one did: the same accessories, ids and services.
+    @Test func theCanonicalBlockRunsAsTheHomebridgeOne() async throws {
+        let legacy: [String: Any] = [
+            "username": "user@example.com", "password": "pw",
+            "lightDevices": [["deviceId": lightID, "label": "Desk", "showAs": "switch"]],
+            "thermoDevices": [["deviceId": thermoID, "showExtraSwitch": true]],
+            "leakDevices": [["deviceId": leakID, "ignoreDevice": true]],
+        ]
+        let first = GoveeEnvironment()
+        let before = try await first.start(legacy)
+        let light = try #require(before.accessory(lightID))
+        let thermo = try #require(before.accessory(thermoID))
+        #expect(before.accessory(leakID) == nil && light.name == "Desk" && light.service(.lightbulb) == nil && thermo.service(.thermostat) != nil)
+        let block = try JSONValue(any: legacy.merging(["platform": "Govee", "name": "Govee"]) { $1 })
+        let (canonical, whenWritten) = await before.canonicalSettings(platform: GoveePlugin.platform, name: "Govee", block: block)
+        // The login goes to the vault once the block is written.
+        #expect(canonical["username"] == nil && canonical["password"] == nil && !whenWritten.isEmpty)
+        let context = try #require(before.context(platform: GoveePlugin.platform, name: "Govee"))
+        #expect(context.credentials(as: StoredLogin.self)?.password == nil)
+        try await whenWritten.run()
+        let kept = try #require(context.credentials(as: StoredLogin.self))
+        #expect(kept.username == "user@example.com" && kept.password == "pw" && kept.credentials?.token == "token-1")
+        #expect(await before.deviceKind(platform: GoveePlugin.platform, name: "Govee", deviceID: lightID) == "light")
+        #expect(await before.deviceKind(platform: GoveePlugin.platform, name: "Govee", deviceID: thermoID) == "thermo")
+        await before.stop()
+
+        let second = GoveeEnvironment()
+        var settings = try #require(try JSONSerialization.jsonObject(with: canonical.encoded()) as? [String: Any])
+        settings["platform"] = nil
+        settings["name"] = nil
+        // Another bridge, another vault: the login as the first one's vault holds it.
+        settings["username"] = "user@example.com"
+        settings["password"] = "pw"
+        let after = try await second.start(settings)
+        defer { Task { await after.stop() } }
+        let again = try #require(after.accessory(lightID))
+        #expect(after.accessory(leakID) == nil && again.service(.lightbulb) == nil && after.accessory(thermoID)?.service(.thermostat) != nil)
+        #expect(again.services.map(\.type) == light.services.map(\.type) && again.services.map(\.subtype) == light.services.map(\.subtype))
+    }
+
+    /// The schema declares each device's settings by Device Kind, and no longer the account or the typed lists.
+    @Test func theSchemaDeclaresTheAccessorySettings() throws {
+        let schema = try JSONValue(string: try #require(GoveePlugin.configurationSchemaJSON))
+        let fields = try #require(schema["accessorySchema"]?["properties"]?.objectValue)
+        let kinds = Set(DeviceConfigKey.allCases.map(GoveePlugin.kind(of:)))
+        #expect(kinds == ["light", "switch", "thermo", "leak", "fan", "heater", "humidifier", "dehumidifier", "purifier", "diffuser", "kettle", "iceMaker"])
+        for (key, field) in fields {
+            let declared = Set(field["x-kinds"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+            #expect(!declared.isEmpty && declared.isSubset(of: kinds), "\(key)")
+        }
+        #expect(fields["showAs"]?["x-kinds"] == ["light", "switch"] && fields["lowBattThreshold"]?["x-kinds"] == ["thermo", "leak"])
+        #expect(fields["scenes"] != nil && fields["musicModeLive"]?["properties"] != nil && fields["segmentedFour"] != nil)
+        let properties = try #require(schema["schema"]?["properties"]?.objectValue)
+        for key in ["username", "password", "code"] + DeviceConfigKey.allCases.map(\.rawValue) { #expect(properties[key] == nil, "\(key)") }
     }
 
     @Test func theAssistantKnowsThePort() throws {

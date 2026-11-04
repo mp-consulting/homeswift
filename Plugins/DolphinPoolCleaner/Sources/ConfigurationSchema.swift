@@ -18,19 +18,6 @@ extension DolphinPoolCleanerPlugin {
         "default": "Dolphin Pool Cleaner",
         "description": "Name shown in the logs"
       },
-      "email": {
-        "title": "Email",
-        "type": "string",
-        "description": "Your MyDolphin Plus account email"
-      },
-      "password": {
-        "title": "Password",
-        "type": "string",
-        "description": "Optional. Not needed when you sign in with the setup wizard, which stores a refresh token instead of your password",
-        "x-schema-form": {
-          "type": "password"
-        }
-      },
       "iotRegion": {
         "title": "IoT Region",
         "type": "string",
@@ -47,62 +34,37 @@ extension DolphinPoolCleanerPlugin {
         "minimum": 30,
         "maximum": 600,
         "description": "How often to poll for robot status (minimum 30 seconds)"
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "cleaningMode": {
+        "title": "Default Cleaning Mode",
+        "type": "string",
+        "oneOf": [
+          { "title": "All Surfaces", "enum": ["all"] },
+          { "title": "Fast Mode", "enum": ["short"] },
+          { "title": "Floor Only", "enum": ["floor"] },
+          { "title": "Walls Only", "enum": ["wall"] },
+          { "title": "Waterline", "enum": ["water"] },
+          { "title": "Ultra Clean", "enum": ["ultra"] },
+          { "title": "Cove", "enum": ["cove"] },
+          { "title": "Spot Clean", "enum": ["spot"] }
+        ],
+        "description": "The mode a start from HomeKit uses. Empty: All Surfaces."
       },
-      "devices": {
-        "title": "Devices",
-        "type": "array",
-        "description": "Settings for each robot, by serial number. The robots come from your account; one without an entry uses the defaults.",
-        "items": {
-          "title": "Robot",
-          "type": "object",
-          "properties": {
-            "serialNumber": {
-              "title": "Serial Number",
-              "type": "string",
-              "required": true,
-              "description": "Robot serial number (found on power supply)"
-            },
-            "name": {
-              "title": "Display Name",
-              "type": "string",
-              "description": "Name to display in HomeKit"
-            },
-            "deviceType": {
-              "title": "Device Type",
-              "type": "integer",
-              "default": 62,
-              "description": "Saved by the setup wizard for display; the plugin reads the device type from your account"
-            },
-            "cleaningMode": {
-              "title": "Default Cleaning Mode",
-              "type": "string",
-              "default": "all",
-              "oneOf": [
-                { "title": "All Surfaces", "enum": ["all"] },
-                { "title": "Fast Mode", "enum": ["short"] },
-                { "title": "Floor Only", "enum": ["floor"] },
-                { "title": "Walls Only", "enum": ["wall"] },
-                { "title": "Waterline", "enum": ["water"] },
-                { "title": "Ultra Clean", "enum": ["ultra"] },
-                { "title": "Cove", "enum": ["cove"] },
-                { "title": "Spot Clean", "enum": ["spot"] }
-              ],
-              "description": "Default cleaning mode when starting"
-            },
-            "enableTemperature": {
-              "title": "Enable Temperature Sensor",
-              "type": "boolean",
-              "default": true,
-              "description": "Show water temperature sensor in HomeKit"
-            },
-            "enableFilterStatus": {
-              "title": "Enable Filter Status",
-              "type": "boolean",
-              "default": true,
-              "description": "Show filter maintenance indicator in HomeKit"
-            }
-          }
-        }
+      "enableTemperature": {
+        "title": "Water Temperature Sensor",
+        "type": "boolean",
+        "default": true,
+        "description": "Shows the water temperature in the Home app, on robots with a sensor. On unless switched off."
+      },
+      "enableFilterStatus": {
+        "title": "Filter Status",
+        "type": "boolean",
+        "default": true,
+        "description": "Shows the filter bag as a filter maintenance indicator in the Home app. On unless switched off."
       }
     }
   },
@@ -110,171 +72,84 @@ extension DolphinPoolCleanerPlugin {
     "name",
     {
       "type": "fieldset",
-      "title": "Account Settings",
-      "expandable": false,
-      "items": [
-        "email",
-        "password"
-      ]
-    },
-    {
-      "type": "fieldset",
       "title": "Connection Settings",
       "expandable": true,
       "expanded": false,
-      "items": [
-        "pollingInterval"
-      ]
-    },
-    {
-      "type": "fieldset",
-      "title": "Devices",
-      "expandable": true,
-      "expanded": true,
-      "items": [
-        {
-          "key": "devices",
-          "type": "array",
-          "orderable": false,
-          "buttonText": "Add Device",
-          "items": [
-            "devices[].serialNumber",
-            "devices[].name",
-            "devices[].cleaningMode",
-            {
-              "type": "div",
-              "displayFlex": true,
-              "flex-direction": "row",
-              "items": [
-                {
-                  "key": "devices[].enableTemperature",
-                  "flex": "1 1 50%"
-                },
-                {
-                  "key": "devices[].enableFilterStatus",
-                  "flex": "1 1 50%"
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "items": ["iotRegion", "pollingInterval"]
     }
   ],
   "i18n": {
     "fr": {
-      "Account Settings": "Compte",
-      "All Surfaces": "Toutes les surfaces",
       "AWS IoT region for your robot": "Région AWS IoT de votre robot",
+      "All Surfaces": "Toutes les surfaces",
       "Connection Settings": "Connexion",
       "Cove": "Angles",
       "Default Cleaning Mode": "Mode de nettoyage par défaut",
-      "Default cleaning mode when starting": "Le mode de nettoyage utilisé au démarrage",
-      "Device Type": "Type d'appareil",
-      "Devices": "Appareils",
-      "Display Name": "Nom affiché",
-      "Email": "E-mail",
-      "Enable Filter Status": "État du filtre",
-      "Enable Temperature Sensor": "Capteur de température",
       "Europe (Ireland)": "Europe (Irlande)",
       "Fast Mode": "Mode rapide",
+      "Filter Status": "État du filtre",
       "Floor Only": "Sol uniquement",
       "How often to poll for robot status (minimum 30 seconds)": "La fréquence à laquelle l'état du robot est interrogé (30 secondes minimum)",
       "IoT Region": "Région IoT",
       "Name shown in the logs": "Nom affiché dans les journaux",
-      "Name to display in HomeKit": "Nom à afficher dans HomeKit",
-      "Optional. Not needed when you sign in with the setup wizard, which stores a refresh token instead of your password": "Facultatif. Inutile si vous vous connectez avec l'assistant de configuration, qui garde un jeton de renouvellement au lieu de votre mot de passe",
-      "Password": "Mot de passe",
       "Platform Name": "Nom de la plateforme",
       "Polling Interval (seconds)": "Intervalle d'interrogation (secondes)",
-      "Robot": "Robot",
-      "Robot serial number (found on power supply)": "Numéro de série du robot (sur l'alimentation)",
-      "Saved by the setup wizard for display; the plugin reads the device type from your account": "Enregistré par l'assistant de configuration pour l'affichage ; le plugin lit le type d'appareil depuis votre compte",
-      "Serial Number": "Numéro de série",
-      "Settings for each robot, by serial number. The robots come from your account; one without an entry uses the defaults.": "Les réglages de chaque robot, par numéro de série. Les robots viennent de votre compte ; un robot sans entrée utilise les valeurs par défaut.",
-      "Show filter maintenance indicator in HomeKit": "Afficher l'indicateur d'entretien du filtre dans HomeKit",
-      "Show water temperature sensor in HomeKit": "Afficher le capteur de température de l'eau dans HomeKit",
+      "Shows the filter bag as a filter maintenance indicator in the Home app. On unless switched off.": "Montre le sac filtrant comme indicateur d'entretien du filtre dans l'app Maison. Activé sauf si vous le désactivez.",
+      "Shows the water temperature in the Home app, on robots with a sensor. On unless switched off.": "Montre la température de l'eau dans l'app Maison, sur les robots équipés d'une sonde. Activé sauf si vous le désactivez.",
       "Spot Clean": "Nettoyage localisé",
+      "The mode a start from HomeKit uses. Empty: All Surfaces.": "Le mode utilisé quand HomeKit lance un nettoyage. Vide : toutes les surfaces.",
       "Ultra Clean": "Ultra Clean",
       "Walls Only": "Parois uniquement",
-      "Waterline": "Ligne d'eau",
-      "Your MyDolphin Plus account email": "L'e-mail de votre compte MyDolphin Plus"
+      "Water Temperature Sensor": "Sonde de température de l'eau",
+      "Waterline": "Ligne d'eau"
     },
     "es": {
-      "Account Settings": "Cuenta",
-      "All Surfaces": "Todas las superficies",
       "AWS IoT region for your robot": "Región de AWS IoT de tu robot",
+      "All Surfaces": "Todas las superficies",
       "Connection Settings": "Conexión",
       "Cove": "Ángulos",
       "Default Cleaning Mode": "Modo de limpieza predeterminado",
-      "Default cleaning mode when starting": "El modo de limpieza que se usa al empezar",
-      "Device Type": "Tipo de dispositivo",
-      "Devices": "Dispositivos",
-      "Display Name": "Nombre visible",
-      "Email": "Correo electrónico",
-      "Enable Filter Status": "Estado del filtro",
-      "Enable Temperature Sensor": "Sensor de temperatura",
       "Europe (Ireland)": "Europa (Irlanda)",
       "Fast Mode": "Modo rápido",
+      "Filter Status": "Estado del filtro",
       "Floor Only": "Solo suelo",
       "How often to poll for robot status (minimum 30 seconds)": "Cada cuánto se consulta el estado del robot (30 segundos como mínimo)",
       "IoT Region": "Región de IoT",
       "Name shown in the logs": "Nombre que se muestra en los registros",
-      "Name to display in HomeKit": "Nombre que se muestra en HomeKit",
-      "Optional. Not needed when you sign in with the setup wizard, which stores a refresh token instead of your password": "Opcional. No hace falta si inicias sesión con el asistente de configuración, que guarda un token de renovación en lugar de tu contraseña",
-      "Password": "Contraseña",
       "Platform Name": "Nombre de la plataforma",
       "Polling Interval (seconds)": "Intervalo de consulta (segundos)",
-      "Robot": "Robot",
-      "Robot serial number (found on power supply)": "Número de serie del robot (en la fuente de alimentación)",
-      "Saved by the setup wizard for display; the plugin reads the device type from your account": "Lo guarda el asistente de configuración para mostrarlo; el plugin lee el tipo de dispositivo de tu cuenta",
-      "Serial Number": "Número de serie",
-      "Settings for each robot, by serial number. The robots come from your account; one without an entry uses the defaults.": "Los ajustes de cada robot, por número de serie. Los robots vienen de tu cuenta; uno sin entrada usa los valores predeterminados.",
-      "Show filter maintenance indicator in HomeKit": "Mostrar el indicador de mantenimiento del filtro en HomeKit",
-      "Show water temperature sensor in HomeKit": "Mostrar el sensor de temperatura del agua en HomeKit",
+      "Shows the filter bag as a filter maintenance indicator in the Home app. On unless switched off.": "Muestra la bolsa del filtro como indicador de mantenimiento del filtro en la app Casa. Activado salvo que lo desactives.",
+      "Shows the water temperature in the Home app, on robots with a sensor. On unless switched off.": "Muestra la temperatura del agua en la app Casa, en los robots con sensor. Activado salvo que lo desactives.",
       "Spot Clean": "Limpieza localizada",
+      "The mode a start from HomeKit uses. Empty: All Surfaces.": "El modo que usa un inicio desde HomeKit. Vacío: todas las superficies.",
       "Ultra Clean": "Ultra Clean",
       "Walls Only": "Solo paredes",
-      "Waterline": "Línea de flotación",
-      "Your MyDolphin Plus account email": "El correo electrónico de tu cuenta MyDolphin Plus"
+      "Water Temperature Sensor": "Sensor de temperatura del agua",
+      "Waterline": "Línea de flotación"
     },
     "pt": {
-      "Account Settings": "Conta",
-      "All Surfaces": "Todas as superfícies",
       "AWS IoT region for your robot": "Região AWS IoT do robô",
+      "All Surfaces": "Todas as superfícies",
       "Connection Settings": "Ligação",
       "Cove": "Cantos",
       "Default Cleaning Mode": "Modo de limpeza predefinido",
-      "Default cleaning mode when starting": "O modo de limpeza usado ao iniciar",
-      "Device Type": "Tipo de dispositivo",
-      "Devices": "Dispositivos",
-      "Display Name": "Nome apresentado",
-      "Email": "Email",
-      "Enable Filter Status": "Estado do filtro",
-      "Enable Temperature Sensor": "Sensor de temperatura",
       "Europe (Ireland)": "Europa (Irlanda)",
       "Fast Mode": "Modo rápido",
+      "Filter Status": "Estado do filtro",
       "Floor Only": "Só o fundo",
       "How often to poll for robot status (minimum 30 seconds)": "A frequência com que o estado do robô é consultado (30 segundos no mínimo)",
       "IoT Region": "Região IoT",
       "Name shown in the logs": "Nome mostrado nos registos",
-      "Name to display in HomeKit": "Nome a mostrar no HomeKit",
-      "Optional. Not needed when you sign in with the setup wizard, which stores a refresh token instead of your password": "Opcional. Não é necessária ao iniciar sessão com o assistente de configuração, que guarda um token de renovação em vez da palavra-passe",
-      "Password": "Palavra-passe",
       "Platform Name": "Nome da plataforma",
       "Polling Interval (seconds)": "Intervalo de consulta (segundos)",
-      "Robot": "Robô",
-      "Robot serial number (found on power supply)": "Número de série do robô (na fonte de alimentação)",
-      "Saved by the setup wizard for display; the plugin reads the device type from your account": "Guardado pelo assistente de configuração para apresentação; o plugin lê o tipo de dispositivo da conta",
-      "Serial Number": "Número de série",
-      "Settings for each robot, by serial number. The robots come from your account; one without an entry uses the defaults.": "As definições de cada robô, por número de série. Os robôs vêm da conta; um robô sem entrada usa os valores predefinidos.",
-      "Show filter maintenance indicator in HomeKit": "Mostrar o indicador de manutenção do filtro no HomeKit",
-      "Show water temperature sensor in HomeKit": "Mostrar o sensor de temperatura da água no HomeKit",
+      "Shows the filter bag as a filter maintenance indicator in the Home app. On unless switched off.": "Mostra o saco do filtro como indicador de manutenção do filtro na app Casa. Ativado, a menos que o desative.",
+      "Shows the water temperature in the Home app, on robots with a sensor. On unless switched off.": "Mostra a temperatura da água na app Casa, nos robôs com sensor. Ativado, a menos que o desative.",
       "Spot Clean": "Limpeza localizada",
+      "The mode a start from HomeKit uses. Empty: All Surfaces.": "O modo que um início a partir do HomeKit usa. Vazio: todas as superfícies.",
       "Ultra Clean": "Ultra Clean",
       "Walls Only": "Só as paredes",
-      "Waterline": "Linha de água",
-      "Your MyDolphin Plus account email": "O email da conta MyDolphin Plus"
+      "Water Temperature Sensor": "Sensor de temperatura da água",
+      "Waterline": "Linha de água"
     }
   }
 }

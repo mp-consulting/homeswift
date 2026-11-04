@@ -279,8 +279,6 @@ header nav a svg { display: none; }
 .page-note { display: flex; align-items: center; gap: var(--space-14); justify-content: space-between; margin: 0 0 var(--space-14); padding: var(--space-12) var(--space-16) var(--space-12) var(--space-18); }
 .page-note p { margin: 0; font-size: var(--text-md); }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
-/* A plugin page's Expert part, last: the block as a form or as JSON, in the UI's own settings view. */
-.expert .page-note { flex-wrap: wrap; }
 /* A plugin card's name opens its page; Pause sits at the right of a plugin page's breadcrumb. */
 .card-title { color: inherit; text-decoration: none; }
 @media (hover: hover) and (pointer: fine) { .card-title:hover strong { text-decoration: underline; } }
@@ -305,7 +303,6 @@ button.small.pause-toggle.action-with-icon::before { width: 12px; height: 12px; 
   [data-tip-align="end"]:hover::after { translate: 0 0; }
 }
 @media (prefers-reduced-motion: reduce) { [data-tip]::after { transition: opacity var(--fast) linear; } }
-.expert-links { display: flex; gap: var(--space-8); flex: none; }
 .settings-bar {
   position: sticky; bottom: 14px; z-index: 3; display: flex; align-items: center; gap: var(--space-10); margin: var(--space-14) 0 0;
   padding: var(--space-8) var(--space-8) var(--space-8) var(--space-20); border-radius: var(--radius-pill);
@@ -433,10 +430,13 @@ button.busy::after {
    right with the drawer curve and leaves the same way, faster (the leaving motion is openSheet's, from wherever a
    drag left it). A phone gets a sheet from the bottom edge, with a grabber to swipe it down. Reduced motion: fades. */
 .admin-dialog.sheet {
-  margin: var(--space-12) var(--space-12) var(--space-12) auto; width: min(460px, calc(100% - 24px)); height: calc(100% - 24px); max-height: none;
+  margin: var(--space-12) var(--space-12) var(--space-12) auto; width: min(460px, calc(100% - 24px)); max-height: none;
+  /* From the top of what is visible to the keyboard's top (openSheet's --viewport-top and --keyboard; none, the window). */
+  inset: var(--viewport-top, 0px) 0 var(--keyboard, 0px); height: auto;
   padding: 22px var(--space-24) var(--space-20); border-radius: var(--radius); overscroll-behavior: contain; touch-action: pan-y;
 }
 .admin-dialog.sheet[open] { display: flex; flex-direction: column; animation: sheet-in 320ms cubic-bezier(0.32, 0.72, 0, 1); }
+.admin-dialog.sheet:focus { outline: none; }
 .admin-dialog.sheet[open]::backdrop { animation: sheet-dim 240ms var(--ease-out); }
 .admin-dialog.sheet.leaving::backdrop { animation: sheet-undim 220ms var(--ease-out) forwards; }
 .sheet-grabber { display: none; }
@@ -451,7 +451,8 @@ button.busy::after {
 @keyframes sheet-undim { to { opacity: 0; } }
 @media (max-width: 640px) {
   .admin-dialog.sheet {
-    margin: auto 0 0; width: 100%; max-width: 100%; height: calc(100% - 16px - env(safe-area-inset-top)); max-height: 100%;
+    margin: auto 0 0; width: 100%; max-width: 100%; max-height: 100%;
+    height: calc(100% - 16px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
     border-radius: var(--radius) var(--radius) 0 0; border-bottom: 0;
     padding: 26px var(--space-18) calc(var(--space-18) + env(safe-area-inset-bottom));
   }
@@ -572,6 +573,15 @@ select {
   text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
 }
 select:focus:not(:focus-visible) { border-color: var(--edge); box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08); }
+/* A pop-up menu that looks like a select (an accessory's Room): the field's shape, its value, the chevron. */
+button.select-button {
+  display: block; width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer; touch-action: manipulation;
+  padding: var(--space-8) 34px var(--space-8) var(--space-12); border-radius: var(--radius-md); border: 1px solid var(--edge);
+  background: var(--field) var(--chevron) no-repeat right 13px center / 9px 14px; box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08);
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-weight: inherit;
+}
+button.select-button.placeholder { color: var(--muted); }
+button.select-button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
 select.popup {
   width: auto; border-radius: var(--radius-pill); padding: 7px 34px 7px 15px; font-weight: var(--weight-medium);
   background-color: var(--control); border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
@@ -1780,6 +1790,28 @@ fieldset { min-width: 0; border: 1px solid var(--line); border-radius: var(--rad
 legend { color: var(--muted); padding: 0 var(--space-8); font-weight: var(--weight-medium); }
 .item { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-6) var(--space-14) var(--space-12); margin: var(--space-10) 0; background: var(--material-thin); }
 .item-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-10); }
+/* A list of choices: a checkbox per choice, wrapping into columns. */
+.choice-set .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-4) var(--space-14); }
+.choice-set .check { margin: var(--space-6) 0; font-weight: var(--weight-regular); }
+/* A list entry's Move up and down, before Remove. */
+details.entry > summary .entry-move { background: none; border: 0; box-shadow: none; color: var(--muted); }
+details.entry > summary .entry-move:disabled { opacity: 0.35; }
+@media (hover: hover) and (pointer: fine) { details.entry > summary .entry-move:not(:disabled):hover { background: var(--callout-tint); color: var(--text); } }
+/* A phone: the row's name shortened rather than pushing Remove out, and Remove a round button of its icon, the size of
+   Move up and down (its text stays its accessible name). */
+@media (max-width: 640px) {
+  details.entry > summary { gap: var(--space-6); padding-inline: var(--space-12) var(--space-8); }
+  details.entry > summary .entry-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.entry > summary .entry-detail { display: none; }
+  details.entry > summary .danger { width: 40px; height: 40px; min-height: 40px; min-width: 40px; padding: 0; gap: 0; font-size: 0; flex: none; justify-content: center; border-radius: 50%; }
+  details.entry > summary .entry-name { flex: 1; }
+}
+/* A map's row (an object without properties): its key, its value, Remove, on one line; the key and the value share it. */
+.map-row { display: flex; align-items: center; gap: var(--space-10); margin-top: var(--space-8); }
+.map-row > input, .map-row > .field, .map-row > .toggle { flex: 1 1 0; min-width: 0; margin: 0; }
+.map-row .field-title:empty { display: none; }
+.map-row > button { flex: none; }
+.map-field > .map-rows + button { margin-top: var(--space-12); }
 .actions { display: flex; gap: var(--space-10); margin-top: var(--space-16); align-items: center; }
 details > summary { cursor: pointer; color: var(--muted); padding: var(--space-8) 0; touch-action: manipulation; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 5px var(--space-16); margin: 0; }
@@ -2202,9 +2234,9 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .icon-on-phone > span { display: none; }
   .icon-on-phone { justify-content: center; width: 40px; height: 40px; padding: 0; flex: none; }
   .icon-on-phone .sparkle { width: 19px; height: 19px; }
-  /* A note beside its button (a plugin's Expert part), and removal: the text across, the button under it. */
+  /* A note beside its button, and removal: the text across, the button under it. */
   .page-note, .danger-zone { flex-direction: column; align-items: stretch; gap: var(--space-10); }
-  .page-note > :is(button, .button), .danger-zone > button, .page-note > .expert-links { align-self: flex-start; }
+  .page-note > :is(button, .button), .danger-zone > button { align-self: flex-start; }
   .describe-note { flex-basis: 100%; padding-left: var(--space-20); }
   .describe-setup .describe-note::before { content: none; }
   /* The activity's two menus side by side, the custom range under them. */
@@ -3466,8 +3498,6 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .view-switch > button { display: inline-flex; align-items: center; gap: var(--space-6); }
 .view-switch > button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-.expert-links > .button { display: inline-flex; align-items: center; gap: var(--space-6); }
-.expert-links > .button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .settings-action { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-6); }
 /* Secrets only: off, a plain button; on, filled with the gold the secret keys take, so the state reads at a glance and
@@ -3926,21 +3956,11 @@ select option:disabled { color: var(--muted); }
 .scene.light:not(.pictured) .eye { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 .scene.light:not(.pictured) .badge { background: #1d1d1f; color: #fff; }
 
-/* The transition's speed scale, the devices left out of the Home app, and the save bar. */
+/* A range's head, and the Excluded devices of the lighting pages. */
 .range-head { display: flex; align-items: baseline; gap: var(--space-10); flex-wrap: wrap; }
-.range-head output { font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-.field input.speed { width: 100%; }
-.speed-scale { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); margin: var(--space-4) 0 2px; font-size: var(--text-xs); color: var(--muted); text-align: center; }
-.speed-scale span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; border-left: 1px solid var(--line); }
-.speed-scale span:first-child { border-left: 0; }
 .hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin-top: var(--space-14); font-size: var(--text-md); }
 .hidden-devices:empty { display: none; }
-.save-card { position: sticky; bottom: 12px; z-index: 3; margin-top: var(--space-18); }
-.save-card .save-bar { border-top: 0; padding-top: 0; }
 
-@media (max-width: 640px) {
-  .speed-scale { display: none; }
-}
 @media (prefers-reduced-motion: reduce) {
   .tab-pane { animation: none; }
   .scene { transition: none; }
@@ -4486,3 +4506,122 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
   html.wall-full #view { animation: none; }
   html.wall-full .accessory-walls.wall-pages { scroll-behavior: auto; }
 }
+
+/* Settings (settings.js): an accessory's Accessory Settings in one sheet, and a plugin's Settings page, each one surface
+   of sections, a hairline between them, a heading and what it is about inline; no card inside a card. A field's saved or
+   error state is a quiet word beside its title. */
+.settings-section { padding: var(--space-16) 0; border-top: 1px solid var(--line); }
+.settings-section:first-child { border-top: 0; padding-top: 0; }
+.settings-section:last-child { padding-bottom: 0; }
+.settings-section-head { margin-bottom: var(--space-10); }
+.settings-section-head h3 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.settings-section-head h3 .muted { font-weight: var(--weight-regular); font-size: var(--text-sm); }
+.settings-section-head .help { margin-top: 2px; }
+.settings-section-head.with-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
+.settings-section-head.with-tools > button { flex: none; }
+.settings-section > .field:first-child, .settings-section-head + .field { margin-top: var(--space-6); }
+.settings-section .toggle { margin: var(--space-12) 0 0; }
+.settings-section .fields { grid-template-columns: 1fr; }
+.field-state { margin-left: var(--space-8); font-size: var(--text-xs); font-weight: var(--weight-regular); color: var(--muted); }
+.field-state[data-state="ok"] { color: var(--ok); }
+.field-state[data-state="error"] { display: block; margin: 2px 0 0; color: var(--error); }
+@media (prefers-reduced-motion: no-preference) { .field-state:not(:empty) { animation: fade var(--normal) var(--ease-out); } }
+.settings-note { margin: 0 0 var(--space-12); padding: var(--space-10) var(--space-12); border-radius: var(--radius-md); background: var(--material-thin); color: var(--muted); font-size: var(--text-sm); }
+.settings-danger-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-14); padding: var(--space-10) 0; }
+.settings-danger-row + .settings-danger-row { border-top: 1px solid var(--line); }
+.settings-danger-row .help { margin-top: 2px; }
+.settings-danger-row > button { flex: none; }
+.accessory-settings-sheet .setup-sheet-head { margin-bottom: var(--space-16); }
+.accessory-settings-sheet .setup-sheet-head h2 { overflow-wrap: anywhere; }
+/* The sheet's title takes the focus as it opens, for the screen reader to announce it: no ring on a heading. */
+.accessory-settings-sheet .setup-sheet-head h2:focus { outline: none; }
+.accessory-settings-sheet .setup-sheet-head .setup-method { margin: 2px 0 0; }
+.setup-settings { width: 100%; margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--line); text-align: left; }
+.setup-settings > h3 { margin: 0 0 var(--space-8); font-size: var(--text-lg); }
+/* A plugin's Settings page: its account, its form and its save bar, its devices, in one card. */
+.plugin-settings { padding-top: var(--space-20); padding-bottom: var(--space-20); }
+.plugin-settings .settings-bar { margin-top: var(--space-16); }
+/* One surface (the settings page's card, an accessory's sheet): a group of settings, a list, a nested object is a
+   section of it, its heading over a hairline, rather than a box in the card; an expandable group's heading has a
+   chevron, and a list's entries are rows between hairlines. */
+:is(.plugin-settings, .accessory-settings-sheet) :is(.group-box, fieldset) {
+  border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none;
+  padding: var(--space-12) 0 var(--space-4); margin: var(--space-14) 0 0;
+}
+:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend {
+  float: left; width: 100%; padding: 0; margin: 0 0 var(--space-6); color: var(--text); font-weight: var(--weight-semibold);
+}
+:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend + * { clear: both; }
+:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary {
+  list-style: none; display: flex; align-items: center; gap: var(--space-8); cursor: pointer; padding: 0 0 var(--space-6);
+}
+:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::-webkit-details-marker { display: none; }
+:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before {
+  content: ""; width: 7px; height: 7px; flex: none; margin: 0 2px 0 1px; border: solid var(--muted); border-width: 0 2px 2px 0;
+  transform: rotate(-45deg); transition: transform var(--fast) var(--ease-out);
+}
+:is(.plugin-settings, .accessory-settings-sheet) .group-box[open] > summary::before { transform: rotate(45deg); }
+:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry, .item) {
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; margin: 0;
+}
+:is(.plugin-settings, .accessory-settings-sheet) details.entry > summary { padding-inline: 0; }
+:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
+:is(.plugin-settings, .accessory-settings-sheet) .item { padding-inline: 0; }
+@media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before { transition: none; } }
+/* A closed group's count of settings, quiet at the end of its heading; a group's own words under it; a group in a
+   group, a heading over its fields. */
+.group-box > summary > .group-count { margin-left: auto; font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); }
+.group-box > .group-help { margin: 0 0 var(--space-8); }
+.form-subgroup { grid-column: 1 / -1; margin-top: var(--space-12); }
+.form-subgroup > h4 { margin: 0 0 2px; font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--text); }
+.form-subgroup > .help { margin: 0 0 var(--space-8); }
+.form-subgroup.compact > .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-8) var(--space-16); }
+/* Find a setting, over a form of many. */
+input[type=search].form-search { width: 100%; margin: 0 0 var(--space-8); }
+/* A field that cannot change here (a mirrored accessory's name): text on the surface, no field to type in. */
+.accessory-settings input[readonly] { background: transparent; border-color: var(--line); color: var(--muted); }
+.form-search-none { margin: var(--space-8) 0; }
+.search-miss { display: none !important; }
+/* A setting drawn as the widgets' slider: unset, it rests on the default, dimmed. */
+.slider-field > .level { margin: var(--space-4) 0; }
+.slider-field > .level.unset .level-fill, .slider-field > .level.unset .level-mark { opacity: 0.4; }
+.slider-field > .level.unset .level-text { color: var(--muted); font-weight: var(--weight-medium); }
+.slider-field > button.link { justify-self: start; padding: 0; font-size: var(--text-sm); }
+/* Describe your setup, a line at the head of the Settings section, the hairline under it the form's. */
+.plugin-settings details.describe-setup.card { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0 0 var(--space-12); margin: 0 0 var(--space-12); border-bottom: 1px solid var(--line); }
+.settings-row, .settings-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; }
+.settings-device { border-bottom: 1px solid var(--line); }
+.settings-device:last-child { border-bottom: 0; }
+.settings-row .who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A device's name is how it is told apart: it wraps rather than being cut. */
+.settings-device .who strong { display: block; overflow-wrap: anywhere; }
+.settings-device > .tile, .settings-row > .tile { flex: none; }
+button.settings-open { display: inline-flex; align-items: center; gap: var(--space-6); }
+button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.settings-row .who .help, .settings-device .who .help { display: block; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.settings-device.is-excluded .who { opacity: 0.6; }
+.settings-devices[aria-busy] .settings-device { opacity: 0.55; transition: opacity var(--normal) var(--ease-out) 150ms; }
+.settings-foot .help, .form-foot { margin: 0; }
+.form-foot { margin-top: var(--space-14); }
+/* A plugin page's way to its Settings, at the right of its breadcrumb before Pause. */
+.breadcrumb a.button.small.settings-link { flex: none; margin-left: auto; min-height: 0; height: 28px; padding: 0 11px; gap: var(--space-6); font-size: var(--text-xs); color: var(--text); font-weight: var(--weight-medium); }
+.breadcrumb a.button.small.settings-link.action-with-icon::before { width: 12px; height: 12px; }
+@media (max-width: 640px) {
+  /* The dot and the button stay on the name's line; a pill goes under the name. */
+  .settings-device { row-gap: var(--space-8); }
+  .settings-device > .status-dot { grid-row: 1; grid-column: 3; }
+  .settings-device > :last-child { grid-row: 1; grid-column: 4; }
+  .settings-device > .pill { grid-row: 2; grid-column: 2; justify-self: start; }
+  /* Settings as its gear alone, a circle as the other round buttons at phone width, its label kept for assistive technology. */
+  button.settings-open { width: 40px; height: 40px; min-height: 40px; padding: 0; justify-content: center; border-radius: 50%; }
+  button.settings-open > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .settings-danger-row { flex-direction: column; align-items: stretch; gap: var(--space-8); }
+  .settings-danger-row > button { align-self: flex-start; }
+}
+.settings-foot a, .form-foot a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .settings-foot a:hover, .form-foot a:hover { text-decoration: underline; } }
+/* A long block name in the breadcrumb is cut, not pushed past a phone's edge (its page's title has it whole). */
+.breadcrumb ol { min-width: 0; }
+.breadcrumb li { max-width: 100%; }
+.breadcrumb li > a, .breadcrumb li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

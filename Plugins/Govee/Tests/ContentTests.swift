@@ -138,15 +138,6 @@ func categories(_ overrides: [String: JSONValue] = [:]) -> JSONValue {
         #expect(decoded(String(try #require(code.split(separator: ",").last)))[3] == 212)
     }
 
-    @Test func modes() {
-        #expect(GoveeContent.modes[10] == "scene")
-        #expect(GoveeContent.modes[8] == "music")
-        #expect(GoveeContent.modes[11] == "diy")
-        #expect(GoveeContent.functionSupport(["modes": [10, ["componentId": 8], 99]]) == .init(modes: ["scene", "music"], modeIds: [10, 8, 99]))
-        #expect(GoveeContent.functionSupport(["components": [["componentId": "11"]]]).modes == ["diy"])
-        #expect(GoveeContent.functionSupport(nil).modeIds.isEmpty)
-    }
-
     @Test func diyEntries() {
         let entries = GoveeContent.diyEntries([["groupName": "Mine", "diys": [["diyId": 7, "diyName": "Party", "effectStr": "", "coverUrl": "https://x/y.png"], ["name": "no code"]]]])
         #expect(entries.count == 1)
@@ -217,25 +208,23 @@ func categories(_ overrides: [String: JSONValue] = [:]) -> JSONValue {
         }
     }
 
-    /// The page's fields cover the schema's device options, as the Homebridge plugin's parity test checked.
-    @Test func pageCoversTheSchema() throws {
+    /// The page writes no settings (docs/adr/0002-schema-declares-every-setting.md): the Settings page draws each device's
+    /// from the schema's `accessorySchema`, which declares every option of the Homebridge plugin's device lists.
+    @Test func thePageWritesNoSettings() throws {
         let schema = try JSONValue(string: GoveePlugin.configurationSchemaJSON!)
         let script = try #require(GoveePlugin.webFiles["app.js"]?.body)
-        // Edited elsewhere on the page, or legacy slots kept for existing configurations (as the Homebridge page did).
-        let allowed: Set<String> = [
-            "scenes", "scene", "sceneTwo", "sceneThree", "sceneFour", "musicMode", "musicModeTwo", "videoMode", "videoModeTwo", "diyMode", "diyModeTwo",
-            "diyModeThree", "diyModeFour", "segmented", "segmentedTwo", "segmentedThree", "segmentedFour",
+        for call in ["updateBlock", "readBlock", "putDevice", "updateDevice", "/api/settings"] { #expect(!script.contains(call), "\(call)") }
+        let declared = Set(try #require(schema["accessorySchema"]?["properties"]?.objectValue).keys)
+        let homebridge: Set<String> = [
+            "showAs", "customAddress", "customIPAddress", "adaptiveLightingShift", "awsBrightnessNoScale", "awsColourMode", "lanScenes", "brightnessStep",
+            "scenes", "musicModeLive", "scene", "sceneTwo", "sceneThree", "sceneFour", "musicMode", "musicModeTwo", "videoMode", "videoModeTwo",
+            "diyMode", "diyModeTwo", "diyModeThree", "diyModeFour", "segmented", "segmentedTwo", "segmentedThree", "segmentedFour",
+            "temperatureSource", "lowBattThreshold", "showExtraSwitch", "hideLight", "tempReporting",
+            "hideModeGreenTea", "hideModeOolongTea", "hideModeCoffee", "hideModeBlackTea", "showCustomMode1", "showCustomMode2",
         ]
-        for key in DeviceConfigKey.allCases {
-            let properties = try #require(schema["schema"]?["properties"]?[key.rawValue]?["items"]?["properties"]?.objectValue, "\(key)")
-            for property in properties.keys where !allowed.contains(property) {
-                if property == "musicModeLive" {
-                    for sub in properties[property]?["properties"]?.objectValue?.keys ?? [:].keys { #expect(script.contains("\"musicModeLive.\(sub)\""), "musicModeLive.\(sub)") }
-                    continue
-                }
-                #expect(script.contains("id: \"\(property)\""), "\(key).\(property) has no field on the page")
-            }
-        }
+        #expect(declared == homebridge)
+        // Every slot the lights read.
+        #expect(Set(GoveeCharacteristic.sceneSlots.map(\.key)).isSubset(of: declared))
     }
 }
 
@@ -291,8 +280,8 @@ func categories(_ overrides: [String: JSONValue] = [:]) -> JSONValue {
         let govee = FakeGovee()
         govee.answer(Self.login, ["status": 454])
         let api = GoveeAPI(transport: govee, clientId: "hb1")
-        await #expect(throws: GoveeAPIError.twoFactorInvalid(GoveeAPI.settingsCodeInvalid)) {
-            try await api.login(username: "user@example.com", password: "pw", code: "0000", audience: .settingsPage)
+        await #expect(throws: GoveeAPIError.twoFactorInvalid(Lang.twoFACodeInvalid)) {
+            try await api.login(username: "user@example.com", password: "pw", code: "0000")
         }
         #expect(govee.requests(to: Self.verification).isEmpty)
         #expect(govee.requests(to: Self.login).first?.body?["code"] == "0000")

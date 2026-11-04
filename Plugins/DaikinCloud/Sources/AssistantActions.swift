@@ -12,7 +12,7 @@ extension DaikinCloudPlugin {
             path: "auth/status", access: .read),
         AssistantAction(
             name: "list_devices", title: "Look at the Daikin devices",
-            description: "The units of the Daikin account: id (the value excludedDevicesByDeviceId takes), name, model, type, online, features, "
+            description: "The units of the Daikin account: id (the Device Id: the accessory is DaikinCloud:<id>), name, model, type, kind, whether it is excluded, online, features, "
                 + "room and outdoor temperature, operation mode and power. Answers the running instance's own list or one fetched in the last five minutes; "
                 + "refresh calls the cloud, which spends one of the day's API calls (200 a day with the Developer Portal).",
             path: "devices/list", access: .read,
@@ -65,7 +65,9 @@ extension DaikinCloudPlugin {
         "Daikin. Some WAFs drop a client by its TLS fingerprint: the built-in HTTP client offers the DEFAULT cipher list",
         "(DAIKIN_TLS_CIPHERS overrides it, DAIKIN_USER_AGENT the okhttp User-Agent), and \"httpTransport\": \"curl\" sends the",
         "requests through the curl binary instead (the WebSocket still uses the built-in client). Mobile App login errors",
-        "carry the Gigya error code in parentheses. Hidden devices are listed in \"excludedDevicesByDeviceId\". Never ask the",
-        "user for their password, Client Secret, tokens or API keys.",
+        "carry the Gigya error code in parentheses. Settings are read with get_settings and written with update_settings: by plugin",
+        "for its options (polling, the WebSocket, the transport, the show* feature switches), by accessory (DaikinCloud:<id>) to",
+        "Exclude a unit or give it its own show* switches. The login and the Developer Portal app are in the vault, set through",
+        "Setup only. Never ask the user for their password, Client Secret, tokens or API keys.",
     ].joined(separator: " ")
 }

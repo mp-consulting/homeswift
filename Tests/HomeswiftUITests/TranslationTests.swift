@@ -86,6 +86,10 @@ import Testing
             let properties = schema["properties"] as? [String: Any] ?? (schema["type"] == nil ? schema : [:])
             var words = Set<String>()
             Self.collect(properties, path: name, words: &words)
+            // The Plugin Accessory Settings the settings editor draws, translated from the same `i18n`.
+            if let accessory = (root["accessorySchema"] as? [String: Any])?["properties"] as? [String: Any] {
+                Self.collect(accessory, path: "\(name).accessorySchema", words: &words)
+            }
             Self.collectLayout(root["layout"], words: &words)
             let i18n = root["i18n"] as? [String: [String: String]] ?? [:]
             for word in words.sorted() {

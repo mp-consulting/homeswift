@@ -88,7 +88,7 @@ class BaseAccessory {
     }
 
     func logInfo(_ message: @autoclosure () -> String) {
-        guard configuration.disableDeviceLogging != true else { return }
+        guard !EWeLinkPlugin.deviceLoggingDisabled(configuration, record.deviceID) else { return }
         platform.logger.info("[\(record.displayName)] \(message())")
     }
 

@@ -7,15 +7,17 @@ import HomeswiftPlugin
 // here). It is a Browser Redirect: LG's own sign-in page (which takes LG, Google, Apple, Facebook and Amazon accounts),
 // in the account's region (LGRegions.swift, the Homebridge page's list), whose address the person pastes back
 // once it ends on `iabClose`. A block whose `auth_mode` is `account` signs in with the account's email and password
-// instead (an Account Login). Either way the refresh token goes in the vault, preferred over the block's `refresh_token`,
-// which goes. The appliances come with the account, by LG's device id; the block's `devices`, when it lists some, is the
-// Homebridge plugin's allow list (docs/adr/0001-canonical-accessory-settings.md).
+// instead (an Account Login). Either way the refresh token (and the email) go in the vault, preferred over the block's
+// `refresh_token`, `username` and `password`, which go. The appliances come with the account, by LG's device id, each of
+// the Device Kind of its LG type; a Homebridge block's `devices`, when it lists some, is its allow list until
+// `canonicalSettings` moves it into `_accessories` (LGSettings.swift).
 extension LGThinQPlugin {
     public static let accountAuthorization = AuthorizationMethod.browserRedirect
 
-    /// What Setup keeps in the vault.
-    struct StoredToken: Codable, Sendable {
+    /// What Setup keeps in the vault: the refresh token, and the account's email when it signed in with one.
+    struct StoredToken: Codable, Sendable, Equatable {
         var refreshToken: String
+        var username: String?
     }
 
     /// The configuration with the refresh token from the vault in place of the block's, when Setup kept one.
@@ -31,9 +33,9 @@ extension LGThinQPlugin {
         configuration.refresh_token?.isEmpty == false || (configuration.username?.isEmpty == false && configuration.password?.isEmpty == false)
     }
 
-    /// The account's appliances, from the running platform or one signed in for the question. One the block's `devices`
-    /// leaves out, or a ThinQ v1 appliance without `thinq1`, is excluded by its settings; one Homeswift has no accessory
-    /// for is not listed.
+    /// The account's appliances, from the running platform or one signed in for the question, each of the Device Kind of
+    /// its LG type. One a Homebridge block's `devices` leaves out, or a ThinQ v1 appliance without `thinq1`, is excluded
+    /// by its settings; one Homeswift has no accessory for is not listed.
     public func discover() async throws -> [DiscoveredDevice] {
         let running = platformInstance
         let platform: LGThinQPlatform
@@ -50,7 +52,8 @@ extension LGThinQPlugin {
             guard let id = device["id"]?.stringValue, device["supported"] == true else { return nil }
             let excluded = device["configured"] == false || (device["platform"]?.stringValue == PlatformType.thinq1 && !thinq1)
             let model = device["model"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? device["type"]?.stringValue
-            return DiscoveredDevice(deviceID: id, name: device["name"]?.stringValue ?? id, model: model, isSetUp: true, excludedBySettings: excluded)
+            let kind = device["type"]?.stringValue.flatMap { $0.isEmpty || $0 == "undefined" ? nil : $0 }
+            return DiscoveredDevice(deviceID: id, name: device["name"]?.stringValue ?? id, model: model, isSetUp: true, excludedBySettings: excluded, kind: kind)
         }
     }
 
@@ -89,19 +92,20 @@ extension LGThinQPlugin {
             ]))
         }
         let token: String
+        var username: String?
         var settings = region
         if mode == "account" {
-            guard let username = request.answer("username"), let password = request.secret("password") else {
+            guard let typed = request.answer("username"), let password = request.secret("password") else {
                 return .ask(SetupPrompt(message: "Sign in with your LG account.", fields: [
                     SetupField("username", label: "Email"), SetupField("password", label: "Password", kind: .secret),
                 ]), state: ["region": .object(region)])
             }
             do {
-                token = try await Self.login(username: username, password: password, country: country, language: language, transport: dependencies.transport, logger: logger)
+                token = try await Self.login(username: typed, password: password, country: country, language: language, transport: dependencies.transport, logger: logger)
             } catch {
                 throw SetupError(Self.message(error, fallback: "LG refused the sign-in"))
             }
-            settings["username"] = .string(username)
+            username = typed
         } else {
             guard let pasted = request.answer("callbackUrl"), request.state["url"] != nil else {
                 let url: String
@@ -126,8 +130,9 @@ extension LGThinQPlugin {
             throw SetupError("LG did not accept the sign-in: \(Self.message(error, fallback: "no answer"))")
         }
         logger.info("Signed in to LG ThinQ through Setup", metadata: ["country": "\(country)", "devices": "\(devices.count)"])
-        settings["refresh_token"] = .null
-        return .done(SetupOutcome(credentials: try JSONValue(encoding: StoredToken(refreshToken: token)), settings: settings))
+        // The block's sign-in, a Homebridge block's, goes: the vault has it now.
+        for key in Self.accountKeys { settings[key] = .null }
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: StoredToken(refreshToken: token, username: username)), settings: settings))
     }
 
     private func redirectPrompt(_ url: String) -> SetupPrompt {

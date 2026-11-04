@@ -67,10 +67,10 @@ import Testing
         let environment = try MCPTestEnvironment(config: Self.config(secondRoom: "Kitchen"))
         try await environment.start()
         defer { Task { await environment.stop() } }
-        let renamed = rooms(try environment.catalog.updateLayout(["renameRoom": ["from": "salon", "to": "Lounge"]]))
+        let renamed = rooms(try await environment.catalog.updateLayout(["renameRoom": ["from": "salon", "to": "Lounge"]], by: "test"))
         #expect(renamed["Lounge"] == ["Devices:mirrored"])
         #expect(renamed["Salon"] == nil)
-        let removed = try environment.catalog.updateLayout(["removeRooms": ["Lounge", "Kitchen"]])
+        let removed = try await environment.catalog.updateLayout(["removeRooms": ["Lounge", "Kitchen"]], by: "test")
         #expect(rooms(removed)["Lounge"] == nil && rooms(removed)["Kitchen"] == nil && rooms(removed)["Salon"] == nil)
         let unassigned = (removed["unassigned"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }
         #expect(unassigned.contains("Devices:mirrored") && unassigned.contains("Devices:mirrored2"))

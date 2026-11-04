@@ -77,9 +77,11 @@ struct Mirror {
                 catch { throw HAPStatusError(.serviceCommunicationFailure, reason: Self.reason(error)) }
             }
         } else { onIdentify = nil }
+        // The device's own serial number when HomeKit has one, else its HomeKit id.
+        let serialNumber = source.serialNumber.flatMap { $0.isEmpty ? nil : $0 } ?? source.id
         let accessory = Accessory(
             id: "\(WingmanPlugin.platform):\(source.id)", name: source.name, manufacturer: source.manufacturer ?? Self.source,
-            model: source.model ?? "Accessory", serialNumber: source.id, firmwareRevision: source.firmware ?? "1.0.0",
+            model: source.model ?? "Accessory", serialNumber: serialNumber, firmwareRevision: source.firmware ?? "1.0.0",
             category: Self.category(of: (services.first(where: \.isPrimary) ?? services[0]).type), services: services, onIdentify: onIdentify)
         accessory.mirroredFrom = Self.source
         accessory.suggestedRoom = source.room

@@ -625,29 +625,24 @@ struct AccessHubTests {
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
 
-        let options = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "options", user: "admin"))
-        #expect(options.json["categories"]?.arrayValue?.count == 5)
-
-        let devices = try await plugin.handleWebRequest(
-            PluginWebRequest(method: "POST", path: "devices", body: ["address": "10.0.0.1", "username": "u", "password": "p"], user: "admin"))
-        let list = try #require(devices.json["devices"]?.arrayValue)
-        #expect(list.count == 3)
-        #expect(list[0]["host"]?["mac"] == "00:11:22:33:44:55")
-        #expect(list.dropFirst().compactMap { $0["featureId"]?.stringValue } == ["112233445566", "AABBCCDDEEFF"])
-
-        let bad = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices", body: ["address": "localhost"], user: "admin"))
-        #expect(bad.json["devices"] == [])
+        // What Setup reads of a controller: the controller, then its hubs and readers; the API's error when it fails.
+        guard case .read(let info, let found) = await plugin.read(address: "10.0.0.1", username: "u", password: "p", verifyTLS: false) else {
+            Issue.record("expected the controller's devices"); return
+        }
+        #expect(info?.hostMAC == "00:11:22:33:44:55")
+        #expect(found.map(\.identifier).sorted() == ["112233445566", "AABBCCDDEEFF"])
+        func failure(_ address: String) async -> String? {
+            if case .failed(let message) = await plugin.read(address: address, username: "u", password: "p", verifyTLS: false) { return message }
+            return nil
+        }
         environment.controller.override("/api/auth/login") { _ in HTTPResponse(status: 403) }
-        let refused = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices", body: ["address": "10.0.0.2", "username": "u", "password": "p"], user: "admin"))
-        #expect(refused.json["error"]?.stringValue?.contains("Insufficient privileges") == true)
+        #expect(await failure("10.0.0.2")?.contains("Insufficient privileges") == true)
         // A console without UniFi Access answers its proxy's paths with its own web page.
         environment.controller.removeOverride("/api/auth/login")
         for path in ["access/info", "devices/topology4"] {
             environment.controller.override(path) { _ in HTTPResponse(status: 200, headers: [("Content-Type", "text/html")], body: Data("<!doctype html>".utf8)) }
         }
-        let elsewhere = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices", body: ["address": "10.0.0.3", "username": "u", "password": "p"], user: "admin"))
-        #expect(elsewhere.json["error"]?.stringValue?.contains("UniFi Access does not run on this console") == true)
-
+        #expect(await failure("10.0.0.3")?.contains("UniFi Access does not run on this console") == true)
         let status = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "status", body: ["address": "10.0.0.1"], user: "admin"))
         #expect(status.json["online"] == true)
         let unreachable = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "status", body: ["address": "10.0.0.9"], user: "admin"))

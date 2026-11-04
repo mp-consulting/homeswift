@@ -59,6 +59,13 @@ swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
 - **Configuration:** copy the Homebridge plugin's `config.schema.json` over the skeleton's, then mirror it in
   `Configuration`: every option optional, defaults in code, the same names. Run
   `swift Scripts/embed-assets.swift plugin Plugins/<Name> <Name>Plugin` after each schema change.
+- **Settings** (docs/plugins.md, "Settings"; docs/adr/0001, 0002): a device's own options go in the schema's
+  `accessorySchema` (`x-kinds` for the Device Kinds a field is for, `x-default` for its plugin-wide option) and are read
+  with `context.accessorySettings(for:)`; `deviceKind(of:)` names a device's kind. The Homebridge shapes (a `devices`
+  list, exclude lists, typed arrays) still load, and `canonicalSettings` turns them into `_accessories` by Device Id. It
+  only answers the block: a credential it moves into the vault goes through `context.whenSettingsWritten`, so a dry run
+  changes nothing. An Excluded device (`context.isExcluded`) is not polled. The plugin's page writes no settings: it
+  links to them with `homeswift.accessorySettings(accessoryID)`.
 - **State and changes:** keep `<Name>State` in HomeKit's units and convert the device's own (0-255, Fahrenheit,
   kelvin) in the transport. Rename nothing the tests rely on without updating them.
 - **Transport:** replace the API's implementation with the real client on `HomeswiftNetwork` (`HTTPClient`, `MQTTClient`,

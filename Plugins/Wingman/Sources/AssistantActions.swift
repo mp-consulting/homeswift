@@ -20,7 +20,10 @@ extension WingmanPlugin {
         shows the certificate to compare with Wingman's window, pairs with the 6-digit code Wingman's menu shows for ten \
         minutes (Pair a Homeswift Bridge), pins its certificate, then mirrors the Home app's accessories into Homeswift: the web UI, moods, scenes, automations and the MCP tools \
         use them, but they are never published to HomeKit again (the Home app has them already). Homeswift's own \
-        accessories are left out. "Wingman does not know this bridge any more" means it was removed from Wingman's \
+        accessories are left out. Each mirrored accessory (Wingman:<HomeKit id>) and each bridge of Apple Home \
+        (Wingman:bridge:<name>) is a device Excluded through its Accessory Settings (update_settings with excluded: true; \
+        discover_devices lists them), which leaves it, or the bridge's accessories, out of Homeswift; homes is a Plugin \
+        Setting. "Wingman does not know this bridge any more" means it was removed from Wingman's \
         Paired Bridges: set it up again on Add accessories. "Wingman's certificate is not the one pinned" means Wingman was reinstalled on \
         another Mac or user, or something intercepts the connection. "changes are turned off in Wingman's settings" \
         means Wingman's "Let bridges change accessories" is off. Matter accessories (Hue, IKEA) cannot be read by \
@@ -29,8 +32,9 @@ extension WingmanPlugin {
         signing). Never ask for the token. When Wingman serves Apple Home's structure (and its owner turned on "Let bridges \
         edit rooms, scenes and automations"), Apple Home's scenes are hub scenes (list_scenes, run_scene, update_hub_scene, \
         delete_hub_scene, save_scene with its hub), its automations are list_hub_automations, update_hub_automation and \
-        delete_hub_automation, and with the room layout's syncRoomNames on, renaming a room or moving an accessory with \
-        set_accessory_layout does the same in the Home app, and the other way round. "structural edits are turned off in \
+        delete_hub_automation, and with Room Sync (syncRoomNames) on, renaming a room with set_accessory_layout or moving an \
+        accessory with update_settings does the same in the Home app, and the other way round; an accessory of Apple Home's \
+        own always moves there. "structural edits are turned off in \
         Wingman's settings" means that setting is off; "only an administrator of the home can change it" means the Mac's \
         Apple Account is not an administrator of that home. Built-in scenes (Good Morning and the like) cannot be renamed \
         or deleted; automations' accessory triggers and conditions, and new automations, are made in the Home app.

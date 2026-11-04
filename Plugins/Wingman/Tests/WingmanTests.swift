@@ -154,6 +154,9 @@ struct WingmanTests {
         #expect(light.suggestedRoom == "Salon")
         #expect(light.category == .lightbulb)
         #expect(light.information[.manufacturer]?.value == .string("Signify"))
+        // Without a serial number in HomeKit, its HomeKit id; with one, the device's own.
+        #expect(light.information[.serialNumber]?.value == .string("light-1"))
+        #expect(try await accessory(host, "tv-1").information[.serialNumber]?.value == .string("TV-SERIAL"))
         let bulb = try #require(light.service(.lightbulb))
         #expect(bulb.type.name == "Lightbulb")
         #expect(bulb.isPrimary)
@@ -367,7 +370,7 @@ struct WingmanTests {
         let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
         let found = try #require(devices.first)
         #expect(devices.count == 1)
-        #expect(found == DiscoveredDevice(deviceID: "wm-1", name: "Mac mini", model: "Homeswift Wingman", address: "10.0.0.5", authorization: .deviceCode))
+        #expect(found == DiscoveredDevice(deviceID: "wm-1", name: "Mac mini", model: "Homeswift Wingman", address: "10.0.0.5", authorization: .deviceCode, kind: "wingman"))
 
         guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .device(found))) else { Issue.record("expected the code"); return }
         #expect(prompt.fields == [SetupField("code", label: "Code", kind: .code)])
@@ -398,7 +401,7 @@ struct WingmanTests {
         #expect(plugin.configuredDevices().isEmpty)
         let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
         let typed = try #require(devices.first { $0.deviceID == "address:10.0.0.9:9000" })
-        #expect(typed == DiscoveredDevice(deviceID: "address:10.0.0.9:9000", name: "Office Mac", model: "Homeswift Wingman", address: "10.0.0.9:9000", authorization: .deviceCode))
+        #expect(typed == DiscoveredDevice(deviceID: "address:10.0.0.9:9000", name: "Office Mac", model: "Homeswift Wingman", address: "10.0.0.9:9000", authorization: .deviceCode, kind: "wingman"))
         guard case .ask(_, let state) = try await plugin.authorize(SetupRequest(target: .device(typed))) else { Issue.record("expected the code"); return }
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(typed), answers: ["code": "482913"], state: state)) else {
             Issue.record("expected done"); return
@@ -415,7 +418,8 @@ struct WingmanTests {
         await host.apply(HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block]))
         _ = try await accessory(host, "light-1")
         let after = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
-        #expect(after.map(\.deviceID) == ["wm-1"])
+        // The mirrored accessories and their bridges are devices too.
+        #expect(after.filter { $0.kind == "wingman" }.map(\.deviceID) == ["wm-1"])
         #expect(after.first?.isSetUp == true)
         await host.stop()
     }
@@ -429,7 +433,7 @@ struct WingmanTests {
         await host.relaunch(platform: WingmanPlugin.platform, name: WingmanPlugin.name)
         _ = try await accessory(host, "light-1")
         let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
-        #expect(devices.map(\.deviceID) == ["wm-1"])
+        #expect(devices.filter { $0.kind == "wingman" }.map(\.deviceID) == ["wm-1"])
         #expect(devices.first?.isSetUp == true && devices.first?.name == "Mac mini")
         await host.stop()
     }

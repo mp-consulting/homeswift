@@ -7,7 +7,8 @@ heaters, fans, humidifiers, dehumidifiers, purifiers, diffusers, kettles and ice
 
 A port of [`@mp-consulting/homebridge-govee`](https://github.com/mp-consulting/homebridge-govee), originally by Ben Potter
 (bwp91), under the MIT license; its Linux Bluetooth follows noble's hci-socket bindings (MIT, Sandeep Mistry). The
-notices are in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md). The platform block is the same, so a Homebridge configuration works unchanged.
+notices are in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md). A Homebridge configuration loads unchanged; what Homeswift writes is its canonical shape
+([Configuration](#configuration)).
 
 ## How it reaches the devices
 
@@ -32,35 +33,38 @@ Without Bluetooth hardware the log says "Bluetooth not available on this system"
 
 ### New-device verification
 
-Govee challenges a login from a client it has not seen with a one-time code it emails. The log (or **Test
-Connection** on the plugin's page) says so: put the code in `code` (the page's **Verification Code**) and save.
+Govee challenges a login from a client it has not seen with a one-time code it emails: Setup asks for it. A
+Homebridge block's `code` still works at the next start.
 The client id is derived from the account as the Homebridge plugin's was, so a login Govee verified for
 Homebridge is not challenged again.
 
 ## The web page
 
-The Plugins page has an **Open** button for this plugin, with the Homebridge plugin's three tabs:
+The Plugins page has an **Open** button for this plugin. It writes no settings: the plugin's and each device's are on
+its **Settings** page.
 
-- **Devices**: **Discover Devices** logs in and adds the account's devices to the lists; the devices the
-  plugin found at its start are added too. One list per device type, each device with how the plugin reaches
-  it (LAN, AWS, BLE), **Edit** and **Remove**. A light's editor has three tabs: General, **Scene Library** (the
-  Govee library for that exact model, with the app's icons, your DIY effects, or the catalogue bundled with
-  the plugin when Govee cannot be reached; each scene picked becomes a switch in HomeKit) and **Music Mode**.
-  Tabs Govee says the light lacks are hidden.
-- **Settings**: the account with **Test Connection**, the general options, and the three connections.
+- **Devices**: the devices of the account and of the LAN the plugin found at its start, one list per device type,
+  each with how the plugin reaches it (LAN, AWS, BLE), Excluded or not on the bridge, and a **Settings** link to its
+  Accessory Settings (`/plugins/<slug>/settings?accessory=Govee:<deviceId>`). **Discover Devices** asks Govee for the
+  account's devices now. A light's **Scenes** opens its **Scene Library** (the Govee library for that exact model,
+  with the app's icons, your DIY effects, or the catalogue bundled with the plugin when Govee cannot be reached): the
+  scenes in the light's settings have a tick, and a tile shows the name, code and id to add to them. While no
+  account is signed in, a link leads to Setup.
 - **Tools**: **Clear Cache** (the kept login and certificate, the discovered devices, the devices' state; a password
   Setup kept stays, and the next start signs in with it).
 
-**Save Configuration** writes this instance's block; the plugin restarts with it at once. With the Assistant
-on, **Explain** sits next to errors.
+With the Assistant on, **Explain** sits next to errors.
 
 The Assistant (the web UI's chat, MCP clients) has the page's routes as tools: `Govee_list_devices` (the
 instance's devices and how it reaches them), `Govee_discovered_devices`, `Govee_discover` (the account's
-devices from the cloud), `Govee_scenes` and `Govee_diy_effects` for a light (to add them to its `scenes`),
+devices from the cloud), `Govee_scenes` and `Govee_diy_effects` for a light (to add them to its `scenes` with `update_settings`),
 and `Govee_clear_cache`, which asks first. They log in with the instance's own account: no password goes
 through the model.
 
 ## Configuration
+
+What Homeswift writes (docs/adr/0001-canonical-accessory-settings.md): the plugin's settings in the block, each
+device's in `_accessories` by its Govee device id (its Device Id), the account in the vault.
 
 ```json
 {
@@ -68,18 +72,19 @@ through the model.
     {
       "platform": "Govee",
       "name": "Govee",
-      "username": "your-govee-email@example.com",
-      "password": "your-govee-password"
+      "lanScanInterval": 60,
+      "_accessories": {
+        "AA:BB:CC:DD:EE:FF:00:11": { "name": "Desk Light", "customIPAddress": "192.168.1.50", "brightnessStep": 5 },
+        "AA:BB:CC:DD:EE:FF:00:22": { "showAs": "outlet" },
+        "F9:44:AB:CD:12:34:56:78": { "excluded": true }
+      }
     }
   ]
 }
 ```
 
-| Option | Default | Description |
+| Plugin Setting | Default | Description |
 |---|---|---|
-| `username` | | Your Govee account email |
-| `password` | | Your Govee account password |
-| `code` | | The one-time email verification code, when Govee asks for one |
 | `ignoreMatter` | `false` | Skip Matter-capable models, to add them to HomeKit natively |
 | `disableDeviceLogging` | `false` | Don't log device state changes |
 | `debug` | `false` | Debug lines at the info level (`homeswift -D` shows them anyway) |
@@ -94,32 +99,39 @@ through the model.
 | `colourSafeMode` | `false` | A slower but more reliable way of setting colours (no colour temperature, no Adaptive Lighting) |
 | `homebridgeStoragePath` | `~/.homebridge` | Homeswift only: the Homebridge storage path whose Govee login a first start imports |
 
-Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`, `leakDevices`, `fanDevices`,
-`heaterDevices`, `humidifierDevices`, `dehumidifierDevices`, `purifierDevices`, `diffuserDevices`,
-`kettleDevices`, `iceMakerDevices`. Every entry has `deviceId`, `label` and `ignoreDevice`; besides:
+Each device has its Name and Excluded, and the Accessory Settings of its Device Kind (the schema's `accessorySchema`,
+`x-kinds`): the list its model's entry went in, without `Devices` (`light`, `switch`, `thermo`, `leak`, `fan`,
+`heater`, `humidifier`, `dehumidifier`, `purifier`, `diffuser`, `kettle`, `iceMaker`).
 
-- **Lights**: `showAs` (`default` or `switch`), `customIPAddress`, `customAddress` (Bluetooth MAC),
+- **Lights** (`light`): `showAs` (`default` or `switch`), `customIPAddress`, `customAddress` (Bluetooth MAC),
   `brightnessStep`, `adaptiveLightingShift` (-1 turns Adaptive Lighting off), `awsBrightnessNoScale`,
   `awsColourMode` (`default`, `rgb`, `redgreenblue`), `lanScenes` (scenes, DIY effects and music mode over LAN
   as `ptReal`, off by default: the light does not acknowledge LAN commands, so one that ignores them gets no cloud
-  or Bluetooth fallback), `scenes` (picked on the page), `musicModeLive`
+  or Bluetooth fallback), `scenes` (`name`, `sceneCode`, `sceneId`, `kind`: the Scene Library shows them), `musicModeLive`
   (`enabled`, `effect`, `sensitivity`, `autoColour`, `soft`, `protocol`), and the older fixed slots `scene` to
   `sceneFour`, `diyMode` to `diyModeFour`, `musicMode`, `musicModeTwo`, `videoMode`, `videoModeTwo`,
   `segmented` to `segmentedFour` (`sceneCode`, `bleCode`, `showAs`).
-- **Plugs**: `showAs` (`default`, `outlet`, `switch`, `purifier`, `heater`, `cooler`, `tap`, `valve`, `audio`,
+- **Plugs** (`switch`): `showAs` (`default`, `outlet`, `switch`, `purifier`, `heater`, `cooler`, `tap`, `valve`, `audio`,
   `box`, `stick`) and `temperatureSource`, the thermo-hygrometer a plug shown as a heater or cooler follows.
   `audio`, `box` and `stick` are televisions on the bridge, as in Homebridge; the Home app shows one television
   per bridge, so several go on a child bridge (`_bridge`) each.
-- **Thermo-hygrometers**: `lowBattThreshold`, `showExtraSwitch` (a read-only thermostat instead of a
-  temperature sensor). **Leak sensors**: `lowBattThreshold`.
+- **Thermo-hygrometers** (`thermo`): `lowBattThreshold`, `showExtraSwitch` (a read-only thermostat instead of a
+  temperature sensor). **Leak sensors** (`leak`): `lowBattThreshold`.
 - **Fans**: `hideLight`. **Heaters**: `tempReporting`. **Kettles**: `hideModeGreenTea`, `hideModeOolongTea`,
   `hideModeCoffee`, `hideModeBlackTea`, `showCustomMode1`, `showCustomMode2`.
+
+A Homebridge block still loads: its `username`, `password` and `code`, and its twelve lists (`lightDevices`,
+`switchDevices`, `thermoDevices`, `leakDevices`, `fanDevices`, `heaterDevices`, `humidifierDevices`,
+`dehumidifierDevices`, `purifierDevices`, `diffuserDevices`, `kettleDevices`, `iceMakerDevices`), each entry with its
+`deviceId`, `label`, `ignoreDevice` and the options above, read under `_accessories`. The first settings write (the
+Settings page, `update_settings`, Setup) moves every entry into `_accessories` (`label` as the Name, `ignoreDevice`
+as Excluded) and drops the lists, and moves `username` and `password` into the vault's login.
 
 ## What differs from the Homebridge plugin
 
 - **Setup**: the account is signed in to from the **Add accessories** page (an Account Login: the email and
   password, then the code Govee emails for a new device). The login, the AWS IoT certificate and the password go in
-  the vault, and `password` and `code` leave the block; a block's `username` and `password` still work. Devices
+  the vault, and `username`, `password` and `code` leave the block; a block's `username` and `password` still work. Devices
   found only on the LAN are published once added there (they get Accessory Settings), and a device Excluded there
   is left out as `ignoreDevice` leaves it out.
 - **Files**: the login and the certificate are kept in the vault (`credentials.json` and `govee.pfx`, kept before,
@@ -137,7 +149,10 @@ Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`,
   own (launchd, `brew services`) is responsible for itself, but started from a shell it is the app that opened
   that shell (an IDE, an agent's app). When that app declares no Bluetooth use, macOS would abort the whole
   bridge at the first Bluetooth call, so the plugin turns Bluetooth off and logs which app is responsible.
-- `label` names every device in HomeKit, not only LAN-only ones, as the page's help always said.
+- `label` names every device in HomeKit, not only LAN-only ones, as the page's help always said; it is the
+  device's Name once the block is written again.
+- The page writes no settings: its device editor, scene picker and Settings tab are the Settings page's fields
+  (the scenes a list of name and code there), and signing in is Setup's.
 - `temperatureSource` works: the Homebridge plugin never read it, so its plug heaters and coolers kept 20°C.
 - `customAddress` is used as the device's Bluetooth address.
 - Purifiers (`statePuri`), the H7131/H7132 heaters (`stateHeat`, `multiSync`) and the H7105/H7107 fan lights

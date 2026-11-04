@@ -496,8 +496,8 @@
 
   // ---- Routing -------------------------------------------------------------
 
-  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/expert[/json]
-  // (a block's settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
+  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/settings
+  // (a block's Settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
@@ -1898,19 +1898,6 @@
     ];
   }
 
-  /// Whether the Home app has the accessory: off, HomeKit loses it (and its room, scenes and automations) while
-  /// Homeswift and Matter keep it, so a Matter device of its own can be in Apple Home through Matter alone.
-  function homeKitToggle(accessory) {
-    const visible = !accessory.hiddenFromHomeKit;
-    return { label: t("Visible in Home app"), icon: "house", checked: visible, checkbox: true, toggle: true, onSelect: async () => {
-      if (visible && !await HomeswiftCommon.confirmDialog(t("{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.", { name: accessory.name }))) return;
-      try {
-        await api(`/api/accessories/${encodeURIComponent(accessory.id)}/homekit`, { method: "PUT", body: { visible: !visible } });
-        route();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
-    } };
-  }
-
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -1928,9 +1915,12 @@
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
-      isAdmin() && !accessory.mirroredFrom && accessory.platform ? homeKitToggle(accessory) : null,
+      // Its Accessory Settings in one sheet (settings.js): Name, room, Hidden, Not in Home, Parts, the plugin's own,
+      // Exclude and Forget.
+      isAdmin() && accessory.platform ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessory.id, name: accessory.name,
+        glyph: HomeswiftWidgets.categoryIcon(accessory.category) ?? "accessory" }) } : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
-      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "plugin", href: `/plugins/${slug(accessory.platformName || accessory.platform)}/settings` } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
       .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
@@ -1999,8 +1989,12 @@
 
     const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
       setGroupRoom: isAdmin() ? async (ids, room) => {
-        await api("/api/rooms", { method: "PUT", body: { accessories: Object.fromEntries(ids.map((id) => [id, { room }])) } });
-        for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
+        // A plugin's accessories only (another kind has no Accessory Settings); none is "" for a mirrored one, so it
+        // leaves the room its controller suggests.
+        const movable = all.filter((accessory) => ids.includes(accessory.id) && accessory.platform);
+        await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(movable.map((accessory) => [accessory.id, { room: room || (accessory.mirroredFrom ? "" : null) }])) });
+        // Only those it moved: the others keep their room, as the server does.
+        for (const accessory of movable) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
       persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
@@ -2406,8 +2400,9 @@
     /// puts it back.
     async function moveToRoom(id, room) {
       try {
-        await api("/api/rooms", { method: "PUT", body: { accessories: { [id]: { room: room || null } } } });
         const accessory = all.find((candidate) => candidate.id === id);
+        // Out of a room: none, rather than the room a mirrored accessory's controller suggests.
+        await api(`/api/settings/accessories/${encodeURIComponent(id)}`, { method: "PATCH", body: { room: room || (accessory?.mirroredFrom ? "" : null) } });
         if (accessory) accessory.room = room || null;
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
       render();
@@ -2736,7 +2731,7 @@
       const instance = running(block);
       const [state, kind] = blockState(block, plugin, instance);
       // The name opens what the menu's first item opens: the plugin's page, else the form.
-      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
+      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : pluginSettings(block);
       // Under the name, what it is when the name does not say it already ("Daikin Cloud" says DaikinCloud): the plugin,
       // else its platform.
       const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
@@ -2759,18 +2754,17 @@
           el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
 
-    /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
-    /// resume, and removal.
+    /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
-      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit as JSON"), icon: "code", href: expertLink(block, "json") }];
+      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit config.json"), icon: "code", href: "/settings/config" }];
       const toggle = async (paused) => {
         try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
         plugin ? { label: t("Add accessories"), icon: "plus", href: `/setup#${encodeURIComponent(block.slug)}` } : null,
-        { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
-        { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
+        { label: t("Settings"), icon: "gear", href: pluginSettings(block) },
+        { label: t("Edit config.json"), icon: "code", href: "/settings/config" },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
         instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
         { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
@@ -2853,11 +2847,11 @@
     try { await api(`/api/config/platforms/${block.index}${vault}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
-  /// (or the JSON), the whole block as config.json keeps it.
+  /// A block's address: its plugin's own page when it has one, else its Settings. `pluginSettings` is always its
+  /// Settings (/plugins/<slug>/settings), page or not.
   const settingsLink = (block) => `/plugins/${block.slug}`;
   const pluginPage = settingsLink;
-  const expertLink = (block, mode = "form") => `${settingsLink(block)}/expert${mode === "json" ? "/json" : ""}`;
+  const pluginSettings = (block) => `${settingsLink(block)}/settings`;
 
   /// Where a page sits, each level a way back; the last is the page itself.
   function breadcrumb(...levels) {
@@ -2867,10 +2861,18 @@
 
   // ---- A plugin's settings: its own page ------------------------------------
   // /plugins/<slug> for a block of config.json, /plugins/add/<platform> to add one. A running plugin with its own
-  // page shows that page there: the form is its Expert part, at /plugins/<slug>/expert (or /expert/json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
-  // JSON otherwise; the save bar stays in view, and leaving with unsaved changes asks first.
+  // page shows that page there, and its Settings at /plugins/<slug>/settings (settings.js: its Plugin Settings, account
+  // and devices); one without a page has them at /plugins/<slug>. The old /expert addresses lead there. Adding a block,
+  // and the runtime's own blocks (the web UI's, the Assistant's), keep the form below, from the plugin's
+  // config.schema.json (or the runtime's own), JSON when there is none; the save bar stays in view, and leaving with
+  // unsaved changes asks first. The whole block as JSON is config.json's editor's (Settings › Config).
 
-  views.settings = async (main, [first, second, third]) => {
+  views.settings = async (main, [first, second]) => {
+    // The Expert form and its JSON were here: their addresses open the Settings.
+    if (first !== "add" && second === "expert") {
+      history.replaceState(null, "", `/plugins/${encodeURIComponent(first)}/settings`);
+      second = "settings";
+    }
     const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     // A bridge that does not send the rule (an older build) leaves the note off, rather than failing the page.
@@ -2883,7 +2885,7 @@
     }
     const platform = isNew ? second : found.platform;
     const plugin = plugins.plugins.find((p) => p.platform === platform);
-    const view = isNew ? null : second === "expert" ? (third === "json" ? "json" : "form") : null;
+    const view = isNew ? null : second === "settings" ? "settings" : null;
     if (isNew && !plugin) throw new Error(t("No plugin provides {platform}.", { platform }));
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
@@ -2891,6 +2893,12 @@
     // Its page is a page of its own, which the server sends for this address once signed in: load it, once (should
     // the server answer with this page again, the form shows rather than a loop).
     if (hasPage && !view && !history.state?.reloaded) { history.replaceState({ reloaded: true }, ""); location.reload(); return; }
+    if (!isNew && !block.system) {
+      return HomeswiftSettings.pluginPage(main, { block, plugin, instance, plugins, kit: {
+        isSecretKey, readSecrets: (list) => { secretRule = readSecretRule(list); }, blockTitle, blockState, removeBlock, problemList, savedText,
+        describeSetup, setLeaveGuard: (guard) => { leaveGuard = guard; },
+      } });
+    }
     const current = isNew ? { platform, name: block.name } : (config.platforms || [])[block.index] || { platform, name: block.name };
 
     let schema = null;
@@ -2927,42 +2935,20 @@
       if (value && typeof value === "object") return Object.entries(value).some(([key, child]) => holdsSecret(child, underSecret || isSecretKey(key, child)));
       return false;
     };
-    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.") });
+    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save.") });
     secretNote.hidden = true;
     if (schema) {
-      // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
-      // from the other's value, and Save takes the one on screen.
-      let mode = view === "json" ? "json" : "form";
+      // The form; the whole block as JSON is config.json's editor's.
       let form = buildForm(schema, current);
-      const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
-      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), secretNote, editor);
-      const switchError = el("p", { class: "error" });
-      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
-        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
-          if (value === mode) return;
-          switchError.textContent = "";
-          try {
-            if (value === "json") {
-              textarea.value = JSON.stringify({ platform, ...form.getValue() }, null, 2);
-              editor.repaint();
-            } else {
-              form = buildForm(schema, { platform, ...fromJSON() });
-              formView.replaceChildren(form.element);
-            }
-          } catch (e) { switchError.textContent = t("The JSON is not valid: {error}", { error: e.message }); return; }
-          mode = value;
-          formView.classList.toggle("hidden", mode !== "form");
-          jsonView.classList.toggle("hidden", mode !== "json");
-          for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
-        } }, HomeswiftCommon.icon(value === "form" ? "sliders" : "code"), el("span", { text }))));
-      body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
+      const formView = el("div", {}, form.element);
+      body = el("div", { class: "card form-card" }, formView,
+        el("p", { class: "help form-foot" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ", el("a", { href: "/settings/config", text: t("Edit config.json") })));
       if (platform === "HomeswiftUI") body.classList.add("local-ui-settings");
-      getValue = () => (mode === "form" ? form.getValue() : fromJSON());
-      // The Assistant's suggestion goes into the view on screen, as unsaved changes to review and save.
+      getValue = () => form.getValue();
+      // The Assistant's suggestion goes into the form, as unsaved changes to review and save.
       useSuggestion = (value) => {
-        const next = { ...value, platform };
-        if (mode === "form") { form = buildForm(schema, next); formView.replaceChildren(form.element); }
-        else { textarea.value = JSON.stringify(next, null, 2); editor.repaint(); }
+        form = buildForm(schema, { ...value, platform });
+        formView.replaceChildren(form.element);
         body.dispatchEvent(new Event("input", { bubbles: true }));
       };
     } else {
@@ -2970,8 +2956,8 @@
       getValue = fromJSON;
     }
 
-    // The block as a comparable text: without its platform (the form keeps it, the JSON view leaves it to
-    // Save) and with sorted keys, so switching views or reordering keys is not a change.
+    // The block as a comparable text: without its platform (the form keeps it, the JSON leaves it to Save) and with
+    // sorted keys, so reordering keys is not a change.
     const sorted = (value) => Array.isArray(value) ? value.map(sorted)
       : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value;
     const snapshot = () => { try { const { platform: _, ...rest } = getValue(); return JSON.stringify(sorted(rest)); } catch { return null; } };
@@ -2982,7 +2968,7 @@
     const force = el("button", { actionIcon: "check", class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
     const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
-    const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
+    const jsonShown = () => !schema;
     const update = () => {
       const result = jsonShown() ? editor.check() : null;
       secretNote.hidden = !(result && "value" in result && holdsSecret(result.value));
@@ -3062,7 +3048,7 @@
         }
         // A new block, or a renamed one, lives at its own address now.
         const name = value.name || platform;
-        if (isNew || name !== block.name) { leaveGuard = null; navigate((hasPage ? expertLink : settingsLink)({ slug: slug(name) }), { replace: true }); return; }
+        if (isNew || name !== block.name) { leaveGuard = null; navigate(settingsLink({ slug: slug(name) }), { replace: true }); return; }
         update();
       } catch (e) {
         message.className = "error";
@@ -3080,15 +3066,10 @@
     revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
     const [state, kind] = isNew ? [t("New"), "standby"] : blockState(block, plugin, instance);
-    const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
-      el("div", {}, el("strong", { text: t("Remove this plugin") }),
-        el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
-      el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
-
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
+      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
@@ -3096,17 +3077,12 @@
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
-      // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
-      hasPage ? el("div", { class: "card page-note" },
-        el("p", {}, el("strong", { text: t("Expert.") }), " ", t("Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.", { plugin: plugin.name })),
-        el("a", { class: "button", href: pluginPage(block), actionIcon: "back", text: t("Back to its page") })) : null,
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
-      useSuggestion && !block.system ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
+      useSuggestion && isNew ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
       body,
-      el("div", { class: "settings-bar" }, message, revert, force, save),
-      remove);
+      el("div", { class: "settings-bar" }, message, revert, force, save));
     update();
     if (platform === "HomeswiftUI") {
       const section = new URLSearchParams(location.search).get("section");
@@ -3462,8 +3438,13 @@
   const singular = (text) => text.replace(/ies$/, "y").replace(/(ss|x|ch|sh)es$/, "$1").replace(/([^su])s$/, "$1");
 
   /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout). Its words come
-  /// from the schema's own `i18n` (`{ "fr": { "English": "Français" }, … }`), English where it has none.
-  function buildForm(root, value) {
+  /// from the schema's own `i18n` (`{ "fr": { "English": "Français" }, … }`), English where it has none. One renderer
+  /// for Plugin Settings and Plugin Accessory Settings: `defaults`, by top-level key, is the value a field takes while
+  /// it has none of its own (an accessory's plugin-wide default, `get_settings`' `default.value`), shown as
+  /// "Default (X)" and given back by clearing it; `onCommit(key, value, state)`, when given, is told of each top-level
+  /// field as it is committed (a switch flipped, a text left or Enter), `value` undefined once cleared, with `state`, a
+  /// quiet line beside the field's title for its saved or error state.
+  function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
     const schema = root.schema || root;
@@ -3479,8 +3460,8 @@
       if (test && element) conditional.push({ element, test, index, require });
     };
 
-    const field = (key, property, current, required, index) => {
-      const made = makeField(key, property, current, required, index);
+    const field = (key, property, current, required, index, fallback) => {
+      const made = makeField(key, property, current, required, index, fallback);
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
@@ -3529,8 +3510,11 @@
         get: () => (mode.value === "never" ? undefined : mode.value === "time" ? fromTime() : custom.value.trim() || undefined),
       };
     };
-    const makeField = (key, property, current, required, index) => {
+    const makeField = (key, property, current, required, index, fallback) => {
       const title = tr(property.title) || key;
+      // A default from elsewhere (`defaults`): what the field shows while it is empty, in words.
+      const inherits = fallback !== undefined;
+      const defaultText = (shown) => shown === undefined || shown === null || shown === "" ? t("Default") : t("Default ({value})", { value: String(shown) });
       const help = property.description ? el("div", { class: "help", text: tr(property.description) }) : null;
       const marked = required || property["x-schema-form"]?.requiredWhen !== undefined;
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
@@ -3540,8 +3524,17 @@
       // A value config.json has that is not among the choices stays one, so a save does not drop it.
       if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
-        const select = el("select", {}, el("option", { value: "", text: "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : JSON.stringify(o.value) === JSON.stringify(property.default) })));
+        const named = (value) => options.find((o) => JSON.stringify(o.value) === JSON.stringify(value))?.title ?? value;
+        const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : !inherits && JSON.stringify(o.value) === JSON.stringify(property.default) })));
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };
+      }
+      if (type === "boolean" && inherits) {
+        // A switch cannot say "as the plugin-wide default": a choice of the default, on or off.
+        const shown = fallback ?? property.default;
+        const select = el("select", {},
+          el("option", { value: "", text: defaultText(shown === undefined || shown === null ? null : shown ? t("On [setting]") : t("Off [setting]")) }),
+          el("option", { value: "true", text: t("On [setting]"), selected: current === true }), el("option", { value: "false", text: t("Off [setting]"), selected: current === false }));
+        return { element: wrap(select), get: () => (select.value === "" ? undefined : select.value === "true") };
       }
       if (type === "boolean") {
         // `x-schema-form.invert`: the switch shows the opposite of the value, for a key that turns something off
@@ -3555,9 +3548,69 @@
           return next || present ? next : undefined;
         } };
       }
+      if ((type === "integer" || type === "number") && property["x-schema-form"]?.type === "slider" && window.HomeswiftWidgets?.level) {
+        // A brightness or a colour temperature as the widgets' slider (`x-schema-form`: `type: "slider"`, `track`
+        // "white" or "brightness", `unit`, and `min`/`max` when the slider spans less than the schema allows). Unset,
+        // it rests on the default, dimmed, and says so; Use the default clears a value.
+        const look = property["x-schema-form"];
+        const min = look.min ?? property.minimum ?? 0, max = look.max ?? property.maximum ?? 100;
+        const step = look.step ?? property.multipleOf ?? 1;
+        const format = (v) => (look.unit ? `${v} ${look.unit}` : String(v));
+        const shown = fallback ?? property.default;
+        let chosen = typeof current === "number" ? current : undefined;
+        const slider = HomeswiftWidgets.level({ label: title, showLabel: false, min, max, step, format,
+          gradient: look.track === "white" ? HomeswiftWidgets.whiteTrack(min, max) : undefined,
+          fill: look.track === "brightness" ? HomeswiftWidgets.brightnessFill() : undefined }, (v) => { chosen = v; paint(); changed(); });
+        const reset = el("button", { type: "button", class: "link", text: t("Use the default"), onclick: () => { chosen = undefined; paint(); changed(); slider.node.focus(); } });
+        const element = el("div", { class: "field slider-field" }, el("span", { class: "field-title", text: title }), slider.node, help, reset);
+        const changed = () => { element.dispatchEvent(new Event("input", { bubbles: true })); element.dispatchEvent(new Event("change", { bubbles: true })); };
+        function paint() {
+          const unset = chosen === undefined;
+          slider.set(unset ? (typeof shown === "number" ? shown : min) : chosen);
+          slider.node.classList.toggle("unset", unset);
+          if (unset) {
+            const words = defaultText(typeof shown === "number" ? format(shown) : null);
+            slider.node.querySelector(".level-text").textContent = words;
+            slider.node.setAttribute("aria-valuetext", words);
+          }
+          reset.hidden = unset;
+        }
+        paint();
+        return { element, get: () => chosen };
+      }
       if (type === "integer" || type === "number") {
-        const input = el("input", { type: "number", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
+        const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
+      }
+      if (type === "object" && !property.properties) {
+        // A map (`additionalProperties`, such as a light's parts by id): a row per entry, its key and its value as the
+        // map's values are declared (text when they are not).
+        const values = property.additionalProperties && typeof property.additionalProperties === "object" ? property.additionalProperties : { type: "string" };
+        const list = el("div", { class: "map-rows" });
+        const rows = [];
+        const changed = () => { list.dispatchEvent(new Event("input", { bubbles: true })); list.dispatchEvent(new Event("change", { bubbles: true })); };
+        const addRow = (entryKey = "", entryValue = undefined) => {
+          const name = el("input", { type: "text", value: entryKey, placeholder: t("Key"), "aria-label": t("Key"), autocomplete: "off", spellcheck: false });
+          // The value without a title of its own: the row is the entry, the key beside it says which.
+          const f = field("", { ...values, title: undefined, description: undefined }, entryValue, false);
+          f.element.querySelector("input, select")?.setAttribute("aria-label", t("Value"));
+          const entry = { get: () => [name.value.trim(), f.get()] };
+          const row = el("div", { class: "map-row" });
+          const remove = el("button", { type: "button", actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); changed(); } });
+          row.append(name, f.element, remove);
+          rows.push(entry);
+          list.append(row);
+          return name;
+        };
+        const entries = current && typeof current === "object" && !Array.isArray(current) ? Object.entries(current) : [];
+        for (const [entryKey, entryValue] of entries) addRow(entryKey, entryValue);
+        const element = el("fieldset", { class: "map-field" }, el("legend", { text: title }), help, list,
+          el("button", { type: "button", actionIcon: "plus", text: t("Add"), onclick: () => addRow().focus() }));
+        // Own keys only, whatever they are called (Object.fromEntries defines each, `__proto__` included).
+        return { element, get: () => {
+          const kept = rows.map((row) => row.get()).filter(([entryKey, entryValue]) => entryKey && entryValue !== undefined);
+          return kept.length ? Object.fromEntries(kept) : undefined;
+        } };
       }
       if (type === "object" && property.properties) {
         const nested = buildObject(property, current || {}, index);
@@ -3565,11 +3618,44 @@
       }
       if (type === "array") {
         const items = property.items || { type: "string" };
+        // A list of choices (`items` an `enum`, or a `oneOf` of them) is a set of checkboxes, written in the choices'
+        // order, unless `uniqueItems: false` lets a choice come twice; a value config.json has that is not a choice
+        // stays, ticked.
+        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) }))
+          : Array.isArray(items.enum) ? items.enum.map((v) => ({ value: v, title: String(v) })) : null;
+        if (choices && property.uniqueItems !== false) {
+          const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+          const chosen = Array.isArray(current) ? current : [];
+          for (const value of chosen) if (!choices.some((choice) => same(choice.value, value))) choices.push({ value, title: String(value) });
+          const boxes = choices.map((choice) => ({ choice, input: el("input", { type: "checkbox", checked: chosen.some((value) => same(value, choice.value)) }) }));
+          const element = el("fieldset", { class: "choice-set" }, el("legend", { text: title }), help,
+            el("div", { class: "choices" }, boxes.map(({ choice, input }) => el("label", { class: "check" }, input, el("span", { text: choice.title })))));
+          return { element, get: () => {
+            const v = boxes.filter(({ input }) => input.checked).map(({ choice }) => choice.value);
+            return v.length || current !== undefined ? v : undefined;
+          } };
+        }
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
+        const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
+        const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
         const list = el("div", {});
         const rows = [];
+        // A move or a removal is a change as an edit is: the settings sheet saves on `change`.
+        const changed = () => { list.dispatchEvent(new Event("input", { bubbles: true })); list.dispatchEvent(new Event("change", { bubbles: true })); };
+        /// The rows in their order again, after a move: each Move button turned off at its end, an unnamed row renumbered.
+        const ordered = () => rows.forEach((row, index) => row.placed?.(index));
+        const move = (entry, by) => {
+          const from = rows.indexOf(entry), to = from + by;
+          if (to < 0 || to >= rows.length) return;
+          rows.splice(from, 1);
+          rows.splice(to, 0, entry);
+          list.insertBefore(entry.node, by < 0 ? rows[to + 1].node : rows[to - 1].node.nextSibling);
+          ordered();
+          changed();
+        };
         const addRow = (itemValue) => {
           const entry = {};
           if (items.type === "object" && items.properties) {
@@ -3579,26 +3665,46 @@
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
               const value = nested.getValue();
-              name.textContent = value.name || value.displayName || `${noun ?? title} ${rows.indexOf(entry) + 1}`;
-              detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
+              name.textContent = rowTitle(value) ?? `${noun ?? title} ${rows.indexOf(entry) + 1}`;
+              detail.textContent = [value.ip || value.host, value.mac].filter((text) => text && text !== name.textContent).join(" · ");
+              up.setAttribute("aria-label", t("Move {name} up", { name: name.textContent }));
+              down.setAttribute("aria-label", t("Move {name} down", { name: name.textContent }));
             };
+            // Up and down: the order of a list counts (a TV's sources as its input menu shows them). A click on them
+            // does not open or close the row.
+            const mover = (glyph, by, tip) => {
+              const button = el("button", { type: "button", class: "icon-button entry-move", title: tip }, HomeswiftCommon.icon(glyph));
+              button.addEventListener("click", (event) => { event.preventDefault(); move(entry, by); button.focus(); });
+              return button;
+            };
+            const up = mover("up", -1, t("Move up"));
+            const down = mover("down", 1, t("Move down"));
             const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
+              el("summary", {}, name, detail, up, down, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
                 event.preventDefault();
                 row.remove();
                 rows.splice(rows.indexOf(entry), 1);
-                list.dispatchEvent(new Event("input", { bubbles: true }));
+                ordered();
+                changed();
               } })),
               nested.element);
             nested.element.addEventListener("input", describe);
             entry.get = nested.getValue;
+            entry.node = row;
+            entry.placed = (index) => {
+              up.disabled = index === 0;
+              down.disabled = index === rows.length - 1;
+              describe();
+            };
             rows.push(entry);
             list.append(row);
-            describe();
+            // Only the row before it changes (its Move down turns on): not every row again for each one a list opens with.
+            rows.at(-2)?.placed?.(rows.length - 2);
+            entry.placed(rows.length - 1);
             return;
           }
           const row = el("div", { class: "item" });
-          const remove = el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
+          const remove = el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); changed(); } });
           {
             const f = field("", items, itemValue, false);
             row.append(el("div", { class: "item-head" }, f.element, remove));
@@ -3612,7 +3718,7 @@
           el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
-      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
+      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
       // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
       if (isSecretKey(key)) return secretField(wrap, input);
@@ -3675,26 +3781,62 @@
       } };
     }
 
+    // What Find a setting looks through: each top-level field with its title, help and key.
+    const searchable = [];
     const render = (key) => {
       const property = properties[key];
       if (!property || fields.has(key)) return null;
-      const f = field(key, property, value[key], requiredTop.has(key) || property.required === true);
+      const fallback = defaults && key in defaults ? defaults[key] ?? null : undefined;
+      const f = field(key, property, value[key], requiredTop.has(key) || property.required === true, undefined, fallback);
       fields.set(key, f);
+      searchable.push({ element: f.element, text: [tr(property.title), tr(property.description), key].filter(Boolean).join(" ").toLowerCase() });
+      if (onCommit) {
+        // Its saved or error state, quiet, after its title.
+        const state = el("span", { class: "field-state", role: "status", "aria-live": "polite" });
+        (f.element.querySelector(".field-title") ?? f.element).append(state);
+        f.element.addEventListener("change", () => onCommit(key, f.get(), state));
+      }
       return f.element;
     };
-    const layoutItem = (item) => {
-      if (typeof item === "string") return item === "*" ? Object.keys(properties).map(render) : render(item);
-      if (item && item.key) { const node = render(item.key); if (item.condition) watch(node, item.condition); return node; }
+    // A closed group says what it holds: its number of settings, and how many have a value of their own.
+    const groupCounts = [];
+    /// `keys` gathers the top-level keys the item draws, for its group's count; `depth` is how deep in groups it sits.
+    const layoutItem = (item, depth = 0, keys = []) => {
+      const drawn = (key) => { const node = render(key); if (node) keys.push(key); return node; };
+      if (typeof item === "string") return item === "*" ? Object.keys(properties).map(drawn) : drawn(item);
+      if (item && item.key) { const node = drawn(item.key); if (item.condition) watch(node, item.condition); return node; }
       if (item && Array.isArray(item.items)) {
-        let inner = item.items.map(layoutItem).flat().filter(Boolean);
+        const own = [];
+        let inner = item.items.map((child) => layoutItem(child, depth + 1, own)).flat().filter(Boolean);
+        keys.push(...own);
         if (!inner.length) return null;
         // A group holding one object of its own name (Budget in Budget) shows the object's fields, not a box titled
         // again inside it.
         const only = inner.length === 1 && inner[0].tagName === "FIELDSET" ? inner[0] : null;
         if (only && item.title && only.querySelector(":scope > legend")?.textContent === tr(item.title)) inner = [...only.children].filter((child) => child.tagName !== "LEGEND");
-        const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") })), el("div", { class: "fields" }, ...inner))
-          : el("div", { class: "fields" }, ...inner);
+        const help = item.description ? el("p", { class: "help group-help", text: tr(item.description) }) : null;
+        let node;
+        if (depth > 0 && item.title && !item.expandable) {
+          // A group in a group is a heading over its fields, not a box in a box.
+          // A group of switches only (one per kind of detection), explained by its heading, sits in columns: each one's
+          // own words are its tooltip, and still what a screen reader says of it.
+          const compact = Boolean(item.description) && inner.every((child) => child.matches?.(".toggle"));
+          if (compact) for (const child of inner) {
+            const words = child.querySelector(".help");
+            if (!words) continue;
+            child.title = words.textContent;
+            words.classList.add("visually-hidden");
+          }
+          node = el("div", { class: `form-subgroup${compact ? " compact" : ""}` }, el("h4", { text: tr(item.title) }), help, el("div", { class: "fields" }, ...inner));
+        } else if (item.type === "fieldset" || item.title) {
+          const count = el("span", { class: "group-count" });
+          // Only a group that closes says it; a list alone (a controller's entries) is no count of settings.
+          if (item.expandable && own.some((key) => properties[key]?.type !== "array")) groupCounts.push({ count, keys: own });
+          node = el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false },
+            el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") }), count), help, el("div", { class: "fields" }, ...inner));
+        } else {
+          node = el("div", { class: "fields" }, ...inner);
+        }
         watch(node, item.condition);
         return node;
       }
@@ -3733,11 +3875,58 @@
         if (control) control.required = needed;
       }
     };
+    const countGroups = () => {
+      if (!groupCounts.length) return;
+      const model = getValue();
+      for (const { count, keys } of groupCounts) {
+        // Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
+        const set = keys.filter((key) => isSet(model[key]) && JSON.stringify(model[key]) !== JSON.stringify(properties[key]?.default)).length;
+        const one = keys.length === 1;
+        count.textContent = set ? (one ? t("1 setting · {set} set", { set }) : t("{count} settings · {set} set", { count: keys.length, set }))
+          : one ? t("1 setting") : t("{count} settings", { count: keys.length });
+      }
+    };
     container.addEventListener("input", applyConditions);
     container.addEventListener("change", applyConditions);
+    container.addEventListener("change", countGroups);
     container.addEventListener("click", () => setTimeout(applyConditions, 0));   // rows added or removed
     applyConditions();
-    return { element: container, getValue };
+    countGroups();
+    // Many settings: a search over them, which opens the groups that hold a match and leaves the rest out of sight.
+    if (searchable.length < 15) return { element: container, getValue };
+    const query = el("input", { type: "search", placeholder: t("Find a setting"), "aria-label": t("Find a setting"), autocomplete: "off", spellcheck: false });
+    const none = el("p", { class: "muted form-search-none hidden", role: "status", text: t("No setting matches.") });
+    const groups = () => container.querySelectorAll("details.group-box, details.more-options, .form-subgroup");
+    let opened = null;
+    const filter = () => {
+      const words = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      // The groups open as the person left them once the search is cleared.
+      if (words.length && !opened) opened = new Map([...container.querySelectorAll("details")].map((node) => [node, node.open]));
+      let shown = 0;
+      for (const { element, text } of searchable) {
+        const miss = words.length > 0 && !words.every((word) => text.includes(word));
+        element.classList.toggle("search-miss", miss);
+        if (!miss) shown++;
+      }
+      for (const group of groups()) {
+        const any = [...group.querySelectorAll(".field, .toggle, fieldset")].some((node) => !node.closest(".search-miss"));
+        group.classList.toggle("search-miss", words.length > 0 && !any);
+        if (words.length && group.tagName === "DETAILS") group.open = any;
+      }
+      if (!words.length && opened) { for (const [node, open] of opened) node.open = open; opened = null; }
+      none.classList.toggle("hidden", !words.length || shown > 0);
+    };
+    // Not a change of the form: its listeners (a save bar, a field's save) never hear it.
+    for (const type of ["input", "change"]) query.addEventListener(type, (event) => event.stopPropagation());
+    query.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    query.addEventListener("input", filter);
+    query.classList.add("form-search");
+    const element = el("div", { class: "form-with-search" }, query, none, container);
+    return { element, getValue };
   }
 
   // ---- Password strength ---------------------------------------------------
@@ -3974,15 +4163,42 @@
     };
     dialog.append(el("div", { class: "sheet-grabber", "aria-hidden": "true" }), build(dismiss));
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); dismiss(); });   // Escape
+    // A click on the dimmed page around it closes it as Escape does: pressed and let go there, so a selection dragged
+    // out of the sheet does not.
+    const outside = (event) => {
+      if (event.target !== dialog) return false;
+      const box = dialog.getBoundingClientRect();
+      return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    };
+    let pressedOutside = false;
+    dialog.addEventListener("pointerdown", (event) => { pressedOutside = outside(event); });
+    dialog.addEventListener("click", (event) => {
+      if (pressedOutside && outside(event)) dismiss();
+      pressedOutside = false;
+    });
     dialog.addEventListener("close", () => {
       dialog.remove();
       if (onClose) onClose(result);
       else if (returnFocus?.isConnected) returnFocus.focus();
     });
     HomeswiftCommon.dragToDismiss(dialog, { vertical, dismiss, handle: ".sheet-grabber, .account-form > h2" });
+    // A touch screen's keyboard would rise over a field focused as the sheet opens, the page scrolling under it: the
+    // sheet takes the focus itself there, and a field the person taps brings the keyboard.
+    const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
+    if (touch) dialog.autofocus = true;
+    // While a keyboard is up, the sheet keeps to what is still visible (the visual viewport) rather than the page
+    // scrolling to show the field.
+    const viewport = window.visualViewport;
+    const fit = () => {
+      dialog.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
+      dialog.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    dialog.addEventListener("close", () => { viewport?.removeEventListener("resize", fit); viewport?.removeEventListener("scroll", fit); });
     document.body.append(dialog);
     dialog.showModal();
-    $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
+    if (!touch) $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
     return dialog;
   }
 
@@ -4817,7 +5033,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
