@@ -135,6 +135,22 @@ struct PluginTests {
         await host.stop()
     }
 
+    @Test func aSpoofedAnnouncementDoesNotMoveAPlayer() async throws {
+        let host = try await started()
+        let plugin = try #require(environment.plugin)
+        // Another host announces the Living Room's id; its address does not answer as the Living Room.
+        environment.discovery.continuation.yield(DiscoveryHit(id: Fixtures.livingRoom, address: "192.168.1.66", household: Fixtures.household))
+        let asked = await eventually { await plugin.players[Fixtures.livingRoom] != nil }
+        #expect(asked)
+        // The Garden's address answers as the Garden, not the Living Room: no move either.
+        environment.discovery.continuation.yield(DiscoveryHit(id: Fixtures.livingRoom, address: "192.168.1.13", household: Fixtures.household))
+        try await sonos(host, living).characteristic(.mute).write(.bool(true))
+        #expect(await eventually { environment.sonos.calls("SetGroupMute").count == 1 })
+        #expect(environment.sonos.calls("SetGroupMute").first?.address == "192.168.1.10")
+        #expect(await plugin.players[Fixtures.livingRoom]?.client.address == "192.168.1.10")
+        await host.stop()
+    }
+
     @Test func speakersAndBalance() async throws {
         let host = try await started(["speakers": true])
         let speakers = try #require(host.accessory(living)?.service(.switch, subtype: "zone"))

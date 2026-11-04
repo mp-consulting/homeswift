@@ -186,9 +186,11 @@ public actor SonosPlugin: HomeswiftPlugin {
             return
         }
         guard var player = players[hit.id] else { return }
-        if player.client.move(to: hit.address) {
-            logger.warning("\(name(of: hit.id)): now at \(hit.address)")
-            saveKnown()
+        if player.client.address != hit.address {
+            // A known player moves only once the new address answers as that player: anyone on the network can
+            // announce a player's id.
+            verifyMove(hit.id, to: hit.address)
+            return
         }
         if let household = hit.household, household != player.household { player.household = household }
         let rebooted = hit.bootSeq.map { new in player.bootSeq.map { new > $0 } ?? false } ?? false
@@ -198,6 +200,22 @@ public actor SonosPlugin: HomeswiftPlugin {
         seen(hit.id)
         if rebooted, let previousBoot, let bootSeq = hit.bootSeq { reboot(hit.id, from: previousBoot, to: bootSeq) }
         if !player.probed, !player.probing { probe(hit.id) }
+    }
+
+    /// Moves the player's client to `address` when the device description there names the same player.
+    private func verifyMove(_ id: String, to address: String) {
+        let probe = PlayerClient(id: id, address: address, http: dependencies.http, timeout: .seconds(settings.timeout))
+        tasks.add { [weak self] in
+            guard let description = try? await probe.deviceDescription(), description.id == id else { return }
+            await self?.moved(id, to: address)
+        }
+    }
+
+    private func moved(_ id: String, to address: String) {
+        guard let client = players[id]?.client, client.move(to: address) else { return }
+        logger.warning("\(name(of: id)): now at \(address)")
+        saveKnown()
+        seen(id)
     }
 
     private func probe(_ id: String) {
