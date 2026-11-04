@@ -16,6 +16,7 @@ import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftRing
 import HomeswiftSonos
 import HomeswiftTuya
 import HomeswiftSwitchBot
@@ -66,5 +67,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(Zigbee2MQTTPlugin.self)
     registry.register(TapoPlugin.self)
     registry.register(HTTPWebhooksPlugin.self)
+    registry.register(RingPlugin.self)
     return registry
 }

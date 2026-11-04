@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Ring plugin (platform `Ring`, a clean-room implementation compatible with homebridge-ring's configuration): the alarm, Smart Lighting and their sensors over each location's socket, cameras and doorbells with snapshots, motion and rings by push, chimes, intercoms and location modes; signed in through Setup with the 2FA code. `HomeswiftNetwork` gains `FCMReceiver`, an FCM web-push receiver.
 - The IP Cameras plugin (`Camera-ffmpeg`, experimental): IP cameras over RTSP, HTTP snapshots or MJPEG in HomeKit
   through FFmpeg, each on its own accessory, with snapshots, live streams, two-way audio, HomeKit Secure Video with a
   prebuffer, and a motion sensor, a doorbell and trigger switches driven over MQTT or an HTTP API; it reads
