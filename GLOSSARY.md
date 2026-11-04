@@ -104,13 +104,19 @@ One of the kinds of Authorization the bridge knows how to ask a person or an age
 Code, Account Login, Browser Redirect or API Key.
 _Avoid_: Pairing type, auth mode
 
+**Optional Account**:
+A plugin instance's account that its devices work without, which adds something (a password on a webhook server). Left
+alone, it does not Need Authorization.
+_Avoid_: Optional login, optional sign-in
+
 **Setup Session**:
 One Setup in progress, held by the bridge rather than the plugin, so a plugin reloading does not lose it.
 _Avoid_: Pairing session, wizard
 
 **Needs Authorization**:
-A Discovered Device or an accessory whose Authorization is missing or no longer works. Setting it up again keeps its
-Accessory Id and Accessory Settings.
+A Discovered Device, an accessory or a plugin instance's account whose Authorization is missing or no longer works
+(refused). Setting it up again keeps its Accessory Id and Accessory Settings. A plugin instance whose account Needs
+Authorization is not shown as running: its card says what it needs (Needs sign-in, Needs pairing, Needs keys).
 _Avoid_: Unpaired, broken, offline
 
 **Forget**:

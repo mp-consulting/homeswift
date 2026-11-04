@@ -6,6 +6,7 @@ import HomeswiftEWeLink
 import HomeswiftEcoFlow
 import HomeswiftElgatoKeyLights
 import HomeswiftGovee
+import HomeswiftHTTPWebhooks
 import HomeswiftLGThinQ
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
@@ -37,5 +38,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
     registry.register(TapoPlugin.self)
+    registry.register(HTTPWebhooksPlugin.self)
     return registry
 }

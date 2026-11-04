@@ -1310,12 +1310,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// What the graph shows: the search's words (each in what the Accessories page searches, the accessory's type, maker,
-  /// platform or bridge) and the chosen bridges, device types and unavailable ones. Null when nothing narrows it.
-  function overviewFilter({ text = "", bridges = new Set(), categories = new Set(), unavailable = false }) {
+  /// platform or bridge) and the chosen controller mirrored from, bridges, device types and unavailable ones. Null when
+  /// nothing narrows it.
+  function overviewFilter({ text = "", from = null, bridges = new Set(), categories = new Set(), unavailable = false }) {
     const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length && !bridges.size && !categories.size && !unavailable) return null;
+    if (!words.length && !from && !bridges.size && !categories.size && !unavailable) return null;
     return {
       keeps(leaf) {
+        if (from && leaf.mirroredFrom !== from) return false;
         if (bridges.size && !bridges.has(leaf.bridge)) return false;
         if (categories.size && !categories.has(leaf.category)) return false;
         if (unavailable && !leaf.unavailable) return false;
@@ -1667,7 +1669,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
     const { status, plugins, accessories: all, matter } = model.source;
-    const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
+    const chosen = { from: null, bridges: new Set(), categories: new Set(), unavailable: false };
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
     const count = el("span", { class: "overview-count muted", role: "status" });
@@ -1675,12 +1677,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("p", { class: "muted", text: t("No accessories match the current search.") }));
     frame.append(empty);
     const table = el("div");
-    const active = () => chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
+    const active = () => Number(Boolean(chosen.from)) + chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
     const filterOf = (except = {}) => overviewFilter({ text: search.value, ...chosen, ...except });
     // How many accessories a menu choice would show, with the search and the other choices as they are.
     const matching = (except) => { const filter = filterOf(except); return filter ? all.filter(filter.keeps).length : all.length; };
     const clear = HomeswiftCommon.clearFilters([[search, ""]], { active: () => active() > 0,
-      reset: () => { chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
+      reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
       const filter = filterOf();
@@ -1713,7 +1715,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
     const bridgeNames = (status.bridges ?? []).map((bridge) => bridge.name);
     const categories = [...new Set(all.map((one) => one.category))].sort((a, b) => categoryName(a).localeCompare(categoryName(b), locale));
+    // The controllers some accessories mirror (Apple Home, through Wingman), as on the wall.
+    const sources = [...new Set(all.map((one) => one.mirroredFrom).filter(Boolean))];
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: matching({ from: source }), checked: chosen.from === source,
+        checkbox: true, toggle: true, icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
+        onSelect: () => { chosen.from = chosen.from === source ? null : source; redraw(); } })),
       { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
         onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
@@ -1857,7 +1864,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction, categoryName, deviceIcon };
 })();
 
 """#),
@@ -3811,7 +3818,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
-    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused));
+    // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
+    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
+    const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
+      .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
+    const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
+      type: new Set(params.getAll("type").filter((category) => categories.includes(category))) };
+    const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
+      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category));
+    const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused);
+    const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
@@ -4427,7 +4443,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse);
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + chosen.bridge.size + chosen.type.size;
+    // A bridge or device type: a toggle in the address, counting what it would add with the other filters as they are.
+    const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
+      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && (key === "bridge" ? accessory.bridge : accessory.category) === value),
+      onSelect: () => {
+        const next = new URLSearchParams(location.search);
+        const values = new Set(chosen[key]);
+        if (!values.delete(value)) values.add(value);
+        next.delete(key);
+        for (const one of values) next.append(key, one);
+        navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+      } });
     const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
       HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
@@ -4436,12 +4463,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         onSelect: () => changeFilter("from", source, from !== source) })),
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
+      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
+      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
         if (activeFilters) {
           const next = new URLSearchParams(location.search);
-          for (const key of ["from", "hidden", "unavailable"]) next.delete(key);
+          for (const key of ["from", "hidden", "unavailable", "bridge", "type"]) next.delete(key);
           navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
         } else filter();
       } },
@@ -4614,9 +4643,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+            : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
+            : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
+          el("div", { class: "plugin-card-actions" }, instance?.needsAuthorization ? setUpButton(block, plugin, instance)
+            : el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }),
+          menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
+
+    /// What a card whose account Needs Authorization offers first: its Setup, in a sheet over the list.
+    const setUpButton = (block, plugin, instance) => el("button", { type: "button", class: "primary", actionIcon: "pair",
+      text: instance.accountState === "notSetUp" ? t("Set up") : t("Set up again"),
+      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after: () => route() }) });
 
     /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
@@ -4697,7 +4735,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Homeswift Matter); any other, its own name.
   const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter" };
   const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
+  /// Running is green only when its devices can work: an account that Needs Authorization says what it needs ("Needs
+  /// sign-in"), and a plugin none of whose accessories responds says so.
   const blockState = (block, plugin, instance) => block.system ? [t("Built in"), "standby"] : instance?.paused ? [t("Paused"), "paused"]
+    : instance?.needsAuthorization ? [HomeswiftSetup.accountState(plugin?.accountAuthorization) ?? t("Needs setup"), "away"]
+    : instance?.noneResponding ? [t("Not responding"), "away"]
     : instance ? [t("Running"), "on"] : plugin ? [t("Not running"), "away"] : [t("No plugin"), "away"];
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
@@ -5439,8 +5481,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           }
           reset.hidden = unset;
         }
-        container.addEventListener("change", () => { followDefault(); paint(); });
-        queueMicrotask(() => { followDefault(); paint(); });
         paint();
         return { element, get: () => chosen };
       }
@@ -12734,6 +12774,10 @@ HomeswiftI18n.add("es", {
   "Door locks, hubs and readers, followed in real time": "Cerraduras, hubs y lectores de puerta, seguidos en tiempo real",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Cámaras y timbres con HomeKit Secure Video, sensores y luces",
   "Apple Home's accessories in Homeswift, through a Mac": "Los accesorios de la app Casa en Homeswift, a través de un Mac",
+  "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores y cerraduras virtuales controlados por webhooks",
+  "A user name cannot contain a colon (:)": "Un nombre de usuario no puede contener dos puntos (:)",
+  "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Elige el nombre de usuario y la contraseña que debe dar cada webhook (autenticación HTTP Basic).",
+  "Webhook accessories are the block's entries: they need no setup of their own": "Los accesorios de webhooks son las entradas del bloque: no necesitan configuración propia",
   "Not started": "Sin iniciar",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter necesita IPv6 y esta máquina no lo tiene. Activa IPv6 (en un Synology: Panel de control, Red, Interfaz de red) y reinicia homeswift.",
   "Matter could not start this device: {error}": "Matter no pudo iniciar este dispositivo: {error}",
@@ -15421,6 +15465,18 @@ HomeswiftI18n.add("es", {
   "Move down": "Bajar",
   "Move {name} up": "Subir {name}",
   "Move {name} down": "Bajar {name}",
+  "Needs pairing": "Requiere emparejamiento",
+  "Needs sign-in": "Requiere iniciar sesión",
+  "Needs keys": "Requiere claves",
+  "Refused": "Rechazado",
+  "The account refused what {plugin} had: set it up again to reach its devices.": "La cuenta rechazó lo que tenía {plugin}: configúrala de nuevo para llegar a sus dispositivos.",
+  "Its account refused its sign-in: set it up again.": "Su cuenta rechazó el inicio de sesión: configúrala de nuevo.",
+  "Its devices show once its account is set up.": "Sus dispositivos aparecen cuando su cuenta esté configurada.",
+  "None of its accessories responds: the log may say why.": "Ninguno de sus accesorios responde: el registro puede decir por qué.",
+  "Refused: what it had no longer works. Set it up again.": "Rechazado: lo que tenía ya no funciona. Configúrala de nuevo.",
+  "Optional and not set up. {adds}": "Opcional y sin configurar. {adds}",
+  "Its devices work without it.": "Sus dispositivos funcionan sin ella.",
+  "Its sign-in is kept in the vault, never in these settings.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes.",
 });
 
 """#),
@@ -15497,6 +15553,10 @@ HomeswiftI18n.add("fr", {
   "Door locks, hubs and readers, followed in real time": "Serrures, hubs et lecteurs de porte, suivis en temps réel",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Caméras et sonnettes avec HomeKit Secure Video, capteurs et éclairages",
   "Apple Home's accessories in Homeswift, through a Mac": "Les accessoires de l'app Maison dans Homeswift, via un Mac",
+  "Virtual sensors, switches and locks driven by webhooks": "Capteurs, interrupteurs et serrures virtuels pilotés par webhooks",
+  "A user name cannot contain a colon (:)": "Un nom d'utilisateur ne peut pas contenir de deux-points (:)",
+  "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Choisissez le nom d'utilisateur et le mot de passe que chaque webhook doit donner (authentification HTTP Basic).",
+  "Webhook accessories are the block's entries: they need no setup of their own": "Les accessoires à webhooks sont les entrées du bloc : ils n'ont pas besoin de configuration propre",
   "Not started": "Non démarré",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter a besoin d'IPv6, et cette machine n'en a pas. Activez IPv6 (sur un Synology : Panneau de configuration, Réseau, Interface réseau), puis redémarrez homeswift.",
   "Matter could not start this device: {error}": "Matter n'a pas pu démarrer cet appareil : {error}",
@@ -18184,6 +18244,18 @@ HomeswiftI18n.add("fr", {
   "Move down": "Descendre",
   "Move {name} up": "Monter {name}",
   "Move {name} down": "Descendre {name}",
+  "Needs pairing": "Jumelage requis",
+  "Needs sign-in": "Connexion requise",
+  "Needs keys": "Clés requises",
+  "Refused": "Refusé",
+  "The account refused what {plugin} had: set it up again to reach its devices.": "Le compte a refusé ce que {plugin} avait : configurez-le à nouveau pour joindre ses appareils.",
+  "Its account refused its sign-in: set it up again.": "Son compte a refusé sa connexion : configurez-le à nouveau.",
+  "Its devices show once its account is set up.": "Ses appareils apparaissent une fois son compte configuré.",
+  "None of its accessories responds: the log may say why.": "Aucun de ses accessoires ne répond : le journal peut indiquer pourquoi.",
+  "Refused: what it had no longer works. Set it up again.": "Refusé : ce qu'il avait ne fonctionne plus. Configurez-le à nouveau.",
+  "Optional and not set up. {adds}": "Facultatif, pas encore configuré. {adds}",
+  "Its devices work without it.": "Ses appareils fonctionnent sans lui.",
+  "Its sign-in is kept in the vault, never in these settings.": "Sa connexion est gardée dans le coffre, jamais dans ces réglages.",
 });
 
 """#),
@@ -18260,6 +18332,10 @@ HomeswiftI18n.add("pt", {
   "Door locks, hubs and readers, followed in real time": "Fechaduras, hubs e leitores de porta, acompanhados em tempo real",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Câmaras e campainhas com HomeKit Secure Video, sensores e luzes",
   "Apple Home's accessories in Homeswift, through a Mac": "Os acessórios da app Casa no Homeswift, através de um Mac",
+  "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores e fechaduras virtuais controlados por webhooks",
+  "A user name cannot contain a colon (:)": "Um nome de utilizador não pode conter dois pontos (:)",
+  "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Escolha o nome de utilizador e a palavra-passe que cada webhook tem de dar (autenticação HTTP Basic).",
+  "Webhook accessories are the block's entries: they need no setup of their own": "Os acessórios de webhooks são as entradas do bloco: não precisam de configuração própria",
   "Not started": "Não iniciado",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "O Matter precisa de IPv6 e esta máquina não o tem. Ative o IPv6 (num Synology: Painel de controlo, Rede, Interface de rede) e reinicie o homeswift.",
   "Matter could not start this device: {error}": "O Matter não conseguiu iniciar este dispositivo: {error}",
@@ -20947,6 +21023,18 @@ HomeswiftI18n.add("pt", {
   "Move down": "Descer",
   "Move {name} up": "Subir {name}",
   "Move {name} down": "Descer {name}",
+  "Needs pairing": "Requer emparelhamento",
+  "Needs sign-in": "Requer início de sessão",
+  "Needs keys": "Requer chaves",
+  "Refused": "Recusado",
+  "The account refused what {plugin} had: set it up again to reach its devices.": "A conta recusou o que {plugin} tinha: configure-a de novo para chegar aos dispositivos.",
+  "Its account refused its sign-in: set it up again.": "A conta recusou o início de sessão: configure-a de novo.",
+  "Its devices show once its account is set up.": "Os dispositivos aparecem quando a conta estiver configurada.",
+  "None of its accessories responds: the log may say why.": "Nenhum dos acessórios responde: o registo pode indicar porquê.",
+  "Refused: what it had no longer works. Set it up again.": "Recusado: o que tinha já não funciona. Configure-a de novo.",
+  "Optional and not set up. {adds}": "Opcional e não configurada. {adds}",
+  "Its devices work without it.": "Os dispositivos funcionam sem ela.",
+  "Its sign-in is kept in the vault, never in these settings.": "O início de sessão fica no cofre, nunca nestas definições.",
 });
 
 """#),
@@ -23418,19 +23506,51 @@ HomeswiftI18n.add("pt", {
     }, { report: (e) => { message.className = "error"; message.textContent = e.message; } }));
     revert.addEventListener("click", () => { if (form) build(saved); saved = asForm(); message.className = ""; update(); });
 
-    // The account, for a plugin that signs in: where it stands and Set up again, which opens Setup.
+    // The account, for a plugin that signs in: where it stands and Set up (again once it has been), which opens Setup.
+    // What the Plugins page knew draws it first; the discovery's answer then says where it stands now.
+    let accountState = null;
+    const accountLine = el("span", { class: "help account-state", text: t("Checking…") });
+    const accountButton = el("button", { type: "button", actionIcon: "pair", onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: () => devices.load() }) });
     const accountRow = accountMethod ? el("div", { class: "settings-row" },
       tile(accountMethod === "buttonPress" || accountMethod === "deviceCode" ? "pair" : accountMethod === "apiKey" ? "key" : "user", "orange"),
-      el("div", { class: "who" }, el("strong", { text: t("Account") }),
-        el("span", { class: "help account-state", text: t("Checking…") })),
-      el("button", { type: "button", actionIcon: "pair", text: t("Set up again"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, trigger: event.currentTarget, after: () => devices.load() }) })) : null;
+      el("div", { class: "who" }, el("strong", { text: t("Account") }), accountLine),
+      accountButton) : null;
+    const accountSection = accountRow ? section(t("Account"), " ", accountRow) : null;
+    const accountNote = accountSection?.querySelector(".settings-section-head .help");
+    /// Where the account stands (`state`, nil before anything says) and whether it Needs Authorization (the server's
+    /// `needsAuthorization`): in its row, its section's note and the header's state. The Plugins page's answer draws it
+    /// first, the discovery's once it comes.
+    const showAccount = (state, needs) => {
+      if (!accountRow) return;
+      accountState = state;
+      // Set up again only once there is something to set up again: a refused one too.
+      accountButton.textContent = !state || state === "notSetUp" ? t("Set up") : t("Set up again");
+      accountButton.classList.toggle("primary", needs);
+      accountNote.textContent = state === "notSetUp" ? t("Its sign-in is kept in the vault, never in these settings.")
+        : t("Its sign-in is kept in the vault, never in these settings: set it up again to change it.");
+      if (state) {
+        accountLine.textContent = state === "setUp" ? t("Set up")
+          : state === "refused" ? t("Refused: what it had no longer works. Set it up again.")
+          : plugin?.accountRequired !== false ? t("Not set up yet: its devices show once it is.")
+          : t("Optional and not set up. {adds}", { adds: plugin.accountAdds ? t(plugin.accountAdds) : t("Its devices work without it.") });
+        accountLine.dataset.tone = needs ? "away" : "";
+      }
+      // The header says it too: a Setup just done changes it.
+      if (instance) {
+        const [text, tone] = kit.blockState(block, plugin, { ...instance, accountState: state, needsAuthorization: needs });
+        statePill.className = `pill status ${tone}`;
+        statePill.textContent = text;
+      }
+    };
 
     // The devices of the instance, as Setup's discovery finds them.
-    const devices = devicesSection({ block, plugin, accountRow });
+    const devices = devicesSection({ block, plugin, accountRow, showAccount });
     const describe = form ? kit.describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current.settings; } },
       use: (value) => { build({ ...value }); formBox.dispatchEvent(new Event("input", { bubbles: true })); } }) : null;
 
     const [state, kind] = kit.blockState(block, plugin, instance);
+    const statePill = el("span", { class: `pill status ${kind}`, text: state });
+    showAccount(instance?.accountState ?? null, Boolean(instance?.needsAuthorization));
     kit.setLeaveGuard(Object.assign(async () => !dirty() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?")), { quiet: () => !dirty() }));
     app().show(main,
       app().breadcrumb([t("Plugins"), "/plugins"], ...(hasPage ? [[kit.blockTitle(block), `/plugins/${block.slug}`]] : []), [hasPage ? t("Settings") : kit.blockTitle(block)]),
@@ -23441,10 +23561,10 @@ HomeswiftI18n.add("pt", {
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" },
-          el("span", { class: `pill status ${kind}`, text: state }),
+          statePill,
           hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
       el("div", { class: "card plugin-settings" },
-        accountRow ? section(t("Account"), t("Its sign-in is kept in the vault, never in these settings: set it up again to change it."), accountRow) : null,
+        accountSection,
         el("section", { class: "settings-section" },
           el("div", { class: "settings-section-head" }, el("h3", { text: t("Settings") }), el("p", { class: "help", text: t("For {name} as a whole. A save reloads it once, its accessories kept.", { name: block.name }) })),
           // Describe your setup, a line of the section rather than a card of its own.
@@ -23478,7 +23598,7 @@ HomeswiftI18n.add("pt", {
   /// A plugin instance's Discovered Devices: each with where it stands and what can be done with it: a set-up one opens
   /// its settings, an Excluded one is included, one that Needs Authorization is set up again. `accountRow`'s state line
   /// says where the account stands once the plugin has answered.
-  function devicesSection({ block, plugin, accountRow }) {
+  function devicesSection({ block, plugin, accountRow, showAccount }) {
     const list = el("div", { class: "settings-devices", "aria-live": "polite" });
     const count = el("span", { class: "muted" });
     const again = el("button", { type: "button", class: "link", actionIcon: "search", text: t("Find again"), onclick: () => load() });
@@ -23495,11 +23615,10 @@ HomeswiftI18n.add("pt", {
       try {
         const found = await api("/api/setup/discover", { method: "POST", body: { platform: block.platform, name: block.name } });
         if (run !== loading) return;
-        const state = accountRow?.querySelector(".account-state");
-        if (state) state.textContent = found.accountSetUp ? t("Set up") : t("Not set up yet: its devices show once it is.");
+        showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && !found.accountSetUp ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -23525,7 +23644,7 @@ HomeswiftI18n.add("pt", {
         await reload();
       }) });
     } else if (device.status === "needsAuthorization") {
-      action = el("button", { type: "button", class: "primary", actionIcon: "pair", text: t("Set up again"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, device, trigger: event.currentTarget, after: reload }) });
+      action = el("button", { type: "button", class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, device, trigger: event.currentTarget, after: reload }) });
     } else if (opens) {
       // An icon and a label; at phone width the gear alone, round, so the name keeps the row.
       action = el("button", { type: "button", class: "settings-open", "aria-label": t("Settings of {name}", { name: device.name }), title: t("Settings of {name}", { name: device.name }),
@@ -23573,11 +23692,11 @@ HomeswiftI18n.add("pt", {
   };
   /// What the account's button says, by its Authorization Method.
   const accountActions = {
-    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair"],
-    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair"],
-    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user"],
-    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser"],
-    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key"],
+    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user", () => t("Needs sign-in")],
+    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser", () => t("Needs sign-in")],
+    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key", () => t("Needs keys")],
   };
   /// A device's status: its words and tone. Set up is the usual state, a quiet dot; the others say so in words.
   const statuses = {
@@ -23711,11 +23830,13 @@ HomeswiftI18n.add("pt", {
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
     const action = accountActions[plugin.accountAuthorization];
-    let accountSetUp = false;
+    // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
+    // work: an optional account left alone needs no one.
+    let accountState = "notSetUp", needsAccount = false;
     // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      action ? { label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) } : null,
+      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
     // The row opens and closes it; its menu sits beside the chevron.
@@ -23736,9 +23857,10 @@ HomeswiftI18n.add("pt", {
     const accountRow = () => el("div", { class: "setup-device setup-account" },
       tile(action[2], "orange"),
       el("div", { class: "who" }, el("strong", { text: methods[plugin.accountAuthorization][0]() }),
-        el("div", { class: "muted", text: t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
-      el("span", { class: "pill status away", text: statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, firstTime: true, trigger: event.currentTarget, after: load }) }));
+        el("div", { class: "muted", text: accountState === "refused" ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
+          : t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
+      el("span", { class: "pill status away", text: accountState === "refused" ? t("Refused") : statuses.needsAuthorization[0]() }),
+      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: load }) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -23755,28 +23877,29 @@ HomeswiftI18n.add("pt", {
       searching(true);
       try {
         const found = await post("discover", { platform: block.platform, name: block.name });
-        accountSetUp = found.accountSetUp;
+        accountState = found.accountState;
+        needsAccount = Boolean(action) && found.needsAuthorization;
         const needs = (device) => device.status === "needsAuthorization";
         const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
         // What the plugin found before a device's Setup: what is new after it came with that device (a console's cameras).
         const known = new Set(found.devices.map((device) => device.deviceID));
         const rows = waiting.map((device) => deviceRow(block, plugin, device, load, known));
-        if (action && !accountSetUp) rows.unshift(accountRow());
+        if (needsAccount) rows.unshift(accountRow());
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
-        if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: action && !accountSetUp
+        if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
           ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
         list.replaceChildren(...rows);
-        const attention = waiting.length + (action && !accountSetUp ? 1 : 0);
+        const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
           : settled.length ? [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ")
-          : action && !accountSetUp ? t("Not set up yet") : t("No devices found");
+          : needsAccount ? t("Not set up yet") : t("No devices found");
         summary.dataset.tone = attention ? "away" : "";
         node.classList.toggle("needs-you", attention > 0);
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
         // Asked for by the plugin's page: its account's sheet, once.
-        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
+        if (start && action) { start = false; open({ block, plugin, firstTime: accountState === "notSetUp", after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -24138,10 +24261,15 @@ HomeswiftI18n.add("pt", {
   }
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
-  /// Settings): `after()` once it is done.
-  const setUp = ({ block, plugin, device = null, trigger = null, after = () => {} }) => open({ block, plugin, device, trigger, after });
+  /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
+  /// lists what the plugin finds, as the Add accessories page does.
+  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
 
-  window.HomeswiftSetup = { view, resume, setUp };
+  /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
+  /// Method ("Needs sign-in"); nil for a plugin without an account.
+  const accountState = (method) => accountActions[method]?.[3]() ?? null;
+
+  window.HomeswiftSetup = { view, resume, setUp, accountState };
 })();
 
 """#),
@@ -27934,7 +28062,9 @@ select option:disabled { color: var(--muted); }
 .setup-instance-toggle .who { display: grid; gap: 2px; min-width: 0; }
 .setup-instance-toggle .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-instance-toggle .who .muted { font-size: var(--text-sm); }
-.setup-instance-toggle .who .muted[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+.setup-instance-toggle .who .muted[data-tone="away"], .settings-row .who .help.account-state[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+/* Where the account stands is a sentence to read, not a label: it wraps rather than losing its end. */
+.settings-row .who .help.account-state { white-space: normal; overflow: visible; text-overflow: clip; text-wrap-style: pretty; }
 @media (hover: hover) and (pointer: fine) { .setup-instance-head:has(.setup-instance-toggle:hover) { background: var(--material-thin); } }
 .setup-chevron { flex: none; width: 8px; height: 8px; margin: 0 var(--space-4); border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
   transform: rotate(-45deg); transition: transform 200ms var(--ease-out); cursor: pointer; }
