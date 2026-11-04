@@ -14,6 +14,8 @@ extension IPCamerasPlugin {
 
     /// The MQTT broker's user name and password, when it asks for them.
     public static var accountAuthorization: AuthorizationMethod { .accountLogin }
+    /// Optional: the cameras stream and snapshot without it; only MQTT's motion, doorbell and switches need the broker.
+    public static let accountRequirement = AccountRequirement.optional(adds: "Signs in to the MQTT broker that reports motion and doorbell presses.")
 
     /// The broker's password: the vault's, or the block's `passmqtt` until it moves there.
     var brokerPassword: String? {

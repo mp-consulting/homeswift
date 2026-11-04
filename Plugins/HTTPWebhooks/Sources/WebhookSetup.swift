@@ -7,6 +7,8 @@ import HomeswiftPlugin
 // config.json; a Homebridge block's `http_auth_user` and `http_auth_pass` still work, and go from it once Setup ran.
 extension HTTPWebhooksPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
+    /// Optional: without it the webhooks answer anyone on the network, as a Homebridge block without `http_auth_user` does.
+    public static let accountRequirement = AccountRequirement.optional(adds: "Protects the webhooks with a user name and password.")
 
     /// The Basic credentials: Setup's in the vault first, else the block's.
     var credentials: (user: String, password: String)? {
