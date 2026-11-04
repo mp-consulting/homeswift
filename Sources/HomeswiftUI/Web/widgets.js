@@ -2180,6 +2180,12 @@
   window.HomeswiftWidgets = {
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// The widgets' slider, for a settings form's brightness or colour temperature (`x-schema-form.type: "slider"`).
+    level,
+    /// A colour temperature track from `low` to `high` kelvin, warm to cool, as a light's white slider has.
+    whiteTrack: (low, high) => `linear-gradient(90deg, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})`,
+    /// A brightness slider's fill in a neutral white, for a light the form has no colour of.
+    brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
     /// paused plugin's camera, a device not set up yet); undefined for a kind none fits.
     deviceIcon: (device) => categoryIcons[device?.category]?.[0] ?? kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")],

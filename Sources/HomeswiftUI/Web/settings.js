@@ -191,26 +191,41 @@
       const nameField = el("label", { class: "field" }, el("span", { class: "field-title" }, nameTitle, nameState), name, nameHelp);
 
       // Room: one of the rooms, or a new name that adds it. Whether Apple Home follows, said beside it.
+      // Room: a pop-up menu of the rooms, the current one ticked, with No room and New room… (which adds one).
       const roomState = stateNode();
-      const listID = `rooms-${Math.random().toString(36).slice(2)}`;
-      const room = el("input", { type: "text", value: settings.room ?? "", maxLength: fields.room?.schema?.maxLength ?? 64, placeholder: t("No room"), autocomplete: "off", spellcheck: false });
-      room.setAttribute("list", listID);
       const roomNames = (home.rooms ?? []).map((one) => one.name);
-      const datalist = el("datalist", { id: listID }, roomNames.map((one) => el("option", { value: one })));
       const homeFollows = mirrored || home.syncRoomNames === true;
-      room.addEventListener("change", async () => {
-        const text = room.value.trim();
-        room.value = text;
+      const room = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu" });
+      const showRoom = () => {
+        room.textContent = settings.room || t("No room");
+        room.classList.toggle("placeholder", !settings.room);
+      };
+      const chooseRoom = async (text) => {
         if (text === (settings.room ?? "")) { setState(roomState, "", ""); return; }
         // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
-        if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) room.value = settings.room ?? "";
+        if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) showRoom();
+      };
+      room.addEventListener("click", (event) => {
+        const names = settings.room && !roomNames.includes(settings.room) ? [settings.room, ...roomNames] : roomNames;
+        HomeswiftCommon.menu(room, [
+          { label: t("No room"), checked: !settings.room, onSelect: () => chooseRoom("") },
+          names.length ? { separator: true } : null,
+          ...names.map((name) => ({ label: name, icon: "room", checked: name === settings.room, onSelect: () => chooseRoom(name) })),
+          { separator: true },
+          { label: t("New room…"), icon: "plus", pinned: true, onSelect: async () => {
+            const text = (await HomeswiftCommon.promptDialog(t("The new room's name."), ""))?.trim().replace(/\s+/g, " ");
+            if (text) await chooseRoom(text.slice(0, fields.room?.schema?.maxLength ?? 64));
+            room.focus();
+          } },
+        ], { keyboard: event.detail === 0, search: names.length > 8 ? t("Search rooms") : null });
       });
+      showRoom();
       const roomTitle = el("span", { text: t("Room") });
       const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
         : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
           : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") });
       describe(room, roomTitle, roomHelp, roomState);
-      const roomField = el("label", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, datalist, roomHelp);
+      const roomField = el("div", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, roomHelp);
 
       // Hidden and Not in Home: where it shows.
       const hidden = switchRow({ title: t("Hidden"), help: t("Off the wall; still in the Home app."), checked: settings.hidden === true,

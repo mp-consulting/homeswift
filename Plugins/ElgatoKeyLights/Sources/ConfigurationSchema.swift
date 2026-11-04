@@ -55,7 +55,12 @@ extension ElgatoKeyLightsPlugin {
         "placeholder": 20,
         "minimum": 0,
         "maximum": 100,
-        "description": "The brightness the lights switch on at with Restore default settings"
+        "description": "The brightness the lights switch on at with Restore default settings",
+        "x-schema-form": {
+          "type": "slider",
+          "track": "brightness",
+          "unit": "%"
+        }
       },
       "powerOnTemperature": {
         "title": "Default Power On Colour Temperature (in Kelvin)",
@@ -65,7 +70,15 @@ extension ElgatoKeyLightsPlugin {
         "minimum": 2900,
         "maximum": 7000,
         "step": 50,
-        "description": "The colour temperature the lights switch on at with Restore default settings"
+        "description": "The colour temperature the lights switch on at with Restore default settings",
+        "x-schema-form": {
+          "type": "slider",
+          "track": "white",
+          "unit": "K",
+          "min": 2900,
+          "max": 7000,
+          "step": 50
+        }
       },
       "switchOnDurationMs": {
         "title": "Switch On Duration (in milliseconds)",
@@ -154,7 +167,12 @@ extension ElgatoKeyLightsPlugin {
         "minimum": 0,
         "maximum": 100,
         "description": "This light's brightness with Restore default settings. Empty takes the plugin's setting.",
-        "x-default": "powerOnBrightness"
+        "x-default": "powerOnBrightness",
+        "x-schema-form": {
+          "type": "slider",
+          "track": "brightness",
+          "unit": "%"
+        }
       },
       "powerOnTemperature": {
         "title": "Default Temperature (K)",
@@ -162,7 +180,15 @@ extension ElgatoKeyLightsPlugin {
         "minimum": 0,
         "maximum": 7000,
         "description": "This light's colour temperature with Restore default settings, 2900 to 7000. Empty takes the plugin's setting; 0 keeps the light's own.",
-        "x-default": "powerOnTemperature"
+        "x-default": "powerOnTemperature",
+        "x-schema-form": {
+          "type": "slider",
+          "track": "white",
+          "unit": "K",
+          "min": 2900,
+          "max": 7000,
+          "step": 50
+        }
       }
     }
   },

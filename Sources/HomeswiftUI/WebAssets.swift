@@ -5412,6 +5412,36 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           return next || present ? next : undefined;
         } };
       }
+      if ((type === "integer" || type === "number") && property["x-schema-form"]?.type === "slider" && window.HomeswiftWidgets?.level) {
+        // A brightness or a colour temperature as the widgets' slider (`x-schema-form`: `type: "slider"`, `track`
+        // "white" or "brightness", `unit`, and `min`/`max` when the slider spans less than the schema allows). Unset,
+        // it rests on the default, dimmed, and says so; Use the default clears a value.
+        const look = property["x-schema-form"];
+        const min = look.min ?? property.minimum ?? 0, max = look.max ?? property.maximum ?? 100;
+        const step = look.step ?? property.multipleOf ?? 1;
+        const format = (v) => (look.unit ? `${v} ${look.unit}` : String(v));
+        const shown = fallback ?? property.default;
+        let chosen = typeof current === "number" ? current : undefined;
+        const slider = HomeswiftWidgets.level({ label: title, showLabel: false, min, max, step, format,
+          gradient: look.track === "white" ? HomeswiftWidgets.whiteTrack(min, max) : undefined,
+          fill: look.track === "brightness" ? HomeswiftWidgets.brightnessFill() : undefined }, (v) => { chosen = v; paint(); changed(); });
+        const reset = el("button", { type: "button", class: "link", text: t("Use the default"), onclick: () => { chosen = undefined; paint(); changed(); slider.node.focus(); } });
+        const element = el("div", { class: "field slider-field" }, el("span", { class: "field-title", text: title }), slider.node, help, reset);
+        const changed = () => { element.dispatchEvent(new Event("input", { bubbles: true })); element.dispatchEvent(new Event("change", { bubbles: true })); };
+        function paint() {
+          const unset = chosen === undefined;
+          slider.set(unset ? (typeof shown === "number" ? shown : min) : chosen);
+          slider.node.classList.toggle("unset", unset);
+          if (unset) {
+            const words = defaultText(typeof shown === "number" ? format(shown) : null);
+            slider.node.querySelector(".level-text").textContent = words;
+            slider.node.setAttribute("aria-valuetext", words);
+          }
+          reset.hidden = unset;
+        }
+        paint();
+        return { element, get: () => chosen };
+      }
       if (type === "integer" || type === "number") {
         const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
@@ -13864,6 +13894,10 @@ HomeswiftI18n.add("es", {
   "1 setting · {set} set": "1 ajuste · {set} definido",
   "{count} settings": "{count} ajustes",
   "{count} settings · {set} set": "{count} ajustes · {set} definidos",
+  "Use the default": "Usar el valor predeterminado",
+  "New room…": "Nueva habitación…",
+  "The new room's name.": "El nombre de la nueva habitación.",
+  "Search rooms": "Buscar habitaciones",
   "Find a setting": "Buscar un ajuste",
   "No setting matches.": "Ningún ajuste coincide.",
   "Motion": "Movimiento",
@@ -16618,6 +16652,10 @@ HomeswiftI18n.add("fr", {
   "1 setting · {set} set": "1 réglage · {set} défini",
   "{count} settings": "{count} réglages",
   "{count} settings · {set} set": "{count} réglages · {set} définis",
+  "Use the default": "Revenir à la valeur par défaut",
+  "New room…": "Nouvelle pièce…",
+  "The new room's name.": "Le nom de la nouvelle pièce.",
+  "Search rooms": "Chercher une pièce",
   "Find a setting": "Chercher un réglage",
   "No setting matches.": "Aucun réglage ne correspond.",
   "Motion": "Mouvement",
@@ -19372,6 +19410,10 @@ HomeswiftI18n.add("pt", {
   "1 setting · {set} set": "1 definição · {set} definida",
   "{count} settings": "{count} definições",
   "{count} settings · {set} set": "{count} definições · {set} definidas",
+  "Use the default": "Usar o valor predefinido",
+  "New room…": "Nova divisão…",
+  "The new room's name.": "O nome da nova divisão.",
+  "Search rooms": "Procurar divisões",
   "Find a setting": "Procurar uma definição",
   "No setting matches.": "Nenhuma definição corresponde.",
   "Motion": "Movimento",
@@ -23001,26 +23043,41 @@ HomeswiftI18n.add("pt", {
       const nameField = el("label", { class: "field" }, el("span", { class: "field-title" }, nameTitle, nameState), name, nameHelp);
 
       // Room: one of the rooms, or a new name that adds it. Whether Apple Home follows, said beside it.
+      // Room: a pop-up menu of the rooms, the current one ticked, with No room and New room… (which adds one).
       const roomState = stateNode();
-      const listID = `rooms-${Math.random().toString(36).slice(2)}`;
-      const room = el("input", { type: "text", value: settings.room ?? "", maxLength: fields.room?.schema?.maxLength ?? 64, placeholder: t("No room"), autocomplete: "off", spellcheck: false });
-      room.setAttribute("list", listID);
       const roomNames = (home.rooms ?? []).map((one) => one.name);
-      const datalist = el("datalist", { id: listID }, roomNames.map((one) => el("option", { value: one })));
       const homeFollows = mirrored || home.syncRoomNames === true;
-      room.addEventListener("change", async () => {
-        const text = room.value.trim();
-        room.value = text;
+      const room = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu" });
+      const showRoom = () => {
+        room.textContent = settings.room || t("No room");
+        room.classList.toggle("placeholder", !settings.room);
+      };
+      const chooseRoom = async (text) => {
         if (text === (settings.room ?? "")) { setState(roomState, "", ""); return; }
         // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
-        if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) room.value = settings.room ?? "";
+        if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) showRoom();
+      };
+      room.addEventListener("click", (event) => {
+        const names = settings.room && !roomNames.includes(settings.room) ? [settings.room, ...roomNames] : roomNames;
+        HomeswiftCommon.menu(room, [
+          { label: t("No room"), checked: !settings.room, onSelect: () => chooseRoom("") },
+          names.length ? { separator: true } : null,
+          ...names.map((name) => ({ label: name, icon: "room", checked: name === settings.room, onSelect: () => chooseRoom(name) })),
+          { separator: true },
+          { label: t("New room…"), icon: "plus", pinned: true, onSelect: async () => {
+            const text = (await HomeswiftCommon.promptDialog(t("The new room's name."), ""))?.trim().replace(/\s+/g, " ");
+            if (text) await chooseRoom(text.slice(0, fields.room?.schema?.maxLength ?? 64));
+            room.focus();
+          } },
+        ], { keyboard: event.detail === 0, search: names.length > 8 ? t("Search rooms") : null });
       });
+      showRoom();
       const roomTitle = el("span", { text: t("Room") });
       const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
         : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
           : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") });
       describe(room, roomTitle, roomHelp, roomState);
-      const roomField = el("label", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, datalist, roomHelp);
+      const roomField = el("div", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, roomHelp);
 
       // Hidden and Not in Home: where it shows.
       const hidden = switchRow({ title: t("Hidden"), help: t("Off the wall; still in the Home app."), checked: settings.hidden === true,
@@ -24546,6 +24603,15 @@ select {
   text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
 }
 select:focus:not(:focus-visible) { border-color: var(--edge); box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08); }
+/* A pop-up menu that looks like a select (an accessory's Room): the field's shape, its value, the chevron. */
+button.select-button {
+  display: block; width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer; touch-action: manipulation;
+  padding: var(--space-8) 34px var(--space-8) var(--space-12); border-radius: var(--radius-md); border: 1px solid var(--edge);
+  background: var(--field) var(--chevron) no-repeat right 13px center / 9px 14px; box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08);
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-weight: inherit;
+}
+button.select-button.placeholder { color: var(--muted); }
+button.select-button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
 select.popup {
   width: auto; border-radius: var(--radius-pill); padding: 7px 34px 7px 15px; font-weight: var(--weight-medium);
   background-color: var(--control); border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
@@ -28546,6 +28612,11 @@ input[type=search].form-search { width: 100%; margin: 0 0 var(--space-8); }
 .accessory-settings input[readonly] { background: transparent; border-color: var(--line); color: var(--muted); }
 .form-search-none { margin: var(--space-8) 0; }
 .search-miss { display: none !important; }
+/* A setting drawn as the widgets' slider: unset, it rests on the default, dimmed. */
+.slider-field > .level { margin: var(--space-4) 0; }
+.slider-field > .level.unset .level-fill, .slider-field > .level.unset .level-mark { opacity: 0.4; }
+.slider-field > .level.unset .level-text { color: var(--muted); font-weight: var(--weight-medium); }
+.slider-field > button.link { justify-self: start; padding: 0; font-size: var(--text-sm); }
 /* Describe your setup, a line at the head of the Settings section, the hairline under it the form's. */
 .plugin-settings details.describe-setup.card { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0 0 var(--space-12); margin: 0 0 var(--space-12); border-bottom: 1px solid var(--line); }
 .settings-row, .settings-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; }
@@ -30819,6 +30890,12 @@ self.addEventListener("notificationclick", (event) => {
   window.HomeswiftWidgets = {
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// The widgets' slider, for a settings form's brightness or colour temperature (`x-schema-form.type: "slider"`).
+    level,
+    /// A colour temperature track from `low` to `high` kelvin, warm to cool, as a light's white slider has.
+    whiteTrack: (low, high) => `linear-gradient(90deg, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})`,
+    /// A brightness slider's fill in a neutral white, for a light the form has no colour of.
+    brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
     /// paused plugin's camera, a device not set up yet); undefined for a kind none fits.
     deviceIcon: (device) => categoryIcons[device?.category]?.[0] ?? kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")],

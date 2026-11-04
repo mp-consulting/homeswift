@@ -569,6 +569,15 @@ select {
   text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
 }
 select:focus:not(:focus-visible) { border-color: var(--edge); box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08); }
+/* A pop-up menu that looks like a select (an accessory's Room): the field's shape, its value, the chevron. */
+button.select-button {
+  display: block; width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer; touch-action: manipulation;
+  padding: var(--space-8) 34px var(--space-8) var(--space-12); border-radius: var(--radius-md); border: 1px solid var(--edge);
+  background: var(--field) var(--chevron) no-repeat right 13px center / 9px 14px; box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08);
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-weight: inherit;
+}
+button.select-button.placeholder { color: var(--muted); }
+button.select-button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
 select.popup {
   width: auto; border-radius: var(--radius-pill); padding: 7px 34px 7px 15px; font-weight: var(--weight-medium);
   background-color: var(--control); border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
@@ -4569,6 +4578,11 @@ input[type=search].form-search { width: 100%; margin: 0 0 var(--space-8); }
 .accessory-settings input[readonly] { background: transparent; border-color: var(--line); color: var(--muted); }
 .form-search-none { margin: var(--space-8) 0; }
 .search-miss { display: none !important; }
+/* A setting drawn as the widgets' slider: unset, it rests on the default, dimmed. */
+.slider-field > .level { margin: var(--space-4) 0; }
+.slider-field > .level.unset .level-fill, .slider-field > .level.unset .level-mark { opacity: 0.4; }
+.slider-field > .level.unset .level-text { color: var(--muted); font-weight: var(--weight-medium); }
+.slider-field > button.link { justify-self: start; padding: 0; font-size: var(--text-sm); }
 /* Describe your setup, a line at the head of the Settings section, the hairline under it the form's. */
 .plugin-settings details.describe-setup.card { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0 0 var(--space-12); margin: 0 0 var(--space-12); border-bottom: 1px solid var(--line); }
 .settings-row, .settings-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; }

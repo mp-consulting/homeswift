@@ -3548,6 +3548,36 @@
           return next || present ? next : undefined;
         } };
       }
+      if ((type === "integer" || type === "number") && property["x-schema-form"]?.type === "slider" && window.HomeswiftWidgets?.level) {
+        // A brightness or a colour temperature as the widgets' slider (`x-schema-form`: `type: "slider"`, `track`
+        // "white" or "brightness", `unit`, and `min`/`max` when the slider spans less than the schema allows). Unset,
+        // it rests on the default, dimmed, and says so; Use the default clears a value.
+        const look = property["x-schema-form"];
+        const min = look.min ?? property.minimum ?? 0, max = look.max ?? property.maximum ?? 100;
+        const step = look.step ?? property.multipleOf ?? 1;
+        const format = (v) => (look.unit ? `${v} ${look.unit}` : String(v));
+        const shown = fallback ?? property.default;
+        let chosen = typeof current === "number" ? current : undefined;
+        const slider = HomeswiftWidgets.level({ label: title, showLabel: false, min, max, step, format,
+          gradient: look.track === "white" ? HomeswiftWidgets.whiteTrack(min, max) : undefined,
+          fill: look.track === "brightness" ? HomeswiftWidgets.brightnessFill() : undefined }, (v) => { chosen = v; paint(); changed(); });
+        const reset = el("button", { type: "button", class: "link", text: t("Use the default"), onclick: () => { chosen = undefined; paint(); changed(); slider.node.focus(); } });
+        const element = el("div", { class: "field slider-field" }, el("span", { class: "field-title", text: title }), slider.node, help, reset);
+        const changed = () => { element.dispatchEvent(new Event("input", { bubbles: true })); element.dispatchEvent(new Event("change", { bubbles: true })); };
+        function paint() {
+          const unset = chosen === undefined;
+          slider.set(unset ? (typeof shown === "number" ? shown : min) : chosen);
+          slider.node.classList.toggle("unset", unset);
+          if (unset) {
+            const words = defaultText(typeof shown === "number" ? format(shown) : null);
+            slider.node.querySelector(".level-text").textContent = words;
+            slider.node.setAttribute("aria-valuetext", words);
+          }
+          reset.hidden = unset;
+        }
+        paint();
+        return { element, get: () => chosen };
+      }
       if (type === "integer" || type === "number") {
         const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
