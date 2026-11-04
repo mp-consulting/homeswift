@@ -141,6 +141,11 @@ public protocol HomeswiftPlugin: Sendable {
     /// developer portal's keys. Defaults to `.none`: no account, or one whose settings the form takes as they are.
     static var accountAuthorization: AuthorizationMethod { get }
 
+    /// Whether the plugin's devices depend on that account: `.required` (the default), none before it is set up, or
+    /// `.optional(adds:)`, which says what it adds (a webhook server's password), so a plugin without it is running as it
+    /// should and its settings say what setting it up brings.
+    static var accountRequirement: AccountRequirement { get }
+
     /// The devices the plugin can find now, set up or not (GLOSSARY.md, "Discovered Device"): on the network, in the
     /// account, at the addresses its settings name. It may run on an instance that was not started, created only to set
     /// up; it should answer within a few seconds. Defaults to none.
@@ -200,6 +205,7 @@ extension HomeswiftPlugin {
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
     public static var accountAuthorization: AuthorizationMethod { .none }
+    public static var accountRequirement: AccountRequirement { .required }
     public func discover() async throws -> [DiscoveredDevice] { [] }
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
     public func accountAuthorized() async -> Bool? { nil }
@@ -435,6 +441,8 @@ public final class PluginContext: @unchecked Sendable {
     let ownDeviceIDBox = NIOLockedValueBox<(@Sendable (String) -> String?)?>(nil)
     /// The block's `_accessories` as the plugin was launched with it: Accessory Settings by Device Id.
     let accessorySettingsBox = NIOLockedValueBox<[String: AccessorySettings]>([:])
+    /// Why the account refused its credentials, since the plugin said so (`accountRefused(_:)`); nil when nothing did.
+    let accountRefusalBox = NIOLockedValueBox<String?>(nil)
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
     /// A save of the cache is due: changes in a burst (a plugin adding its devices at launch) write it once.

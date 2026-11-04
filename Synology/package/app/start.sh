@@ -4,6 +4,7 @@
 
 . /var/packages/homeswift/target/app/environment.sh
 . /var/packages/homeswift/target/app/ports.sh
+. /var/packages/homeswift/target/app/acl.sh
 
 cd "$HOMESWIFT_DATA" || exit 1
 
@@ -17,5 +18,10 @@ esac
 if [ -n "$ui" ]; then
     write_ui_config /var/packages/homeswift/target/ui "${ui% *}" "${ui#* }"
 fi
+
+# The bridge's secrets lose the shared folder's ACL and are its alone (0600); the bridge checks again and warns in
+# its log about what stays open.
+secure_secrets secrets.key vault.json config.json homeswift.json ui-users.json ui-sessions.json ui-oauth.json \
+    ui-api-tokens.json ui-key.pem
 
 exec "$HOMESWIFT_BINARY" -U "$HOMESWIFT_DATA"

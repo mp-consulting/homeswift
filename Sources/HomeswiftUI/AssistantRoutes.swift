@@ -79,6 +79,9 @@ extension UIServer {
             return .json(await catalog.testAssistantConnection(block: block, user: username))
         case (.POST, ["models"]):
             // The settings form's block, saved or not, or the saved one: the models its provider offers (the Model menu).
+            // Each opening of the menu asks the provider with the bridge's key: limited as the test is, though no
+            // tokens are spent and no usage is counted.
+            if let refused = limitAssistant(for: username) { return refused }
             let block = body["block"].flatMap { $0.objectValue == nil ? nil : $0 }
             return .json(await catalog.assistantModels(block: block))
         case (.GET, ["digest"]):

@@ -122,6 +122,10 @@ public enum OwnerOnlyFile {
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
+            // open's mode is only a request: a directory's default ACL (a NAS's shared folder) widens it, and a
+            // chmod is what sets the POSIX ACL's mask to nothing, or makes DSM drop the ACL it inherited. Before
+            // the contents are written.
+            guard fchmod(descriptor, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
             try handle.write(contentsOf: data)
             try handle.close()
             guard rename(temporary.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
