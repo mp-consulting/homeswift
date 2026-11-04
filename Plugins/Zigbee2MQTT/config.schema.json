@@ -1,0 +1,86 @@
+{
+  "pluginAlias": "zigbee2mqtt",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Use the same MQTT settings as Zigbee2MQTT itself (its configuration.yaml).",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Zigbee2MQTT",
+        "description": "Plugin name as shown in the logs"
+      },
+      "mqtt": {
+        "title": "MQTT",
+        "type": "object",
+        "required": ["base_topic", "server"],
+        "properties": {
+          "base_topic": { "title": "Base topic", "type": "string", "default": "zigbee2mqtt", "description": "Zigbee2MQTT's base topic" },
+          "server": { "title": "Server", "type": "string", "default": "mqtt://localhost:1883", "description": "The broker: mqtt://, mqtts://, tcp://, ssl://, tls://, ws:// or wss://" },
+          "ca": { "title": "CA certificate file", "type": "string", "description": "Path to a PEM file of the certificate authority the broker's certificate comes from" },
+          "key": { "title": "Client key file", "type": "string", "description": "Path to the PEM private key of a client certificate" },
+          "cert": { "title": "Client certificate file", "type": "string", "description": "Path to the PEM client certificate" },
+          "user": { "title": "User name", "type": "string" },
+          "password": { "title": "Password", "type": "string", "description": "Kept in the vault once Setup saved it" },
+          "client_id": { "title": "Client id", "type": "string", "description": "A random one when empty" },
+          "reject_unauthorized": { "title": "Accept any certificate", "type": "boolean", "default": false, "description": "Set to false to accept a self-signed certificate without checking it" },
+          "keepalive": { "title": "Keep-alive (seconds)", "type": "integer", "default": 60 },
+          "version": { "title": "MQTT version", "type": "integer", "default": 4, "oneOf": [
+            { "title": "MQTT 3.1", "enum": [3] }, { "title": "MQTT 3.1.1", "enum": [4] }, { "title": "MQTT 5", "enum": [5] }
+          ] },
+          "disable_qos": { "title": "Disable QoS", "type": "boolean", "default": false, "description": "Publish every message with QoS 0" }
+        }
+      },
+      "log": {
+        "title": "Log",
+        "type": "object",
+        "properties": {
+          "debug_as_info": { "title": "Debug messages as info", "type": "boolean", "default": false },
+          "mqtt_publish": { "title": "Level of the publish lines", "type": "string", "default": "debug", "enum": ["debug", "info", "warn", "error"] }
+        }
+      },
+      "exclude_grouped_devices": { "title": "Exclude grouped devices", "type": "boolean", "default": false, "description": "Devices in a Zigbee2MQTT group appear only through the group" },
+      "experimental": { "title": "Experimental features", "type": "array", "items": { "type": "string" } },
+      "defaults": {
+        "title": "Defaults for every device",
+        "type": "object",
+        "properties": {
+          "exclude": { "title": "Exclude", "type": "boolean" },
+          "ignore_availability": { "title": "Ignore availability", "type": "boolean" },
+          "ignore_z2m_online": { "title": "Ignore Zigbee2MQTT's online state", "type": "boolean" },
+          "excluded_keys": { "title": "Excluded properties", "type": "array", "items": { "type": "string" } },
+          "excluded_endpoints": { "title": "Excluded endpoints", "type": "array", "items": { "type": "string" } },
+          "values": { "title": "Values", "type": "array", "items": { "type": "object", "properties": {
+            "property": { "type": "string" }, "include": { "type": "array", "items": { "type": "string" } }, "exclude": { "type": "array", "items": { "type": "string" } }
+          } } },
+          "converters": { "title": "Converters", "type": "object" },
+          "experimental": { "title": "Experimental features", "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "devices": {
+        "title": "Devices and groups",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "title": "IEEE address, friendly name or group id", "type": "string" },
+            "exclude": { "title": "Exclude", "type": "boolean" },
+            "ignore_availability": { "title": "Ignore availability", "type": "boolean" },
+            "ignore_z2m_online": { "title": "Ignore Zigbee2MQTT's online state", "type": "boolean" },
+            "excluded_keys": { "title": "Excluded properties", "type": "array", "items": { "type": "string" } },
+            "included_keys": { "title": "Included properties", "type": "array", "items": { "type": "string" } },
+            "excluded_endpoints": { "title": "Excluded endpoints", "type": "array", "items": { "type": "string" } },
+            "values": { "title": "Values", "type": "array", "items": { "type": "object", "properties": {
+              "property": { "type": "string" }, "include": { "type": "array", "items": { "type": "string" } }, "exclude": { "type": "array", "items": { "type": "string" } }
+            } } },
+            "converters": { "title": "Converters", "type": "object" },
+            "experimental": { "title": "Experimental features", "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

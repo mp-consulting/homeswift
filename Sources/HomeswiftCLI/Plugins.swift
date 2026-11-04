@@ -13,6 +13,7 @@ import HomeswiftPlugin
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
 import HomeswiftWingman
+import HomeswiftZigbee2MQTT
 
 /// The plugins compiled into this binary.
 ///
@@ -35,5 +36,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(Zigbee2MQTTPlugin.self)
     return registry
 }
