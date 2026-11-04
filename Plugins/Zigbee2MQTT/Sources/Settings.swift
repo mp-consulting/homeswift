@@ -101,12 +101,13 @@ struct Settings: Sendable {
 
     /// A device's effective options: `defaults`, then the first `devices` entry whose `id` is one of `ids` (an IEEE
     /// address, a friendly name, a group id), case-insensitively. Keys replace keys; `converters` merge by tag.
-    func options(for ids: [String]) -> DeviceOptions {
+    /// The device's Plugin Accessory Settings (`_accessories`) go last, by the same rules.
+    func options(for ids: [String], accessory: [String: JSONValue] = [:]) -> DeviceOptions {
         let wanted = Set(ids.map { $0.lowercased() })
         var merged = defaults
         let entry = devices.first { ($0["id"]?.stringValue).map { wanted.contains($0.lowercased()) } ?? false }
-        if let entry {
-            for (key, value) in entry where key != "id" {
+        for own in [entry ?? [:], accessory] {
+            for (key, value) in own where key != "id" {
                 if key == "converters", let base = merged[key]?.objectValue, let own = value.objectValue {
                     merged[key] = .object(base.merging(own) { $1 })
                 } else {
@@ -114,7 +115,7 @@ struct Settings: Sendable {
                 }
             }
         }
-        return DeviceOptions(merged, matched: entry != nil, globalFlags: experimental)
+        return DeviceOptions(merged, matched: entry != nil || !accessory.isEmpty, globalFlags: experimental)
     }
 }
 

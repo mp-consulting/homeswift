@@ -543,6 +543,42 @@ struct Zigbee2MQTTTests {
         }
     }
 
+    @Test func homebridgeDeviceEntriesMoveToAccessorySettings() async throws {
+        let group = #"[{"id":5,"friendly_name":"Living room","members":[]}]"#
+        let host = try await environment.started(devices: [Fixtures.light, Fixtures.plug], groups: group)
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.knownLists != nil })
+        let block = try JSONValue(string: #"""
+            {"platform":"zigbee2mqtt","mqtt":{"base_topic":"zigbee2mqtt","server":"mqtt://h"},
+             "devices":[{"id":"TEST_LIGHT","exclude":true},{"id":"0x0000000000000008","excluded_endpoints":["l2"],"converters":{"switch":{"type":"outlet"}}},
+                        {"id":"living room","ignore_availability":true},{"id":"unknown","exclude":true},{"id":"0x0000000000000008","exclude":false}]}
+            """#)
+        let canonical = await plugin.canonicalSettings(block)
+        #expect(canonical["_accessories"]?["0x00178d0009876543"] == ["excluded": true])
+        #expect(canonical["_accessories"]?["0x0000000000000008"]?["excluded_endpoints"] == ["l2"])
+        #expect(canonical["_accessories"]?["group-5"]?["ignore_availability"] == true)
+        #expect(canonical["devices"]?.arrayValue?.count == 2)
+        #expect(await plugin.deviceKind(of: "0x00178d0009876543") == "light")
+        #expect(await plugin.deviceKind(of: "0x0000000000000008") == "switch")
+    }
+
+    @Test func accessorySettingsApply() async throws {
+        let host = try await environment.started(devices: [Fixtures.plug], settings: [
+            "mqtt": TestEnvironment.mqtt, "_accessories": ["0x0000000000000008": ["excluded_endpoints": ["l1"], "converters": ["switch": ["type": "outlet"]]]],
+        ])
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.accessory("0x0000000000000008") != nil })
+        let plug = try #require(host.accessory("0x0000000000000008"))
+        #expect(plug.services.filter { $0.type.uuid == ServiceType.outlet.uuid }.map(\.subtype) == ["l2"])
+    }
+
+    @Test func schemaDeclaresNoPassword() throws {
+        let schema = try JSONValue(string: try #require(Zigbee2MQTTPlugin.configurationSchemaJSON))
+        #expect(schema["schema"]?["properties"]?["mqtt"]?["properties"]?["password"] == nil)
+        #expect(schema["accessorySchema"]?["properties"]?["converters"] != nil)
+    }
+
     /// The plugin's directory, from this file's.
     static var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent() }
 

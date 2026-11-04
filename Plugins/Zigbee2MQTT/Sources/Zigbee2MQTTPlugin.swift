@@ -316,7 +316,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         var entry = DeviceEntry(ieeeAddress: String(id), friendlyName: name, groupID: id,
                                 definition: .init(vendor: "Zigbee2MQTT", model: "GROUP-\(id)", exposes: exposes ?? []))
         if (exposes ?? []).isEmpty {
-            let options = settings?.options(for: entry.optionIDs)
+            let options = settings.map { effectiveOptions(entry, $0) }
             guard let configured = options?.exposes, !configured.isEmpty, options?.exclude != true else {
                 log.debug("Group \(name) has nothing all its members expose: skipped")
                 return nil
@@ -326,6 +326,11 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
             log.debug("Group \(name) exposes \((try? JSONValue(encoding: exposes ?? []))?.text() ?? "[]")")
         }
         return entry
+    }
+
+    /// A device's effective options: `defaults`, its `devices` entry, then its Accessory Settings in `_accessories`.
+    func effectiveOptions(_ entry: DeviceEntry, _ settings: Settings) -> DeviceOptions {
+        settings.options(for: entry.optionIDs, accessory: context.accessorySettings(for: entry.deviceID).plugin)
     }
 
     /// Whether a device or group gets no accessory (6.7).
@@ -348,7 +353,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     /// Adds the accessory of a new device, rebuilds the one of a device that changed, removes an excluded one.
     private func createOrUpdate(_ entry: DeviceEntry) {
         guard let settings else { return }
-        let options = settings.options(for: entry.optionIDs)
+        let options = effectiveOptions(entry, settings)
         let id = entry.deviceID
         if isExcluded(entry, options: options) {
             log.debug("Excluding \(entry.friendlyName) (\(entry.ieeeAddress))")
@@ -457,7 +462,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     private func restoreAccessories() {
         guard let settings else { return }
         for (id, entry) in storedEntries.load() ?? [:] {
-            let options = settings.options(for: entry.optionIDs)
+            let options = effectiveOptions(entry, settings)
             if isExcluded(entry, options: options) {
                 log.warning("Removing the excluded \(entry.friendlyName) (\(entry.ieeeAddress)) restored from the cache")
                 remove(id)

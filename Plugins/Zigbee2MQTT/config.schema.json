@@ -9,78 +9,1057 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "default": "Zigbee2MQTT",
-        "description": "Plugin name as shown in the logs"
+        "description": "Plugin name as shown in the logs",
+        "default": "Zigbee2MQTT"
       },
       "mqtt": {
         "title": "MQTT",
         "type": "object",
-        "required": ["base_topic", "server"],
+        "description": "The broker Zigbee2MQTT publishes on, as in Zigbee2MQTT's own settings",
+        "required": [
+          "base_topic",
+          "server"
+        ],
         "properties": {
-          "base_topic": { "title": "Base topic", "type": "string", "default": "zigbee2mqtt", "description": "Zigbee2MQTT's base topic" },
-          "server": { "title": "Server", "type": "string", "default": "mqtt://localhost:1883", "description": "The broker: mqtt://, mqtts://, tcp://, ssl://, tls://, ws:// or wss://" },
-          "ca": { "title": "CA certificate file", "type": "string", "description": "Path to a PEM file of the certificate authority the broker's certificate comes from" },
-          "key": { "title": "Client key file", "type": "string", "description": "Path to the PEM private key of a client certificate" },
-          "cert": { "title": "Client certificate file", "type": "string", "description": "Path to the PEM client certificate" },
-          "user": { "title": "User name", "type": "string" },
-          "password": { "title": "Password", "type": "string", "description": "Kept in the vault once Setup saved it" },
-          "client_id": { "title": "Client id", "type": "string", "description": "A random one when empty" },
-          "reject_unauthorized": { "title": "Accept any certificate", "type": "boolean", "default": false, "description": "Set to false to accept a self-signed certificate without checking it" },
-          "keepalive": { "title": "Keep-alive (seconds)", "type": "integer", "default": 60 },
-          "version": { "title": "MQTT version", "type": "integer", "default": 4, "oneOf": [
-            { "title": "MQTT 3.1", "enum": [3] }, { "title": "MQTT 3.1.1", "enum": [4] }, { "title": "MQTT 5", "enum": [5] }
-          ] },
-          "disable_qos": { "title": "Disable QoS", "type": "boolean", "default": false, "description": "Publish every message with QoS 0" }
+          "base_topic": {
+            "title": "Base topic",
+            "type": "string",
+            "description": "Zigbee2MQTT's base topic",
+            "default": "zigbee2mqtt"
+          },
+          "server": {
+            "title": "Server",
+            "type": "string",
+            "description": "The broker's address: mqtt://, mqtts://, ws:// or wss://",
+            "default": "mqtt://localhost:1883"
+          },
+          "ca": {
+            "title": "CA certificate file",
+            "type": "string",
+            "description": "Path to the PEM certificate of the authority that signed the broker's"
+          },
+          "key": {
+            "title": "Client key file",
+            "type": "string",
+            "description": "Path to the PEM private key of a client certificate"
+          },
+          "cert": {
+            "title": "Client certificate file",
+            "type": "string",
+            "description": "Path to the PEM client certificate"
+          },
+          "user": {
+            "title": "User name",
+            "type": "string",
+            "description": "The broker's user name; Setup keeps its password in the vault"
+          },
+          "client_id": {
+            "title": "Client ID",
+            "type": "string",
+            "description": "Random when empty"
+          },
+          "reject_unauthorized": {
+            "title": "Check the broker's certificate",
+            "type": "boolean",
+            "description": "Turn off to accept a self-signed certificate without checking it"
+          },
+          "keepalive": {
+            "title": "Keep-alive",
+            "type": "integer",
+            "description": "Seconds between pings to the broker",
+            "default": 60,
+            "minimum": 0
+          },
+          "version": {
+            "title": "MQTT version",
+            "type": "integer",
+            "description": "The protocol version the broker speaks",
+            "default": 4,
+            "oneOf": [
+              {
+                "title": "MQTT 3.1",
+                "enum": [
+                  3
+                ]
+              },
+              {
+                "title": "MQTT 3.1.1",
+                "enum": [
+                  4
+                ]
+              },
+              {
+                "title": "MQTT 5",
+                "enum": [
+                  5
+                ]
+              }
+            ]
+          },
+          "disable_qos": {
+            "title": "Disable QoS",
+            "type": "boolean",
+            "description": "Publish every message at QoS 0",
+            "default": false
+          }
         }
       },
       "log": {
         "title": "Log",
         "type": "object",
+        "description": "What the plugin logs",
         "properties": {
-          "debug_as_info": { "title": "Debug messages as info", "type": "boolean", "default": false },
-          "mqtt_publish": { "title": "Level of the publish lines", "type": "string", "default": "debug", "enum": ["debug", "info", "warn", "error"] }
+          "debug_as_info": {
+            "title": "Debug messages as info",
+            "type": "boolean",
+            "description": "Log the plugin's debug messages at info level",
+            "default": false
+          },
+          "mqtt_publish": {
+            "title": "Published messages",
+            "type": "string",
+            "description": "The level of the line logged for each message the plugin publishes",
+            "default": "debug",
+            "oneOf": [
+              {
+                "title": "Debug",
+                "enum": [
+                  "debug"
+                ]
+              },
+              {
+                "title": "Info",
+                "enum": [
+                  "info"
+                ]
+              },
+              {
+                "title": "Warning",
+                "enum": [
+                  "warn"
+                ]
+              },
+              {
+                "title": "Error",
+                "enum": [
+                  "error"
+                ]
+              }
+            ]
+          }
         }
       },
-      "exclude_grouped_devices": { "title": "Exclude grouped devices", "type": "boolean", "default": false, "description": "Devices in a Zigbee2MQTT group appear only through the group" },
-      "experimental": { "title": "Experimental features", "type": "array", "items": { "type": "string" } },
+      "exclude_grouped_devices": {
+        "title": "Exclude grouped devices",
+        "type": "boolean",
+        "description": "Devices in a Zigbee2MQTT group appear only through the group",
+        "default": false
+      },
+      "experimental": {
+        "title": "Experimental features",
+        "type": "array",
+        "description": "Flags such as AVAILABILITY",
+        "items": {
+          "type": "string"
+        }
+      },
       "defaults": {
-        "title": "Defaults for every device",
+        "title": "Defaults",
         "type": "object",
+        "description": "Options for every device, which a device's own settings override",
         "properties": {
-          "exclude": { "title": "Exclude", "type": "boolean" },
-          "ignore_availability": { "title": "Ignore availability", "type": "boolean" },
-          "ignore_z2m_online": { "title": "Ignore Zigbee2MQTT's online state", "type": "boolean" },
-          "excluded_keys": { "title": "Excluded properties", "type": "array", "items": { "type": "string" } },
-          "excluded_endpoints": { "title": "Excluded endpoints", "type": "array", "items": { "type": "string" } },
-          "values": { "title": "Values", "type": "array", "items": { "type": "object", "properties": {
-            "property": { "type": "string" }, "include": { "type": "array", "items": { "type": "string" } }, "exclude": { "type": "array", "items": { "type": "string" } }
-          } } },
-          "converters": { "title": "Converters", "type": "object" },
-          "experimental": { "title": "Experimental features", "type": "array", "items": { "type": "string" } }
+          "exclude": {
+            "title": "Exclude",
+            "type": "boolean",
+            "description": "Leave every device out unless its own settings include it"
+          },
+          "ignore_availability": {
+            "title": "Ignore availability",
+            "type": "boolean",
+            "description": "Never show No Response for Zigbee2MQTT's availability messages"
+          },
+          "ignore_z2m_online": {
+            "title": "Ignore Zigbee2MQTT going offline",
+            "type": "boolean",
+            "description": "Keep answering when Zigbee2MQTT or the broker is away"
+          },
+          "excluded_keys": {
+            "title": "Excluded properties",
+            "type": "array",
+            "description": "Properties of the exposes to leave out, such as linkquality",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excluded_endpoints": {
+            "title": "Excluded endpoints",
+            "type": "array",
+            "description": "Endpoints to leave out; an empty one means the entries without an endpoint",
+            "items": {
+              "type": "string"
+            }
+          },
+          "values": {
+            "title": "Values",
+            "type": "array",
+            "description": "Which values of an enum property to keep, such as a remote's actions",
+            "items": {
+              "type": "object",
+              "title": "Value filter",
+              "properties": {
+                "property": {
+                  "title": "Property",
+                  "type": "string",
+                  "description": "The exposes property whose values these are"
+                },
+                "include": {
+                  "title": "Include",
+                  "type": "array",
+                  "description": "Values to keep; * at the start or the end matches any text",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "exclude": {
+                  "title": "Leave out",
+                  "type": "array",
+                  "description": "Values to leave out; * at the start or the end matches any text",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "converters": {
+            "title": "Converters",
+            "type": "object",
+            "description": "Options of the switch, occupancy and light converters",
+            "properties": {
+              "switch": {
+                "title": "Switch",
+                "type": "object",
+                "description": "How switches appear",
+                "properties": {
+                  "type": {
+                    "title": "Show as",
+                    "type": "string",
+                    "description": "A Switch or an Outlet",
+                    "oneOf": [
+                      {
+                        "title": "Switch",
+                        "enum": [
+                          "switch"
+                        ]
+                      },
+                      {
+                        "title": "Outlet",
+                        "enum": [
+                          "outlet"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              "occupancy": {
+                "title": "Occupancy",
+                "type": "object",
+                "description": "How occupancy appears",
+                "properties": {
+                  "type": {
+                    "title": "Show as",
+                    "type": "string",
+                    "description": "An Occupancy Sensor or a Motion Sensor",
+                    "oneOf": [
+                      {
+                        "title": "Occupancy Sensor",
+                        "enum": [
+                          "occupancy"
+                        ]
+                      },
+                      {
+                        "title": "Motion Sensor",
+                        "enum": [
+                          "motion"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              "light": {
+                "title": "Light",
+                "type": "object",
+                "description": "Adaptive Lighting and brightness requests",
+                "properties": {
+                  "adaptive_lighting": {
+                    "title": "Adaptive Lighting",
+                    "type": "object",
+                    "description": "How Adaptive Lighting drives the light",
+                    "properties": {
+                      "enabled": {
+                        "title": "Enabled",
+                        "type": "boolean",
+                        "description": "Give the light Adaptive Lighting",
+                        "default": true
+                      },
+                      "only_when_on": {
+                        "title": "Only when on",
+                        "type": "boolean",
+                        "description": "Send colour temperatures only while the light is on",
+                        "default": true
+                      },
+                      "transition": {
+                        "title": "Transition",
+                        "type": "number",
+                        "description": "Seconds each change of temperature takes",
+                        "minimum": 0
+                      },
+                      "min_delta": {
+                        "title": "Minimum change",
+                        "type": "integer",
+                        "description": "Mireds a temperature must change by to be sent",
+                        "minimum": 1,
+                        "default": 1
+                      }
+                    }
+                  },
+                  "request_brightness": {
+                    "title": "Ask for brightness",
+                    "type": "boolean",
+                    "description": "Ask the light for its brightness when the bridge starts",
+                    "default": false
+                  }
+                }
+              }
+            }
+          },
+          "experimental": {
+            "title": "Experimental features",
+            "type": "array",
+            "description": "Flags such as AVAILABILITY",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "devices": {
-        "title": "Devices and groups",
+        "title": "Devices",
         "type": "array",
+        "description": "Options by IEEE address, friendly name or group, as homebridge-z2m's: the bridge moves them to each device's settings",
         "items": {
           "type": "object",
-          "required": ["id"],
+          "title": "Device",
           "properties": {
-            "id": { "title": "IEEE address, friendly name or group id", "type": "string" },
-            "exclude": { "title": "Exclude", "type": "boolean" },
-            "ignore_availability": { "title": "Ignore availability", "type": "boolean" },
-            "ignore_z2m_online": { "title": "Ignore Zigbee2MQTT's online state", "type": "boolean" },
-            "excluded_keys": { "title": "Excluded properties", "type": "array", "items": { "type": "string" } },
-            "included_keys": { "title": "Included properties", "type": "array", "items": { "type": "string" } },
-            "excluded_endpoints": { "title": "Excluded endpoints", "type": "array", "items": { "type": "string" } },
-            "values": { "title": "Values", "type": "array", "items": { "type": "object", "properties": {
-              "property": { "type": "string" }, "include": { "type": "array", "items": { "type": "string" } }, "exclude": { "type": "array", "items": { "type": "string" } }
-            } } },
-            "converters": { "title": "Converters", "type": "object" },
-            "experimental": { "title": "Experimental features", "type": "array", "items": { "type": "string" } }
+            "id": {
+              "title": "ID",
+              "type": "string",
+              "description": "An IEEE address, a friendly name or a group id"
+            },
+            "exclude": {
+              "title": "Exclude",
+              "type": "boolean",
+              "description": "Leave this device out, or with false include it even when it is in a group"
+            },
+            "ignore_availability": {
+              "title": "Ignore availability",
+              "type": "boolean",
+              "description": "Never show No Response for Zigbee2MQTT's availability messages"
+            },
+            "ignore_z2m_online": {
+              "title": "Ignore Zigbee2MQTT going offline",
+              "type": "boolean",
+              "description": "Keep answering when Zigbee2MQTT or the broker is away"
+            },
+            "excluded_keys": {
+              "title": "Excluded properties",
+              "type": "array",
+              "description": "Properties of the exposes to leave out, such as linkquality",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excluded_endpoints": {
+              "title": "Excluded endpoints",
+              "type": "array",
+              "description": "Endpoints to leave out; an empty one means the entries without an endpoint",
+              "items": {
+                "type": "string"
+              }
+            },
+            "values": {
+              "title": "Values",
+              "type": "array",
+              "description": "Which values of an enum property to keep, such as a remote's actions",
+              "items": {
+                "type": "object",
+                "title": "Value filter",
+                "properties": {
+                  "property": {
+                    "title": "Property",
+                    "type": "string",
+                    "description": "The exposes property whose values these are"
+                  },
+                  "include": {
+                    "title": "Include",
+                    "type": "array",
+                    "description": "Values to keep; * at the start or the end matches any text",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "exclude": {
+                    "title": "Leave out",
+                    "type": "array",
+                    "description": "Values to leave out; * at the start or the end matches any text",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "converters": {
+              "title": "Converters",
+              "type": "object",
+              "description": "Options of the switch, occupancy and light converters",
+              "properties": {
+                "switch": {
+                  "title": "Switch",
+                  "type": "object",
+                  "description": "How switches appear",
+                  "properties": {
+                    "type": {
+                      "title": "Show as",
+                      "type": "string",
+                      "description": "A Switch or an Outlet",
+                      "oneOf": [
+                        {
+                          "title": "Switch",
+                          "enum": [
+                            "switch"
+                          ]
+                        },
+                        {
+                          "title": "Outlet",
+                          "enum": [
+                            "outlet"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "occupancy": {
+                  "title": "Occupancy",
+                  "type": "object",
+                  "description": "How occupancy appears",
+                  "properties": {
+                    "type": {
+                      "title": "Show as",
+                      "type": "string",
+                      "description": "An Occupancy Sensor or a Motion Sensor",
+                      "oneOf": [
+                        {
+                          "title": "Occupancy Sensor",
+                          "enum": [
+                            "occupancy"
+                          ]
+                        },
+                        {
+                          "title": "Motion Sensor",
+                          "enum": [
+                            "motion"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "light": {
+                  "title": "Light",
+                  "type": "object",
+                  "description": "Adaptive Lighting and brightness requests",
+                  "properties": {
+                    "adaptive_lighting": {
+                      "title": "Adaptive Lighting",
+                      "type": "object",
+                      "description": "How Adaptive Lighting drives the light",
+                      "properties": {
+                        "enabled": {
+                          "title": "Enabled",
+                          "type": "boolean",
+                          "description": "Give the light Adaptive Lighting",
+                          "default": true
+                        },
+                        "only_when_on": {
+                          "title": "Only when on",
+                          "type": "boolean",
+                          "description": "Send colour temperatures only while the light is on",
+                          "default": true
+                        },
+                        "transition": {
+                          "title": "Transition",
+                          "type": "number",
+                          "description": "Seconds each change of temperature takes",
+                          "minimum": 0
+                        },
+                        "min_delta": {
+                          "title": "Minimum change",
+                          "type": "integer",
+                          "description": "Mireds a temperature must change by to be sent",
+                          "minimum": 1,
+                          "default": 1
+                        }
+                      }
+                    },
+                    "request_brightness": {
+                      "title": "Ask for brightness",
+                      "type": "boolean",
+                      "description": "Ask the light for its brightness when the bridge starts",
+                      "default": false
+                    }
+                  }
+                }
+              }
+            },
+            "experimental": {
+              "title": "Experimental features",
+              "type": "array",
+              "description": "Flags such as AVAILABILITY",
+              "items": {
+                "type": "string"
+              }
+            },
+            "included_keys": {
+              "title": "Included properties",
+              "type": "array",
+              "description": "Properties kept even when the defaults leave them out",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exposes": {
+              "title": "Exposes",
+              "type": "array",
+              "description": "Replaces what Zigbee2MQTT says this device or group exposes",
+              "items": {
+                "type": "object",
+                "title": "Expose",
+                "description": "An exposes entry as Zigbee2MQTT reports it"
+              }
+            }
           }
         }
       }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "ignore_availability": {
+        "title": "Ignore availability",
+        "type": "boolean",
+        "description": "Never show No Response for Zigbee2MQTT's availability messages"
+      },
+      "ignore_z2m_online": {
+        "title": "Ignore Zigbee2MQTT going offline",
+        "type": "boolean",
+        "description": "Keep answering when Zigbee2MQTT or the broker is away"
+      },
+      "excluded_keys": {
+        "title": "Excluded properties",
+        "type": "array",
+        "description": "Properties of the exposes to leave out, such as linkquality",
+        "items": {
+          "type": "string"
+        }
+      },
+      "excluded_endpoints": {
+        "title": "Excluded endpoints",
+        "type": "array",
+        "description": "Endpoints to leave out; an empty one means the entries without an endpoint",
+        "items": {
+          "type": "string"
+        }
+      },
+      "values": {
+        "title": "Values",
+        "type": "array",
+        "description": "Which values of an enum property to keep, such as a remote's actions",
+        "items": {
+          "type": "object",
+          "title": "Value filter",
+          "properties": {
+            "property": {
+              "title": "Property",
+              "type": "string",
+              "description": "The exposes property whose values these are"
+            },
+            "include": {
+              "title": "Include",
+              "type": "array",
+              "description": "Values to keep; * at the start or the end matches any text",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclude": {
+              "title": "Leave out",
+              "type": "array",
+              "description": "Values to leave out; * at the start or the end matches any text",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "converters": {
+        "title": "Converters",
+        "type": "object",
+        "description": "Options of the switch, occupancy and light converters",
+        "properties": {
+          "switch": {
+            "title": "Switch",
+            "type": "object",
+            "description": "How switches appear",
+            "properties": {
+              "type": {
+                "title": "Show as",
+                "type": "string",
+                "description": "A Switch or an Outlet",
+                "oneOf": [
+                  {
+                    "title": "Switch",
+                    "enum": [
+                      "switch"
+                    ]
+                  },
+                  {
+                    "title": "Outlet",
+                    "enum": [
+                      "outlet"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "occupancy": {
+            "title": "Occupancy",
+            "type": "object",
+            "description": "How occupancy appears",
+            "properties": {
+              "type": {
+                "title": "Show as",
+                "type": "string",
+                "description": "An Occupancy Sensor or a Motion Sensor",
+                "oneOf": [
+                  {
+                    "title": "Occupancy Sensor",
+                    "enum": [
+                      "occupancy"
+                    ]
+                  },
+                  {
+                    "title": "Motion Sensor",
+                    "enum": [
+                      "motion"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "light": {
+            "title": "Light",
+            "type": "object",
+            "description": "Adaptive Lighting and brightness requests",
+            "properties": {
+              "adaptive_lighting": {
+                "title": "Adaptive Lighting",
+                "type": "object",
+                "description": "How Adaptive Lighting drives the light",
+                "properties": {
+                  "enabled": {
+                    "title": "Enabled",
+                    "type": "boolean",
+                    "description": "Give the light Adaptive Lighting",
+                    "default": true
+                  },
+                  "only_when_on": {
+                    "title": "Only when on",
+                    "type": "boolean",
+                    "description": "Send colour temperatures only while the light is on",
+                    "default": true
+                  },
+                  "transition": {
+                    "title": "Transition",
+                    "type": "number",
+                    "description": "Seconds each change of temperature takes",
+                    "minimum": 0
+                  },
+                  "min_delta": {
+                    "title": "Minimum change",
+                    "type": "integer",
+                    "description": "Mireds a temperature must change by to be sent",
+                    "minimum": 1,
+                    "default": 1
+                  }
+                }
+              },
+              "request_brightness": {
+                "title": "Ask for brightness",
+                "type": "boolean",
+                "description": "Ask the light for its brightness when the bridge starts",
+                "default": false
+              }
+            }
+          }
+        }
+      },
+      "experimental": {
+        "title": "Experimental features",
+        "type": "array",
+        "description": "Flags such as AVAILABILITY",
+        "items": {
+          "type": "string"
+        }
+      },
+      "included_keys": {
+        "title": "Included properties",
+        "type": "array",
+        "description": "Properties kept even when the defaults leave them out",
+        "items": {
+          "type": "string"
+        }
+      },
+      "exposes": {
+        "title": "Exposes",
+        "type": "array",
+        "description": "Replaces what Zigbee2MQTT says this device or group exposes",
+        "items": {
+          "type": "object",
+          "title": "Expose",
+          "description": "An exposes entry as Zigbee2MQTT reports it"
+        }
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "Name": "Nom",
+      "Plugin name as shown in the logs": "Nom du plugin dans le journal",
+      "MQTT": "MQTT",
+      "The broker Zigbee2MQTT publishes on, as in Zigbee2MQTT's own settings": "Le broker sur lequel Zigbee2MQTT publie, comme dans les réglages de Zigbee2MQTT",
+      "Base topic": "Topic de base",
+      "Zigbee2MQTT's base topic": "Le topic de base de Zigbee2MQTT",
+      "Server": "Serveur",
+      "The broker's address: mqtt://, mqtts://, ws:// or wss://": "L'adresse du broker : mqtt://, mqtts://, ws:// ou wss://",
+      "CA certificate file": "Fichier du certificat de l'autorité",
+      "Path to the PEM certificate of the authority that signed the broker's": "Chemin du certificat PEM de l'autorité qui a signé celui du broker",
+      "Client key file": "Fichier de la clé client",
+      "Path to the PEM private key of a client certificate": "Chemin de la clé privée PEM d'un certificat client",
+      "Client certificate file": "Fichier du certificat client",
+      "Path to the PEM client certificate": "Chemin du certificat client PEM",
+      "User name": "Nom d'utilisateur",
+      "The broker's user name; Setup keeps its password in the vault": "Le nom d'utilisateur du broker ; la configuration garde son mot de passe dans le coffre",
+      "Client ID": "Identifiant client",
+      "Random when empty": "Aléatoire s'il est vide",
+      "Check the broker's certificate": "Vérifier le certificat du broker",
+      "Turn off to accept a self-signed certificate without checking it": "Désactivez pour accepter un certificat auto-signé sans le vérifier",
+      "Keep-alive": "Maintien de connexion",
+      "Seconds between pings to the broker": "Secondes entre deux pings au broker",
+      "MQTT version": "Version de MQTT",
+      "The protocol version the broker speaks": "La version du protocole que parle le broker",
+      "MQTT 3.1": "MQTT 3.1",
+      "MQTT 3.1.1": "MQTT 3.1.1",
+      "MQTT 5": "MQTT 5",
+      "Disable QoS": "Désactiver la QoS",
+      "Publish every message at QoS 0": "Publier chaque message en QoS 0",
+      "Log": "Journal",
+      "What the plugin logs": "Ce que le plugin écrit dans le journal",
+      "Debug messages as info": "Messages de débogage en info",
+      "Log the plugin's debug messages at info level": "Écrire les messages de débogage du plugin au niveau info",
+      "Published messages": "Messages publiés",
+      "The level of the line logged for each message the plugin publishes": "Le niveau de la ligne écrite pour chaque message que publie le plugin",
+      "Debug": "Débogage",
+      "Info": "Info",
+      "Warning": "Avertissement",
+      "Error": "Erreur",
+      "Exclude grouped devices": "Exclure les appareils groupés",
+      "Devices in a Zigbee2MQTT group appear only through the group": "Les appareils d'un groupe Zigbee2MQTT n'apparaissent que par le groupe",
+      "Experimental features": "Fonctions expérimentales",
+      "Flags such as AVAILABILITY": "Des options comme AVAILABILITY",
+      "Defaults": "Par défaut",
+      "Options for every device, which a device's own settings override": "Les options de chaque appareil, que les réglages propres d'un appareil remplacent",
+      "Exclude": "Exclure",
+      "Leave every device out unless its own settings include it": "Laisser de côté chaque appareil, sauf si ses propres réglages l'incluent",
+      "Ignore availability": "Ignorer la disponibilité",
+      "Never show No Response for Zigbee2MQTT's availability messages": "Ne jamais afficher Pas de réponse pour les messages de disponibilité de Zigbee2MQTT",
+      "Ignore Zigbee2MQTT going offline": "Ignorer Zigbee2MQTT hors ligne",
+      "Keep answering when Zigbee2MQTT or the broker is away": "Continuer de répondre quand Zigbee2MQTT ou le broker est absent",
+      "Excluded properties": "Propriétés exclues",
+      "Properties of the exposes to leave out, such as linkquality": "Les propriétés des exposes à laisser de côté, comme linkquality",
+      "Excluded endpoints": "Endpoints exclus",
+      "Endpoints to leave out; an empty one means the entries without an endpoint": "Les endpoints à laisser de côté ; un vide désigne les entrées sans endpoint",
+      "Values": "Valeurs",
+      "Which values of an enum property to keep, such as a remote's actions": "Les valeurs d'une propriété enum à garder, comme les actions d'une télécommande",
+      "Value filter": "Filtre de valeurs",
+      "Property": "Propriété",
+      "The exposes property whose values these are": "La propriété des exposes dont ce sont les valeurs",
+      "Include": "Garder",
+      "Values to keep; * at the start or the end matches any text": "Les valeurs à garder ; * au début ou à la fin remplace n'importe quel texte",
+      "Leave out": "Laisser de côté",
+      "Values to leave out; * at the start or the end matches any text": "Les valeurs à laisser de côté ; * au début ou à la fin remplace n'importe quel texte",
+      "Converters": "Convertisseurs",
+      "Options of the switch, occupancy and light converters": "Les options des convertisseurs d'interrupteur, d'occupation et de lumière",
+      "Switch": "Interrupteur",
+      "How switches appear": "Comment les interrupteurs apparaissent",
+      "Show as": "Afficher comme",
+      "A Switch or an Outlet": "Un interrupteur ou une prise",
+      "Outlet": "Prise",
+      "Occupancy": "Occupation",
+      "How occupancy appears": "Comment l'occupation apparaît",
+      "An Occupancy Sensor or a Motion Sensor": "Un détecteur d'occupation ou un détecteur de mouvement",
+      "Occupancy Sensor": "Détecteur d'occupation",
+      "Motion Sensor": "Détecteur de mouvement",
+      "Light": "Lumière",
+      "Adaptive Lighting and brightness requests": "Éclairage adaptatif et demandes de luminosité",
+      "Adaptive Lighting": "Éclairage adaptatif",
+      "How Adaptive Lighting drives the light": "Comment l'éclairage adaptatif pilote la lumière",
+      "Enabled": "Activé",
+      "Give the light Adaptive Lighting": "Donner l'éclairage adaptatif à la lumière",
+      "Only when on": "Seulement allumée",
+      "Send colour temperatures only while the light is on": "N'envoyer les températures de couleur que lorsque la lumière est allumée",
+      "Transition": "Transition",
+      "Seconds each change of temperature takes": "Secondes que prend chaque changement de température",
+      "Minimum change": "Changement minimal",
+      "Mireds a temperature must change by to be sent": "Mireds dont une température doit changer pour être envoyée",
+      "Ask for brightness": "Demander la luminosité",
+      "Ask the light for its brightness when the bridge starts": "Demander sa luminosité à la lumière au démarrage du pont",
+      "Included properties": "Propriétés gardées",
+      "Properties kept even when the defaults leave them out": "Les propriétés gardées même quand les réglages par défaut les excluent",
+      "Exposes": "Exposes",
+      "Replaces what Zigbee2MQTT says this device or group exposes": "Remplace ce que Zigbee2MQTT dit que cet appareil ou ce groupe expose",
+      "Expose": "Expose",
+      "An exposes entry as Zigbee2MQTT reports it": "Une entrée des exposes telle que Zigbee2MQTT la donne",
+      "Devices": "Appareils",
+      "Options by IEEE address, friendly name or group, as homebridge-z2m's: the bridge moves them to each device's settings": "Des options par adresse IEEE, nom ou groupe, comme celles d'homebridge-z2m : le pont les déplace dans les réglages de chaque appareil",
+      "Device": "Appareil",
+      "ID": "Identifiant",
+      "An IEEE address, a friendly name or a group id": "Une adresse IEEE, un nom ou l'identifiant d'un groupe",
+      "Leave this device out, or with false include it even when it is in a group": "Laisser cet appareil de côté, ou avec false l'inclure même s'il est dans un groupe"
+    },
+    "es": {
+      "Name": "Nombre",
+      "Plugin name as shown in the logs": "Nombre del plugin en el registro",
+      "MQTT": "MQTT",
+      "The broker Zigbee2MQTT publishes on, as in Zigbee2MQTT's own settings": "El broker en el que publica Zigbee2MQTT, como en los ajustes de Zigbee2MQTT",
+      "Base topic": "Topic base",
+      "Zigbee2MQTT's base topic": "El topic base de Zigbee2MQTT",
+      "Server": "Servidor",
+      "The broker's address: mqtt://, mqtts://, ws:// or wss://": "La dirección del broker: mqtt://, mqtts://, ws:// o wss://",
+      "CA certificate file": "Archivo del certificado de la autoridad",
+      "Path to the PEM certificate of the authority that signed the broker's": "Ruta del certificado PEM de la autoridad que firmó el del broker",
+      "Client key file": "Archivo de la clave de cliente",
+      "Path to the PEM private key of a client certificate": "Ruta de la clave privada PEM de un certificado de cliente",
+      "Client certificate file": "Archivo del certificado de cliente",
+      "Path to the PEM client certificate": "Ruta del certificado de cliente PEM",
+      "User name": "Nombre de usuario",
+      "The broker's user name; Setup keeps its password in the vault": "El nombre de usuario del broker; la configuración guarda su contraseña en la bóveda",
+      "Client ID": "ID de cliente",
+      "Random when empty": "Aleatorio si está vacío",
+      "Check the broker's certificate": "Comprobar el certificado del broker",
+      "Turn off to accept a self-signed certificate without checking it": "Desactívalo para aceptar un certificado autofirmado sin comprobarlo",
+      "Keep-alive": "Mantener la conexión",
+      "Seconds between pings to the broker": "Segundos entre pings al broker",
+      "MQTT version": "Versión de MQTT",
+      "The protocol version the broker speaks": "La versión del protocolo que habla el broker",
+      "MQTT 3.1": "MQTT 3.1",
+      "MQTT 3.1.1": "MQTT 3.1.1",
+      "MQTT 5": "MQTT 5",
+      "Disable QoS": "Desactivar la QoS",
+      "Publish every message at QoS 0": "Publicar cada mensaje con QoS 0",
+      "Log": "Registro",
+      "What the plugin logs": "Lo que el plugin escribe en el registro",
+      "Debug messages as info": "Mensajes de depuración como info",
+      "Log the plugin's debug messages at info level": "Escribir los mensajes de depuración del plugin en el nivel info",
+      "Published messages": "Mensajes publicados",
+      "The level of the line logged for each message the plugin publishes": "El nivel de la línea escrita por cada mensaje que publica el plugin",
+      "Debug": "Depuración",
+      "Info": "Info",
+      "Warning": "Aviso",
+      "Error": "Error",
+      "Exclude grouped devices": "Excluir los dispositivos agrupados",
+      "Devices in a Zigbee2MQTT group appear only through the group": "Los dispositivos de un grupo de Zigbee2MQTT solo aparecen a través del grupo",
+      "Experimental features": "Funciones experimentales",
+      "Flags such as AVAILABILITY": "Opciones como AVAILABILITY",
+      "Defaults": "Valores por defecto",
+      "Options for every device, which a device's own settings override": "Las opciones de cada dispositivo, que los ajustes propios de un dispositivo sustituyen",
+      "Exclude": "Excluir",
+      "Leave every device out unless its own settings include it": "Dejar fuera cada dispositivo salvo que sus propios ajustes lo incluyan",
+      "Ignore availability": "Ignorar la disponibilidad",
+      "Never show No Response for Zigbee2MQTT's availability messages": "No mostrar nunca Sin respuesta por los mensajes de disponibilidad de Zigbee2MQTT",
+      "Ignore Zigbee2MQTT going offline": "Ignorar Zigbee2MQTT sin conexión",
+      "Keep answering when Zigbee2MQTT or the broker is away": "Seguir respondiendo cuando Zigbee2MQTT o el broker no están",
+      "Excluded properties": "Propiedades excluidas",
+      "Properties of the exposes to leave out, such as linkquality": "Las propiedades de los exposes que dejar fuera, como linkquality",
+      "Excluded endpoints": "Endpoints excluidos",
+      "Endpoints to leave out; an empty one means the entries without an endpoint": "Los endpoints que dejar fuera; uno vacío indica las entradas sin endpoint",
+      "Values": "Valores",
+      "Which values of an enum property to keep, such as a remote's actions": "Qué valores de una propiedad enum conservar, como las acciones de un mando",
+      "Value filter": "Filtro de valores",
+      "Property": "Propiedad",
+      "The exposes property whose values these are": "La propiedad de los exposes de la que son estos valores",
+      "Include": "Conservar",
+      "Values to keep; * at the start or the end matches any text": "Los valores que conservar; * al principio o al final equivale a cualquier texto",
+      "Leave out": "Dejar fuera",
+      "Values to leave out; * at the start or the end matches any text": "Los valores que dejar fuera; * al principio o al final equivale a cualquier texto",
+      "Converters": "Conversores",
+      "Options of the switch, occupancy and light converters": "Las opciones de los conversores de interruptor, ocupación y luz",
+      "Switch": "Interruptor",
+      "How switches appear": "Cómo aparecen los interruptores",
+      "Show as": "Mostrar como",
+      "A Switch or an Outlet": "Un interruptor o un enchufe",
+      "Outlet": "Enchufe",
+      "Occupancy": "Ocupación",
+      "How occupancy appears": "Cómo aparece la ocupación",
+      "An Occupancy Sensor or a Motion Sensor": "Un sensor de ocupación o un sensor de movimiento",
+      "Occupancy Sensor": "Sensor de ocupación",
+      "Motion Sensor": "Sensor de movimiento",
+      "Light": "Luz",
+      "Adaptive Lighting and brightness requests": "Iluminación adaptativa y peticiones de brillo",
+      "Adaptive Lighting": "Iluminación adaptativa",
+      "How Adaptive Lighting drives the light": "Cómo la iluminación adaptativa controla la luz",
+      "Enabled": "Activada",
+      "Give the light Adaptive Lighting": "Dar iluminación adaptativa a la luz",
+      "Only when on": "Solo encendida",
+      "Send colour temperatures only while the light is on": "Enviar temperaturas de color solo mientras la luz está encendida",
+      "Transition": "Transición",
+      "Seconds each change of temperature takes": "Segundos que dura cada cambio de temperatura",
+      "Minimum change": "Cambio mínimo",
+      "Mireds a temperature must change by to be sent": "Mireds que debe cambiar una temperatura para enviarse",
+      "Ask for brightness": "Pedir el brillo",
+      "Ask the light for its brightness when the bridge starts": "Pedir a la luz su brillo cuando arranca el puente",
+      "Included properties": "Propiedades conservadas",
+      "Properties kept even when the defaults leave them out": "Las propiedades conservadas aunque los valores por defecto las excluyan",
+      "Exposes": "Exposes",
+      "Replaces what Zigbee2MQTT says this device or group exposes": "Sustituye lo que Zigbee2MQTT dice que expone este dispositivo o grupo",
+      "Expose": "Expose",
+      "An exposes entry as Zigbee2MQTT reports it": "Una entrada de los exposes tal como la da Zigbee2MQTT",
+      "Devices": "Dispositivos",
+      "Options by IEEE address, friendly name or group, as homebridge-z2m's: the bridge moves them to each device's settings": "Opciones por dirección IEEE, nombre o grupo, como las de homebridge-z2m: el puente las pasa a los ajustes de cada dispositivo",
+      "Device": "Dispositivo",
+      "ID": "ID",
+      "An IEEE address, a friendly name or a group id": "Una dirección IEEE, un nombre o el ID de un grupo",
+      "Leave this device out, or with false include it even when it is in a group": "Dejar fuera este dispositivo, o con false incluirlo aunque esté en un grupo"
+    },
+    "pt": {
+      "Name": "Nome",
+      "Plugin name as shown in the logs": "Nome do plugin no registo",
+      "MQTT": "MQTT",
+      "The broker Zigbee2MQTT publishes on, as in Zigbee2MQTT's own settings": "O broker em que o Zigbee2MQTT publica, como nas definições do Zigbee2MQTT",
+      "Base topic": "Tópico base",
+      "Zigbee2MQTT's base topic": "O tópico base do Zigbee2MQTT",
+      "Server": "Servidor",
+      "The broker's address: mqtt://, mqtts://, ws:// or wss://": "O endereço do broker: mqtt://, mqtts://, ws:// ou wss://",
+      "CA certificate file": "Ficheiro do certificado da autoridade",
+      "Path to the PEM certificate of the authority that signed the broker's": "Caminho do certificado PEM da autoridade que assinou o do broker",
+      "Client key file": "Ficheiro da chave de cliente",
+      "Path to the PEM private key of a client certificate": "Caminho da chave privada PEM de um certificado de cliente",
+      "Client certificate file": "Ficheiro do certificado de cliente",
+      "Path to the PEM client certificate": "Caminho do certificado de cliente PEM",
+      "User name": "Nome de utilizador",
+      "The broker's user name; Setup keeps its password in the vault": "O nome de utilizador do broker; a configuração guarda a sua palavra-passe no cofre",
+      "Client ID": "ID de cliente",
+      "Random when empty": "Aleatório quando vazio",
+      "Check the broker's certificate": "Verificar o certificado do broker",
+      "Turn off to accept a self-signed certificate without checking it": "Desative para aceitar um certificado autoassinado sem o verificar",
+      "Keep-alive": "Manter a ligação",
+      "Seconds between pings to the broker": "Segundos entre pings ao broker",
+      "MQTT version": "Versão do MQTT",
+      "The protocol version the broker speaks": "A versão do protocolo que o broker fala",
+      "MQTT 3.1": "MQTT 3.1",
+      "MQTT 3.1.1": "MQTT 3.1.1",
+      "MQTT 5": "MQTT 5",
+      "Disable QoS": "Desativar a QoS",
+      "Publish every message at QoS 0": "Publicar cada mensagem com QoS 0",
+      "Log": "Registo",
+      "What the plugin logs": "O que o plugin escreve no registo",
+      "Debug messages as info": "Mensagens de depuração como info",
+      "Log the plugin's debug messages at info level": "Escrever as mensagens de depuração do plugin no nível info",
+      "Published messages": "Mensagens publicadas",
+      "The level of the line logged for each message the plugin publishes": "O nível da linha escrita por cada mensagem que o plugin publica",
+      "Debug": "Depuração",
+      "Info": "Info",
+      "Warning": "Aviso",
+      "Error": "Erro",
+      "Exclude grouped devices": "Excluir os dispositivos agrupados",
+      "Devices in a Zigbee2MQTT group appear only through the group": "Os dispositivos de um grupo do Zigbee2MQTT só aparecem através do grupo",
+      "Experimental features": "Funções experimentais",
+      "Flags such as AVAILABILITY": "Opções como AVAILABILITY",
+      "Defaults": "Predefinições",
+      "Options for every device, which a device's own settings override": "As opções de cada dispositivo, que as definições próprias de um dispositivo substituem",
+      "Exclude": "Excluir",
+      "Leave every device out unless its own settings include it": "Deixar de fora cada dispositivo, salvo se as suas próprias definições o incluírem",
+      "Ignore availability": "Ignorar a disponibilidade",
+      "Never show No Response for Zigbee2MQTT's availability messages": "Nunca mostrar Sem resposta pelas mensagens de disponibilidade do Zigbee2MQTT",
+      "Ignore Zigbee2MQTT going offline": "Ignorar o Zigbee2MQTT offline",
+      "Keep answering when Zigbee2MQTT or the broker is away": "Continuar a responder quando o Zigbee2MQTT ou o broker não estão",
+      "Excluded properties": "Propriedades excluídas",
+      "Properties of the exposes to leave out, such as linkquality": "As propriedades dos exposes a deixar de fora, como linkquality",
+      "Excluded endpoints": "Endpoints excluídos",
+      "Endpoints to leave out; an empty one means the entries without an endpoint": "Os endpoints a deixar de fora; um vazio indica as entradas sem endpoint",
+      "Values": "Valores",
+      "Which values of an enum property to keep, such as a remote's actions": "Que valores de uma propriedade enum manter, como as ações de um comando",
+      "Value filter": "Filtro de valores",
+      "Property": "Propriedade",
+      "The exposes property whose values these are": "A propriedade dos exposes de que estes são os valores",
+      "Include": "Manter",
+      "Values to keep; * at the start or the end matches any text": "Os valores a manter; * no início ou no fim corresponde a qualquer texto",
+      "Leave out": "Deixar de fora",
+      "Values to leave out; * at the start or the end matches any text": "Os valores a deixar de fora; * no início ou no fim corresponde a qualquer texto",
+      "Converters": "Conversores",
+      "Options of the switch, occupancy and light converters": "As opções dos conversores de interruptor, ocupação e luz",
+      "Switch": "Interruptor",
+      "How switches appear": "Como aparecem os interruptores",
+      "Show as": "Mostrar como",
+      "A Switch or an Outlet": "Um interruptor ou uma tomada",
+      "Outlet": "Tomada",
+      "Occupancy": "Ocupação",
+      "How occupancy appears": "Como aparece a ocupação",
+      "An Occupancy Sensor or a Motion Sensor": "Um sensor de ocupação ou um sensor de movimento",
+      "Occupancy Sensor": "Sensor de ocupação",
+      "Motion Sensor": "Sensor de movimento",
+      "Light": "Luz",
+      "Adaptive Lighting and brightness requests": "Iluminação adaptativa e pedidos de brilho",
+      "Adaptive Lighting": "Iluminação adaptativa",
+      "How Adaptive Lighting drives the light": "Como a iluminação adaptativa controla a luz",
+      "Enabled": "Ativada",
+      "Give the light Adaptive Lighting": "Dar iluminação adaptativa à luz",
+      "Only when on": "Só ligada",
+      "Send colour temperatures only while the light is on": "Enviar temperaturas de cor só enquanto a luz está ligada",
+      "Transition": "Transição",
+      "Seconds each change of temperature takes": "Segundos que demora cada mudança de temperatura",
+      "Minimum change": "Mudança mínima",
+      "Mireds a temperature must change by to be sent": "Mireds que uma temperatura tem de mudar para ser enviada",
+      "Ask for brightness": "Pedir o brilho",
+      "Ask the light for its brightness when the bridge starts": "Pedir à luz o seu brilho quando a ponte arranca",
+      "Included properties": "Propriedades mantidas",
+      "Properties kept even when the defaults leave them out": "As propriedades mantidas mesmo quando as predefinições as excluem",
+      "Exposes": "Exposes",
+      "Replaces what Zigbee2MQTT says this device or group exposes": "Substitui o que o Zigbee2MQTT diz que este dispositivo ou grupo expõe",
+      "Expose": "Expose",
+      "An exposes entry as Zigbee2MQTT reports it": "Uma entrada dos exposes tal como o Zigbee2MQTT a dá",
+      "Devices": "Dispositivos",
+      "Options by IEEE address, friendly name or group, as homebridge-z2m's: the bridge moves them to each device's settings": "Opções por endereço IEEE, nome ou grupo, como as do homebridge-z2m: a ponte passa-as para as definições de cada dispositivo",
+      "Device": "Dispositivo",
+      "ID": "ID",
+      "An IEEE address, a friendly name or a group id": "Um endereço IEEE, um nome ou o ID de um grupo",
+      "Leave this device out, or with false include it even when it is in a group": "Deixar este dispositivo de fora, ou com false incluí-lo mesmo que esteja num grupo"
     }
   }
 }

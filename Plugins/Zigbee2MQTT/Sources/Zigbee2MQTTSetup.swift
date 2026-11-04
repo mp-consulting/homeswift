@@ -36,11 +36,12 @@ extension Zigbee2MQTTPlugin {
         }
         let members = Self.members(of: lists.groups)
         return entries.sorted { $0.friendlyName < $1.friendlyName }.map { entry in
-            let options = settings.options(for: entry.optionIDs)
+            let options = effectiveOptions(entry, settings)
             let grouped = settings.excludeGroupedDevices && !entry.isGroup && members.contains(entry.ieeeAddress)
             var device = DiscoveredDevice(
                 deviceID: entry.deviceID, name: entry.friendlyName, model: entry.definition?.model, isSetUp: true,
                 excludedBySettings: options.exclude ?? grouped)
+            device.kind = devices[entry.deviceID].map(Self.kind) ?? (entry.isGroup ? "group" : nil)
             if let accessory = devices[entry.deviceID]?.accessory { device.isReachable = !accessory.isUnavailable }
             return device
         }
