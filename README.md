@@ -181,6 +181,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
 | [MQTT Thing](Plugins/MQTTThing) | `mqttthing` (accessory) | Experimental: devices that speak MQTT, described topic by topic as homebridge-mqttthing's accessory blocks |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired on Add accessories) |
+| [Philips Hue Sync Box](Plugins/HueSyncBox) | `PhilipsHueSyncBoxPlatform` | Experimental: the Hue Play HDMI Sync Box's syncing, modes, HDMI inputs, intensities and entertainment areas (set up with its button on Add accessories) |
 | [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired on Add accessories) |
 | [Ring](Plugins/Ring) | `Ring` | Experimental: Ring alarm, Smart Lighting, cameras and doorbells (snapshots, motion, rings by push; no live video yet), chimes and intercoms |
 | [Roborock](Plugins/Roborock) | `RoborockVacuumPlatform` | Experimental: Roborock robot vacuums, on the LAN with the cloud's MQTT as a fallback: clean, dock, mop washing, scenes, brushes and filter |
