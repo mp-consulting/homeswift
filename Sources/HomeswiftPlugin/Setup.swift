@@ -22,6 +22,50 @@ public enum AuthorizationMethod: String, Sendable, Codable, CaseIterable {
     case apiKey
 }
 
+/// Whether a plugin's devices depend on its account (`HomeswiftPlugin.accountRequirement`), for a plugin whose
+/// `accountAuthorization` is not `.none`.
+public enum AccountRequirement: Sendable, Equatable {
+    /// Its devices come with the account, or are reached through it: none shows before it is set up (a cloud, a hub).
+    case required
+    /// The plugin works without it, and the account adds what `adds` says, for people, one short sentence in English
+    /// that the web UI's catalogs translate: "Protects the webhooks with a password." A plugin left without it is
+    /// still running as it should, not waiting for someone.
+    case optional(adds: String)
+
+    public var isRequired: Bool { self == .required }
+
+    /// What an optional account adds; nil for a required one.
+    public var adds: String? {
+        if case .optional(let adds) = self { return adds }
+        return nil
+    }
+}
+
+/// Where a plugin instance's account stands (GLOSSARY.md, "Needs Authorization"), as the Plugins page and its settings
+/// show it.
+public enum AccountState: String, Sendable, Codable {
+    /// The plugin has no account (`accountAuthorization` is `.none`).
+    case none
+    /// Authorized: its credentials are there, and nothing said they were refused.
+    case setUp
+    /// Never set up, or its credentials were dropped.
+    case notSetUp
+    /// Its credentials are there, but the account refused them the last time the plugin used them
+    /// (`PluginContext.accountRefused`): a password changed, a token revoked.
+    case refused
+
+    /// An account asked by `method`: refused when the plugin said so (`PluginContext.accountRefused`), else set up when it
+    /// is `authorized`.
+    public init(method: AuthorizationMethod, refused: Bool, authorized: Bool) {
+        self = method == .none ? .none : refused ? .refused : authorized ? .setUp : .notSetUp
+    }
+
+    /// Whether someone has to set it up (again) before the plugin's devices work: not set up and required, or refused.
+    public func needsAuthorization(_ requirement: AccountRequirement) -> Bool {
+        self == .refused || self == .notSetUp && requirement.isRequired
+    }
+}
+
 /// A device a plugin has found (GLOSSARY.md, "Discovered Device").
 public struct DiscoveredDevice: Sendable, Codable, Equatable {
     /// The plugin's identifier for it (GLOSSARY.md, "Device Id"): `<platform>:<deviceID>` is its accessory's id.
@@ -95,6 +139,8 @@ extension DiscoveredDevice {
 public struct Discovery: Sendable {
     public var devices: [DiscoveredDevice]
     public var accountAuthorized: Bool
+    /// Where the account stands: `accountAuthorized`, and refused when the plugin said so (`PluginContext.accountRefused`).
+    public var accountState: AccountState
 }
 
 /// One answer a step of Setup asks for.
