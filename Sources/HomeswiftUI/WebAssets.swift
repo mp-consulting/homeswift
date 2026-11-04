@@ -12790,6 +12790,9 @@ HomeswiftI18n.add("es", {
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Cámaras y timbres con HomeKit Secure Video, sensores y luces",
   "Apple Home's accessories in Homeswift, through a Mac": "Los accesorios de la app Casa en Homeswift, a través de un Mac",
   "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores y cerraduras virtuales controlados por webhooks",
+  "Protects the webhooks with a user name and password.": "Protege los webhooks con un nombre de usuario y una contraseña.",
+  "Signs in to the MQTT broker that reports motion and doorbell presses.": "Inicia sesión en el broker MQTT que avisa de los movimientos y las pulsaciones del timbre.",
+  "Signs in to the MQTT broker for the accessories whose block has no password.": "Inicia sesión en el broker MQTT para los accesorios cuyo bloque no tiene contraseña.",
   "A user name cannot contain a colon (:)": "Un nombre de usuario no puede contener dos puntos (:)",
   "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Elige el nombre de usuario y la contraseña que debe dar cada webhook (autenticación HTTP Basic).",
   "Webhook accessories are the block's entries: they need no setup of their own": "Los accesorios de webhooks son las entradas del bloque: no necesitan configuración propia",
@@ -15602,6 +15605,9 @@ HomeswiftI18n.add("fr", {
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Caméras et sonnettes avec HomeKit Secure Video, capteurs et éclairages",
   "Apple Home's accessories in Homeswift, through a Mac": "Les accessoires de l'app Maison dans Homeswift, via un Mac",
   "Virtual sensors, switches and locks driven by webhooks": "Capteurs, interrupteurs et serrures virtuels pilotés par webhooks",
+  "Protects the webhooks with a user name and password.": "Protège les webhooks par un nom d'utilisateur et un mot de passe.",
+  "Signs in to the MQTT broker that reports motion and doorbell presses.": "Se connecte au broker MQTT qui signale les mouvements et les appuis sur la sonnette.",
+  "Signs in to the MQTT broker for the accessories whose block has no password.": "Se connecte au broker MQTT pour les accessoires dont le bloc n'a pas de mot de passe.",
   "A user name cannot contain a colon (:)": "Un nom d'utilisateur ne peut pas contenir de deux-points (:)",
   "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Choisissez le nom d'utilisateur et le mot de passe que chaque webhook doit donner (authentification HTTP Basic).",
   "Webhook accessories are the block's entries: they need no setup of their own": "Les accessoires à webhooks sont les entrées du bloc : ils n'ont pas besoin de configuration propre",
@@ -18414,6 +18420,9 @@ HomeswiftI18n.add("pt", {
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Câmaras e campainhas com HomeKit Secure Video, sensores e luzes",
   "Apple Home's accessories in Homeswift, through a Mac": "Os acessórios da app Casa no Homeswift, através de um Mac",
   "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores e fechaduras virtuais controlados por webhooks",
+  "Protects the webhooks with a user name and password.": "Protege os webhooks com um nome de utilizador e uma palavra-passe.",
+  "Signs in to the MQTT broker that reports motion and doorbell presses.": "Inicia sessão no broker MQTT que comunica os movimentos e os toques da campainha.",
+  "Signs in to the MQTT broker for the accessories whose block has no password.": "Inicia sessão no broker MQTT para os acessórios cujo bloco não tem palavra-passe.",
   "A user name cannot contain a colon (:)": "Um nome de utilizador não pode conter dois pontos (:)",
   "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Escolha o nome de utilizador e a palavra-passe que cada webhook tem de dar (autenticação HTTP Basic).",
   "Webhook accessories are the block's entries: they need no setup of their own": "Os acessórios de webhooks são as entradas do bloco: não precisam de configuração própria",
@@ -25295,6 +25304,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* A large box's chips on one line, swiped sideways when there are more than fit. */
 .widget.size-xlarge .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
 .widget.size-xlarge .chips > * { flex: none; }
+/* The row's -2px margin would undo the last part's room for the corner's ⋯; the row keeps that room itself. */
+.widget.size-xlarge .w-body > .chips:last-child { margin-right: var(--space-24); }
 .head-only { justify-content: center; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
