@@ -634,6 +634,19 @@ extension ReolinkPlugin {
       }
     }
   },
+  "layout": [
+    "name",
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "videoProcessor",
+        "devices"
+      ]
+    }
+  ],
   "i18n": {
     "fr": {
       "A channel number, from 0.": "Un numéro de canal, à partir de 0.",
@@ -645,6 +658,7 @@ extension ReolinkPlugin {
       "A switch for the IR lights: on is automatic, off is off.": "Un interrupteur de l'éclairage infrarouge : allumé est automatique, éteint est éteint.",
       "API port": "Port de l'API",
       "Address": "Adresse",
+      "Advanced": "Avancé",
       "An NVR's or a hub's channels to publish, counted from 0; empty for every online channel.": "Les canaux d'un NVR ou d'un hub à publier, comptés à partir de 0 ; vide pour tous les canaux en ligne.",
       "Audio": "Audio",
       "Automatic: the sub stream for small sizes": "Automatique : le flux secondaire pour les petites tailles",
@@ -727,6 +741,7 @@ extension ReolinkPlugin {
       "A switch for the IR lights: on is automatic, off is off.": "Un interruptor de los infrarrojos: encendido es automático, apagado es apagado.",
       "API port": "Puerto de la API",
       "Address": "Dirección",
+      "Advanced": "Avanzado",
       "An NVR's or a hub's channels to publish, counted from 0; empty for every online channel.": "Los canales de un NVR o un hub que publicar, contados desde 0; vacío para todos los canales en línea.",
       "Audio": "Audio",
       "Automatic: the sub stream for small sizes": "Automático: el flujo secundario para tamaños pequeños",
@@ -809,6 +824,7 @@ extension ReolinkPlugin {
       "A switch for the IR lights: on is automatic, off is off.": "Um interruptor dos infravermelhos: ligado é automático, desligado é desligado.",
       "API port": "Porta da API",
       "Address": "Endereço",
+      "Advanced": "Avançado",
       "An NVR's or a hub's channels to publish, counted from 0; empty for every online channel.": "Os canais de um NVR ou hub a publicar, contados a partir de 0; vazio para todos os canais em linha.",
       "Audio": "Áudio",
       "Automatic: the sub stream for small sizes": "Automático: o fluxo secundário para tamanhos pequenos",

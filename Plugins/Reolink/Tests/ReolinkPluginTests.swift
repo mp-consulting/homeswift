@@ -14,12 +14,15 @@ final class ReolinkEnvironment: Sendable {
     let cameras = NIOLockedValueBox<[FakeBaichuanCamera]>([])
     let baichuanFails: Bool
     let scale: Double
+    /// An ARP table that does not answer: discovery stops looking after a moment.
+    let silentNetwork: Bool
     private let plugins = NIOLockedValueBox<[ReolinkPlugin]>([])
 
-    init(_ answers: [String: @Sendable (JSONValue?) -> JSONValue] = cameraAnswers(), baichuanFails: Bool = false, scale: Double = 0.002) {
+    init(_ answers: [String: @Sendable (JSONValue?) -> JSONValue] = cameraAnswers(), baichuanFails: Bool = false, scale: Double = 0.002, silentNetwork: Bool = false) {
         http = FakeReolinkHTTP(answers)
         self.baichuanFails = baichuanFails
         self.scale = scale
+        self.silentNetwork = silentNetwork
     }
 
     var plugin: ReolinkPlugin? { plugins.withLockedValue { $0.last } }
@@ -40,6 +43,10 @@ final class ReolinkEnvironment: Sendable {
         dependencies.timing = ReolinkTiming(scale: scale)
         dependencies.neighbours = { [("192.168.1.40", "EC:71:DB:12:34:56"), ("192.168.1.41", "00:11:22:33:44:55")] }
         dependencies.accepts = { host, _ in host == "192.168.1.40" }
+        if silentNetwork {
+            dependencies.neighbours = { try? await Task.sleep(for: .seconds(600)); return [] }
+            dependencies.networkSearchTime = .milliseconds(20)
+        }
         return dependencies
     }
 
@@ -324,6 +331,15 @@ final class ReolinkEnvironment: Sendable {
         let transcoded = ReolinkStreamer.arguments(url: "rtsp://a:b@h/x", stream: main, request: request, target: target, options: options, ffmpeg: ffmpeg, audioEncoder: nil)
         #expect(transcoded.contains("libx264"))
         #expect(!transcoded.contains("copy"))
+    }
+
+    @Test func discoveryDoesNotWaitForASilentNetwork() async throws {
+        let environment = ReolinkEnvironment(silentNetwork: true)
+        let host = try await environment.start([:])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let devices = try await plugin.discover()
+        #expect(devices.isEmpty)
     }
 
     @Test func setupListsTheNetworksDevices() async throws {
