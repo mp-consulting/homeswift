@@ -556,7 +556,10 @@
     const node = el("section", { class: "settings-section" },
       el("div", { class: "settings-section-head with-tools" },
         el("div", {}, el("h3", {}, t("Devices"), " ", count), el("p", { class: "help", text: t("What {plugin} finds, set up or not.", { plugin: block.name }) })), again),
-      list);
+      list,
+      // A device the plugin does not find, added by its address: the Add accessories page's sheet.
+      plugin?.addByAddress ? el("div", { class: "setup-add-address" },
+        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -569,7 +572,8 @@
         showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("This plugin finds no devices by itself: its settings name them.") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));

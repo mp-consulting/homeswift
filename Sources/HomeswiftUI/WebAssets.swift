@@ -23752,7 +23752,10 @@ HomeswiftI18n.add("pt", {
     const node = el("section", { class: "settings-section" },
       el("div", { class: "settings-section-head with-tools" },
         el("div", {}, el("h3", {}, t("Devices"), " ", count), el("p", { class: "help", text: t("What {plugin} finds, set up or not.", { plugin: block.name }) })), again),
-      list);
+      list,
+      // A device the plugin does not find, added by its address: the Add accessories page's sheet.
+      plugin?.addByAddress ? el("div", { class: "setup-add-address" },
+        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -23765,7 +23768,8 @@ HomeswiftI18n.add("pt", {
         showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("This plugin finds no devices by itself: its settings name them.") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -24435,8 +24439,9 @@ HomeswiftI18n.add("pt", {
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
   /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
-  /// lists what the plugin finds, as the Add accessories page does.
-  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
+  /// lists what the plugin finds, as the Add accessories page does; `adding`, Add by address, for a plugin whose
+  /// `addByAddress`.
+  const setUp = ({ block, plugin, device = null, firstTime = false, adding = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, adding, trigger, after });
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.
