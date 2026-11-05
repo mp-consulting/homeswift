@@ -183,6 +183,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Magic Home](Plugins/MagicHome) | `homebridge-magichome-dynamic-platform` | Experimental: Magic Home Wi-Fi bulbs, LED controllers and sockets on the local network, newer firmware included, with Adaptive Lighting on tunable whites |
 | [MQTT Thing](Plugins/MQTTThing) | `mqttthing` (accessory) | Experimental: devices that speak MQTT, described topic by topic as homebridge-mqttthing's accessory blocks |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired on Add accessories) |
+| [Philips Hue Sync Box](Plugins/HueSyncBox) | `PhilipsHueSyncBoxPlatform` | Experimental: the Hue Play HDMI Sync Box's syncing, modes, HDMI inputs, intensities and entertainment areas (set up with its button on Add accessories) |
 | [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired on Add accessories) |
 | [Reolink](Plugins/Reolink) | `Reolink` | Experimental: Reolink cameras, doorbells, NVRs and Home Hubs on the LAN: live video, HomeKit Secure Video, motion and AI detections by push, floodlights, sirens and IR lights |
 | [Renault](Plugins/Renault) | `Renault` | Experimental: Renault, Dacia and Alpine cars through MyRenault: battery, charging, plug, climate, horn and lights, temperatures (signed in on Add accessories, with the e-mailed code) |

@@ -158,14 +158,21 @@ public struct TLSOptions: Sendable, Equatable {
         return try NIOSSLContext(configuration: configuration)
     }
 
+    /// The name sent as SNI for `name`, or nil for an address. SNI carries host names only, and a device is often
+    /// reached by its address. An all-digit name such as a serial number ("123456789012") is a host name, not an IPv4
+    /// address: only four dotted numbers of one to three digits are one, and a name with a colon is an IPv6 address.
+    static func sniHostname(_ name: String) -> String? {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: false)
+        let isIPv4 = parts.count == 4 && parts.allSatisfy { (1...3).contains($0.count) && $0.allSatisfy { $0.isASCII && $0.isNumber } }
+        return name.contains(":") || isIPv4 ? nil : name
+    }
+
     /// A client handler for `host`. `observed` receives the server certificate's fingerprint for `.any` and
     /// `.pinned`; a pinned mismatch is stored in `mismatch` and fails the handshake.
     func makeHandler(
         context: NIOSSLContext, host: String, observed: NIOLockedValueBox<String?>, mismatch: NIOLockedValueBox<(any Error)?>
     ) throws -> NIOSSLClientHandler {
-        let name = serverName ?? host
-        // SNI carries host names only; a device is often reached by its address.
-        let serverHostname = name.contains(":") || name.allSatisfy({ $0.isNumber || $0 == "." }) ? nil : name
+        let serverHostname = Self.sniHostname(serverName ?? host)
         switch trust {
         case .system, .roots:
             return try NIOSSLClientHandler(context: context, serverHostname: serverHostname)
