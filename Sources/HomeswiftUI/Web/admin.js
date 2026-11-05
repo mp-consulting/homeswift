@@ -1728,7 +1728,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
     };
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
-    const count = el("span", { class: "overview-count muted", role: "status" });
     const empty = el("div", { class: "overview-empty", hidden: true }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("search")),
       el("p", { class: "muted", text: t("No accessories match the current search.") }));
     frame.append(empty);
@@ -1755,11 +1754,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       Object.assign(zoom, home());
       apply();
       svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-      // Each accessory once: the Matter block's branches show again accessories a plugin has.
-      const shown = new Set(next.tops.flatMap((top) => top.children.flatMap((plugin) => plugin.leaves.map((leaf) => leaf.id)))).size;
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
-      count.textContent = filter ? tn("{n} accessory", "{n} accessories", shown, {}) : "";
       filters.classList.toggle("on", active() > 0);
       filters.replaceChildren(...[HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
       search.dispatchEvent(new Event("change")); // the Clear filters button's state
@@ -1789,7 +1785,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setGraphFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // Full screen goes beside the Wall and Graph tabs (`card.fullScreenButton`), as on the wall.
-    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear);
+    // The search and Filters alone, as on the wall: Clear filters is in the Filters menu (and full screen's panel).
+    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters);
     redraw();
 
     const controls = el("div", { class: "overview-zoom" },
