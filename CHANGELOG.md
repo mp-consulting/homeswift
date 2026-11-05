@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format follows
   light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
 - Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
   a field a step may leave empty says Optional.
+- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
+  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
+  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
+  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
+  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
+  and `HomeswiftNetwork` `ARPTable.entries()`.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
