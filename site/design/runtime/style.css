@@ -2524,6 +2524,16 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 @media (hover: hover) and (pointer: fine) { a.link:hover { text-decoration: underline; } }
 .subnav { margin: -6px 0 var(--space-18); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
+/* The Accessories page's tabs and, after them, the view's Full screen button: a 40px circle, as round buttons are at phone width. */
+.accessories-views { display: flex; align-items: center; gap: var(--space-10); margin: -6px 0 var(--space-18); }
+.accessories-views > .subnav { margin: 0; min-width: 0; }
+/* Add accessories at the row's end; an icon alone at phone width, as in a toolbar. */
+.accessories-views .accessories-add { margin-left: auto; flex: none; min-height: 40px; }
+@media (max-width: 600px) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
+@media (max-width: 600px) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
+.accessories-views .accessory-options-button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0;
+  color: var(--muted); background: var(--material-thin); box-shadow: none; }
+.accessories-views .accessory-options-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 /* Where tabs are scrolled out of sight, the row fades: the way it scrolls, without a bar. */
 .subnav[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
 .subnav[data-more-start] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
@@ -4087,8 +4097,9 @@ select option:disabled { color: var(--muted); }
 /* Search and filters over the graph, as the Accessories page's toolbar; the count says what is left. */
 .overview-count { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .overview-count:empty { display: none; }
-.overview-toolbar .clear-filters { margin-left: auto; }
-.overview-toolbar .clear-filters:disabled { visibility: hidden; }
+/* No margin of its own: the row is as tall as the wall's, so its search, Filters and Full screen do not move. */
+.overview-toolbar .clear-filters { margin: 0; }
+.overview-toolbar .clear-filters:disabled { display: none; }
 .overview-empty { padding: 56px var(--space-16); text-align: center; }
 .overview-graph { display: block; width: 100%; max-width: 820px; height: auto; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
 .overview-graph:focus { outline: none; }

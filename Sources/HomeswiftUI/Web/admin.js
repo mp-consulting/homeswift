@@ -1199,7 +1199,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A server whose accessory hangs from its plugin is not a node of its own.
     tops.splice(0, tops.length, ...tops.filter((top) => top.kind !== "external" || !shown.has(top.name)));
     for (const top of tops) top.color = "var(--muted)";
-    if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
+    // A filter keeps the nodes with something it matches: a bridge's plugins, or the accessory of its own no plugin shows.
+    if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length || (top.accessory && filter.keeps(top.accessory))));
     // A plugin's accessories grouped by device type: one group per run of the same category (the leaves are sorted by it).
     const groupsOf = (plugin) => {
       const groups = [];
@@ -1358,14 +1359,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       document.documentElement.classList.add("wall-full", "graph-full");
       app().show(main, card);
     } else {
-      app().show(main, app().pageHead(t("Accessories"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")), tabs, card);
+      // The wall's head, word for word: the same title, line and toolbar place, so nothing moves between the two views.
+      const { status, accessories } = model.source;
+      const shown = accessories.filter((accessory) => !accessory.hidden);
+      const servers = new Set(shown.map((accessory) => accessory.bridge)).size || (status.bridges ?? []).length;
+      const line = !shown.length ? ""
+        : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: shown.length })
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: shown.length, servers });
+      // Full screen and Add accessories after the tabs, as on the wall.
+      if (card.fullScreenButton) tabs.append(card.fullScreenButton);
+      if (app().isAdmin() && accessories.length) tabs.append(el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus",
+        "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }));
+      app().show(main, app().pageHead(t("Accessories"), line, card.toolbar), tabs, card);
     }
   }
   /// In or out of the graph's full screen: the browser's too, where it can.
   function setGraphFullScreen(on) {
     if (on) document.documentElement.requestFullscreen?.().catch(() => {});
     else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    app().navigate(`/accessories/graph${on ? "?full=1" : ""}`, { replace: true });
+    // The search and filters stay.
+    const next = new URLSearchParams(location.search);
+    if (on) next.set("full", "1"); else next.delete("full");
+    app().navigate(`/accessories/graph${next.size ? `?${next}` : ""}`, { replace: true });
   }
 
   /// What a detail card shows: a name and icon (or the app's icon), a status, facts, and readings; an accessory's
@@ -1696,8 +1711,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
     const { status, plugins, accessories: all, matter } = model.source;
-    const chosen = { from: null, bridges: new Set(), categories: new Set(), unavailable: false };
-    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
+    // Kept in the address with the wall's names (q, from, bridge, type, unavailable): a tab carries them to the wall and back.
+    const params = new URLSearchParams(location.search);
+    const chosen = { from: params.get("from"), bridges: new Set(params.getAll("bridge")), categories: new Set(params.getAll("type")),
+      unavailable: params.get("unavailable") === "1" };
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories"),
+      value: params.get("q") ?? "" });
+    const remember = () => {
+      const next = new URLSearchParams(location.search);
+      for (const key of ["q", "from", "bridge", "type", "unavailable"]) next.delete(key);
+      if (search.value.trim()) next.set("q", search.value.trim());
+      if (chosen.from) next.set("from", chosen.from);
+      for (const name of chosen.bridges) next.append("bridge", name);
+      for (const category of chosen.categories) next.append("type", category);
+      if (chosen.unavailable) next.set("unavailable", "1");
+      history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
+    };
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
     const count = el("span", { class: "overview-count muted", role: "status" });
     const empty = el("div", { class: "overview-empty", hidden: true }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("search")),
@@ -1712,6 +1741,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
+      remember();
       const filter = filterOf();
       const next = overviewModel(status, plugins, all, filter, matter);
       closeDetail();
@@ -1758,7 +1788,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ]));
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setGraphFullScreen(true) }, HomeswiftCommon.icon("expand"));
-    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear, full ? null : fullScreenButton);
+    // Full screen goes beside the Wall and Graph tabs (`card.fullScreenButton`), as on the wall.
+    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear);
     redraw();
 
     const controls = el("div", { class: "overview-zoom" },
@@ -1773,12 +1804,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Full screen: the graph and its zoom alone, the search and the filters in a panel from the one button left, and
     // that button and the zoom faded while nothing happens, as on the wall.
     const chrome = full ? graphFullScreenChrome(frame, search, filters, clear) : null;
-    return el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
+    // The search and filters go in the page's head, where the wall has its own (`card.toolbar`), so switching views
+    // leaves them in place; full screen keeps them in the card, for its panel.
+    const card = el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
       chrome,
       el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: t("Graph of the bridges, plugins and accessories") }),
         el("div", { class: "muted", text: t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.") }))),
-      toolbar, frame, controls, legend,
+      full ? toolbar : null, frame, controls, legend,
       el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), table));
+    card.toolbar = toolbar;
+    card.fullScreenButton = full ? null : fullScreenButton;
+    return card;
   }
 
   /// The full-screen graph's chrome: the button that opens a panel with the search, the filters and Leave full screen;
