@@ -24,6 +24,7 @@ import HomeswiftSonos
 import HomeswiftSwitchBot
 import HomeswiftTPLinkSmarthome
 import HomeswiftTado
+import HomeswiftTahoma
 import HomeswiftTapo
 import HomeswiftTuya
 import HomeswiftUniFiAccess
@@ -70,5 +71,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
     registry.register(ImouPlugin.self)
+    registry.register(TahomaPlugin.self)
     return registry
 }
