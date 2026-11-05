@@ -93,8 +93,7 @@ enum WebAssets {
   /// prices, so past costs stay right. No restart.
   function tariffCard({ tariffs = [] }) {
     const latest = tariffs.at(-1) ?? null;
-    const today = new Date();
-    const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const isoToday = HomeswiftCommon.isoDay(new Date());
     const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
     const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
     const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", class: "mono", autocomplete: "off", spellcheck: false });
@@ -118,11 +117,11 @@ enum WebAssets {
     };
     for (const period of latest?.periods ?? []) addRow(period);
     if (!latest) addRow();
-    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow({ from: "00:00", to: "24:00", price: "" }) });
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const earlier = tariffs.slice(0, -1).reverse();
-    const startDate = (text) => { const [y, m, d] = text.split("-").map(Number); return new Date(y, m - 1, d); };
+    const startDate = (text) => HomeswiftCommon.parseDay(text);
     const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
     return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
       event.preventDefault();
@@ -1089,13 +1088,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ContactSensorState: t("Contact"), MotionDetected: t("Motion"), ValvePosition: t("Valve position"), WaterAmount: t("Water"),
   };
 
-  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there.
-  function formatKWh(kWh, top) {
-    // A figure under a kWh in Wh, not 0.00 kWh; an axis keeps one unit.
-    if (top == null && Math.abs(kWh) > 0 && Math.abs(kWh) < 1) return `${Math.round(kWh * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
-    const size = Math.abs(kWh), digits = kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
-  }
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
 
   /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks, and
   /// first the energy its meters measured (the bridge's own record), by hour over a day and by day beyond.
@@ -1133,7 +1126,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
       const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
       const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
-      const dateOf = (text) => { const [day, time] = text.split("T"); const [y, m, d] = day.split("-").map(Number); const [h] = (time ?? "0").split(":").map(Number); return new Date(y, m - 1, d, h); };
+      const dateOf = (text) => HomeswiftCommon.parseDay(text);
       return found.meters.map((meter) => {
         const returns = meter.bars.some((bar) => bar.returned > 0);
         const body = el("div", { class: "chart-body" });
@@ -1144,7 +1137,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
           body,
           el("div", { class: "muted chart-detail", text: [
-            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: meter.cost.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency: found.currency }) }) : null,
+            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
             returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
         const bars = meter.bars.map((bar, index) => {
           const date = dateOf(bar.date);
@@ -3657,7 +3650,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (view === "month") return date.getFullYear() * 12 + date.getMonth() >= now.getFullYear() * 12 + now.getMonth();
       return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }
-    async function loadHistory() {
+    /// The period's history, and its consumption by device; a poll while an import runs (`poll`) leaves the consumption
+    /// until the import is done.
+    async function loadHistory(poll = false) {
       clearTimeout(importPoll);
       const asked = ++historyAsked;
       keepAddress();
@@ -3671,7 +3666,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (asked !== historyAsked) return;
       fillHistory(history);
       fillImports(history.imports ?? []);
-      loadConsumers(asked);
+      if (!poll || !(history.imports ?? []).some((one) => one.state === "running")) loadConsumers(asked);
     }
 
     async function loadConsumers(asked) {
@@ -3743,7 +3738,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { text: one.from ? t("History from {name} since {date}, updated {ago}", { name: one.name, date: day(one.from), ago: HomeswiftCommon.ago(one.updated) })
             : t("History from {name}, updated {ago}", { name: one.name, ago: HomeswiftCommon.ago(one.updated) }) }));
       }));
-      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(); }, 3000);
+      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(true); }, 3000);
     }
 
     /// The period's energy as bars, oldest first: above zero where the home's energy came from (solar as it was
@@ -3891,12 +3886,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const narrowMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "narrow" });
   const monthYear = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
   const rangeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short" });
-  /// A local day as YYYY-MM-DD, and back (null for anything else).
-  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  function parseDay(text) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text ?? "");
-    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
-  }
+  const { isoDay, parseDay } = HomeswiftCommon;
   const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
 
   /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
@@ -3906,22 +3896,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
-  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
-  /// (with `top`) a whole number when it is one.
-  function formatKWh(kWh, top) {
-    const size = Math.abs(kWh);
-    // A figure under a kWh in Wh (a plug's few hours), not 0.00 kWh; an axis keeps one unit.
-    if (top == null && size > 0 && size < 1) return `${Math.round(kWh * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
-    const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
-  }
-
-  /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; the code itself for one it does
-  /// not know.
-  function formatMoney(amount, currency) {
-    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
-    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
-  }
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+  const formatMoney = (amount, currency) => HomeswiftCommon.money(amount, currency);
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
@@ -10881,6 +10857,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     input.click();
   }
 
+  /// Kilowatt-hours as every page shows energy: under a kWh in Wh (a plug's few hours, not 0.00 kWh); two decimals
+  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`) keeps kWh, whole
+  /// when it is.
+  function kWh(value, top) {
+    const size = Math.abs(value);
+    if (top == null && size > 0 && size < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
+    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
+  }
+
+  /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
+  /// does not know.
+  function money(amount, currency) {
+    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
+    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
+  }
+
+  /// A local day as YYYY-MM-DD, and back (null for anything else); `dayHour` reads `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm`.
+  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  function parseDay(text) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}))?/.exec(text ?? "");
+    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] ?? 0)) : null;
+  }
+
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
@@ -10945,7 +10945,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

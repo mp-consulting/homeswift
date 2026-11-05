@@ -231,7 +231,12 @@ public final class MeterArchive: @unchecked Sendable {
 
     /// The Meters of one accessory, by key.
     public func meters(of accessory: String) -> [MeterID] {
-        meters.filter { $0.accessory == accessory }
+        state.withLockedValue { $0.meters.keys.filter { $0.accessory == accessory } }.sorted { $0.meter < $1.meter }
+    }
+
+    /// Whether an accessory itself has a Meter (not the device's other accessories).
+    public func hasMeters(accessory: String) -> Bool {
+        state.withLockedValue { $0.meters.keys.contains { $0.accessory == accessory } }
     }
 
     /// Whether any Meter of an accessory or of the device's other accessories (`<accessory>:<more>`) has a history.

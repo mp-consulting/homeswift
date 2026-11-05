@@ -1657,7 +1657,9 @@
       if (view === "month") return date.getFullYear() * 12 + date.getMonth() >= now.getFullYear() * 12 + now.getMonth();
       return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }
-    async function loadHistory() {
+    /// The period's history, and its consumption by device; a poll while an import runs (`poll`) leaves the consumption
+    /// until the import is done.
+    async function loadHistory(poll = false) {
       clearTimeout(importPoll);
       const asked = ++historyAsked;
       keepAddress();
@@ -1671,7 +1673,7 @@
       if (asked !== historyAsked) return;
       fillHistory(history);
       fillImports(history.imports ?? []);
-      loadConsumers(asked);
+      if (!poll || !(history.imports ?? []).some((one) => one.state === "running")) loadConsumers(asked);
     }
 
     async function loadConsumers(asked) {
@@ -1743,7 +1745,7 @@
           el("span", { text: one.from ? t("History from {name} since {date}, updated {ago}", { name: one.name, date: day(one.from), ago: HomeswiftCommon.ago(one.updated) })
             : t("History from {name}, updated {ago}", { name: one.name, ago: HomeswiftCommon.ago(one.updated) }) }));
       }));
-      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(); }, 3000);
+      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(true); }, 3000);
     }
 
     /// The period's energy as bars, oldest first: above zero where the home's energy came from (solar as it was
@@ -1891,12 +1893,7 @@
   const narrowMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "narrow" });
   const monthYear = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
   const rangeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short" });
-  /// A local day as YYYY-MM-DD, and back (null for anything else).
-  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  function parseDay(text) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text ?? "");
-    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
-  }
+  const { isoDay, parseDay } = HomeswiftCommon;
   const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
 
   /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
@@ -1906,22 +1903,8 @@
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
-  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
-  /// (with `top`) a whole number when it is one.
-  function formatKWh(kWh, top) {
-    const size = Math.abs(kWh);
-    // A figure under a kWh in Wh (a plug's few hours), not 0.00 kWh; an axis keeps one unit.
-    if (top == null && size > 0 && size < 1) return `${Math.round(kWh * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
-    const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
-  }
-
-  /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; the code itself for one it does
-  /// not know.
-  function formatMoney(amount, currency) {
-    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
-    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
-  }
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+  const formatMoney = (amount, currency) => HomeswiftCommon.money(amount, currency);
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }

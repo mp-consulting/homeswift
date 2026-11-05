@@ -202,6 +202,9 @@ public final class PluginHost: @unchecked Sendable {
     let options: Options
     let logger: Logger
     private let configurationBox: NIOLockedValueBox<HomeswiftConfiguration>
+    /// The Energy Roles a person gave, by Accessory Id then Meter, made again with each configuration
+    /// (`energyRole(of:)`, read for every power reading).
+    private let energyRoles = NIOLockedValueBox<[String: [String: EnergyRole?]]>([:])
     private let instanceList = NIOLockedValueBox<[Instance]>([])
     let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
     // Characteristic changes of every server the host runs, for the web UI and the MCP server.
@@ -212,7 +215,8 @@ public final class PluginHost: @unchecked Sendable {
     private let timings: TimingFeed
     private let values = ValueFeed()
     private let energyImports = EnergyImportFeed()
-    private let meterReadings = MeterFeed()
+    // A plugin's takeover of a Meter (`.claim`) is never the reading a full queue lets go.
+    private let meterReadings = MeterFeed(keeping: { if case .claim = $0 { true } else { false } })
     /// Each plugin's latest energy import report, by plugin key.
     private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
     private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)
@@ -231,6 +235,7 @@ public final class PluginHost: @unchecked Sendable {
         }
         options.interfaces = configuration.bridge.bind ?? []
         configurationBox = NIOLockedValueBox(configuration)
+        energyRoles.withLockedValue { $0 = Self.energyRoles(in: configuration) }
         self.storageDirectory = storageDirectory
         self.registry = registry
         self.options = options
@@ -420,13 +425,16 @@ public final class PluginHost: @unchecked Sendable {
     /// they gave none (its plugin's suggestion stands), `.some(nil)` for none. Live: read from the configuration as it
     /// is now.
     public func energyRole(of id: MeterID) -> EnergyRole?? {
-        guard let colon = id.accessory.firstIndex(of: ":") else { return nil }
-        let platform = String(id.accessory[..<colon])
-        let key = AccessoryNaming.deviceID(of: id.accessory, platform: platform)
-        for block in configuration.platforms where block.platform == platform {
-            if let roles = block.energyRoles[key], let role = roles[id.meter] { return .some(role) }
+        energyRoles.withLockedValue { $0[id.accessory]?[id.meter] }
+    }
+
+    /// The Energy Roles of a configuration's blocks, by Accessory Id (`<platform>:<key>`) then Meter.
+    static func energyRoles(in configuration: HomeswiftConfiguration) -> [String: [String: EnergyRole?]] {
+        var table: [String: [String: EnergyRole?]] = [:]
+        for block in configuration.platforms {
+            for (key, roles) in block.energyRoles { table["\(block.platform):\(key)", default: [:]].merge(roles) { first, _ in first } }
         }
-        return nil
+        return table
     }
 
     /// Calls `observer` with each reading of a Meter a plugin declared (`PluginContext.meter`), until the observation is
@@ -457,6 +465,7 @@ public final class PluginHost: @unchecked Sendable {
             defer { previous = next }
             return previous
         }
+        energyRoles.withLockedValue { $0 = Self.energyRoles(in: next) }
         if next.bridge != previous.bridge { report.needsRestart.append("the bridge block changed") }
         for platform in options.systemPlatforms.sorted() {
             let before = previous.platforms.filter { $0.platform == platform }.map(\.json)

@@ -191,9 +191,7 @@ public enum EnergyCalendar {
         calendar.timeZone = timeZone
         let day: Date
         if let date {
-            let parts = date.split(separator: "-").compactMap { Int($0) }
-            guard parts.count == 3, (1...12).contains(parts[1]), (1...31).contains(parts[2]),
-                  let parsed = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return nil }
+            guard let parsed = Self.day(date).flatMap({ calendar.date(from: $0) }) else { return nil }
             day = parsed
         } else {
             day = calendar.startOfDay(for: now)
@@ -210,9 +208,16 @@ public enum EnergyCalendar {
         }
     }
 
+    /// A YYYY-MM-DD as its parts; nil for anything else.
+    public static func day(_ text: String) -> DateComponents? {
+        let parts = text.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, text.count == 10, (1...12).contains(parts[1]), (1...31).contains(parts[2]) else { return nil }
+        return DateComponents(year: parts[0], month: parts[1], day: parts[2])
+    }
+
     /// The starts of the days (`.day`) or months (`.month`) from the one `from` is in to the one `to` is in, in
     /// `timeZone`, and the end of the last; nil when there is none.
-    static func periods(_ unit: Calendar.Component, from: Date, to: Date, timeZone: TimeZone) -> (starts: [Date], end: Date)? {
+    public static func periods(_ unit: Calendar.Component, from: Date, to: Date, timeZone: TimeZone) -> (starts: [Date], end: Date)? {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let components: Set<Calendar.Component> = unit == .month ? [.year, .month] : [.year, .month, .day]

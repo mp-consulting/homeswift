@@ -782,18 +782,13 @@ public final class UIServer: Sendable {
                                                      imports: catalog.host.energyImportProgress)
                 // With Tariffs, each bar's energy cost: what the grid's import cost, less what its export was paid, hour by hour.
                 let schedule = TariffSchedule(catalog.host.configuration.tariffs, timeZone: timeZone)
-                if !schedule.isEmpty, var object = history.objectValue, let bars = object["bars"]?.arrayValue, !periods.isEmpty {
-                    var costs = [Double?](repeating: nil, count: periods.count)
-                    let starts = periods.map(\.start)
-                    var calendar = Calendar(identifier: .gregorian)
-                    calendar.timeZone = timeZone
-                    let end = calendar.date(byAdding: period == "year" ? .month : .day, value: 1, to: starts.last!) ?? span.to
-                    for hour in metrics.archive.hours(from: starts[0], to: end.addingTimeInterval(-1)) where hour.flows.gridImport != nil || hour.flows.gridExport != nil {
-                        guard let cost = schedule.cost(hour: hour.start, drawn: (hour.flows.gridImport ?? 0) / 1000, sent: (hour.flows.gridExport ?? 0) / 1000) else { continue }
-                        let index = EnergyCalendar.index(of: hour.start, in: starts)
-                        costs[index] = (costs[index] ?? 0) + cost
-                    }
-                    object["bars"] = .array(zip(bars, costs).map { bar, cost in
+                if !schedule.isEmpty, var object = history.objectValue, let bars = object["bars"]?.arrayValue,
+                   let span = EnergyCalendar.periods(period == "year" ? .month : .day, from: span.from, to: span.to, timeZone: timeZone) {
+                    let hours = metrics.archive.hours(from: span.starts[0], to: span.end.addingTimeInterval(-1))
+                        .filter { $0.flows.gridImport != nil || $0.flows.gridExport != nil }
+                        .map { ($0.start, $0.flows.gridImport.map { $0 / 1000 }, $0.flows.gridExport.map { $0 / 1000 }) }
+                    let costs = schedule.costs(of: hours, in: span.starts)
+                    object["bars"] = .array(zip(bars, costs.periods).map { bar, cost in
                         var one = bar.objectValue ?? [:]
                         one["cost"] = cost.map { .number(($0 * 100).rounded() / 100) } ?? .null
                         return .object(one)

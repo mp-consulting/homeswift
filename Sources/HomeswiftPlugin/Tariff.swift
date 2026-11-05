@@ -52,15 +52,26 @@ public struct Tariff: Sendable, Equatable, Codable {
         return hours * 60 + minutes
     }
 
-    /// Whether `period` covers minute `minute` (0 to 1439) of weekday `day` (1 Monday to 7 Sunday). A period past
-    /// midnight belongs to the day it starts on.
-    static func covers(_ period: Period, day: Int, minute: Int) -> Bool {
-        guard let from = minutes(period.from), let to = minutes(period.to) else { return false }
-        let onDay = { (day: Int) in period.days.map { $0.contains(day) } ?? true }
-        if from < to { return onDay(day) && minute >= from && minute < to }
-        if from == to { return onDay(day) }
-        // Past midnight: the evening of its own day, the morning of the day after.
-        return (onDay(day) && minute >= from) || (onDay(day == 1 ? 7 : day - 1) && minute < to)
+    /// The minutes of the week (Monday 00:00 first) and which period covers each: `-1` for none; nil when a time is not
+    /// one, and with whether some minute has two periods. A period past midnight belongs to the day it starts on.
+    func week() -> (periods: [Int16], overlap: Bool)? {
+        var cover = [Int16](repeating: -1, count: 7 * 1440)
+        var overlap = false
+        for (index, period) in periods.enumerated() {
+            guard let from = Self.minutes(period.from), let to = Self.minutes(period.to) else { return nil }
+            for day in 1...7 where period.days.map({ $0.contains(day) }) ?? true {
+                let base = (day - 1) * 1440, next = (day % 7) * 1440
+                // Its spans that day: until the evening, or the evening then the next morning.
+                let spans = from < to ? [base + from ..< base + to] : from == to ? [base ..< base + 1440] : [base + from ..< base + 1440, next ..< next + to]
+                for span in spans {
+                    for minute in span {
+                        if cover[minute] >= 0 { overlap = true }
+                        cover[minute] = Int16(index)
+                    }
+                }
+            }
+        }
+        return (cover, overlap)
     }
 
     /// What is wrong with a list of Tariffs, in words a person can act on; empty when nothing is. Each needs a day, a
@@ -70,85 +81,65 @@ public struct Tariff: Sendable, Equatable, Codable {
         var starts: Set<String> = []
         for (index, tariff) in tariffs.enumerated() {
             let at = "tariffs[\(index)]"
-            if day(tariff.start) == nil { problems.append("\(at).start must be a day, YYYY-MM-DD") }
+            if EnergyCalendar.day(tariff.start) == nil { problems.append("\(at).start must be a day, YYYY-MM-DD") }
             if !starts.insert(tariff.start).inserted { problems.append("\(at).start: another Tariff starts that day") }
             if tariff.currency.count != 3 || !tariff.currency.allSatisfy({ $0.isASCII && $0.isUppercase }) {
                 problems.append("\(at).currency must be a currency code, such as EUR or USD")
             }
             if let price = tariff.exportPrice, !(price.isFinite && price >= 0) { problems.append("\(at).exportPrice must be a price, 0 or more") }
             if tariff.periods.isEmpty { problems.append("\(at).periods must have a period at least") }
-            var timesKnown = true
             for (number, period) in tariff.periods.enumerated() {
                 let place = "\(at).periods[\(number)]"
-                if minutes(period.from) == nil || minutes(period.to) == nil { problems.append("\(place): from and to must be times, HH:mm"); timesKnown = false }
+                if minutes(period.from) == nil || minutes(period.to) == nil { problems.append("\(place): from and to must be times, HH:mm") }
                 if !(period.price.isFinite && period.price >= 0) { problems.append("\(place).price must be a price, 0 or more") }
                 if let days = period.days, days.isEmpty || !days.allSatisfy({ (1...7).contains($0) }) {
                     problems.append("\(place).days must be days of the week, 1 (Monday) to 7 (Sunday)")
                 }
             }
-            guard timesKnown, !tariff.periods.isEmpty else { continue }
             // Every minute of the week, once.
-            var gap = false, overlap = false
-            for day in 1...7 {
-                for minute in 0..<1440 {
-                    let count = tariff.periods.filter { covers($0, day: day, minute: minute) }.count
-                    if count == 0 { gap = true } else if count > 1 { overlap = true }
-                }
-            }
-            if gap { problems.append("\(at).periods leave part of the week without a price") }
-            if overlap { problems.append("\(at).periods overlap: each moment of the week needs one price") }
+            guard !tariff.periods.isEmpty, let week = tariff.week() else { continue }
+            if week.periods.contains(-1) { problems.append("\(at).periods leave part of the week without a price") }
+            if week.overlap { problems.append("\(at).periods overlap: each moment of the week needs one price") }
         }
         return problems
     }
-
-    /// A YYYY-MM-DD as its parts; nil for anything else.
-    static func day(_ text: String) -> DateComponents? {
-        let parts = text.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3, text.count == 10, (1...12).contains(parts[1]), (1...31).contains(parts[2]) else { return nil }
-        return DateComponents(year: parts[0], month: parts[1], day: parts[2])
-    }
 }
 
-/// The Tariffs in force over time, in a time zone: what a kWh cost at a moment, and what one sent back was paid.
+/// The Tariffs in force over time, in a time zone: what a kWh cost at a moment, and what one sent back was paid. Each
+/// Tariff's week is worked out once, a period for every minute of it.
 public struct TariffSchedule: Sendable {
-    public struct Price: Sendable, Equatable {
-        public var price: Double
-        public var exportPrice: Double?
-        public var currency: String
-    }
-
-    /// The Tariffs by their first moment, oldest first.
-    let tariffs: [(start: Date, tariff: Tariff)]
-    let calendar: Calendar
+    /// The Tariffs by their first moment, oldest first, each with its week (`Tariff.week`).
+    let tariffs: [(start: Date, tariff: Tariff, week: [Int16])]
+    let timeZone: TimeZone
 
     public init(_ tariffs: [Tariff], timeZone: TimeZone = .current) {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
-        calendar.firstWeekday = 2
-        self.calendar = calendar
+        self.timeZone = timeZone
         self.tariffs = tariffs.compactMap { tariff in
-            Tariff.day(tariff.start).flatMap { calendar.date(from: $0) }.map { ($0, tariff) }
+            guard let start = EnergyCalendar.day(tariff.start).flatMap({ calendar.date(from: $0) }), let week = tariff.week() else { return nil }
+            return (start, tariff, week.periods)
         }.sorted { $0.start < $1.start }
     }
 
     public var isEmpty: Bool { tariffs.isEmpty }
 
     /// The currency of the Tariff in force now, else the latest one's.
-    public var currency: String? { (tariffs.last { $0.start <= Date() } ?? tariffs.last)?.tariff.currency }
+    public var currency: String? { (tariff(at: Date()) ?? tariffs.last?.tariff)?.currency }
 
     /// The Tariff in force at `date`: the one that started last before it.
     public func tariff(at date: Date) -> Tariff? { tariffs.last { $0.start <= date }?.tariff }
 
-    /// The price at `date`: the Tariff that started last before it, and its period then; nil before the first Tariff or
-    /// in a part of the week it gives no price.
-    public func price(at date: Date) -> Price? {
-        guard let tariff = tariff(at: date) else { return nil }
-        let parts = calendar.dateComponents([.weekday, .hour, .minute], from: date)
-        // Calendar's weekdays: 1 Sunday to 7 Saturday; the Tariff's: 1 Monday to 7 Sunday.
-        let day = ((parts.weekday ?? 1) + 5) % 7 + 1
-        let minute = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
-        guard let period = tariff.periods.first(where: { Tariff.covers($0, day: day, minute: minute) }) else { return nil }
-        return Price(price: period.price, exportPrice: tariff.exportPrice, currency: tariff.currency)
+    /// The price of a kWh at `date` and what one sent back was paid: the Tariff that started last before it, and its
+    /// period then; nil before the first Tariff or in a part of the week it gives no price.
+    func price(at date: Date) -> (price: Double, exportPrice: Double?)? {
+        guard let entry = tariffs.last(where: { $0.start <= date }) else { return nil }
+        // The minute of the local week, Monday first: 1970-01-01 was a Thursday, the fourth day.
+        let local = Int((date.timeIntervalSince1970 + Double(timeZone.secondsFromGMT(for: date))) / 60.0.rounded(.down))
+        let minute = ((local + 3 * 1440) % (7 * 1440) + 7 * 1440) % (7 * 1440)
+        let period = Int(entry.week[minute])
+        guard period >= 0 else { return nil }
+        return (entry.tariff.periods[period].price, entry.tariff.exportPrice)
     }
 
     /// What an hour's energy cost (`drawn` kWh) less what its export was paid (`sent` kWh), at the price of the hour's
@@ -156,5 +147,20 @@ public struct TariffSchedule: Sendable {
     public func cost(hour start: Date, drawn: Double?, sent: Double? = nil) -> Double? {
         guard let price = price(at: start.addingTimeInterval(1800)) else { return nil }
         return (drawn ?? 0) * price.price - (sent ?? 0) * (price.exportPrice ?? 0)
+    }
+
+    /// The cost of hours (kWh drawn and sent back) by the periods (days, months) that start at `starts`, oldest first,
+    /// and in all; nil for a period, or the whole, with no priced hour. Hours before the first period are left out.
+    public func costs(of hours: [(start: Date, drawn: Double?, sent: Double?)], in starts: [Date]) -> (periods: [Double?], total: Double?) {
+        var periods = [Double?](repeating: nil, count: starts.count)
+        var total: Double?
+        guard let first = starts.first else { return (periods, nil) }
+        for hour in hours where hour.start >= first {
+            guard let cost = cost(hour: hour.start, drawn: hour.drawn, sent: hour.sent) else { continue }
+            let index = EnergyCalendar.index(of: hour.start, in: starts)
+            periods[index] = (periods[index] ?? 0) + cost
+            total = (total ?? 0) + cost
+        }
+        return (periods, total)
     }
 }

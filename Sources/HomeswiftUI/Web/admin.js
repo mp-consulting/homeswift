@@ -84,8 +84,7 @@
   /// prices, so past costs stay right. No restart.
   function tariffCard({ tariffs = [] }) {
     const latest = tariffs.at(-1) ?? null;
-    const today = new Date();
-    const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const isoToday = HomeswiftCommon.isoDay(new Date());
     const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
     const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
     const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", class: "mono", autocomplete: "off", spellcheck: false });
@@ -109,11 +108,11 @@
     };
     for (const period of latest?.periods ?? []) addRow(period);
     if (!latest) addRow();
-    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow({ from: "00:00", to: "24:00", price: "" }) });
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const earlier = tariffs.slice(0, -1).reverse();
-    const startDate = (text) => { const [y, m, d] = text.split("-").map(Number); return new Date(y, m - 1, d); };
+    const startDate = (text) => HomeswiftCommon.parseDay(text);
     const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
     return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
       event.preventDefault();
@@ -1080,13 +1079,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ContactSensorState: t("Contact"), MotionDetected: t("Motion"), ValvePosition: t("Valve position"), WaterAmount: t("Water"),
   };
 
-  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there.
-  function formatKWh(kWh, top) {
-    // A figure under a kWh in Wh, not 0.00 kWh; an axis keeps one unit.
-    if (top == null && Math.abs(kWh) > 0 && Math.abs(kWh) < 1) return `${Math.round(kWh * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
-    const size = Math.abs(kWh), digits = kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
-  }
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
 
   /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks, and
   /// first the energy its meters measured (the bridge's own record), by hour over a day and by day beyond.
@@ -1124,7 +1117,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
       const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
       const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
-      const dateOf = (text) => { const [day, time] = text.split("T"); const [y, m, d] = day.split("-").map(Number); const [h] = (time ?? "0").split(":").map(Number); return new Date(y, m - 1, d, h); };
+      const dateOf = (text) => HomeswiftCommon.parseDay(text);
       return found.meters.map((meter) => {
         const returns = meter.bars.some((bar) => bar.returned > 0);
         const body = el("div", { class: "chart-body" });
@@ -1135,7 +1128,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
           body,
           el("div", { class: "muted chart-detail", text: [
-            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: meter.cost.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency: found.currency }) }) : null,
+            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
             returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
         const bars = meter.bars.map((bar, index) => {
           const date = dateOf(bar.date);

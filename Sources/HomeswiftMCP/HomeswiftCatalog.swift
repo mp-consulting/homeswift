@@ -186,7 +186,7 @@ public struct HomeswiftCatalog: Sendable {
             // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
             let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
             let layout = LiveSettings.entry(for: id, platform: platform, legacy: home.layout.value.accessories[id], in: host.configuration)
-            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.meters(of: id).isEmpty == false)
+            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.hasMeters(accessory: id) == true)
         }
         return nil
     }

@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftAI
 import HomeswiftNetwork
 import Logging
+import HomeswiftPlugin
 import NIOConcurrencyHelpers
 
 /// The Shelly Cloud account of an instance (an Optional Account): the email and password of the Shelly app, kept in the
@@ -41,19 +42,11 @@ actor ShellyCloud {
 
     /// What the cloud said: hours of energy (Wh drawn, and sent back where it says), or why there are none.
     enum Answer: Sendable, Equatable {
-        case hours([(start: Date, consumption: Double, returned: Double?)])
+        case hours([MeterHourImport])
         /// The email and password were refused.
         case refused
         /// Nothing usable: another shape, an error, or no such device.
         case nothing
-
-        static func == (a: Answer, b: Answer) -> Bool {
-            switch (a, b) {
-            case (.refused, .refused), (.nothing, .nothing): true
-            case let (.hours(x), .hours(y)): x.map(\.start) == y.map(\.start) && x.map(\.consumption) == y.map(\.consumption) && x.map(\.returned) == y.map(\.returned)
-            default: false
-            }
-        }
     }
 
     /// How signing in went.
@@ -102,16 +95,26 @@ actor ShellyCloud {
     static func claims(of token: String) -> JSONValue? {
         let parts = token.split(separator: ".")
         guard parts.count == 3 else { return nil }
-        var base64 = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
-        return Data(base64Encoded: base64).flatMap { try? JSONValue(data: $0) }
+        return WebPushDecryption.base64URLDecode(String(parts[1])).flatMap { try? JSONValue(data: Data($0)) }
     }
 
-    /// The session to ask with: the current one, else a new sign-in when it is near its end.
-    private func currentSession() async -> (token: String, server: URL)? {
-        if let session, session.expires.timeIntervalSinceNow > 60 { return (session.token, session.server) }
-        guard await signIn() == .signedIn, let session else { return nil }
-        return (session.token, session.server)
+    /// The session to ask with: the current one, else a new sign-in when it is near its end; or how that sign-in went.
+    private func currentSession() async -> Result<(token: String, server: URL), SignInFailure> {
+        if let session, session.expires.timeIntervalSinceNow > 60 { return .success((session.token, session.server)) }
+        let outcome = await signIn()
+        guard outcome == .signedIn, let session else { return .failure(SignInFailure(refused: outcome == .refused)) }
+        return .success((session.token, session.server))
+    }
+
+    struct SignInFailure: Error { var refused: Bool }
+
+    /// The cloud's day and hour format, in a time zone.
+    static func formatter(_ timeZone: TimeZone) -> DateFormatter {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.timeZone = timeZone
+        format.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return format
     }
 
     // MARK: History
@@ -122,14 +125,15 @@ actor ShellyCloud {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let start = calendar.startOfDay(for: day)
-        let format = DateFormatter()
-        format.locale = Locale(identifier: "en_US_POSIX")
-        format.timeZone = timeZone
-        format.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let format = Self.formatter(timeZone)
         let query = URLEncoding.form([("id", id), ("channel", String(channel)), ("date_range", "custom"),
                                       ("date_from", format.string(from: start)), ("date_to", format.string(from: start.addingTimeInterval(86_399)))])
         for attempt in 0..<2 {
-            guard let session = await currentSession() else { return await signIn() == .refused ? .refused : .nothing }
+            let session: (token: String, server: URL)
+            switch await currentSession() {
+            case .success(let current): session = current
+            case .failure(let failure): return failure.refused ? .refused : .nothing
+            }
             guard let url = URL(string: session.server.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/v2/statistics/power-consumption?" + query) else { return .nothing }
             let request = HTTPRequest(url: url, headers: [("Authorization", "Bearer \(session.token)")], timeout: .seconds(30))
             let response: HomeswiftNetwork.HTTPResponse
@@ -173,25 +177,17 @@ actor ShellyCloud {
     /// its `timezone` (else `timeZone`), the figures in Wh; an hour marked `missing` left out.
     static func answer(_ json: JSONValue, timeZone: TimeZone, logger: Logger) -> Answer {
         let body = json["history"] != nil ? json : (json["data"] ?? .null)
+        // An answer with nothing in it is described once, by `consumption`.
         guard json["isok"]?.boolValue == true || json["history"] != nil else {
             let errors = json["errors"]?.objectValue?.keys.sorted() ?? []
-            logger.debug("Shelly Cloud gave no history", metadata: ["errors": "\(errors)"])
             return errors.contains { $0.contains("auth") || $0.contains("unauthorized") || $0.contains("token") } ? .refused : .nothing
         }
-        guard let history = body["history"]?.arrayValue else {
-            logger.debug("Shelly Cloud answered without a history", metadata: ["keys": "\(body.objectValue?.keys.sorted() ?? [])"])
-            return .nothing
-        }
-        let zone = body["timezone"]?.stringValue.flatMap(TimeZone.init(identifier:)) ?? timeZone
-        let format = DateFormatter()
-        format.locale = Locale(identifier: "en_US_POSIX")
-        format.timeZone = zone
-        format.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let hours = history.compactMap { entry -> (start: Date, consumption: Double, returned: Double?)? in
+        guard let history = body["history"]?.arrayValue else { return .nothing }
+        let format = formatter(body["timezone"]?.stringValue.flatMap(TimeZone.init(identifier:)) ?? timeZone)
+        let hours = history.compactMap { entry -> MeterHourImport? in
             guard entry["missing"]?.boolValue != true, let text = entry["datetime"]?.stringValue, let start = format.date(from: text),
                   let consumption = entry["consumption"]?.number, consumption.isFinite, consumption >= 0 else { return nil }
-            let returned = entry["reversed"]?.number.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
-            return (start, consumption, returned)
+            return MeterHourImport(start: start, consumption: consumption, returned: entry["reversed"]?.number.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil })
         }
         return .hours(hours)
     }

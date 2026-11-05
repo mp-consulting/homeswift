@@ -134,6 +134,6 @@ public struct DigestAuthentication: Sendable {
 public enum TextDigest {
     /// The SHA-1 of the text's UTF-8, in lowercase hex: what Shelly Cloud's sign-in takes for a password.
     public static func sha1(_ string: String) -> String {
-        Insecure.SHA1.hash(data: Data(string.utf8)).map { String(format: "%02x", $0) }.joined()
+        hexString(Insecure.SHA1.hash(data: Data(string.utf8)))
     }
 }

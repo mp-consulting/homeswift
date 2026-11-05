@@ -89,14 +89,19 @@ final class QueuedFeed<Payload: Sendable>: Sendable {
     }
     private let state = NIOLockedValueBox(State())
     private let limit: Int
+    /// What waits whatever the limit (what the first follower must hear, however many came after).
+    private let keeping: @Sendable (Payload) -> Bool
 
-    init(limit: Int = 10_000) { self.limit = limit }
+    init(limit: Int = 10_000, keeping: @escaping @Sendable (Payload) -> Bool = { _ in false }) {
+        self.limit = limit
+        self.keeping = keeping
+    }
 
     func publish(_ payload: Payload) {
         let observers = state.withLockedValue { state -> [@Sendable (Payload) -> Void] in
             if state.observers.isEmpty {
                 state.pending.append(payload)
-                if state.pending.count > limit { state.pending.removeFirst(state.pending.count - limit) }
+                if state.pending.count > limit, let oldest = state.pending.firstIndex(where: { !keeping($0) }) { state.pending.remove(at: oldest) }
             }
             return Array(state.observers.values)
         }

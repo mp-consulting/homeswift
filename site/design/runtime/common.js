@@ -1732,6 +1732,30 @@
     input.click();
   }
 
+  /// Kilowatt-hours as every page shows energy: under a kWh in Wh (a plug's few hours, not 0.00 kWh); two decimals
+  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`) keeps kWh, whole
+  /// when it is.
+  function kWh(value, top) {
+    const size = Math.abs(value);
+    if (top == null && size > 0 && size < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
+    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
+  }
+
+  /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
+  /// does not know.
+  function money(amount, currency) {
+    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
+    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
+  }
+
+  /// A local day as YYYY-MM-DD, and back (null for anything else); `dayHour` reads `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm`.
+  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  function parseDay(text) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}))?/.exec(text ?? "");
+    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] ?? 0)) : null;
+  }
+
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
@@ -1796,7 +1820,7 @@
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

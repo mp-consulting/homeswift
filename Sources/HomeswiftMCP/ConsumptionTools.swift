@@ -32,14 +32,25 @@ extension HomeswiftCatalog {
             (from, to) = span
             step = period == "year" ? .month : .day
         }
-        if let accessory, find(id: accessory) == nil, metrics.meters.meters(of: accessory).isEmpty {
-            throw CatalogError("No accessory with that id", notFound: true)
+        let all = metrics.meters.meters
+        let ids = accessory.map { one in all.filter { $0.accessory == one } } ?? all
+        if let accessory, ids.isEmpty, find(id: accessory) == nil { throw CatalogError("No accessory with that id", notFound: true) }
+        let byAccessory = Dictionary(grouping: ids, by: \.accessory)
+        // The bars: every hour of the span, so they line up with the clock, or its days or months.
+        let starts: [Date], end: Date
+        switch step {
+        case .hour:
+            starts = (MeterArchive.hourIndex(from)...MeterArchive.hourIndex(to)).map { Date(timeIntervalSince1970: TimeInterval($0 * 3600)) }
+            end = to
+        case .day, .month:
+            guard let span = EnergyCalendar.periods(step == .month ? .month : .day, from: from, to: to, timeZone: timeZone) else { throw CatalogError("No such span") }
+            (starts, end) = (span.starts, span.end.addingTimeInterval(-1))
         }
-        let ids = accessory.map { metrics.meters.meters(of: $0) } ?? metrics.meters.meters
         let format = DateFormatter()
         format.locale = Locale(identifier: "en_US_POSIX")
         format.timeZone = timeZone
         format.dateFormat = switch step { case .hour: "yyyy-MM-dd'T'HH:mm"; case .day: "yyyy-MM-dd"; case .month: "yyyy-MM" }
+        let dates = starts.map { JSONValue.string(format.string(from: $0)) }
         let kWh = { (wattHours: Double?) in wattHours.map { JSONValue.number(($0).rounded() / 1000) } ?? .null }
         // Each hour's Consumption at that hour's grid price (whatever source covered it): devices compare alike.
         let schedule = TariffSchedule(host.configuration.tariffs, timeZone: timeZone)
@@ -47,54 +58,34 @@ extension HomeswiftCatalog {
 
         var meters: [(consumption: Double, json: JSONValue)] = []
         for id in ids {
-            var bars: [JSONValue] = []
-            var consumption: Double?, returned: Double?, cost: Double?
-            var barStarts: [Date] = []
-            var barCosts: [Double?] = []
-            func add(_ start: Date, _ drawn: Double?, _ back: Double?, recorded: Int, known: Int) {
-                if let drawn { consumption = (consumption ?? 0) + drawn }
-                if let back { returned = (returned ?? 0) + back }
-                barStarts.append(start)
-                barCosts.append(nil)
-                bars.append(["date": .string(format.string(from: start)), "consumption": kWh(drawn), "returned": kWh(back),
-                             "recordedHours": .number(Double(recorded)), "hours": .number(Double(known))])
+            // The Meter's hours, read once, added up by bar.
+            let hours = metrics.meters.hours(of: id, from: starts[0], to: end)
+            var bars = [(drawn: Double?, back: Double?, recorded: Int, known: Int)](repeating: (nil, nil, 0, 0), count: starts.count)
+            for hour in hours {
+                let index = EnergyCalendar.index(of: hour.start, in: starts)
+                if let value = hour.consumption { bars[index].drawn = (bars[index].drawn ?? 0) + value }
+                if let value = hour.returned { bars[index].back = (bars[index].back ?? 0) + value }
+                bars[index].known += 1
+                if hour.recorded { bars[index].recorded += 1 }
             }
-            switch step {
-            case .hour:
-                // Every hour of the span, known or not, so the bars line up with the clock.
-                let known = Dictionary(metrics.meters.hours(of: id, from: from, to: to).map { (MeterArchive.hourIndex($0.start), $0) }) { first, _ in first }
-                for index in MeterArchive.hourIndex(from)...MeterArchive.hourIndex(to) {
-                    let hour = known[index]
-                    add(Date(timeIntervalSince1970: TimeInterval(index * 3600)), hour?.consumption, hour?.returned,
-                        recorded: hour?.recorded == true ? 1 : 0, known: hour == nil ? 0 : 1)
-                }
-            case .day, .month:
-                for one in metrics.meters.periods(of: id, step == .month ? .month : .day, from: from, to: to, timeZone: timeZone) {
-                    add(one.start, one.consumption, one.returned, recorded: one.recordedHours, known: one.hours)
-                }
-            }
-            if !barStarts.isEmpty, !schedule.isEmpty {
-                // The cost of each bar, from its hours: through the end of the last day or month, not its first moment.
-                var calendar = Calendar(identifier: .gregorian)
-                calendar.timeZone = timeZone
-                let end = step == .hour ? to : calendar.date(byAdding: step == .month ? .month : .day, value: 1, to: barStarts.last!)!.addingTimeInterval(-1)
-                for hour in metrics.meters.hours(of: id, from: barStarts[0], to: end) {
-                    guard let priced = schedule.cost(hour: hour.start, drawn: (hour.consumption ?? 0) / 1000) else { continue }
-                    let index = EnergyCalendar.index(of: hour.start, in: barStarts)
-                    barCosts[index] = (barCosts[index] ?? 0) + priced
-                    cost = (cost ?? 0) + priced
-                }
-                bars = zip(bars, barCosts).map { bar, amount in var object = bar.objectValue ?? [:]; object["cost"] = money(amount); return .object(object) }
-            }
+            let costs = schedule.isEmpty ? nil : schedule.costs(of: hours.map { ($0.start, $0.consumption.map { $0 / 1000 }, nil) }, in: starts)
+            let consumption = bars.compactMap(\.drawn).reduce(nil as Double?) { ($0 ?? 0) + $1 }
+            let returned = bars.compactMap(\.back).reduce(nil as Double?) { ($0 ?? 0) + $1 }
             let located = find(id: id.accessory)
             var json: [String: JSONValue] = [
                 "accessory": .string(id.accessory), "meter": .string(id.meter),
                 "name": .string(located.map { $0.layout?.name ?? $0.accessory.name } ?? id.accessory),
-                "consumption": kWh(consumption), "returned": kWh(returned), "bars": .array(bars),
+                "consumption": kWh(consumption), "returned": kWh(returned),
+                "bars": .array(bars.indices.map { index in
+                    var bar: [String: JSONValue] = ["date": dates[index], "consumption": kWh(bars[index].drawn), "returned": kWh(bars[index].back),
+                                                    "recordedHours": .number(Double(bars[index].recorded)), "hours": .number(Double(bars[index].known))]
+                    if let costs { bar["cost"] = money(costs.periods[index]) }
+                    return .object(bar)
+                }),
             ]
-            if !schedule.isEmpty { json["cost"] = money(cost) }
+            if let costs { json["cost"] = money(costs.total) }
             // A device with several Meters (a relay's channels): each is named by its service.
-            if let located, metrics.meters.meters(of: id.accessory).count > 1 { json["label"] = .string(Self.meterLabel(id, of: located.accessory)) }
+            if let located, (byAccessory[id.accessory]?.count ?? 0) > 1 { json["label"] = .string(Self.meterLabel(id, of: located.accessory)) }
             meters.append((consumption ?? 0, .object(json)))
         }
         format.dateFormat = "yyyy-MM-dd"

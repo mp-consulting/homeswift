@@ -71,8 +71,6 @@ actor Gen2Device {
     /// The relays' meters, whose history Shelly Cloud keeps (`importCloudHistory`), by channel.
     private var cloudJobs: [(channel: Int, meter: PluginMeter)] = []
     private var cloudImporter: Task<Void, Never>?
-    /// The accessory whose services are being made (`makeAccessories`): the one a power meter's Meter belongs to.
-    private var building: (id: String, name: String)?
 
     struct HistoryJob: Sendable {
         /// The component: `emdata` or `em1data`.
@@ -83,9 +81,11 @@ actor Gen2Device {
         var back: [String]
         var key: String { "\(component):\(id)" }
         /// `EMData.GetRecords` or `EM1Data.GetRecords`: the spans of records the device keeps.
-        var recordsMethod: String { component == "emdata" ? "EMData.GetRecords" : "EM1Data.GetRecords" }
+        var recordsMethod: String { "\(service).GetRecords" }
         /// `EMData.GetNetEnergies` or `EM1Data.GetNetEnergies`: each hour's energy, net of what was sent back.
-        var netMethod: String { component == "emdata" ? "EMData.GetNetEnergies" : "EM1Data.GetNetEnergies" }
+        var netMethod: String { "\(service).GetNetEnergies" }
+        /// The component's RPC service.
+        var service: String { component == "emdata" ? "EMData" : "EM1Data" }
     }
 
     init(deviceID: String, rpc: ShellyRPC, info: JSONValue, status: JSONValue, config: JSONValue, options: Gen2DeviceOptions, context: PluginContext,
@@ -230,7 +230,6 @@ actor Gen2Device {
         for item in layout.items {
             let name = item.suffix.map { "\(baseName) \($0)" } ?? baseName
             let id = Self.accessoryID(platform: platform, deviceID: deviceID, item: item.accessoryID)
-            building = (id, name)
             guard let (services, category) = makeServices(item.part, name: name, accessoryID: id) else { continue }
             let rpc = rpc, logger = logger
             made.append(Accessory(
@@ -240,7 +239,6 @@ actor Gen2Device {
                     logger.info("\(name) at \(host) identified")
                 }))
         }
-        building = nil
         accessories = made
         return made
     }
@@ -250,11 +248,11 @@ actor Gen2Device {
         case .switch(let id):
             let options = options.component("switch:\(id)")
             guard !options.exclude else { return nil }
-            return (switchServices(id, outlet: options.type == "outlet"), options.type == "outlet" ? .outlet : .switch)
+            return (switchServices(id, outlet: options.type == "outlet", owner: (accessoryID, name)), options.type == "outlet" ? .outlet : .switch)
         case .cover(let id):
             let options = options.component("cover:\(id)")
             guard !options.exclude else { return nil }
-            return coverServices(id, type: options.type)
+            return coverServices(id, type: options.type, owner: (accessoryID, name))
         case .buttons(let ids):
             return (buttonServices(ids), .programmableSwitch)
         case .inputSwitch(let id):
@@ -288,7 +286,7 @@ actor Gen2Device {
         return HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
     }
 
-    private func switchServices(_ id: Int, outlet: Bool) -> [Service] {
+    private func switchServices(_ id: Int, outlet: Bool, owner: (accessoryID: String, device: String)) -> [Service] {
         let key = "switch:\(id)"
         let service = outlet
             ? Service(.outlet, name: "Outlet \(id + 1)", subtype: "outlet-\(id)", optional: [.outletInUse], isPrimary: true)
@@ -311,15 +309,15 @@ actor Gen2Device {
             if outlet { service.characteristic(.outletInUse).update(.bool((fields["apower"]?.number ?? 0) != 0)) }
         }
         guard metered else { return [service] }
-        return [service, powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number })]
+        return [service, powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number }, owner: owner)]
     }
 
-    /// The Power Meter of a component, with the characteristics its first status had. `takeOver` makes its Meter the
-    /// plugin's (`PluginContext.meter(of:)`): the power with its sign, the energy counter and `returned`'s, and the role
+    /// The Power Meter of a component, with the characteristics its first status had. Its Meter is the plugin's, of `owner`'s
+    /// accessory (`PluginContext.meter(of:)`): the power with its sign, the energy counter and `returned`'s, and `role`
     /// suggested for the Home Energy; the series keeps the name it had when the plugin recorded the power itself.
     private func powerMeter(_ key: String, id: Int, voltage: String, current: String, power: String, energyKey: String? = nil,
                             energy: @escaping @Sendable ([String: JSONValue]) -> Double?, returned: (@Sendable ([String: JSONValue]) -> Double?)? = nil,
-                            takeOver: (accessoryID: String, device: String, role: EnergyRole?)? = nil,
+                            owner: (accessoryID: String, device: String), role: EnergyRole? = nil,
                             history: (component: String, drawn: [String], back: [String])? = nil) -> Service {
         let fields = status[key] ?? [:]
         var optional: [CharacteristicType] = []
@@ -332,12 +330,11 @@ actor Gen2Device {
         let deviceID = deviceID, present = optional
         // Every power meter is the plugin's Meter: the device's own watt-hours (Total Consumption is in steps of 0.1 kWh, a
         // small plug's hours long), the power with its sign, and what a component sent back (`ret_aenergy`).
-        let takeOver = takeOver ?? building.map { (accessoryID: $0.id, device: $0.name, role: EnergyRole?.none) }
         let returned: (@Sendable ([String: JSONValue]) -> Double?)? = returned ?? (energyKey == nil ? Self.returnedEnergy : nil)
-        let owned = takeOver.map { context.meter(of: meter, accessoryID: $0.accessoryID, device: $0.device, suggestedRole: $0.role, series: "\(deviceID):\(key):power") }
+        let owned = context.meter(of: meter, accessoryID: owner.accessoryID, device: owner.device, suggestedRole: role, series: "\(deviceID):\(key):power")
         // A relay keeps no records: Shelly Cloud's are its history, with an account.
-        if let owned, energyKey == nil, key.hasPrefix("switch:") { cloudJobs.append((id, owned)) }
-        if let owned, let history { historyJobs.append(HistoryJob(component: history.component, id: id, meter: owned, drawn: history.drawn, back: history.back)) }
+        if key.hasPrefix("switch:") { cloudJobs.append((id, owned)) }
+        if let history { historyJobs.append(HistoryJob(component: history.component, id: id, meter: owned, drawn: history.drawn, back: history.back)) }
         bind(key) { fields in
             let watts = fields[power]?.number ?? 0
             meter.characteristic(PowerMeter.consumption).update(clamping: watts)
@@ -345,20 +342,20 @@ actor Gen2Device {
             if let amps = fields[current]?.number, present.contains(PowerMeter.electricCurrent) {
                 meter.characteristic(PowerMeter.electricCurrent).update(clamping: amps)
             }
-            if let watts = fields[power]?.number { owned?.record(watts: watts) }
+            if let watts = fields[power]?.number { owned.record(watts: watts) }
         }
         if hasEnergy {
             bind(energySource) { fields in
                 guard let wattHours = energy(fields) else { return }
                 meter.characteristic(PowerMeter.totalConsumption).update(clamping: wattHours / 1000)
-                owned?.record(counter: wattHours)
-                if let back = returned?(fields) { owned?.record(counter: back, direction: .returned) }
+                owned.record(counter: wattHours)
+                if let back = returned?(fields) { owned.record(counter: back, direction: .returned) }
             }
         }
         return meter
     }
 
-    private func coverServices(_ id: Int, type: String?) -> ([Service], AccessoryCategory) {
+    private func coverServices(_ id: Int, type: String?, owner: (accessoryID: String, device: String)) -> ([Service], AccessoryCategory) {
         let key = "cover:\(id)"
         let (serviceType, title, subtype, category): (ServiceType, String, String, AccessoryCategory) = switch type {
         case "door": (.door, "Door", "door", .door)
@@ -366,7 +363,7 @@ actor Gen2Device {
         default: (.window, "Window", "window", .window)
         }
         let service = Service(serviceType, name: "\(title) \(id + 1)", subtype: "\(subtype)-\(id)", isPrimary: true)
-        let meter = powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number })
+        let meter = powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number }, owner: owner)
         guard status[key]?["pos_control"]?.boolValue == true else {
             logger.warning("Only calibrated covers are supported.")
             return ([service, meter], category)
@@ -430,15 +427,16 @@ actor Gen2Device {
         case "em":
             return powerMeter(key, id: id, voltage: "a_voltage", current: "total_current", power: "total_act_power", energyKey: "emdata:\(id)",
                               energy: { $0["total_act"]?.number }, returned: { $0["total_act_ret"]?.number },
-                              takeOver: (accessoryID, name, .grid),
+                              owner: (accessoryID, name), role: .grid,
                               history: ("emdata", ["a", "b", "c"].map { "\($0)_total_act_energy" }, ["a", "b", "c"].map { "\($0)_total_act_ret_energy" }))
         case "em1":
             return powerMeter(key, id: id, voltage: "voltage", current: "current", power: "act_power", energyKey: "em1data:\(id)",
                               energy: { $0["total_act_energy"]?.number }, returned: { $0["total_act_ret_energy"]?.number },
-                              takeOver: (accessoryID, name, id == 0 ? .grid : nil),
+                              owner: (accessoryID, name), role: id == 0 ? .grid : nil,
                               history: ("em1data", ["total_act_energy"], ["total_act_ret_energy"]))
         default:
-            return powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number })
+            return powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number },
+                              owner: (accessoryID, name))
         }
     }
 
@@ -589,10 +587,10 @@ actor Gen2Device {
                 case .hours(let hours):
                     // A day of zeros alone is taken as nothing: the cloud answers so for a day it has no record of (and
                     // has once for days it had), and its zeros would stand over an import of the day's real figures.
-                    let known = hours.filter { $0.consumption > 0 || ($0.returned ?? 0) > 0 }
-                    empty = known.isEmpty ? empty + 1 : 0
-                    if !known.isEmpty {
-                        job.meter.importHours(hours.map { MeterHourImport(start: $0.start, consumption: $0.consumption, returned: $0.returned) })
+                    let known = hours.contains { ($0.consumption ?? 0) > 0 || ($0.returned ?? 0) > 0 }
+                    empty = known ? 0 : empty + 1
+                    if known {
+                        job.meter.importHours(hours)
                         newest = newest ?? date
                     }
                 }
@@ -620,10 +618,10 @@ actor Gen2Device {
         var request = HTTPRequest(url: url, timeout: Self.historyTimeout)
         guard var response = try? await http.send(request) else { return nil }
         if response.status == 401, let password,
-           let header = response.headers.first(where: { $0.name.lowercased() == "www-authenticate" })?.value {
+           let header = response.header("WWW-Authenticate") {
             var digest = DigestAuthentication(username: "admin", password: password)
             guard digest.accept(challenge: header), let authorization = digest.authorization(method: "GET", uri: url.path + (url.query.map { "?\($0)" } ?? "")) else { return nil }
-            request.headers.append(("Authorization", authorization))
+            request.setHeader("Authorization", authorization)
             guard let again = try? await http.send(request) else { return nil }
             response = again
         }

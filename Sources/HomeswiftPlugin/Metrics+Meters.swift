@@ -12,7 +12,7 @@ extension Metrics {
     /// (`PluginHost.energyRole(of:)`, live), else its plugin's suggestion; nothing for none. Solar and the home's use
     /// count as amounts, whichever way the Meter measures them; the grid and a battery keep their direction.
     func recordHomeEnergy(_ id: MeterID, watts: Double, _ description: MeterDescription, role given: EnergyRole??) {
-        meterDescriptions.withLockedValue { $0[id] = description }
+        meterDescriptions.withLockedValue { if $0[id] != description { $0[id] = description } }
         guard let role = given ?? description.suggestedRole else { return }
         let value = role == .solar || role == .home ? abs(watts) : watts
         // A role other than the suggestion is a series of its own: what was recorded under another role stays as it was.
