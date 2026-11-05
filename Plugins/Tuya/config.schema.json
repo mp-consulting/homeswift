@@ -280,7 +280,8 @@
       "video": {
         "type": "boolean",
         "title": "Video",
-        "description": "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service",
+        "default": true,
+        "description": "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service",
         "x-kinds": [
           "camera"
         ]
@@ -288,7 +289,8 @@
       "recording": {
         "type": "boolean",
         "title": "HomeKit Secure Video",
-        "description": "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default",
+        "default": false,
+        "description": "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud",
         "x-kinds": [
           "camera"
         ]
@@ -448,6 +450,7 @@
       "Integer": "Entier",
       "JSON": "JSON",
       "Leave the DP out, as if the device did not have it": "Écarter le DP, comme si l'appareil ne l'avait pas",
+      "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service": "Vidéo en direct et instantanés sur un accessoire à part, avec le détecteur de mouvement et la sonnette : ajoutez-le dans l'app Maison comme une caméra. Chaque flux et chaque instantané est un appel au service IoT Video Live Stream du cloud",
       "Log the API's requests and the push messages at debug level": "Journaliser les requêtes de l'API et les messages push au niveau débogage",
       "Maximum": "Maximum",
       "Minimum": "Minimum",
@@ -464,7 +467,7 @@
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publié seul, hors du pont : ajoutez-le dans l'app Maison comme un accessoire",
       "Raw": "Brut",
       "Read conversion": "Conversion en lecture",
-      "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default": "Enregistre la caméra quand elle détecte un mouvement : chaque enregistrement ouvre un flux du cloud. Désactivé par défaut",
+      "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud": "Enregistre dans iCloud les mouvements et les sonneries de la caméra : chaque enregistrement ouvre un flux du cloud",
       "Scale": "Échelle",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -477,7 +480,6 @@
       "The Tuya cloud project and its devices": "Le projet cloud Tuya et ses appareils",
       "The app the account belongs to": "L'app du compte",
       "The calling code of the app account's country, such as 1, 33 or 49": "L'indicatif téléphonique du pays du compte de l'app, comme 1, 33 ou 49",
-      "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service": "La vidéo en direct et les instantanés de la caméra sur un accessoire à part, avec son détecteur de mouvement et sa sonnette : ajoutez-le dans l'app Maison comme une caméra. Activé par défaut ; chaque flux et chaque instantané coûte un appel au service IoT Video Live Stream du cloud",
       "The cloud project's Access ID, from the Tuya IoT Platform": "L'Access ID du projet cloud, sur la Tuya IoT Platform",
       "The code Homeswift reads it as": "Le code sous lequel Homeswift le lit",
       "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "L'adresse OpenAPI du centre de données, comme https://openapi.tuyaeu.com. Un projet Smart Home prend celle de son pays s'il est vide",
@@ -528,6 +530,7 @@
       "Integer": "Entero",
       "JSON": "JSON",
       "Leave the DP out, as if the device did not have it": "Dejar fuera el DP, como si el dispositivo no lo tuviera",
+      "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service": "Vídeo en directo e instantáneas en un accesorio propio, con el sensor de movimiento y el timbre: añádelo en la app Casa como una cámara. Cada transmisión e instantánea es una llamada al servicio IoT Video Live Stream de la nube",
       "Log the API's requests and the push messages at debug level": "Registrar las peticiones de la API y los mensajes push en el nivel de depuración",
       "Maximum": "Máximo",
       "Minimum": "Mínimo",
@@ -544,7 +547,7 @@
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado por separado, fuera del puente: añádelo en la app Casa como un accesorio",
       "Raw": "Sin procesar",
       "Read conversion": "Conversión de lectura",
-      "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default": "Graba la cámara cuando detecta movimiento: cada grabación abre una transmisión desde la nube. Desactivado por defecto",
+      "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud": "Graba en iCloud el movimiento y los timbrazos de la cámara: cada grabación abre una transmisión desde la nube",
       "Scale": "Escala",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -557,7 +560,6 @@
       "The Tuya cloud project and its devices": "El proyecto en la nube de Tuya y sus dispositivos",
       "The app the account belongs to": "La app de la cuenta",
       "The calling code of the app account's country, such as 1, 33 or 49": "El prefijo telefónico del país de la cuenta de la app, como 1, 33 o 49",
-      "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service": "El vídeo en directo y las instantáneas de la cámara en un accesorio propio, con su sensor de movimiento y su timbre: añádelo en la app Casa como una cámara. Activado por defecto; cada transmisión e instantánea cuesta una llamada al servicio IoT Video Live Stream de la nube",
       "The cloud project's Access ID, from the Tuya IoT Platform": "El Access ID del proyecto en la nube, de la Tuya IoT Platform",
       "The code Homeswift reads it as": "El código con el que Homeswift lo lee",
       "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "La dirección OpenAPI del centro de datos, como https://openapi.tuyaeu.com. Un proyecto Smart Home usa la de su país si está vacío",
@@ -608,6 +610,7 @@
       "Integer": "Inteiro",
       "JSON": "JSON",
       "Leave the DP out, as if the device did not have it": "Deixar o DP de fora, como se o dispositivo não o tivesse",
+      "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service": "Vídeo em direto e capturas num acessório próprio, com o sensor de movimento e a campainha: adicione-o na app Casa como uma câmara. Cada transmissão e captura é uma chamada ao serviço IoT Video Live Stream da cloud",
       "Log the API's requests and the push messages at debug level": "Registar os pedidos da API e as mensagens push no nível de depuração",
       "Maximum": "Máximo",
       "Minimum": "Mínimo",
@@ -624,7 +627,7 @@
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado à parte, fora da ponte: adicione-o na app Casa como um acessório",
       "Raw": "Bruto",
       "Read conversion": "Conversão de leitura",
-      "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default": "Grava a câmara quando deteta movimento: cada gravação abre uma transmissão da cloud. Desativado por predefinição",
+      "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud": "Grava no iCloud o movimento e os toques da câmara: cada gravação abre uma transmissão da cloud",
       "Scale": "Escala",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -637,7 +640,6 @@
       "The Tuya cloud project and its devices": "O projeto na nuvem Tuya e os seus dispositivos",
       "The app the account belongs to": "A app da conta",
       "The calling code of the app account's country, such as 1, 33 or 49": "O indicativo telefónico do país da conta da app, como 1, 33 ou 49",
-      "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service": "O vídeo em direto e as capturas da câmara num acessório próprio, com o seu sensor de movimento e a sua campainha: adicione-o na app Casa como uma câmara. Ativado por predefinição; cada transmissão e captura custa uma chamada ao serviço IoT Video Live Stream da cloud",
       "The cloud project's Access ID, from the Tuya IoT Platform": "O Access ID do projeto na nuvem, da Tuya IoT Platform",
       "The code Homeswift reads it as": "O código com que o Homeswift o lê",
       "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "O endereço OpenAPI do centro de dados, como https://openapi.tuyaeu.com. Um projeto Smart Home usa o do seu país quando está vazio",
