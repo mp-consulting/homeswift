@@ -291,6 +291,7 @@ actor DaikinSession {
             let totals = DaikinConsumption.totals(of: device.raw, now: now, calendar: calendar)
             guard !totals.slots.isEmpty || !totals.days.isEmpty else { continue }
             context.recordValue(DaikinConsumption.today(totals, now: now, calendar: calendar), series: "\(device.id):energyToday")
+            guard settings.energyHistory else { continue }
             let unit = DaikinConsumption.hours(totals, now: now, calendar: calendar, detailed: detailedDays)
             hours.merge(unit.hours, uniquingKeysWith: +)
             covered.formUnion(unit.detailed)

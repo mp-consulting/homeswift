@@ -42,9 +42,9 @@ struct ConsumptionTests {
 
     @Test func theCloudsSlotsAndDaysAreRead() {
         let totals = DaikinConsumption.totals(of: Self.unit, now: Self.now, calendar: Self.calendar)
-        #expect(totals.slots[Self.date("2026-11-03T00:00:00Z")] == 1)
-        #expect(totals.slots[Self.date("2026-11-03T22:00:00Z")] == 1)
-        #expect(abs((totals.slots[Self.date("2026-11-04T00:00:00Z")] ?? 0) - 0.7) < 1e-9, "heating and cooling added up")
+        #expect(totals.slots[Self.date("2026-11-03T00:00:00Z")]?.kWh == 1)
+        #expect(totals.slots[Self.date("2026-11-03T22:00:00Z")]?.kWh == 1)
+        #expect(abs((totals.slots[Self.date("2026-11-04T00:00:00Z")]?.kWh ?? 0) - 0.7) < 1e-9, "heating and cooling added up")
         #expect(totals.slots[Self.date("2026-11-04T12:00:00Z")] == nil, "not reached yet")
         // Last week's Monday is 26 October; this Wednesday is 5 so far.
         #expect(totals.days[Self.date("2026-10-26T00:00:00Z")] == 10)
@@ -94,10 +94,10 @@ struct ConsumptionTests {
         // Monday 30 March 2026, 13:30 in Paris: yesterday, the clocks went from 02:00 to 03:00.
         let now = Self.date("2026-03-30T11:30:00Z")
         let totals = DaikinConsumption.totals(of: .object(unit), now: now, calendar: calendar)
-        #expect(totals.slots[Self.date("2026-03-28T23:00:00Z")] == 1, "midnight in Paris")
-        #expect(totals.slotEnds[Self.date("2026-03-28T23:00:00Z")] == Self.date("2026-03-29T01:00:00Z"))
-        #expect(totals.slots[Self.date("2026-03-29T01:00:00Z")] == 1, "02:00 to 04:00, which lasted an hour")
-        #expect(totals.slotEnds[Self.date("2026-03-29T01:00:00Z")] == Self.date("2026-03-29T02:00:00Z"))
+        #expect(totals.slots[Self.date("2026-03-28T23:00:00Z")]?.kWh == 1, "midnight in Paris")
+        #expect(totals.slots[Self.date("2026-03-28T23:00:00Z")]?.end == Self.date("2026-03-29T01:00:00Z"))
+        #expect(totals.slots[Self.date("2026-03-29T01:00:00Z")]?.kWh == 1, "02:00 to 04:00, which lasted an hour")
+        #expect(totals.slots[Self.date("2026-03-29T01:00:00Z")]?.end == Self.date("2026-03-29T02:00:00Z"))
         #expect(totals.slots[Self.date("2026-03-29T22:00:00Z")] != nil, "today's midnight")
         let hours = DaikinConsumption.hours(totals, now: now, calendar: calendar).hours
         #expect(hours[Self.date("2026-03-28T23:00:00Z")] == 500)

@@ -7,11 +7,11 @@ import HomeswiftPlugin
 /// slots and days are the unit's wall clock: its gateway's `timeZone`.
 enum DaikinConsumption {
     /// Each two-hour slot of yesterday and today, and each day of the two weeks, summed over the unit's management
-    /// points and modes: by the slot's or the day's start, in kWh. `slotEnds` is where each slot ends (two hours later
-    /// on the wall clock: one or three on the days the clocks change).
+    /// points and modes: by the slot's or the day's start, in kWh. A slot ends two hours later on the wall clock (one or
+    /// three on the days the clocks change).
     struct Totals: Sendable, Equatable {
-        var slots: [Date: Double] = [:]
-        var slotEnds: [Date: Date] = [:]
+        struct Slot: Sendable, Equatable { var kWh: Double; var end: Date }
+        var slots: [Date: Slot] = [:]
         var days: [Date: Double] = [:]
     }
 
@@ -33,21 +33,19 @@ enum DaikinConsumption {
         let sinceMonday = (weekday + 5) % 7
         guard let monday = calendar.date(byAdding: .day, value: -sinceMonday, to: today),
               let lastMonday = calendar.date(byAdding: .day, value: -7, to: monday) else { return totals }
-        // The 24 slots' starts on the wall clock, and today's midnight ends yesterday's last one.
-        let starts = [yesterday, today].flatMap { day in
+        // The 24 slots' bounds on the wall clock: each slot ends where the next starts, today's midnight included.
+        let bounds = [yesterday, today].flatMap { day in
             (0..<12).map { calendar.date(bySettingHour: $0 * 2, minute: 0, second: 0, of: day) }
-        }
+        } + [tomorrow]
         for point in raw["managementPoints"]?.arrayValue ?? [] {
             guard let electrical = point["consumptionData"]?["value"]?["electrical"]?.objectValue else { continue }
             // Watt-hours are what the Energy section counts; any other unit is not read.
             if let unit = electrical["unit"]?.stringValue, unit != "kWh" { continue }
             for (mode, series) in electrical where mode != "unit" {
                 for (index, value) in (series["d"]?.arrayValue ?? []).prefix(24).enumerated() {
-                    guard let kWh = value.doubleValue, kWh.isFinite, kWh >= 0, let start = starts[index] else { continue }
-                    let end = index == 11 ? today : index == 23 ? tomorrow : starts[index + 1]
-                    guard let end, end > start else { continue }
-                    totals.slots[start, default: 0] += kWh
-                    totals.slotEnds[start] = end
+                    guard let kWh = value.doubleValue, kWh.isFinite, kWh >= 0,
+                          let start = bounds[index], let end = bounds[index + 1], end > start else { continue }
+                    totals.slots[start, default: .init(kWh: 0, end: end)].kWh += kWh
                 }
                 for (index, value) in (series["w"]?.arrayValue ?? []).prefix(14).enumerated() {
                     guard let kWh = value.doubleValue, kWh.isFinite, kWh >= 0,
@@ -66,10 +64,9 @@ enum DaikinConsumption {
     static func hours(_ totals: Totals, now: Date, calendar: Calendar, detailed: Set<Date> = []) -> (hours: [Date: Double], detailed: Set<Date>) {
         var hours: [Date: Double] = [:]
         var covered: Set<Date> = []
-        for (start, kWh) in totals.slots {
-            guard let end = totals.slotEnds[start], end <= now else { continue }
+        for (start, slot) in totals.slots where slot.end <= now {
             covered.insert(calendar.startOfDay(for: start))
-            spread(kWh * 1000, from: start, to: end, into: &hours)
+            spread(slot.kWh * 1000, from: start, to: slot.end, into: &hours)
         }
         let skipped = detailed.union(Set(totals.slots.keys.map { calendar.startOfDay(for: $0) }))
         for (day, kWh) in totals.days where !skipped.contains(day) {
@@ -95,6 +92,6 @@ enum DaikinConsumption {
     /// Today's kWh so far: the slots of today.
     static func today(_ totals: Totals, now: Date, calendar: Calendar) -> Double {
         let today = calendar.startOfDay(for: now)
-        return totals.slots.filter { calendar.startOfDay(for: $0.key) == today }.values.reduce(0, +)
+        return totals.slots.filter { calendar.startOfDay(for: $0.key) == today }.values.reduce(0) { $0 + $1.kWh }
     }
 }
