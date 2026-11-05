@@ -11,6 +11,7 @@ import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftIPCameras
+import HomeswiftImou
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
 import HomeswiftMagicHome
@@ -72,6 +73,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(TapoPlugin.self)
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
+    registry.register(ImouPlugin.self)
     registry.register(MagicHomePlugin.self)
     registry.register(RenaultPlugin.self)
     registry.register(V2CTrydanPlugin.self)

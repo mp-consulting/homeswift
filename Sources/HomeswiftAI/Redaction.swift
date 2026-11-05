@@ -37,9 +37,9 @@ public enum Redaction {
         remembered.add(values.filter { $0.count >= rememberedMinimumLength })
     }
 
-    /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
+    /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin, an IMOU camera's safetyCode.
     /// The key rule as a pattern: the server sends it to the page, so the page never keeps its own copy.
-    public static let secretKeyPattern = #"pass$|pass(word|wd|phrase|code)|^pwd$|^pw$|secret|token|api[-_]?key|private[-_]?key|encryption[-_]?key|credential|^pin$|authorization|^auth$|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#
+    public static let secretKeyPattern = #"pass$|pass(word|wd|phrase|code)|^pwd$|^pw$|secret|token|api[-_]?key|private[-_]?key|encryption[-_]?key|credential|^pin$|authorization|^auth$|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$|safety[-_]?code"#
     public static let notSecretKeyPattern = #"^(max|min|context|input|output|total|daily|monthly)\w*tokens$|(high|low|touch)pass$"#
     private static let secretKey = try! NSRegularExpression(pattern: secretKeyPattern, options: [.caseInsensitive])
     /// Keys that look secret but are not: token counts (maxOutputTokens, contextTokens, a budget's dailyTokens), an audio
