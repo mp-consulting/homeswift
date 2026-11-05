@@ -5544,6 +5544,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // Its Add button says it as a sentence does: "Address" in lower case, a name in capitals (ECU, UniFi, TV) kept.
+        const inSentence = (text) => text.replace(/(?<![\p{L}\p{N}])\p{Lu}\p{Ll}*(?![\p{L}\p{N}])/gu, (word) => word.toLowerCase());
         // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
         const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
         const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
@@ -5621,7 +5623,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: inSentence(noun) }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       if (type === "string" && property["x-schema-form"]?.type === "menu" && property["x-schema-form"].source) {
