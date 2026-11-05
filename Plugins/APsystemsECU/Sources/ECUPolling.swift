@@ -260,13 +260,7 @@ extension APsystemsECUPlugin {
         let id = system.ecuID
         let name = Self.defaultName(ecuID: id, configured: ecu.configuredName)
 
-        if let solar = solarServices[id] ?? addECU(id: id, name: name, system: system) {
-            solar.characteristic(.currentAmbientLightLevel).update(Self.lux(system.currentPower))
-            solar.characteristic(.statusActive).update(.bool(true))
-            solar.characteristic(.statusFault).update(.int(0))
-            solar[EveCharacteristic.currentConsumption]?.update(.int(min(max(system.currentPower, 0), Int(UInt16.max))))
-            solar[EveCharacteristic.totalConsumption]?.update(.double(min(system.lifetimeEnergy, 100_000_000_000)))
-        }
+        if let solar = solarServices[id] ?? addECU(id: id, name: name, system: system) { Self.show(system, on: solar) }
         // The Energy section, under the name the person sees: the production, 0 at night included; the meter when it answered.
         let shownName = context.accessorySettings(for: id).name ?? name
         context.recordValue(Double(system.currentPower), series: "\(id):solar", energy: EnergyTag(role: .solar, device: shownName))
@@ -291,6 +285,15 @@ extension APsystemsECUPlugin {
         }
         markInverters(of: id, current: current)
         if configuration.inverters == false { removeInverterAccessories(current) }
+    }
+
+    /// Shows an ECU's production.
+    static func show(_ system: ECUProtocol.SystemInfo, on solar: Service) {
+        solar.characteristic(.currentAmbientLightLevel).update(lux(system.currentPower))
+        solar.characteristic(.statusActive).update(.bool(true))
+        solar.characteristic(.statusFault).update(.int(0))
+        solar[EveCharacteristic.currentConsumption]?.update(.int(min(max(system.currentPower, 0), Int(UInt16.max))))
+        solar[EveCharacteristic.totalConsumption]?.update(.double(min(system.lifetimeEnergy, 100_000_000_000)))
     }
 
     /// Shows an inverter's reading: its power, and its temperature while it is online (an offline record's −100 °C never).
@@ -346,6 +349,8 @@ extension APsystemsECUPlugin {
             .lightSensor, name: "Solar power", optional: [.statusActive, .statusFault],
             extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(0)), Characteristic(EveCharacteristic.totalConsumption, value: .double(0))],
             isPrimary: true)
+        // Its values before it is on the bridge: a controller never reads the defaults.
+        Self.show(system, on: solar)
         do {
             try context.add(Accessory(
                 id: Self.accessoryID(deviceID: id), name: name, manufacturer: "APsystems", model: ECUProtocol.ecuModel(id), serialNumber: id,
@@ -363,7 +368,12 @@ extension APsystemsECUPlugin {
         let temperature = Service(.temperatureSensor, name: "Temperature", optional: [.statusActive])
         power.characteristic(.statusActive).value = .bool(false)
         temperature.characteristic(.statusActive).value = .bool(false)
+        // An inverter first seen offline (at night) keeps the temperature the cache has, else 0 °C: never the
+        // characteristic's default, its minimum of −270 °C.
+        temperature.characteristic(.currentTemperature).value = .double(Self.initialTemperature(cached: context.accessory(id: Self.accessoryID(deviceID: record.uid))))
         let services = InverterServices(power: power, temperature: temperature)
+        // Its values before it is on the bridge: a controller never reads the defaults.
+        Self.show(record, on: services)
         do {
             try context.add(Accessory(
                 id: Self.accessoryID(deviceID: record.uid), name: Self.inverterName(record.uid), manufacturer: "APsystems",
@@ -374,5 +384,12 @@ extension APsystemsECUPlugin {
         }
         inverterServices[record.uid] = services
         return services
+    }
+
+    /// The temperature a new inverter accessory starts with: the restored one's, when it is one an inverter could show.
+    static func initialTemperature(cached: Accessory?) -> Double {
+        // −100 °C is an offline record's; anything at or below it was never a reading.
+        guard let value = cached?.service(.temperatureSensor)?[.currentTemperature]?.value.doubleValue, value > -100, value <= 100 else { return 0 }
+        return value
     }
 }

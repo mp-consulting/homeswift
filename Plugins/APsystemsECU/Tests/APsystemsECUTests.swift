@@ -305,14 +305,45 @@ struct APsystemsECUTests {
         #expect(await plugin.nextDelay(ecu) == .seconds(900))
     }
 
-    @Test func atNightTheInvertersKeepTheirTemperature() async throws {
-        let host = try await environment.start()
-        #expect(await eventually { host.accessory(inverterID) != nil })
-        // V9's DS3s are other inverters; the night frame for this one: offline, every field 0.
+    /// V4 at night for this inverter: offline, every field 0 (V9's DS3s are other inverters).
+    static var nightFrame: [UInt8] {
         var night = Vectors.bytes(Vectors.v4)
         night.replaceSubrange((26 + 9 + 6)..<(26 + 9 + 7), with: [0])
         for offset in (26 + 9 + 9)..<(26 + 9 + 21) { night[offset] = 0 }
-        await environment.ecu.set(.realTime, night)
+        return night
+    }
+
+    @Test func anInverterFirstSeenAtNightShowsNoImpossibleTemperature() async throws {
+        await environment.ecu.set(.realTime, Self.nightFrame)
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(inverterID) != nil })
+        let inverter = try #require(host.accessory(inverterID))
+        // On the bridge with its values already: the first look sees them, never −270 °C, the characteristic's minimum.
+        #expect(inverter.service(.temperatureSensor)?[.currentTemperature]?.value == .double(0))
+        #expect(inverter.service(.temperatureSensor)?[.statusActive]?.value == .bool(false))
+        #expect(inverter.service(.lightSensor)?[.currentAmbientLightLevel]?.value == .double(0.0001))
+        await host.stop()
+    }
+
+    @Test func aRestartAtNightKeepsTheCachedTemperature() async throws {
+        let first = try await environment.start()
+        #expect(await eventually { first.accessory(inverterID)?.service(.temperatureSensor)?[.currentTemperature]?.value == .double(33) })
+        await first.stop()
+        await environment.ecu.set(.realTime, Self.nightFrame)
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        // The first poll after the restart has replaced the cached accessory with the plugin's own.
+        #expect(await eventually { await plugin.inverterServices["703000999002"] != nil })
+        let inverter = try #require(host.accessory(inverterID))
+        #expect(inverter.service(.temperatureSensor)?[.currentTemperature]?.value == .double(33))
+        #expect(inverter.service(.temperatureSensor)?[.statusActive]?.value == .bool(false))
+        await host.stop()
+    }
+
+    @Test func atNightTheInvertersKeepTheirTemperature() async throws {
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(inverterID) != nil })
+        await environment.ecu.set(.realTime, Self.nightFrame)
         await environment.ecu.set(.system, Vectors.bytes(Vectors.v2))
         let inverter = try #require(host.accessory(inverterID))
         #expect(await eventually { inverter.service(.temperatureSensor)?[.statusActive]?.value == .bool(false) })
