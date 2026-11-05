@@ -342,8 +342,9 @@ import Testing
         var answers = cameraAnswers()
         let colour = NIOLockedValueBox(40)
         answers["GetWhiteLed"] = { param in Self.whiteLed(colour: colour.withLockedValue { $0 })(param) }
-        // The echo window is 10 s at a twentieth: 500 ms; refreshes are asked for rather than waited for.
-        let environment = ReolinkEnvironment(answers, scale: 0.05)
+        // The echo window is 10 s at 0.3: 3 s, wide enough for a loaded runner to refresh inside it; refreshes are asked
+        // for rather than waited for.
+        let environment = ReolinkEnvironment(answers, scale: 0.3)
         Self.colourCamera(environment)
         let host = try await environment.start()
         defer { Task { await host.stop() } }
@@ -374,7 +375,8 @@ import Testing
         await device.refresh()
         #expect(temperature.value == .int(300))
         #expect(adaptive.isAdaptiveLightingActive)
-        try await Task.sleep(for: .milliseconds(600))
+        // Once the window has passed, a colour set elsewhere is reported and turns Adaptive Lighting off.
+        #expect(await eventually { !camera.isColourEchoWindowOpen })
         colour.withLockedValue { $0 = 0 }
         await device.refresh()
         #expect(await eventually { !adaptive.isAdaptiveLightingActive && temperature.value == .int(167) })

@@ -335,10 +335,15 @@ final class ReolinkCamera: @unchecked Sendable {
 
     /// A colour the device reports: shown, and Adaptive Lighting turned off when it was set elsewhere (the Reolink app),
     /// not when it is the echo of the bridge's own write.
+    /// Soon after the bridge's own colour write, a report is its echo, or older: what was written stays shown.
+    var isColourEchoWindowOpen: Bool {
+        guard let written = state.withLockedValue({ $0.lastColourWrite }) else { return false }
+        return ContinuousClock.now - written < timing.seconds(Self.colourEcho)
+    }
+
     private func reportColour(_ mireds: Int, to colour: Characteristic) {
-        let (adaptive, written) = state.withLockedValue { ($0.adaptiveLighting, $0.lastColourWrite) }
-        // Soon after the bridge's own write, a report is its echo, or older: what was written stays shown.
-        if let written, ContinuousClock.now - written < timing.seconds(Self.colourEcho) { return }
+        if isColourEchoWindowOpen { return }
+        let adaptive = state.withLockedValue { $0.adaptiveLighting }
         adaptive?.disableIfChangedElsewhere(mireds: mireds)
         colour.value = .int(mireds)
     }
