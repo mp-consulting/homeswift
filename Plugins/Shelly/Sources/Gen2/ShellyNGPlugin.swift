@@ -231,7 +231,7 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
             let status = try await rpc.call("Shelly.GetStatus")
             let config = try await rpc.call("Shelly.GetConfig")
             let device = Gen2Device(deviceID: id, rpc: rpc, info: info, status: status, config: config, options: options, context: context,
-                                    logger: deviceLogger, writeDelay: dependencies.writeDelay)
+                                    logger: deviceLogger, writeDelay: dependencies.writeDelay, http: dependencies.http, password: password)
             let accessories = Gen2Models.unsupported.contains(model.uppercased()) ? [] : await device.makeAccessories(platform: Self.platform)
             guard !accessories.isEmpty else {
                 ignored.insert(id)

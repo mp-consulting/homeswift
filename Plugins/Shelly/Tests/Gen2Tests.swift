@@ -304,17 +304,18 @@ struct ShellyNGTests {
         #expect(metrics.meters.meters == [meterID])
     }
 
-    /// A 3EM's records (a row of Wh a minute per phase) come into its Meter added up by hour, what it drew and sent back,
-    /// and as the grid into the Home Energy's long-term history; the first import asks for every record.
+    /// A 3EM's records (its CSV: a row of Wh a minute per phase) come into its Meter added up by hour, what it drew and
+    /// sent back, and as the grid into the Home Energy's long-term history, from the oldest record the device keeps.
     @Test func anEnergyMetersRecordsAreImported() async throws {
         let device = FakeShellyNG(
             info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM"}"#,
             status: #"{"em:0":{"id":0,"a_voltage":230.1,"total_current":3.2,"total_act_power":735.5},"emdata:0":{"id":0,"total_act":123456.0,"total_act_ret":10.0}}"#)
-        // 2027-01-15 07:58 to 08:01 UTC: two minutes in the 07:00 hour, two in the 08:00 one.
-        device.answer("EMData.GetData", #"""
-            {"keys":["a_total_act_energy","b_total_act_energy","c_total_act_energy","a_total_act_ret_energy","b_total_act_ret_energy","c_total_act_ret_energy","a_max_voltage"],
-             "data":[{"ts":1799999880,"period":60,"values":[[1,2,3,0,0,0.5,231],[1,2,3,0,0,0.5,231],[2,2,2,0,0,0,230],[2,2,2,0,0,0,230]]}]}
-            """#)
+        // Two minutes at the end of the hour three hours ago, two at the start of the next.
+        let hour = (Int(Date().timeIntervalSince1970) / 3600 - 3) * 3600
+        device.answer("EMData.GetRecords", #"{"data_blocks":[{"ts":\#(hour - 120),"period":60,"records":4}]}"#)
+        let header = "timestamp,a_total_act_energy,b_total_act_energy,c_total_act_energy,a_total_act_ret_energy,b_total_act_ret_energy,c_total_act_ret_energy,a_max_voltage"
+        let rows = ["\(hour - 120),1,2,3,0,0,0.5,231", "\(hour - 60),1,2,3,0,0,0.5,231", "\(hour),2,2,2,0,0,0,230", "\(hour + 60),2,2,2,0,0,0,230"]
+        environment.http.answer("/emdata/0/data.csv", ([header] + rows).joined(separator: "\n"))
         environment.add(device)
         let host = try await environment.start(settings: ["devices": [["id": "shellypro3em-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
@@ -323,18 +324,27 @@ struct ShellyNGTests {
         defer { metrics.stop() }
         let id = "ShellyNG:shellypro3em-aabbccddeeff-em-0"
         let meterID = MeterID(accessory: id, meter: "\(PowerMeter.service.uuid)/power-meter-0")
-        let hour = Date(timeIntervalSince1970: 1_799_996_400)
-        await expectEventually { metrics.meters.hours(of: meterID, from: hour, to: hour.addingTimeInterval(3600)).count == 2 }
-        let hours = metrics.meters.hours(of: meterID, from: hour, to: hour.addingTimeInterval(3600))
+        let start = Date(timeIntervalSince1970: TimeInterval(hour - 3600))
+        await expectEventually { metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600)).count == 2 }
+        let hours = metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600))
         #expect(hours.map(\.consumption) == [12, 12])
         #expect(hours.map(\.returned) == [1, 0])
         #expect(hours.allSatisfy { !$0.recorded })
         // The grid's import and export in the Home Energy's history.
-        let imported = metrics.archive.importedHours(from: hour, to: hour.addingTimeInterval(3600))
+        let imported = metrics.archive.importedHours(from: start, to: start.addingTimeInterval(3600))
         #expect(imported.map(\.flows.gridImport) == [12, 12])
         #expect(imported.map(\.flows.gridExport) == [1, 0])
-        #expect(device.calls("EMData.GetData").first?["params"]?["ts"] == 0)
+        #expect(environment.http.paths.contains { $0.hasPrefix("/emdata/0/data.csv?add_keys=true&ts=") })
         await expectEventually { host.energyImportProgress.first?.state == .done }
+    }
+
+    /// The CSV's rows added up by hour, a row with a missing value left out.
+    @Test func recordsAddUpByHour() throws {
+        let csv = Data("timestamp,total_act_energy,total_act_ret_energy\n3600,1.5,0\n3660,2.5,1\n7200,4,\n7260,x,1\n".utf8)
+        let hours = try #require(Gen2Device.hours(csv: csv, drawn: ["total_act_energy"], back: ["total_act_ret_energy"]))
+        #expect(hours[3600]?.drawn == 4 && hours[3600]?.back == 1)
+        #expect(hours[7200]?.drawn == 4 && hours[7200]?.back == 0)
+        #expect(Gen2Device.hours(csv: Data("nothing".utf8), drawn: ["a"], back: []) == nil)
     }
 
     @Test func canonicalSettingsMoveDevicesIntoAccessorySettings() throws {
