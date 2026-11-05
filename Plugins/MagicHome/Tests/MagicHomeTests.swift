@@ -246,9 +246,11 @@ struct MagicHomeTests {
         #expect(await eventually { host.accessory(Fixtures.tableMAC) != nil })
         let light = try #require(host.accessory(Fixtures.tableMAC)?.service(.lightbulb))
         #expect(light[.colorTemperature]?.value == .int(217) && light[.brightness]?.value == .int(100))
+        // Counted before the writes: the read that follows them comes 250 ms after the last one, which a loaded runner
+        // can let pass before the test looks.
+        let written = environment.lan.queries(to: Self.tableHost)
         try await write(light[.on], .bool(false))
         try await write(light[.on], .bool(true))
-        let written = environment.lan.queries(to: Self.tableHost)
         // Wrapped, and counted from 0 on the connection: every frame on it, a query a slow machine lets in between the
         // writes included.
         let wrapped = environment.lan.frames.filter { $0.host == Self.tableHost && $0.wrapCounter != nil }
