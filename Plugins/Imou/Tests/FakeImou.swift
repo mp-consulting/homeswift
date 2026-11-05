@@ -322,12 +322,18 @@ final class TestEnvironment: Sendable {
     func start(_ settings: [String: Any] = account) async throws -> PluginHost {
         var registry = PluginRegistry()
         let (cloud, camera, download, timeScale, log) = (cloud, camera, download, timeScale, log)
+        // The plugin's own lines, which the host's logger does not carry: the never-logged checks read them.
+        let pluginLogger: Logger = {
+            var logger = Logger(label: "homeswift.Imou") { _ in log }
+            logger.logLevel = .trace
+            return logger
+        }()
         registry.register(platform: ImouPlugin.platform, name: ImouPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(ImouPlugin.Configuration.self, from: json)
             let plugin = ImouPlugin(
                 configuration: configuration, context: context,
                 dependencies: .init(cloudTransport: cloud, download: download, local: camera, timeScale: timeScale, ffmpeg: { _, logger in testFFmpeg(logger) },
-                                    eventSilence: .seconds(5)))
+                                    eventSilence: .seconds(5), logger: pluginLogger))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }

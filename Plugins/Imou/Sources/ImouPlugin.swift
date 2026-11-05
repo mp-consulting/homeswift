@@ -27,6 +27,8 @@ public actor ImouPlugin: HomeswiftPlugin {
         var ports = RtpPortAllocator()
         /// A local event stream that sends nothing (not even its heartbeat) this long is dead (section 5.3).
         var eventSilence: Duration = .seconds(30)
+        /// The plugin's log, the context's when nil: tests read what it says.
+        var logger: Logger?
     }
 
     public static let platform = "Imou"
@@ -72,7 +74,7 @@ public actor ImouPlugin: HomeswiftPlugin {
     /// The quota governor: the switches beyond the first ones are read every this many polls, so the day's calls stay
     /// under `ImouUsage.warnAbove`.
     private(set) var extrasEvery = 1
-    var logger: Logger { context.logger }
+    var logger: Logger { dependencies.logger ?? context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())

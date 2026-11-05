@@ -213,6 +213,8 @@ struct ImouTests {
         #expect(environment.download.urls.withLockedValue { $0 }.count == 1)
         await host.stop()
         let lines = environment.log.lines.withLockedValue { $0 }.joined(separator: "\n")
+        // The plugin's own lines are there to check.
+        #expect(lines.contains("Added Garden"))
         for secret in [FakeImouCloud.appSecret, "At_1", "SIGNATURE", "KEYID", "L2A3B4C5"] { #expect(!lines.contains(secret)) }
         for call in environment.cloud.calls { if let sign = call.body["system"]?["sign"]?.stringValue { #expect(!lines.contains(sign)) } }
     }
