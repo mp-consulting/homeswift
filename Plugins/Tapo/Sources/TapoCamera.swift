@@ -111,13 +111,15 @@ struct TapoCameraRuntime: Sendable {
 }
 
 extension TapoPlugin {
-    /// FFmpeg, set up once, its codecs asked in the background.
-    func cameraFFmpeg() -> FfmpegOptions {
+    /// FFmpeg, set up once its codecs are known: the options choose the hardware encoder from them, and HEVC from two
+    /// 4K lenses is too much for a software one.
+    func cameraFFmpeg() async -> FfmpegOptions {
         if let ffmpegOptions { return ffmpegOptions }
         let codecs = FfmpegCodecs(ffmpegExec: configuration.videoProcessor?.trimmingCharacters(in: .whitespaces).nonEmpty ?? "ffmpeg", log: logger)
+        _ = await codecs.probe()
+        if let ffmpegOptions { return ffmpegOptions }
         let options = FfmpegOptions(FfmpegOptionsConfig(codecSupport: codecs, hardwareDecoding: false, hardwareTranscoding: true, log: logger, name: { "Tapo" }))
         ffmpegOptions = options
-        tasks.add { _ = await codecs.probe() }
         return options
     }
 
@@ -131,7 +133,7 @@ extension TapoPlugin {
         guard let host = device.trimmedHost else { return [] }
         let name = context.accessorySettings(for: deviceID).name ?? device.trimmedName ?? host
         let resolution = Streamd.Resolution(rawValue: device.resolution?.trimmingCharacters(in: .whitespaces).uppercased() ?? "") ?? .hd
-        let ffmpeg = cameraFFmpeg()
+        let ffmpeg = await cameraFFmpeg()
         let lenses = TapoLens.lenses(kind: kind, resolution: resolution)
         var stores: [TapoSnapshotStore] = []
         for lens in lenses {
