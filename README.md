@@ -177,6 +177,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
 | [HTTP Webhooks](Plugins/HTTPWebhooks) | `HttpWebHooks` | Experimental virtual sensors, switches, lights, locks, blinds, fans and more, set by webhooks and calling URLs on HomeKit writes (homebridge-http-webhooks' block) |
 | [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired on Add accessories) |
+| [IMOU](Plugins/Imou) | `Imou` | Experimental: IMOU cameras and doorbells, local first (RTSP video, CGI snapshots, Dahua event stream, HomeKit Secure Video), with the IMOU cloud's privacy mode, siren and spotlight |
 | [IP Cameras](Plugins/IPCameras) | `Camera-ffmpeg` | Experimental: IP cameras over RTSP, HTTP snapshots or MJPEG, through FFmpeg, with snapshots, live video, two-way audio, HomeKit Secure Video, and motion and doorbell triggers over MQTT or HTTP |
 | [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
 | [Magic Home](Plugins/MagicHome) | `homebridge-magichome-dynamic-platform` | Experimental: Magic Home Wi-Fi bulbs, LED controllers and sockets on the local network, newer firmware included, with Adaptive Lighting on tunable whites |
