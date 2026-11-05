@@ -110,6 +110,24 @@ struct HTTPStreamingTests {
         #expect(server.seenPath.withLockedValue { $0 } == "/events")
     }
 
+    @Test func aRawTargetGoesOnTheRequestLineAsWritten() async throws {
+        let server = try await StreamingServer(pieces: ["ok"])
+        defer { Task { await server.stop() } }
+        var request = HTTPRequest(method: "GET", url: URL(string: "http://127.0.0.1:\(server.port)/cgi-bin/eventManager.cgi")!)
+        request.target = "/cgi-bin/eventManager.cgi?action=attach&codes=[VideoMotion,AlarmLocal]"
+        let response = try await HTTPClient().stream(request)
+        for try await _ in response.body {}
+        #expect(server.seenPath.withLockedValue { $0 } == "/cgi-bin/eventManager.cgi?action=attach&codes=[VideoMotion,AlarmLocal]")
+    }
+
+    @Test(arguments: ["/a\r\nX-Injected: 1", "/a b", "/a\nb", "/a\u{0}", "a", "/é", ""])
+    func aRawTargetThatWouldSplitTheRequestLineIsRefused(_ target: String) async throws {
+        var request = HTTPRequest(method: "GET", url: URL(string: "http://127.0.0.1:9/")!)
+        request.target = target
+        await #expect(throws: HTTPClientError.invalidURL("http://127.0.0.1:9/")) { _ = try await HTTPClient().send(request) }
+        await #expect(throws: HTTPClientError.invalidURL("http://127.0.0.1:9/")) { _ = try await HTTPClient().stream(request) }
+    }
+
     @Test func readsServerSentEventsSplitAcrossPieces() async throws {
         let server = try await StreamingServer(pieces: [": hi\n\n", "id: 1\r\nevent: update\r\ndata: [{\"a\":", "1}]\r\n\r\n", "data: x\ndata: y\n\n"])
         defer { Task { await server.stop() } }

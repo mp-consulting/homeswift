@@ -161,7 +161,10 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   the recording settings across launches; publish the accessory with `context.publishExternal`. The library runs the
   RTP setup (SRTP keys, SSRCs), the HomeKit Data Stream server for recordings and the doorbell event;
   `HomeswiftFFmpeg` has what runs FFmpeg for the streams and recordings (options per host and hardware
-  accelerator, the process, RTP port reservation, the return audio demuxer, fMP4 parsing).
+  accelerator, the process, RTP port reservation, the return audio demuxer, fMP4 parsing). A camera whose video is an
+  RTSP URL needs no more: `RTSPCameraStreamer` and `RTSPCameraRecorder` (`RTSPCamera.swift`) run its live streams and
+  recordings from an `RTSPSourceOpener` the plugin gives (the camera's own URL, or one a cloud makes per session), as
+  `Plugins/Imou` does.
 - **Live video in the web UI.** The Accessories page gives each camera a card with snapshots from its
   `CameraStreamingDelegate`. For live video, implement `liveFeed(accessoryID:)` and return a `CameraLiveFeed`: the
   fMP4 initialization segment, an `AsyncThrowingStream` of fragments (`moof` and `mdat`) and what releases the
