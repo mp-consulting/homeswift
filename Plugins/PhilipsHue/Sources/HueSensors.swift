@@ -17,6 +17,8 @@ extension PhilipsHuePlugin {
         /// A Tap dial's ring: a switch per direction.
         let clockwise: Service?
         let anticlockwise: Service?
+        /// Eve's history of the motion, temperature and light level (fakegato's custom kind), on a sensor that has one.
+        let history: EveHistory?
         /// The services it was built for: a device that gains or loses one is rebuilt.
         let shape: String
     }
@@ -45,6 +47,7 @@ extension PhilipsHuePlugin {
         if let services = sensorAccessories[sensor.id], services.shape == shape {
             services.accessory.isUnavailable = !sensor.reachable
             Self.showValues(sensor, on: services)
+            record(sensor, on: services)
             for button in sensor.buttons { noteButton(button, on: services) }
             if let rotary = sensor.rotary { noteRotary(rotary, on: services) }
             return
@@ -94,6 +97,22 @@ extension PhilipsHuePlugin {
         if let event { service.characteristic(.programmableSwitchEvent).sendEvent(.int(event)) }
     }
 
+    /// The sensor's readings into its Eve history: the temperature and light level averaged over its ten minutes, as
+    /// fakegato's are, and the motion when it changes, with the motion sensor's Last Activation when it starts.
+    func record(_ sensor: HueSensorDevice, on services: SensorServices) {
+        guard let history = services.history else { return }
+        if sensor.temperature != nil || sensor.lightLevel != nil {
+            history.add(EveHistory.Entry(temp: sensor.temperature.map { ($0.celsius * 10).rounded() / 10 }, lux: sensor.lightLevel?.lux))
+        }
+        guard let detected = sensor.motion?.detected, recordedMotion[sensor.id] != detected else { return }
+        recordedMotion[sensor.id] = detected
+        let entry = EveHistory.Entry(motion: detected ? 1 : 0)
+        history.add(entry)
+        if detected, let initial = history.initialTime, let last = services.motion?[EveCharacteristic.lastActivation] {
+            last.value = .int(max(0, entry.time - initial))
+        }
+    }
+
     static func showValues(_ sensor: HueSensorDevice, on services: SensorServices) {
         if let motion = sensor.motion, let service = services.motion {
             service.characteristic(.motionDetected).value = .bool(motion.detected)
@@ -125,7 +144,12 @@ extension PhilipsHuePlugin {
     }
 
     private func addSensor(_ sensor: HueSensorDevice, shape: String) throws -> SensorServices {
-        let motion = sensor.motion.map { _ in Self.sensorService(.motionSensor, sensor.name, subtype: "motion", isPrimary: true) }
+        let motion = sensor.motion.map { _ in
+            let service = Self.sensorService(.motionSensor, sensor.name, subtype: "motion", isPrimary: true)
+            // Eve's "last motion", seconds since its history began.
+            _ = service.characteristic(adding: EveCharacteristic.lastActivation)
+            return service
+        }
         let contact = sensor.contact.map { _ in Self.sensorService(.contactSensor, sensor.name, subtype: "contact", isPrimary: motion == nil) }
         let leading = motion == nil && contact == nil
         // An outdoor sensor reads below zero, which HomeKit's default range for the characteristic leaves out.
@@ -177,6 +201,16 @@ extension PhilipsHuePlugin {
             label.characteristic(.serviceLabelNamespace).value = .int(HAPConstants.ServiceLabelNamespace.arabicNumerals)
             services.append(label)
         }
+        // One Eve history per accessory (Eve reads only one): its motion, temperature and light level.
+        var history: EveHistory?
+        let measured = [motion, temperature, lightLevel].compactMap { $0 }
+        if !measured.isEmpty {
+            let fields = EveHistory.fields(of: measured)
+            let file = context.storageDirectory.appendingPathComponent("history-\(sensor.id.filter { $0.isLetter || $0.isNumber || $0 == "-" }).json")
+            let built = EveHistory(.custom(fields), accessoryName: sensor.name, storageURL: file)
+            services.append(built.service)
+            history = built
+        }
         var battery: Service?
         if sensor.battery != nil {
             let service = Service(.battery, subtype: "battery", optional: [.batteryLevel, .chargingState])
@@ -191,8 +225,9 @@ extension PhilipsHuePlugin {
             onIdentify: { [client, deviceID = sensor.id] in try? await client?.identify(deviceID: deviceID) })
         let built = SensorServices(
             accessory: accessory, motion: motion, temperature: temperature, lightLevel: lightLevel, contact: contact, battery: battery,
-            buttons: buttons, clockwise: clockwise, anticlockwise: anticlockwise, shape: shape)
+            buttons: buttons, clockwise: clockwise, anticlockwise: anticlockwise, history: history, shape: shape)
         Self.showValues(sensor, on: built)
+        record(sensor, on: built)
         accessory.isUnavailable = !sensor.reachable
         try context.add(accessory)
         return built
@@ -275,6 +310,7 @@ extension PhilipsHuePlugin {
                 noteRotary(rotary, on: services)
             } else {
                 Self.showValues(sensor, on: services)
+                record(sensor, on: services)
             }
             return true
         }

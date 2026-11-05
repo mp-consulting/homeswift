@@ -114,6 +114,11 @@ Each Hue device with sensors or buttons is an accessory, its services those the 
 A press reaches the Home app as the bridge reports it, on its event stream, so a button can run a scene or an
 automation there. A device that also has a light is the light's accessory.
 
+**Eve history.** A sensor with motion, temperature or a light level keeps an Eve history (fakegato's format, in
+`history-<device id>.json` in the plugin's storage), so the Eve app draws its graphs: the temperature and light level
+averaged over ten minutes, the motion each time it starts or stops, and the motion sensor's Last Activation (Eve's
+"last motion"). One history per accessory, as Eve reads one; four weeks of ten-minute entries are kept.
+
 **The Tap dial's ring.** HomeKit has no rotary control: a characteristic for brightness steps would need the dial bound
 to one light, and HomeKit's scenes and automations only set values, they cannot add to them. So the ring is what HomeKit
 does offer a remote: a Stateless Programmable Switch per direction, which the Home app lets a person bind to a scene or

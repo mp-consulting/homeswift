@@ -1006,6 +1006,29 @@ struct HueSensorTests {
         await host.stop()
     }
 
+    /// The motion sensor keeps an Eve history (its temperature and light level averaged by the history's timer), its motion as it changes, and
+    /// Eve's Last Activation when motion starts. The dimmer, which measures nothing, has none.
+    @Test func sensorsKeepAnEveHistory() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])
+        let sensor = try await accessory(host, sensorID)
+        let history = try #require(EveHistory.histories(of: sensor).first)
+        #expect(sensor.services.filter { $0.type.uuid == ServiceType.eveHistory.uuid }.count == 1)
+        #expect(EveHistory.histories(of: try await accessory(host, dimmerID)).isEmpty)
+        #expect(history.entries().map(\.motion) == [0], "the motion as first read")
+        #expect(await eventually { environment.bridge.openStreams > 0 })
+        environment.bridge.emit([["type": "update", "id": "e", "data": [["id": "motion-3", "type": "motion", "motion": ["motion": true, "motion_report": ["motion": true]]]]]])
+        // Entries of one second come in no set order: counted.
+        #expect(await eventually { history.entries().compactMap(\.motion).sorted() == [0, 1] })
+        let last = try #require(sensor.service(.motionSensor)?[EveCharacteristic.lastActivation])
+        #expect(last.value.intValue != nil)
+        // A read that finds the motion gone records it once; another read adds nothing.
+        let plugin = try #require(environment.plugin)
+        await plugin.refresh()
+        await plugin.refresh()
+        #expect(history.entries().compactMap(\.motion).sorted() == [0, 0, 1])
+        await host.stop()
+    }
+
     /// A change to a light on the stream reads the bridge again at once, before the next poll.
     @Test func aLightChangedElsewhereShowsAtOnce() async throws {
         let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])

@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Philips Hue: an Eve history on the motion, temperature and light level sensors (fakegato's format), with Eve's Last
+  Activation on the motion sensor.
 - Philips Hue: a Tap dial's ring as two Stateless Programmable Switches, Clockwise and Anticlockwise, from the event
   stream's `relative_rotary` reports: a turn is a Single Press, a longer turn a Long Press, for scenes and automations.
 - Magic Home: the built-in effects as switches on the colour lights that play them, behind `effects` (off by default)

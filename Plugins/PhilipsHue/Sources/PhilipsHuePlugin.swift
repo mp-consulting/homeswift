@@ -119,6 +119,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     var buttonReports: [String: String] = [:]
     /// Each Tap dial ring's turn going on: its direction, and whether its long press fired.
     var rotaryTurns: [String: (clockwise: Bool, long: Bool)] = [:]
+    /// Each motion sensor's motion last put in its Eve history, by device id: a read that finds it unchanged adds nothing.
+    var recordedMotion: [String: Bool] = [:]
     /// Whether the event stream is open: while it is, polls are a safety net (`streamingPollInterval`).
     var streaming = false
     /// A read of the bridge asked for by an event, not yet run.
