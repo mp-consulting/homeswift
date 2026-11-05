@@ -3,6 +3,7 @@ import Homeswift
 import HomeswiftAI
 import HomeswiftMCP
 import HomeswiftMatter
+import HomeswiftNetwork
 import HomeswiftPlugin
 import HomeswiftUI
 import Logging
@@ -147,7 +148,9 @@ if !FileManager.default.fileExists(atPath: configURL.path) {
     }
 }
 
-if command == "run", let warning = StoragePermissions.warning(StoragePermissions.secure(storage: storagePath)) {
+if command == "run",
+    let warning = StoragePermissions.warning(StoragePermissions.secure(storage: storagePath, readDSMACL: synologyACL))
+{
     // A shared folder's ACL (a NAS) or a wide mode: the vault's key, the pairings and config.json are not the bridge's alone.
     logger.warning("\(warning)")
 }
