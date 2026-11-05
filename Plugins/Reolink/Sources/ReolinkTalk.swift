@@ -249,7 +249,8 @@ actor ReolinkTalker {
             let status: UInt16
             do {
                 let reply = try await session.request(command: 202, channel: chID, extension: Baichuan.talkExtension(channel: channel), body: nil, binary: batch,
-                                                      encryption: .aes, timeout: Self.audioTimeout, fixedCounter: counter, anyStatus: true)
+                                                      encryption: .aes, timeout: Self.audioTimeout, fixedCounter: counter, anyStatus: true,
+                                                      retryWaking: false)
                 status = reply.status ?? 200
             } catch BaichuanError.timeout {
                 log.info("\(name): the camera did not take the Talk's audio in time: the Talk ends.")
@@ -274,7 +275,8 @@ actor ReolinkTalker {
         await reset(on: session)
     }
 
-    /// The TalkConfig (5.2): true once the camera took it. A 422 (a Talk left open) is stopped and asked once more; a
+    /// The TalkConfig (5.2): true once the camera took it. Its retries are these alone: the session does not retry a Talk's
+    /// requests, which would stack its waits on these (a 400 at every layer, seconds of silence). A 422 (a Talk left open) is stopped and asked once more; a
     /// refusal is asked again with the bare channel in `ch_id` before giving up (10).
     private func start(on session: BaichuanSession) async throws -> Bool {
         var resetDone = false
@@ -286,7 +288,7 @@ actor ReolinkTalker {
             do {
                 let reply = try await session.request(command: 201, channel: chID, extension: Baichuan.channelExtension(channel),
                                                       body: Baichuan.talkConfigBody(channel: channel, config: config), encryption: .aes,
-                                                      timeout: Self.configTimeout, anyStatus: true)
+                                                      timeout: Self.configTimeout, anyStatus: true, retryWaking: false)
                 status = reply.status ?? 200
             } catch BaichuanError.timeout {
                 status = nil
@@ -317,6 +319,6 @@ actor ReolinkTalker {
     /// TalkReset (`cmd_id` 11), waiting for its reply.
     private func reset(on session: BaichuanSession) async {
         _ = try? await session.request(command: 11, channel: chID, extension: Baichuan.channelExtension(channel), body: nil, encryption: .aes,
-                                       timeout: Self.resetTimeout, anyStatus: true)
+                                       timeout: Self.resetTimeout, anyStatus: true, retryWaking: false)
     }
 }

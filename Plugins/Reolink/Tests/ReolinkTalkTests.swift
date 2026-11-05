@@ -121,9 +121,9 @@ func talkAbilityXML(duplex: String = "FDX", mode: String = "followVideoStream", 
         return Talk(sessionID: "session", format: ReturnAudioFormat(sampleRate: 16000), frames: frames, volume: 100)
     }
 
-    static func session(_ camera: FakeBaichuanCamera) async throws -> BaichuanSession {
+    static func session(_ camera: FakeBaichuanCamera, retriesWaking: Bool = false) async throws -> BaichuanSession {
         let session = BaichuanSession(host: "192.168.1.20", port: 9000, username: "admin", password: "secret", connect: { _, _, _ in camera }, log: testLogger,
-                                      timing: timing)
+                                      timing: timing, retriesWaking: retriesWaking)
         try await session.openOnce()
         return session
     }
@@ -208,6 +208,24 @@ func talkAbilityXML(duplex: String = "FDX", mode: String = "followVideoStream", 
         #expect(camera.talkCommands == [201, 201, 201, 202, 11])
         #expect(camera.raw(201).allSatisfy { $0.header[12] == 1 })
         await session.stop()
+    }
+
+    @Test func onlyTheTalkRetriesAWakingCamera() async throws {
+        // A battery camera's session retries a 400, but not a Talk's requests: the Talk's own retries alone (three after
+        // the first, then the bare channel once), and a refused 202 is not sent again.
+        let camera = FakeBaichuanCamera()
+        camera.state.withLockedValue { $0.statuses[201] = [UInt16](repeating: 400, count: 20) }
+        let session = try await Self.session(camera, retriesWaking: true)
+        await Self.talker(session, retriesWaking: true).handle(Self.talk(Self.tone(1025)))
+        #expect(camera.talkCommands.filter { $0 == 201 }.count == 5)
+        await session.stop()
+
+        let audio = FakeBaichuanCamera()
+        audio.state.withLockedValue { $0.statuses[202] = [400] }
+        let again = try await Self.session(audio, retriesWaking: true)
+        await Self.talker(again, retriesWaking: true).handle(Self.talk(Self.tone(16000)))
+        #expect(audio.talkCommands == [201, 202, 11])
+        await again.stop()
     }
 
     @Test func refusedAudioEndsTheTalkAndTheNextGroupsFourFrames() async throws {
