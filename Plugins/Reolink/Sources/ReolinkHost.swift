@@ -398,9 +398,14 @@ actor ReolinkHost {
             return
         case .dayNight:
             return
+        case .battery(let ch, let report):
+            guard channels[ch] != nil else { return }
+            if let percent = report.percent { channels[ch]?.state.batteryPercent = percent }
+            channels[ch]?.state.charging = report.charging
+            channels[ch]?.state.batteryLow = report.isLow
         }
         switch push {
-        case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _): publish(ch)
+        case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _), .battery(let ch, _): publish(ch)
         case .dayNight, .privacy: break
         }
     }

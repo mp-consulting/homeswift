@@ -198,6 +198,8 @@ struct ReolinkChannelState: Sendable, Equatable {
     var sirenPlaying: Bool?
     var batteryPercent: Int?
     var charging: Bool?
+    /// Status Low Battery from the camera (`lowPower`); nil: from the level alone.
+    var batteryLow: Bool?
     /// Whether a PTZ patrol runs (Baichuan `cmd_id` 64), once asked.
     var patrolling: Bool?
     /// Privacy mode: the camera's streams and HTTP API off.

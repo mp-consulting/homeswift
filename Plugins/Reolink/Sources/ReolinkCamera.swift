@@ -108,7 +108,7 @@ final class ReolinkCamera: @unchecked Sendable {
         self.siren = siren
         let ir = options.irLights && info.irLights ? Service(.switch, name: "\(name) Infrared", subtype: "ir") : nil
         self.ir = ir
-        let battery = info.battery ? Service(.battery, name: "\(name) Battery", subtype: "battery") : nil
+        let battery = info.battery ? Service(.battery, name: "\(name) Battery", subtype: "battery", optional: [.batteryLevel, .chargingState]) : nil
         self.battery = battery
         // PTZ (addendum B.7): HomeKit has no PTZ service; presets and the patrol are switches, when asked for.
         var presets: [Int: Service] = [:]
@@ -318,9 +318,10 @@ final class ReolinkCamera: @unchecked Sendable {
             privacy?.characteristic(.on).value = .bool(on)
             cameraActive?.value = .int(on ? 0 : 1)
         }
-        if let battery, let percent = new.batteryPercent, previous?.batteryPercent != percent || previous?.charging != new.charging {
+        if let battery, let percent = new.batteryPercent,
+           previous?.batteryPercent != percent || previous?.charging != new.charging || previous?.batteryLow != new.batteryLow {
             battery.characteristic(.batteryLevel).value = .int(percent)
-            battery.characteristic(.statusLowBattery).value = .int(percent < 20 ? 1 : 0)
+            battery.characteristic(.statusLowBattery).value = .int(percent < 20 || new.batteryLow == true ? 1 : 0)
             battery.characteristic(.chargingState).value = .int(new.charging == true ? 1 : 0)
         }
     }

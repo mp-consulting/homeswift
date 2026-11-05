@@ -15,6 +15,49 @@ enum ReolinkPush: Sendable, Equatable {
     case privacy(channel: Int, on: Bool)
     /// `DayNightEvent`: informational.
     case dayNight(channel: Int, mode: String)
+    /// `cmd_id` 252 (`BatteryList`) or a 253 reply: a battery camera's battery (ReolinkBattery.md 8).
+    case battery(channel: Int, report: ReolinkBatteryReport)
+}
+
+/// A `BatteryInfo` element (ReolinkBattery.md 8).
+struct ReolinkBatteryReport: Sendable, Equatable, Codable {
+    var percent: Int?
+    /// `charging`, `chargeComplete` or `none` (discharging); anything else counts as discharging.
+    var chargeStatus: String
+    var adapter: String?
+    var lowPower: Bool
+    /// `powerSupplyStatus` `normal`: on wired power (newer firmware).
+    var wiredPower: Bool
+
+    init(percent: Int?, chargeStatus: String = "none", adapter: String? = nil, lowPower: Bool = false, wiredPower: Bool = false) {
+        self.percent = percent
+        self.chargeStatus = chargeStatus
+        self.adapter = adapter
+        self.lowPower = lowPower
+        self.wiredPower = wiredPower
+    }
+
+    init?(_ element: BXElement) {
+        let percent = element.value("batteryPercent").flatMap(Int.init).map { min(100, max(0, $0)) }
+        let status = element.value("chargeStatus") ?? "none"
+        guard percent != nil || element.value("chargeStatus") != nil else { return nil }
+        self.init(percent: percent, chargeStatus: status, adapter: element.value("adapterStatus"), lowPower: element.value("lowPower") == "1",
+                  wiredPower: element.value("powerSupplyStatus") == "normal")
+    }
+
+    /// HomeKit's Charging State: only `charging` (`chargeComplete` is not).
+    var charging: Bool { chargeStatus == "charging" }
+    /// Status Low Battery: `lowPower`, or a level under 20.
+    var isLow: Bool { lowPower || (percent.map { $0 < 20 } ?? false) }
+
+    /// The `BatteryInfo` elements of an XML text, by channel.
+    static func reports(_ root: BXElement) -> [(channel: Int, report: ReolinkBatteryReport)] {
+        let elements = root.name == "BatteryInfo" ? [root] : root.all("BatteryInfo")
+        return elements.compactMap { element in
+            guard let report = ReolinkBatteryReport(element) else { return nil }
+            return (element.value("channelId").flatMap(Int.init) ?? 0, report)
+        }
+    }
 }
 
 enum BaichuanEvents {
@@ -45,6 +88,8 @@ enum BaichuanEvents {
                 guard let sleep = element.value("sleep").flatMap(Int.init) else { return nil }
                 return .privacy(channel: element.value("channelId").flatMap(Int.init) ?? 0, on: sleep == 1)
             }
+        case 252, 253:
+            return ReolinkBatteryReport.reports(root).map { .battery(channel: $0.channel, report: $0.report) }
         case 547:
             return root.all("SirenStatus").compactMap { element in
                 guard let channel = element.value("channel").flatMap(Int.init), let status = element.value("status").flatMap(Int.init) else { return nil }

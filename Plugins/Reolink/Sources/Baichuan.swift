@@ -201,6 +201,8 @@ struct BaichuanMessage: Sendable, Equatable {
     var extensionBytes: [UInt8]
     /// The XML body, or the binary payload after an extension.
     var body: [UInt8]
+    /// Byte 16 of a 20-byte header (`0x12` with `dd`: "full AES", ReolinkBattery.md 4.4); nil for a 24-byte one.
+    var encryptionCode: UInt8? = nil
 }
 
 enum BaichuanError: Error, CustomStringConvertible, Equatable {
@@ -291,6 +293,7 @@ struct BaichuanFramer: Sendable {
                 message.extensionBytes = Array(buffer[bodyStart..<(bodyStart + extensionLength)])
                 payloadStart += extensionLength
             } else {
+                if buffer[start + 17] == 0xDD { message.encryptionCode = buffer[start + 16] }
                 message.declaredEncryption = switch (buffer[start + 16], buffer[start + 17]) {
                 case (0x01, 0xDD), (0x12, 0xDD): .xor
                 case (0x02, 0xDD), (0x03, 0xDD): .aes
