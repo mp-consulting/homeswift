@@ -414,7 +414,8 @@ struct V2CTrydanPluginTests {
     @Test func anOnWithABrightnessWritesTheBrightnessOnly() async throws {
         // A window a loaded runner starts both halves of the request in: the On is told apart from the brightness by time.
         var timing = fastTiming
-        timing.coalescing = .milliseconds(600)
+        // CI runs thousands of tests in one process: a task can start a second late, so the window is generous.
+        timing.coalescing = .seconds(3)
         let environment = TestEnvironment(timing: timing)
         let host = try await environment.start(settings: [
             "devices": [["host": "192.0.2.50", "id": "TRY4F2A"]], "_accessories": ["TRY4F2A": ["exposeLeds": true]],
