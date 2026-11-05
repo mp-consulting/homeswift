@@ -50,8 +50,12 @@ actor TrydanCharger {
     private var rereadWanted = false
     /// Writes the charger took, so a read sent before one is not shown over it.
     private var writes = 0
-    /// When the Light LED's brightness was last written, so an On of the same request does not override it.
-    private var lastBrightnessWrite: ContinuousClock.Instant?
+    /// When HomeKit last asked for a Light LED brightness, and last turned it off: an On of the same request as a
+    /// brightness does not override it.
+    private var lastBrightnessAsked: ContinuousClock.Instant?
+    private var lastLightOff: ContinuousClock.Instant?
+    /// Writes waiting `coalescing` for a later one of the same slider.
+    private(set) var waitingWrites = 0
     private var warnedStates: Set<Int> = []
     private var repairedFirmware: Set<String> = []
     private var identityNoted = false
@@ -306,9 +310,8 @@ actor TrydanCharger {
     func nextDelay() -> Duration {
         if let retryAfter { return retryAfter }
         guard failures >= 3 else { return interval }
-        // 30 s, 60 s, 120 s, then the maximum (5.3).
-        let attempt = failures - 3
-        return max(interval, attempt >= 3 ? timing.backoff.maximum : timing.backoff.delay(attempt: attempt))
+        // 30 s, 60 s, 120 s, 240 s, then the maximum (5.3).
+        return max(interval, timing.backoff.delay(attempt: failures - 3))
     }
 
     // MARK: Energy
@@ -405,7 +408,7 @@ actor TrydanCharger {
                 return
             }
             // A drag of the slider: only its last value goes.
-            guard await coalesce("intensity") else { return }
+            guard await isLatest("intensity") else { return }
             let range = report?.intensityRange ?? 6...32
             let value = Int(saturating: amperes.rounded(), in: range) ?? range.lowerBound
             try await set("Intensity", value)
@@ -420,19 +423,19 @@ actor TrydanCharger {
         case .lightLED(let on):
             guard on else {
                 _ = coalesce.claim("lightLED")
+                lastLightOff = .now
                 try await set("LightLED", 0)
                 return
             }
             // HomeKit sends On with a Brightness in one request, in no set order: a brightness wins.
             let asked = ContinuousClock.now
             try? await Task.sleep(for: timing.coalescing)
-            // A brightness of the same request may have started before this On, or finished just before it ran.
-            if let lastBrightnessWrite, lastBrightnessWrite >= asked - timing.coalescing * 2 { return }
+            // A brightness asked just before this On or while it waited, and not turned off since, is of the same request.
+            if let brightness = lastBrightnessAsked, brightness >= asked - timing.coalescing, lastLightOff.map({ $0 < brightness }) ?? true { return }
             try await set("LightLED", lastLightLevel)
         case .lightLEDBrightness(let level):
-            lastBrightnessWrite = .now
-            defer { lastBrightnessWrite = .now }
-            guard await coalesce("lightLED") else { return }
+            lastBrightnessAsked = .now
+            guard await isLatest("lightLED") else { return }
             try await set("LightLED", min(max(level, 0), 100))
         case .logoLED(let on):
             try await set("LogoLED", on ? (logoDimmable ? lastLogoLevel : 1) : 0)
@@ -468,6 +471,16 @@ actor TrydanCharger {
             allowed = "a keyword the plugin writes"
         }
         if let allowed { throw .outOfRange(keyword: keyword, value: value, allowed: allowed) }
+    }
+
+    /// Waits `coalescing`, then says whether no later write for `key` came meanwhile. Claimed here, on the charger, so the
+    /// last write to reach it wins (the guard's own call claims it after a hop off the actor, where two can swap).
+    private func isLatest(_ key: String) async -> Bool {
+        let isLatest = coalesce.claim(key)
+        waitingWrites += 1
+        defer { waitingWrites -= 1 }
+        do { try await Task.sleep(for: timing.coalescing) } catch { return false }
+        return isLatest()
     }
 
     /// Validates and sends one keyword; on `OK`, shows it at once and reads the charger again now and after `settle`.

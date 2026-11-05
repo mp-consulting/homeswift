@@ -78,7 +78,7 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
     /// The ECUs (by `host:port`) a request is talking to now, and those waiting for them (`exclusively`).
     var busy: Set<String> = []
     var waiting: [String: [CheckedContinuation<Void, Never>]] = [:]
-    /// Type codes and models already logged as unknown, logged once.
+    /// Type codes and models already logged as unknown, and accessories the bridge refused, logged once.
     var loggedOddities: Set<String> = []
 
     public init(configuration: Configuration, context: PluginContext) {

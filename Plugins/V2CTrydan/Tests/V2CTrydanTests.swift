@@ -407,7 +407,8 @@ struct V2CTrydanPluginTests {
         let speed = try #require(accessory.service(.fanv2)?[.rotationSpeed])
         let handler = try #require(speed.writeHandler(for: .double(10)))
         async let dragged: Void = { try? await handler(.double(10)) }()
-        try await Task.sleep(for: .milliseconds(50))
+        let charger = try #require(await environment.plugin?.charger(deviceID: "TRY4F2A"))
+        #expect(await eventually { await charger.waitingWrites == 1 })
         try await handler(.double(0))
         await dragged
         #expect(environment.charger.writes == ["/write/Paused=1"], "the 10 still waiting is dropped")

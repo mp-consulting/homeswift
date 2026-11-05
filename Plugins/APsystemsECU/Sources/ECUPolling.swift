@@ -369,7 +369,8 @@ extension APsystemsECUPlugin {
                 id: Self.accessoryID(deviceID: id), name: name, manufacturer: "APsystems", model: ECUProtocol.ecuModel(id), serialNumber: id,
                 firmwareRevision: ECUProtocol.firmwareRevision(system.firmware), category: .sensor, services: [solar]))
         } catch {
-            logger.error("Could not add the ECU \(ECUProtocol.masked(id)): \(error)")
+            // Tried again at each poll: said once.
+            if loggedOddities.insert("add \(id)").inserted { logger.error("Could not add the ECU \(ECUProtocol.masked(id)): \(error)") }
             return nil
         }
         solarServices[id] = solar
@@ -392,7 +393,7 @@ extension APsystemsECUPlugin {
                 id: Self.accessoryID(deviceID: record.uid), name: Self.inverterName(record.uid), manufacturer: "APsystems",
                 model: ECUProtocol.inverterModel(record.uid), serialNumber: record.uid, category: .sensor, services: [power, temperature]))
         } catch {
-            logger.error("Could not add the inverter \(ECUProtocol.masked(record.uid)): \(error)")
+            if loggedOddities.insert("add \(record.uid)").inserted { logger.error("Could not add the inverter \(ECUProtocol.masked(record.uid)): \(error)") }
             return nil
         }
         inverterServices[record.uid] = services

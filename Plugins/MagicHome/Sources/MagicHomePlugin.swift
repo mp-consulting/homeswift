@@ -324,6 +324,8 @@ public actor MagicHomePlugin: HomeswiftPlugin {
             return
         }
         rejected[id] = nil
+        // Others found in the same scan may have been added while this one answered.
+        guard devices.count < Self.maximumDevices else { return }
         let record = MagicHomeRecord(host: announcement.address, module: announcement.module, model: state.model, version: state.version, mode: state.mode)
         log.info("Registering new accessory: \(id), \(profile.description)")
         // Kept once it is on the bridge.

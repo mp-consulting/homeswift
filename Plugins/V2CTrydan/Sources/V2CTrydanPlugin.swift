@@ -69,6 +69,8 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
     private(set) var chargers: [String: TrydanCharger] = [:]
     /// The host key of each Device Id on the bridge, for duplicates.
     private var owners: [String: String] = [:]
+    /// Device Ids whose accessory the bridge refused, said once.
+    private var addFailures: Set<String> = []
     /// The Device Id each charger of `devices` without one answered with, by host key: what `canonicalSettings` writes.
     private(set) var learnedIDs: [String: String] = [:]
     var logger: Logger { context.logger }
@@ -214,7 +216,12 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
                 logger.info("Added charger", metadata: ["charger": "\(name)", "host": "\(charger.host)", "deviceID": "\(deviceID)", "firmware": "\(firmware)"])
             }
         } catch {
-            logger.error("Could not add \(name) to the bridge: \(error)")
+            // Tried again at each poll: said once.
+            if addFailures.insert(deviceID).inserted {
+                logger.error("Could not add \(name) to the bridge: \(error)")
+            } else {
+                logger.debug("Could not add \(name) to the bridge: \(error)")
+            }
         }
     }
 

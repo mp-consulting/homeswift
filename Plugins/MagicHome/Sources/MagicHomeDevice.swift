@@ -106,6 +106,8 @@ actor MagicHomeDevice {
     private var levelsWaiting = false
     private var sleeper: Task<Void, Never>?
     private var identifying: Task<Void, Never>?
+    /// Counts the flashes, so one cancelled does not clear the handle of the one after it.
+    private var flashes = 0
     /// The profile changed shape (a firmware update, another mode): the plugin builds the accessory again.
     private var onReshape: (@Sendable (MagicHomeProfile) async -> Void)?
     /// The record changed (a new address, a version): the plugin saves it.
@@ -194,11 +196,14 @@ actor MagicHomeDevice {
         if profile.family.pushes, await connection.isOpen, let lastUpdate, now - lastUpdate < interval { return interval - (now - lastUpdate) }
         do {
             let heard = pushesHeard
+            let written = lastWrite
             let state = try await connection.query(wrapped: profile.family.wrapsRequests)
             await answered()
             // A push that came while the reply made its way here may be newer than it (sent after it, it was shown
             // first): the push stands.
             if pushesHeard == heard { await received(state) }
+            // A write that went meanwhile found no sleeper to wake: its read comes once it settled.
+            if lastWrite != written, let lastWrite { return max(options.timing.settle - (ContinuousClock.now - lastWrite), .zero) }
             return interval
         } catch {
             return await unanswered(error)
@@ -360,7 +365,7 @@ actor MagicHomeDevice {
     // MARK: HomeKit's writes
 
     /// A change from HomeKit: a slider's only when no later one came within `slider`, then gathered with the others of
-    /// the moment into one command.
+    /// the moment into one command. The power waits as long, so an On and its levels of one request stay one command.
     func write(_ change: LightChangeBatcher.Change) async throws {
         let slider: String? = switch change {
         case .brightness: "brightness"
@@ -375,6 +380,8 @@ actor MagicHomeDevice {
             let isLatest = sliders.claim(slider)
             do { try await Task.sleep(for: options.timing.slider) } catch { return }
             guard isLatest() else { return }
+        } else {
+            do { try await Task.sleep(for: options.timing.slider) } catch { return }
         }
         guard let batcher else { return }
         try await batcher.set(change)
@@ -446,10 +453,12 @@ actor MagicHomeDevice {
     func identify() {
         log.info("Identifying accessory \(name)")
         guard profile.writer != .powerOnly, identifying == nil else { return }
-        identifying = Task { [weak self] in await self?.flash() }
+        flashes &+= 1
+        let flash = flashes
+        identifying = Task { [weak self] in await self?.flash(flash) }
     }
 
-    private func flash() async {
+    private func flash(_ flash: Int) async {
         let saved = light
         var flashing = light
         flashing.hue = 100
@@ -472,7 +481,7 @@ actor MagicHomeDevice {
             log.debug("\(name) did not take the identify flash: \(error)")
         }
         lastWrite = .now
-        identifying = nil
+        if flashes == flash { identifying = nil }
         wake()
     }
 }
