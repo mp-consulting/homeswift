@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
   and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
   Setup with the e-mailed two-factor code, within Renault's hourly request quota.
+- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
+  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
+  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
+  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
+  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
 ### Changed
 
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and

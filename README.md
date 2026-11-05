@@ -186,6 +186,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Ring](Plugins/Ring) | `Ring` | Experimental: Ring alarm, Smart Lighting, cameras and doorbells (snapshots, motion, rings by push; no live video yet), chimes and intercoms |
 | [Roborock](Plugins/Roborock) | `RoborockVacuumPlatform` | Experimental: Roborock robot vacuums, on the LAN with the cloud's MQTT as a fallback: clean, dock, mop washing, scenes, brushes and filter |
 | [Shelly](Plugins/Shelly) | `ShellyNG`, `Shelly` | Experimental: Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters (WebSocket RPC), and Gen 1 devices (CoIoT and HTTP) |
+| [Somfy TaHoma](Plugins/Tahoma) | `Tahoma` | Experimental: Somfy TaHoma and Connexoon (cloud or the gateway's local API), Atlantic Cozytouch and other Overkiz setups: shutters, blinds, awnings, garage doors, gates, locks, alarms, lights, sensors, heaters and water heaters, and scenarios |
 | [Sonos](Plugins/Sonos) | `ZP` | Experimental Sonos zones over UPnP: play, volume and groups, a Speakers service per zone, LEDs, alarms, and a TV per zone with the favourites as inputs |
 | [SwitchBot](Plugins/SwitchBot) | `SwitchBot` | Experimental SwitchBot Bots, curtains, blinds, meters, sensors, locks, lights, plugs and IR remotes, through SwitchBot's cloud and its webhook |
 | [tado°](Plugins/Tado) | `TadoPlatform` | Experimental tado° thermostats, radiator valves, hot water and air conditioners through tado's cloud, within its daily request limit |
