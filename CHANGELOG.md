@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
+  **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
+  like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
+  anything else it needs, probes the device, and finishes with the Device Id the device answered with. That id keys
+  the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
+  discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
+  light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
+- Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
+  a field a step may leave empty says Optional.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
