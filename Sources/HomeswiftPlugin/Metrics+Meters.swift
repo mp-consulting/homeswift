@@ -20,6 +20,24 @@ extension Metrics {
         record(value, series: series, tag: EnergyTag(role: role, device: description.device, shared: description.shared))
     }
 
+    /// A Meter's imported hours in the Home Energy's long-term history, under its Energy Role, as a source of their own
+    /// (`meter:<id>`): what the grid imported and exported, what solar produced (its Returned, or what it drew for a
+    /// Meter that measures production as use), the home's use, what the batteries charged and discharged.
+    func importHomeEnergy(_ id: MeterID, _ hours: [MeterHourImport], _ description: MeterDescription, role given: EnergyRole??) {
+        guard let role = given ?? description.suggestedRole else { return }
+        let flows = hours.map { hour -> EnergyHourImport in
+            let flows: EnergyFlows = switch role {
+            case .grid: EnergyFlows(gridImport: hour.consumption, gridExport: hour.returned)
+            case .solar: EnergyFlows(solar: hour.returned ?? hour.consumption)
+            case .home: EnergyFlows(home: hour.consumption)
+            case .battery: EnergyFlows(batteryCharge: hour.consumption, batteryDischarge: hour.returned)
+            case .batteryLevel: EnergyFlows()
+            }
+            return EnergyHourImport(start: hour.start, flows: flows)
+        }
+        archive.importHours(flows, source: "meter:\(id)")
+    }
+
     /// The Meter of a service with Total Consumption or Current Consumption, by the service's type and subtype (the
     /// same key as its iids, so it is as stable).
     static func meterID(of accessory: Accessory, service: Service) -> MeterID {
@@ -60,6 +78,9 @@ extension Metrics {
             // When they were read: those a plugin made before the store followed arrive late.
             case let .counter(id, wattHours, direction, at): meters.recordCounter(wattHours, direction: direction, meter: id, at: at)
             case let .claim(id): claimed.withLockedValue { _ = $0.insert(id) }
+            case let .history(id, hours, description):
+                meters.importHours(hours, meter: id)
+                importHomeEnergy(id, hours, description, role: host?.energyRole(of: id))
             case let .power(id, watts, at, description):
                 meters.recordPower(watts, meter: id, at: at)
                 recordHomeEnergy(id, watts: watts, description, role: host?.energyRole(of: id))

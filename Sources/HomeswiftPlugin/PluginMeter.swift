@@ -27,6 +27,16 @@ public struct PluginMeter: Sendable {
         guard wattHours.isFinite else { return }
         readings(.counter(id, wattHours, direction, Date()))
     }
+
+    /// Hours of its past from the device's or the cloud's record (a meter's per-minute records, a cloud's history), in
+    /// watt-hours drawn (`consumption`) and sent back or produced (`returned`): each replaces what was imported for that
+    /// hour before, and an hour the bridge measured keeps its own figures. With an Energy Role, they fill the Home
+    /// Energy's long-term history too, where the bridge recorded nothing.
+    public func importHours(_ hours: [MeterHourImport]) {
+        let known = hours.filter { [$0.consumption, $0.returned].allSatisfy { $0.map(\.isFinite) ?? true } }
+        guard !known.isEmpty else { return }
+        readings(.history(id, known, description))
+    }
 }
 
 extension PluginContext {
