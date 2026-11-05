@@ -169,4 +169,129 @@ import Testing
         try await patrol.writeHandler(for: .bool(false))?(.bool(false))
         #expect(await eventually { patrol.value == false })
     }
+
+    // MARK: Privacy
+
+    /// A camera with privacy mode: its login reply has `sleep`, 574 reads `on` and 575 sets it.
+    static func privacyCamera(_ environment: ReolinkEnvironment, on: NIOLockedValueBox<Bool>) {
+        environment.prepareCamera.withLockedValue {
+            $0 = { camera in
+                camera.state.withLockedValue { $0.deviceInfo = "<sleep>\(on.withLockedValue { $0 } ? 1 : 0)</sleep>\n" }
+                camera.answer(574) { _, _ in
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<sleepState version=\"1.1\">\n<sleep>\(on.withLockedValue { $0 } ? 1 : 0)</sleep>\n</sleepState>\n</body>\n"
+                }
+                camera.answer(575) { _, body in
+                    on.withLockedValue { $0 = body.contains("<sleep>1</sleep>") }
+                    return nil
+                }
+            }
+        }
+    }
+
+    static let privacyOff = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<status>\n<channelId>0</channelId>\n<sleep>0</sleep>\n</status>\n</body>\n"
+    static let privacyOn = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<status>\n<channelId>0</channelId>\n<sleep>1</sleep>\n</status>\n</body>\n"
+
+    @Test func privacyVectors() throws {
+        // The addendum's headers (F): abilities 199 of the host, privacy read 574 and write 575 on channel 2.
+        #expect(hex(Baichuan.header(command: 199, bodyLength: 0, channel: 250, counter: 6, extensionLength: 0)) == "f0 de bc 0a c7 00 00 00 00 00 00 00 fa 06 00 00 00 00 14 64 00 00 00 00")
+        let ext = Baichuan.channelExtension(2).utf8.count
+        #expect(hex(Baichuan.header(command: 574, bodyLength: ext, channel: 3, counter: 7, extensionLength: ext)) == "f0 de bc 0a 3e 02 00 00 68 00 00 00 03 07 00 00 00 00 14 64 68 00 00 00")
+        let body = Baichuan.privacyBody(true)
+        #expect(body.utf8.count == 134)
+        #expect(body == "\n<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<sleepState version=\"1.1\">\n<operate>2</operate>\n<sleep>1</sleep>\n</sleepState>\n</body>")
+        #expect(hex(Baichuan.header(command: 575, bodyLength: ext + body.utf8.count, channel: 3, counter: 8, extensionLength: ext)) == "f0 de bc 0a 3f 02 00 00 ee 00 00 00 03 08 00 00 00 00 14 64 68 00 00 00")
+        // A reply's channel is its full message id's low byte, minus one: 0x803 is channel 2.
+        #expect(BaichuanMessage.messageID(channel: 3, counter: 8) == 0x803)
+        var unknown: Set<String> = []
+        #expect(BaichuanEvents.parse(command: 623, xml: "<?xml version=\"1.0\" ?><body><status><channelId>1</channelId><sleep>0</sleep></status></body>", unknown: &unknown)
+            == [.privacy(channel: 1, on: false)])
+        #expect(BaichuanEvents.parse(command: 623, xml: "<?xml version=\"1.0\" ?><body><sleep>1</sleep></body>", unknown: &unknown) == [.privacy(channel: 0, on: true)])
+    }
+
+    @Test func privacyAndCameraActiveFollowEachOther() async throws {
+        let environment = ReolinkEnvironment(scale: 0.01)
+        let on = NIOLockedValueBox(false)
+        Self.privacyCamera(environment, on: on)
+        let host = try await environment.start(Self.block(["recording": true]))
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        let privacy = try #require(camera.privacyControls.privacy?.characteristic(.on))
+        let active = try #require(camera.privacyControls.cameraActive)
+        // It blinds the camera: MCP clients confirm before they change it.
+        #expect(privacy.isSecurityControl)
+        #expect(privacy.value == false)
+        #expect(active.value.intValue == 1)
+
+        // The switch on: privacy mode on (575 with the addendum's template), HomeKit's camera off.
+        try await privacy.write(.bool(true))
+        #expect(environment.camera?.bodies(575).last == Baichuan.privacyBody(true))
+        #expect(await eventually { active.value.intValue == 0 })
+
+        // HomeKit's camera on: privacy mode off, the switch off.
+        try await active.write(.int(1))
+        #expect(await eventually { environment.camera?.bodies(575).last == Baichuan.privacyBody(false) })
+        #expect(await eventually { privacy.value == false })
+        #expect(on.withLockedValue { $0 } == false)
+
+        // The device turns it on itself (the Reolink app): the 623 push.
+        on.withLockedValue { $0 = true }
+        environment.camera?.push(Self.privacyOn, command: 623)
+        #expect(await eventually { privacy.value == true && active.value.intValue == 0 })
+    }
+
+    @Test func noLoginWhilePrivate() async throws {
+        let environment = ReolinkEnvironment(scale: 0.01)
+        let on = NIOLockedValueBox(true)
+        Self.privacyCamera(environment, on: on)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        #expect(await eventually { environment.camera?.commands.contains(574) == true })
+        // Asked again over Baichuan (each minute, at a hundredth): never over HTTP, where a login would fail.
+        #expect(await eventually { (environment.camera?.commands.filter { $0 == 574 }.count ?? 0) >= 3 })
+        #expect(environment.http.logins == 0)
+        #expect(environment.http.requestCount == 0)
+        on.withLockedValue { $0 = false }
+        environment.camera?.push(Self.privacyOff, command: 623)
+        #expect(await eventually { environment.accessory(host, Self.cameraID) != nil })
+        #expect(environment.http.logins == 1)
+    }
+
+    @Test func aFailedRefreshInPrivacyModeIsNoOutage() async throws {
+        let environment = ReolinkEnvironment(scale: 0.01)
+        let on = NIOLockedValueBox(false)
+        Self.privacyCamera(environment, on: on)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        let accessory = camera.accessory
+        let privacy = try #require(camera.privacyControls.privacy?.characteristic(.on))
+        // Privacy mode turns on, and the HTTP API off, before a push says so: the next poll fails.
+        on.withLockedValue { $0 = true }
+        environment.http.state.withLockedValue { $0.unreachable = true }
+        #expect(await eventually { privacy.value == true })
+        let requests = environment.http.state.withLockedValue { $0.requests.count }
+        let host_ = try #require(await environment.plugin?.runtimes[Self.address]?.host)
+        #expect(await host_.isPrivate)
+        // Not an outage: no No Response, and nothing more is asked over HTTP (polls every 50 ms, refreshes every 600 ms).
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!accessory.isUnavailable)
+        #expect(environment.http.state.withLockedValue { $0.requests.count } == requests)
+        // It ends: polling resumes.
+        on.withLockedValue { $0 = false }
+        environment.http.state.withLockedValue { $0.unreachable = false }
+        environment.camera?.push(Self.privacyOff, command: 623)
+        #expect(await eventually { environment.http.state.withLockedValue { $0.requests.count } > requests })
+        #expect(await eventually { privacy.value == false })
+        #expect(!accessory.isUnavailable)
+    }
+
+    @Test func aCameraWithoutPrivacyModeHasNoSwitch() async throws {
+        let environment = ReolinkEnvironment()
+        let host = try await environment.start(Self.block(["recording": true]))
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        #expect(camera.privacyControls.privacy == nil)
+        #expect(camera.privacyControls.cameraActive == nil)
+        #expect(environment.camera?.commands.contains(574) != true)
+    }
 }

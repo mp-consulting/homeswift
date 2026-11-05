@@ -40,6 +40,9 @@ final class ReolinkCamera: @unchecked Sendable {
     /// "Go to <preset>" switches, by preset id.
     private let presets: [Int: Service]
     private let patrol: Service?
+    private let privacy: Service?
+    /// HomeKit's Camera Active (with HomeKit Secure Video): off while privacy mode is on, and the other way round.
+    private let cameraActive: Characteristic?
     private let sensors: [Service]
 
     private struct State {
@@ -58,6 +61,7 @@ final class ReolinkCamera: @unchecked Sendable {
         var siren: @Sendable (_ on: Bool) async throws -> Void
         var ir: @Sendable (_ on: Bool) async throws -> Void
         var goToPreset: @Sendable (_ id: Int) async throws -> Void
+        var privacy: @Sendable (_ on: Bool) async throws -> Void
         var patrol: @Sendable (_ on: Bool) async throws -> Void
     }
 
@@ -101,6 +105,10 @@ final class ReolinkCamera: @unchecked Sendable {
         self.presets = presets
         let patrol = options.patrolSwitch && info.ptz?.patrols.isEmpty == false ? Service(.switch, name: "\(name) Patrol", subtype: "patrol") : nil
         self.patrol = patrol
+        // Privacy mode blinds the camera: a security control, so MCP clients confirm before they change it.
+        let privacy = info.privacy && options.privacySwitch ? Service(.switch, name: "\(name) Privacy", subtype: "privacy") : nil
+        privacy?.characteristic(.on).securityControl()
+        self.privacy = privacy
         sensors = [motion].compactMap { $0 } + ReolinkChannel.aiSensors.compactMap { ai[$0.type] }
 
         let streaming = CameraStreamingOptions(
@@ -122,9 +130,10 @@ final class ReolinkCamera: @unchecked Sendable {
             id: id, name: name, manufacturer: "Reolink", model: info.model.nonEmptyText ?? "Reolink", serialNumber: serial.nonEmptyText ?? id,
             firmwareRevision: info.firmware, category: isDoorbell ? .videoDoorbell : .ipCamera,
             services: [doorbell].compactMap { $0 } + sensors + [floodlight, siren, ir, battery].compactMap { $0 }
-                + presets.keys.sorted().compactMap { presets[$0] } + [patrol].compactMap { $0 },
+                + presets.keys.sorted().compactMap { presets[$0] } + [patrol, privacy].compactMap { $0 },
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
+        cameraActive = info.privacy ? accessory.service(.cameraOperatingMode)?.characteristic(.homeKitCameraActive) : nil
         for service in sensors { service.characteristic(.motionDetected).value = false }
 
         // Writes (7.2): the value is kept optimistically, put back when the device refuses.
@@ -166,6 +175,25 @@ final class ReolinkCamera: @unchecked Sendable {
                 try await writes.goToPreset(id)
                 self?.resetMomentary(service, key: "preset\(id)")
             })
+        }
+        if let privacy {
+            let privacyGuard = LatestCallGuard(delay: timing.seconds(0.3))
+            privacy.characteristic(.on).onWrite(changesOnly: true, guarded { value in
+                guard await privacyGuard() else { return }
+                try await writes.privacy(value.boolValue ?? false)
+            })
+        }
+        if let cameraActive {
+            // The Home app's camera off is privacy mode on. The value shown follows the device (`apply`).
+            cameraActive.observe { [log, name] change in
+                guard change.reason == .write, change.oldValue != change.newValue, let active = change.newValue.intValue else { return }
+                Task {
+                    do { try await writes.privacy(active == 0) } catch {
+                        log.warning("\(name): the device refused privacy mode: \(error)")
+                        cameraActive.value = change.oldValue
+                    }
+                }
+            }
         }
         if let patrol {
             let patrolGuard = LatestCallGuard(delay: timing.seconds(0.3))
@@ -241,6 +269,10 @@ final class ReolinkCamera: @unchecked Sendable {
         }
         if let ir, let on = new.irOn, previous?.irOn != on { ir.characteristic(.on).value = .bool(on) }
         if let patrol, let on = new.patrolling, previous?.patrolling != on { patrol.characteristic(.on).value = .bool(on) }
+        if let on = new.privacy, previous?.privacy != on {
+            privacy?.characteristic(.on).value = .bool(on)
+            cameraActive?.value = .int(on ? 0 : 1)
+        }
         if let battery, let percent = new.batteryPercent, previous?.batteryPercent != percent || previous?.charging != new.charging {
             battery.characteristic(.batteryLevel).value = .int(percent)
             battery.characteristic(.statusLowBattery).value = .int(percent < 20 ? 1 : 0)
@@ -305,4 +337,5 @@ final class ReolinkCamera: @unchecked Sendable {
     }
 
     var ptzServices: (presets: [Int: Service], patrol: Service?) { (presets, patrol) }
+    var privacyControls: (privacy: Service?, cameraActive: Characteristic?) { (privacy, cameraActive) }
 }

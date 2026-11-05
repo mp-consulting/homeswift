@@ -649,6 +649,15 @@ extension ReolinkPlugin {
         "x-kinds": [
           "camera"
         ]
+      },
+      "privacySwitch": {
+        "title": "Privacy switch",
+        "type": "boolean",
+        "description": "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.",
+        "default": true,
+        "x-kinds": [
+          "camera"
+        ]
       }
     }
   },
@@ -725,6 +734,7 @@ extension ReolinkPlugin {
       "Prebuffer": "Prémémoire",
       "Preset switches": "Interrupteurs de positions",
       "Presses within this many seconds of a ring are ignored.": "Les appuis dans ce nombre de secondes après une sonnerie sont ignorés.",
+      "Privacy switch": "Interrupteur de confidentialité",
       "Push events": "Événements poussés",
       "RTMP": "RTMP",
       "RTSP (recommended)": "RTSP (recommandé)",
@@ -751,6 +761,7 @@ extension ReolinkPlugin {
       "User name": "Nom d'utilisateur",
       "Vehicle": "Véhicule",
       "Video encoding": "Encodage vidéo",
+      "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Si la caméra a un mode confidentialité, un interrupteur qui l'active : ni vidéo ni détection tant qu'il est allumé. Il suit la caméra allumée ou éteinte dans HomeKit.",
       "Which of the camera's streams answers HomeKit.": "Lequel des flux de la caméra répond à HomeKit."
     },
     "es": {
@@ -812,6 +823,7 @@ extension ReolinkPlugin {
       "Prebuffer": "Prebúfer",
       "Preset switches": "Interruptores de posiciones",
       "Presses within this many seconds of a ring are ignored.": "Las pulsaciones en estos segundos tras un timbre se ignoran.",
+      "Privacy switch": "Interruptor de privacidad",
       "Push events": "Eventos enviados",
       "RTMP": "RTMP",
       "RTSP (recommended)": "RTSP (recomendado)",
@@ -838,6 +850,7 @@ extension ReolinkPlugin {
       "User name": "Nombre de usuario",
       "Vehicle": "Vehículo",
       "Video encoding": "Codificación de vídeo",
+      "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Si la cámara tiene modo de privacidad, un interruptor que lo activa: sin vídeo ni detecciones mientras esté encendido. Sigue el encendido y apagado de la cámara en HomeKit.",
       "Which of the camera's streams answers HomeKit.": "Qué flujo de la cámara responde a HomeKit."
     },
     "pt": {
@@ -899,6 +912,7 @@ extension ReolinkPlugin {
       "Prebuffer": "Pré-memória",
       "Preset switches": "Interruptores de posições",
       "Presses within this many seconds of a ring are ignored.": "Os toques nestes segundos após um toque são ignorados.",
+      "Privacy switch": "Interruptor de privacidade",
       "Push events": "Eventos enviados",
       "RTMP": "RTMP",
       "RTSP (recommended)": "RTSP (recomendado)",
@@ -925,6 +939,7 @@ extension ReolinkPlugin {
       "User name": "Nome de utilizador",
       "Vehicle": "Veículo",
       "Video encoding": "Codificação de vídeo",
+      "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Se a câmara tiver modo de privacidade, um interruptor que o ativa: sem vídeo nem deteções enquanto estiver ligado. Acompanha a câmara ligada ou desligada no HomeKit.",
       "Which of the camera's streams answers HomeKit.": "Qual dos fluxos da câmara responde ao HomeKit."
     }
   }

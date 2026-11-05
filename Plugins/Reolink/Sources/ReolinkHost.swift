@@ -24,6 +24,15 @@ actor ReolinkHost {
     private var online = true
     private var pollFailing = false
     private let tasks = TaskBag()
+    /// The port the Baichuan session was opened on.
+    private var baichuanPort: Int?
+    /// A camera on its own whose login reply has `sleep`: it has privacy mode (addendum C).
+    private var hasLoginPrivacy = false
+    /// Privacy mode of a camera on its own before its channels are read (its first channel, by push or at login).
+    private var privacyBeforeConnect: Bool?
+    /// Who waits for privacy mode to end (`waitForPrivacyOff`).
+    private var privacyWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var nextWaiter = 0
 
     init(device: ReolinkPlugin.Device, http: ReolinkHTTPClient, connectBaichuan: @escaping BaichuanSession.Connect, log: Logger, timing: ReolinkTiming) {
         self.device = device
@@ -57,8 +66,20 @@ actor ReolinkHost {
             + [ReolinkCommand(cmd: "GetAbility", param: ["User": ["userName": .string(username)]])]
     }
 
-    /// Logs in and reads the host and its channels.
+    /// Logs in and reads the host and its channels. With push, the Baichuan session comes first: a camera in privacy
+    /// mode refuses HTTP logins, so it is asked over Baichuan before one is tried (addendum C), and `privacy` is thrown
+    /// rather than a login error.
     func connect() async throws {
+        if let session = startBaichuan(port: device.baichuanPort ?? 9000), await session.waitUntilReady(timeout: timing.timeout(10)) {
+            if let deviceInfo = await session.deviceInfo, !Self.multiChannelTypes.contains(deviceInfo.value("type")?.lowercased() ?? ""),
+               let sleep = deviceInfo.value("sleep") {
+                hasLoginPrivacy = true
+                // The login's `sleep` is as old as the session: asked again.
+                let on = ((try? await session.privacy(channel: 0)) ?? nil) ?? (sleep == "1")
+                privacyBeforeConnect = on
+                if on { throw ReolinkError.privacy }
+            }
+        }
         let commands = Self.hostCommands(username: device.username)
         let replies = try await http.execute(commands)
         var info = ReolinkHostInfo()
@@ -69,6 +90,7 @@ actor ReolinkHost {
         if info.isAdmin == false { log.warning("The user \(device.username) is not an administrator: floodlights, sirens and IR lights stay read-only.") }
         self.info = info
         channels = try await readWantedChannels()
+        await readPrivacy()
         setOnline(true)
         log.info("Connected to \(info.model.isEmpty ? "the Reolink device" : info.model) (firmware \(info.firmware), \(channels.count) channel\(channels.count == 1 ? "" : "s")).")
     }
@@ -179,6 +201,85 @@ actor ReolinkHost {
         return ptz
     }
 
+    static let multiChannelTypes: Set<String> = ["nvr", "wifi_nvr", "homehub"]
+
+    /// The Baichuan session, made once (`pushEvents`), its events handled from then on.
+    private func startBaichuan(port: Int) -> BaichuanSession? {
+        guard device.pushEvents else { return nil }
+        if let baichuan { return baichuan }
+        let session = BaichuanSession(host: device.host, port: port, username: device.username, password: device.password, connect: connectBaichuan, log: log, timing: timing)
+        baichuan = session
+        baichuanPort = port
+        tasks.add { await session.run() }
+        tasks.add { [weak self] in
+            for await event in session.events { await self?.handle(event) }
+        }
+        return session
+    }
+
+    /// Privacy mode of each channel that may have it (a camera whose login reply had `sleep`; an NVR's channel with
+    /// `remoteAbility`): a 574 reply with `sleep` says it has it.
+    private func readPrivacy() async {
+        guard let baichuan, await baichuan.isConnected else { return }
+        for ch in channels.keys.sorted() {
+            let eligible = info.isMultiChannel ? info.ability("remoteAbility", channel: ch) > 0 : hasLoginPrivacy && ch == 0
+            guard eligible, let on = (try? await baichuan.privacy(channel: ch)) ?? nil else { continue }
+            channels[ch]?.privacy = true
+            channels[ch]?.state.privacy = on
+        }
+    }
+
+    /// Whether a camera on its own is in privacy mode: its HTTP API is off, so nothing is asked of it.
+    var isPrivate: Bool {
+        guard !info.isMultiChannel else { return false }
+        return channels.isEmpty ? privacyBeforeConnect == true : channels[0]?.state.privacy == true
+    }
+
+    /// Waits until privacy mode is off (a push says so) or `timeout` passes.
+    func waitForPrivacyOff(timeout: Duration) async {
+        guard isPrivate else { return }
+        nextWaiter += 1
+        let id = nextWaiter
+        let timer = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            await self?.resumePrivacyWaiter(id)
+        }
+        defer { timer.cancel() }
+        await withCheckedContinuation { privacyWaiters[id] = $0 }
+    }
+
+    private func resumePrivacyWaiter(_ id: Int) { privacyWaiters.removeValue(forKey: id)?.resume() }
+
+    private func privacyChanged(channel: Int, on: Bool) {
+        let multi = info.isMultiChannel
+        if channels.isEmpty {
+            guard channel == 0 else { return }
+            privacyBeforeConnect = on
+        } else {
+            guard channels[channel] != nil, channels[channel]?.state.privacy != on else { return }
+            channels[channel]?.state.privacy = on
+            publish(channel)
+        }
+        guard !multi, channel == 0 else { return }
+        if on {
+            log.info("Privacy mode is on: the camera's video and HTTP API are off until it ends.")
+        } else {
+            log.info("Privacy mode is off.")
+            let waiters = privacyWaiters
+            privacyWaiters = [:]
+            for waiter in waiters.values { waiter.resume() }
+            if !channels.isEmpty { tasks.add { [weak self] in await self?.refresh() } }
+        }
+    }
+
+    /// Whether a failed request is privacy mode turning on (a camera on its own whose push did not say so yet).
+    private func privacyExplainsFailure() async -> Bool {
+        guard !info.isMultiChannel, channels[0]?.privacy == true, let baichuan, await baichuan.isConnected,
+              let on = (try? await baichuan.privacy(channel: 0)) ?? nil, on else { return false }
+        privacyChanged(channel: 0, on: true)
+        return true
+    }
+
     // MARK: State
 
     /// Applies one item of a refresh to a channel's state.
@@ -231,15 +332,12 @@ actor ReolinkHost {
     // MARK: Running (7.1)
 
     /// Starts push, motion polling while push is not active, and the full refresh.
-    func run() {
-        if device.pushEvents {
-            let session = BaichuanSession(host: device.host, port: device.baichuanPort ?? info.mediaPort ?? 9000, username: device.username,
-                                          password: device.password, connect: connectBaichuan, log: log, timing: timing)
-            baichuan = session
-            tasks.add { await session.run() }
-            tasks.add { [weak self] in
-                for await event in session.events { await self?.handle(event) }
-            }
+    func run() async {
+        // `GetNetPort` may name another Baichuan port than the one tried before it was known.
+        if device.pushEvents, device.baichuanPort == nil, let media = info.mediaPort, media != baichuanPort, let session = baichuan, await !session.isConnected {
+            await session.stop()
+            baichuan = nil
+            _ = startBaichuan(port: media)
         }
         let motionInterval = timing.seconds(Double(device.motionPollInterval))
         tasks.add { [weak self] in
@@ -289,23 +387,27 @@ actor ReolinkHost {
             channels[ch]?.state.floodlightOn = on
         case .siren(let ch, let playing):
             channels[ch]?.state.sirenPlaying = playing
+        case .privacy(let ch, let on):
+            privacyChanged(channel: ch, on: on)
+            return
         case .dayNight:
             return
         }
         switch push {
         case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _): publish(ch)
-        case .dayNight: break
+        case .dayNight, .privacy: break
         }
     }
 
     /// The motion batch of 5.5, only while push is not active.
     func pollMotionIfNeeded() async {
-        guard !pushActive, !channels.isEmpty else { return }
+        guard !pushActive, !channels.isEmpty, !isPrivate else { return }
         await run(channels.values.sorted(by: { $0.channel < $1.channel }).flatMap(Self.eventCommands(for:)))
     }
 
     /// The full refresh of 4.3: non-waking commands for battery channels, the channel list of an NVR or hub.
     func refresh() async {
+        guard !isPrivate else { return }
         let v20 = info.hostAbility("scheduleVersion") >= 1
         var commands: [ReolinkCommand] = []
         // While push is active it is the events' source: a poll's answer could come after a newer push.
@@ -330,6 +432,8 @@ actor ReolinkHost {
             setOnline(true)
             apply(replies, commands: commands)
         } catch {
+            // Privacy mode turns the HTTP API off: not an outage, and no login is tried until it ends.
+            if await privacyExplainsFailure() { return }
             if !pollFailing { log.error("Could not refresh the device: \(error)") } else { log.debug("Could not refresh the device: \(error)") }
             pollFailing = true
             setOnline(false)
@@ -477,7 +581,15 @@ actor ReolinkHost {
         publish(channel)
     }
 
+    /// Privacy mode (addendum C, Baichuan 575), read back.
+    func setPrivacy(channel: Int, on: Bool) async throws {
+        guard let baichuan, await baichuan.isConnected else { throw ReolinkError.unsupported("privacy mode without the Baichuan connection") }
+        let now = try await baichuan.setPrivacy(channel: channel, on: on) ?? on
+        privacyChanged(channel: channel, on: now)
+    }
+
     private func write(_ command: ReolinkCommand) async throws {
+        guard !isPrivate else { throw ReolinkError.privacy }
         let replies = try await http.execute([command])
         guard let reply = replies.first, reply.writeOK else {
             let reply = replies.first
@@ -496,13 +608,14 @@ actor ReolinkHost {
     // MARK: Snapshots and streams
 
     func snapshot(channel: Int, sub: Bool) async throws -> Data {
+        guard channels[channel]?.state.privacy != true else { throw ReolinkError.privacy }
         let stream = channels[channel]?.sub
         return try await http.snapshot(channel: channel, sub: sub, width: sub ? stream?.width : nil, height: sub ? stream?.height : nil)
     }
 
     /// The URL FFmpeg reads a channel's stream from (4.6), by `streamProtocol` unless `protocol` says.
     func streamURL(channel: Int, sub: Bool, protocol name: String? = nil) async -> String? {
-        guard let info = channels[channel] else { return nil }
+        guard let info = channels[channel], info.state.privacy != true else { return nil }
         let stream = sub ? info.sub : info.main
         switch name ?? device.streamProtocol {
         case "rtmp":

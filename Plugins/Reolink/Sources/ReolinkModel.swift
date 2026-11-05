@@ -163,6 +163,8 @@ struct ReolinkChannel: Sendable, Equatable {
     var hasGetEvents = false
     /// Pan, tilt, zoom, presets and patrols; nil without PTZ (`ptzType` 0).
     var ptz: ReolinkPTZ?
+    /// Whether the channel has privacy mode: a `cmd_id` 574 reply said where it is (addendum C).
+    var privacy = false
     var state = ReolinkChannelState()
 
     /// The device's AI type names and the HomeKit sensors' subtypes (6.3).
@@ -185,6 +187,8 @@ struct ReolinkChannelState: Sendable, Equatable {
     var charging: Bool?
     /// Whether a PTZ patrol runs (Baichuan `cmd_id` 64), once asked.
     var patrolling: Bool?
+    /// Privacy mode: the camera's streams and HTTP API off.
+    var privacy: Bool?
 }
 
 /// A channel's pan, tilt and zoom (addendum B): what `ptzType` allows, and the presets, patrols, guard and zoom range

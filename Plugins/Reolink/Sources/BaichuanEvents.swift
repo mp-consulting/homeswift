@@ -11,6 +11,8 @@ enum ReolinkPush: Sendable, Equatable {
     case floodlight(channel: Int, on: Bool)
     /// `cmd_id` 547: a siren playing or not.
     case siren(channel: Int, playing: Bool)
+    /// `cmd_id` 623: privacy mode on or off (addendum C).
+    case privacy(channel: Int, on: Bool)
     /// `DayNightEvent`: informational.
     case dayNight(channel: Int, mode: String)
 }
@@ -35,6 +37,13 @@ enum BaichuanEvents {
             return ([root] + root.descendants).compactMap { element in
                 guard let channel = element.value("channel").flatMap(Int.init), let status = element.value("status").flatMap(Int.init) else { return nil }
                 return .floodlight(channel: channel, on: status == 1)
+            }
+        case 623:
+            // `status` elements, or the root itself, each with `sleep` and a `channelId` (absent: 0).
+            let statuses = root.all("status")
+            return (statuses.isEmpty ? [root] : statuses).compactMap { element in
+                guard let sleep = element.value("sleep").flatMap(Int.init) else { return nil }
+                return .privacy(channel: element.value("channelId").flatMap(Int.init) ?? 0, on: sleep == 1)
             }
         case 547:
             return root.all("SirenStatus").compactMap { element in

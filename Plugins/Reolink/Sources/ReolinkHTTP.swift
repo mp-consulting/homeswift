@@ -75,6 +75,8 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
     case unsupported(String)
     case outOfRange(String)
     case offline
+    /// Privacy mode is on: the camera's HTTP API and streams are off until it ends (addendum C).
+    case privacy
 
     var description: String {
         switch self {
@@ -88,6 +90,7 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
         case .unsupported(let cmd): "\(cmd) is not supported by the device"
         case .outOfRange(let reason): reason
         case .offline: "the channel is offline"
+        case .privacy: "privacy mode is on: the camera's video and HTTP API are off until it ends"
         }
     }
 }

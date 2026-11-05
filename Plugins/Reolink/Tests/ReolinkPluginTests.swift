@@ -279,7 +279,8 @@ final class ReolinkEnvironment: Sendable {
         environment.http.state.withLockedValue { $0.unreachable = true }
         let host = try await environment.start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { environment.http.requestCount == 0 && environment.cameras.withLockedValue { $0.isEmpty } })
+        // Baichuan is asked first (privacy mode), HTTP does not answer: no accessory.
+        #expect(await eventually { environment.http.requestCount == 0 && environment.camera?.commands.contains(31) == true })
         try await Task.sleep(for: .milliseconds(50))
         #expect(environment.accessory(host, Self.cameraID) == nil)
         // It comes back.

@@ -57,6 +57,12 @@ actor BaichuanSession {
     private var stopped = false
     /// Whether the last connection attempt failed: an outage is logged once.
     private var failing = false
+    /// The login reply's `DeviceInfo` (5.3.2): the device's type and, on a camera with privacy mode, `sleep`.
+    private(set) var deviceInfo: BXElement?
+    /// Who waits for the first connection attempt to end (`waitUntilReady`).
+    private var readyWaiters: [Int: CheckedContinuation<Bool, Never>] = [:]
+    private var nextWaiter = 0
+    private var attempted = false
 
     private struct Key: Hashable {
         var command: UInt32
@@ -98,6 +104,8 @@ actor BaichuanSession {
                 try await subscribe()
                 if failing { log.info("Baichuan push connection to the device is back.") }
                 failing = false
+                attempted = true
+                resumeReadyWaiters(true)
                 attempt = 0
                 wasActive = await serve()
             } catch is CancellationError {
@@ -107,6 +115,8 @@ actor BaichuanSession {
                     log.warning("Baichuan push unavailable: \(error). Falling back to polling, retrying in the background.")
                 }
                 failing = true
+                attempted = true
+                resumeReadyWaiters(false)
             }
             close()
             if eventsActive { continuation.yield(.active(false)) }
@@ -131,9 +141,33 @@ actor BaichuanSession {
         close()
     }
 
+    /// Waits for the session to be logged in and subscribed: true once it is, false when the first attempt failed or
+    /// `timeout` passed.
+    func waitUntilReady(timeout: Duration) async -> Bool {
+        if isConnected { return true }
+        if attempted || stopped { return false }
+        nextWaiter += 1
+        let id = nextWaiter
+        let timer = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            await self?.resumeWaiter(id, false)
+        }
+        defer { timer.cancel() }
+        return await withCheckedContinuation { readyWaiters[id] = $0 }
+    }
+
+    private func resumeWaiter(_ id: Int, _ value: Bool) { readyWaiters.removeValue(forKey: id)?.resume(returning: value) }
+
+    private func resumeReadyWaiters(_ value: Bool) {
+        let waiters = readyWaiters
+        readyWaiters = [:]
+        for waiter in waiters.values { waiter.resume(returning: value) }
+    }
+
     /// Logs out (5.3.4) and closes; `run` ends.
     func stop() async {
         stopped = true
+        resumeReadyWaiters(false)
         if stream != nil, aesKey != nil {
             _ = try? await request(command: 2, channel: Baichuan.hostChannel, body: Baichuan.logoutBody, encryption: .aes, timeout: 2)
         }
@@ -187,7 +221,9 @@ actor BaichuanSession {
         let body = Baichuan.loginBody(username: username, password: password, nonce: nonce)
         log.trace("Baichuan login: \(body.utf8.count) bytes")
         do {
-            try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
+            let reply = try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
+            let xml = try? BaichuanDecoder.decrypt(reply.body, expected: reply.declaredEncryption ?? .xor, offset: reply.channel, key: nil)
+            deviceInfo = xml.flatMap { try? BXParser.parse($0) }?.first("DeviceInfo")
         } catch BaichuanError.status(401) {
             throw accountDevice ? BaichuanError.accountDevice : BaichuanError.unauthorized
         } catch BaichuanError.status where accountDevice {
@@ -349,6 +385,19 @@ actor BaichuanSession {
     private func replyText(_ reply: BaichuanMessage) throws -> String {
         let piece = reply.body.isEmpty ? reply.extensionBytes : reply.body
         return try BaichuanDecoder.decrypt(piece, expected: reply.declaredEncryption ?? .aes, offset: reply.channel, key: aesKey)
+    }
+
+    /// Privacy mode (addendum C, `cmd_id` 574): the reply's `sleep`; nil when it has none (the device has no privacy mode).
+    func privacy(channel: Int) async throws -> Bool? {
+        let xml = try await channelRequest(command: 574, channel: channel)
+        guard !xml.isEmpty, let sleep = (try? BXParser.parse(xml))?.first("sleep")?.text.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        return sleep == "1"
+    }
+
+    /// Turns privacy mode on or off (`cmd_id` 575), then reads it again.
+    func setPrivacy(channel: Int, on: Bool) async throws -> Bool? {
+        _ = try await channelRequest(command: 575, channel: channel, body: Baichuan.privacyBody(on))
+        return try await privacy(channel: channel)
     }
 
     /// Whether a patrol runs on the channel (`cmd_id` 64): any `cruising` element of the reply is 1.

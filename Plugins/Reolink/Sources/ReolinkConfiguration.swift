@@ -90,9 +90,11 @@ extension ReolinkPlugin {
         public var presetSwitches: Bool
         /// A switch that runs the camera's first PTZ patrol.
         public var patrolSwitch: Bool
+        /// A Privacy switch where the camera has privacy mode.
+        public var privacySwitch: Bool
 
         static let settingKeys = ["motionSensor", "aiSensors", "doorbell", "floodlight", "siren", "irLights", "stream", "audio", "recording", "prebuffer",
-                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch"]
+                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch"]
 
         init(json: JSONValue) {
             name = json["name"]?.stringValue?.nonEmptyText
@@ -114,6 +116,7 @@ extension ReolinkPlugin {
             ringThrottleSeconds = max(0, json["ringThrottleSeconds"].lenientInt ?? 3)
             presetSwitches = json["presetSwitches"]?.boolValue ?? false
             patrolSwitch = json["patrolSwitch"]?.boolValue ?? false
+            privacySwitch = json["privacySwitch"]?.boolValue ?? true
         }
 
         /// The options with Accessory Settings on top.
@@ -127,7 +130,8 @@ extension ReolinkPlugin {
             var fields: [String: JSONValue] = ["siren": .bool(siren), "irLights": .bool(irLights), "stream": .string(stream), "audio": .bool(audio),
                                                "recording": .bool(recording), "prebuffer": .bool(prebuffer), "maxStreams": .number(Double(maxStreams)),
                                                "debug": .bool(debug), "ringThrottleSeconds": .number(Double(ringThrottleSeconds)),
-                                               "presetSwitches": .bool(presetSwitches), "patrolSwitch": .bool(patrolSwitch)]
+                                               "presetSwitches": .bool(presetSwitches), "patrolSwitch": .bool(patrolSwitch),
+                                               "privacySwitch": .bool(privacySwitch)]
             if let name { fields["name"] = .string(name) }
             if let motionSensor { fields["motionSensor"] = .bool(motionSensor) }
             if let aiSensors { fields["aiSensors"] = .array(aiSensors.map(JSONValue.string)) }

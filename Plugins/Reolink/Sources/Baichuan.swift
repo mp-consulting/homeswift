@@ -119,6 +119,20 @@ enum Baichuan {
             """
     }
 
+    /// The privacy-mode write of addendum C (`cmd_id` 575), with the leading newline of the addendum's bodies.
+    static func privacyBody(_ on: Bool) -> String {
+        """
+
+            <?xml version="1.0" encoding="UTF-8" ?>
+            <body>
+            <sleepState version="1.1">
+            <operate>2</operate>
+            <sleep>\(on ? 1 : 0)</sleep>
+            </sleepState>
+            </body>
+            """
+    }
+
     enum SirenMode: Sendable, Equatable {
         case times(Int)
         case manual(Bool)

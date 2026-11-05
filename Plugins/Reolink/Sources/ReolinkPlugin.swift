@@ -169,10 +169,17 @@ public actor ReolinkPlugin: HomeswiftPlugin {
     private func connect(_ address: String) async {
         guard let runtime = runtimes[address] else { return }
         var attempt = 0
+        var privacyLogged = false
         while !Task.isCancelled {
             do {
                 try await runtime.host.connect()
                 break
+            } catch ReolinkError.privacy {
+                // Not an outage: the camera turned its HTTP API off itself. No login is tried until a push says it ended
+                // (or a minute passed, to ask again over Baichuan), so the device never sees a run of refused logins.
+                if !privacyLogged { logger.info("[\(address)] Privacy mode is on: the camera is added when it ends.") }
+                privacyLogged = true
+                await runtime.host.waitForPrivacyOff(timeout: dependencies.timing.seconds(60))
             } catch {
                 if attempt == 0 {
                     logger.error("[\(address)] Cannot reach the Reolink device: \(error)")
@@ -286,7 +293,8 @@ public actor ReolinkPlugin: HomeswiftPlugin {
                 guard let url = await host.streamURL(channel: ch, sub: sub), let info = await host.channelInfo(ch) else { return nil }
                 return (url, sub ? info.sub : info.main)
             },
-            asleep: { await host.channelInfo(ch).map { $0.battery && $0.state.asleep } ?? false })
+            // A sleeping battery camera, or one in privacy mode, keeps its last snapshot.
+            asleep: { await host.channelInfo(ch).map { ($0.battery && $0.state.asleep) || $0.state.privacy == true } ?? false })
         let name = options.name ?? channel.name
         let streamer = ReolinkStreamer(name: name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: logger,
                                        timing: dependencies.timing)
@@ -300,6 +308,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             siren: { on in try await host.setSiren(channel: ch, on: on) },
             ir: { on in try await host.setIRLights(channel: ch, on: on) },
             goToPreset: { id in try await host.ptzControl(channel: ch, op: "ToPos", id: id) },
+            privacy: { on in try await host.setPrivacy(channel: ch, on: on) },
             patrol: { on in try await host.setPatrol(channel: ch, on: on) })
         return try ReolinkCamera(
             id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite,
