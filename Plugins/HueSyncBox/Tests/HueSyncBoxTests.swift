@@ -484,8 +484,9 @@ struct HueSyncBoxTests {
 
     /// One read per cycle for all the accessories, and a brightness drag is one request.
     @Test func pollsOncePerCycleAndCoalescesSliders() async throws {
-        // A slider's rest longer than six writes take on a loaded machine.
-        let environment = TestEnvironment(sliderRest: .milliseconds(200))
+        // A slider's rest longer than the gap between two of six writes on a loaded machine: a gap longer than the rest
+        // sends the value before it.
+        let environment = TestEnvironment(sliderRest: .seconds(1))
         let host = try await environment.start()
         let box = environment.box
         let light = try await accessory(host, id(.lightbulb))
