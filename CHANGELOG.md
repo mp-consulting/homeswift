@@ -14,6 +14,10 @@ All notable changes to this project are documented here. The format follows
   push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
   local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
   and `HomeswiftNetwork` `ARPTable.entries()`.
+- The Renault plugin (platform `Renault`, experimental, a clean-room implementation): Renault, Dacia and Alpine cars from
+  the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
+  and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
+  Setup with the e-mailed two-factor code, within Renault's hourly request quota.
 - The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
   plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
   offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
