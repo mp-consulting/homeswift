@@ -154,11 +154,7 @@ struct RTSPResponseReader: Sendable {
     }
 
     static func find(_ needle: [UInt8], in bytes: [UInt8]) -> Int? {
-        guard bytes.count >= needle.count else { return nil }
-        for index in 0...(bytes.count - needle.count) where bytes[index] == needle[0] && Array(bytes[index..<(index + needle.count)]) == needle {
-            return index
-        }
-        return nil
+        needle.isEmpty ? nil : bytes.firstRange(of: needle)?.lowerBound
     }
 }
 
