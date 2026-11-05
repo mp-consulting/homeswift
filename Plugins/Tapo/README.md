@@ -21,8 +21,8 @@ Please report what works on yours.
 | `Light` | L510E | Lightbulb: On, Brightness |
 | `WhiteLight` | L520E | Lightbulb: On, Brightness, Color Temperature (154 to 400 mireds), Adaptive Lighting |
 | `Colorlight` | L530E | Lightbulb: On, Brightness, Color Temperature (140 to 400 mireds), Hue, Saturation, Adaptive Lighting; Eve's consumption characteristics and history |
-| `Camera` | Battery cameras with one lens (C400, C420, C425, …; untested) | A camera of its own (live video, snapshots) |
-| `DualLensCamera` | C675D | Two cameras of their own: the wide lens, and the tele lens as `<name> Tele` |
+| `Camera` | Battery cameras with one lens (C400, C420, C425, …; untested) | A camera (live video, snapshots) |
+| `DualLensCamera` | C675D | Two cameras: the wide lens, and the tele lens as `<name> Tele` |
 
 `type` is matched in any case. Accessory Information has Manufacturer TP-Link, the model of the kind (`Tapo P110`), the
 device's hardware id as the serial number and the version of its firmware.
@@ -56,8 +56,10 @@ sees a new service, so the automations and scenes that used it as an outlet need
 
 Tapo's battery cameras have no RTSP and no camera account: they stream only through TP-Link's own media server on port
 8800, which signs in with the **cloud password of the camera's owner** (the account the plugin is signed in with must be
-the primary owner's; a shared account is refused). Each lens is a camera accessory on a HAP server of its own (add it in
-the Home app with the bridge's setup code, as other cameras).
+the primary owner's; a shared account is refused). Each lens is a camera accessory on the bridge, so pairing the bridge
+brings them all. With `standalone: true` each lens is on a HAP server of its own instead, added in the Home app on its
+own with the bridge's setup code (a C675D is then two accessories to add); switching it either way makes new
+accessories in the Home app, which lose their rooms and automations.
 
 - **The battery comes first.** The camera is reached only while the Home app shows its live view: the plugin connects
   when HomeKit starts a stream and disconnects a few seconds after the last viewer leaves. It never connects for a
@@ -136,6 +138,7 @@ the Home app with the bridge's setup code, as other cameras).
 | `devices[].resolution` | `HD` | A camera's stream: `HD` (every lens) or `VGA` (the sub stream: one lens) |
 | `devices[].motion` | `true` | A camera's Motion Sensor, from the TP-Link cloud |
 | `devices[].cloudId` | | The camera's id in the TP-Link cloud, when it is not found otherwise |
+| `devices[].standalone` | `false` | A camera's lenses each on a HAP server of their own, added in the Home app one by one, rather than on the bridge |
 | `videoProcessor` | `ffmpeg` | The FFmpeg the cameras' streams go through |
 
 Each `devices` entry moves into the block's `_accessories` the first time the settings are saved, under its Device Id

@@ -41,9 +41,9 @@ struct TapoLens: Sendable, Equatable {
     }
 }
 
-/// One lens as an external camera accessory: live video, the last snapshot, and a Motion Sensor fed by the TP-Link
-/// cloud's notifications (nothing local reports motion without keeping the camera awake, TapoCamera.md 12.3); no
-/// HomeKit Secure Video, which would open the camera's stream on every detection.
+/// One lens as a camera accessory, on the bridge or on a HAP server of its own (`standalone`): live video, the last
+/// snapshot, and a Motion Sensor fed by the TP-Link cloud's notifications (nothing local reports motion without keeping
+/// the camera awake, TapoCamera.md 12.3); no HomeKit Secure Video, which would open the camera's stream on every detection.
 final class TapoCamera: Sendable {
     /// The sizes HomeKit may ask for.
     static let resolutions: [VideoResolution] = [
@@ -178,7 +178,11 @@ extension TapoPlugin {
             let camera = try TapoCamera(id: id, name: lensName, model: kind.model, serial: id, streamer: streamer, motion: device.motion ?? true,
                                         hold: dependencies.motionHold, log: logger)
             await camera.start()
-            try await context.publishExternal(camera.accessory)
+            if device.standalone ?? false {
+                try await context.publishExternal(camera.accessory)
+            } else {
+                try context.add(camera.accessory)
+            }
             cameras.append(camera)
         }
         let control = makeControl(deviceID: deviceID, host: host)

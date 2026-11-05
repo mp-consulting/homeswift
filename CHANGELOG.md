@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- TP-Link Tapo: a battery camera's lenses go on the bridge, as UniFi Protect's cameras do, so pairing the bridge brings
+  them; `standalone: true` on a device keeps each lens on a HAP server of its own, added in the Home app one by one. A
+  camera added before shows as a new accessory on the bridge: remove its old one from the Home app.
+
 ## [0.22.0] - 2026-11-05
 
 ### Added
