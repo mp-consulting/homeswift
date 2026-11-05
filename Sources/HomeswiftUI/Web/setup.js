@@ -5,14 +5,14 @@
 (() => {
   "use strict";
 
-  const { el, tile, menuButton } = HomeswiftCommon;
+  const { el, tile, menuButton, fold } = HomeswiftCommon;
   const { t, tn } = HomeswiftI18n;
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
   /// Changes Accessory Settings (Excluded, Parts) by Accessory Id: one device's, or several by id in one write.
   const settings = (block, body, accessoryID) => api(`/api/settings/accessories${accessoryID ? `/${encodeURIComponent(accessoryID)}` : ""}?instance=${encodeURIComponent(block.name)}`, { method: "PATCH", body });
-  const accessoryID = (block, device) => device.accessoryID || `${block.platform}:${device.deviceID}`;
+  const accessoryID = (block, device) => device.accessoryID;
   const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
 
   /// What each Authorization Method is called, and the glyph its rows and the sheet show.
@@ -112,14 +112,14 @@
     const none = el("p", { class: "muted setup-none", hidden: true, text: t("No plugin matches.") });
     const search = el("input", { type: "search", class: "search setup-search", placeholder: t("Search plugins"), "aria-label": t("Search plugins"),
       oninput: () => {
-        const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const words = fold(search.value.trim()).split(/\s+/).filter(Boolean);
         let shown = 0;
         for (const [index, item] of items.entries()) shown += (item.hidden = !words.every((word) => text[index].includes(word))) ? 0 : 1;
         none.hidden = shown > 0;
       } });
     return { search, none };
   }
-  const searchText = (plugin) => `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
+  const searchText = (plugin) => fold(`${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`);
 
   /// Before any plugin: the brands, each a card with its name and how it connects.
   function brandGrid(plugins) {
@@ -169,11 +169,13 @@
     let accountState = "notSetUp", needsAccount = false;
     // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
     const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    // The account's Setup: its sign-in the first time, again once it is set up.
+    const openAccount = (trigger = null) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger, after: load });
     // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
       plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
-      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
+      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => openAccount() } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
     // The row opens and closes it; its menu sits beside the chevron.
@@ -197,7 +199,7 @@
         el("div", { class: "muted", text: accountState === "refused" ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
           : t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
       el("span", { class: "pill status away", text: accountState === "refused" ? t("Refused") : statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: load }) }));
+      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => openAccount(event.currentTarget) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -240,7 +242,7 @@
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
         // Asked for by the plugin's page: its account's sheet, once.
-        if (start && action) { start = false; open({ block, plugin, firstTime: accountState === "notSetUp", after: load }); }
+        if (start && action) { start = false; openAccount(); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -300,10 +302,10 @@
 
   /// A device's parts (a gate's side door, a door sensor, a doorbell), each with its switch: those switched off are left
   /// out while the device stays. `onChange(part, included)` is told of each switch; `changes()` what differs from now.
-  function partsList(device, { disabled = false, onChange = null } = {}) {
+  function partsList(device, { onChange = null } = {}) {
     const parts = device.parts ?? [];
     if (!parts.length) return null;
-    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": t(part.name) }));
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, "aria-label": t(part.name) }));
     const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
       ...parts.map((part, index) => el("label", { class: "setup-part" },
         el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
@@ -375,8 +377,6 @@
     const devicesStage = t("Devices");
     const stages = [device || adding ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
-    /// What was typed in the last step's fields, secrets left out: a step asked again after an error keeps it.
-    let typed = {};
     /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
     let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
@@ -442,8 +442,8 @@
         if (closed) return;
         // The search failed, which is not finding nothing: say why, and offer it again. The account or device is set up.
         if (!found.length && failure) {
-          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner }) });
-          form.onsubmit = (event) => { event.preventDefault(); finish(); };
+          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner, accessory }) });
+          form.onsubmit = (event) => { event.preventDefault(); finish(null, accessory); };
           fill(
             el("p", { class: "error", role: "alert", text: t("Could not look for its devices: {error}", { error: failure.message }) }),
             el("p", { class: "muted", text: t("It is set up. Look again now, or later from this page.") }),
@@ -546,6 +546,7 @@
             el("div", { class: "actions" }, cancel));
           return;
         }
+        // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
           const input = el("input", {
@@ -555,9 +556,7 @@
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
           });
-          // Asked again after an error, the field keeps what was typed; else what the plugin knows already.
-          const known = answer.error ? typed[field.key] : undefined;
-          if (field.kind !== "secret") input.value = known ?? field.value ?? "";
+          if (field.kind !== "secret") input.value = field.value ?? "";
           return [field, input];
         });
         const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
@@ -567,7 +566,6 @@
           const missing = inputs.find(([field, input]) => !field.optional && !input.value.trim());
           if (missing) { missing[1].focus(); return; }
           stop();
-          typed = Object.fromEntries(inputs.filter(([field]) => field.kind !== "secret" && field.kind !== "choice").map(([field, input]) => [field.key, input.value]));
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         const link = /^https?:\/\//i.test(prompt.url ?? "")
@@ -592,7 +590,7 @@
       // A Setup the Assistant started is taken over where it stands; the others start here.
       (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, addByAddress: adding || undefined, block: draft ? block : undefined }))
         .then(draw)
-        .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
+        .catch((e) => fill(el("p", { class: "error", role: "alert", text: HomeswiftI18n.message(e.message) }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
       return form;
     }, "setup-title", {
@@ -614,8 +612,9 @@
     try {
       const plugins = await api("/api/plugins");
       const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
-      const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
-      const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
+      const saved = plugins.blocks.find((one) => one.platform === platform && one.name === name);
+      const block = saved ?? { platform, name: name ?? platform };
+      const isNew = !saved;
       open({ block, plugin, resume: session, firstTime: isNew, adding: addByAddress === true, after: () => { if (location.pathname === "/setup") app().route(); } });
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }

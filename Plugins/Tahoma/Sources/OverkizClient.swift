@@ -9,11 +9,14 @@ struct OverkizError: Error, CustomStringConvertible, Equatable {
     var status: Int?
     var errorCode: String?
     var message: String
+    /// Not the server's answer: the client's own pause after refusals (`SignInLockout`).
+    var isPause = false
 
-    init(status: Int? = nil, errorCode: String? = nil, message: String) {
+    init(status: Int? = nil, errorCode: String? = nil, message: String, isPause: Bool = false) {
         self.status = status
         self.errorCode = errorCode
         self.message = message
+        self.isPause = isPause
     }
 
     /// As the log shows it: a gateway's PIN in the server's message (`… on gateway: #1234-5678-9012`) masked.
@@ -72,9 +75,13 @@ struct RefreshTokenStore: Sendable {
 }
 
 /// The pause after the server refused a sign-in (3.1): 60 s, then four times longer each time, at most 4 h. Shared by the
-/// clients a plugin makes one after another, so a retry does not start the pause over.
+/// clients a plugin makes one after another, so a retry does not start the pause over. `grace` refusals start no pause
+/// (Setup's, where a person corrects a typo at once).
 final class SignInLockout: Sendable {
     static let backoff = Backoff(initial: .seconds(60), factor: 4, maximum: .seconds(4 * 3600))
+    private let grace: Int
+
+    init(grace: Int = 0) { self.grace = grace }
 
     private struct State {
         var until: ContinuousClock.Instant?
@@ -93,11 +100,12 @@ final class SignInLockout: Sendable {
         }
     }
 
-    /// A refusal at `now`: answers the pause it starts.
-    func refused(at now: ContinuousClock.Instant) -> Duration {
+    /// A refusal at `now`: answers the pause it starts, nil while within the grace.
+    func refused(at now: ContinuousClock.Instant) -> Duration? {
         state.withLockedValue { state in
-            let pause = Self.backoff.delay(attempt: state.refusals)
             state.refusals += 1
+            guard state.refusals > grace else { return nil }
+            let pause = Self.backoff.delay(attempt: state.refusals - grace - 1)
             state.until = now + pause
             return pause
         }
@@ -266,7 +274,7 @@ actor OverkizClient {
 
     private func performSignIn() async throws {
         if let remaining = lockout.remaining(at: now()) {
-            throw OverkizError(message: "Sign-in is paused for \(Self.describe(remaining)) after the server refused it: check the credentials, or wait to be unbanned")
+            throw OverkizError(message: "Sign-in is paused for \(Self.describe(remaining)) after the server refused it: check the credentials, or wait to be unbanned", isPause: true)
         }
         do {
             switch endpoint {
@@ -291,8 +299,11 @@ actor OverkizClient {
             onAccount(nil)
         } catch let error as OverkizError {
             if let status = error.status, (400..<500).contains(status) {
-                let pause = lockout.refused(at: now())
-                logger.warning("The server refused to sign in (\(error)): trying again in \(Self.describe(pause)) at the earliest")
+                if let pause = lockout.refused(at: now()) {
+                    logger.warning("The server refused to sign in (\(error)): trying again in \(Self.describe(pause)) at the earliest")
+                } else {
+                    logger.warning("The server refused to sign in (\(error))")
+                }
                 if error.refusesCredentials(local: endpoint.isLocal) { onAccount(error) }
             }
             throw error

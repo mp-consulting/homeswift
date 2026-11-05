@@ -178,7 +178,7 @@ class Mapper: @unchecked Sendable {
     /// Feeds states to the mapper unless it is stateless; `log` logs each at debug.
     func receive(_ states: [String: JSONValue], from deviceURL: String, log: Bool) {
         guard !stateless, !states.isEmpty else { return }
-        if log {
+        if log, logger.logLevel <= .debug {
             for (name, value) in states.sorted(by: { $0.key < $1.key }) { logger.debug("[\(label)] \(name) => \(value.text())") }
         }
         apply(states, from: deviceURL)

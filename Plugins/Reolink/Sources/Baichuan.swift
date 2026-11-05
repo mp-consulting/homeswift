@@ -119,6 +119,26 @@ enum Baichuan {
             """
     }
 
+    /// The XML with the text of the first `<name>` element replaced; nil when it has none.
+    static func replacingText(of name: String, with value: String, in xml: String) -> String? {
+        guard let open = xml.range(of: "<\(name)>"), let close = xml.range(of: "</\(name)>", range: open.upperBound..<xml.endIndex) else { return nil }
+        return xml.replacingCharacters(in: open.upperBound..<close.lowerBound, with: value)
+    }
+
+    /// The privacy-mode write of addendum C (`cmd_id` 575), with the leading newline of the addendum's bodies.
+    static func privacyBody(_ on: Bool) -> String {
+        """
+
+            <?xml version="1.0" encoding="UTF-8" ?>
+            <body>
+            <sleepState version="1.1">
+            <operate>2</operate>
+            <sleep>\(on ? 1 : 0)</sleep>
+            </sleepState>
+            </body>
+            """
+    }
+
     enum SirenMode: Sendable, Equatable {
         case times(Int)
         case manual(Bool)

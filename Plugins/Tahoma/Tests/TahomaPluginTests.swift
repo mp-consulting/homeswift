@@ -241,6 +241,27 @@ struct TahomaPluginTests {
         await host.stop()
     }
 
+    /// An Excluded scenario, or one `exclude` names, is still listed: the person includes it again from Add accessories.
+    @Test func anExcludedScenarioIsStillListed() async throws {
+        let server = FakeOverkiz()
+        server.setScenarios([["oid": "s-1", "label": "Good night"], ["oid": "s-2", "label": "Morning"]])
+        let environment = TestEnvironment(server: server)
+        var settings = TestEnvironment.account
+        settings["exposeScenarios"] = true
+        settings["exclude"] = ["Morning"]
+        settings["_accessories"] = ["scene:s-1": ["excluded": true]]
+        let host = try await environment.start(settings: settings)
+        #expect(await eventually { host.accessory(heater) != nil })
+        #expect(host.accessory("scene:s-1") == nil && host.accessory("scene:s-2") == nil)
+        let found = try await environment.plugin?.discover() ?? []
+        #expect(found.filter { $0.kind == "scenario" }.map(\.deviceID) == ["scene:s-1", "scene:s-2"])
+        #expect(found.first { $0.deviceID == "scene:s-2" }?.excludedBySettings == true)
+        // `exclude` naming a scenario moves to its Accessory Settings.
+        let block = await environment.plugin?.canonicalSettings(["platform": "Tahoma", "exclude": ["Morning"]])
+        #expect(block?["_accessories"]?["scene:s-2"]?["excluded"] == true)
+        await host.stop()
+    }
+
     @Test func anExecutionWithoutEventsTimesOut() async throws {
         let environment = TestEnvironment()
         let host = try await environment.start()
@@ -368,6 +389,39 @@ struct TahomaPluginTests {
         #expect(outcome.credentials?["password"] == "secret")
         #expect(outcome.settings["service"] == "somfy_europe")
         #expect(outcome.settings["password"] == .null)
+        await host.stop()
+    }
+
+    /// Setup's sign-in checks pause after three refusals in a row, as the instance's own do after one. A user of its own:
+    /// the pauses are the process's.
+    @Test func setupPausesAfterRepeatedRefusals() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start(settings: [:])
+        let plugin = try #require(environment.plugin)
+        let wrong = SetupRequest(target: .account, answers: ["service": "somfy_europe", "user": "paused@example.com", "password": "wrong"])
+        for _ in 0..<3 {
+            await #expect(throws: SetupError("The account refused this user and password.")) { try await plugin.authorize(wrong) }
+        }
+        let attempts = environment.server.tokenRequests.count
+        let paused = await #expect(throws: SetupError.self) {
+            try await plugin.authorize(SetupRequest(target: .account, answers: ["service": "somfy_europe", "user": "paused@example.com", "password": "secret"]))
+        }
+        #expect(paused?.description.hasPrefix("Sign-in is paused") == true)
+        #expect(environment.server.tokenRequests.count == attempts)
+        await host.stop()
+    }
+
+    /// A user and password typed into the block go to the vault, those of the running configuration no longer.
+    @Test func typedCredentialsMoveToTheVault() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(heater) != nil })
+        let plugin = try #require(environment.plugin)
+        let block = await plugin.canonicalSettings(["platform": "Tahoma", "user": "new@example.com", "password": "changed"])
+        #expect(block["user"] == nil && block["password"] == nil)
+        let context = try #require(host.context(platform: TahomaPlugin.platform, name: TahomaPlugin.name))
+        #expect(await eventually { context.credentials(as: TahomaAccount.self)?.password == "changed" })
+        #expect(context.credentials(as: TahomaAccount.self)?.user == "new@example.com")
         await host.stop()
     }
 

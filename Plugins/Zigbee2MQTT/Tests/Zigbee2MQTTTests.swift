@@ -193,11 +193,12 @@ struct Zigbee2MQTTTests {
         environment.send("test_light", #"{"color":{"hue":34,"saturation":77,"x":0.4435,"y":0.4062},"color_mode":"color_temp","color_temp":343,"linkquality":72}"#)
         #expect(await eventually { light.characteristic(.colorTemperature).value == .int(343) })
         #expect(light.characteristic(.on).value == .bool(true))
-        #expect(light.characteristic(.hue).value == .double(39))
-        #expect(light.characteristic(.saturation).value == .double(48))
+        // Hue and saturation follow the colour temperature: on a loaded runner they may land after it.
+        #expect(await eventually { light.characteristic(.hue).value == .double(39) })
+        #expect(await eventually { light.characteristic(.saturation).value == .double(48) })
         environment.send("test_light", #"{"color":{"x":0.44416,"y":0.51657},"color_mode":"xy","color_temp":169}"#)
         #expect(await eventually { light.characteristic(.hue).value == .double(60) })
-        #expect(light.characteristic(.saturation).value == .double(100))
+        #expect(await eventually { light.characteristic(.saturation).value == .double(100) })
         #expect(light.characteristic(.colorTemperature).value == .int(343))
 
         // One request's On and Brightness are one message; Hue and Saturation become xy.

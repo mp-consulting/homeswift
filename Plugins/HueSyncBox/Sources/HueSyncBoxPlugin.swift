@@ -196,7 +196,9 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
                 if attempt == 0 {
                     logger.error("Could not get state from sync box on initialization: \(Self.describe(error)). Trying again until it answers.")
                 }
+                noteRefusal(error)
                 attempt += 1
+                // The accessories the cache kept show No Response until the box answers.
                 if attempt == Self.failuresBeforeUnreachable { setUnreachable(true) }
                 do { try await Task.sleep(for: backoff.delay(attempt: attempt - 1)) } catch { return }
             }
@@ -234,11 +236,13 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
                 setUnreachable(false)
             }
             failures = 0
+            context.accountAccepted()
             apply(state)
         } catch is CancellationError {
             return
         } catch {
             failures += 1
+            noteRefusal(error)
             // Once per outage, not once per poll.
             if failures == 1 { logger.warning("Failed to get state from Sync Box: \(Self.describe(error))") }
             if failures == Self.failuresBeforeUnreachable { setUnreachable(true) }
@@ -250,8 +254,17 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
         return "\(error)"
     }
 
+    /// The accessories built; before the first state, the bridged ones the cache kept (the televisions are published
+    /// once built).
     private func setUnreachable(_ unreachable: Bool) {
-        for accessory in accessories.values { accessory.accessory.isUnreachable = unreachable }
+        let shown = accessories.isEmpty
+            ? configuration.kinds.compactMap { context.accessory(id: Self.accessoryID(deviceID: deviceID($0))) } : accessories.values.map(\.accessory)
+        for accessory in shown { accessory.isUnreachable = unreachable }
+    }
+
+    /// A token the box refused: the account Needs Authorization, and Add accessories offers to pair again.
+    private func noteRefusal(_ error: any Error) {
+        if let error = error as? SyncBoxError, error.isUnauthorized { context.accountRefused("the Sync Box refused the access token") }
     }
 
     /// Builds the accessories of the options from the first state, publishes them, and drops the cached ones no option
@@ -283,6 +296,7 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
         }
         await context.removeAccessories(keeping: keep, message: "Removing existing accessory from cache")
         setUnreachable(false)
+        context.accountAccepted()
         self.state = nil
         apply(state)
     }
@@ -332,8 +346,6 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
     func setOn(_ on: Bool) { send(mapping.write(on: on, state: state)) }
 
     func setPower(_ on: Bool) { send(.mode(on ? "passthrough" : "powersave")) }
-
-    func setActive(_ active: Bool) { send(mapping.write(on: active, state: state)) }
 
     func select(_ identifier: Int, on kind: SyncBoxKind) {
         guard let write = kind.write(identifier: identifier, state: state) else {

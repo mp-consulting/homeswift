@@ -15,7 +15,7 @@ extension HueSyncBoxPlugin {
         "title": "Name",
         "type": "string",
         "default": "Philips Hue Sync Box",
-        "description": "Shown in the log only."
+        "description": "This block's name, shown in the logs and in the web UI."
       },
       "syncBoxIpAddress": {
         "title": "Sync Box Address",
@@ -269,7 +269,7 @@ extension HueSyncBoxPlugin {
       "Power Switch": "Interrupteur d'alimentation",
       "Power save": "Économie d'énergie",
       "Set-top box": "Décodeur",
-      "Shown in the log only.": "Affiché dans le journal seulement.",
+      "This block's name, shown in the logs and in the web UI.": "Le nom de ce bloc, affiché dans les journaux et l'interface web.",
       "Streaming stick": "Clé de streaming",
       "Switch": "Interrupteur",
       "Sync Accessory": "Accessoire de synchronisation",
@@ -320,7 +320,7 @@ extension HueSyncBoxPlugin {
       "Power Switch": "Interruptor de encendido",
       "Power save": "Ahorro de energía",
       "Set-top box": "Decodificador",
-      "Shown in the log only.": "Solo se muestra en el registro.",
+      "This block's name, shown in the logs and in the web UI.": "El nombre de este bloque, que se muestra en los registros y en la interfaz web.",
       "Streaming stick": "Dispositivo de streaming",
       "Switch": "Interruptor",
       "Sync Accessory": "Accesorio de sincronización",
@@ -371,7 +371,7 @@ extension HueSyncBoxPlugin {
       "Power Switch": "Interruptor de energia",
       "Power save": "Poupança de energia",
       "Set-top box": "Descodificador",
-      "Shown in the log only.": "Mostrado apenas no registo.",
+      "This block's name, shown in the logs and in the web UI.": "O nome deste bloco, mostrado nos registos e na interface web.",
       "Streaming stick": "Dispositivo de streaming",
       "Switch": "Interruptor",
       "Sync Accessory": "Acessório de sincronização",

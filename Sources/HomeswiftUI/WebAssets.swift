@@ -15573,6 +15573,31 @@ HomeswiftI18n.add("es", {
   "Available Energy (kWh)": "Energía disponible (kWh)",
   "Charge Status": "Estado de la carga",
   "Battery Updated": "Batería actualizada",
+  "Choose the Sync Box, or enter its address.": "Elige la Sync Box o introduce su dirección.",
+  "Choose a Sync Box, or enter its address.": "Elige una Sync Box o introduce su dirección.",
+  "Sync Box": "Sync Box",
+  "No Sync Box answered on the network. Enter its address, from the Hue Sync app's settings.": "Ninguna Sync Box ha respondido en la red. Introduce su dirección, desde los ajustes de la app Hue Sync.",
+  "The Sync Box did not answer at {address}. Enter its address, from the Hue Sync app's settings.": "La Sync Box no ha respondido en {address}. Introduce su dirección, desde los ajustes de la app Hue Sync.",
+  "Press and hold the button on the Sync Box until its light turns green.": "Mantén pulsado el botón de la Sync Box hasta que su luz se ponga verde.",
+  "{address} is not an address": "{address} no es una dirección",
+  "The Sync Box at {address} did not answer: {error}": "La Sync Box en {address} no ha respondido: {error}",
+  "The Sync Box at {address} took the registration but not its token: {error}": "La Sync Box en {address} aceptó el registro pero no su token: {error}",
+  "The Sync Box's lights and televisions need no setup of their own": "Las luces y televisores de la Sync Box no necesitan configuración propia",
+  "Sign in with the account of the vendor's app. For a gateway's local API, turn on Developer Mode in the TaHoma by Somfy app (tap the box's PIN seven times in its settings) and give the PIN and a token it generates.": "Inicia sesión con la cuenta de la app del fabricante. Para la API local de una pasarela, activa el Modo desarrollador en la app TaHoma by Somfy (toca siete veces el PIN de la caja en sus ajustes) e indica el PIN y un token que genere.",
+  "Service": "Servicio",
+  "E-mail, or the gateway's PIN or IP address": "Correo electrónico, o el PIN o la dirección IP de la pasarela",
+  "Password, or the Developer Mode token": "Contraseña, o el token del Modo desarrollador",
+  "Somfy TaHoma, Connexoon or Switch on the local network (Developer Mode)": "Somfy TaHoma, Connexoon o Switch en la red local (Modo desarrollador)",
+  "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma o Connexoon, Europa",
+  "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Oceanía",
+  "Somfy TaHoma, North America": "Somfy TaHoma, Norteamérica",
+  "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch de Atlantic, Thermor o Sauter",
+  "Give the gateway's PIN (1234-5678-9012) or its IP address.": "Indica el PIN de la pasarela (1234-5678-9012) o su dirección IP.",
+  "The gateway refused this token.": "La pasarela ha rechazado este token.",
+  "The account refused this user and password.": "La cuenta ha rechazado este usuario y esta contraseña.",
+  "Could not reach the gateway: {error}": "No se ha podido contactar con la pasarela: {error}",
+  "Could not reach Overkiz: {error}": "No se ha podido contactar con Overkiz: {error}",
+  "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "El inicio de sesión está en pausa durante {duration} tras el rechazo del servidor: comprueba las credenciales o espera a que se levante el bloqueo",
 });
 
 """#),
@@ -18446,6 +18471,31 @@ HomeswiftI18n.add("fr", {
   "Available Energy (kWh)": "Énergie disponible (kWh)",
   "Charge Status": "État de la charge",
   "Battery Updated": "Batterie mise à jour",
+  "Choose the Sync Box, or enter its address.": "Choisissez la Sync Box, ou saisissez son adresse.",
+  "Choose a Sync Box, or enter its address.": "Choisissez une Sync Box, ou saisissez son adresse.",
+  "Sync Box": "Sync Box",
+  "No Sync Box answered on the network. Enter its address, from the Hue Sync app's settings.": "Aucune Sync Box n’a répondu sur le réseau. Saisissez son adresse, depuis les réglages de l’app Hue Sync.",
+  "The Sync Box did not answer at {address}. Enter its address, from the Hue Sync app's settings.": "La Sync Box n’a pas répondu à {address}. Saisissez son adresse, depuis les réglages de l’app Hue Sync.",
+  "Press and hold the button on the Sync Box until its light turns green.": "Maintenez le bouton de la Sync Box enfoncé jusqu’à ce que son voyant devienne vert.",
+  "{address} is not an address": "{address} n’est pas une adresse",
+  "The Sync Box at {address} did not answer: {error}": "La Sync Box à {address} n’a pas répondu : {error}",
+  "The Sync Box at {address} took the registration but not its token: {error}": "La Sync Box à {address} a accepté l’enregistrement mais pas son jeton : {error}",
+  "The Sync Box's lights and televisions need no setup of their own": "Les lampes et téléviseurs de la Sync Box ne demandent pas de configuration à part",
+  "Sign in with the account of the vendor's app. For a gateway's local API, turn on Developer Mode in the TaHoma by Somfy app (tap the box's PIN seven times in its settings) and give the PIN and a token it generates.": "Connectez-vous avec le compte de l’app du fabricant. Pour l’API locale d’une passerelle, activez le Mode développeur dans l’app TaHoma by Somfy (touchez sept fois le PIN du boîtier dans ses réglages) et donnez le PIN et un jeton qu’elle génère.",
+  "Service": "Service",
+  "E-mail, or the gateway's PIN or IP address": "E-mail, ou le PIN ou l’adresse IP de la passerelle",
+  "Password, or the Developer Mode token": "Mot de passe, ou le jeton du Mode développeur",
+  "Somfy TaHoma, Connexoon or Switch on the local network (Developer Mode)": "Somfy TaHoma, Connexoon ou Switch sur le réseau local (Mode développeur)",
+  "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma ou Connexoon, Europe",
+  "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Océanie",
+  "Somfy TaHoma, North America": "Somfy TaHoma, Amérique du Nord",
+  "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch Atlantic, Thermor ou Sauter",
+  "Give the gateway's PIN (1234-5678-9012) or its IP address.": "Donnez le PIN de la passerelle (1234-5678-9012) ou son adresse IP.",
+  "The gateway refused this token.": "La passerelle a refusé ce jeton.",
+  "The account refused this user and password.": "Le compte a refusé cet utilisateur et ce mot de passe.",
+  "Could not reach the gateway: {error}": "Impossible de joindre la passerelle : {error}",
+  "Could not reach Overkiz: {error}": "Impossible de joindre Overkiz : {error}",
+  "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "La connexion est suspendue pendant {duration} après le refus du serveur : vérifiez les identifiants, ou attendez la levée du blocage",
 });
 
 """#),
@@ -21319,6 +21369,31 @@ HomeswiftI18n.add("pt", {
   "Available Energy (kWh)": "Energia disponível (kWh)",
   "Charge Status": "Estado da carga",
   "Battery Updated": "Bateria atualizada",
+  "Choose the Sync Box, or enter its address.": "Escolha a Sync Box ou introduza o seu endereço.",
+  "Choose a Sync Box, or enter its address.": "Escolha uma Sync Box ou introduza o seu endereço.",
+  "Sync Box": "Sync Box",
+  "No Sync Box answered on the network. Enter its address, from the Hue Sync app's settings.": "Nenhuma Sync Box respondeu na rede. Introduza o seu endereço, a partir das definições da app Hue Sync.",
+  "The Sync Box did not answer at {address}. Enter its address, from the Hue Sync app's settings.": "A Sync Box não respondeu em {address}. Introduza o seu endereço, a partir das definições da app Hue Sync.",
+  "Press and hold the button on the Sync Box until its light turns green.": "Mantenha premido o botão da Sync Box até a luz ficar verde.",
+  "{address} is not an address": "{address} não é um endereço",
+  "The Sync Box at {address} did not answer: {error}": "A Sync Box em {address} não respondeu: {error}",
+  "The Sync Box at {address} took the registration but not its token: {error}": "A Sync Box em {address} aceitou o registo, mas não o seu token: {error}",
+  "The Sync Box's lights and televisions need no setup of their own": "As luzes e televisores da Sync Box não precisam de configuração própria",
+  "Sign in with the account of the vendor's app. For a gateway's local API, turn on Developer Mode in the TaHoma by Somfy app (tap the box's PIN seven times in its settings) and give the PIN and a token it generates.": "Inicie sessão com a conta da app do fabricante. Para a API local de um gateway, ative o Modo de programador na app TaHoma by Somfy (toque sete vezes no PIN da caixa nas definições) e indique o PIN e um token que ela gere.",
+  "Service": "Serviço",
+  "E-mail, or the gateway's PIN or IP address": "E-mail, ou o PIN ou o endereço IP do gateway",
+  "Password, or the Developer Mode token": "Palavra-passe, ou o token do Modo de programador",
+  "Somfy TaHoma, Connexoon or Switch on the local network (Developer Mode)": "Somfy TaHoma, Connexoon ou Switch na rede local (Modo de programador)",
+  "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma ou Connexoon, Europa",
+  "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Oceânia",
+  "Somfy TaHoma, North America": "Somfy TaHoma, América do Norte",
+  "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch da Atlantic, Thermor ou Sauter",
+  "Give the gateway's PIN (1234-5678-9012) or its IP address.": "Indique o PIN do gateway (1234-5678-9012) ou o seu endereço IP.",
+  "The gateway refused this token.": "O gateway recusou este token.",
+  "The account refused this user and password.": "A conta recusou este utilizador e esta palavra-passe.",
+  "Could not reach the gateway: {error}": "Não foi possível contactar o gateway: {error}",
+  "Could not reach Overkiz: {error}": "Não foi possível contactar a Overkiz: {error}",
+  "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "O início de sessão está em pausa durante {duration} após a recusa do servidor: verifique as credenciais ou aguarde o fim do bloqueio",
 });
 
 """#),
@@ -23959,14 +24034,14 @@ HomeswiftI18n.add("pt", {
 (() => {
   "use strict";
 
-  const { el, tile, menuButton } = HomeswiftCommon;
+  const { el, tile, menuButton, fold } = HomeswiftCommon;
   const { t, tn } = HomeswiftI18n;
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
   /// Changes Accessory Settings (Excluded, Parts) by Accessory Id: one device's, or several by id in one write.
   const settings = (block, body, accessoryID) => api(`/api/settings/accessories${accessoryID ? `/${encodeURIComponent(accessoryID)}` : ""}?instance=${encodeURIComponent(block.name)}`, { method: "PATCH", body });
-  const accessoryID = (block, device) => device.accessoryID || `${block.platform}:${device.deviceID}`;
+  const accessoryID = (block, device) => device.accessoryID;
   const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
 
   /// What each Authorization Method is called, and the glyph its rows and the sheet show.
@@ -24066,14 +24141,14 @@ HomeswiftI18n.add("pt", {
     const none = el("p", { class: "muted setup-none", hidden: true, text: t("No plugin matches.") });
     const search = el("input", { type: "search", class: "search setup-search", placeholder: t("Search plugins"), "aria-label": t("Search plugins"),
       oninput: () => {
-        const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const words = fold(search.value.trim()).split(/\s+/).filter(Boolean);
         let shown = 0;
         for (const [index, item] of items.entries()) shown += (item.hidden = !words.every((word) => text[index].includes(word))) ? 0 : 1;
         none.hidden = shown > 0;
       } });
     return { search, none };
   }
-  const searchText = (plugin) => `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
+  const searchText = (plugin) => fold(`${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`);
 
   /// Before any plugin: the brands, each a card with its name and how it connects.
   function brandGrid(plugins) {
@@ -24123,11 +24198,13 @@ HomeswiftI18n.add("pt", {
     let accountState = "notSetUp", needsAccount = false;
     // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
     const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    // The account's Setup: its sign-in the first time, again once it is set up.
+    const openAccount = (trigger = null) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger, after: load });
     // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
       plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
-      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
+      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => openAccount() } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
     // The row opens and closes it; its menu sits beside the chevron.
@@ -24151,7 +24228,7 @@ HomeswiftI18n.add("pt", {
         el("div", { class: "muted", text: accountState === "refused" ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
           : t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
       el("span", { class: "pill status away", text: accountState === "refused" ? t("Refused") : statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: load }) }));
+      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => openAccount(event.currentTarget) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -24194,7 +24271,7 @@ HomeswiftI18n.add("pt", {
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
         // Asked for by the plugin's page: its account's sheet, once.
-        if (start && action) { start = false; open({ block, plugin, firstTime: accountState === "notSetUp", after: load }); }
+        if (start && action) { start = false; openAccount(); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -24254,10 +24331,10 @@ HomeswiftI18n.add("pt", {
 
   /// A device's parts (a gate's side door, a door sensor, a doorbell), each with its switch: those switched off are left
   /// out while the device stays. `onChange(part, included)` is told of each switch; `changes()` what differs from now.
-  function partsList(device, { disabled = false, onChange = null } = {}) {
+  function partsList(device, { onChange = null } = {}) {
     const parts = device.parts ?? [];
     if (!parts.length) return null;
-    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": t(part.name) }));
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, "aria-label": t(part.name) }));
     const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
       ...parts.map((part, index) => el("label", { class: "setup-part" },
         el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
@@ -24329,8 +24406,6 @@ HomeswiftI18n.add("pt", {
     const devicesStage = t("Devices");
     const stages = [device || adding ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
-    /// What was typed in the last step's fields, secrets left out: a step asked again after an error keeps it.
-    let typed = {};
     /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
     let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
@@ -24396,8 +24471,8 @@ HomeswiftI18n.add("pt", {
         if (closed) return;
         // The search failed, which is not finding nothing: say why, and offer it again. The account or device is set up.
         if (!found.length && failure) {
-          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner }) });
-          form.onsubmit = (event) => { event.preventDefault(); finish(); };
+          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner, accessory }) });
+          form.onsubmit = (event) => { event.preventDefault(); finish(null, accessory); };
           fill(
             el("p", { class: "error", role: "alert", text: t("Could not look for its devices: {error}", { error: failure.message }) }),
             el("p", { class: "muted", text: t("It is set up. Look again now, or later from this page.") }),
@@ -24500,6 +24575,7 @@ HomeswiftI18n.add("pt", {
             el("div", { class: "actions" }, cancel));
           return;
         }
+        // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
           const input = el("input", {
@@ -24509,9 +24585,7 @@ HomeswiftI18n.add("pt", {
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
           });
-          // Asked again after an error, the field keeps what was typed; else what the plugin knows already.
-          const known = answer.error ? typed[field.key] : undefined;
-          if (field.kind !== "secret") input.value = known ?? field.value ?? "";
+          if (field.kind !== "secret") input.value = field.value ?? "";
           return [field, input];
         });
         const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
@@ -24521,7 +24595,6 @@ HomeswiftI18n.add("pt", {
           const missing = inputs.find(([field, input]) => !field.optional && !input.value.trim());
           if (missing) { missing[1].focus(); return; }
           stop();
-          typed = Object.fromEntries(inputs.filter(([field]) => field.kind !== "secret" && field.kind !== "choice").map(([field, input]) => [field.key, input.value]));
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         const link = /^https?:\/\//i.test(prompt.url ?? "")
@@ -24546,7 +24619,7 @@ HomeswiftI18n.add("pt", {
       // A Setup the Assistant started is taken over where it stands; the others start here.
       (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, addByAddress: adding || undefined, block: draft ? block : undefined }))
         .then(draw)
-        .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
+        .catch((e) => fill(el("p", { class: "error", role: "alert", text: HomeswiftI18n.message(e.message) }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
       return form;
     }, "setup-title", {
@@ -24568,8 +24641,9 @@ HomeswiftI18n.add("pt", {
     try {
       const plugins = await api("/api/plugins");
       const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
-      const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
-      const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
+      const saved = plugins.blocks.find((one) => one.platform === platform && one.name === name);
+      const block = saved ?? { platform, name: name ?? platform };
+      const isNew = !saved;
       open({ block, plugin, resume: session, firstTime: isNew, adding: addByAddress === true, after: () => { if (location.pathname === "/setup") app().route(); } });
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }

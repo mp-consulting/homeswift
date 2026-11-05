@@ -308,6 +308,8 @@ struct HTTPWebhooksTests {
         #expect(await eventually { service[.currentPosition]?.value == .int(40) })
         try await service.characteristic(.targetPosition).write(.int(0))   // 28
         #expect(await environment.http.urls.last == "http://x/o")
+        // The current position follows after its delay; the webhook's positions come after it.
+        #expect(await eventually { service[.currentPosition]?.value == .int(0) })
         _ = try await environment.call("/?accessoryId=blind&targetposition=40")
         let reply = try await environment.call("/?accessoryId=blind&currentposition=50")   // 29
         #expect(reply.body == #"{"success":true,"CurrentPosition":50,"TargetPosition":40,"PositionState":2}"#)

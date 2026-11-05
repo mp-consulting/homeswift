@@ -386,10 +386,7 @@ actor ImouCamera {
     /// One frame of the local sub stream, through FFmpeg; nil when FFmpeg cannot.
     private func frameFromStream() async -> Data? {
         guard let ffmpeg, let url = localURL(subStream: true) else { return nil }
-        let input = RTSPCameraArguments.input(url: url, options: RTSPCameraOptions(analyzeDuration: 2_000_000, probeSize: 5_000_000, rtspOverTCP: true))
-        guard let result = await FfmpegExec(ffmpeg.options, commandLineArgs: RTSPCameraArguments.frame(input: input), logErrors: false).exec(timeout: 15_000),
-              result.stdout.starts(with: [0xFF, 0xD8]) else { return nil }
-        return result.stdout
+        return await ffmpeg.frame(url: url, options: RTSPCameraOptions(analyzeDuration: 2_000_000, probeSize: 5_000_000, rtspOverTCP: true), logErrors: false)
     }
 
     // MARK: Video
