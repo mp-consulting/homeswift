@@ -631,6 +631,24 @@ extension ReolinkPlugin {
         "x-kinds": [
           "camera"
         ]
+      },
+      "presetSwitches": {
+        "title": "Preset switches",
+        "type": "boolean",
+        "description": "A switch per PTZ preset that turns the camera there, then turns itself off.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "patrolSwitch": {
+        "title": "Patrol switch",
+        "type": "boolean",
+        "description": "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
       }
     }
   },
@@ -656,6 +674,8 @@ extension ReolinkPlugin {
       "A motion sensor for each kind of detection the camera makes; empty for every kind it supports.": "Un détecteur de mouvement par type de détection de la caméra ; vide pour tous ceux qu'elle prend en charge.",
       "A motion sensor, which also starts HomeKit Secure Video recordings.": "Un détecteur de mouvement, qui déclenche aussi les enregistrements HomeKit Secure Video.",
       "A switch for the IR lights: on is automatic, off is off.": "Un interrupteur de l'éclairage infrarouge : allumé est automatique, éteint est éteint.",
+      "A switch per PTZ preset that turns the camera there, then turns itself off.": "Un interrupteur par position PTZ enregistrée, qui y tourne la caméra puis s'éteint seul.",
+      "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Un interrupteur qui lance la première patrouille PTZ de la caméra, définie dans l'app Reolink.",
       "API port": "Port de l'API",
       "Address": "Adresse",
       "Advanced": "Avancé",
@@ -699,9 +719,11 @@ extension ReolinkPlugin {
       "Options by channel number (\"0\", \"1\"…); once saved they move to each camera's settings.": "Options par numéro de canal (« 0 », « 1 »…) ; une fois enregistrées, elles passent dans les réglages de chaque caméra.",
       "Package": "Colis",
       "Password": "Mot de passe",
+      "Patrol switch": "Interrupteur de patrouille",
       "Person": "Personne",
       "Pet": "Animal",
       "Prebuffer": "Prémémoire",
+      "Preset switches": "Interrupteurs de positions",
       "Presses within this many seconds of a ring are ignored.": "Les appuis dans ce nombre de secondes après une sonnerie sont ignorés.",
       "Push events": "Événements poussés",
       "RTMP": "RTMP",
@@ -739,6 +761,8 @@ extension ReolinkPlugin {
       "A motion sensor for each kind of detection the camera makes; empty for every kind it supports.": "Un sensor de movimiento por tipo de detección de la cámara; vacío para todos los que admite.",
       "A motion sensor, which also starts HomeKit Secure Video recordings.": "Un sensor de movimiento, que también inicia las grabaciones de HomeKit Secure Video.",
       "A switch for the IR lights: on is automatic, off is off.": "Un interruptor de los infrarrojos: encendido es automático, apagado es apagado.",
+      "A switch per PTZ preset that turns the camera there, then turns itself off.": "Un interruptor por posición PTZ guardada, que gira la cámara hacia ella y luego se apaga solo.",
+      "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Un interruptor que inicia la primera patrulla PTZ de la cámara, definida en la app Reolink.",
       "API port": "Puerto de la API",
       "Address": "Dirección",
       "Advanced": "Avanzado",
@@ -782,9 +806,11 @@ extension ReolinkPlugin {
       "Options by channel number (\"0\", \"1\"…); once saved they move to each camera's settings.": "Opciones por número de canal («0», «1»…); una vez guardadas pasan a los ajustes de cada cámara.",
       "Package": "Paquete",
       "Password": "Contraseña",
+      "Patrol switch": "Interruptor de patrulla",
       "Person": "Persona",
       "Pet": "Mascota",
       "Prebuffer": "Prebúfer",
+      "Preset switches": "Interruptores de posiciones",
       "Presses within this many seconds of a ring are ignored.": "Las pulsaciones en estos segundos tras un timbre se ignoran.",
       "Push events": "Eventos enviados",
       "RTMP": "RTMP",
@@ -822,6 +848,8 @@ extension ReolinkPlugin {
       "A motion sensor for each kind of detection the camera makes; empty for every kind it supports.": "Um sensor de movimento por tipo de deteção da câmara; vazio para todos os que suporta.",
       "A motion sensor, which also starts HomeKit Secure Video recordings.": "Um sensor de movimento, que também inicia as gravações do HomeKit Secure Video.",
       "A switch for the IR lights: on is automatic, off is off.": "Um interruptor dos infravermelhos: ligado é automático, desligado é desligado.",
+      "A switch per PTZ preset that turns the camera there, then turns itself off.": "Um interruptor por posição PTZ guardada, que vira a câmara para ela e depois se desliga sozinho.",
+      "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Um interruptor que inicia a primeira patrulha PTZ da câmara, definida na app Reolink.",
       "API port": "Porta da API",
       "Address": "Endereço",
       "Advanced": "Avançado",
@@ -865,9 +893,11 @@ extension ReolinkPlugin {
       "Options by channel number (\"0\", \"1\"…); once saved they move to each camera's settings.": "Opções por número de canal («0», «1»…); uma vez guardadas passam para as definições de cada câmara.",
       "Package": "Encomenda",
       "Password": "Palavra-passe",
+      "Patrol switch": "Interruptor de patrulha",
       "Person": "Pessoa",
       "Pet": "Animal",
       "Prebuffer": "Pré-memória",
+      "Preset switches": "Interruptores de posições",
       "Presses within this many seconds of a ring are ignored.": "Os toques nestes segundos após um toque são ignorados.",
       "Push events": "Eventos enviados",
       "RTMP": "RTMP",

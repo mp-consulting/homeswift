@@ -298,7 +298,9 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         let writes = ReolinkCamera.Writes(
             floodlight: { on, brightness in try await host.setFloodlight(channel: ch, on: on, brightness: brightness) },
             siren: { on in try await host.setSiren(channel: ch, on: on) },
-            ir: { on in try await host.setIRLights(channel: ch, on: on) })
+            ir: { on in try await host.setIRLights(channel: ch, on: on) },
+            goToPreset: { id in try await host.ptzControl(channel: ch, op: "ToPos", id: id) },
+            patrol: { on in try await host.setPatrol(channel: ch, on: on) })
         return try ReolinkCamera(
             id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite,
             streamer: streamer, recorder: recorder, writes: writes, log: logger, timing: dependencies.timing)

@@ -16,6 +16,8 @@ final class ReolinkEnvironment: Sendable {
     let scale: Double
     /// An ARP table that does not answer: discovery stops looking after a moment.
     let silentNetwork: Bool
+    /// Sets up each fake Baichuan camera before the plugin talks to it (its answers, its login reply).
+    let prepareCamera = NIOLockedValueBox<(@Sendable (FakeBaichuanCamera) -> Void)?>(nil)
     private let plugins = NIOLockedValueBox<[ReolinkPlugin]>([])
 
     init(_ answers: [String: @Sendable (JSONValue?) -> JSONValue] = cameraAnswers(), baichuanFails: Bool = false, scale: Double = 0.002, silentNetwork: Bool = false) {
@@ -32,11 +34,13 @@ final class ReolinkEnvironment: Sendable {
         let http = http
         let cameras = cameras
         let fails = baichuanFails
+        let prepare = prepareCamera
         var dependencies = ReolinkPlugin.Dependencies()
         dependencies.makeSender = { _ in http }
         dependencies.connectBaichuan = { _, _, _ in
             if fails { throw HTTPClientError.cannotConnect(host: "camera", port: 9000, code: 61, reason: "refused") }
             let camera = FakeBaichuanCamera()
+            prepare.withLockedValue { $0 }?(camera)
             cameras.withLockedValue { $0.append(camera) }
             return camera
         }

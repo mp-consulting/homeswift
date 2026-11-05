@@ -90,6 +90,7 @@ actor ReolinkHost {
             commands.append(.channel("GetIrLights", ch))
             if v20 { commands.append(.channel("GetAudioAlarmV20", ch)) } else if !battery { commands.append(.channel("GetAudioAlarm", ch)) }
             if battery { commands.append(.channel("GetBatteryInfo", ch)) }
+            commands += Self.ptzCommands(info: info, channel: ch, battery: battery)
             ranges.append((status, start..<commands.count, battery))
         }
         let replies = try await http.execute(commands)
@@ -146,8 +147,36 @@ actor ReolinkHost {
         if audio?.ok == true, info.ability("alarmAudio", channel: ch) > 0 || info.ability("supportAudioAlarm", channel: ch) > 0 || info.hostAbility("alarmAudio") > 0 {
             channel.siren = true
         }
+        channel.ptz = Self.ptz(info: info, channel: ch, items: items)
         for reply in items.values { apply(reply, to: &channel) }
         return channel
+    }
+
+    /// The PTZ reads of a channel's start-up batch (addendum B): presets, patrols and the guard for a camera that pans,
+    /// the zoom's range for one that zooms. A battery camera is not woken for the guard or the zoom.
+    static func ptzCommands(info: ReolinkHostInfo, channel ch: Int, battery: Bool) -> [ReolinkCommand] {
+        guard let ptz = ReolinkPTZ.capabilities(ptzType: info.ability("ptzType", channel: ch), speedAbility: nil) else { return [] }
+        var commands: [ReolinkCommand] = []
+        if ptz.pan {
+            if info.ability("ptzPreset", channel: ch) > 0 { commands.append(.channel("GetPtzPreset", ch)) }
+            commands.append(.channel("GetPtzPatrol", ch))
+            if !battery { commands.append(.channel("GetPtzGuard", ch)) }
+        }
+        if ptz.zoom, !battery { commands.append(ReolinkCommand(cmd: "GetZoomFocus", action: 1, param: ["channel": .number(Double(ch))])) }
+        return commands
+    }
+
+    static func ptz(info: ReolinkHostInfo, channel ch: Int, items: [String: ReolinkReply]) -> ReolinkPTZ? {
+        guard var ptz = ReolinkPTZ.capabilities(ptzType: info.ability("ptzType", channel: ch), speedAbility: info.reportedAbility("supportPtzSpeed", channel: ch))
+        else { return nil }
+        if let reply = items["GetPtzPreset"], reply.ok { ptz.presets = ReolinkPTZ.entries(reply.value?["PtzPreset"], fallback: "Preset") }
+        if let reply = items["GetPtzPatrol"], reply.ok { ptz.patrols = ReolinkPTZ.entries(reply.value?["PtzPatrol"], fallback: "patrol") }
+        ptz.hasGuard = items["GetPtzGuard"]?.ok == true
+        if let reply = items["GetZoomFocus"], reply.ok {
+            ptz.zoomRange = ReolinkPTZ.range(reply.range?["ZoomFocus"]?["zoom"]?["pos"])
+            ptz.focusRange = ReolinkPTZ.range(reply.range?["ZoomFocus"]?["focus"]?["pos"])
+        }
+        return ptz
     }
 
     // MARK: State
@@ -389,6 +418,63 @@ actor ReolinkHost {
             try await write(ReolinkCommand(cmd: "AudioAlarmPlay", action: 0, param: ["alarm_mode": "manul", "manual_switch": .number(on ? 1 : 0), "channel": .number(Double(channel))]))
         }
         channels[channel]?.state.sirenPlaying = on
+    }
+
+    // MARK: PTZ (addendum B)
+
+    /// A `PtzCtrl` command: a move until `Stop`, `ToPos` a preset, `StartPatrol`/`StopPatrol`. `speed` goes only to a
+    /// camera that takes it.
+    func ptzControl(channel: Int, op: String, id: Int? = nil, speed: Int? = nil) async throws {
+        guard let ptz = channels[channel]?.ptz else { throw ReolinkError.unsupported("PtzCtrl") }
+        guard channels[channel]?.state.online != false else { throw ReolinkError.offline }
+        var param: [String: JSONValue] = ["channel": .number(Double(channel)), "op": .string(op)]
+        if let id { param["id"] = .number(Double(id)) }
+        if let speed, ptz.speed { param["speed"] = .number(Double(min(64, max(1, speed)))) }
+        try await write(ReolinkCommand(cmd: "PtzCtrl", action: 0, param: .object(param)))
+    }
+
+    /// Absolute zoom and focus (B.5), refused outside the ranges `GetZoomFocus` gave.
+    func setZoomFocus(channel: Int, zoom: Int?, focus: Int?) async throws {
+        guard let ptz = channels[channel]?.ptz, ptz.zoom else { throw ReolinkError.unsupported("StartZoomFocus") }
+        var commands: [ReolinkCommand] = []
+        for (op, value, range) in [("ZoomPos", zoom, ptz.zoomRange), ("FocusPos", focus, ptz.focusRange)] {
+            guard let value else { continue }
+            guard let range else { throw ReolinkError.unsupported(op) }
+            guard range.contains(value) else { throw ReolinkError.outOfRange("\(op) \(value) is outside \(range.lowerBound)...\(range.upperBound)") }
+            commands.append(ReolinkCommand(cmd: "StartZoomFocus", action: 0, param: ["ZoomFocus": ["channel": .number(Double(channel)), "op": .string(op), "pos": .number(Double(value))]]))
+        }
+        for command in commands { try await write(command) }
+    }
+
+    /// The guard (B.6): `toPos` goes to the home position, `setPos` saves the current one; `enable` and `timeout` (seconds
+    /// idle) change the return, sent with `setPos`.
+    func ptzGuard(channel: Int, goHome: Bool, saveHere: Bool, enable: Bool?, timeout: Int?) async throws {
+        guard channels[channel]?.ptz?.hasGuard == true else { throw ReolinkError.unsupported("SetPtzGuard") }
+        var fields: [String: JSONValue] = ["channel": .number(Double(channel)), "cmdStr": .string(goHome ? "toPos" : "setPos")]
+        if !goHome {
+            if saveHere { fields["bSaveCurrentPos"] = 1 }
+            if let enable { fields["benable"] = .number(enable ? 1 : 0) }
+            if let timeout { fields["timeout"] = .number(Double(max(1, timeout))) }
+        }
+        try await write(ReolinkCommand(cmd: "SetPtzGuard", action: 0, param: ["PtzGuard": .object(fields)]))
+    }
+
+    /// Starts or stops the first enabled patrol (as reolink-aio), and asks whether it runs a second later (Baichuan 64).
+    func setPatrol(channel: Int, on: Bool) async throws {
+        guard let patrol = channels[channel]?.ptz?.patrols.first else { throw ReolinkError.unsupported("patrol") }
+        try await ptzControl(channel: channel, op: on ? "StartPatrol" : "StopPatrol", id: patrol.id)
+        channels[channel]?.state.patrolling = on
+        let delay = timing.seconds(1)
+        tasks.add { [weak self] in
+            try? await Task.sleep(for: delay)
+            await self?.readPatrol(channel)
+        }
+    }
+
+    private func readPatrol(_ channel: Int) async {
+        guard let baichuan, await baichuan.isConnected, let running = try? await baichuan.patrolRunning(channel: channel) else { return }
+        channels[channel]?.state.patrolling = running
+        publish(channel)
     }
 
     private func write(_ command: ReolinkCommand) async throws {

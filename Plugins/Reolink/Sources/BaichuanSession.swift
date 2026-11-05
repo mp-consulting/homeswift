@@ -339,6 +339,25 @@ actor BaichuanSession {
 
     // MARK: Commands
 
+    /// A channel command (the channel extension, `ch_id` channel + 1) and its reply's XML text; "" for an empty reply.
+    func channelRequest(command: UInt32, channel: Int, body: String? = nil) async throws -> String {
+        let reply = try await request(command: command, channel: UInt8(clamping: channel + 1), extension: Baichuan.channelExtension(channel), body: body, encryption: .aes)
+        return try replyText(reply)
+    }
+
+    /// A reply's XML: its body, or its extension when it has no body.
+    private func replyText(_ reply: BaichuanMessage) throws -> String {
+        let piece = reply.body.isEmpty ? reply.extensionBytes : reply.body
+        return try BaichuanDecoder.decrypt(piece, expected: reply.declaredEncryption ?? .aes, offset: reply.channel, key: aesKey)
+    }
+
+    /// Whether a patrol runs on the channel (`cmd_id` 64): any `cruising` element of the reply is 1.
+    func patrolRunning(channel: Int) async throws -> Bool {
+        let xml = try await channelRequest(command: 64, channel: channel)
+        guard !xml.isEmpty, let root = try? BXParser.parse(xml) else { return false }
+        return root.all("cruising").contains { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == "1" }
+    }
+
     /// The siren (5.4.3): `channel` nil is a hub's own.
     func siren(channel: Int?, mode: Baichuan.SirenMode) async throws {
         let body = Baichuan.sirenBody(channel: channel, mode: mode)

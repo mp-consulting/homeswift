@@ -36,9 +36,12 @@ struct ReolinkHostInfo: Sendable, Equatable {
     func hostAbility(_ name: String) -> Int { hostAbilities[name] ?? 0 }
 
     /// A channel's ability (`abilityChn[ch]`, `abilityChn[0]` beyond the array).
-    func ability(_ name: String, channel: Int) -> Int {
+    func ability(_ name: String, channel: Int) -> Int { reportedAbility(name, channel: channel) ?? 0 }
+
+    /// A channel's ability as reported; nil when the device does not list it (some count an absent one as supported).
+    func reportedAbility(_ name: String, channel: Int) -> Int? {
         let list = channel < channelAbilities.count ? channelAbilities[channel] : channelAbilities.first
-        return list?[name] ?? 0
+        return list?[name]
     }
 
     /// The channels to publish: those online (all of `channelNum` without a channel status), other brands on an NVR left out.
@@ -158,6 +161,8 @@ struct ReolinkChannel: Sendable, Equatable {
     var siren = false
     var battery = false
     var hasGetEvents = false
+    /// Pan, tilt, zoom, presets and patrols; nil without PTZ (`ptzType` 0).
+    var ptz: ReolinkPTZ?
     var state = ReolinkChannelState()
 
     /// The device's AI type names and the HomeKit sensors' subtypes (6.3).
@@ -178,6 +183,75 @@ struct ReolinkChannelState: Sendable, Equatable {
     var sirenPlaying: Bool?
     var batteryPercent: Int?
     var charging: Bool?
+    /// Whether a PTZ patrol runs (Baichuan `cmd_id` 64), once asked.
+    var patrolling: Bool?
+}
+
+/// A channel's pan, tilt and zoom (addendum B): what `ptzType` allows, and the presets, patrols, guard and zoom range
+/// of the start-up batch.
+struct ReolinkPTZ: Sendable, Equatable {
+    struct Entry: Sendable, Equatable {
+        var id: Int
+        var name: String
+    }
+
+    var pan = false
+    var tilt = false
+    var zoom = false
+    var speed = false
+    /// The enabled presets, by id.
+    var presets: [Entry] = []
+    /// The enabled patrols, by id; the first is the one the Patrol switch runs.
+    var patrols: [Entry] = []
+    /// Whether `GetPtzGuard` answered: the camera has a home position.
+    var hasGuard = false
+    var zoomRange: ClosedRange<Int>?
+    var focusRange: ClosedRange<Int>?
+
+    /// The moves of `PtzCtrl` the Assistant names, with the `op` each sends. `ZoomInc` zooms in, as reolink-aio has it
+    /// (the HTTP guide says the opposite; the addendum's recommendation, B.2).
+    static let moves: [String: String] = [
+        "left": "Left", "right": "Right", "up": "Up", "down": "Down", "leftUp": "LeftUp", "leftDown": "LeftDown", "rightUp": "RightUp",
+        "rightDown": "RightDown", "zoomIn": "ZoomInc", "zoomOut": "ZoomDec", "stop": "Stop",
+    ]
+
+    /// What `ptzType` allows (B.1); speed also needs `supportPtzSpeed`, an absent one counting as supported. nil for 0.
+    static func capabilities(ptzType: Int, speedAbility: Int?) -> ReolinkPTZ? {
+        guard ptzType > 0 else { return nil }
+        var ptz = ReolinkPTZ()
+        ptz.zoom = [1, 2, 5].contains(ptzType)
+        ptz.tilt = [2, 3, 5, 6].contains(ptzType)
+        ptz.pan = [2, 3, 5, 6, 7].contains(ptzType)
+        ptz.speed = [2, 3].contains(ptzType) && (speedAbility ?? 1) > 0
+        return ptz
+    }
+
+    /// Whether the camera makes a move of `moves`.
+    func allows(_ move: String) -> Bool {
+        switch move {
+        case "stop": pan || tilt || zoom
+        case "left", "right": pan
+        case "up", "down": tilt
+        case "leftUp", "leftDown", "rightUp", "rightDown": pan && tilt
+        case "zoomIn", "zoomOut": zoom
+        default: false
+        }
+    }
+
+    /// `GetPtzPreset`'s or `GetPtzPatrol`'s enabled entries (`enable` 1), by id; an unnamed one is called `<fallback> <id>`.
+    static func entries(_ list: JSONValue?, fallback: String) -> [Entry] {
+        (list?.arrayValue ?? []).compactMap { item -> Entry? in
+            guard item["enable"]?.saturatingIntValue == 1, let id = item["id"]?.saturatingIntValue(in: 0...255) else { return nil }
+            let name = item["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyText ?? "\(fallback) \(id)"
+            return Entry(id: id, name: name)
+        }.sorted { $0.id < $1.id }
+    }
+
+    /// A `min`/`max` pair of `GetZoomFocus`'s range.
+    static func range(_ json: JSONValue?) -> ClosedRange<Int>? {
+        guard let low = json?["min"]?.saturatingIntValue, let high = json?["max"]?.saturatingIntValue, low <= high else { return nil }
+        return low...high
+    }
 }
 
 /// Reading the channel batch's items (4.2) into a channel.

@@ -18,6 +18,8 @@ final class ReolinkCamera: @unchecked Sendable {
     static let motionHold: Double = 2
     /// The siren switch turns itself off after this long (6.6).
     static let sirenReset: Double = 60
+    /// A momentary switch (a preset, a chime) turns itself off after this long.
+    static let momentaryReset: Double = 1
 
     let accessory: Accessory
     let controller: CameraController
@@ -35,6 +37,9 @@ final class ReolinkCamera: @unchecked Sendable {
     private let siren: Service?
     private let ir: Service?
     private let battery: Service?
+    /// "Go to <preset>" switches, by preset id.
+    private let presets: [Int: Service]
+    private let patrol: Service?
     private let sensors: [Service]
 
     private struct State {
@@ -43,6 +48,7 @@ final class ReolinkCamera: @unchecked Sendable {
         var lastRing: ContinuousClock.Instant?
         var holds: [String: Task<Void, Never>] = [:]
         var sirenReset: Task<Void, Never>?
+        var momentary: [String: Task<Void, Never>] = [:]
     }
 
     private let state = NIOLockedValueBox(State())
@@ -51,6 +57,8 @@ final class ReolinkCamera: @unchecked Sendable {
         var floodlight: @Sendable (_ on: Bool?, _ brightness: Int?) async throws -> Void
         var siren: @Sendable (_ on: Bool) async throws -> Void
         var ir: @Sendable (_ on: Bool) async throws -> Void
+        var goToPreset: @Sendable (_ id: Int) async throws -> Void
+        var patrol: @Sendable (_ on: Bool) async throws -> Void
     }
 
     /// The services a channel gets, from what it supports and its options.
@@ -85,6 +93,14 @@ final class ReolinkCamera: @unchecked Sendable {
         self.ir = ir
         let battery = info.battery ? Service(.battery, name: "\(name) Battery", subtype: "battery") : nil
         self.battery = battery
+        // PTZ (addendum B.7): HomeKit has no PTZ service; presets and the patrol are switches, when asked for.
+        var presets: [Int: Service] = [:]
+        if options.presetSwitches, let ptz = info.ptz {
+            for preset in ptz.presets { presets[preset.id] = Service(.switch, name: "\(name) Go to \(preset.name)", subtype: "preset\(preset.id)") }
+        }
+        self.presets = presets
+        let patrol = options.patrolSwitch && info.ptz?.patrols.isEmpty == false ? Service(.switch, name: "\(name) Patrol", subtype: "patrol") : nil
+        self.patrol = patrol
         sensors = [motion].compactMap { $0 } + ReolinkChannel.aiSensors.compactMap { ai[$0.type] }
 
         let streaming = CameraStreamingOptions(
@@ -105,7 +121,8 @@ final class ReolinkCamera: @unchecked Sendable {
         accessory = Accessory(
             id: id, name: name, manufacturer: "Reolink", model: info.model.nonEmptyText ?? "Reolink", serialNumber: serial.nonEmptyText ?? id,
             firmwareRevision: info.firmware, category: isDoorbell ? .videoDoorbell : .ipCamera,
-            services: [doorbell].compactMap { $0 } + sensors + [floodlight, siren, ir, battery].compactMap { $0 },
+            services: [doorbell].compactMap { $0 } + sensors + [floodlight, siren, ir, battery].compactMap { $0 }
+                + presets.keys.sorted().compactMap { presets[$0] } + [patrol].compactMap { $0 },
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
         for service in sensors { service.characteristic(.motionDetected).value = false }
@@ -142,6 +159,32 @@ final class ReolinkCamera: @unchecked Sendable {
         if let ir {
             ir.characteristic(.on).onWrite(changesOnly: true, guarded { value in try await writes.ir(value.boolValue ?? false) })
         }
+        for (id, service) in presets {
+            service.characteristic(.on).value = false
+            service.characteristic(.on).onWrite(guarded { [weak self] value in
+                guard value.boolValue == true else { return }
+                try await writes.goToPreset(id)
+                self?.resetMomentary(service, key: "preset\(id)")
+            })
+        }
+        if let patrol {
+            let patrolGuard = LatestCallGuard(delay: timing.seconds(0.3))
+            patrol.characteristic(.on).onWrite(changesOnly: true, guarded { value in
+                guard await patrolGuard() else { return }
+                try await writes.patrol(value.boolValue ?? false)
+            })
+        }
+    }
+
+    /// Turns a momentary switch off again, `momentaryReset` after it went on.
+    private func resetMomentary(_ service: Service, key: String) {
+        let delay = timing.seconds(Self.momentaryReset)
+        let task = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            service.characteristic(.on).value = false
+        }
+        state.withLockedValue { $0.momentary.updateValue(task, forKey: key) }?.cancel()
     }
 
     static func resolutions(upTo main: ReolinkStream) -> [VideoResolution] {
@@ -158,6 +201,7 @@ final class ReolinkCamera: @unchecked Sendable {
         state.withLockedValue { state in
             state.holds.values.forEach { $0.cancel() }
             state.sirenReset?.cancel()
+            state.momentary.values.forEach { $0.cancel() }
         }
         recorder?.shutdown()
         await streamer.stopAll()
@@ -196,6 +240,7 @@ final class ReolinkCamera: @unchecked Sendable {
             scheduleSirenReset(playing)
         }
         if let ir, let on = new.irOn, previous?.irOn != on { ir.characteristic(.on).value = .bool(on) }
+        if let patrol, let on = new.patrolling, previous?.patrolling != on { patrol.characteristic(.on).value = .bool(on) }
         if let battery, let percent = new.batteryPercent, previous?.batteryPercent != percent || previous?.charging != new.charging {
             battery.characteristic(.batteryLevel).value = .int(percent)
             battery.characteristic(.statusLowBattery).value = .int(percent < 20 ? 1 : 0)
@@ -258,4 +303,6 @@ final class ReolinkCamera: @unchecked Sendable {
     var services: (motion: Service?, ai: [String: Service], doorbell: Service?, floodlight: Service?, siren: Service?, ir: Service?, battery: Service?) {
         (motion, aiServices, doorbell, floodlight, siren, ir, battery)
     }
+
+    var ptzServices: (presets: [Int: Service], patrol: Service?) { (presets, patrol) }
 }

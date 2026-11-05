@@ -26,6 +26,8 @@ struct ReolinkReply: Sendable, Equatable {
     var cmd: String
     var code: Int
     var value: JSONValue?
+    /// The `range` block an `action: 1` read returns beside `value` (limits such as a zoom's).
+    var range: JSONValue?
     var rspCode: Int?
     var detail: String?
 
@@ -33,10 +35,11 @@ struct ReolinkReply: Sendable, Equatable {
     /// A write's success: `code` 0 and `value.rspCode` 200 (3.5).
     var writeOK: Bool { code == 0 && value?["rspCode"]?.saturatingIntValue == 200 }
 
-    init(cmd: String, code: Int, value: JSONValue? = nil, rspCode: Int? = nil, detail: String? = nil) {
+    init(cmd: String, code: Int, value: JSONValue? = nil, range: JSONValue? = nil, rspCode: Int? = nil, detail: String? = nil) {
         self.cmd = cmd
         self.code = code
         self.value = value
+        self.range = range
         self.rspCode = rspCode
         self.detail = detail
     }
@@ -46,6 +49,7 @@ struct ReolinkReply: Sendable, Equatable {
         self.cmd = cmd
         code = json["code"]?.saturatingIntValue ?? 1
         value = json["value"]
+        range = json["range"]
         rspCode = json["error"]?["rspCode"]?.saturatingIntValue
         detail = json["error"]?["detail"]?.stringValue
     }
@@ -69,6 +73,7 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
     case invalidResponse(String)
     case command(String, Int?, String?)
     case unsupported(String)
+    case outOfRange(String)
     case offline
 
     var description: String {
@@ -81,6 +86,7 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
         case .invalidResponse(let reason): "an answer the plugin cannot read (\(reason))"
         case .command(let cmd, let code, let detail): "\(cmd) failed (\(code.map(String.init) ?? "?")\(detail.map { ": \($0)" } ?? ""))"
         case .unsupported(let cmd): "\(cmd) is not supported by the device"
+        case .outOfRange(let reason): reason
         case .offline: "the channel is offline"
         }
     }
