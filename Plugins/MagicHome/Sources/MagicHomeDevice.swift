@@ -275,8 +275,7 @@ actor MagicHomeDevice {
 
     /// The effect switches from state byte 3: the one of the pattern playing on, while the light is on.
     private func showEffect(_ state: MagicHomeState) {
-        let known = profile.effects.contains { $0.id == state.pattern }
-        playing = state.isOn && known ? state.pattern : nil
+        playing = state.isOn && services?.effects[state.pattern] != nil ? state.pattern : nil
         showPlaying()
     }
 
@@ -292,29 +291,12 @@ actor MagicHomeDevice {
         guard profile.effects.contains(effect) else { throw HAPStatusError(.notAllowedInCurrentState) }
         identifying?.cancel()
         identifying = nil
-        var frames: [MagicHomeOutgoing]
         if on {
             let bytes = MagicHomeFrame.effect(effect, speed: options.effectSpeed, brightness: Int(light.brightness.rounded()), family: profile.family)
-            frames = [MagicHomeOutgoing(bytes: bytes, wrapVersion: nil, delay: .zero)]
-            if !light.isOn || profile.needsPowerOnFirst(module: record.module) {
-                frames[0].delay = options.timing.powerToLevels
-                frames.insert(power(true), at: 0)
-            }
+            try await send(poweredFirst([.plain(bytes)], always: !light.isOn), what: "the effect")
         } else {
             guard playing == effect.id else { return }
-            frames = MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)
-            if profile.needsPowerOnFirst(module: record.module), !frames.isEmpty {
-                frames[0].delay = max(frames[0].delay, options.timing.powerToLevels)
-                frames.insert(power(true), at: 0)
-            }
-        }
-        lastWrite = .now
-        log.trace("\(name): sending \(frames.map { $0.bytes.map { String(format: "%02X", $0) }.joined(separator: " ") })")
-        do {
-            try await connection.send(frames)
-        } catch {
-            log.debug("\(name) did not take the effect: \(error)")
-            throw HAPStatusError(.serviceCommunicationFailure)
+            try await send(poweredFirst(MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)), what: "the colour")
         }
         if on {
             light.isOn = true
@@ -424,26 +406,33 @@ actor MagicHomeDevice {
             playing = nil
             showPlaying()
         }
-        var frames: [MagicHomeOutgoing]
-        if !levelsChanged || !light.isOn || profile.writer == .powerOnly {
-            frames = [power(light.isOn)]
-        } else {
-            frames = MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)
-            if profile.needsPowerOnFirst(module: record.module), !frames.isEmpty {
-                frames[0].delay = max(frames[0].delay, options.timing.powerToLevels)
-                frames.insert(power(true), at: 0)
-            }
-        }
-        lastWrite = .now
+        let frames = !levelsChanged || !light.isOn || profile.writer == .powerOnly
+            ? [power(light.isOn)]
+            : poweredFirst(MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects))
         log.debug("\(name): \(changes)")
+        try await send(frames, what: "the command")
+        wake()
+    }
+
+    /// `frames` after `71 23 0F` when the device needs it before levels or effects (or `always`), the first of them
+    /// `powerToLevels` later.
+    private func poweredFirst(_ frames: [MagicHomeOutgoing], always: Bool = false) -> [MagicHomeOutgoing] {
+        guard !frames.isEmpty, always || profile.needsPowerOnFirst(module: record.module) else { return frames }
+        var frames = frames
+        frames[0].delay = max(frames[0].delay, options.timing.powerToLevels)
+        return [power(true)] + frames
+    }
+
+    /// Sends a write's frames, noting the write so the reads of its settling time are not shown.
+    private func send(_ frames: [MagicHomeOutgoing], what: String) async throws {
+        lastWrite = .now
         log.trace("\(name): sending \(frames.map { $0.bytes.map { String(format: "%02X", $0) }.joined(separator: " ") })")
         do {
             try await connection.send(frames)
         } catch {
-            log.debug("\(name) did not take the command: \(error)")
+            log.debug("\(name) did not take \(what): \(error)")
             throw HAPStatusError(.serviceCommunicationFailure)
         }
-        wake()
     }
 
     private func power(_ on: Bool) -> MagicHomeOutgoing {

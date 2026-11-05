@@ -367,11 +367,8 @@ actor RenaultVehicle {
                 if let energy = battery.availableEnergy { set(service.characteristic(RenaultCharacteristic.availableEnergy), .double(energy)) }
                 if let status = battery.chargeStatusName { set(service.characteristic(RenaultCharacteristic.chargeStatus), .string(status)) }
                 if let timestamp = battery.timestamp { set(service.characteristic(RenaultCharacteristic.batteryUpdated), .string(timestamp)) }
-                // The car keeps its last estimate after a charge: 0 unless it charges.
-                if let charging = battery.isCharging {
-                    set(service.characteristic(RenaultCharacteristic.timeToFull), .int(charging ? battery.remainingMinutes ?? 0 : 0))
-                    set(service.characteristic(EveCharacteristic.currentConsumption), .int(charging ? battery.watts ?? 0 : 0))
-                }
+                if let minutes = battery.timeToFull { set(service.characteristic(RenaultCharacteristic.timeToFull), .int(minutes)) }
+                if let watts = battery.chargingWatts { set(service.characteristic(EveCharacteristic.currentConsumption), .int(watts)) }
             }
             if let value = battery.temperature, let service = services["BatteryTemperature"] {
                 set(service.characteristic(.currentTemperature), .double(value))
@@ -407,10 +404,8 @@ actor RenaultVehicle {
     /// The battery's readings for the Status page's history, those the car reported.
     private func recordReadings(_ status: BatteryStatus) {
         if let range = status.autonomy { record("range", Double(range)) }
-        if let charging = status.isCharging {
-            record("timeToFull", Double(charging ? status.remainingMinutes ?? 0 : 0))
-            record("power", Double(charging ? status.watts ?? 0 : 0))
-        }
+        if let minutes = status.timeToFull { record("timeToFull", Double(minutes)) }
+        if let watts = status.chargingWatts { record("power", Double(watts)) }
         if let temperature = status.temperature { record("batteryTemperature", temperature) }
         if let energy = status.availableEnergy { record("availableEnergy", energy) }
         if let level = status.level { record("level", Double(level)) }

@@ -23,16 +23,16 @@ struct LifetimeEnergy: Codable, Sendable, Equatable {
     }
 }
 
-/// What the plugin keeps of a charger across restarts (`charger-<Device Id>.json`): its lifetime energy, and the
+/// What the plugin keeps of a charger across restarts (in `chargers.json`, by Device Id): its lifetime energy, and the
 /// installation settings it sent, so a value is sent once per change of the Accessory Settings.
 struct ChargerMemory: Codable, Sendable, Equatable {
     var energy = LifetimeEnergy()
     /// By keyword (`ChargeMode`): the value last sent.
     var sent: [String: Int] = [:]
 
-    static func file(_ context: PluginContext, deviceID: String) -> JSONFile<ChargerMemory> {
-        context.jsonFile("charger-\(deviceID).json", as: ChargerMemory.self)
-    }
+    /// The energy changes at every poll while a car charges: written at most this often (and when the plugin stops),
+    /// rather than every ten seconds.
+    static let autosave: Duration = .seconds(300)
 }
 
 /// The wiring a charger's Accessory Settings can set (`ChargeMode`, 3.3).

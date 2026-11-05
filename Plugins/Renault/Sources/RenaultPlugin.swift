@@ -73,6 +73,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        sentSoc = context.persistedDictionary("renault-soc.json", of: SocLevels.self)
     }
 
     static func accessoryID(vin: String) -> String { "\(platform):\(vin)" }
@@ -205,7 +206,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
             if !ModelEndpoints.isKnown(info.modelCode) {
                 logger.warning("The model \(info.modelCode ?? "?") is not documented: using the default endpoints (hacf-fr/renault-api#1747)")
             }
-            let store = droppedStore, lock = dropLock, socStore = socStore, context = context, vin = info.vin
+            let store = droppedStore, lock = dropLock, sentSoc = sentSoc, context = context, vin = info.vin
             let settings = context.accessorySettings(for: info.vin)
             var options = RenaultVehicle.Options(climateTemperature: configuration.climateTemperature ?? 21, parts: settings.parts)
             options.socMinimum = settings.plugin["socMin"]?.saturatingIntValue
@@ -214,15 +215,9 @@ public actor RenaultPlugin: HomeswiftPlugin {
                 info: info, accountID: accountID, session: session, options: options,
                 dropped: Self.dropped(in: store.load() ?? [:], for: info, forgetAfter: dependencies.timing.forgetDropped),
                 timing: dependencies.timing, logger: logger, tasks: tasks,
-                sentSoc: socStore.load()?[vin].map { SocLevels(minimum: $0.socMin, target: $0.socTarget) },
+                sentSoc: sentSoc[vin],
                 record: { key, value in context.recordValue(value, series: "\(vin):\(key)") },
-                onSocSent: { sent in
-                    lock.lock()
-                    defer { lock.unlock() }
-                    var all = socStore.load() ?? [:]
-                    all[vin] = SentSoc(socMin: sent.minimum, socTarget: sent.target)
-                    try? socStore.save(all)
-                }
+                onSocSent: { sent in sentSoc[vin] = sent }
             ) { vin, endpoint in
                 lock.lock()
                 defer { lock.unlock() }
@@ -351,15 +346,9 @@ public actor RenaultPlugin: HomeswiftPlugin {
         var endpoints: [String: Date]
     }
 
-    /// The state-of-charge limits last sent to each car, by VIN: sent once per change of its Accessory Settings.
-    struct SentSoc: Codable, Sendable {
-        var socMin: Int?
-        var socTarget: Int?
-    }
-
-    nonisolated var socStore: JSONFile<[String: SentSoc]> {
-        context.jsonFile("renault-soc.json", as: [String: SentSoc].self)
-    }
+    /// The state-of-charge limits last sent to each car, by VIN (`renault-soc.json`): sent once per change of its
+    /// Accessory Settings.
+    nonisolated let sentSoc: PersistedDictionary<SocLevels>
 
     /// Vehicles drop endpoints from their own actors: one read-modify-write of the file at a time.
     nonisolated let dropLock = NSLock()

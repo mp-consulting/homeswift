@@ -206,6 +206,11 @@ struct BatteryStatus: Sendable, Equatable {
 
     /// The charging power in whole watts.
     var watts: Int? { powerKW.flatMap { Int(saturating: $0 * 1000, in: 0...100_000) } }
+
+    /// Minutes to full and watts while the car charges, 0 when it does not (it keeps its last estimate after a
+    /// charge); nil when it does not say whether it charges.
+    var timeToFull: Int? { isCharging.map { $0 ? remainingMinutes ?? 0 : 0 } }
+    var chargingWatts: Int? { isCharging.map { $0 ? watts ?? 0 : 0 } }
 }
 
 struct HvacStatus: Sendable, Equatable {
@@ -225,9 +230,14 @@ struct HvacStatus: Sendable, Equatable {
     static func plausible(_ value: Double) -> Double? { (-60...100).contains(value) ? value : nil }
 }
 
-struct SocLevels: Sendable, Equatable {
+struct SocLevels: Sendable, Equatable, Codable {
     var minimum: Int?
     var target: Int?
+
+    /// The API's names, which `renault-soc.json` keeps too.
+    enum CodingKeys: String, CodingKey {
+        case minimum = "socMin", target = "socTarget"
+    }
 
     init(attributes json: JSONValue) {
         minimum = json["socMin"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
@@ -243,8 +253,9 @@ struct SocLevels: Sendable, Equatable {
     static let minimumRange = 15...45
     static let targetRange = 55...100
 
-    static func isValid(minimum: Int) -> Bool { minimumRange.contains(minimum) && minimum % 5 == 0 }
-    static func isValid(target: Int) -> Bool { targetRange.contains(target) && target % 5 == 0 }
+    static func isValid(minimum: Int) -> Bool { isStep(minimum, in: minimumRange) }
+    static func isValid(target: Int) -> Bool { isStep(target, in: targetRange) }
+    private static func isStep(_ value: Int, in range: ClosedRange<Int>) -> Bool { range.contains(value) && value % 5 == 0 }
 }
 
 struct LockStatus: Sendable, Equatable {

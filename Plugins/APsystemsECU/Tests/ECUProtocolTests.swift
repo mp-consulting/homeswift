@@ -347,8 +347,7 @@ enum Vectors {
     @Test func theMeterTakesEachArraysLastElement() throws {
         let json = #"{"power1":[{"powerA":1,"powerB":2,"powerC":3},{"powerA":1000,"powerB":"500.5","powerC":0}],"power2":[{"powerA":-200,"powerB":100,"powerC":50}]}"#
         let meter = try ECUMeter.parse(Data(json.utf8))
-        #expect(meter.production == [1000, 500.5, 0])
-        #expect(meter.grid == [-200, 100, 50])
+        #expect(meter.gridPhases == ["A": -200, "B": 100, "C": 50])
         #expect(meter.gridPower == -50)
         #expect(meter.homePower == 1450.5)
         #expect(meter.productionPhases == ["A": 1000, "B": 500.5, "C": 0])

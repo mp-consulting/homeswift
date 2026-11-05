@@ -61,6 +61,8 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
 
     let configuration: Configuration
     let context: PluginContext
+    /// What each charger keeps across restarts, by Device Id (`chargers.json`).
+    let memories: PersistedDictionary<ChargerMemory>
     let dependencies: Dependencies
     let tasks = TaskBag()
     /// The chargers running, by host key (`hostKey`).
@@ -79,6 +81,7 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        memories = context.persistedDictionary("chargers.json", of: ChargerMemory.self, autosave: ChargerMemory.autosave)
     }
 
     var pollingInterval: Duration {
@@ -152,7 +155,7 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
     private func run(_ target: Target) async {
         let charger = TrydanCharger(
             host: target.host, deviceID: target.deviceID, name: target.name ?? Self.defaultName, settings: settings(for: target.deviceID),
-            transport: dependencies.transport, interval: pollingInterval, timeout: timeout, timing: dependencies.timing, context: context, tasks: tasks)
+            transport: dependencies.transport, interval: pollingInterval, timeout: timeout, timing: dependencies.timing, context: context, memories: memories, tasks: tasks)
         let key = Self.hostKey(target.host)
         chargers[key] = charger
         if let deviceID = target.deviceID {

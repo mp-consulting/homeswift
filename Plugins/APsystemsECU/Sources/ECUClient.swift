@@ -110,23 +110,6 @@ struct ECUMeter: Sendable, Equatable {
     var productionPhases: [String: Double]?
     var gridPhases: [String: Double]?
 
-    init(productionPhases: [String: Double]?, gridPhases: [String: Double]?) {
-        self.productionPhases = productionPhases
-        self.gridPhases = gridPhases
-    }
-
-    /// Phase A first: the readings in phase order.
-    init(production: [Double]?, grid: [Double]?) {
-        func named(_ values: [Double]?) -> [String: Double]? {
-            values.map { Dictionary(uniqueKeysWithValues: zip(Self.phases, $0)) }
-        }
-        self.init(productionPhases: named(production), gridPhases: named(grid))
-    }
-
-    /// The phases' readings in phase order, nil where the ECU gave none.
-    var production: [Double]? { productionPhases.map { phases in Self.phases.compactMap { phases[$0] } } }
-    var grid: [Double]? { gridPhases.map { phases in Self.phases.compactMap { phases[$0] } } }
-
     /// The home's use on each phase, production + grid (a phase without its production clamp counts 0); nil without
     /// the grid clamps.
     var homePhases: [String: Double]? {
@@ -134,9 +117,9 @@ struct ECUMeter: Sendable, Equatable {
     }
 
     /// All the grid phases, nil without them.
-    var gridPower: Double? { grid.map { $0.reduce(0, +) } }
+    var gridPower: Double? { gridPhases.map { $0.values.reduce(0, +) } }
     /// The home's use, production + grid on each phase; nil without the grid clamps.
-    var homePower: Double? { gridPower.map { $0 + (production ?? []).reduce(0, +) } }
+    var homePower: Double? { gridPower.map { $0 + (productionPhases?.values.reduce(0, +) ?? 0) } }
 
     /// The JSON of `/index.php/meter/old_meter_power_graph`: arrays `power1` (production) and `power2` (grid), each
     /// element with `powerA`, `powerB`, `powerC`; the last element of each counts.

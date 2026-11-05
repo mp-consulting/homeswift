@@ -407,8 +407,7 @@ public actor MagicHomePlugin: HomeswiftPlugin {
 
     /// The patterns' speed for the device: its Accessory Settings' `effectSpeed`, else the plugin's, else 50.
     func effectSpeed(_ id: String) -> Int {
-        let speed = context.accessorySettings(for: id).plugin["effectSpeed"]?.saturatingIntValue ?? configuration.effectSpeed ?? 50
-        return min(max(speed, 0), 100)
+        context.accessorySettings(for: id).plugin["effectSpeed"]?.saturatingIntValue ?? configuration.effectSpeed ?? 50
     }
 
     private func update(_ id: String, _ record: MagicHomeRecord) {

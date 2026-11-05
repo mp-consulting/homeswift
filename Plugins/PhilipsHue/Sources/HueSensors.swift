@@ -206,7 +206,7 @@ extension PhilipsHuePlugin {
         let measured = [motion, temperature, lightLevel].compactMap { $0 }
         if !measured.isEmpty {
             let fields = EveHistory.fields(of: measured)
-            let file = context.storageDirectory.appendingPathComponent("history-\(sensor.id.filter { $0.isLetter || $0.isNumber || $0 == "-" }).json")
+            let file = context.jsonFile("history-\(sensor.id).json", as: JSONValue.self).url
             let built = EveHistory(.custom(fields), accessoryName: sensor.name, storageURL: file)
             services.append(built.service)
             history = built

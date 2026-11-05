@@ -24,7 +24,7 @@ enum DaikinConsumption {
         for point in raw["managementPoints"]?.arrayValue ?? [] {
             guard let electrical = point["consumptionData"]?["value"]?["electrical"]?.objectValue else { continue }
             // Watt-hours are what the Energy section counts; any other unit is not read.
-            if let unit = point["consumptionData"]?["value"]?["electrical"]?["unit"]?.stringValue, unit != "kWh" { continue }
+            if let unit = electrical["unit"]?.stringValue, unit != "kWh" { continue }
             for (mode, series) in electrical where mode != "unit" {
                 for (index, value) in (series["d"]?.arrayValue ?? []).prefix(24).enumerated() {
                     guard let kWh = value.doubleValue, kWh.isFinite, kWh >= 0 else { continue }
@@ -55,9 +55,10 @@ enum DaikinConsumption {
         }
         for (day, kWh) in totals.days where !covered.contains(day) {
             guard let end = calendar.date(byAdding: .day, value: 1, to: day), end <= now else { continue }
-            let count = calendar.dateComponents([.hour], from: day, to: end).hour ?? 24
-            for offset in 0..<max(count, 1) {
-                if let hour = calendar.date(byAdding: .hour, value: offset, to: day) { hours[hour, default: 0] += kWh * 1000 / Double(max(count, 1)) }
+            // 23 or 25 on the days the clocks change.
+            let count = max(calendar.dateComponents([.hour], from: day, to: end).hour ?? 24, 1)
+            for offset in 0..<count {
+                if let hour = calendar.date(byAdding: .hour, value: offset, to: day) { hours[hour, default: 0] += kWh * 1000 / Double(count) }
             }
         }
         return hours.keys.sorted().map { EnergyHourImport(start: $0, flows: EnergyFlows(home: hours[$0])) }

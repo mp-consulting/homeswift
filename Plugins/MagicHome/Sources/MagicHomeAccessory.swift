@@ -26,24 +26,24 @@ enum MagicHomeAccessory {
             }
             service = Service(.lightbulb, name: name, optional: optional, isPrimary: true)
         }
-        var effectSwitches: [(MagicHomeEffect, Service)] = []
+        var effectSwitches: [Service] = []
+        var effectCharacteristics: [UInt8: Characteristic] = [:]
         if effects {
             for effect in profile.effects {
-                effectSwitches.append((effect, Service(.switch, name: effect.name, subtype: effect.subtype, optional: [.configuredName])))
+                let effectService = Service(.switch, name: effect.name, subtype: effect.subtype, optional: [.configuredName])
+                let on = effectService.characteristic(.on)
+                on.onWrite { value in try await device.playEffect(effect, on: value.boolValue ?? false) }
+                effectCharacteristics[effect.id] = on
+                effectSwitches.append(effectService)
             }
         }
         let accessory = Accessory(
             id: id, name: name, manufacturer: "MagicHome", model: record.module.isEmpty ? profile.description : record.module, serialNumber: device.id,
-            category: profile.isSwitch ? .switch : .lightbulb, services: [service] + effectSwitches.map(\.1),
+            category: profile.isSwitch ? .switch : .lightbulb, services: [service] + effectSwitches,
             onIdentify: { await device.identify() })
-        var services = MagicHomeServices(
+        let services = MagicHomeServices(
             accessory: accessory, primary: service, on: service.characteristic(.on), brightness: service[.brightness], hue: service[.hue],
-            saturation: service[.saturation], colorTemperature: service[.colorTemperature])
-        for (effect, effectService) in effectSwitches {
-            let on = effectService.characteristic(.on)
-            on.onWrite { value in try await device.playEffect(effect, on: value.boolValue ?? false) }
-            services.effects[effect.id] = on
-        }
+            saturation: service[.saturation], colorTemperature: service[.colorTemperature], effects: effectCharacteristics)
         attachHandlers(device: device, services: services)
         return (accessory, services)
     }

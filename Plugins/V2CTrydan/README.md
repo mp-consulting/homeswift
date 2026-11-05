@@ -45,7 +45,7 @@ tool.
 
 **The lifetime energy.** The charger only reports the session's energy (`ChargeEnergy`, which starts again at each
 session). The plugin adds what each reading grew by, or all of it when it fell (a new session), into a total kept in
-`charger-<Device Id>.json` in the plugin's storage, so it only grows and survives restarts. It is Eve's Total
+`chargers.json` in the plugin's storage (written at most every five minutes, and when the plugin stops), so it only grows and survives restarts. It is Eve's Total
 Consumption (Eve's history expects a total that only grows) and the Status page's `<Device Id>:energy` series; the
 session's energy is the Session Energy characteristic and the `session` series. The total counts from the first read:
 what a charger delivered before the plugin ran is not in it, nor a session that started and grew past the last reading

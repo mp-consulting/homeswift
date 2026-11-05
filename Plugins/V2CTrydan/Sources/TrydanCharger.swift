@@ -31,6 +31,7 @@ actor TrydanCharger {
     let timing: TrydanTiming
     let logger: Logger
     let context: PluginContext
+    let memories: PersistedDictionary<ChargerMemory>
     let tasks: TaskBag
     /// The Device Id the accessory is under, once known (the configuration's, or the first report's).
     private(set) var deviceID: String?
@@ -71,7 +72,7 @@ actor TrydanCharger {
 
     init(
         host: String, deviceID: String?, name: String, settings: ChargerSettings, transport: any HTTPSending, interval: Duration, timeout: Duration,
-        timing: TrydanTiming, context: PluginContext, tasks: TaskBag
+        timing: TrydanTiming, context: PluginContext, memories: PersistedDictionary<ChargerMemory>, tasks: TaskBag
     ) {
         self.host = host
         self.deviceID = deviceID
@@ -81,6 +82,7 @@ actor TrydanCharger {
         self.timing = timing
         self.logger = context.logger
         self.context = context
+        self.memories = memories
         self.tasks = tasks
         client = TrydanClient(host: host, transport: transport, timeout: timeout, logger: context.logger)
         coalesce = LatestCallGuard(delay: timing.coalescing)
@@ -201,7 +203,7 @@ actor TrydanCharger {
     private func loadedMemory() -> ChargerMemory? {
         guard let deviceID else { return nil }
         if let memory { return memory }
-        let loaded = ChargerMemory.file(context, deviceID: deviceID).load() ?? ChargerMemory()
+        let loaded = memories[deviceID] ?? ChargerMemory()
         memory = loaded
         return loaded
     }
@@ -209,11 +211,7 @@ actor TrydanCharger {
     private func save(_ updated: ChargerMemory) {
         guard let deviceID, updated != memory else { return }
         memory = updated
-        do {
-            try ChargerMemory.file(context, deviceID: deviceID).save(updated)
-        } catch {
-            logger.warning("Could not keep what \(name) delivered: \(error)")
-        }
+        memories[deviceID] = updated
     }
 
     /// The session's energy added to the lifetime total, kept; nil before the Device Id is known.

@@ -49,7 +49,7 @@ actor FakeECU: ECUExchanging {
 
 /// An ECU-C's meter page in memory.
 actor FakeMeter: ECUMeterReading {
-    var answer: ECUMeter? = ECUMeter(production: [3000, 2500, 2672], grid: [-1000, 200, 300])
+    var answer: ECUMeter? = ECUMeter(productionPhases: ["A": 3000, "B": 2500, "C": 2672], gridPhases: ["A": -1000, "B": 200, "C": 300])
     private(set) var requests = 0
 
     func meter(host: String) async throws -> ECUMeter {
