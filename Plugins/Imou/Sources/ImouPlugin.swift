@@ -62,6 +62,12 @@ public actor ImouPlugin: HomeswiftPlugin {
     private var ffmpeg: RTSPCameraFFmpeg?
     private(set) var cloud: ImouCloud?
     private var cloudOutage = false
+    /// enableTypes each accessory's camera lacks (`DV1019`), kept in `unsupported.json`: their switches are left out.
+    private lazy var unsupported = context.persistedDictionary("unsupported.json", of: [String].self)
+    private var polls = 0
+    /// The quota governor: the switches beyond the first ones are read every this many polls, so the day's calls stay
+    /// under `ImouUsage.warnAbove`.
+    private(set) var extrasEvery = 1
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -147,7 +153,7 @@ public actor ImouPlugin: HomeswiftPlugin {
             await camera.noteSilentSensor()
         }
         guard self.cloud != nil else { return }
-        estimateCalls()
+        await estimateCalls()
         tasks.add { [weak self] in await self?.pollLoop() }
         tasks.add { [weak self] in await self?.alarmLoop() }
         tasks.add { [weak self] in await self?.rediscoveryLoop() }
@@ -244,17 +250,20 @@ public actor ImouPlugin: HomeswiftPlugin {
         let features = ImouFeatures(abilities: device.abilities(of: channel))
         let name = channel.id == "0" || device.isIPC ? device.name : channel.name
         let id = Self.accessoryID(deviceID: device.deviceID, channel: channel.id)
+        let cameraCloud = cloudDevices[device.deviceID] != nil ? cloud : nil
+        // HomeKit Secure Video from the local stream only (section 6.2).
+        let records = settings.isLocal && settings.recording
         let local = settings.isLocal ? settings.host.flatMap {
             DahuaClient(host: $0, port: settings.httpPort, username: settings.username, password: settings.password ?? "", transport: dependencies.local)
         } : nil
         let ffmpeg = sharedFFmpeg()
         let camera = ImouCamera(
             accessoryID: id, deviceID: device.deviceID, channel: channel, name: name, features: features, settings: settings,
-            multiChannel: !device.isIPC, cloud: cloudDevices[device.deviceID] != nil ? cloud : nil, local: local, queue: queue(for: device.deviceID),
+            multiChannel: !device.isIPC, cloud: cameraCloud, local: local, queue: queue(for: device.deviceID),
             download: dependencies.download, ffmpeg: ffmpeg, streamID: configuration.streamID,
             timing: ImouCamera.Timing(scale: dependencies.timeScale, snapshotWait: configuration.snapshotWaitSeconds, wakeWait: configuration.wakeWaitSeconds,
                                       dormantRetryWait: Double(configuration.dormantRetrySeconds)),
-            log: logger)
+            log: logger, unsupported: Set(unsupported[id] ?? []), recording: records)
         let options = RTSPCameraOptions(encoder: (settings.encoder ?? "").split(whereSeparator: \.isWhitespace).map(String.init), rtspOverTCP: true)
         let open: RTSPSourceOpener = { [weak camera] purpose in
             guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
@@ -266,8 +275,7 @@ public actor ImouPlugin: HomeswiftPlugin {
                 guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
                 return try await camera.snapshotImage()
             }, log: logger, timeScale: dependencies.timeScale)
-        // HomeKit Secure Video from the local stream only (section 6.2).
-        let recorder = settings.isLocal && settings.recording ? RTSPCameraRecorder(name: name, options: options, ffmpeg: ffmpeg, open: open, log: logger) : nil
+        let recorder = records ? RTSPCameraRecorder(name: name, options: options, ffmpeg: ffmpeg, open: open, log: logger) : nil
         do {
             let controllerOptions = CameraControllerOptions(
                 cameraStreamCount: 2, delegate: streamer,
@@ -285,11 +293,15 @@ public actor ImouPlugin: HomeswiftPlugin {
                 ? try DoorbellController(controllerOptions, name: name, logger: logger)
                 : try CameraController(controllerOptions, logger: logger)
             await streamer.attach(controller)
+            if let operatingMode = controller.services.first(where: { $0.type.uuid == ServiceType.cameraOperatingMode.uuid }) {
+                await camera.attach(operatingMode: operatingMode)
+            }
             let services = camera.services
             let accessory = Accessory(
                 id: id, name: name, manufacturer: "Imou", model: device.model, serialNumber: device.deviceID,
                 firmwareRevision: Self.firmwareRevision(device.firmware), category: features.doorbell ? .videoDoorbell : .ipCamera,
-                services: [services.motion, services.privacy, services.motionDetection, services.siren, services.light, services.battery].compactMap { $0 })
+                services: [services.motion, services.privacy, services.motionDetection, services.siren, services.light, services.battery, services.nightVision]
+                    .compactMap { $0 } + services.toggles.map(\.service))
             camera.bindWrites()
             accessory.configureController(controller)
             context.configureController(controller, accessoryID: id)
@@ -444,15 +456,20 @@ public actor ImouPlugin: HomeswiftPlugin {
 
     func poll() async {
         guard let cloud else { return }
+        // The quota governor: the extra switches on one poll in `extrasEvery`, and none once the day's calls slow polling.
+        let extras = polls % extrasEvery == 0
+        polls += 1
         for (deviceID, cameras) in camerasByDevice().sorted(by: { $0.key < $1.key }) where !context.isExcluded(deviceID) {
             do {
                 let state = try await cloud.online(deviceID, polling: true)
+                let spare = await !cloud.isOverBudget()
                 // The battery is the device's: read once for all its channels.
                 var battery: Int?
                 if state.device == .online, cameras.contains(where: { $0.services.battery != nil }) { battery = try? await cloud.batteryLevel(deviceID) }
                 for camera in cameras {
                     let channel = state.channels.isEmpty ? state.device : state.channels[camera.channel.id] ?? .offline
-                    await camera.refresh(channel, battery: battery)
+                    await camera.refresh(channel, battery: battery, extras: extras && spare)
+                    await keepUnsupported(of: camera)
                 }
                 if cloudOutage { logger.info("The IMOU cloud answers again") }
                 cloudOutage = false
@@ -501,26 +518,45 @@ public actor ImouPlugin: HomeswiftPlugin {
             if let devices = try? await cloud.listDevices(), !Task.isCancelled {
                 await sync(devices)
                 startEventStreams()
+                await estimateCalls(quiet: true)
             }
         }
     }
 
-    /// What the polls will cost a day, warned of above 15,000 (section 7.2).
-    private func estimateCalls() {
-        var perPoll = 0
-        for device in cloudDevices.values {
-            perPoll += 1
-            for channel in device.cameraChannels {
-                let features = ImouFeatures(abilities: device.abilities(of: channel))
-                perPoll += (features.privacy ? 1 : 0) + (features.whiteLight ? 1 : 0) + (features.motionDetectSwitch ? 2 : 0)
+    /// Keeps the enableTypes a camera found missing, so its next start leaves their switches out.
+    private func keepUnsupported(of camera: ImouCamera) async {
+        let found = await camera.takeUnsupported()
+        guard !found.isEmpty else { return }
+        _ = unsupported.update(camera.accessoryID) { $0 = Set(($0 ?? []) + found).sorted() }
+    }
+
+    /// What the polls will cost a day, warned of above 15,000 (section 7.2), and the quota governor's spacing of the extra
+    /// switches: read on every poll while the day stays under 15,000, else on one poll in `extrasEvery`.
+    func estimateCalls(quiet: Bool = false) async {
+        var base = 0, extras = 0
+        for cameras in camerasByDevice().values {
+            base += 1 + (cameras.contains { $0.services.battery != nil } ? 1 : 0)
+            for camera in cameras {
+                let reads = await camera.pollReads()
+                base += reads.base
+                extras += reads.extras
             }
-            if device.cameraChannels.contains(where: { ImouFeatures(abilities: device.abilities(of: $0)).battery }) { perPoll += 1 }
         }
-        var daily = perPoll * 86_400 / configuration.pollSeconds
+        let polls = 86_400 / configuration.pollSeconds
+        var daily = base * polls + 144
         if let interval = configuration.alarmPollInterval, interval > 0 { daily += cameras.count * 86_400 / max(interval, 30) }
-        daily += 144
+        let room = ImouUsage.warnAbove - daily
+        if extras == 0 || extras * polls <= room {
+            extrasEvery = 1
+        } else {
+            // Within the room left, else once an hour.
+            extrasEvery = room > 0 ? (extras * polls + room - 1) / room : max(1, polls / 24)
+        }
+        daily += extras * polls / extrasEvery
         if daily > ImouUsage.warnAbove {
             logger.warning("These cameras and intervals cost about \(daily) IMOU cloud calls a day; the account's limit is 20,000: raise pollingInterval")
+        } else if extrasEvery > 1, !quiet {
+            logger.info("About \(daily) IMOU cloud calls a day: the extra switches are read on one poll in \(extrasEvery), to stay under 15,000")
         } else {
             logger.debug("About \(daily) IMOU cloud calls a day")
         }

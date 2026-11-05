@@ -125,6 +125,8 @@ actor ImouCloud {
     /// The signature the account takes: the documented HMAC-SHA256 first, MD5 once the cloud refused it (addendum, section 0).
     private(set) var signing = ImouSigning.hmac
     private var signingSettled = false
+    /// Devices that answered `OP1003` to a device-level call without `channelId`: sent `"0"` from then on.
+    private(set) var devicesWantingChannel: Set<String> = []
 
     init(appID: String, appSecret: String, region: ImouRegion, apiURL: String?, environment: Environment, logger: Logger) {
         self.appID = appID
@@ -219,6 +221,8 @@ actor ImouCloud {
         defer { fetching = nil }
         return try await task.value
     }
+
+    func wantsChannel(_ deviceID: String) { devicesWantingChannel.insert(deviceID) }
 
     private func fetchToken() async throws -> String {
         let data: JSONValue

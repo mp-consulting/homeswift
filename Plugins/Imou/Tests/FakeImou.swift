@@ -48,6 +48,11 @@ final class FakeImouCloud: HTTPSending, Sendable {
         var setStatusDelay: Duration = .zero
         /// An account that takes only the MD5 signature, as the libraries send it.
         var refusesHMAC = false
+        /// enableTypes and methods the camera lacks: `DV1019`.
+        var unsupported: Set<String> = []
+        /// enableTypes whose reads fail (the channel offline, `DV1020`).
+        var failing: Set<String> = []
+        var nightVision: (mode: String, modes: [String]) = ("Intelligent", ["Intelligent", "FullColor", "Infrared", "Off"])
     }
 
     let state = NIOLockedValueBox(State())
@@ -99,7 +104,10 @@ final class FakeImouCloud: HTTPSending, Sendable {
                 guard let token = params["token"]?.stringValue, token == "At_\(state.tokens)" else { return Self.error("TK1002", "Token expired or does not exist, please get token again.") }
             }
             let device = params["deviceId"]?.stringValue ?? ""
-            let channel = params["channelId"]?.stringValue ?? "0"
+            // A device-level switch has no channel.
+            let channel = params["channelId"]?.stringValue ?? "device"
+            if state.unsupported.contains(method) || state.unsupported.contains(params["enableType"]?.stringValue ?? "-") { return Self.error("DV1019", "not supported") }
+            if method == "getDeviceCameraStatus", state.failing.contains(params["enableType"]?.stringValue ?? "-") { return Self.error("DV1020", "channel offline") }
             switch method {
             case "accessToken":
                 state.tokens += 1
@@ -130,6 +138,13 @@ final class FakeImouCloud: HTTPSending, Sendable {
                 return Self.ok(["url": "https://oss.example.com/snap.jpg?Expires=1&OSSAccessKeyId=KEYID&Signature=SIGNATURE"])
             case "getStreamUrl":
                 return Self.ok(["url": "rtsp://proxy.example.com:8554/live/secretpath"])
+            case "breathingLightStatus":
+                return Self.ok(["status": .string(state.statuses["\(device):device:breathingLight"] == true ? "on" : "off")])
+            case "getNightVisionMode":
+                return Self.ok(["mode": .string(state.nightVision.mode), "modes": .array(state.nightVision.modes.map(JSONValue.string))])
+            case "setNightVisionMode":
+                state.nightVision.mode = params["mode"]?.stringValue ?? ""
+                return Self.ok([:])
             case "getDevicePowerInfo":
                 return Self.ok(["electricitys": [["type": "battery", "electric": "89", "litElec": "77"]]])
             default:

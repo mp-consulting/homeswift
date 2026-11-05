@@ -81,7 +81,7 @@ extension ImouPlugin {
     public struct CameraSettings: Sendable, Equatable {
         static let keys: Set<String> = [
             "host", "rtspPort", "httpPort", "username", "localEvents", "motionTimeout", "privacySwitch", "lightSwitch", "sirenSwitch", "motionDetectSwitch",
-            "recording", "encoder",
+            "recording", "encoder", "personDetectSwitch", "statusLightSwitch", "linkageSirenSwitch", "linkageLightSwitch", "nightVisionSwitch",
         ]
 
         var host: String?
@@ -97,6 +97,12 @@ extension ImouPlugin {
         var motionDetectSwitch = true
         var recording = true
         var encoder: String?
+        /// The addendum's switches (section 2): off unless asked for, since each read costs calls of the day's budget.
+        var personDetectSwitch = false
+        var statusLightSwitch = false
+        var linkageSirenSwitch = false
+        var linkageLightSwitch = false
+        var nightVisionSwitch = false
 
         init(fields: [String: JSONValue], password: String?, defaults: Configuration) {
             let json = JSONValue.object(fields)
@@ -113,6 +119,11 @@ extension ImouPlugin {
             motionDetectSwitch = json["motionDetectSwitch"]?.boolValue ?? true
             recording = json["recording"]?.boolValue ?? true
             encoder = json["encoder"].text ?? defaults.encoder
+            personDetectSwitch = json["personDetectSwitch"]?.boolValue ?? false
+            statusLightSwitch = json["statusLightSwitch"]?.boolValue ?? false
+            linkageSirenSwitch = json["linkageSirenSwitch"]?.boolValue ?? false
+            linkageLightSwitch = json["linkageLightSwitch"]?.boolValue ?? false
+            nightVisionSwitch = json["nightVisionSwitch"]?.boolValue ?? false
         }
 
         /// Video and snapshots can go local: an address and a password.
