@@ -17,9 +17,8 @@ actor ReolinkBatteryHost {
         var battery: ReolinkBatteryReport?
         /// Whether the firmware has the webhook (`cmd_id` 806 answered); nil until asked.
         var webhookSupported: Bool?
-        /// The talk ability once asked (ReolinkTalk.md 2): its format, nil when the camera cannot talk.
-        var talkAsked: Bool?
-        var talk: ReolinkTalkConfig?
+        /// The talk ability (ReolinkTalk.md 2); nil until asked.
+        var talk: ReolinkTalkAbility?
     }
 
     /// How a webhook check ended (6.1).
@@ -76,8 +75,9 @@ actor ReolinkBatteryHost {
     private var image: (data: Data, at: ContinuousClock.Instant)?
     private var fetching: Task<Data, any Error>?
     private var stopped = false
-    /// How many sessions were opened (tests).
-    private(set) var connections = 0
+    /// The background work (the session's events, the webhook check, the refresh after a wake): `stop` cancels it, and
+    /// none starts after.
+    private let tasks = TaskBag()
 
     init(device: ReolinkPlugin.Device, record: Record, connect: @escaping BaichuanSession.Connect, log: Logger, timing: ReolinkTiming,
          motionTimeout: Double = 30, imageFile: URL?, saveRecord: @escaping @Sendable (Record) -> Void,
@@ -101,10 +101,8 @@ actor ReolinkBatteryHost {
         if let imageFile, let data = try? Data(contentsOf: imageFile), !data.isEmpty { image = (data, .now - .seconds(86_400)) }
     }
 
-    var uid: String { record.identity.uid }
     var currentState: ReolinkChannelState { state }
     var isAwake: Bool { session != nil }
-    var lastImage: Data? { image?.data }
 
     func setListener(_ listener: @escaping Listener) {
         self.listener = listener
@@ -119,6 +117,7 @@ actor ReolinkBatteryHost {
 
     func stop() async {
         stopped = true
+        tasks.cancelAll()
         idleTask?.cancel()
         motionOff?.cancel()
         fetching?.cancel()
@@ -134,23 +133,40 @@ actor ReolinkBatteryHost {
 
     /// Runs `body` on a session, opened if none is, within `budget` seconds for the whole; the session closes 5 s after
     /// its last use.
-    func use<T: Sendable>(budget: Double, _ body: @escaping @Sendable (BaichuanSession) async throws -> T) async throws -> T {
-        guard !stopped else { throw BaichuanError.closed }
-        users += 1
-        idleTask?.cancel()
-        defer {
-            users -= 1
-            scheduleIdleClose()
-        }
-        let deadline = ContinuousClock.now + spacingWait() + timing.timeout(budget)
-        let session = try await Self.withDeadline(deadline) { try await self.openSession() }
+    /// `bodyDeadline` false leaves `body` unbounded (a Talk, as long as HomeKit's), the budget the opening's alone.
+    func use<T: Sendable>(budget: Double, bodyDeadline: Bool = true, _ body: @escaping @Sendable (BaichuanSession) async throws -> T) async throws -> T {
+        let (session, deadline) = try await acquire(budget: budget)
+        defer { release() }
+        guard bodyDeadline else { return try await body(session) }
         return try await Self.withDeadline(deadline) { try await body(session) }
     }
 
-    /// What a new login still waits for the 15 s spacing (3.3): added to a budget, which is the work's, not the wait's (the
-    /// session closes 5 s after its last use, so a use 5 to 15 s after a login would otherwise spend its budget waiting).
-    private func spacingWait() -> Duration {
-        guard session == nil, opening == nil, let lastLogin else { return .zero }
+    /// Takes a use of the session, opened within `budget` seconds (and the login spacing's wait) if none is: kept open
+    /// until `release`. The deadline is the budget's end, for the work that follows.
+    private func acquire(budget: Double) async throws -> (BaichuanSession, ContinuousClock.Instant) {
+        guard !stopped else { throw BaichuanError.closed }
+        users += 1
+        idleTask?.cancel()
+        // The spacing's wait is added to the budget, which is the work's (the session closes 5 s after its last use, so a
+        // use 5 to 15 s after a login would otherwise spend its budget waiting).
+        let deadline = ContinuousClock.now + (session == nil && opening == nil ? loginWait() : .zero) + timing.timeout(budget)
+        do {
+            return (try await Self.withDeadline(deadline) { try await self.openSession() }, deadline)
+        } catch {
+            release()
+            throw error
+        }
+    }
+
+    /// A use ended: the session closes 5 s after the last.
+    private func release() {
+        users -= 1
+        scheduleIdleClose()
+    }
+
+    /// What a new login still waits for the 15 s spacing (3.3).
+    private func loginWait() -> Duration {
+        guard let lastLogin else { return .zero }
         let wait = timing.seconds(Self.loginSpacing) - (ContinuousClock.now - lastLogin)
         return wait > .zero ? wait : .zero
     }
@@ -166,13 +182,10 @@ actor ReolinkBatteryHost {
     }
 
     private func login() async throws -> BaichuanSession {
-        if let lastLogin {
-            let wait = timing.seconds(Self.loginSpacing) - (ContinuousClock.now - lastLogin)
-            if wait > .zero { try await Task.sleep(for: wait) }
-        }
+        let wait = loginWait()
+        if wait > .zero { try await Task.sleep(for: wait) }
         guard !stopped else { throw BaichuanError.closed }
         lastLogin = .now
-        connections += 1
         let session = BaichuanSession(host: device.host, port: device.baichuanPort ?? 9000, username: device.username, password: device.password,
                                       connect: connect, log: log, timing: timing, connectTimeout: Self.connectTimeout, nonceTimeout: Self.nonceTimeout,
                                       retriesWaking: true)
@@ -190,10 +203,10 @@ actor ReolinkBatteryHost {
         self.session = session
         state.asleep = false
         publish()
-        Task { await self.consume(session) }
+        tasks.add { await self.consume(session) }
         if let webhook, !webhookChecked {
             webhookChecked = true
-            Task { await self.checkWebhook(webhook) }
+            tasks.add { await self.checkWebhook(webhook) }
         }
         scheduleIdleClose()
         return session
@@ -284,7 +297,7 @@ actor ReolinkBatteryHost {
     /// The camera's talk format: the record's once asked, else asked now (it wakes the camera, once) and kept. Nil when it
     /// cannot talk, or did not answer (asked again at the next start).
     func talkConfig(name: String) async -> ReolinkTalkConfig? {
-        if record.talkAsked == true { return record.talk }
+        if let talk = record.talk { return talk.config }
         let ability: ReolinkTalkAbility
         do {
             ability = try await use(budget: Self.snapshotBudget) { session -> ReolinkTalkAbility in
@@ -302,8 +315,7 @@ actor ReolinkBatteryHost {
         case .supported(let config): log.info("\(name): two-way audio (Experimental): \(config.summary).")
         case .unsupported(let reason): log.info("\(name): no two-way audio: \(reason).")
         }
-        record.talkAsked = true
-        record.talk = ability.config
+        record.talk = ability
         saveRecord(record)
         return ability.config
     }
@@ -311,16 +323,7 @@ actor ReolinkBatteryHost {
     /// Runs a Talk's `body` on a session, opened if none is: the camera is kept awake while it runs, and the session closes
     /// 5 s after it, as after any use.
     func talking(_ body: @escaping @Sendable (BaichuanSession) async throws -> Void) async throws {
-        guard !stopped else { throw BaichuanError.closed }
-        users += 1
-        idleTask?.cancel()
-        defer {
-            users -= 1
-            scheduleIdleClose()
-        }
-        let deadline = ContinuousClock.now + spacingWait() + timing.timeout(Self.streamBudget)
-        let session = try await Self.withDeadline(deadline) { try await self.openSession() }
-        try await body(session)
+        try await use(budget: Self.streamBudget, bodyDeadline: false, body)
     }
 
     // MARK: Events (6.2, 6.3)
@@ -419,21 +422,22 @@ actor ReolinkBatteryHost {
     /// After a wake push with no session open: one connection reads the battery and refreshes the snapshot, then closes
     /// when idle (6.2).
     private func refreshAfterWake() {
-        guard session == nil, !refreshing, !stopped else { return }
-        refreshing = true
-        Task {
-            defer { self.refreshDone() }
+        guard session == nil, !refreshing else { return }
+        refreshing = tasks.add {
             let result = try? await self.use(budget: Self.snapshotBudget) { session -> (ReolinkBatteryReport?, Data?) in
                 let battery = try? await session.battery(channel: 0)
                 let image = try? await session.snapshot(channel: 0, stream: .sub, timeout: Self.snapshotBudget)
                 return (battery, image)
             }
-            if let battery = result?.0 { self.apply(.battery(channel: 0, report: battery)) }
-            if let image = result?.1 { self.store(image) }
-        }
+            await self.refreshed(battery: result?.0, image: result?.1)
+        } != nil
     }
 
-    private func refreshDone() { refreshing = false }
+    private func refreshed(battery: ReolinkBatteryReport?, image: Data?) {
+        refreshing = false
+        if let battery { apply(.battery(channel: 0, report: battery)) }
+        if let image { store(image) }
+    }
 
     // MARK: Webhook (6.1)
 
@@ -566,13 +570,9 @@ actor ReolinkBatteryHost {
     /// Starts the camera's media and remuxes it (5.3): the feed once the first I-frame came, within 15 s. The session
     /// stays open until the feed is stopped; a snapshot is taken then, while the camera is still up.
     func liveFeed(sub: Bool, audio: Bool) async throws -> ReolinkMediaFeed {
-        guard !stopped else { throw BaichuanError.closed }
-        users += 1
-        idleTask?.cancel()
         let stream: Baichuan.MediaStream = sub ? .sub : .main
-        let deadline = ContinuousClock.now + spacingWait() + timing.timeout(Self.streamBudget)
+        let (session, deadline) = try await acquire(budget: Self.streamBudget)
         do {
-            let session = try await Self.withDeadline(deadline) { try await self.openSession() }
             let (events, input) = AsyncStream.makeStream(of: BaichuanBinaryEvent.self, bufferingPolicy: .bufferingNewest(Self.mediaEvents))
             let overflowed = NIOLockedValueBox(false)
             let counter = try await Self.withDeadline(deadline) {
@@ -650,8 +650,7 @@ actor ReolinkBatteryHost {
             log.debug("Live \(sub ? "sub" : "main") stream: \(first.codec.rawValue) \(size.0) x \(size.1)\(first.fps.map { " at \($0) fps" } ?? "").")
             return ReolinkMediaFeed(stream: ReolinkStream(codec: first.codec.rawValue, width: size.0, height: size.1, fps: first.fps ?? 15), data: output, stop: stop)
         } catch {
-            users -= 1
-            scheduleIdleClose()
+            release()
             throw error
         }
     }
@@ -670,12 +669,20 @@ actor ReolinkBatteryHost {
 
     /// A feed stopped: the snapshot is refreshed on the open session, then it closes when idle.
     private func feedEnded() {
-        users -= 1
-        guard !stopped, session != nil else {
-            scheduleIdleClose()
-            return
-        }
-        Task { _ = try? await self.fetch(.sub) }
-        scheduleIdleClose()
+        if session != nil { tasks.add { _ = try? await self.fetch(.sub) } }
+        release()
+    }
+}
+
+extension ReolinkBatteryHost.Record {
+    enum CodingKeys: String, CodingKey { case identity, battery, webhookSupported, talk }
+
+    /// A talk ability this version cannot read (an earlier format) is asked again rather than losing the record.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        identity = try container.decode(ReolinkBatteryIdentity.self, forKey: .identity)
+        battery = try container.decodeIfPresent(ReolinkBatteryReport.self, forKey: .battery)
+        webhookSupported = try container.decodeIfPresent(Bool.self, forKey: .webhookSupported)
+        talk = try? container.decodeIfPresent(ReolinkTalkAbility.self, forKey: .talk)
     }
 }

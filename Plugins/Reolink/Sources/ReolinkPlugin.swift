@@ -75,7 +75,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private let tasks = TaskBag()
+    let tasks = TaskBag()
     private(set) var runtimes: [String: HostRuntime] = [:]
     /// The battery cameras by address (ReolinkBattery.md).
     var batteryRuntimes: [String: BatteryRuntime] = [:]

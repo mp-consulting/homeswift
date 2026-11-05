@@ -175,6 +175,10 @@ enum Baichuan {
         [UInt8(value & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value >> 16 & 0xFF), UInt8(value >> 24 & 0xFF)]
     }
 
+    static func littleEndian16(_ value: UInt16) -> [UInt8] { [UInt8(value & 0xFF), UInt8(value >> 8)] }
+
+    static func readUInt16(_ bytes: [UInt8], _ offset: Int) -> UInt16 { UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8 }
+
     static func readUInt32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
         UInt32(bytes[offset]) | UInt32(bytes[offset + 1]) << 8 | UInt32(bytes[offset + 2]) << 16 | UInt32(bytes[offset + 3]) << 24
     }

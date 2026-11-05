@@ -385,7 +385,7 @@ func talkAbilityXML(duplex: String = "FDX", mode: String = "followVideoStream", 
         // Asked once, kept: a new start does not wake the camera for it.
         let plugin = try #require(environment.plugin)
         let records = await plugin.batteryRecords
-        #expect(records[FakeBatteryCamera.uid]?.talk == Self.config)
+        #expect(records[FakeBatteryCamera.uid]?.talk?.config == Self.config)
         #expect(device.count(10) == 1)
         let runtime = try #require(await plugin.batteryRuntimes["192.168.1.50"])
         // The camera sleeps again once idle.

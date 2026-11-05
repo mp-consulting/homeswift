@@ -74,6 +74,14 @@ final class ReolinkCamera: @unchecked Sendable {
         var chime: @Sendable (_ id: Int) async throws -> Void
         var recording: @Sendable (_ on: Bool) async throws -> Void
         var patrol: @Sendable (_ on: Bool) async throws -> Void
+
+        /// Every write refused (a camera made with `canWrite` false, which rejects them first).
+        static let refusingAll: Writes = {
+            let refused: @Sendable () throws -> Void = { throw ReolinkError.unsupported("this control") }
+            return Writes(floodlight: { _, _ in try refused() }, siren: { _ in try refused() }, ir: { _ in try refused() }, goToPreset: { _ in try refused() },
+                          privacy: { _ in try refused() }, floodlightColour: { _ in try refused() }, chime: { _ in try refused() },
+                          recording: { _ in try refused() }, patrol: { _ in try refused() })
+        }()
     }
 
     /// The services a channel gets, from what it supports and its options.

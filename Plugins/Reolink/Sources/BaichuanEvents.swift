@@ -64,6 +64,9 @@ enum BaichuanEvents {
     /// The AI types the plugin knows; others are logged once.
     static let knownAITypes: Set<String> = ["people", "vehicle", "dog_cat", "face", "package", "other", "none"]
 
+    /// The commands `parse` reads pushes from (33 also turns push events active); others are not decrypted.
+    static let pushCommands: Set<UInt32> = [33, 145, 291, 623, 252, 253, 547]
+
     /// The pushes of a message's XML. `unknown` collects tags and AI types the parser does not use, for a debug line.
     static func parse(command: UInt32, xml: String, unknown: inout Set<String>) -> [ReolinkPush] {
         guard !xml.isEmpty, let root = try? BXParser.parse(xml) else { return [] }

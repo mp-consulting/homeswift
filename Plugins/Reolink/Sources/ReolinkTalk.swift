@@ -15,13 +15,13 @@ struct ReolinkTalkConfig: Codable, Sendable, Equatable {
 
     /// IMA ADPCM block sizes (4.1): 512 code bytes, 516 bytes and 1025 samples for `lengthPerEncoder` 1024.
     var blockBytes: Int { lengthPerEncoder / 2 + 4 }
-    var samplesPerBlock: Int { lengthPerEncoder + 1 }
+    var samplesPerBlock: Int { IMAADPCMEncoder.samplesPerBlock(blockSize: blockBytes) }
 
     var summary: String { "\(duplex), \(audioStreamMode), ADPCM at \(sampleRate) Hz, \(lengthPerEncoder) per encoder" }
 }
 
 /// What a talk ability reply says (2.3, 2.5).
-enum ReolinkTalkAbility: Sendable, Equatable {
+enum ReolinkTalkAbility: Codable, Sendable, Equatable {
     case supported(ReolinkTalkConfig)
     /// Not supported, and why (with the values, for the log).
     case unsupported(String)
@@ -104,16 +104,16 @@ extension Baichuan {
     /// block, zeros to a payload that is a multiple of 8.
     static func adpcmFrame(_ block: [UInt8]) -> [UInt8] {
         let payload = block.count + 4
-        let padding = (8 - payload % 8) % 8
-        let size = [UInt8(payload & 0xFF), UInt8(payload >> 8 & 0xFF)]
-        let half = (block.count - 4) / 2
-        let header: [UInt8] = [0x00, 0x01, UInt8(half & 0xFF), UInt8(half >> 8 & 0xFF)]
+        let padding = BcMediaParser.padding(payload)
+        let size = littleEndian16(UInt16(truncatingIfNeeded: payload))
         var frame: [UInt8] = Array("01wb".utf8)
+        frame.reserveCapacity(8 + payload + padding)
         frame += size
         frame += size
-        frame += header
+        frame += [0x00, 0x01]
+        frame += littleEndian16(UInt16(truncatingIfNeeded: (block.count - 4) / 2))
         frame += block
-        frame += [UInt8](repeating: 0, count: padding)
+        frame += repeatElement(0, count: padding)
         return frame
     }
 }
@@ -132,7 +132,7 @@ extension BaichuanSession {
 struct ReolinkTalkLink: Sendable {
     /// Runs `body` on the session (a battery camera's is opened and kept open while it runs); throws without one.
     var withSession: @Sendable (_ body: @escaping @Sendable (BaichuanSession) async throws -> Void) async throws -> Void
-    /// A 400 to the TalkConfig is a battery camera behind a hub waking: asked again 1.5 s later, up to 3 times (7).
+    /// A 400 to the TalkConfig is a battery camera (alone, or behind a hub) waking: asked again as `BaichuanWaking` says (7).
     var retriesWaking = false
 }
 
@@ -146,8 +146,6 @@ actor ReolinkTalker {
     static let queueLimit = 3
     /// After the audio sent has played, before the stop (5.6).
     static let tail: Double = 0.1
-    static let wakingRetries = 3
-    static let wakingDelay: Double = 1.5
     /// Frames in one 202 after a camera refused one per message (4.3), as the official client sends.
     static let groupedFrames = 4
 
@@ -227,17 +225,25 @@ actor ReolinkTalker {
         let (frames, input) = AsyncStream.makeStream(of: [UInt8].self, bufferingPolicy: .bufferingNewest(Self.queueLimit))
         let producer = Task {
             var encoder = IMAADPCMEncoder()
+            let block = config.samplesPerBlock
+            // Samples from `head` on wait for a block; what is before it is compacted away every few blocks.
             var pending: [Int16] = []
+            pending.reserveCapacity(block * 5)
+            var head = 0
             for await frame in talk.frames {
                 pending += PCMVolume.scale(frame.samples, volume: talk.volume)
-                while pending.count >= config.samplesPerBlock {
-                    input.yield(Baichuan.adpcmFrame(encoder.encodeBlock(pending[..<config.samplesPerBlock])))
-                    pending.removeFirst(config.samplesPerBlock)
+                while pending.count - head >= block {
+                    input.yield(Baichuan.adpcmFrame(encoder.encodeBlock(pending[head..<(head + block)])))
+                    head += block
+                }
+                if head >= block * 4 {
+                    pending.removeFirst(head)
+                    head = 0
                 }
             }
-            if !pending.isEmpty, !Task.isCancelled {
-                pending += [Int16](repeating: 0, count: config.samplesPerBlock - pending.count)
-                input.yield(Baichuan.adpcmFrame(encoder.encodeBlock(pending)))
+            if pending.count > head, !Task.isCancelled {
+                pending += repeatElement(0, count: block - (pending.count - head))
+                input.yield(Baichuan.adpcmFrame(encoder.encodeBlock(pending[head...])))
             }
             input.finish()
         }
@@ -247,6 +253,7 @@ actor ReolinkTalker {
         var iterator = frames.makeAsyncIterator()
         while true {
             var batch: [UInt8] = []
+            batch.reserveCapacity(framesPerMessage * (config.blockBytes + 16))
             var count = 0
             while count < framesPerMessage, let frame = await iterator.next() {
                 batch += frame
@@ -288,7 +295,7 @@ actor ReolinkTalker {
     /// refusal is asked again with the bare channel in `ch_id` before giving up (10).
     private func start(on session: BaichuanSession) async throws -> Bool {
         var resetDone = false
-        var waking = 0
+        var waking = BaichuanWaking()
         let original = chID
         var triedOther = false
         while true {
@@ -301,6 +308,7 @@ actor ReolinkTalker {
             } catch BaichuanError.timeout {
                 status = nil
             }
+            if link.retriesWaking, try await waking.retry(after: status, timing: timing) { continue }
             switch status {
             case 200?:
                 if chID != original { log.info("\(name): the camera takes talk messages with channel \(chID) in their header.") }
@@ -309,9 +317,6 @@ actor ReolinkTalker {
                 resetDone = true
                 log.debug("\(name): a Talk is already open on the camera: stopping it first.")
                 await reset(on: session)
-            case 400? where link.retriesWaking && waking < Self.wakingRetries:
-                waking += 1
-                try await Task.sleep(for: timing.seconds(Self.wakingDelay))
             case let refused? where refused != 422 && !triedOther:
                 triedOther = true
                 chID = chID == UInt8(clamping: channel + 1) ? UInt8(clamping: channel) : UInt8(clamping: channel + 1)

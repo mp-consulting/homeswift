@@ -123,13 +123,8 @@ extension ReolinkPlugin {
         let streamer = ReolinkStreamer(name: name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: log,
                                        timing: dependencies.timing, returnAudio: talker?.returnAudioOptions, codecs: ffmpegCodecs,
                                        returnAudioDecoder: dependencies.returnAudioDecoder)
-        let refused: @Sendable () throws -> Void = { throw ReolinkError.unsupported("this control") }
-        let writes = ReolinkCamera.Writes(
-            floodlight: { _, _ in try refused() }, siren: { _ in try refused() }, ir: { _ in try refused() }, goToPreset: { _ in try refused() },
-            privacy: { _ in try refused() }, floodlightColour: { _ in try refused() }, chime: { _ in try refused() }, recording: { _ in try refused() },
-            patrol: { _ in try refused() })
         let camera = try ReolinkCamera(id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: false,
-                                       streamer: streamer, recorder: nil, writes: writes, log: log, timing: dependencies.timing, talker: talker)
+                                       streamer: streamer, recorder: nil, writes: .refusingAll, log: log, timing: dependencies.timing, talker: talker)
         await camera.start()
         await host.setListener { state in camera.apply(state) }
         // Events find the camera from the moment it is in HomeKit.
@@ -152,6 +147,8 @@ extension ReolinkPlugin {
 
     /// The URL a camera posts its events to, with the listener started on first use; nil when it cannot listen.
     func webhook(toward address: String) async -> (url: String, path: String)? {
+        // A stopped plugin starts no listener (a Setup or a camera's start finishing after the stop).
+        guard !tasks.isStopped else { return nil }
         let task = webhookServer ?? Task { await self.startWebhookServer() }
         webhookServer = task
         guard let server = await task.value else {

@@ -210,16 +210,13 @@ actor ReolinkStreamer: CameraStreamingDelegate {
     /// encoded as HomeKit asked, the audio when on, both as SRTP.
     static func arguments(url: String, stream: ReolinkStream, request: StartStreamRequest, target: (address: String, isIPv6: Bool, videoPort: Int, videoKey: Data,
                                                                                                    videoSSRC: UInt32, audioPort: Int, audioKey: Data, audioSSRC: UInt32),
-                          options: ReolinkPlugin.CameraOptions, ffmpeg: FfmpegOptions, audioEncoder: [String]?, input: [String]? = nil) -> [String] {
+                          options: ReolinkPlugin.CameraOptions, ffmpeg: FfmpegOptions, audioEncoder: [String]?, inputOptions: [String] = []) -> [String] {
         let video = request.video
         let host = target.isIPv6 ? "[\(target.address)]" : target.address
         var arguments = ["-hide_banner", "-nostats", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err"]
-        if let input {
-            arguments += input
-        } else {
-            if url.hasPrefix("rtsp") { arguments += ["-rtsp_transport", "tcp"] }
-            arguments += ["-i", url]
-        }
+        arguments += inputOptions
+        if url.hasPrefix("rtsp") { arguments += ["-rtsp_transport", "tcp"] }
+        arguments += ["-i", url]
         arguments += ["-map", "0:v:0"]
         if options.vcodec == "copy", stream.codec == "h264" {
             arguments += ["-codec:v", "copy"]
@@ -243,8 +240,8 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         return arguments
     }
 
-    /// The input arguments of a battery camera's pipe (ReolinkBattery.md 5.3).
-    static let pipeInput = ["-f", "mpegts", "-probesize", "1000000", "-analyzeduration", "1000000", "-i", "pipe:0"]
+    /// The input options of a battery camera's pipe, `pipe:0` (ReolinkBattery.md 5.3).
+    static let pipeInputOptions = ["-f", "mpegts", "-probesize", "1000000", "-analyzeduration", "1000000"]
 
     private func startStream(_ request: StartStreamRequest) async throws {
         guard let entry = prepared.removeValue(forKey: request.sessionID) else { throw HAPStatusError(.serviceCommunicationFailure) }
@@ -282,7 +279,7 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         let audioEncoder: [String]? = options.audio ? ffmpeg.audioEncoder().nonEmptyArray : nil
         let target = (entry.address, entry.isIPv6, entry.videoPort, entry.videoKey, entry.videoSSRC, entry.audioPort, entry.audioKey, entry.audioSSRC)
         let arguments = Self.arguments(url: "pipe:0", stream: feed.stream, request: request, target: target, options: options, ffmpeg: ffmpeg,
-                                       audioEncoder: audioEncoder, input: Self.pipeInput)
+                                       audioEncoder: audioEncoder, inputOptions: Self.pipeInputOptions)
         log.info("\(name): streaming \(request.video.width) x \(request.video.height) at \(request.video.fps) fps from the \(sub ? "sub" : "main") stream (\(feed.stream.codec), over Baichuan).")
         try await launch(arguments, request: request, entry: entry, feed: feed)
     }

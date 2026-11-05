@@ -31,6 +31,22 @@ enum BaichuanBinaryEvent: Sendable, Equatable {
     case closed
 }
 
+/// A battery camera waking answers 400 (ReolinkBattery.md 3.1): asked again 1.5 s later, up to 3 times. One per request
+/// (the session's) or per TalkConfig (ReolinkTalk.md 7, the session not retrying it), so that one layer retries.
+struct BaichuanWaking: Sendable {
+    static let retries = 3
+    static let delay: Double = 1.5
+    private var attempts = 0
+
+    /// True, once the delay passed, when `status` is a 400 to ask again.
+    mutating func retry(after status: UInt16?, timing: ReolinkTiming) async throws -> Bool {
+        guard status == 400, attempts < Self.retries else { return false }
+        attempts += 1
+        try await Task.sleep(for: timing.seconds(Self.delay))
+        return true
+    }
+}
+
 /// One Baichuan TCP session to a host (5.3): nonce, login, the event subscription and its keepalive, reconnects with
 /// `Backoff` and logins at most every 15 seconds, and the siren command. Its events come in `events`.
 actor BaichuanSession {
@@ -56,10 +72,8 @@ actor BaichuanSession {
     /// Bounds on the TCP connect and the nonce's reply, in seconds (a battery camera's are shorter, ReolinkBattery.md 3.3).
     private let connectTimeout: Double
     private let nonceTimeout: Double
-    /// Whether a status 400 (a battery camera waking) is retried: 1.5 s later, up to 3 times (3.1).
+    /// Whether a status 400 (a battery camera waking) is retried, as `BaichuanWaking` says (3.1).
     private let retriesWaking: Bool
-    static let wakingRetries = 3
-    static let wakingRetryDelay: Double = 1.5
 
     private var stream: (any ByteStream)?
     private var counter: UInt32 = 0
@@ -90,8 +104,6 @@ actor BaichuanSession {
     private var commandSinks: [UInt32: BinarySink] = [:]
     /// An `openOnce` session: its events end with its connection.
     private var onDemand = false
-    /// Media streams stopped: what they still send is dropped quietly.
-    private var stoppedStreams: Set<Key> = []
 
     private struct Key: Hashable {
         var command: UInt32
@@ -339,15 +351,13 @@ actor BaichuanSession {
     func request(command: UInt32, channel: UInt8, extension ext: String? = nil, body: String?, binary: [UInt8] = [], encryption: BaichuanEncryption,
                  timeout: Double = requestTimeout, fixedCounter: UInt32? = nil, anyStatus: Bool = false,
                  retryWaking: Bool = true) async throws -> BaichuanMessage {
-        var attempt = 0
+        var waking = BaichuanWaking()
         while true {
             let reply = try await requestOnce(command: command, channel: channel, extension: ext, body: body, binary: binary, encryption: encryption,
                                               timeout: timeout, fixedCounter: fixedCounter)
             let status = reply.status ?? 200
-            if status == 400, retriesWaking, retryWaking, attempt < Self.wakingRetries {
-                attempt += 1
-                log.debug("Baichuan \(command): the camera is waking up, asking again.")
-                try await Task.sleep(for: timing.seconds(Self.wakingRetryDelay))
+            if retriesWaking, retryWaking, try await waking.retry(after: status, timing: timing) {
+                log.debug("Baichuan \(command): the camera is waking up, asked again.")
                 continue
             }
             if !anyStatus, ![200, 201, 300].contains(status) { throw BaichuanError.status(status) }
@@ -420,8 +430,6 @@ actor BaichuanSession {
                     request.waiter.resume(returning: message)
                 } else if let sink = binarySinks[key] ?? commandSinks[message.command] {
                     sink(.data(status: message.status, payload: binaryPayload(of: message)))
-                } else if stoppedStreams.contains(key) {
-                    continue
                 } else {
                     handlePush(message)
                 }
@@ -429,8 +437,10 @@ actor BaichuanSession {
         }
     }
 
+    /// A message no request or sink takes: a push the plugin parses, or dropped quietly (the 234s that follow a reply,
+    /// what a stopped stream still sends: media, a snapshot's parts).
     private func handlePush(_ message: BaichuanMessage) {
-        guard message.command != 234 else { return }
+        guard BaichuanEvents.pushCommands.contains(message.command) else { return }
         let xml: String
         do {
             let pieces = message.extensionBytes.isEmpty ? message.body : message.extensionBytes
@@ -467,16 +477,12 @@ actor BaichuanSession {
     /// Hands the binary messages of a request (its `cmd_id` and full message id) to `sink` until `removeBinarySink`. Set
     /// before the request is sent, so nothing that follows its reply is missed.
     func setBinarySink(command: UInt32, channel: UInt8, counter: UInt32, _ sink: @escaping BinarySink) {
-        let key = Key(command: command, channel: channel, counter: counter)
-        stoppedStreams.remove(key)
-        binarySinks[key] = sink
+        binarySinks[Key(command: command, channel: channel, counter: counter)] = sink
     }
 
     /// Stops handing a stream's messages on; what it still sends is dropped.
     func removeBinarySink(command: UInt32, channel: UInt8, counter: UInt32) {
-        let key = Key(command: command, channel: channel, counter: counter)
-        binarySinks.removeValue(forKey: key)
-        stoppedStreams.insert(key)
+        binarySinks.removeValue(forKey: Key(command: command, channel: channel, counter: counter))
     }
 
     /// Hands every message of a `cmd_id` that answers no request to `sink` (a snapshot's parts come on any message
