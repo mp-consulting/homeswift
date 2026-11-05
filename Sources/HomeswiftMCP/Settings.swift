@@ -696,6 +696,8 @@ extension HomeswiftCatalog {
             let applied = try await applyConfig(next, dryRun: false, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
             Self.copyApplied(applied, into: &answer)
         }
+        // Its Meters' history goes with it (docs/adr/0004-meters-and-consumption-history.md).
+        metrics?.meters.forget(accessory: target.accessoryID)
         // Its plugin reloads without it, even when what it reads did not change (a device with live settings only).
         let restarted = ((answer["reloaded"]?.arrayValue ?? []) + (answer["started"]?.arrayValue ?? [])).contains(.string(target.instance))
         if !restarted {

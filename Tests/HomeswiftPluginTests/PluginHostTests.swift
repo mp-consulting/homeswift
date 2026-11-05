@@ -20,6 +20,8 @@ actor RecordingPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable {
         var name: String?
         var lamps: [String]?
+        /// Outlets with Eve's Total Consumption, at 2 kWh.
+        var meters: [String]?
         /// Televisions to publish on servers of their own.
         var externals: [String]?
         var refuse: Bool?
@@ -46,6 +48,10 @@ actor RecordingPlugin: HomeswiftPlugin {
         started = true
         for lamp in configuration.lamps ?? [] {
             try addLamp(id: lamp)
+        }
+        for meter in configuration.meters ?? [] {
+            let outlet = Service(.outlet, name: meter, extra: [Characteristic(EveCharacteristic.totalConsumption, value: .double(2))], isPrimary: true)
+            try context.add(Accessory(id: "Recording:\(meter)", name: meter, category: .outlet, services: [outlet]))
         }
         for tv in configuration.externals ?? [] {
             try await publishTelevision(id: tv, inputs: ["HDMI 1"])

@@ -152,12 +152,15 @@ public final class MeterArchive: @unchecked Sendable {
 
     // MARK: Readings
 
-    /// A counter's reading, in watt-hours.
-    public func recordCounter(_ wattHours: Double, direction: MeterDirection = .consumption, meter id: MeterID, at: Date? = nil) {
+    /// A counter's reading, in watt-hours. `fresh` false is for a reading that may be old (an accessory's cached value,
+    /// read at start): it counts only when the counter went up, never as a reset, and leaves the last reading as it is
+    /// otherwise, so what the device counted while the bridge was away is spread over that time.
+    public func recordCounter(_ wattHours: Double, direction: MeterDirection = .consumption, meter id: MeterID, at: Date? = nil, fresh: Bool = true) {
         guard wattHours.isFinite, wattHours >= 0 else { return }
         let at = at ?? now()
         let started = started
         changing(id) { meter, years in
+            if !fresh, let last = meter.counters[direction], wattHours <= last.value { return false }
             defer { if meter.counters[direction].map({ at >= $0.at }) ?? true { meter.counters[direction] = Reading(value: wattHours, at: at) } }
             guard let last = meter.counters[direction], at > last.at else { return true }
             let gained = wattHours >= last.value ? wattHours - last.value : wattHours
@@ -224,10 +227,10 @@ public final class MeterArchive: @unchecked Sendable {
         }
     }
 
-    /// Forgets every Meter of an accessory, its files included.
+    /// Forgets every Meter of an accessory and of the device's other accessories (`<accessory>:<more>`), files included.
     public func forget(accessory: String) {
         let gone = state.withLockedValue { state -> [MeterID] in
-            let gone = state.meters.keys.filter { $0.accessory == accessory }
+            let gone = state.meters.keys.filter { $0.accessory == accessory || $0.accessory.hasPrefix("\(accessory):") }
             for id in gone {
                 state.meters[id] = nil
                 state.dirty[id] = nil

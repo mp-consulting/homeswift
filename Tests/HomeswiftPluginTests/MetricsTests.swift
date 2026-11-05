@@ -124,4 +124,27 @@ struct MetricsTests {
         metrics.stop()
         await host.stop()
     }
+
+    /// An accessory's Total Consumption is a Meter the bridge records with no code of its plugin's: its counter as it
+    /// stands at start, then each change, by the hour.
+    @Test func recordsMetersFromTotalConsumption() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs", "meters": ["plug-1"] }] }"#)
+        try await host.start()
+        let plug = try #require(host.mainBridge.server.accessories.last)
+        let service = try #require(plug.service(.outlet))
+        let total = try #require(service[EveCharacteristic.totalConsumption])
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        let id = MeterID(accessory: "Recording:plug-1", meter: "\(service.type.uuid)/")
+        #expect(metrics.meters.meters == [id])
+
+        total.value = .double(2.25)
+        let now = Date()
+        let hours = metrics.meters.hours(of: id, from: now.addingTimeInterval(-7200), to: now)
+        #expect(abs(hours.reduce(0) { $0 + ($1.consumption ?? 0) } - 250) < 1e-6)
+        #expect(hours.allSatisfy { $0.recorded })
+        metrics.stop()
+        await host.stop()
+    }
 }
