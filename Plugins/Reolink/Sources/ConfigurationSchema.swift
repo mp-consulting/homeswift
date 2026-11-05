@@ -46,11 +46,6 @@ extension ReolinkPlugin {
               "description": "A local user of the device; an administrator can switch floodlights, sirens and IR lights.",
               "placeholder": "admin"
             },
-            "password": {
-              "title": "Password",
-              "type": "string",
-              "description": "The user's password, kept in the vault. At most 31 characters; letters, digits and @$*~_-+=!?.,:;'()[] work in every stream URL."
-            },
             "port": {
               "title": "API port",
               "type": "integer",
@@ -716,7 +711,6 @@ extension ReolinkPlugin {
       "The floodlight or spotlight as a light.": "Le projecteur comme une lampe.",
       "The name of the plugin in the log.": "Le nom du plugin dans le journal.",
       "The siren as a switch (off by default: a siren in an automation is loud). It turns itself off after a minute.": "La sirène comme interrupteur (désactivée par défaut : une sirène dans une automatisation est bruyante). Il s'éteint seul après une minute.",
-      "The user's password, kept in the vault. At most 31 characters; letters, digits and @$*~_-+=!?.,:;'()[] work in every stream URL.": "Le mot de passe de l'utilisateur, gardé dans le coffre. 31 caractères au plus ; lettres, chiffres et @$*~_-+=!?.,:;'()[] fonctionnent dans toutes les adresses de flux.",
       "Use HTTPS": "Utiliser HTTPS",
       "User name": "Nom d'utilisateur",
       "Vehicle": "Véhicule",
@@ -799,7 +793,6 @@ extension ReolinkPlugin {
       "The floodlight or spotlight as a light.": "El foco como una luz.",
       "The name of the plugin in the log.": "El nombre del plugin en el registro.",
       "The siren as a switch (off by default: a siren in an automation is loud). It turns itself off after a minute.": "La sirena como interruptor (desactivada por defecto: una sirena en una automatización hace ruido). Se apaga sola al cabo de un minuto.",
-      "The user's password, kept in the vault. At most 31 characters; letters, digits and @$*~_-+=!?.,:;'()[] work in every stream URL.": "La contraseña del usuario, guardada en la caja fuerte. Como mucho 31 caracteres; letras, cifras y @$*~_-+=!?.,:;'()[] funcionan en todas las direcciones de flujo.",
       "Use HTTPS": "Usar HTTPS",
       "User name": "Nombre de usuario",
       "Vehicle": "Vehículo",
@@ -882,7 +875,6 @@ extension ReolinkPlugin {
       "The floodlight or spotlight as a light.": "O projetor como uma luz.",
       "The name of the plugin in the log.": "O nome do plugin no registo.",
       "The siren as a switch (off by default: a siren in an automation is loud). It turns itself off after a minute.": "A sirene como interruptor (desativada por omissão: uma sirene numa automatização é barulhenta). Desliga-se sozinho ao fim de um minuto.",
-      "The user's password, kept in the vault. At most 31 characters; letters, digits and @$*~_-+=!?.,:;'()[] work in every stream URL.": "A palavra-passe do utilizador, guardada no cofre. No máximo 31 caracteres; letras, algarismos e @$*~_-+=!?.,:;'()[] funcionam em todos os endereços de fluxo.",
       "Use HTTPS": "Usar HTTPS",
       "User name": "Nome de utilizador",
       "Vehicle": "Veículo",
