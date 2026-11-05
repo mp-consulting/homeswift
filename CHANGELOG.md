@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
   energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
   Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
+- The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
+  homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
+  the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
+  families (the B0 wrapper, the 25-byte bulbs, addressable strips, tunable whites) as flux_led documents them; polled
+  with No Response after repeated failures, pushes read on a kept connection, Adaptive Lighting on tunable whites.
 - The Renault plugin (platform `Renault`, experimental, a clean-room implementation): Renault, Dacia and Alpine cars from
   the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
   and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
@@ -40,6 +45,9 @@ All notable changes to this project are documented here. The format follows
   read past the end of a directory entry while listing `/proc/self/fd` (fixed after Swift 6.2), and the read sources on
   FFmpeg's pipes crashed libdispatch's event loop once processes started at once; tools now start through
   `HomeswiftNetwork.ChildProcess` (`posix_spawn`), and FFmpeg's output is read on a thread of its own.
+
+### Added
+
 
 ## [0.20.0] - 2026-11-04
 
