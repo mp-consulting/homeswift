@@ -2878,4 +2878,8 @@ HomeswiftI18n.add("fr", {
   "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.": "Connectez-vous avec votre compte de l'app Shelly. Homeswift importe l'historique que l'app affiche pour les prises et relais, comme l'app l'obtient : Shelly ne le documente pas, et cela peut cesser de fonctionner.",
   "Shelly Cloud refused this email and password": "Shelly Cloud a refusé cet e-mail et ce mot de passe",
   "Shelly Cloud refused the email and password": "Shelly Cloud a refusé l'e-mail et le mot de passe",
+  "Whole home": "Toute la maison",
+  "Unmetered": "Non mesuré",
+  "What no meter measures on its own": "Ce qu'aucun compteur ne mesure à part",
+  "The whole home": "Toute la maison",
 });

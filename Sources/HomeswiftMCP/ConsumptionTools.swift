@@ -13,7 +13,7 @@ extension HomeswiftCatalog {
     /// (YYYY-MM-DD, today without it): `week` (the 8 days to it, daily), `month` (daily) or `year` (monthly). Days and
     /// months are counted in `timeZone`. `accessory` keeps one accessory's Meters. Each bar has `recordedHours` (the
     /// bridge's own measurement) and `hours` (anything known, imports and estimates included); a bar with nothing known
-    /// has null figures. With Tariffs, each Meter and bar has its `cost`: its Consumption hour by hour at that hour's
+    /// has null figures; `role` is its Energy Role (grid, home, solar, battery or null for one device's use). With Tariffs, each Meter and bar has its `cost`: its Consumption hour by hour at that hour's
     /// price, in `currency` (null where no hour is priced).
     public func consumptionJSON(period: String? = nil, date: String? = nil, hours: Double? = nil, timeZone: TimeZone = .current,
                                 accessory: String? = nil, now: Date = Date()) throws -> JSONValue {
@@ -84,6 +84,10 @@ extension HomeswiftCatalog {
                 }),
             ]
             if let costs { json["cost"] = money(costs.total) }
+            // Its Energy Role (the person's, else its plugin's suggestion): a grid or home meter holds the devices measured
+            // on their own, which the web UI nests under it with what no meter measures (Unmetered).
+            let role: EnergyRole? = host.energyRole(of: id) ?? metrics.meterDescription(of: id)?.suggestedRole
+            json["role"] = role.map { .string($0.rawValue) } ?? .null
             // A device with several Meters (a relay's channels): each is named by its service.
             if let located, (byAccessory[id.accessory]?.count ?? 0) > 1 { json["label"] = .string(Self.meterLabel(id, of: located.accessory)) }
             meters.append((consumption ?? 0, .object(json)))

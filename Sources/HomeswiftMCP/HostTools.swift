@@ -478,6 +478,7 @@ extension HomeswiftCatalog {
             "from": string, "to": string, "step": string,
             "meters": ["type": "array", "items": object([
                 "accessory": string, "meter": string, "name": string, "label": string, "consumption": nullableNumber, "returned": nullableNumber,
+                "role": ["type": ["string", "null"], "enum": ["grid", "home", "solar", "battery", .null]],
                 "bars": ["type": "array"],
             ], required: ["accessory", "meter", "name", "bars"])],
         ], required: ["meters"])
@@ -597,7 +598,7 @@ extension HomeswiftCatalog {
                 name: "get_consumption", title: "Energy consumption",
                 description: "The energy each Meter measured, in kWh: an accessory's plug, relay channel or energy meter, the bridge records whatever its plugin. "
                     + "Per Meter: its Consumption (drawn) and Returned (sent back to the grid, or produced) over the span, and a bar per hour, day or month, "
-                    + "the Meters that drew the most first. For questions like \"what used the most energy last month\" or \"how much did the dishwasher use this week\". "
+                    + "the Meters that drew the most first, each with its Energy Role (a grid or home meter measures the whole home, devices included; null is one device). For questions like \"what used the most energy last month\" or \"how much did the dishwasher use this week\". "
                     + "Either hours (the last N hours; hourly bars up to 48) or period (week: the 8 days to date; month; year, by month) with date. "
                     + "list_accessories gives an accessory's id.",
                 inputSchema: ["type": "object", "properties": [

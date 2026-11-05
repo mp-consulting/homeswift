@@ -3687,34 +3687,56 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// kWh, with what it returned when it did. A row opens the device's history. The first eight, then the rest asked for.
     function fillConsumers(found) {
       lastConsumption = found;
-      consumers.node.hidden = !found.meters.length;
-      // Every meter, one that measured nothing too (at the end): it is there, and says so.
-      const used = found.meters;
-      const most = Math.max(...used.map((one) => Math.max(one.consumption ?? 0, one.returned ?? 0)), 0);
-      const shown = consumersAll ? used : used.slice(0, 8);
-      const total = used.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
-      consumers.figure.textContent = used.length ? formatKWh(total) : "";
-      consumers.figure.title = t("All meters together");
-      consumerList.replaceChildren(...shown.map((one) => {
+      const meters = found.meters;
+      consumers.node.hidden = !meters.length;
+      // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
+      // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
+      const homes = meters.filter((one) => one.role === "home");
+      const wholes = homes.length ? homes : meters.filter((one) => one.role === "grid");
+      const devices = meters.filter((one) => !one.role);
+      const sources = meters.filter((one) => one.role && !wholes.includes(one));
+      const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
+      const whole = wholes.length ? sum(wholes) : null;
+      // What no device measures: the home less its devices, never below zero.
+      const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
+      const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
+      const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
+      const roleNames = { home: t("Whole home"), grid: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
+      const row = (one, nested) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
-        const share = most > 0 ? Math.max((one.consumption ?? 0) / most * 100, one.consumption > 0 ? 1 : 0) : 0;
+        const caption = one.role ? roleNames[one.role] : null;
         const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
         // At the grid's price, hour by hour, whatever source covered it.
         const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
         const note = [cost, returned].filter(Boolean).join(" · ") || null;
-        return el("li", {}, el("button", { type: "button", class: "consumer", actionIcon: "chart",
-          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), cost, returned].filter(Boolean).join(", "),
+        return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), caption, cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
-          el("span", { class: "consumer-name", text: name }),
-          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share}%` })),
+          el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(one.consumption ?? 0)}%` })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), note ? el("small", { text: note }) : null)));
-      }));
-      consumersMore.hidden = used.length <= 8;
+      };
+      const shown = consumersAll ? devices : devices.slice(0, 8);
+      consumerList.replaceChildren(
+        ...wholes.map((one) => row(one, false)),
+        ...shown.map((one) => row(one, wholes.length > 0)),
+        // The rest of the home: no history of its own to open.
+        unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group", "aria-label": t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }) },
+          el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
+          el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
+        ...sources.map((one) => row(one, false)));
+      consumersMore.hidden = devices.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
-        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: used.length }) }));
-      const costs = used.filter((one) => one.cost != null);
-      consumers.detail.textContent = !used.length ? t("Nothing measured in this period")
-        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(costs.reduce((sum, one) => sum + one.cost, 0), found.currency) }) : "";
+        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
+      // The card's figure and cost: the whole home's when a meter measures it, else the devices' together.
+      const counted = wholes.length ? wholes : devices;
+      consumers.figure.textContent = meters.length ? formatKWh(whole ?? sum(devices)) : "";
+      consumers.figure.title = wholes.length ? t("The whole home") : t("All meters together");
+      const costs = counted.filter((one) => one.cost != null);
+      consumers.detail.textContent = !meters.length ? t("Nothing measured in this period")
+        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -15792,6 +15814,10 @@ HomeswiftI18n.add("es", {
   "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.": "Inicia sesión con tu cuenta de la app Shelly. Homeswift importa el historial que la app muestra para enchufes y relés, como la app lo obtiene: Shelly no lo documenta y puede dejar de funcionar.",
   "Shelly Cloud refused this email and password": "Shelly Cloud rechazó este correo y contraseña",
   "Shelly Cloud refused the email and password": "Shelly Cloud rechazó el correo y la contraseña",
+  "Whole home": "Toda la casa",
+  "Unmetered": "Sin medir",
+  "What no meter measures on its own": "Lo que ningún medidor mide por separado",
+  "The whole home": "Toda la casa",
 });
 
 """#),
@@ -18676,6 +18702,10 @@ HomeswiftI18n.add("fr", {
   "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.": "Connectez-vous avec votre compte de l'app Shelly. Homeswift importe l'historique que l'app affiche pour les prises et relais, comme l'app l'obtient : Shelly ne le documente pas, et cela peut cesser de fonctionner.",
   "Shelly Cloud refused this email and password": "Shelly Cloud a refusé cet e-mail et ce mot de passe",
   "Shelly Cloud refused the email and password": "Shelly Cloud a refusé l'e-mail et le mot de passe",
+  "Whole home": "Toute la maison",
+  "Unmetered": "Non mesuré",
+  "What no meter measures on its own": "Ce qu'aucun compteur ne mesure à part",
+  "The whole home": "Toute la maison",
 });
 
 """#),
@@ -21560,6 +21590,10 @@ HomeswiftI18n.add("pt", {
   "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.": "Inicie sessão com a sua conta da app Shelly. O Homeswift importa o histórico que a app mostra para tomadas e relés, como a app o obtém: a Shelly não o documenta e pode deixar de funcionar.",
   "Shelly Cloud refused this email and password": "O Shelly Cloud recusou este e-mail e palavra-passe",
   "Shelly Cloud refused the email and password": "O Shelly Cloud recusou o e-mail e a palavra-passe",
+  "Whole home": "Toda a casa",
+  "Unmetered": "Não medido",
+  "What no meter measures on its own": "O que nenhum medidor mede à parte",
+  "The whole home": "Toda a casa",
 });
 
 """#),
@@ -26408,14 +26442,26 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* The consumption by device: a row per meter, its name, a bar of its share of the most any used, and its kWh. The row
    opens the device's history. */
 .consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.consumer.action-with-icon { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-12);
+.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-12);
   padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left;
   cursor: pointer; min-height: 40px; }
 .consumer:hover { background: var(--material-thin); }
 .consumer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* Its chart icon last, quiet: the row opens the history. */
 .consumer.action-with-icon::before { order: 4; color: var(--muted); }
-.consumer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-name { display: grid; min-width: 0; }
+.consumer-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-name > small { font-size: var(--text-2xs); color: var(--muted); }
+/* A device inside the whole home: its name set in under the home's, with a quiet rule down its left; the bars stay in
+   one column, so the shares read against the home's. */
+.consumer.nested { position: relative; }
+.consumer.nested .consumer-name { padding-left: var(--space-16); }
+.consumer.nested::after { content: ""; position: absolute; left: calc(var(--space-10) + 3px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
+/* What no meter measures: the rest of the home, muted, no history to open. */
+.consumer.rest { cursor: default; color: var(--muted); }
+.consumer.rest:hover { background: none; }
+.consumer.rest .consumer-track i { background: var(--muted); opacity: 0.45; }
+.consumer-spacer { order: 4; width: 16px; }
 .consumer-track { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .consumer-track i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); transition: width var(--normal) var(--ease-out); }
 .consumer-value { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
@@ -26425,7 +26471,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 640px) {
   /* The name over its bar, the figure beside them. */
-  .consumer.action-with-icon { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
+  .consumer-spacer { grid-area: icon; }
   .consumer-name { grid-area: name; }
   .consumer-track { grid-area: track; }
   .consumer-value { grid-area: value; }

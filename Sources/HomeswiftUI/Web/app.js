@@ -1694,34 +1694,56 @@
     /// kWh, with what it returned when it did. A row opens the device's history. The first eight, then the rest asked for.
     function fillConsumers(found) {
       lastConsumption = found;
-      consumers.node.hidden = !found.meters.length;
-      // Every meter, one that measured nothing too (at the end): it is there, and says so.
-      const used = found.meters;
-      const most = Math.max(...used.map((one) => Math.max(one.consumption ?? 0, one.returned ?? 0)), 0);
-      const shown = consumersAll ? used : used.slice(0, 8);
-      const total = used.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
-      consumers.figure.textContent = used.length ? formatKWh(total) : "";
-      consumers.figure.title = t("All meters together");
-      consumerList.replaceChildren(...shown.map((one) => {
+      const meters = found.meters;
+      consumers.node.hidden = !meters.length;
+      // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
+      // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
+      const homes = meters.filter((one) => one.role === "home");
+      const wholes = homes.length ? homes : meters.filter((one) => one.role === "grid");
+      const devices = meters.filter((one) => !one.role);
+      const sources = meters.filter((one) => one.role && !wholes.includes(one));
+      const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
+      const whole = wholes.length ? sum(wholes) : null;
+      // What no device measures: the home less its devices, never below zero.
+      const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
+      const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
+      const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
+      const roleNames = { home: t("Whole home"), grid: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
+      const row = (one, nested) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
-        const share = most > 0 ? Math.max((one.consumption ?? 0) / most * 100, one.consumption > 0 ? 1 : 0) : 0;
+        const caption = one.role ? roleNames[one.role] : null;
         const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
         // At the grid's price, hour by hour, whatever source covered it.
         const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
         const note = [cost, returned].filter(Boolean).join(" · ") || null;
-        return el("li", {}, el("button", { type: "button", class: "consumer", actionIcon: "chart",
-          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), cost, returned].filter(Boolean).join(", "),
+        return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), caption, cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
-          el("span", { class: "consumer-name", text: name }),
-          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share}%` })),
+          el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(one.consumption ?? 0)}%` })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), note ? el("small", { text: note }) : null)));
-      }));
-      consumersMore.hidden = used.length <= 8;
+      };
+      const shown = consumersAll ? devices : devices.slice(0, 8);
+      consumerList.replaceChildren(
+        ...wholes.map((one) => row(one, false)),
+        ...shown.map((one) => row(one, wholes.length > 0)),
+        // The rest of the home: no history of its own to open.
+        unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group", "aria-label": t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }) },
+          el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
+          el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
+        ...sources.map((one) => row(one, false)));
+      consumersMore.hidden = devices.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
-        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: used.length }) }));
-      const costs = used.filter((one) => one.cost != null);
-      consumers.detail.textContent = !used.length ? t("Nothing measured in this period")
-        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(costs.reduce((sum, one) => sum + one.cost, 0), found.currency) }) : "";
+        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
+      // The card's figure and cost: the whole home's when a meter measures it, else the devices' together.
+      const counted = wholes.length ? wholes : devices;
+      consumers.figure.textContent = meters.length ? formatKWh(whole ?? sum(devices)) : "";
+      consumers.figure.title = wholes.length ? t("The whole home") : t("All meters together");
+      const costs = counted.filter((one) => one.cost != null);
+      consumers.detail.textContent = !meters.length ? t("Nothing measured in this period")
+        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
