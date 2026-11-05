@@ -51,7 +51,8 @@ All notable changes to this project are documented here. The format follows
   the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
   discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
   light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
-  V2C Trydan adds a charger, APsystems ECU an ECU and IMOU a local camera (with its safety code) the same way.
+  V2C Trydan adds a charger, APsystems ECU an ECU, IMOU a local camera (with its safety code) and Reolink a camera, NVR or
+  hub (with a local user's login) the same way.
 - Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
   a field a step may leave empty says Optional.
 - The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
