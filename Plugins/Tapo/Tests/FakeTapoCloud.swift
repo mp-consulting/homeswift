@@ -22,6 +22,9 @@ final class FakeTapoCloud: HTTPSending, @unchecked Sendable {
         var cameras: [[String: Any]] = [["deviceId": "CLOUDID0001", "alias": Data("Garden".utf8).base64EncodedString(), "deviceModel": "C675D",
                                          "deviceMac": "10-5A-95-2F-AD-17", "deviceType": "SMART.IPCAMERA", "fwVer": "1.1.7 Build 250101"]]
         var notifications: [[String: Any]] = []
+        /// Each camera's `ip` in the NBU app server's details, by device id.
+        var addresses: [String: String] = [:]
+        var detailRequests = 0
         var paths: [String] = []
         var badSignatures = 0
         var codesSent = 0
@@ -64,6 +67,17 @@ final class FakeTapoCloud: HTTPSending, @unchecked Sendable {
         let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
         let token = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "token" }?.value
         let terminal = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "termID" }?.value ?? ""
+        // The NBU app server's details (TapoCloudEvents.md 4.4.1): a GET with the `ut|` token, a bare JSON answer.
+        if request.method == "GET", path.hasPrefix("/v1/things/"), path.hasSuffix("/details") {
+            let deviceID = path.dropFirst("/v1/things/".count).dropLast("/details".count)
+            let reply: (Int, [String: Any]) = state.withLockedValue { state in
+                state.paths.append(path)
+                state.detailRequests += 1
+                guard headers["authorization"] == "ut|\(state.token)", request.url.host == "euw1-app-server.iot.example" else { return (401, ["code": 401]) }
+                return (200, ["deviceId": String(deviceID), "mac": "10-5A-95-2F-AD-17"].merging(state.addresses[String(deviceID)].map { ["ip": $0] } ?? [:]) { $1 })
+            }
+            return HTTPResponse(status: reply.0, body: try JSONSerialization.data(withJSONObject: reply.1))
+        }
         let answer: [String: Any] = state.withLockedValue { state in
             state.paths.append(path)
             guard signed else {
@@ -103,6 +117,8 @@ final class FakeTapoCloud: HTTPSending, @unchecked Sendable {
                     return ["error_code": -20651]
                 }
                 switch path {
+                case "/api/v2/common/getAppServiceUrl":
+                    return ["error_code": 0, "result": ["serviceUrls": ["nbu.iot-app-server.app-v2": "https://euw1-app-server.iot.example"]]]
                 case "/api/v2/common/getDeviceListByPage":
                     return ["error_code": 0, "result": ["deviceList": state.cameras]]
                 case "/api/v2/common/getAppNotificationByPage":

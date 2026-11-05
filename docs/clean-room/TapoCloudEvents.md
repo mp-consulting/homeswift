@@ -30,6 +30,15 @@
   "Copyright (c) 2026 FlyzDev".
 - Source 10: `docs/clean-room/TapoCamera.md` sections 9 and 12 (this repository), and Homeswift's own
   `Sources/HomeswiftNetwork/FCMReceiver.swift` doc comments (what the receiver needs).
+- Source 11: https://github.com/python-kasa/python-kasa, `kasa/discover.py` and `kasa/transports/aestransport.py`,
+  commit `9478ed25ac9fc72ddafcbdf6bd1f9328e8632df4`. GPL-3.0. Read for the UDP discovery (TDP) wire shape only.
+- Source 12: https://github.com/JurajNyiri/HomeAssistant-Tapo-Control, `custom_components/tapo_control/manifest.json`,
+  commit `6d2c8adb81f3551070ec62fd9590f26254df145a`. Apache-2.0. Read for how it finds cameras (DHCP host names).
+- Section 4.4.1–4.4.2 use Source 5's `src/main.ts` (its device-details and passthrough IP lookup), Source 4's
+  `docs/api.md` (NBU host resolution, headers, passthrough encoding and timeout) and Source 8 (`services-sync`).
+- Section 4.4 also used, from Source 1: the Objective-C class metadata (class and instance-variable **names** only,
+  `otool -oV`) and `strings` of `TPIoTCloudClient`, `TPCameraNetwork`, `TPTDPNetwork`, `IotSwiftSDK` (all
+  `cryptid 0`), and the app's entitlements (`com.apple.developer.networking.multicast`). No code was disassembled.
 - Downloads were fetched as tarballs into the scratchpad and only read; nothing was executed. No request was sent to
   any TP-Link server while writing this. Every account value below is a placeholder (`owner@example.com`,
   `ExamplePassw0rd!`, `00000000-…`).
@@ -187,10 +196,174 @@ category, status, mac, appServerUrlV2, isSubThing, …}]}` [src4, src8, src9].
 - By **MAC**: compare `deviceMac` / `mac` after stripping separators and upper-casing (seen as `105A952FAD17`
   [src4]); the camera's MAC comes from Homeswift's `ARPTable` after a Streamd connection or from Setup.
 - By **device id**: `deviceId` = `thingName`.
-- By **IP**: the cloud lists hold no LAN IP for cameras as far as the sources show; [src5] asks the device for it
+- By **IP**: the cloud **lists** hold no LAN IP; the per-device details call does (4.4). [src5] asks the device for it
   through passthrough, which **wakes the camera** (section 7). Do not.
 - **Recommendation:** at Setup, list `SMART.IPCAMERA` devices, match the MAC (or let the user pick by decoded alias
   and model), and store `deviceId` in the Accessory Settings.
+
+### 4.4 The camera's LAN address
+
+Where the app's Device Info page can get the "IP Address" of a C675D from. The page's own code is in the encrypted
+main executable, so which route it takes is not visible; what is visible is every route the frameworks offer.
+
+**Route 1: cloud device details (no wake).** `GET {nbuAppServer}/v1/things/{thingName}/details`, where
+`{nbuAppServer}` is the NBU app server of 4.4.1 (`https://euw1-app-server.iot.i.tplinknbu.com` for an EU device),
+**not** a `…-wap-gw…` host: on the user's account the `appServerUrlV2` of the v2 `getDeviceListByPage` list
+(`https://n-euw1-wap-gw.i.tplinkcloud.com`) and the v1 `appServerUrl` both fail for this path (404, resp. TLS to the
+old root) [coordinator, live account]. NBU headers of 5.1; `thingName` = `deviceId`; exact request in 4.4.1
+[app: path string and the method name `getDeviceDetail` in
+`TPIoTCloudClient`]. Its response model is the **only** cloud model in the app with an IP: its fields are `ip`, `mac`,
+`ssid`, `model`, `deviceType`, `category`, `role`, `fwVer`, `fwId`, `hwId`, `hwVersion`, `oemId`, `onboardingTime`,
+`position`, `shellColor`, `slotNumber`, plus Matter fields (`matterIoTNodeId`, `matterNodeLabel`, `matterProductName`,
+`matterVendorName`) [app: instance-variable names]. The JSON key is `ip`, confirmed by [src5] (4.4.1). Expected value: the address the camera reported to the
+cloud when it last connected (dotted IPv4 string), so it can be stale after a DHCP change while the camera keeps its
+cloud session. The call reads the cloud registry and does **not** reach the camera (section 7). Whether it is filled
+for battery cameras: **unverified**. Confidence: high for the request and field (the app plus [src5], 4.4.1).
+
+**TLS for the `*.i.tplinkcloud.com` hosts** (seen on `n-euw1-wap-gw.i.tplinkcloud.com`; the NBU app servers'
+chain was not checked). Their chain is leaf `*.i.tplinkcloud.com` <- "TP-Link Cloud Server CA"
+(O=TP-Link Systems Inc., valid 2025-02-25 to 2040-02-22) <- "TP-Link Cloud Root CA". The server does not send the
+root, it is in no system store, and its AIA names only a CRL [coordinator, live account]. The root is bundled in the
+app as `tp-link-root-CA-new.der` (main bundle and each widget/intent extension) and, the same certificate in PEM, as
+`Frameworks/IotSwiftSDK.framework/tp-link-root-CA.pem` [app]. Checked: `openssl verify -CAfile <this root>
+<the intermediate>` answers OK (OpenSSL 4.1.0, no partial chain). Add it as an extra trust anchor for these hosts
+(Homeswift's `TLSOptions`), next to the system store.
+- Subject = Issuer: `CN=TP-Link Cloud Root CA, O=TP-Link Systems Inc., L=Irvine, ST=California, C=US`
+- Serial `5D91E844A22F85E282C492F8B36AD9FDA95F1063`; ECDSA P-256 key, signed ecdsa-with-SHA384; CA:TRUE
+- Valid 2025-02-25 03:47:11 UTC to 2055-02-18 03:47:11 UTC
+- SHA-256 fingerprint `8D:27:22:4D:AC:20:C2:DB:8A:38:0E:31:03:B4:E3:83:C4:81:EE:41:B6:81:90:85:79:AE:E4:16:76:1D:A2:89`
+
+```
+-----BEGIN CERTIFICATE-----
+MIICKTCCAdCgAwIBAgIUXZHoRKIvheKCxJL4s2rZ/alfEGMwCgYIKoZIzj0EAwMw
+cjEeMBwGA1UEAwwVVFAtTGluayBDbG91ZCBSb290IENBMR0wGwYDVQQKDBRUUC1M
+aW5rIFN5c3RlbXMgSW5jLjEPMA0GA1UEBwwGSXJ2aW5lMRMwEQYDVQQIDApDYWxp
+Zm9ybmlhMQswCQYDVQQGEwJVUzAgFw0yNTAyMjUwMzQ3MTFaGA8yMDU1MDIxODAz
+NDcxMVowcjEeMBwGA1UEAwwVVFAtTGluayBDbG91ZCBSb290IENBMR0wGwYDVQQK
+DBRUUC1MaW5rIFN5c3RlbXMgSW5jLjEPMA0GA1UEBwwGSXJ2aW5lMRMwEQYDVQQI
+DApDYWxpZm9ybmlhMQswCQYDVQQGEwJVUzBZMBMGByqGSM49AgEGCCqGSM49AwEH
+A0IABAHpyZzXk1E4VWyIB+9VMci2Sw5OdeQ+kyFc2/R/f/OiHt6hk4PfMcCKKgS6
+hkVVYyVlobJNn052z+s9DJKJgfajQjBAMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0P
+AQH/BAQDAgGGMB0GA1UdDgQWBBQLV0PTee1jvnJMcUCEtQgJSg/oyTAKBggqhkjO
+PQQDAwNHADBEAiAURU4PvHXUrVViDF+rCky3RD9BeUpe91kYoNWe0oKVUwIgY0C5
+MsDHbQrwLHs1I7+f2MvZDGBHhNjnl0n4MF9q0L0=
+-----END CERTIFICATE-----
+```
+
+(The older `tp-link-root-CA.der`, `CN=tp-link-CA`, is a different root; the device roots `tp-link-device-root-CA.der`
+and `tp-link-device-beta-root-CA.der` are for devices, not cloud hosts [app].)
+
+**Not in the lists.** The response models of `getDeviceListByPage` (4.1, `TPAppCloudNetwork`: no IP-named field at
+all) and `/v2/things` (4.2) carry no IP [app: class metadata; src2, src4, src8 show none]. `getDeviceInfo` (v2 API)
+neither. No "running info" or shadow-style cloud endpoint returning an IP was found. The only other IP-named cloud
+fields are a voice-sign-URL response (`ipAddress`, unrelated) and the camera's **public** IP (`getPubIP` /
+`CameraGetPublicIPRequest`, the WAN address, through the device).
+
+**Route 2: ask the camera (wakes it).** `TPCameraNetwork` has a device request `getDeviceIpAddress` (response field
+`ip`), next to `getPubIP`, and the system module keeps an `ipAddress` [app]. Device requests go over the local
+transport or the cloud passthrough/relay (`IPCTSTransportManager` retries the IoT-cloud transport after HTTP);
+either way the camera must be awake to answer. The request body (likely a `network` section with `ipaddr`) is
+**inferred** from adjacent strings. Hub child devices report a `local_ip` in the hub's child list, which is the hub's
+data, not the camera's. **Wakes the camera.** Do not use.
+
+**Route 3: UDP discovery, TDP (may or may not reach a sleeping camera).** The app has a TP-Link Discovery Protocol
+stack (`TPTDPNetwork`: broadcast and unicast scans, "send unicast to known ip address", a multicast group
+`239.255.255.250` it joins; `TDPCamera` in `TPCameraNetwork`) and holds the multicast entitlement; `Info.plist`
+declares only Matter Bonjour types (`_matter._tcp`, `_matterc._udp`, `_matterd._udp`), so cameras are **not** found
+by mDNS [app]. Wire shape [src11]:
+- Request to UDP **20002** (broadcast `255.255.255.255`, or unicast to a known address): a 16-byte header, all
+  big-endian: version 2 (1 byte), message type 0 (1), op code 1 = probe (2), payload length (2), flags 17 (1), a
+  zero byte (1), a random 4-byte serial, then a CRC32 (4); followed by the JSON payload
+  `{"params":{"rsa_key":"<PEM of a fresh RSA-2048 public key>"}}`. The CRC is computed over the whole packet with the
+  CRC field first set to `0x5A6B7C8D`, then written into bytes 12–15.
+- Reply from the device's port 20002 to the sender: the same 16-byte header, then JSON whose `result` has
+  `device_id`, `device_type` (`SMART.IPCAMERA`), `device_model`, **`ip`**, `mac` (with dashes), `owner` (an MD5 of the
+  owner), `factory_default`, `is_support_iot_cloud`, `obd_src`, `isResetWiFi`, `mgt_encrypt_schm`
+  (`is_support_https`, `encrypt_type`, `http_port`, `lv`) and, for cameras, `encrypt_info` {`sym_schm`, `key`, `data`}.
+  `key` is Base64 of RSA-OAEP(SHA-1) ciphertext of 32 bytes: AES-128 key (16) then IV (16); `data` is Base64 of
+  AES-128-CBC/PKCS7 ciphertext of a JSON object with more device data [src11]. The app's camera parser reads
+  `device_id`, `device_model`, `device_type`, `http_port`, `connect_type`, `connect_ssid`, `encrypt_info`,
+  `sym_schm`, `is_support_https`, `isResetWiFi`, `owner`, `factory_default` and logs "TDP reply after decrypt" [app].
+  The UDP source address is the device's address as well.
+- Wake: a broadcast probe is handled by the camera's main processor. A sleeping battery camera keeps only a Wi-Fi
+  keep-alive with the cloud; that it does **not** answer TDP while asleep is **inferred** (the app models "TDP and IoT
+  both offline", `hasTdpAndIotOffline`, and validity flags for TDP info before local play [app]), not shown. If it
+  does answer, it has woken for it. Confidence: wire shape high (src11, matching app strings); sleeping behaviour
+  unknown.
+
+**Route 4: passive LAN signals (no wake).**
+- **ARP**: with the MAC from the cloud list (`deviceMac`, 4.1), look up the address in the host's ARP table
+  (Homeswift's `ARPTable`). Entries exist only after traffic with the camera; Wi-Fi chips often answer ARP for a
+  sleeping host (ARP offload), which does not wake the main processor; **unverified** for the C675D.
+- **DHCP**: Home Assistant's integration discovers cameras by their DHCP host names (patterns like a model prefix,
+  `c###*_*`, `d###*_*`, `tc##*_*`) [src12]; seeing them needs the DHCP broadcast (join or reboot), not renewals.
+
+**Recommendation.**
+1. At Setup and on each start: call `{nbuAppServer}/v1/things/{thingName}/details` (4.4.1) and take `ip`; check it against the MAC
+   (`mac` there, or `deviceMac`) through `ARPTable` when an entry exists. Store it as a hint, never as the identity.
+2. When a live-view connection to the hint fails, refresh it from the same cloud call (cheap, no wake) before giving up.
+3. Never use `getDeviceIpAddress` or passthrough for this. Do not run periodic TDP scans aimed at battery cameras;
+   a single unicast TDP probe is acceptable only right after a detection (camera already awake, section 8).
+4. Test with the user's C675D: whether `details.ip` is present and fresh, and whether TDP is answered while asleep.
+
+#### 4.4.1 The details request, exactly
+
+Confirmed working by [src5] (`src/main.ts`, its "try new API" step, which reads the camera's IP from it before
+falling back to passthrough); host resolution by [src4, src8]; paths and models by [app].
+
+- **Host.** The account's NBU app server: signed `POST {regional v2 host}/api/v2/common/getAppServiceUrl` (3.1
+  signing, `token` in the query) with body `{"serviceIds":["nbu.iot-app-server.app-v2"]}` →
+  `result.serviceUrls["nbu.iot-app-server.app-v2"]`, e.g. `https://use1-app-server.iot.i.tplinknbu.com` [src4]; the
+  same service id through `getAppServiceUrlByCloudUserName` answers `result.serviceList[] {serviceId, serviceUrl}`
+  [src8]. A device in another region than the account carries its own `appServerUrlV2` **in the NBU `/v2/things`
+  list** (4.2), e.g. `https://euw1-app-server.iot.i.tplinkcloud.com`; use that for per-device calls [src8]. [src5]
+  hard-codes `https://euw1-app-server.iot.i.tplinknbu.com`. Both `….iot.i.tplinknbu.com` and `….iot.i.tplinkcloud.com`
+  are seen [src4, src8]. The app itself also has `/v1/server-info` and an IoT server model with `appServerUrl`,
+  `cloudGatewayUrl`, `securityServerUrl`, `subsubscriptionServerUrl` and their `…V2` variants [app]. The
+  `appServerUrlV2` of `getDeviceListByPage` is a different thing (the wap gateway) and must not be used here.
+- **Request.** `GET {nbuAppServer}/v1/things/{deviceId}/details`, no query, no body. Headers ([src5]; same set as 5.1
+  and [src4]): `Authorization: ut|<v2 login token>`, `app-cid: app:<appName>:<termId>`, `x-app-name: <appName>`
+  (`TP-Link_Tapo_iOS` in [src5], `TP-Link_Tapo_Android` in [src4]), `x-app-version`, `x-term-id: <termId>`,
+  `x-ospf`, `x-net-type: wifi`, `x-locale`, `Content-Type: application/json;UTF-8`, `User-Agent`. The app's header
+  list also has `x-brand` and `x-strict` [app]; [src4] sends `x-strict: 0`. No JWT is needed for this
+  (the app has a JWT manager, but [src4, src5, src8] call these hosts with the `ut|` token only). No HMAC.
+- **Response.** Bare JSON object (no `error_code` envelope; errors are HTTP statuses with `{code, message}` [src4]),
+  with the IP at top level as **`ip`** (dotted IPv4 string): [src5] merges the body into its device record and then
+  tests that record's `ip`; the app's model field is `ip` too [app]. Other fields as in route 1.
+- **Wake:** none, it is the cloud registry. Confidence: high for the path, headers and `ip` (one working client plus
+  the app); freshness for a battery camera unverified.
+
+Other cloud calls checked [app], none returns an IP: `/v1/things/{thingName}/rt-info` (Wi-Fi `rssi`,
+`signalLevel`, jamming, memory and load figures), `/v1/things/{thingName}/connect-info` (`cloudGatewayUrl` only),
+`/v1/things/shadows` and `/v1/things/{thingName}/shadows` (the thing shadow: `thingName`, `version`, `reported`,
+`desired`; a list request takes `thingNames`, `deviceType`, `specificProperties`): the shadow's `reported` content is
+device-defined and not visible; whether a camera reports an IP in it is unknown. Shadows are cloud-held (no wake).
+
+#### 4.4.2 The device request through the cloud (wakes the camera)
+
+Two transports, both relaying to the device:
+
+- **v2 passthrough** (confirmed for a camera's IP by [src5]): `POST {regional v2 host}/api/v2/common/passthrough`
+  with the 3.1 signing (`Content-MD5`, `X-Authorization`) and the v2 query (`token`, `termID`, `appVer`, `appName`,
+  `netType`, `locale`, `model`, `termName`, `termMeta`, `brand`, `ospf`). [src5] uses
+  `https://n-euw1-wap-gw.tplinkcloud.com` (the v1-style host, old `tp-link-CA` root). Body:
+  `{"deviceId": "<deviceId>", "requestData": <inner>}`, where [src5] sends `<inner>` as a JSON **object**; [src4]
+  documents it as a JSON **string** for Tapo (double-encoded), with the answer the same way in
+  `result.responseData`. Accept both when reading.
+- **NBU services-sync** (shown for an IR sub-device by [src8]; path in [app]): `POST {nbuAppServer}/v1/things/{deviceId}/services-sync`,
+  NBU headers, body `{"serviceId":"passthrough","inputParams":{"requestData": <inner as object>}}`, answer
+  `{"requestId", "outputParams":{"responseData": <device answer>}}`. Not shown for a camera.
+
+The inner request for the IP ([src5]; method name and `ipaddr` also in [app]): `method` `multipleRequest`, `params`
+`{"requests":[{"method":"getDeviceIpAddress","params":{"network":{"name":"wan"}}}]}`. Answer:
+`responseData.result.responses[0].result.network.wan` holds `ipaddr` (the LAN address; "wan" is the camera's own
+uplink interface, not the router's WAN), plus other interface fields and `.name`/`.type` bookkeeping keys [src5].
+No IP field was found in the app's camera `getDeviceInfo` models; `local_ip` appears only in hub child lists [app].
+
+Wake and wait: the cloud forwards the request to the camera, which must wake to answer; the cloud holds it up to
+600 s [src4]; a sleeping camera may be answered for by the cloud with `-20571` (device offline) [src8]. The app also
+has an explicit `preWakeUp` call on a thing before device requests [app], which says the same: device requests
+cost a wake on battery cameras. **Do not use for the IP**; route 1 gives it without the camera.
 
 ## 5. Event history
 

@@ -29,17 +29,25 @@ public actor TapoPlugin: HomeswiftPlugin {
         var ports = RtpPortAllocator()
         var cameraTiming = TapoCameraFeed.Timing()
         /// The TP-Link cloud, for the cameras' motion.
-        var cloudHTTP: any HTTPSending = HTTPClient(tls: .authority(pem: TapoCloud.rootCA, serverName: nil), maximumBodySize: 1024 * 1024)
+        var cloudHTTP: any HTTPSending = HTTPClient(tls: .authority(pem: TapoCloud.roots, serverName: nil), maximumBodySize: 1024 * 1024)
         var cloudEntry = TapoCloud.entry
         var motionTiming = TapoMotionWatcher.Timing()
         var motionHold: Duration = .seconds(30)
         var macAddress: @Sendable (String) async -> String? = { await ARPTable.macAddress(for: $0) }
+        /// The ARP table's entries (IP and MAC): the addresses of the cameras the cloud lists, at Setup.
+        var neighbours: @Sendable () async -> [(ip: String, mac: String)] = { await ARPTable.entries() }
+        /// Makes the system resolve the local networks' addresses, when the table lacks a camera the cloud lists.
+        var resolveNeighbours: @Sendable (_ wanted: Set<String>) async -> Void = { await ARPTable.resolveLocalNetworks(lookingFor: $0) }
+        /// The cameras' control API (pan and tilt); nil for HTTPS that pins each camera's certificate on first use.
+        var controlHTTP: (any HTTPSending)? = nil
+        /// How long Setup's discovery waits for the cloud's list of cameras.
+        var cloudListTimeout: Duration = .seconds(4)
     }
 
     public static let platform = "TapoP100"
     public static let name = "TP-Link Tapo"
     public static let icon: String? = "logo-tapo"
-    public static let summary: String? = "Tapo plugs and bulbs on the local network"
+    public static let summary: String? = "Tapo plugs, bulbs and battery cameras on the local network"
 
     static let defaultUpdateInterval = 10.0
     static let defaultTimeout = 2.0
@@ -56,11 +64,19 @@ public actor TapoPlugin: HomeswiftPlugin {
     /// The battery cameras, by Device Id.
     var cameraRuntimes: [String: TapoCameraRuntime] = [:]
     var ffmpegOptions: FfmpegOptions?
+    /// What is known of each camera's motor (`ptz.json`), read once.
+    var ptzStates: [String: PTZState]?
+    /// When asking a camera about its motor last failed: not again for a while (TapoPTZ.swift).
+    var ptzProbeFailures: [String: ContinuousClock.Instant] = [:]
+    /// When each camera's presets were last read.
+    var presetsReadAt: [String: ContinuousClock.Instant] = [:]
     /// The account's sign-in to the TP-Link cloud, and the watch of its cameras' notifications.
     let cloud: TapoCloud
     let motionWatcher: TapoMotionWatcher
     /// The devices that completed a KLAP handshake, which never fall back to securePassthrough.
     let klapDevices: KLAPDevices
+    /// Each camera's pinned control API certificate, by Device Id (fingerprints, not secrets).
+    let controlPins: PersistedDictionary<String>
     private let credentialCache: NIOLockedValueBox<TapoCredentials??>
     var logger: Logger { context.logger }
 
@@ -73,6 +89,7 @@ public actor TapoPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         klapDevices = KLAPDevices(file: context.jsonFile("klap-devices.json", as: [String].self), logger: context.logger)
+        controlPins = context.persistedDictionary("control-certificates.json", of: String.self, autosave: nil)
         let cache = NIOLockedValueBox<TapoCredentials??>(nil)
         credentialCache = cache
         cloud = Self.makeCloud(context: context, dependencies: dependencies) {

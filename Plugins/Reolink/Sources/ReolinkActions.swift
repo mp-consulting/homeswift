@@ -2,7 +2,8 @@ import Foundation
 import HomeswiftPlugin
 
 // PTZ for MCP clients and the Assistant (addendum B): HomeKit has no PTZ service, so the moves, zoom, presets, patrols and
-// the guard are routes of `handleWebRequest`, described as `assistantActions`. Moving a camera changes what it watches,
+// the guard are routes of `handleWebRequest`, described as `assistantActions`; the web UI's live view gets the moves,
+// presets and guard through `cameraControls` and `controlCamera` (HomeswiftPlugin's `CameraControls`). Moving a camera changes what it watches,
 // so every route that moves one needs the configure scope; listing them needs read.
 extension ReolinkPlugin {
     /// The longest move the Assistant may ask for before the plugin stops it.
@@ -128,6 +129,48 @@ extension ReolinkPlugin {
             return PluginWebResponse(["ok": true])
         default:
             return .error(404, "not found")
+        }
+    }
+
+    // MARK: The web UI's live view
+
+    /// How long one step of the live view's pad turns a camera before `Stop`, in seconds.
+    static let padStep: Double = 0.4
+
+    /// A PTZ camera's moves, presets and guard for the pad over its live view (`CameraControls`).
+    public func cameraControls(accessoryID: String) async -> CameraControls? {
+        guard let target = await ptzTarget(accessoryID) else { return nil }
+        let directions = CameraControls.Direction.allCases.filter { target.ptz.allows($0.rawValue) }
+        guard !directions.isEmpty || !target.ptz.presets.isEmpty || target.ptz.hasGuard else { return nil }
+        return CameraControls(directions: directions, presets: target.ptz.presets.map { CameraControls.Preset(id: String($0.id), name: $0.name) },
+                              home: target.ptz.hasGuard)
+    }
+
+    /// One step of the pad (a move stopped after `padStep`, as `move_camera` stops its own), a preset, or the guard's
+    /// home position.
+    public func controlCamera(accessoryID: String, _ command: CameraCommand) async throws {
+        guard let target = await ptzTarget(accessoryID) else { throw CameraControlError("no PTZ camera with that id") }
+        do {
+            switch command {
+            case .move(let direction):
+                guard target.ptz.allows(direction.rawValue), let op = ReolinkPTZ.moves[direction.rawValue] else {
+                    throw CameraControlError("this camera does not move \(direction.rawValue)")
+                }
+                try await target.host.ptzControl(channel: target.channel, op: op)
+                try? await Task.sleep(for: dependencies.timing.seconds(Self.padStep))
+                try await target.host.ptzControl(channel: target.channel, op: "Stop")
+            case .preset(let id):
+                guard let preset = target.ptz.presets.first(where: { String($0.id) == id }) else { throw CameraControlError("no such preset") }
+                try await target.host.ptzControl(channel: target.channel, op: "ToPos", id: preset.id)
+            case .home:
+                guard target.ptz.hasGuard else { throw CameraControlError("this camera has no home position") }
+                try await target.host.ptzGuard(channel: target.channel, goHome: true, saveHere: false, enable: nil, timeout: nil)
+            }
+        } catch let error as ReolinkError {
+            switch error {
+            case .unsupported, .outOfRange: throw CameraControlError(error.description)
+            default: throw error
+            }
         }
     }
 

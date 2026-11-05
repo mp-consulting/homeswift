@@ -19,15 +19,10 @@ enum HostResolution {
         }
     }
 
-    /// The IPv4 address the ARP table has for `mac`: `arp -an` on macOS, `/proc/net/arp` on Linux.
+    /// The IPv4 address the ARP table has for `mac` (`ARPTable`: `/proc/net/arp` on Linux, `arp -an` on macOS).
     @Sendable static func arpAddress(forMAC mac: String) async -> String? {
-        #if canImport(Darwin)
-        guard let output = await run("/usr/sbin/arp", ["-an"]) else { return nil }
-        return address(in: output, mac: mac)
-        #else
-        guard let table = try? String(contentsOfFile: "/proc/net/arp", encoding: .utf8) else { return nil }
-        return address(in: table, mac: mac)
-        #endif
+        guard let target = MACAddress.canonical(mac) else { return nil }
+        return await ARPTable.entries().first { $0.mac == target }?.ip
     }
 
     /// The IPv4 address on the line of an ARP listing that carries `mac`, in any of the tables' formats:
@@ -42,28 +37,4 @@ enum HostResolution {
         }
         return nil
     }
-
-    #if canImport(Darwin)
-    /// Runs a tool and returns what it printed. The output is read on a dispatch thread while the tool runs
-    /// (a large table can fill a pipe's buffer), so nothing blocks a thread of Swift's pool.
-    private static func run(_ path: String, _ arguments: [String]) async -> String? {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: path)
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch {
-                continuation.resume(returning: nil)
-                return
-            }
-            DispatchQueue.global().async {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                continuation.resume(returning: String(decoding: data, as: UTF8.self))
-            }
-        }
-    }
-    #endif
 }

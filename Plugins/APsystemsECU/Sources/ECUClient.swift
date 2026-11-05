@@ -53,7 +53,7 @@ struct ECUClient: ECUExchanging {
     func exchange(_ request: [UInt8], host: String, port: Int) async throws -> [UInt8] {
         let stream = try await connected(host: host, port: port)
         do {
-            let frame = try await Self.withTimeout(readTimeout) {
+            let frame = try await withTimeout(readTimeout, error: { ECUTransportError.timeout }) {
                 try await stream.send(request)
                 var reader = ECUFrameReader()
                 for try await chunk in stream.incoming {
@@ -85,19 +85,6 @@ struct ECUClient: ECUExchanging {
         }
     }
 
-    /// `operation`, or `ECUTransportError.timeout` once `timeout` passes.
-    static func withTimeout<T: Sendable>(_ timeout: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw ECUTransportError.timeout
-            }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { throw ECUTransportError.timeout }
-            return first
-        }
-    }
 }
 
 /// The ECU-C's CT clamps, in W per phase: the production clamps and the grid clamps (positive while importing, as

@@ -48,7 +48,7 @@ extension APsystemsECUPlugin {
     func probe(host: String, port: Int) async throws -> ECUProtocol.SystemInfo {
         let exchanger = dependencies.exchange ?? ECUClient(retries: 1, connectTimeout: .seconds(3), readTimeout: .seconds(3))
         let frame = try await exclusively(Self.key(host: host, port: port)) {
-            try await ECUClient.withTimeout(Self.probeTimeout) {
+            try await withTimeout(Self.probeTimeout, error: { ECUTransportError.timeout }) {
                 try await exchanger.exchange(ECUProtocol.systemRequest, host: host, port: port)
             }
         }

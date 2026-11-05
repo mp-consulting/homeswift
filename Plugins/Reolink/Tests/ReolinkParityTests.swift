@@ -118,6 +118,27 @@ import Testing
         #expect(sentItems(environment.http, "SetPtzGuard").last?["param"] == ["PtzGuard": ["channel": 0, "cmdStr": "toPos"]])
     }
 
+    @Test func ptzThroughTheLiveViewsPad() async throws {
+        let environment = ReolinkEnvironment(Self.ptzAnswers(), scale: 0.01)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        _ = try #require(await Self.camera(environment))
+        let plugin = try #require(environment.plugin)
+        let controls = try #require(await plugin.cameraControls(accessoryID: Self.cameraID))
+        #expect(Set(controls.directions) == Set(CameraControls.Direction.allCases))
+        #expect(controls.presets == [.init(id: "1", name: "Gate"), .init(id: "5", name: "Drive")])
+        #expect(controls.home)
+
+        // A step is a move stopped after a moment.
+        try await plugin.controlCamera(accessoryID: Self.cameraID, .move(.left))
+        #expect(sentItems(environment.http, "PtzCtrl").suffix(2).map { $0["param"] } == [["channel": 0, "op": "Left"], ["channel": 0, "op": "Stop"]])
+        try await plugin.controlCamera(accessoryID: Self.cameraID, .preset("5"))
+        #expect(sentItems(environment.http, "PtzCtrl").last?["param"] == ["channel": 0, "op": "ToPos", "id": 5])
+        try await plugin.controlCamera(accessoryID: Self.cameraID, .home)
+        #expect(sentItems(environment.http, "SetPtzGuard").last?["param"] == ["PtzGuard": ["channel": 0, "cmdStr": "toPos"]])
+        await #expect(throws: CameraControlError.self) { try await plugin.controlCamera(accessoryID: Self.cameraID, .preset("9")) }
+    }
+
     @Test func aPanOnlyCameraRefusesTiltAndZoom() async throws {
         let environment = ReolinkEnvironment(Self.ptzAnswers(ptzType: 7), scale: 0.01)
         let host = try await environment.start()
@@ -126,6 +147,9 @@ import Testing
         let plugin = try #require(environment.plugin)
         let up = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "ptz/move", body: ["camera": .string(Self.cameraID), "direction": "up"], user: "admin"))
         #expect(up.status == 400)
+        // The pad shows only the directions it pans.
+        #expect(await plugin.cameraControls(accessoryID: Self.cameraID)?.directions == [.left, .right])
+        await #expect(throws: CameraControlError.self) { try await plugin.controlCamera(accessoryID: Self.cameraID, .move(.up)) }
         // Neither speed (type 7 takes none) nor the zoom's range is read.
         #expect(environment.http.count("GetZoomFocus") == 0)
         #expect(try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "ptz/move", body: ["camera": .string(Self.cameraID), "direction": "left", "speed": 10], user: "admin")).status == 200)

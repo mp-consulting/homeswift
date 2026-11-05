@@ -200,6 +200,13 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   or give it. The UI asks while a card is on screen and cancels when it leaves; finish the stream when the source
   restarts (new timestamps need a new initialization segment, which the page asks for). Prefer a low-bandwidth
   stream and share it with HomeKit's consumers: `Plugins/UniFiProtect/Sources/ProtectLiveFeed.swift` does both.
+- **Pan and tilt in the web UI.** HomeKit has no PTZ service; a camera that moves gets a pad over its live view when the
+  plugin answers `cameraControls(accessoryID:)` with a `CameraControls` (the directions it moves in, its presets, whether
+  it has a home position) and carries out `controlCamera(accessoryID:_:)`'s `CameraCommand`: `.move(direction)` is one
+  step (the pad sends the next once it was answered, while held), `.preset(id)` and `.home`. Throw `CameraControlError`
+  for what the camera cannot do, in words the person can act on. `cameraControls` is asked when a live view starts:
+  answer from what the plugin knows. `Plugins/Reolink/Sources/ReolinkActions.swift` and `Plugins/Tapo/Sources/TapoPTZ.swift`
+  (a battery camera, moved only while a live view keeps it awake) implement it.
 - **Adaptive Lighting.** Every Lightbulb with Brightness and Color Temperature gets one (the bridge's debug log names
   a light without it): `context.adaptiveLighting(for: lightbulb, accessoryID:, customTemperatureAdjustment:)` before the
   accessory goes on the bridge makes an automatic `AdaptiveLightingController` whose schedule survives restarts. The

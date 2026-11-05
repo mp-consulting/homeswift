@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-05
+
+### Added
+
+- Pan and tilt in the web UI: a camera that moves gets a **Pan and tilt** pad over its live view, pressed or dragged like
+  a joystick (or steered with the arrow keys) to turn it a step at a time while held, with its presets and home position
+  beside it. Plugins answer HomeswiftPlugin's new `cameraControls(accessoryID:)` and `controlCamera(accessoryID:_:)`
+  (`CameraControls`, `CameraCommand`); `GET /api/cameras/<id>/controls` and `POST /api/cameras/<id>/control` are for users
+  who may control accessories. Reolink's PTZ cameras use it (a step is a move stopped after 0.4 s; the guard is home).
+- TP-Link Tapo: pan and tilt of a C675D's tele lens through the camera's control API (HTTPS on 443, the encrypt_type 3
+  login with the owner's cloud password, a clean-room implementation of docs/clean-room/TapoPTZ.md), on the web UI's pad
+  and as `list_ptz_cameras`, `move_camera` and `go_to_preset`; only while a live view keeps the camera awake, so a move
+  never wakes it. Tried on a C675D on firmware 1.1.7.
+- TP-Link Tapo: Add accessories lists the account's cameras from the TP-Link cloud, each at its address without waking it
+  (the ARP table's entry for its MAC, else the address the cloud's registry keeps, on any subnet, else the local networks
+  resolved once), and sets one up with its address, type and cloud id in one click, asking the address only when nothing
+  placed the camera; the cloud's requests trust TP-Link's newer root (`TP-Link Cloud Root CA`) too; the account's sign-in reaches
+  the cloud with or without cameras (its e-mailed code may be left empty without them). `HomeswiftNetwork` gains
+  `ARPTable.resolveLocalNetworks(lookingFor:)`, and `HomeswiftPlugin` a shared `withTimeout` (APsystems ECU, Govee,
+  Tahoma and Tapo use it).
+
+### Fixed
+
+- The ARP table is read through `ChildProcess` (`posix_spawn`): Foundation's `Process` reads the current directory as it
+  starts, which hung discovery on macOS when the bridge was started from a folder under the privacy checks (`~/Documents`).
+  Elgato Key Lights reads it through `ARPTable` too.
+
 ## [0.21.0] - 2026-11-05
 
 ### Added
@@ -1944,7 +1971,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/mp-consulting/homeswift/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/mp-consulting/homeswift/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/mp-consulting/homeswift/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/mp-consulting/homeswift/compare/v0.19.0...v0.20.0

@@ -121,3 +121,31 @@ extension AsyncSequence where Self: Sendable, Element: Sendable {
         }
     }
 }
+
+/// The error `withTimeout` throws by default.
+public struct TimeoutError: Error, CustomStringConvertible, Sendable, Equatable {
+    public let timeout: Duration
+    public init(_ timeout: Duration) { self.timeout = timeout }
+    public var description: String { "no answer within \(timeout)" }
+}
+
+/// Runs `body`, or, once `timeout` passes first, cancels it, calls `onTimeout` (to close what `body` waits on) and throws
+/// `error` (a `TimeoutError` by default). A plugin passes its own error so its callers see the same one as before.
+public func withTimeout<T: Sendable>(
+    _ timeout: Duration, error: @escaping @Sendable () -> any Error = { TimeoutError(.zero) }, onTimeout: @escaping @Sendable () async -> Void = {},
+    _ body: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T?.self) { group in
+        group.addTask { try await body() }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            return nil
+        }
+        defer { group.cancelAll() }
+        if let first = try await group.next(), let value = first { return value }
+        await onTimeout()
+        let thrown = error()
+        throw (thrown as? TimeoutError).map { _ in TimeoutError(timeout) } ?? thrown
+    }
+}
+

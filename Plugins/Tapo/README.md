@@ -1,7 +1,8 @@
 # TP-Link Tapo
 
 Puts TP-Link Tapo plugs, bulbs and battery cameras in HomeKit, reached on the local network, signed in with the Tapo
-account's email and password. Each device is listed by its address; the plugin asks a plug or a bulb for its state every
+account's email and password. A plug or a bulb is listed by its address, a camera found in the account's cloud
+([Battery cameras](#battery-cameras)); the plugin asks a plug or a bulb for its state every
 few seconds and sends HomeKit's changes to it, and reaches a camera only while someone watches it
 ([Battery cameras](#battery-cameras)).
 
@@ -76,11 +77,24 @@ the Home app with the bridge's setup code, as other cameras).
   account), which never reaches the camera. Motion Detected stays on 30 seconds after the last detection; expect it a
   few seconds after the Tapo app's notification. The camera's **Activity Notifications** must be on in the Tapo app.
   `motion: false` leaves the sensor and the cloud out.
-- **Signing in to the cloud** happens at Setup (Add accessories) once a camera is listed: the first time, the cloud
+- **Signing in to the cloud** happens at Setup (Add accessories), with the account's sign-in: the first time, the cloud
   e-mails the account a code for this new "terminal" (it may also e-mail that a new device signed in); once given, the
-  terminal is trusted and its session is kept in the vault. A refused sign-in stops the motion until Setup signs in
-  again. The camera is found in the account by its MAC address (when the bridge knows it), its name, its model, or set
-  `cloudId` (the log lists the account's cameras when none matches).
+  terminal is trusted and its session is kept in the vault. Without cameras the code may be left empty: the account then
+  works for plugs and bulbs alone. A refused sign-in stops the motion until Setup signs in again. The camera is found in
+  the account by its `cloudId`, its MAC address (when the bridge knows it), its name or its model (the log lists the
+  account's cameras when none matches).
+- **Cameras are found through the cloud.** Once the account is signed in, Add accessories lists the account's cameras
+  that the block does not have yet, by their cloud id (their Device Id), each at its address, found without waking it:
+  the ARP table's entry for the camera's MAC first; else the address the cloud's registry keeps (the account's NBU app
+  server's device details, [docs/clean-room/TapoCloudEvents.md](../../docs/clean-room/TapoCloudEvents.md) 4.4.1, which
+  works on any subnet or VLAN), unless the table says another device has it now; else the bridge sends one empty
+  datagram to the discard port of every address of its local networks (of 1024 addresses at most), so the system
+  resolves their MACs, and reads the table again. Only when none places it does its Setup ask for the address. The
+  cloud's requests trust TP-Link's two private roots (`tp-link-CA` and `TP-Link Cloud Root CA`) and nothing else.
+  **Set up** writes the camera's `host`, `type` (`DualLensCamera`
+  for a C675D, `Camera` otherwise), `cloudId` and name into its Accessory Settings; an address typed in is checked
+  against the camera's MAC when the bridge knows the address. A mains-powered Tapo camera is listed too: with RTSP, the
+  IP Cameras plugin suits it better.
 - **No audio** yet: the cameras' G.711 is declared in a way FFmpeg reads as MP3.
 - The password is sent as the camera asks for it (its SHA-256, then its MD5 once on a new connection), never in clear,
   and neither the password, its hashes nor the session's keys are logged. A refused password is reported once and not
@@ -131,10 +145,11 @@ and `resolution` as its own settings; from then on a rename or a new address kee
 Numbers may be written as strings (`"10"`), as the Homebridge plugin's form wrote them. `pollingInterval`, `timeout` at
 the top and `devices[].port` are read and unused, as there.
 
-**Setup.** On Add accessories, the instance's account asks for the Tapo email and password, checks them on the first
-device of `devices` when it answers, and keeps them in the vault (taking `username` and `password` out of the block).
-Devices are added to `devices` by address: they announce nothing the plugin listens for. Each needs **Third-Party
-Compatibility** turned on in the Tapo app on current firmware.
+**Setup.** On Add accessories, the instance's account asks for the Tapo email and password, checks them with the
+TP-Link cloud (and its e-mailed code, the first time) and on the first plug or bulb of `devices` when it answers, and keeps them in the vault (taking `username` and `password` out of the block).
+Plugs and bulbs are added to `devices` by address: they announce nothing the plugin listens for. Cameras come from the
+account's cloud ([Battery cameras](#battery-cameras)). Each needs **Third-Party Compatibility** turned on in the Tapo app
+on current firmware.
 
 ## How it talks to the devices
 
@@ -161,9 +176,28 @@ camera's parts are MPEG-TS, AES-128-CBC encrypted with a key and an IV made from
 each part from the same IV. Ten seconds without a part end the session. FFmpeg reads the TS on its standard input and
 takes the lens's video stream.
 
+## Pan and tilt
+
+A C675D's tele lens is on a motor. Its live view in the web UI has a **Pan and tilt** pad that turns it 15° a step while
+held, with the camera's presets (from the Tapo app) beside it; the Assistant and MCP clients get `list_ptz_cameras`,
+`move_camera` (up, down, left or right by 1° to 90°) and `go_to_preset`. The camera's control API
+([docs/clean-room/TapoPTZ.md](../../docs/clean-room/TapoPTZ.md)) is HTTPS on port 443, its self-signed certificate
+pinned on first use in `control-certificates.json`, signed in as `admin` with the owner's cloud password:
+
+- **Only while awake.** A move is sent only while a live view (the Home app's or the web UI's) keeps the camera awake: a
+  request never wakes it on its own, and asleep the pad's answer says to open the live view first.
+- **Asked once.** Whether a camera has a motor is asked the first time it is watched and kept in `ptz.json`; its presets
+  are read again every five minutes while it is watched, and when one asked for is not among them.
+- **The login.** The encrypt_type 3 login: the camera proves it knows the password's hash before the bridge sends its own
+  proof, so an address that is not the camera learns nothing. A firmware that offers only the newer SPAKE2+ login is not
+  supported yet (the log says so). A wrong password or a lockout stops the attempts for a minute, or as long as the
+  camera says; a new certificate (after a firmware update) is trusted again once the camera's proof passes.
+- At most one motor request a second; the end of the range answers "cannot turn further that way".
+- Tried on a C675D (firmware 1.1.7): it pans, tilts and goes to its presets. Please report how other models move.
+
 ## Not done
 
-- Discovery: the devices have to be listed by address.
+- Plugs and bulbs have to be listed by address; cameras come from the account.
 - L900 light strips have no type of their own; as `Colorlight` they may work (untested), without their segments and
   effects.
 - KLAP's newer variant used by some cameras and hubs, and accounts whose devices expect other credentials in the
@@ -171,7 +205,8 @@ takes the lens's video stream.
 - Eve's Reset Total is not offered (the Homebridge plugin defines it but adds it nowhere), and the total is today's.
 - Battery cameras: no audio, no two-way audio, no HomeKit Secure Video (recording on motion needs a recording source fed by
   the stream rather than RTSP); person, vehicle and pet detections are all Motion; the cameras' settings (privacy mode,
-  the floodlight, the siren, the battery level) need the camera's control API, which the plugin does not use. Motion
+  the floodlight, the siren, the battery level) are not read from the camera's control API, which the plugin uses for pan
+  and tilt only. Motion
   push (FCM) instead of the inbox poll is not done.
 
 ## Tests

@@ -27,6 +27,28 @@ public enum ARPTable {
         #endif
     }
 
+    /// Makes the system resolve the MAC address of every address of this machine's local IPv4 networks, so `entries()`
+    /// lists the devices that are on but said nothing to this machine lately: one empty datagram to the discard port (9)
+    /// of each address, then up to `settle` for the answers, less once every MAC of `wanted` (`MACAddress.canonical`)
+    /// is in the table. Only networks of at most `maximumHosts` addresses are covered (a container's /16 bridge is not),
+    /// loopback aside. Nothing listens on the discard port: a device answers the ARP request and drops the datagram.
+    public static func resolveLocalNetworks(lookingFor wanted: Set<String> = [], maximumHosts: UInt32 = 1024, settle: Duration = .milliseconds(1500)) async {
+        let networks = localIPv4Networks().filter { !$0.isLoopback && ~$0.netmask >= 2 && ~$0.netmask <= maximumHosts }
+        guard !networks.isEmpty, let socket = try? await UDPSocket.bind() else { return }
+        for network in networks {
+            let base = network.address & network.netmask
+            for host in 1..<(~network.netmask) where base | host != network.address {
+                try? await socket.send(Data(), to: IPv4Network.dotted(base | host), port: 9)
+            }
+        }
+        let deadline = ContinuousClock.now + settle
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: min(.milliseconds(250), deadline - .now))
+            if !wanted.isEmpty, wanted.isSubset(of: Set(await entries().map(\.mac))) { break }
+        }
+        await socket.close()
+    }
+
     /// `arp -an`'s lines: `? (192.168.1.20) at 0:11:22:aa:bb:c on en0 ifscope [ethernet]`.
     static func darwinEntries(in output: String) -> [(ip: String, mac: String)] {
         output.split(separator: "\n").compactMap { line in
@@ -70,25 +92,13 @@ public enum ARPTable {
     }
 
     #if canImport(Darwin)
-    /// Runs a tool and returns what it printed. The output is read on a thread of Dispatch's own while the tool runs
-    /// (`arp -an` on a large network fills a pipe's buffer, and a tool blocked writing would never exit), so nothing
-    /// waits on a thread of Swift's pool.
+    /// Runs a tool and returns what it printed, through `ChildProcess` (`posix_spawn`) on a thread of its own, so nothing
+    /// waits on a thread of Swift's pool. Not Foundation's `Process`: it reads the current directory as it starts, which
+    /// blocks on macOS's privacy check when the bridge was started from a protected folder (`~/Documents`).
     private static func run(_ path: String, _ arguments: [String]) async -> String? {
         await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: path)
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch {
-                continuation.resume(returning: nil)
-                return
-            }
-            DispatchQueue.global().async {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                continuation.resume(returning: String(decoding: data, as: UTF8.self))
+            Thread.detachNewThread {
+                continuation.resume(returning: try? ChildProcess.run(path, arguments: arguments).text)
             }
         }
     }
