@@ -87,7 +87,7 @@
     const isoToday = HomeswiftCommon.isoDay(new Date());
     const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
     const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
-    const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", class: "mono", autocomplete: "off", spellcheck: false });
+    const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", autocomplete: "off", spellcheck: false });
     const exportPrice = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: latest?.exportPrice ?? "", placeholder: t("Not paid") });
     const rows = el("div", { class: "tariff-periods" });
     const message = el("p", { class: "status-line muted", role: "status" });
@@ -1136,7 +1136,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
           return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
         });
-        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: () => 1, bars, hourly,
+        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
           segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
             ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
         return card;

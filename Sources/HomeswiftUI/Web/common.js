@@ -1733,11 +1733,11 @@
   }
 
   /// Kilowatt-hours as every page shows energy: under a kWh in Wh (a plug's few hours, not 0.00 kWh); two decimals
-  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`) keeps kWh, whole
-  /// when it is.
+  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`, its highest) is in
+  /// Wh when the axis stays under a kWh, else in kWh, whole when it is.
   function kWh(value, top) {
     const size = Math.abs(value);
-    if (top == null && size > 0 && size < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
     const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }

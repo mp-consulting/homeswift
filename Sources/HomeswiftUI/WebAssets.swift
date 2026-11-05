@@ -96,7 +96,7 @@ enum WebAssets {
     const isoToday = HomeswiftCommon.isoDay(new Date());
     const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
     const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
-    const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", class: "mono", autocomplete: "off", spellcheck: false });
+    const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", autocomplete: "off", spellcheck: false });
     const exportPrice = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: latest?.exportPrice ?? "", placeholder: t("Not paid") });
     const rows = el("div", { class: "tariff-periods" });
     const message = el("p", { class: "status-line muted", role: "status" });
@@ -1145,7 +1145,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
           return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
         });
-        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: () => 1, bars, hourly,
+        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
           segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
             ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
         return card;
@@ -3801,7 +3801,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else {
         days.body.replaceChildren();
         days.key = key;
-        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1,
           segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
@@ -10881,11 +10881,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// Kilowatt-hours as every page shows energy: under a kWh in Wh (a plug's few hours, not 0.00 kWh); two decimals
-  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`) keeps kWh, whole
-  /// when it is.
+  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`, its highest) is in
+  /// Wh when the axis stays under a kWh, else in kWh, whole when it is.
   function kWh(value, top) {
     const size = Math.abs(value);
-    if (top == null && size > 0 && size < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
     const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
@@ -25141,6 +25141,8 @@ header nav a svg { display: none; }
 .tariff-period > * { min-width: 0; }
 .tariff-period .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .tariff-period-head { font-size: var(--text-xs); color: var(--muted); }
+/* Dates, times, numbers and text the same height (a date or time field is taller by itself). */
+.tariff-card input, .tariff-card select { box-sizing: border-box; height: 42px; }
 .tariff-card .actions.start { justify-content: flex-start; }
 .tariff-earlier { margin: var(--space-8) 0 0; padding-left: var(--space-18); color: var(--muted); font-size: var(--text-sm); }
 @media (max-width: 640px) {
@@ -27918,6 +27920,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
+  /* The History sheet's periods and Clear filters on one row: the button round, its icon alone. */
+  .admin-dialog .page-head .tools { flex-wrap: nowrap; }
+  .admin-dialog .page-head .tools .clear-filters { flex: none; width: 40px; height: 40px; min-height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

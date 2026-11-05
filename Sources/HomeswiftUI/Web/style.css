@@ -283,6 +283,8 @@ header nav a svg { display: none; }
 .tariff-period > * { min-width: 0; }
 .tariff-period .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .tariff-period-head { font-size: var(--text-xs); color: var(--muted); }
+/* Dates, times, numbers and text the same height (a date or time field is taller by itself). */
+.tariff-card input, .tariff-card select { box-sizing: border-box; height: 42px; }
 .tariff-card .actions.start { justify-content: flex-start; }
 .tariff-earlier { margin: var(--space-8) 0 0; padding-left: var(--space-18); color: var(--muted); font-size: var(--text-sm); }
 @media (max-width: 640px) {
@@ -3060,6 +3062,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
+  /* The History sheet's periods and Clear filters on one row: the button round, its icon alone. */
+  .admin-dialog .page-head .tools { flex-wrap: nowrap; }
+  .admin-dialog .page-head .tools .clear-filters { flex: none; width: 40px; height: 40px; min-height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
