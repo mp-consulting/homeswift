@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-05
+
 ### Added
 
 - Pan and tilt in the web UI: a camera that moves gets a **Pan and tilt** pad over its live view, pressed or dragged like
@@ -1968,7 +1970,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/mp-consulting/homeswift/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/mp-consulting/homeswift/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/mp-consulting/homeswift/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/mp-consulting/homeswift/compare/v0.19.0...v0.20.0
