@@ -276,6 +276,10 @@ extension APsystemsECUPlugin {
         context.recordValue(system.todayEnergy, series: "\(id):today")
         if let grid = meter?.gridPower { context.recordValue(grid, series: "\(id):grid", energy: EnergyTag(role: .grid, device: shownName)) }
         if let home = meter?.homePower { context.recordValue(home, series: "\(id):home", energy: EnergyTag(role: .home, device: shownName)) }
+        // Each phase on its own, for the history only (the Energy section counts the sums above).
+        for (kind, phases) in [("production", meter?.productionPhases), ("grid", meter?.gridPhases), ("home", meter?.homePhases)] {
+            for (phase, watts) in phases ?? [:] { context.recordValue(watts, series: "\(id):\(kind)\(phase)") }
+        }
 
         guard let realTime else {
             markInverters(of: id, current: [])

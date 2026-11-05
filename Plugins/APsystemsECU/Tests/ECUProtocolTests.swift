@@ -351,6 +351,12 @@ enum Vectors {
         #expect(meter.grid == [-200, 100, 50])
         #expect(meter.gridPower == -50)
         #expect(meter.homePower == 1450.5)
+        #expect(meter.productionPhases == ["A": 1000, "B": 500.5, "C": 0])
+        #expect(meter.homePhases == ["A": 800, "B": 600.5, "C": 50])
+        // A phase left out keeps the others' names.
+        let twoPhases = try ECUMeter.parse(Data(#"{"power1":[{"powerA":"x","powerB":10,"powerC":20}],"power2":[{"powerB":5}]}"#.utf8))
+        #expect(twoPhases.productionPhases == ["B": 10, "C": 20])
+        #expect(twoPhases.homePhases == ["B": 15])
         let empty = try ECUMeter.parse(Data(#"{"power1":[],"power2":[]}"#.utf8))
         #expect(empty.gridPower == nil && empty.homePower == nil)
         #expect(throws: (any Error).self) { try ECUMeter.parse(Data("<html>".utf8)) }

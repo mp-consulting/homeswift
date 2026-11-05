@@ -103,8 +103,35 @@ struct ECUClient: ECUExchanging {
 /// The ECU-C's CT clamps, in W per phase: the production clamps and the grid clamps (positive while importing, as
 /// inferred from consumed = production + grid; docs/clean-room/APsystemsECU.md, 3.9). nil where the ECU gave nothing.
 struct ECUMeter: Sendable, Equatable {
-    var production: [Double]?
-    var grid: [Double]?
+    /// The phases, as the page names them (`powerA`…).
+    static let phases = ["A", "B", "C"]
+
+    /// By phase (`A`, `B`, `C`): a phase the page left out is missing, the others keep their names.
+    var productionPhases: [String: Double]?
+    var gridPhases: [String: Double]?
+
+    init(productionPhases: [String: Double]?, gridPhases: [String: Double]?) {
+        self.productionPhases = productionPhases
+        self.gridPhases = gridPhases
+    }
+
+    /// Phase A first: the readings in phase order.
+    init(production: [Double]?, grid: [Double]?) {
+        func named(_ values: [Double]?) -> [String: Double]? {
+            values.map { Dictionary(uniqueKeysWithValues: zip(Self.phases, $0)) }
+        }
+        self.init(productionPhases: named(production), gridPhases: named(grid))
+    }
+
+    /// The phases' readings in phase order, nil where the ECU gave none.
+    var production: [Double]? { productionPhases.map { phases in Self.phases.compactMap { phases[$0] } } }
+    var grid: [Double]? { gridPhases.map { phases in Self.phases.compactMap { phases[$0] } } }
+
+    /// The home's use on each phase, production + grid (a phase without its production clamp counts 0); nil without
+    /// the grid clamps.
+    var homePhases: [String: Double]? {
+        gridPhases.map { grid in grid.reduce(into: [:]) { $0[$1.key] = $1.value + (productionPhases?[$1.key] ?? 0) } }
+    }
 
     /// All the grid phases, nil without them.
     var gridPower: Double? { grid.map { $0.reduce(0, +) } }
@@ -115,18 +142,19 @@ struct ECUMeter: Sendable, Equatable {
     /// element with `powerA`, `powerB`, `powerC`; the last element of each counts.
     static func parse(_ data: Data) throws -> ECUMeter {
         guard let object = try JSONValue(data: data).objectValue else { throw ECUFrameError.malformed("meter answer") }
-        func phases(_ key: String) -> [Double]? {
+        func phases(_ key: String) -> [String: Double]? {
             guard let last = object[key]?.arrayValue?.last?.objectValue else { return nil }
-            let values = ["powerA", "powerB", "powerC"].compactMap { name -> Double? in
-                let field = last[name]
+            var values: [String: Double] = [:]
+            for phase in Self.phases {
+                let field = last["power\(phase)"]
                 let value = field?.doubleValue ?? field?.stringValue.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
                 // A reading of the house, so within what a house draws: a value past it is not one.
-                guard let value, value.isFinite, abs(value) < 1_000_000 else { return nil }
-                return value
+                guard let value, value.isFinite, abs(value) < 1_000_000 else { continue }
+                values[phase] = value
             }
             return values.isEmpty ? nil : values
         }
-        return ECUMeter(production: phases("power1"), grid: phases("power2"))
+        return ECUMeter(productionPhases: phases("power1"), gridPhases: phases("power2"))
     }
 }
 

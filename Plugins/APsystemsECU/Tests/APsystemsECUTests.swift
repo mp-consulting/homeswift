@@ -181,6 +181,13 @@ struct APsystemsECUTests {
         #expect(environment.tag("215000999901:grid")?.role == .grid)
         #expect(environment.values("215000999901:home").first == 7672)
         #expect(environment.tag("215000999901:home")?.role == .home)
+        // Each phase of the clamps, for the history (FakeMeter: production 3000, 2500, 2672; grid -1000, 200, 300).
+        #expect(await eventually { !environment.values("215000999901:homeC").isEmpty })
+        #expect(environment.values("215000999901:productionA").first == 3000)
+        #expect(environment.values("215000999901:gridB").first == 200)
+        #expect(environment.values("215000999901:homeA").first == 2000)
+        #expect(environment.values("215000999901:homeC").first == 2972)
+        #expect(environment.tag("215000999901:gridB") == nil, "the sums are the Energy section's, not the phases")
         #expect(environment.values("703000999002:power").first == 174)
         #expect(environment.values("703000999002:power1").first == 88)
         #expect(environment.values("703000999002:temperature").first == 33)

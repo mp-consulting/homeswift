@@ -41,7 +41,9 @@ the ECU's answer keeps its accessory (the ECU sometimes drops records), not acti
 **Energy.** Each poll records the production as `.solar` (0 W at night too, so the day's total stays honest), and an
 ECU-C's meter: the grid clamps added up as `.grid` (positive while importing) and production + grid as `.home`. A
 poll that failed records nothing. Each inverter's power, channel powers, voltages, frequency, temperature and signal
-(percent) are kept in the Status page's history (`<UID>:power1`…), not in HomeKit.
+(percent) are kept in the Status page's history (`<UID>:power1`…), not in HomeKit, and so is each phase of an ECU-C's
+clamps: `<ECU id>:productionA`, `B`, `C`, `gridA`… and `homeA`… (production + grid on that phase), untagged, since the
+Energy section counts their sums.
 
 ## Configuration
 
@@ -106,8 +108,9 @@ removed or broke it, so a meter that does not answer leaves the grid and home un
 ## Not done
 
 - **No writes:** turning inverters on or off, their maximum power, an ECU-C's zero export and the sources' reboot trick
-  (rewriting the ECU's Wi-Fi settings, which needs the home's Wi-Fi password) are left out; the local pages they used
-  are gone on recent ECU-C firmware.
+  (rewriting the ECU's Wi-Fi settings, which needs the home's Wi-Fi password) are left out, as the spec recommends: they
+  were form posts to the ECU's local web pages, which ECU-C firmware C1.2.24B removed, and they would act on the
+  installation with no way to check the result for minutes ("See the results 5 minutes later").
 - The day's power curve and the week, month and year energy queries, which could fill the Status page's history
   before the bridge ran (`importEnergy`): their requests are not specified well enough to send. The week, month and
   year request's length field (`0039`) does not match its 33 bytes in the only source that sends it, another source

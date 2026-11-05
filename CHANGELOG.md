@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- APsystems ECU: each phase of an ECU-C's CT clamps (production, grid and home on A, B and C) as its own series in the
+  Status page's history.
 - V2C Trydan: the current's limits and the installation's voltage as Accessory Settings sent once per change, and the
   session's time, the meter's code, the Wi-Fi signal and each phase's current and voltage in the Status page's history.
 - Daikin Cloud: each unit's kWh today in the Status page's history, and with `energyHistory` the units' `consumptionData`
