@@ -162,7 +162,8 @@ struct TPLinkSmarthomeTests {
         environment.lan.put(Fixtures.lb120Off, at: "192.168.1.51")
         environment.lan.put(Fixtures.kl430Off, at: "192.168.1.52")
         environment.lan.reply("smartlife.iot.lightStrip.set_light_state", #"{"on_off":1,"mode":"normal","err_code":0}"#)
-        let host = try await environment.start()
+        // One round only: on a loaded runner, a later one (the fixtures stay off) could undo the write before it is read.
+        let host = try await environment.start(settings: ["pollingInterval": 3600])
         #expect(await eventually { host.accessory(Fixtures.lb120ID) != nil && host.accessory(Fixtures.kl430ID) != nil })
         let bulb = try #require(host.accessory(Fixtures.lb120ID)?.service(.lightbulb))
         #expect(bulb[.on]?.value == .bool(false))
