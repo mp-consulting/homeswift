@@ -778,8 +778,30 @@ public final class UIServer: Sendable {
                     return .error(400, "period is week, month or year, and date YYYY-MM-DD")
                 }
                 let periods = metrics.archive.periods(period == "year" ? .month : .day, from: span.from, to: span.to, timeZone: timeZone)
-                return .json(Self.energyHistoryJSON(periods, period: period, earliest: metrics.archive.earliest, timeZone: timeZone,
-                                                    imports: catalog.host.energyImportProgress))
+                var history = Self.energyHistoryJSON(periods, period: period, earliest: metrics.archive.earliest, timeZone: timeZone,
+                                                     imports: catalog.host.energyImportProgress)
+                // With Tariffs, each bar's energy cost: what the grid's import cost, less what its export was paid, hour by hour.
+                let schedule = TariffSchedule(catalog.host.configuration.tariffs, timeZone: timeZone)
+                if !schedule.isEmpty, var object = history.objectValue, let bars = object["bars"]?.arrayValue, !periods.isEmpty {
+                    var costs = [Double?](repeating: nil, count: periods.count)
+                    let starts = periods.map(\.start)
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = timeZone
+                    let end = calendar.date(byAdding: period == "year" ? .month : .day, value: 1, to: starts.last!) ?? span.to
+                    for hour in metrics.archive.hours(from: starts[0], to: end.addingTimeInterval(-1)) where hour.flows.gridImport != nil || hour.flows.gridExport != nil {
+                        guard let cost = schedule.cost(hour: hour.start, drawn: (hour.flows.gridImport ?? 0) / 1000, sent: (hour.flows.gridExport ?? 0) / 1000) else { continue }
+                        let index = EnergyCalendar.index(of: hour.start, in: starts)
+                        costs[index] = (costs[index] ?? 0) + cost
+                    }
+                    object["bars"] = .array(zip(bars, costs).map { bar, cost in
+                        var one = bar.objectValue ?? [:]
+                        one["cost"] = cost.map { .number(($0 * 100).rounded() / 100) } ?? .null
+                        return .object(one)
+                    })
+                    object["currency"] = schedule.currency.map(JSONValue.string) ?? .null
+                    history = .object(object)
+                }
+                return .json(history)
             case ["metrics", "consumption"]:
                 // Each Meter's Consumption and Returned (`HomeswiftCatalog.consumptionJSON`): `hours` (the last N hours), or
                 // `period` week, month or year around `date`; `accessory` keeps one accessory's Meters.

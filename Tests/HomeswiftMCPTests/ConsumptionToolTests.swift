@@ -89,4 +89,32 @@ struct ConsumptionToolTests {
 
         await #expect(throws: (any Error).self) { try await catalog.updateAccessorySettings([(id, ["energyRoles": ["x": "sun"]])]) }
     }
+
+    /// The Tariffs are written without a restart, checked first; each Meter's Consumption is priced hour by hour.
+    @Test func pricesConsumptionByTheTariffs() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let metrics = Metrics(directory: nil, now: { [hour] in hour })
+        let lamp = MeterID(accessory: "Devices:lamp", meter: "43/")
+        metrics.meters.importHours([MeterHourImport(start: hour, consumption: 2_000), MeterHourImport(start: hour.addingTimeInterval(-43_200), consumption: 1_000)], meter: lamp)
+        let catalog = catalog(environment, metrics: metrics)
+
+        let tariffs: JSONValue = [["start": "2027-01-01", "currency": "EUR", "periods": [
+            ["name": "Off-peak", "from": "22:00", "to": "06:00", "price": 0.1], ["name": "Peak", "from": "06:00", "to": "22:00", "price": 0.25]]]]
+        let written = try await catalog.updateTariffs(tariffs)
+        #expect(written["restartNeeded"] == [] || written["restartNeeded"] == nil)
+        #expect(environment.host.configuration.tariffs.count == 1)
+        #expect(try catalog.tariffsJSON(now: hour)["current"] == "2027-01-01")
+
+        // 08:00 UTC is peak (2 kWh, 0.50); 20:00 the day before is peak too (1 kWh, 0.25).
+        let week = try catalog.consumptionJSON(period: "week", date: "2027-01-15", timeZone: utc, now: hour)
+        #expect(week["currency"] == "EUR")
+        #expect(week["meters"]?[0]?["cost"] == 0.75)
+        #expect(week["meters"]?[0]?["bars"]?.arrayValue?.last?["cost"] == 0.5)
+
+        await #expect(throws: CatalogError.self) {
+            try await catalog.updateTariffs([["start": "2027-02-01", "currency": "EUR", "periods": [["from": "06:00", "to": "22:00", "price": 0.2]]]])
+        }
+    }
 }

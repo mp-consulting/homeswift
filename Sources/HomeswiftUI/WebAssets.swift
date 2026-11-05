@@ -71,19 +71,88 @@ enum WebAssets {
   // ---- Bridge: its block, the network, pairings, caches, schedules -----------------------------------------
 
   async function bridgePage(main) {
-    const [settings, pairings, caches, plugins] = await Promise.all([
-      api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null)]);
+    const [settings, pairings, caches, plugins, tariffs] = await Promise.all([
+      api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null),
+      api("/api/settings/tariffs").catch(() => ({ tariffs: [] }))]);
     const bridge = settings.bridge || {};
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
       app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
       subnav("bridge"),
       bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
+      tariffCard(tariffs),
       networkCard(settings),
       sectionHead(t("HomeKit pairings"), t("Who the Home app knows each server by")),
       el("div", { class: "grid" }, pairings.bridges.map(pairingCard)),
       cachesSection(caches),
       schedulesCard(uiBlock));
+  }
+
+  /// The Tariff: what the home pays per kWh, by period of the day and week, and what a kWh sent back is paid. It edits
+  /// the latest Tariff; saved with another first day, it is a new Tariff from that day and the earlier ones keep their
+  /// prices, so past costs stay right. No restart.
+  function tariffCard({ tariffs = [] }) {
+    const latest = tariffs.at(-1) ?? null;
+    const today = new Date();
+    const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
+    const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
+    const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", class: "mono", autocomplete: "off", spellcheck: false });
+    const exportPrice = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: latest?.exportPrice ?? "", placeholder: t("Not paid") });
+    const rows = el("div", { class: "tariff-periods" });
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const addRow = (period = { from: "00:00", to: "24:00", price: "" }) => {
+      const name = el("input", { type: "text", value: period.name ?? "", placeholder: t("Name, such as Peak"), maxLength: 40, "aria-label": t("Period name") });
+      const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From") });
+      // 24:00 is the end of the day: a time input shows it as 00:00.
+      const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
+      const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
+      const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: t("Price per kWh"), "aria-label": t("Price per kWh"), required: true });
+      const row = el("div", { class: "tariff-period" }, name, from, to, days, price,
+        el("button", { type: "button", class: "icon-button", "aria-label": t("Remove this period"), title: t("Remove this period"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
+      row.read = () => ({ ...(name.value.trim() ? { name: name.value.trim() } : {}), from: from.value || "00:00",
+        // A period ending at midnight ends at 24:00, unless it starts later in the day and runs past midnight.
+        to: (to.value || "00:00") === "00:00" ? "24:00" : to.value,
+        ...(days.value ? { days: days.value.split(",").map(Number) } : {}), price: Number(price.value) });
+      rows.append(row);
+    };
+    for (const period of latest?.periods ?? []) addRow(period);
+    if (!latest) addRow();
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow({ from: "00:00", to: "24:00", price: "" }) });
+    const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
+    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
+    const earlier = tariffs.slice(0, -1).reverse();
+    const startDate = (text) => { const [y, m, d] = text.split("-").map(Number); return new Date(y, m - 1, d); };
+    const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
+    return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
+      event.preventDefault();
+      const tariff = { start: start.value, currency: currency.value.trim().toUpperCase(), periods: [...rows.children].map((row) => row.read()),
+        ...(exportPrice.value !== "" ? { exportPrice: Number(exportPrice.value) } : {}) };
+      // The same first day is the same Tariff, changed; another is a new one from that day.
+      const next = [...tariffs.filter((one) => one.start !== tariff.start), tariff].sort((a, b) => a.start.localeCompare(b.start));
+      await busy(save, async () => {
+        await api("/api/settings/tariffs", { method: "PUT", body: { tariffs: next } });
+        tariffs.splice(0, tariffs.length, ...next);
+        message.className = "status-line ok";
+        message.textContent = t("Saved. Costs follow from {date}.", { date: longDay.format(startDate(tariff.start)) });
+      }, (e) => { message.className = "status-line error"; message.textContent = HomeswiftI18n.message(e.message); });
+    } },
+      el("div", { class: "server-head" }, tile("bolt", "yellow"),
+        el("div", { class: "who" }, el("strong", { text: t("Energy tariff") }),
+          el("div", { class: "muted", text: t("What the home pays per kWh, for the costs on the Status page") }))),
+      el("div", { class: "fields" },
+        field(t("Applies from"), start, t("Another day starts a new tariff: the days before it keep their prices.")),
+        field(t("Currency"), currency, t("A currency code, such as EUR, USD or GBP.")),
+        field(t("Export price"), exportPrice, t("What a kWh sent back to the grid is paid, if it is."))),
+      el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
+        el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
+        el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
+          ...[t("Name"), t("From"), t("To"), t("Days"), t("Price per kWh")].map((text) => el("span", { text })), el("span")),
+        rows, el("div", { class: "actions start" }, add)),
+      earlier.length ? el("details", { class: "more" }, el("summary", { text: tn("{n} earlier tariff", "{n} earlier tariffs", earlier.length) }),
+        el("ul", { class: "tariff-earlier" }, earlier.map((one) => el("li", { text: t("From {date}: {count} periods, in {currency}", {
+          date: longDay.format(startDate(one.start)), count: one.periods.length, currency: one.currency }) })))) : null,
+      el("div", { class: "actions" }, save), message);
   }
 
   /// The bridge block of config.json as a form. Saving restarts homeswift: the block is its HomeKit identity.
@@ -1072,7 +1141,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
           el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
           body,
-          returns ? el("div", { class: "muted chart-detail", text: t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) }) : null);
+          el("div", { class: "muted chart-detail", text: [
+            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: meter.cost.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency: found.currency }) }) : null,
+            returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
         const bars = meter.bars.map((bar, index) => {
           const date = dateOf(bar.date);
           // Every third hour labelled, every day.
@@ -3630,17 +3701,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         const share = most > 0 ? Math.max((one.consumption ?? 0) / most * 100, one.consumption > 0 ? 1 : 0) : 0;
         const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
+        // At the grid's price, hour by hour, whatever source covered it.
+        const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
+        const note = [cost, returned].filter(Boolean).join(" · ") || null;
         return el("li", {}, el("button", { type: "button", class: "consumer", actionIcon: "chart",
-          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), returned].filter(Boolean).join(", "),
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
           el("span", { class: "consumer-name", text: name }),
           el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share}%` })),
-          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), returned ? el("small", { text: returned }) : null)));
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), note ? el("small", { text: note }) : null)));
       }));
       consumersMore.hidden = used.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
         el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: used.length }) }));
-      consumers.detail.textContent = used.length ? "" : t("Nothing measured in this period");
+      const costs = used.filter((one) => one.cost != null);
+      consumers.detail.textContent = !used.length ? t("Nothing measured in this period")
+        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(costs.reduce((sum, one) => sum + one.cost, 0), found.currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -3742,6 +3818,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+        // The energy part of the bill: the grid's import at its price, less what the export was paid.
+        history.currency && sum("cost") != null ? total(null, t("Energy cost"), formatMoney(sum("cost"), history.currency), t("Import less export, without fixed charges")) : null,
       ].filter(Boolean);
       summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
         : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
@@ -3831,6 +3909,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
+  /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; the code itself for one it does
+  /// not know.
+  function formatMoney(amount, currency) {
+    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
+    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
+  }
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
@@ -15670,6 +15754,33 @@ HomeswiftI18n.add("es", {
   "Meter: {meter}": "Medidor: {meter}",
   "What it measures": "Lo que mide",
   "Counts from now on; the history it measured stays as it was.": "Cuenta desde ahora; el historial ya medido queda como estaba.",
+  "Every day": "Todos los días",
+  "Weekdays": "Entre semana",
+  "Weekends": "Fines de semana",
+  "Not paid": "No pagado",
+  "Name, such as Peak": "Nombre, por ejemplo Punta",
+  "Period name": "Nombre del periodo",
+  "Price per kWh": "Precio por kWh",
+  "Remove this period": "Quitar este periodo",
+  "Add a period": "Añadir un periodo",
+  "Save the tariff": "Guardar la tarifa",
+  "Saved. Costs follow from {date}.": "Guardado. Los costes lo siguen desde el {date}.",
+  "Energy tariff": "Tarifa de energía",
+  "What the home pays per kWh, for the costs on the Status page": "Lo que la casa paga por kWh, para los costes de la página Estado",
+  "Applies from": "Se aplica desde",
+  "Another day starts a new tariff: the days before it keep their prices.": "Otro día empieza una nueva tarifa: los días anteriores conservan sus precios.",
+  "Currency": "Moneda",
+  "A currency code, such as EUR, USD or GBP.": "Un código de moneda, como EUR, USD o GBP.",
+  "Export price": "Precio de exportación",
+  "What a kWh sent back to the grid is paid, if it is.": "Lo que se paga por un kWh devuelto a la red, si se paga.",
+  "Prices": "Precios",
+  "Each part of the week once: a period ending before it starts runs past midnight.": "Cada momento de la semana una sola vez: un periodo que termina antes de empezar pasa de la medianoche.",
+  "{n} earlier tariff": "{n} tarifa anterior",
+  "{n} earlier tariffs": "{n} tarifas anteriores",
+  "From {date}: {count} periods, in {currency}": "Desde el {date}: {count} periodos, en {currency}",
+  "{cost} at the grid's price, hour by hour": "{cost} al precio de la red, hora a hora",
+  "Energy cost": "Coste de la energía",
+  "Import less export, without fixed charges": "Importación menos exportación, sin cargos fijos",
 });
 
 """#),
@@ -18523,6 +18634,33 @@ HomeswiftI18n.add("fr", {
   "Meter: {meter}": "Compteur : {meter}",
   "What it measures": "Ce qu'il mesure",
   "Counts from now on; the history it measured stays as it was.": "Compte dès maintenant ; l'historique déjà mesuré reste tel quel.",
+  "Every day": "Tous les jours",
+  "Weekdays": "En semaine",
+  "Weekends": "Le week-end",
+  "Not paid": "Non rémunéré",
+  "Name, such as Peak": "Nom, par exemple Heures pleines",
+  "Period name": "Nom de la période",
+  "Price per kWh": "Prix du kWh",
+  "Remove this period": "Retirer cette période",
+  "Add a period": "Ajouter une période",
+  "Save the tariff": "Enregistrer le tarif",
+  "Saved. Costs follow from {date}.": "Enregistré. Les coûts en tiennent compte à partir du {date}.",
+  "Energy tariff": "Tarif de l'énergie",
+  "What the home pays per kWh, for the costs on the Status page": "Ce que la maison paie le kWh, pour les coûts de la page État",
+  "Applies from": "S'applique à partir du",
+  "Another day starts a new tariff: the days before it keep their prices.": "Un autre jour commence un nouveau tarif : les jours d'avant gardent leurs prix.",
+  "Currency": "Devise",
+  "A currency code, such as EUR, USD or GBP.": "Un code de devise, comme EUR, USD ou GBP.",
+  "Export price": "Prix de revente",
+  "What a kWh sent back to the grid is paid, if it is.": "Ce que rapporte un kWh renvoyé au réseau, s'il est payé.",
+  "Prices": "Prix",
+  "Each part of the week once: a period ending before it starts runs past midnight.": "Chaque moment de la semaine une seule fois : une période qui finit avant de commencer passe minuit.",
+  "{n} earlier tariff": "{n} tarif précédent",
+  "{n} earlier tariffs": "{n} tarifs précédents",
+  "From {date}: {count} periods, in {currency}": "Depuis le {date} : {count} périodes, en {currency}",
+  "{cost} at the grid's price, hour by hour": "{cost} au prix du réseau, heure par heure",
+  "Energy cost": "Coût de l'énergie",
+  "Import less export, without fixed charges": "Achat moins revente, hors abonnement",
 });
 
 """#),
@@ -21376,6 +21514,33 @@ HomeswiftI18n.add("pt", {
   "Meter: {meter}": "Medidor: {meter}",
   "What it measures": "O que mede",
   "Counts from now on; the history it measured stays as it was.": "Conta a partir de agora; o histórico já medido fica como estava.",
+  "Every day": "Todos os dias",
+  "Weekdays": "Dias úteis",
+  "Weekends": "Fins de semana",
+  "Not paid": "Não pago",
+  "Name, such as Peak": "Nome, por exemplo Ponta",
+  "Period name": "Nome do período",
+  "Price per kWh": "Preço por kWh",
+  "Remove this period": "Remover este período",
+  "Add a period": "Adicionar um período",
+  "Save the tariff": "Guardar a tarifa",
+  "Saved. Costs follow from {date}.": "Guardado. Os custos seguem-no a partir de {date}.",
+  "Energy tariff": "Tarifa de energia",
+  "What the home pays per kWh, for the costs on the Status page": "O que a casa paga por kWh, para os custos da página Estado",
+  "Applies from": "Aplica-se a partir de",
+  "Another day starts a new tariff: the days before it keep their prices.": "Outro dia inicia uma nova tarifa: os dias anteriores mantêm os seus preços.",
+  "Currency": "Moeda",
+  "A currency code, such as EUR, USD or GBP.": "Um código de moeda, como EUR, USD ou GBP.",
+  "Export price": "Preço de exportação",
+  "What a kWh sent back to the grid is paid, if it is.": "O que é pago por um kWh devolvido à rede, se for pago.",
+  "Prices": "Preços",
+  "Each part of the week once: a period ending before it starts runs past midnight.": "Cada momento da semana uma só vez: um período que termina antes de começar passa da meia-noite.",
+  "{n} earlier tariff": "{n} tarifa anterior",
+  "{n} earlier tariffs": "{n} tarifas anteriores",
+  "From {date}: {count} periods, in {currency}": "Desde {date}: {count} períodos, em {currency}",
+  "{cost} at the grid's price, hour by hour": "{cost} ao preço da rede, hora a hora",
+  "Energy cost": "Custo da energia",
+  "Import less export, without fixed charges": "Importação menos exportação, sem encargos fixos",
 });
 
 """#),
@@ -24915,6 +25080,26 @@ header nav a svg { display: none; }
 .settings-head .tools { margin-left: auto; }
 .form-card { margin: 0; }
 .form-card > .server-head { margin-bottom: var(--space-14); }
+/* The Tariff's prices: a row per period, its name, times, days and price, with the way to remove it. */
+.tariff-card { margin-top: var(--space-14); }
+.tariff-periods { display: grid; gap: var(--space-8); }
+.tariff-period { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 0.9fr) 36px; gap: var(--space-8); align-items: center; }
+.tariff-period > * { min-width: 0; }
+.tariff-period .icon-button { width: 36px; height: 36px; min-height: 36px; }
+.tariff-period-head { font-size: var(--text-xs); color: var(--muted); }
+.tariff-card .actions.start { justify-content: flex-start; }
+.tariff-earlier { margin: var(--space-8) 0 0; padding-left: var(--space-18); color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 640px) {
+  /* Three lines a period: its name, then its times, then its days and price. */
+  .tariff-period { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; padding-bottom: var(--space-8); border-bottom: 1px solid var(--line); }
+  .tariff-period > :nth-child(1) { grid-column: 1 / 3; grid-row: 1; }
+  .tariff-period > :nth-child(2) { grid-column: 1; grid-row: 2; }
+  .tariff-period > :nth-child(3) { grid-column: 2; grid-row: 2; }
+  .tariff-period > :nth-child(4) { grid-column: 1; grid-row: 3; }
+  .tariff-period > :nth-child(5) { grid-column: 2; grid-row: 3; }
+  .tariff-period .icon-button { grid-column: 3; grid-row: 1; width: 40px; height: 40px; min-height: 40px; }
+  .tariff-period-head { display: none; }
+}
 .page-note { display: flex; align-items: center; gap: var(--space-14); justify-content: space-between; margin: 0 0 var(--space-14); padding: var(--space-12) var(--space-16) var(--space-12) var(--space-18); }
 .page-note p { margin: 0; font-size: var(--text-md); }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }

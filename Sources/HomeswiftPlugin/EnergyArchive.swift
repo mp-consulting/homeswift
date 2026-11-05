@@ -228,7 +228,7 @@ public enum EnergyCalendar {
     }
 
     /// The period an instant within them falls in: the last start at or before it.
-    static func index(of date: Date, in starts: [Date]) -> Int {
+    public static func index(of date: Date, in starts: [Date]) -> Int {
         var low = 0, high = starts.count - 1
         while low < high {
             let middle = (low + high + 1) / 2
@@ -361,6 +361,15 @@ public final class EnergyArchive: @unchecked Sendable {
                 return (Date(timeIntervalSince1970: TimeInterval(key)), imported.values.reduce(EnergyFlows()) { $0.adding($1) })
             }
         }
+    }
+
+    /// Each hour from `from` to `to` with anything known, oldest first, as the archive reads it (`merged`).
+    public func hours(from: Date, to: Date) -> [(start: Date, flows: EnergyFlows)] {
+        let first = Self.hourStart(from), last = Int(to.timeIntervalSince1970)
+        guard first <= last else { return [] }
+        return hours.withLockedValue { $0.filter { $0.key >= first && $0.key <= last } }
+            .sorted { $0.key < $1.key }
+            .map { (Date(timeIntervalSince1970: TimeInterval($0.key)), Self.merged($0.value).flows) }
     }
 
     /// The first hour with anything known.

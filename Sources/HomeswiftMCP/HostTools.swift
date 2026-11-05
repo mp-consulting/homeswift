@@ -572,6 +572,28 @@ extension HomeswiftCatalog {
                 return .json(try catalog.accessoryHistoryJSON(id: try call.string("id"), hours: hours, type: call.optionalString("type"), maxPoints: call.int("maxPoints", default: 48)))
             },
             MCPTool(
+                name: "get_tariffs", title: "Energy tariffs",
+                description: "What the home pays per kWh: every Tariff (from its first day, in a currency, by period of the day and week, and what a kWh sent back is paid), "
+                    + "oldest first, and the one in force now (current, its start). get_consumption prices each Meter's energy by them.",
+                outputSchema: Output.object(["tariffs": ["type": "array"], "current": ["type": ["string", "null"]]], required: ["tariffs"]), scope: .read, idempotent: true
+            ) { _ in .json(try catalog.tariffsJSON()) },
+            MCPTool(
+                name: "update_tariffs", title: "Change the energy tariffs",
+                description: "Replaces the Tariffs with tariffs (the whole list). A new price is a new Tariff from the day it starts, the earlier ones kept as they were, "
+                    + "so past costs stay right. Each Tariff's periods must cover the week once (no gap, no overlap). No restart. dryRun previews.",
+                inputSchema: ["type": "object", "required": ["tariffs"], "properties": ["tariffs": ["type": "array", "description": "Every Tariff, oldest first; a change of price is a new Tariff from its day, the past ones kept", "items": ["type": "object", "required": ["start", "currency", "periods"], "properties": [
+                        "start": ["type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Its first day, YYYY-MM-DD"],
+                        "currency": ["type": "string", "pattern": "^[A-Z]{3}$", "description": "ISO 4217: EUR, USD, GBP…"],
+                        "exportPrice": ["type": "number", "minimum": 0, "description": "What a kWh sent back to the grid is paid"],
+                        "periods": ["type": "array", "minItems": 1, "description": "Parts of the week at one price, covering the week once", "items": ["type": "object", "required": ["from", "to", "price"], "properties": [
+                            "name": ["type": "string", "maxLength": 40], "from": ["type": "string", "description": "HH:mm"], "to": ["type": "string", "description": "HH:mm, 24:00 for midnight; before from runs past midnight"],
+                            "days": ["type": "array", "items": ["type": "integer", "minimum": 1, "maximum": 7], "description": "1 Monday to 7 Sunday; every day when left out"],
+                            "price": ["type": "number", "minimum": 0, "description": "Per kWh"],
+                        ]]],
+                    ]]]]],
+                scope: .admin, supportsDryRun: true, idempotent: true
+            ) { call in .json(try await catalog.updateTariffs(call.arguments["tariffs"] ?? .null, dryRun: call.isDryRun)) },
+            MCPTool(
                 name: "get_consumption", title: "Energy consumption",
                 description: "The energy each Meter measured, in kWh: an accessory's plug, relay channel or energy meter, the bridge records whatever its plugin. "
                     + "Per Meter: its Consumption (drawn) and Returned (sent back to the grid, or produced) over the span, and a bar per hour, day or month, "

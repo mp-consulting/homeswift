@@ -334,7 +334,7 @@ struct ShellyNGTests {
         #expect(imported.map(\.flows.gridImport) == [12, 12])
         #expect(imported.map(\.flows.gridExport) == [1, 0])
         #expect(device.calls("EMData.GetData").first?["params"]?["ts"] == 0)
-        #expect(host.energyImportProgress.first?.state == .done)
+        await expectEventually { host.energyImportProgress.first?.state == .done }
     }
 
     @Test func canonicalSettingsMoveDevicesIntoAccessorySettings() throws {

@@ -163,6 +163,8 @@ public struct HomeswiftConfiguration: Sendable {
     /// `bridge.roomSync`, Room Sync (GLOSSARY.md); nil when the bridge block does not say. Not part of `bridge`: changing
     /// it needs no restart.
     public var roomSync: Bool?
+    /// `bridge.tariffs`, the Tariffs (GLOSSARY.md), oldest first. Not part of `bridge`: changing them needs no restart.
+    public var tariffs: [Tariff] = []
 
     public init(bridge: Bridge = Bridge(), platforms: [Platform] = [], disabledPlugins: [String] = []) {
         self.bridge = bridge
@@ -302,6 +304,12 @@ public struct HomeswiftConfiguration: Sendable {
             if let sync = (bridge as? [String: Any])?["roomSync"] {
                 guard let on = sync as? Bool else { throw ConfigurationError.invalidValue(key: "bridge.roomSync", expected: "true or false") }
                 configuration.roomSync = on
+            }
+            if let tariffs = (bridge as? [String: Any])?["tariffs"] {
+                guard let list = try? decoder.decode([Tariff].self, from: JSONSerialization.data(withJSONObject: tariffs)) else {
+                    throw ConfigurationError.invalidValue(key: "bridge.tariffs", expected: "a list of Tariffs (start, currency, periods)")
+                }
+                configuration.tariffs = list
             }
         }
         var blocks: [[String: Any]] = []

@@ -1703,17 +1703,22 @@
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         const share = most > 0 ? Math.max((one.consumption ?? 0) / most * 100, one.consumption > 0 ? 1 : 0) : 0;
         const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
+        // At the grid's price, hour by hour, whatever source covered it.
+        const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
+        const note = [cost, returned].filter(Boolean).join(" · ") || null;
         return el("li", {}, el("button", { type: "button", class: "consumer", actionIcon: "chart",
-          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), returned].filter(Boolean).join(", "),
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
           el("span", { class: "consumer-name", text: name }),
           el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share}%` })),
-          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), returned ? el("small", { text: returned }) : null)));
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), note ? el("small", { text: note }) : null)));
       }));
       consumersMore.hidden = used.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
         el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: used.length }) }));
-      consumers.detail.textContent = used.length ? "" : t("Nothing measured in this period");
+      const costs = used.filter((one) => one.cost != null);
+      consumers.detail.textContent = !used.length ? t("Nothing measured in this period")
+        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(costs.reduce((sum, one) => sum + one.cost, 0), found.currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -1815,6 +1820,8 @@
         discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+        // The energy part of the bill: the grid's import at its price, less what the export was paid.
+        history.currency && sum("cost") != null ? total(null, t("Energy cost"), formatMoney(sum("cost"), history.currency), t("Import less export, without fixed charges")) : null,
       ].filter(Boolean);
       summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
         : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
@@ -1904,6 +1911,12 @@
     return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
+  /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; the code itself for one it does
+  /// not know.
+  function formatMoney(amount, currency) {
+    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
+    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
+  }
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
