@@ -78,6 +78,7 @@ secret and the password are entered by the person.
 | `updateIntervalInMinutes` | number | `15` | Polling interval, 1-60 (Developer Portal: 15+, Mobile App: 1-5), stretched as above |
 | `forceUpdateDelay` | number | `60000` | Milliseconds (5000-300000) before the poll after a change from HomeKit |
 | `enableWebSocket` | boolean | `true` | Real-time updates (Mobile App only) |
+| `energyHistory` | boolean | `false` | The units' electricity use as the home's use in the Status page's Energy section (see below) |
 | `httpTransport` | string | `node` | `node` (the built-in client) or `curl` (the curl binary, for networks whose firewall drops the built-in client's TLS fingerprint). `DAIKIN_HTTP_TRANSPORT` overrides it |
 | `showPowerfulMode` | boolean | `false` | Powerful mode switch (climate control and hot water tank) |
 | `showEconoMode` | boolean | `false` | Econo mode switch |
@@ -106,6 +107,17 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
 `DAIKIN_WEBSOCKET_URL` and the Mobile App client's `DAIKIN_API_KEY`, `DAIKIN_CLIENT_ID`, `DAIKIN_CLIENT_SECRET`,
 `DAIKIN_REDIRECT_URI`, `DAIKIN_GIGYA_BASE_URL`, `DAIKIN_IDP_TOKEN_ENDPOINT`, `DAIKIN_SCOPE`.
 
+## Energy
+
+Each poll reads the units' `consumptionData` (kWh, heating and cooling of each management point added up), which
+the device list carries already: no call is added. Each unit's kWh so far today goes into the Status page's history
+(`<Device Id>:energyToday`). With `energyHistory`, the units' use also goes into the Energy section as the home's use,
+by `importEnergy`: yesterday's and today's two-hour slots split over their two hours, and the other days of the last two
+weeks (`w`) spread evenly over their 24 hours, so the day and month views have each day's kWh. Only slots and days that
+are over are imported; the hours the bridge recorded itself keep their own figures. It is off by default: a meter that
+already reports the home's use would count the units twice. The months (`m`) are not imported, and the weeks are taken
+to start on Monday (ISO weeks, the Onecta app's).
+
 ## What differs from Homebridge
 
 - **Test connection** on the Authentication tab refreshes an expired token first, through the running instance;
@@ -121,6 +133,8 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
   cipher list, as the Homebridge plugin asks Node for OpenSSL's, and `DAIKIN_TLS_CIPHERS` overrides it for both the
   requests and the WebSocket; the ClientHello is BoringSSL's, so it is not byte for byte the same as Node's.
 - The Assistant's Explain buttons are the web UI's (`HomeswiftAiKit`).
+- The units' energy use reaches the Status page (`energyHistory`, above); the Homebridge plugin did not read
+  `consumptionData`.
 - Accessory ids are `DaikinCloud:<Daikin device id>`; feature switches always carry the management point in their
   subtype (`climateControl:powerful_mode`): there are no cached Homebridge switches to adopt.
 - A unit whose operation mode changes whether it has a fixed fan speed has its accessory rebuilt (same aid and

@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Daikin Cloud: each unit's kWh today in the Status page's history, and with `energyHistory` the units' `consumptionData`
+  imported into the Energy section as the home's use (two-hour slots for yesterday and today, days for two weeks).
 - Philips Hue: an Eve history on the motion, temperature and light level sensors (fakegato's format), with Eve's Last
   Activation on the motion sensor.
 - Philips Hue: a Tap dial's ring as two Stateless Programmable Switches, Clockwise and Anticlockwise, from the event

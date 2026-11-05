@@ -269,7 +269,31 @@ actor DaikinSession {
         }
         devices = updated
         lastFetched = Date()
+        recordConsumption(updated)
         return updated
+    }
+
+    /// The hours last imported, so an unchanged read imports nothing again.
+    private var importedConsumption: [EnergyHourImport] = []
+
+    /// Each unit's `consumptionData`: today's kWh in the Status page's history (`<Device Id>:energyToday`), and, with
+    /// `energyHistory`, every unit's hours added up as the home's use in the Energy section (one import for all of them:
+    /// an import replaces the plugin's figures of its hours).
+    private func recordConsumption(_ devices: [DaikinCloudDevice], now: Date = Date(), calendar: Calendar = .current) {
+        var all = DaikinConsumption.Totals()
+        for device in devices where !settings.isExcluded(device.id) {
+            let totals = DaikinConsumption.totals(of: device.raw, now: now, calendar: calendar)
+            guard !totals.slots.isEmpty || !totals.days.isEmpty else { continue }
+            context.recordValue(DaikinConsumption.today(totals, now: now, calendar: calendar), series: "\(device.id):energyToday")
+            all.slots.merge(totals.slots, uniquingKeysWith: +)
+            all.days.merge(totals.days, uniquingKeysWith: +)
+        }
+        guard settings.energyHistory else { return }
+        let hours = DaikinConsumption.hours(all, now: now, calendar: calendar)
+        guard !hours.isEmpty, hours != importedConsumption else { return }
+        importedConsumption = hours
+        context.importEnergy(hours)
+        context.reportEnergyImport(EnergyImportProgress(state: .done, done: 1, total: 1, from: hours.first?.start, through: hours.last.map { $0.start.addingTimeInterval(3600) }))
     }
 
     private func createAccessories(_ devices: [DaikinCloudDevice]) {
