@@ -13,7 +13,11 @@ import NIOHTTP1
 //   for `addSourceBuffer`. The feed stops when the browser disconnects; a camera has at most
 //   `CameraViewers.limit` viewers at once.
 //
-// Both are API routes, so they need a signed-in user, and both refuse while the camera is off in the Home app.
+// - `GET /api/cameras/<accessory id>/controls` answers the camera's `CameraControls` (directions, presets, home), 404
+//   for a camera that does not move; `POST /api/cameras/<accessory id>/control` with `{"move": "left"}`,
+//   `{"preset": "<id>"}` or `{"home": true}` moves it, for any signed-in user, as controlling an accessory.
+//
+// They are API routes, so they need a signed-in user, and they refuse while the camera is off in the Home app.
 
 /// A chunked body for `UIServer.Reply.media`: what comes first, the rest as it comes, and what ends it.
 struct MediaStream: Sendable {
@@ -70,12 +74,22 @@ extension UIServer {
     /// Headers that keep a proxy or the browser from replaying old frames.
     static let noCache = ["Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"]
 
-    func camera(_ id: String, _ action: String, _ request: Request, username: String) async -> Reply {
-        guard let found = catalog.find(id: id), let camera = found.accessory.cameraController else { return .error(404, "no camera \(id)") }
+    /// A camera the routes may reach: its controller and name, or the reply that refuses it.
+    private func reachableCamera(_ id: String) -> Result<(camera: CameraController, name: String), ReplyError> {
+        guard let found = catalog.find(id: id), let camera = found.accessory.cameraController else { return .failure(ReplyError(404, "no camera \(id)")) }
         let name = found.accessory.name
         // A paused plugin's camera: nothing reaches the device, as HomeKit's snapshots get No Response.
-        guard !found.accessory.isUnavailable else { return .error(503, "\(name) is paused: its plugin does not run") }
-        guard camera.isHomeKitCameraActive else { return .error(409, "\(name) is turned off in the Home app") }
+        guard !found.accessory.isUnavailable else { return .failure(ReplyError(503, "\(name) is paused: its plugin does not run")) }
+        guard camera.isHomeKitCameraActive else { return .failure(ReplyError(409, "\(name) is turned off in the Home app")) }
+        return .success((camera, name))
+    }
+
+    func camera(_ id: String, _ action: String, _ request: Request, username: String) async -> Reply {
+        let camera: CameraController, name: String
+        switch reachableCamera(id) {
+        case .success(let found): (camera, name) = found
+        case .failure(let refusal): return .error(refusal.status, refusal.message)
+        }
         switch action {
         case "snapshot":
             // The card asks for its own size; 16:9 when it gives only a width.
@@ -111,8 +125,45 @@ extension UIServer {
                 viewers.leave(id)
                 logger.debug("Web UI live view ended", metadata: ["accessory": "\(name)", "user": "\(username)"])
             })
+        case "controls":
+            guard let controls = await catalog.host.cameraControls(accessoryID: id) else { return .error(404, "\(name) does not pan or tilt") }
+            do {
+                return .json(try JSONValue(encoding: controls), headers: Self.noCache)
+            } catch {
+                return .error(500, "\(error)")
+            }
         default:
             return .error(404, "unknown camera route \(action)")
+        }
+    }
+
+    /// Moves a camera from its live view: one step in a direction, a preset or home.
+    func controlCamera(_ id: String, _ body: JSONValue, username: String) async -> Reply {
+        let name: String
+        switch reachableCamera(id) {
+        case .success(let found): name = found.name
+        case .failure(let refusal): return .error(refusal.status, refusal.message)
+        }
+        let command: CameraCommand
+        if let move = body["move"]?.stringValue {
+            guard let direction = CameraControls.Direction(rawValue: move) else { return .error(400, "move must be up, down, left or right") }
+            command = .move(direction)
+        } else if let preset = body["preset"]?.stringValue ?? body["preset"]?.saturatingIntValue.map(String.init) {
+            command = .preset(preset)
+        } else if body["home"]?.boolValue == true {
+            command = .home
+        } else {
+            return .error(400, "give move, preset or home")
+        }
+        do {
+            try await catalog.host.controlCamera(accessoryID: id, command)
+            logger.info("Web UI user \(username) moved \(name)", metadata: ["command": "\(command)"])
+            return .json(JSONValue.object([:]))
+        } catch let error as CameraControlError {
+            return .error(400, error.description)
+        } catch {
+            logger.debug("Web UI camera control failed", metadata: ["accessory": "\(name)", "error": "\(error)"])
+            return .error(502, "\(name) did not move: \(error)")
         }
     }
 }
@@ -138,5 +189,15 @@ extension UIRequestHandler {
         _ = await pump.result
         media.finished()
         channel.close(promise: nil)
+    }
+}
+
+/// A route's refusal, before its reply is built.
+struct ReplyError: Error {
+    let status: Int
+    let message: String
+    init(_ status: Int, _ message: String) {
+        self.status = status
+        self.message = message
     }
 }

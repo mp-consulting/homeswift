@@ -365,12 +365,27 @@ public final class PluginHost: @unchecked Sendable {
         return try await plugin.handleWebRequest(request)
     }
 
+    /// The running plugin of the instance that has `accessoryID`, an external accessory included.
+    private func plugin(owning accessoryID: String) -> (any HomeswiftPlugin)? {
+        instances.first { $0.context.accessories.contains { $0.id == accessoryID } }?.plugin.withLockedValue { $0 }
+    }
+
     /// The live feed of a camera, from the plugin instance whose accessory it is (`HomeswiftPlugin.liveFeed`). nil
     /// when no running instance has the accessory or its plugin has no feed for it.
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? {
-        guard let instance = instances.first(where: { $0.context.accessories.contains { $0.id == accessoryID } }),
-              let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
-        return try await plugin.liveFeed(accessoryID: accessoryID)
+        try await plugin(owning: accessoryID)?.liveFeed(accessoryID: accessoryID)
+    }
+
+    /// The pan, tilt and presets of a camera, from the plugin instance whose accessory it is
+    /// (`HomeswiftPlugin.cameraControls`); nil when no running instance has it or it does not move.
+    public func cameraControls(accessoryID: String) async -> CameraControls? {
+        await plugin(owning: accessoryID)?.cameraControls(accessoryID: accessoryID)
+    }
+
+    /// Moves a camera through the plugin instance whose accessory it is (`HomeswiftPlugin.controlCamera`).
+    public func controlCamera(accessoryID: String, _ command: CameraCommand) async throws {
+        guard let plugin = plugin(owning: accessoryID) else { throw CameraControlError("no running plugin has \(accessoryID)") }
+        try await plugin.controlCamera(accessoryID: accessoryID, command)
     }
 
     /// Starts everything and keeps running until the task is cancelled.

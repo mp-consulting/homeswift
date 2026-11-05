@@ -200,7 +200,12 @@ screenshots, and what a plugin does to get good ones.
   Extensions, ManagedMediaSource on iOS Safari) when the plugin has one, otherwise a snapshot every 3 seconds
   (`/api/cameras/<id>/snapshot?width=&height=`). Off screen it fetches nothing. A camera has four live viewers at most;
   one turned off in the Home app, or whose plugin is paused, shows nothing; one that sends no picture shows television
-  snow behind its message (a still frame under reduced motion).
+  snow behind its message (a still frame under reduced motion). A camera that pans and tilts (Reolink, a Tapo C675D's
+  tele lens) gets a **Pan and tilt** button once its picture is live: a pad over the picture to press or drag like a
+  joystick, or to steer with the arrow keys, which turns the camera a step at a time while held, with its presets and
+  home position beside it (`GET /api/cameras/<id>/controls`, `POST /api/cameras/<id>/control` with `{"move": "left"}`,
+  `{"preset": "<id>"}` or `{"home": true}`; both for users who may control accessories, not read-only tokens). On the
+  wall, only a large camera tile has it.
 - **Rooms**: an accessory's room and Hidden are in its Settings sheet (a new room name adds the room); hidden
   accessories stay out unless **Show hidden** (`?hidden=1`). Its room and Hidden are Accessory Settings
   (`room`, `hidden` in its plugin's block, `PATCH /api/settings/accessories/<id>`); the Quick Controls and the rooms'

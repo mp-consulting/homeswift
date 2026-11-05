@@ -103,6 +103,15 @@ public protocol HomeswiftPlugin: Sendable {
     /// `CameraController`.
     func liveFeed(accessoryID: String) async throws -> CameraLiveFeed?
 
+    /// The pan, tilt and presets of one of the plugin's cameras, for the controls of its live view in the web UI
+    /// (`CameraControls`); nil for a camera that does not move. Asked when a card starts its live view: answer from
+    /// what the plugin knows. Defaults to nil.
+    func cameraControls(accessoryID: String) async -> CameraControls?
+
+    /// Moves one of the plugin's cameras as `cameraControls` says it can. Throw `CameraControlError` for a command it
+    /// cannot carry out. Defaults to throwing.
+    func controlCamera(accessoryID: String, _ command: CameraCommand) async throws
+
     /// The scenes the plugin's hub keeps, for Homeswift to list with its own (`PluginScene`). Asked each time they
     /// are listed, so answer from what the plugin already knows rather than asking the hub. Defaults to none.
     func scenes() async -> [PluginScene]
@@ -217,6 +226,8 @@ extension HomeswiftPlugin {
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
+    public func cameraControls(accessoryID: String) async -> CameraControls? { nil }
+    public func controlCamera(accessoryID: String, _ command: CameraCommand) async throws { throw CameraControlError("\(Self.name) does not move its cameras") }
     public static var accountAuthorization: AuthorizationMethod { .none }
     public static var accountRequirement: AccountRequirement { .required }
     public static var addsDevicesByAddress: Bool { false }

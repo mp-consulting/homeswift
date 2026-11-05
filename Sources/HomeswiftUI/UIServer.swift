@@ -438,6 +438,8 @@ public final class UIServer: Sendable {
         switch method {
         case .GET:
             if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "consumption"], ["events"], ["assistant"]].contains(route) { return .read }
+            // A camera's pan and tilt: asking may sign in to the camera, so it is for those who may move it.
+            if route.count == 3, route[0] == "cameras", route[2] == "controls" { return .control }
             if route.count == 3, route[0] == "cameras" { return .read }
             if route.count == 3, route[0] == "accessories", route[2] == "history" { return .read }
             if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
@@ -455,6 +457,8 @@ public final class UIServer: Sendable {
             if route.first == "preferences" { return .control }
         case .POST:
             if route.count == 3, route[0] == "accessories", route[2] == "identify" { return .control }
+            // Turning a camera from its live view is controlling it.
+            if route.count == 3, route[0] == "cameras", route[2] == "control" { return .control }
             if route.count >= 2, route[0] == "assistant", route[1] == "chat" { return .control }
             // Opening one's own earlier conversation; stopping one's own Assistant request.
             if route.count == 4, route[0] == "assistant", route[1] == "chats", route[3] == "open" { return .control }
@@ -1013,6 +1017,9 @@ public final class UIServer: Sendable {
             if route == ["restart"] {
                 guard catalog.scheduleRestart(requestedBy: "web UI user \(username)") else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
                 return .json(["restarting": true])
+            }
+            if route.count == 3, route[0] == "cameras", route[2] == "control" {
+                return await controlCamera(route[1], body, username: username)
             }
             if route.count == 3, route[0] == "accessories", route[2] == "identify" {
                 guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }

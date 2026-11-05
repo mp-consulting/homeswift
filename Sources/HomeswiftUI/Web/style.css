@@ -2407,6 +2407,65 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (hover: hover) and (pointer: fine) { .camera-button:hover { background: rgba(30, 32, 40, 0.62); } }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.camera-button.active { background: rgba(255, 255, 255, 0.9); color: #10131a; }
+/* Pan and tilt: a pad to press or drag like a joystick over the picture's lower left, the presets beside it. */
+.ptz-panel {
+  position: absolute; left: var(--space-12); bottom: 58px; z-index: 2; display: flex; align-items: flex-end; gap: var(--space-10);
+  max-width: calc(100% - 2 * var(--space-12)); transform-origin: 100% 100%;
+  animation: ptz-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes ptz-in { from { opacity: 0; transform: scale(0.92) translateY(6px); filter: blur(4px); } }
+.ptz-pad {
+  position: relative; flex: none; width: 120px; height: 120px; border-radius: 50%; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: rgba(20, 22, 30, 0.42); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  cursor: grab; outline: none;
+}
+.ptz-pad.dragging { cursor: grabbing; }
+.ptz-pad:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent), 0 8px 24px rgba(0, 0, 0, 0.28); }
+.ptz-thumb {
+  position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; pointer-events: none;
+  background: rgba(255, 255, 255, 0.92); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  /* Back to the centre when let go: critically damped, no bounce. */
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), scale 120ms ease-out;
+}
+.ptz-pad.dragging .ptz-thumb { transition: scale 120ms ease-out; scale: 0.92; }
+.ptz-arrow {
+  position: absolute; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+  color: rgba(255, 255, 255, 0.85); pointer-events: none;
+  transition: color 100ms ease-out, background-color 100ms ease-out;
+}
+.ptz-arrow svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.ptz-arrow.up { top: 2px; left: 43px; } .ptz-arrow.down { bottom: 2px; left: 43px; }
+.ptz-arrow.left { left: 2px; top: 43px; } .ptz-arrow.right { right: 2px; top: 43px; }
+.ptz-arrow.active { color: #fff; background: color-mix(in srgb, var(--accent) 80%, transparent); }
+.ptz-arrow.off { opacity: 0.3; }
+.ptz-presets { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-6); min-width: 0; max-height: 120px; overflow-y: auto; scrollbar-width: none; }
+.ptz-chip {
+  display: inline-flex; align-items: center; gap: var(--space-6); max-width: 100%; min-height: 32px; padding: 0 var(--space-12) 0 var(--space-10);
+  border-radius: var(--radius-pill); color: #fff; font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap;
+  background: rgba(20, 22, 30, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
+}
+.ptz-chip span { overflow: hidden; text-overflow: ellipsis; }
+.ptz-chip svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ptz-chip:active { scale: 0.97; }
+@media (hover: hover) and (pointer: fine) { .ptz-chip:hover { background: rgba(30, 32, 40, 0.62); } }
+.ptz-status {
+  margin-right: auto; padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  background: rgba(20, 22, 28, 0.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.ptz-status.failed { background: rgba(255, 69, 58, 0.88); }
+/* The panel stays while it is open, whatever the pointer does; the status shows over hidden controls too. */
+.camera-view:has(.ptz-panel:not(.hidden)) > .camera-controls, .camera-view:has(.ptz-status:not(.hidden)) > .camera-controls { opacity: 1; }
+/* A wall tile pans and tilts only at its large size: a smaller one has no room for the pad. */
+.camera-tile:not(.size-large) .ptz-panel, .camera-tile:not(.size-large) .ptz-toggle { display: none; }
+@media (pointer: coarse) { .ptz-chip { min-height: 40px; } .ptz-panel { bottom: 64px; } }
+@media (max-width: 640px) { .ptz-pad { width: 112px; height: 112px; } .ptz-arrow.up, .ptz-arrow.down { left: 39px; } .ptz-arrow.left, .ptz-arrow.right { top: 39px; } }
+@media (prefers-reduced-motion: reduce) { .ptz-panel { animation: none; } .ptz-thumb { transition: none; } }
+@media (prefers-reduced-transparency: reduce) {
+  .ptz-pad, .ptz-chip, .ptz-status { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
+}
 .camera-message {
   position: absolute; inset: 0; display: grid; place-items: center; padding: 48px var(--space-16); text-align: center; z-index: 1;
   font-size: var(--text-sm); font-weight: var(--weight-medium); color: rgba(255, 255, 255, 0.82); background: rgba(10, 12, 18, 0.35);

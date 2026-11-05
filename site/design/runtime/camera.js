@@ -19,6 +19,7 @@
     sound: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
     fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+    move: '<path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
   };
   function glyph(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -28,6 +29,152 @@
     return svg;
   }
   const button = (name, label, onclick) => el("button", { type: "button", class: "camera-button", "aria-label": label, title: label, onclick }, glyph(name));
+
+  // ---- Pan and tilt ----
+
+  // How often a held direction steps the camera again, once the last step was answered; how far the thumb leaves the
+  // pad's centre before a direction counts; the pad's travel.
+  const REPEAT_EVERY = 450, DEAD_ZONE = 0.28, TRAVEL = 0.42;
+  // Each direction's arrow, from common.js's icons.
+  const arrowIcons = { up: "up", down: "down", left: "back", right: "forward" };
+
+  /// The pan and tilt of a camera that moves (/api/cameras/<id>/controls): a Move button for the view's controls, and
+  /// the panel it opens over the picture: a pad to press or drag like a joystick, or to steer with the arrow keys once
+  /// focused (the camera steps that way while it is held), then the presets and the home position. Each step waits for
+  /// the camera's answer before the next: a battery camera answers late, and requests must not pile up.
+  function panTilt(camera, url, setStatus) {
+    // The camera's controls once asked; false for a camera that does not move, which is not asked again.
+    let controls = null, held = null, busy = false, timer = null, asking = false;
+    const thumb = el("span", { class: "ptz-thumb", "aria-hidden": "true" });
+    const arrows = Object.fromEntries(Object.entries(arrowIcons).map(([direction, name]) => [direction,
+      el("span", { class: `ptz-arrow ${direction}`, "aria-hidden": "true" }, HomeswiftCommon.icon(name))]));
+    const pad = el("div", { class: "ptz-pad", role: "group", tabindex: "0", "aria-label": t("Pan and tilt {name}: press or drag, or use the arrow keys", { name: camera.name }) },
+      thumb, ...Object.values(arrows));
+    const presets = el("div", { class: "ptz-presets" });
+    const panel = el("div", { class: "ptz-panel hidden" }, pad, presets);
+    const toggle = button("move", t("Pan and tilt"), () => open(panel.classList.contains("hidden")));
+    toggle.classList.add("hidden", "ptz-toggle");
+    toggle.setAttribute("aria-expanded", "false");
+
+    async function send(body) {
+      busy = true;
+      setStatus(t("Moving…"));
+      try {
+        await HomeswiftCommon.api(url("control"), { method: "POST", body });
+        setStatus("");
+        return true;
+      } catch (error) {
+        setStatus(error.message || t("The camera did not move"), true);
+        return false;
+      } finally {
+        busy = false;
+      }
+    }
+    // A held direction: a step now, the next once it was answered and REPEAT_EVERY went by, until let go.
+    async function hold(direction) {
+      if (held === direction) return;
+      held = direction;
+      clearTimeout(timer);
+      while (held === direction) {
+        if (!busy && !(await send({ move: direction }))) { held = null; break; }
+        await new Promise((resolve) => { timer = setTimeout(resolve, REPEAT_EVERY); });
+      }
+    }
+    function release() { held = null; clearTimeout(timer); }
+
+    // The thumb follows the pointer from where it was pressed, held inside the pad with growing resistance past its
+    // travel, and springs back to the centre when let go.
+    let origin = null;
+    function place(dx, dy) {
+      const radius = pad.clientWidth * TRAVEL, distance = Math.hypot(dx, dy);
+      const reach = distance > radius ? radius + (distance - radius) * radius / (radius + (distance - radius) * 1.8) : distance;
+      const scale = distance ? reach / distance : 0;
+      thumb.style.transform = `translate(${dx * scale}px, ${dy * scale}px)`;
+      if (distance / pad.clientWidth < DEAD_ZONE) { mark(null); release(); return; }
+      const direction = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+      if (!controls?.directions.includes(direction)) { mark(null); release(); return; }
+      mark(direction);
+      hold(direction);
+    }
+    function mark(direction) {
+      for (const [name, arrow] of Object.entries(arrows)) arrow.classList.toggle("active", name === direction);
+    }
+    pad.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      pad.setPointerCapture(event.pointerId);
+      pad.classList.add("dragging");
+      const box = pad.getBoundingClientRect();
+      origin = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      // A press on an arrow is that direction at once; anywhere else, where the pointer is from the centre.
+      place(event.clientX - origin.x, event.clientY - origin.y);
+    });
+    pad.addEventListener("pointermove", (event) => { if (origin) place(event.clientX - origin.x, event.clientY - origin.y); });
+    const letGo = () => {
+      if (!origin) return;
+      origin = null;
+      pad.classList.remove("dragging");
+      thumb.style.transform = "";
+      mark(null);
+      release();
+    };
+    pad.addEventListener("pointerup", letGo);
+    pad.addEventListener("pointercancel", letGo);
+    pad.addEventListener("lostpointercapture", letGo);
+    const keys = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+    pad.addEventListener("keydown", (event) => {
+      const direction = keys[event.key];
+      if (!direction) { if (event.key === "Escape") { open(false); toggle.focus(); } return; }
+      event.preventDefault();
+      if (event.repeat) return;
+      mark(direction);
+      hold(direction);
+    });
+    pad.addEventListener("keyup", (event) => { if (keys[event.key]) { mark(null); release(); } });
+    pad.addEventListener("blur", () => { mark(null); release(); });
+
+    function open(on) {
+      panel.classList.toggle("hidden", !on);
+      toggle.setAttribute("aria-expanded", String(on));
+      toggle.classList.toggle("active", on);
+      if (!on) { release(); mark(null); }
+    }
+    function draw() {
+      for (const [direction, arrow] of Object.entries(arrows)) arrow.classList.toggle("off", !controls.directions.includes(direction));
+      const chips = [];
+      if (controls.home) chips.push(el("button", { type: "button", class: "ptz-chip", onclick: () => send({ home: true }) }, HomeswiftCommon.icon("house"), el("span", { text: t("Home position") })));
+      for (const preset of controls.presets) {
+        chips.push(el("button", { type: "button", class: "ptz-chip", onclick: () => send({ preset: preset.id }) }, HomeswiftCommon.icon("location"), el("span", { text: preset.name })));
+      }
+      presets.replaceChildren(...chips);
+      presets.classList.toggle("hidden", !chips.length);
+    }
+
+    return {
+      toggle, panel,
+      /// Asks what the camera can do once its picture is live; a camera that does not move keeps no button.
+      async live(on) {
+        if (!on) { open(false); return; }
+        if (controls === false || asking) return;
+        if (controls) { toggle.classList.remove("hidden"); return; }
+        asking = true;
+        try {
+          const answer = await HomeswiftCommon.api(url("controls"));
+          if (!answer?.directions?.length && !answer?.presets?.length && !answer?.home) { controls = false; return; }
+          controls = { directions: answer.directions ?? [], presets: answer.presets ?? [], home: !!answer.home };
+          draw();
+          toggle.classList.remove("hidden");
+        } catch (error) {
+          // A camera that does not move answers 404, a read-only user 403: not asked again. Anything else (asleep, busy):
+          // asked at the next live start.
+          if (error.status === 404 || error.status === 403) controls = false;
+        } finally {
+          asking = false;
+        }
+      },
+      hide() { toggle.classList.add("hidden"); open(false); },
+    };
+  }
 
   // Every view on the page, for the accessory events and the page's visibility.
   const views = new Set();
@@ -73,12 +220,22 @@
       else if (video.webkitEnterFullscreen && state.live) video.webkitEnterFullscreen();
     });
     const refresh = button("refresh", t("Refresh"), () => { state.noLive = false; restart(); });
+    const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
+    // What the camera is doing after a pan or tilt: under way, or why it did not move.
+    const ptzStatus = el("span", { class: "ptz-status hidden", role: "status", "aria-live": "polite" });
+    const ptz = panTilt(camera, url, (text, failed = false) => {
+      ptzStatus.textContent = text;
+      ptzStatus.classList.toggle("hidden", !text);
+      ptzStatus.classList.toggle("failed", failed);
+      clearTimeout(ptzStatus.timer);
+      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), 4000);
+    });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
-      still, video, snow, message,
+      still, video, snow, message, ptz.panel,
       el("div", { class: "camera-top" },
         el("strong", { class: "camera-name", text: camera.name }),
         el("span", { class: "camera-badges" }, liveBadge, stillBadge, recordingBadge, motionBadge, ringBadge)),
-      el("div", { class: "camera-controls" }, sound, refresh, fullscreen));
+      el("div", { class: "camera-controls" }, ptzStatus, ptz.toggle, sound, refresh, fullscreen));
 
     const state = { visible: false, running: false, live: false, noLive: !MediaSourceType, abort: null, timer: null, lastRing: camera.lastRing ? new Date(camera.lastRing) : null, stalls: 0 };
     // A gap in the buffer (a fragment the server dropped for a slow reader): jump over it.
@@ -88,8 +245,6 @@
         if (ranges.start(i) > video.currentTime) { video.currentTime = ranges.start(i) + 0.05; break; }
       }
     });
-    const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
-
     // The snow's frames, a few a second while the view runs; one frame under reduced motion.
     let snowFrame = 0, snowDrawn = 0;
     function drawSnow(now) {
@@ -112,6 +267,7 @@
       // "live" the video, "still" the snapshot, "message" a line over a dim picture (over snow when the camera sends none).
       snowing(what === "message" && noSignal && !still.src);
       element.classList.toggle("is-live", what === "live");
+      ptz.live(what === "live");
       element.classList.toggle("has-still", !!still.src);
       message.textContent = text;
       message.classList.toggle("hidden", !text);
@@ -301,6 +457,7 @@
       state.abort = null;
       liveBadge.classList.add("hidden");
       element.classList.remove("is-live");
+      ptz.hide();
     }
     function restart() { stop(); update(); }
     function update() {

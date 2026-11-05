@@ -7690,6 +7690,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     sound: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
     fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+    move: '<path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
   };
   function glyph(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -7699,6 +7700,152 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return svg;
   }
   const button = (name, label, onclick) => el("button", { type: "button", class: "camera-button", "aria-label": label, title: label, onclick }, glyph(name));
+
+  // ---- Pan and tilt ----
+
+  // How often a held direction steps the camera again, once the last step was answered; how far the thumb leaves the
+  // pad's centre before a direction counts; the pad's travel.
+  const REPEAT_EVERY = 450, DEAD_ZONE = 0.28, TRAVEL = 0.42;
+  // Each direction's arrow, from common.js's icons.
+  const arrowIcons = { up: "up", down: "down", left: "back", right: "forward" };
+
+  /// The pan and tilt of a camera that moves (/api/cameras/<id>/controls): a Move button for the view's controls, and
+  /// the panel it opens over the picture: a pad to press or drag like a joystick, or to steer with the arrow keys once
+  /// focused (the camera steps that way while it is held), then the presets and the home position. Each step waits for
+  /// the camera's answer before the next: a battery camera answers late, and requests must not pile up.
+  function panTilt(camera, url, setStatus) {
+    // The camera's controls once asked; false for a camera that does not move, which is not asked again.
+    let controls = null, held = null, busy = false, timer = null, asking = false;
+    const thumb = el("span", { class: "ptz-thumb", "aria-hidden": "true" });
+    const arrows = Object.fromEntries(Object.entries(arrowIcons).map(([direction, name]) => [direction,
+      el("span", { class: `ptz-arrow ${direction}`, "aria-hidden": "true" }, HomeswiftCommon.icon(name))]));
+    const pad = el("div", { class: "ptz-pad", role: "group", tabindex: "0", "aria-label": t("Pan and tilt {name}: press or drag, or use the arrow keys", { name: camera.name }) },
+      thumb, ...Object.values(arrows));
+    const presets = el("div", { class: "ptz-presets" });
+    const panel = el("div", { class: "ptz-panel hidden" }, pad, presets);
+    const toggle = button("move", t("Pan and tilt"), () => open(panel.classList.contains("hidden")));
+    toggle.classList.add("hidden", "ptz-toggle");
+    toggle.setAttribute("aria-expanded", "false");
+
+    async function send(body) {
+      busy = true;
+      setStatus(t("Moving…"));
+      try {
+        await HomeswiftCommon.api(url("control"), { method: "POST", body });
+        setStatus("");
+        return true;
+      } catch (error) {
+        setStatus(error.message || t("The camera did not move"), true);
+        return false;
+      } finally {
+        busy = false;
+      }
+    }
+    // A held direction: a step now, the next once it was answered and REPEAT_EVERY went by, until let go.
+    async function hold(direction) {
+      if (held === direction) return;
+      held = direction;
+      clearTimeout(timer);
+      while (held === direction) {
+        if (!busy && !(await send({ move: direction }))) { held = null; break; }
+        await new Promise((resolve) => { timer = setTimeout(resolve, REPEAT_EVERY); });
+      }
+    }
+    function release() { held = null; clearTimeout(timer); }
+
+    // The thumb follows the pointer from where it was pressed, held inside the pad with growing resistance past its
+    // travel, and springs back to the centre when let go.
+    let origin = null;
+    function place(dx, dy) {
+      const radius = pad.clientWidth * TRAVEL, distance = Math.hypot(dx, dy);
+      const reach = distance > radius ? radius + (distance - radius) * radius / (radius + (distance - radius) * 1.8) : distance;
+      const scale = distance ? reach / distance : 0;
+      thumb.style.transform = `translate(${dx * scale}px, ${dy * scale}px)`;
+      if (distance / pad.clientWidth < DEAD_ZONE) { mark(null); release(); return; }
+      const direction = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+      if (!controls?.directions.includes(direction)) { mark(null); release(); return; }
+      mark(direction);
+      hold(direction);
+    }
+    function mark(direction) {
+      for (const [name, arrow] of Object.entries(arrows)) arrow.classList.toggle("active", name === direction);
+    }
+    pad.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      pad.setPointerCapture(event.pointerId);
+      pad.classList.add("dragging");
+      const box = pad.getBoundingClientRect();
+      origin = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      // A press on an arrow is that direction at once; anywhere else, where the pointer is from the centre.
+      place(event.clientX - origin.x, event.clientY - origin.y);
+    });
+    pad.addEventListener("pointermove", (event) => { if (origin) place(event.clientX - origin.x, event.clientY - origin.y); });
+    const letGo = () => {
+      if (!origin) return;
+      origin = null;
+      pad.classList.remove("dragging");
+      thumb.style.transform = "";
+      mark(null);
+      release();
+    };
+    pad.addEventListener("pointerup", letGo);
+    pad.addEventListener("pointercancel", letGo);
+    pad.addEventListener("lostpointercapture", letGo);
+    const keys = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+    pad.addEventListener("keydown", (event) => {
+      const direction = keys[event.key];
+      if (!direction) { if (event.key === "Escape") { open(false); toggle.focus(); } return; }
+      event.preventDefault();
+      if (event.repeat) return;
+      mark(direction);
+      hold(direction);
+    });
+    pad.addEventListener("keyup", (event) => { if (keys[event.key]) { mark(null); release(); } });
+    pad.addEventListener("blur", () => { mark(null); release(); });
+
+    function open(on) {
+      panel.classList.toggle("hidden", !on);
+      toggle.setAttribute("aria-expanded", String(on));
+      toggle.classList.toggle("active", on);
+      if (!on) { release(); mark(null); }
+    }
+    function draw() {
+      for (const [direction, arrow] of Object.entries(arrows)) arrow.classList.toggle("off", !controls.directions.includes(direction));
+      const chips = [];
+      if (controls.home) chips.push(el("button", { type: "button", class: "ptz-chip", onclick: () => send({ home: true }) }, HomeswiftCommon.icon("house"), el("span", { text: t("Home position") })));
+      for (const preset of controls.presets) {
+        chips.push(el("button", { type: "button", class: "ptz-chip", onclick: () => send({ preset: preset.id }) }, HomeswiftCommon.icon("location"), el("span", { text: preset.name })));
+      }
+      presets.replaceChildren(...chips);
+      presets.classList.toggle("hidden", !chips.length);
+    }
+
+    return {
+      toggle, panel,
+      /// Asks what the camera can do once its picture is live; a camera that does not move keeps no button.
+      async live(on) {
+        if (!on) { open(false); return; }
+        if (controls === false || asking) return;
+        if (controls) { toggle.classList.remove("hidden"); return; }
+        asking = true;
+        try {
+          const answer = await HomeswiftCommon.api(url("controls"));
+          if (!answer?.directions?.length && !answer?.presets?.length && !answer?.home) { controls = false; return; }
+          controls = { directions: answer.directions ?? [], presets: answer.presets ?? [], home: !!answer.home };
+          draw();
+          toggle.classList.remove("hidden");
+        } catch (error) {
+          // A camera that does not move answers 404, a read-only user 403: not asked again. Anything else (asleep, busy):
+          // asked at the next live start.
+          if (error.status === 404 || error.status === 403) controls = false;
+        } finally {
+          asking = false;
+        }
+      },
+      hide() { toggle.classList.add("hidden"); open(false); },
+    };
+  }
 
   // Every view on the page, for the accessory events and the page's visibility.
   const views = new Set();
@@ -7744,12 +7891,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else if (video.webkitEnterFullscreen && state.live) video.webkitEnterFullscreen();
     });
     const refresh = button("refresh", t("Refresh"), () => { state.noLive = false; restart(); });
+    const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
+    // What the camera is doing after a pan or tilt: under way, or why it did not move.
+    const ptzStatus = el("span", { class: "ptz-status hidden", role: "status", "aria-live": "polite" });
+    const ptz = panTilt(camera, url, (text, failed = false) => {
+      ptzStatus.textContent = text;
+      ptzStatus.classList.toggle("hidden", !text);
+      ptzStatus.classList.toggle("failed", failed);
+      clearTimeout(ptzStatus.timer);
+      if (failed) ptzStatus.timer = setTimeout(() => ptzStatus.classList.add("hidden"), 4000);
+    });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
-      still, video, snow, message,
+      still, video, snow, message, ptz.panel,
       el("div", { class: "camera-top" },
         el("strong", { class: "camera-name", text: camera.name }),
         el("span", { class: "camera-badges" }, liveBadge, stillBadge, recordingBadge, motionBadge, ringBadge)),
-      el("div", { class: "camera-controls" }, sound, refresh, fullscreen));
+      el("div", { class: "camera-controls" }, ptzStatus, ptz.toggle, sound, refresh, fullscreen));
 
     const state = { visible: false, running: false, live: false, noLive: !MediaSourceType, abort: null, timer: null, lastRing: camera.lastRing ? new Date(camera.lastRing) : null, stalls: 0 };
     // A gap in the buffer (a fragment the server dropped for a slow reader): jump over it.
@@ -7759,8 +7916,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (ranges.start(i) > video.currentTime) { video.currentTime = ranges.start(i) + 0.05; break; }
       }
     });
-    const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
-
     // The snow's frames, a few a second while the view runs; one frame under reduced motion.
     let snowFrame = 0, snowDrawn = 0;
     function drawSnow(now) {
@@ -7783,6 +7938,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // "live" the video, "still" the snapshot, "message" a line over a dim picture (over snow when the camera sends none).
       snowing(what === "message" && noSignal && !still.src);
       element.classList.toggle("is-live", what === "live");
+      ptz.live(what === "live");
       element.classList.toggle("has-still", !!still.src);
       message.textContent = text;
       message.classList.toggle("hidden", !text);
@@ -7972,6 +8128,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       state.abort = null;
       liveBadge.classList.add("hidden");
       element.classList.remove("is-live");
+      ptz.hide();
     }
     function restart() { stop(); update(); }
     function update() {
@@ -13130,7 +13287,7 @@ HomeswiftI18n.add("es", {
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interruptores, sensores y más que solo existen en HomeKit, para automatizaciones",
   "Devices that speak MQTT, described topic by topic": "Dispositivos que hablan MQTT, descritos tema por tema",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Persianas, calefacción y sensores Somfy TaHoma, Connexoon y Cozytouch",
-  "Tapo plugs and bulbs on the local network": "Enchufes y bombillas Tapo en la red local",
+  "Tapo plugs, bulbs and battery cameras on the local network": "Enchufes, bombillas y cámaras con batería Tapo en la red local",
   "Solar production from an APsystems ECU on the local network": "La producción solar de una ECU APsystems en la red local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Cargadores Trydan en la red local: carga, corriente, bloqueo y potencia",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
@@ -15762,6 +15919,9 @@ HomeswiftI18n.add("es", {
   "MAC address": "Dirección MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicia sesión con tu cuenta MyDolphin: Maytronics te envía un código.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicia sesión con tu cuenta Tapo y activa la compatibilidad con servicios de terceros en la app Tapo.",
+  "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app. For a battery camera, use its owner's account.": "Inicia sesión con tu cuenta Tapo y activa la compatibilidad con servicios de terceros en la app Tapo. Para una cámara con batería, usa la cuenta de su propietario.",
+  "The Tapo cloud e-mailed a code to {email}: enter it so the bridge can list your cameras and follow their motion. Without Tapo cameras, leave it empty.": "La nube de Tapo ha enviado un código a {email}: introdúcelo para que el puente liste tus cámaras y siga su movimiento. Sin cámaras Tapo, déjalo vacío.",
+  "The bridge did not find {name} on the network. Enter its IP address, from your router or the Tapo app (the camera's Device Info).": "El puente no ha encontrado {name} en la red. Introduce su dirección IP, desde tu router o la app Tapo (la información del dispositivo de la cámara).",
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Escribe la dirección del V2C Trydan: su dirección IP o nombre de host en la red local, en tu router o en la app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "No es una dirección: escribe una dirección IP o un nombre de host, como 192.168.1.50",
   "No V2C Trydan answered at {address}": "Ningún V2C Trydan respondió en {address}",
@@ -16011,6 +16171,11 @@ HomeswiftI18n.add("es", {
   "Could not reach the gateway: {error}": "No se ha podido contactar con la pasarela: {error}",
   "Could not reach Overkiz: {error}": "No se ha podido contactar con Overkiz: {error}",
   "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "El inicio de sesión está en pausa durante {duration} tras el rechazo del servidor: comprueba las credenciales o espera a que se levante el bloqueo",
+  "Pan and tilt {name}: press or drag, or use the arrow keys": "Orientar {name}: pulsa o arrastra, o usa las flechas del teclado",
+  "Pan and tilt": "Orientar",
+  "Moving…": "Moviendo…",
+  "The camera did not move": "La cámara no se ha movido",
+  "Home position": "Posición inicial",
 });
 
 """#),
@@ -16094,7 +16259,7 @@ HomeswiftI18n.add("fr", {
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interrupteurs, capteurs et plus qui n'existent que dans HomeKit, pour les automatisations",
   "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Volets, chauffages et capteurs Somfy TaHoma, Connexoon et Cozytouch",
-  "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
+  "Tapo plugs, bulbs and battery cameras on the local network": "Prises, ampoules et caméras sur batterie Tapo sur le réseau local",
   "Solar production from an APsystems ECU on the local network": "La production solaire d’un ECU APsystems sur le réseau local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Bornes de recharge Trydan sur le réseau local : charge, courant, verrou et puissance",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
@@ -18726,6 +18891,9 @@ HomeswiftI18n.add("fr", {
   "MAC address": "Adresse MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Connectez-vous avec votre compte MyDolphin : Maytronics vous envoie un code.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Connectez-vous avec votre compte Tapo, et activez la compatibilité avec les services tiers dans l’app Tapo.",
+  "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app. For a battery camera, use its owner's account.": "Connectez-vous avec votre compte Tapo, et activez la compatibilité avec les services tiers dans l’app Tapo. Pour une caméra sur batterie, utilisez le compte de son propriétaire.",
+  "The Tapo cloud e-mailed a code to {email}: enter it so the bridge can list your cameras and follow their motion. Without Tapo cameras, leave it empty.": "Le cloud Tapo a envoyé un code à {email} : saisissez-le pour que le pont liste vos caméras et suive leurs mouvements. Sans caméra Tapo, laissez-le vide.",
+  "The bridge did not find {name} on the network. Enter its IP address, from your router or the Tapo app (the camera's Device Info).": "Le pont n’a pas trouvé {name} sur le réseau. Saisissez son adresse IP, depuis votre routeur ou l’app Tapo (les informations de l’appareil de la caméra).",
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Saisissez l’adresse du V2C Trydan : son adresse IP ou son nom d’hôte sur le réseau local, dans votre routeur ou l’app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Ce n’est pas une adresse : saisissez une adresse IP ou un nom d’hôte, comme 192.168.1.50",
   "No V2C Trydan answered at {address}": "Aucun V2C Trydan n’a répondu à {address}",
@@ -18975,6 +19143,11 @@ HomeswiftI18n.add("fr", {
   "Could not reach the gateway: {error}": "Impossible de joindre la passerelle : {error}",
   "Could not reach Overkiz: {error}": "Impossible de joindre Overkiz : {error}",
   "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "La connexion est suspendue pendant {duration} après le refus du serveur : vérifiez les identifiants, ou attendez la levée du blocage",
+  "Pan and tilt {name}: press or drag, or use the arrow keys": "Orienter {name} : appuyez ou faites glisser, ou utilisez les flèches du clavier",
+  "Pan and tilt": "Orienter",
+  "Moving…": "Déplacement…",
+  "The camera did not move": "La caméra ne s’est pas déplacée",
+  "Home position": "Position d’origine",
 });
 
 """#),
@@ -19058,7 +19231,7 @@ HomeswiftI18n.add("pt", {
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interruptores, sensores e mais que só existem no HomeKit, para automações",
   "Devices that speak MQTT, described topic by topic": "Dispositivos que falam MQTT, descritos tópico a tópico",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Estores, aquecimento e sensores Somfy TaHoma, Connexoon e Cozytouch",
-  "Tapo plugs and bulbs on the local network": "Tomadas e lâmpadas Tapo na rede local",
+  "Tapo plugs, bulbs and battery cameras on the local network": "Tomadas, lâmpadas e câmaras a bateria Tapo na rede local",
   "Solar production from an APsystems ECU on the local network": "A produção solar de uma ECU APsystems na rede local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Carregadores Trydan na rede local: carga, corrente, bloqueio e potência",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
@@ -21690,6 +21863,9 @@ HomeswiftI18n.add("pt", {
   "MAC address": "Endereço MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicie sessão com a sua conta MyDolphin: a Maytronics envia-lhe um código.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicie sessão com a sua conta Tapo e ative a compatibilidade com serviços de terceiros na app Tapo.",
+  "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app. For a battery camera, use its owner's account.": "Inicie sessão com a sua conta Tapo e ative a compatibilidade com serviços de terceiros na app Tapo. Para uma câmara a bateria, use a conta do seu proprietário.",
+  "The Tapo cloud e-mailed a code to {email}: enter it so the bridge can list your cameras and follow their motion. Without Tapo cameras, leave it empty.": "A nuvem Tapo enviou um código para {email}: introduza-o para que a ponte liste as suas câmaras e acompanhe o seu movimento. Sem câmaras Tapo, deixe-o vazio.",
+  "The bridge did not find {name} on the network. Enter its IP address, from your router or the Tapo app (the camera's Device Info).": "A ponte não encontrou {name} na rede. Introduza o seu endereço IP, a partir do router ou da app Tapo (as informações do dispositivo da câmara).",
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Introduza o endereço do V2C Trydan: o seu endereço IP ou nome de anfitrião na rede local, no seu router ou na app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Não é um endereço: introduza um endereço IP ou um nome de anfitrião, como 192.168.1.50",
   "No V2C Trydan answered at {address}": "Nenhum V2C Trydan respondeu em {address}",
@@ -21939,6 +22115,11 @@ HomeswiftI18n.add("pt", {
   "Could not reach the gateway: {error}": "Não foi possível contactar o gateway: {error}",
   "Could not reach Overkiz: {error}": "Não foi possível contactar a Overkiz: {error}",
   "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "O início de sessão está em pausa durante {duration} após a recusa do servidor: verifique as credenciais ou aguarde o fim do bloqueio",
+  "Pan and tilt {name}: press or drag, or use the arrow keys": "Orientar {name}: prima ou arraste, ou use as setas do teclado",
+  "Pan and tilt": "Orientar",
+  "Moving…": "A mover…",
+  "The camera did not move": "A câmara não se moveu",
+  "Home position": "Posição inicial",
 });
 
 """#),
@@ -27718,6 +27899,65 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 }
 @media (hover: hover) and (pointer: fine) { .camera-button:hover { background: rgba(30, 32, 40, 0.62); } }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.camera-button.active { background: rgba(255, 255, 255, 0.9); color: #10131a; }
+/* Pan and tilt: a pad to press or drag like a joystick over the picture's lower left, the presets beside it. */
+.ptz-panel {
+  position: absolute; left: var(--space-12); bottom: 58px; z-index: 2; display: flex; align-items: flex-end; gap: var(--space-10);
+  max-width: calc(100% - 2 * var(--space-12)); transform-origin: 100% 100%;
+  animation: ptz-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes ptz-in { from { opacity: 0; transform: scale(0.92) translateY(6px); filter: blur(4px); } }
+.ptz-pad {
+  position: relative; flex: none; width: 120px; height: 120px; border-radius: 50%; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: rgba(20, 22, 30, 0.42); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  cursor: grab; outline: none;
+}
+.ptz-pad.dragging { cursor: grabbing; }
+.ptz-pad:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent), 0 8px 24px rgba(0, 0, 0, 0.28); }
+.ptz-thumb {
+  position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; pointer-events: none;
+  background: rgba(255, 255, 255, 0.92); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  /* Back to the centre when let go: critically damped, no bounce. */
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), scale 120ms ease-out;
+}
+.ptz-pad.dragging .ptz-thumb { transition: scale 120ms ease-out; scale: 0.92; }
+.ptz-arrow {
+  position: absolute; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+  color: rgba(255, 255, 255, 0.85); pointer-events: none;
+  transition: color 100ms ease-out, background-color 100ms ease-out;
+}
+.ptz-arrow svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.ptz-arrow.up { top: 2px; left: 43px; } .ptz-arrow.down { bottom: 2px; left: 43px; }
+.ptz-arrow.left { left: 2px; top: 43px; } .ptz-arrow.right { right: 2px; top: 43px; }
+.ptz-arrow.active { color: #fff; background: color-mix(in srgb, var(--accent) 80%, transparent); }
+.ptz-arrow.off { opacity: 0.3; }
+.ptz-presets { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-6); min-width: 0; max-height: 120px; overflow-y: auto; scrollbar-width: none; }
+.ptz-chip {
+  display: inline-flex; align-items: center; gap: var(--space-6); max-width: 100%; min-height: 32px; padding: 0 var(--space-12) 0 var(--space-10);
+  border-radius: var(--radius-pill); color: #fff; font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap;
+  background: rgba(20, 22, 30, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
+}
+.ptz-chip span { overflow: hidden; text-overflow: ellipsis; }
+.ptz-chip svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ptz-chip:active { scale: 0.97; }
+@media (hover: hover) and (pointer: fine) { .ptz-chip:hover { background: rgba(30, 32, 40, 0.62); } }
+.ptz-status {
+  margin-right: auto; padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: var(--weight-medium);
+  background: rgba(20, 22, 28, 0.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.ptz-status.failed { background: rgba(255, 69, 58, 0.88); }
+/* The panel stays while it is open, whatever the pointer does; the status shows over hidden controls too. */
+.camera-view:has(.ptz-panel:not(.hidden)) > .camera-controls, .camera-view:has(.ptz-status:not(.hidden)) > .camera-controls { opacity: 1; }
+/* A wall tile pans and tilts only at its large size: a smaller one has no room for the pad. */
+.camera-tile:not(.size-large) .ptz-panel, .camera-tile:not(.size-large) .ptz-toggle { display: none; }
+@media (pointer: coarse) { .ptz-chip { min-height: 40px; } .ptz-panel { bottom: 64px; } }
+@media (max-width: 640px) { .ptz-pad { width: 112px; height: 112px; } .ptz-arrow.up, .ptz-arrow.down { left: 39px; } .ptz-arrow.left, .ptz-arrow.right { top: 39px; } }
+@media (prefers-reduced-motion: reduce) { .ptz-panel { animation: none; } .ptz-thumb { transition: none; } }
+@media (prefers-reduced-transparency: reduce) {
+  .ptz-pad, .ptz-chip, .ptz-status { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
+}
 .camera-message {
   position: absolute; inset: 0; display: grid; place-items: center; padding: 48px var(--space-16); text-align: center; z-index: 1;
   font-size: var(--text-sm); font-weight: var(--weight-medium); color: rgba(255, 255, 255, 0.82); background: rgba(10, 12, 18, 0.35);

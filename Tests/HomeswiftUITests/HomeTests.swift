@@ -129,6 +129,10 @@ struct HomeTests {
         #expect(UIServer.requiredScope(.POST, ["scenes", "try"]) == .control)
         #expect(UIServer.requiredScope(.POST, ["scenes", "abc", "stop"]) == .control)
         #expect(UIServer.requiredScope(.POST, ["scenes"]) == .admin)
+        // A camera's pan and tilt: moving it and asking how it moves are controlling it; its picture is reading.
+        #expect(UIServer.requiredScope(.GET, ["cameras", "c", "controls"]) == .control)
+        #expect(UIServer.requiredScope(.POST, ["cameras", "c", "control"]) == .control)
+        #expect(UIServer.requiredScope(.GET, ["cameras", "c", "live"]) == .read)
     }
 
     @Test func notificationSettingsHideTheirSecrets() async throws {
