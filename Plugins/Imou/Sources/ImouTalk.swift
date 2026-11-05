@@ -435,10 +435,12 @@ actor ImouTalk {
                 while let current = piece {
                     let state = answer.current
                     if let status = state.status, status != 200 {
-                        if status == 401, written.isEmpty, !retried, let challenge = state.challenge, await client.accept(challenge: challenge) {
+                        // The first piece goes out before the camera's answer to the head can come: a 401 then still means the
+                        // head, and is retried with the new challenge (a 128 ms piece lost at most).
+                        if status == 401, written.count <= 1, !retried, let challenge = state.challenge, await client.accept(challenge: challenge) {
                             throw Retry(piece: current)
                         }
-                        throw Self.error(status: status, beforeAudio: written.isEmpty)
+                        throw Self.error(status: status, beforeAudio: written.count <= 1)
                     }
                     if state.closed { throw written.count < 2 ? TalkError.busy : TalkError.failed("the camera closed the connection") }
                     try await write(stream, current.bytes)
