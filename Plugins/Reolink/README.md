@@ -173,7 +173,11 @@ in one batch at start and written in one more, only where the device differs; em
 An accessory's settings sheet groups them: Sensors, Lights and switches, Video, and Connection (the address, ports,
 protocol and refresh intervals).
 
-### PTZ from the Assistant and MCP clients
+### PTZ from the web UI, the Assistant and MCP clients
+
+The camera's live view in the web UI has a pad that pans and tilts it a step at a time while held (a move stopped after
+0.4 s), with its presets and its guard's home position beside it (HomeswiftPlugin's `CameraControls`).
+
 
 HomeKit has no PTZ service, so PTZ is a set of Assistant actions (MCP tools named after the plugin): `list_ptz_cameras`
 (read scope: the moves each camera makes, its presets, patrols, guard and zoom and focus ranges), and with the configure
