@@ -63,16 +63,69 @@ public enum StoragePermissions {
         return Finding(path: path, mode: status.mode, openMode: openMode, acl: acl)
     }
 
+    /// An ACL of Synology's DSM (`system.syno_acl_self`, `system.SYNO_ACL`), which `synoacltool -get` lists.
+    static func isDSMACL(_ name: String) -> Bool { name.lowercased().contains("syno") }
+
+    /// The entries of `synoacltool -get`'s output: `[0] user:homeswift:allow:rwxpdDaARWc--:fd-- (level:0)` gives
+    /// `user:homeswift:allow:rwxpdDaARWc--:fd--`.
+    static func dsmEntries(_ output: String) -> [String] {
+        output.split(whereSeparator: \.isNewline).compactMap { line in
+            let text = line.trimmingCharacters(in: .whitespaces)
+            guard text.hasPrefix("["), let close = text.firstIndex(of: "]") else { return nil }
+            let entry = text[text.index(after: close)...].trimmingCharacters(in: .whitespaces)
+            return entry.split(separator: " ").first.map(String.init)
+        }
+    }
+
+    /// The entries of a DSM ACL that give anyone but `user` access: every allow except `user`'s own (and the
+    /// owner's, when that is `user`). A deny grants nothing.
+    static func dsmEntriesForOthers(_ output: String, user: String, ownedByUser: Bool) -> [String] {
+        dsmEntries(output).filter { entry in
+            let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count >= 3, parts[2] != "deny" else { return false }
+            if parts[0] == "user", parts[1] == user { return false }
+            if parts[0] == "owner", ownedByUser { return false }
+            return true
+        }
+    }
+
+    /// What is open to others at `path`. With a DSM ACL its entries decide, when they can be read: DSM checks them
+    /// instead of the mode bits, and shows a user they name the mode 0777. Otherwise, `finding(path:status:)`.
+    static func finding(path: String, status: Status, user: String?, readDSMACL: (String) -> String?) -> Finding? {
+        let acl = status.aclAttributes.filter { !boundedACLs.contains($0) }
+        guard !acl.isEmpty, acl.allSatisfy(isDSMACL), let user, let output = readDSMACL(path) else {
+            return finding(path: path, status: status)
+        }
+        let others = dsmEntriesForOthers(output, user: user, ownedByUser: status.ownedByCurrentUser)
+        guard !others.isEmpty else { return nil }
+        return Finding(path: path, mode: status.mode, openMode: false, acl: others)
+    }
+
+    /// The name of the user the bridge runs as.
+    public static func currentUserName() -> String? {
+        #if os(Windows)
+        return nil
+        #else
+        guard let entry = getpwuid(geteuid()), let name = entry.pointee.pw_name else { return nil }
+        return String(cString: name)
+        #endif
+    }
+
     /// Sets the sensitive files in `storage` that others can reach back to 0600 when the bridge owns them, then
-    /// says what is still open: those files and the directory itself.
+    /// says what is still open: those files and the directory itself. `readDSMACL` returns `synoacltool -get`'s
+    /// output for a path (nil where there is no such tool), so a DSM ACL that grants only `user` is not reported.
     public static func secure(
         storage: URL,
         names: Set<String> = sensitiveNames,
+        user: String? = currentUserName(),
         inspect: (String) -> Status? = Self.inspect,
-        changeMode: (String, UInt32) -> Bool = Self.changeMode
+        changeMode: (String, UInt32) -> Bool = Self.changeMode,
+        readDSMACL: (String) -> String? = { _ in nil }
     ) -> [Finding] {
         var findings: [Finding] = []
-        if let status = inspect(storage.path), let found = finding(path: storage.path, status: status) {
+        if let status = inspect(storage.path),
+            let found = finding(path: storage.path, status: status, user: user, readDSMACL: readDSMACL)
+        {
             findings.append(found)
         }
         for name in names.sorted() {
@@ -83,7 +136,7 @@ public enum StoragePermissions {
             {
                 status = inspect(path) ?? status
             }
-            if let found = finding(path: path, status: status) { findings.append(found) }
+            if let found = finding(path: path, status: status, user: user, readDSMACL: readDSMACL) { findings.append(found) }
         }
         return findings
     }
