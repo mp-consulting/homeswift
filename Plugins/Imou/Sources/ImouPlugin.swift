@@ -253,6 +253,10 @@ public actor ImouPlugin: HomeswiftPlugin {
         let cameraCloud = cloudDevices[device.deviceID] != nil ? cloud : nil
         // HomeKit Secure Video from the local stream only (section 6.2).
         let records = settings.isLocal && settings.recording
+        var presets: [String] = []
+        if let cameraCloud, settings.presetSwitches, features.presets {
+            do { presets = try await cameraCloud.presets(device.deviceID, channel: channel.id) } catch { logger.warning("\(name): no presets from the cloud: \(error)") }
+        }
         let local = settings.isLocal ? settings.host.flatMap {
             DahuaClient(host: $0, port: settings.httpPort, username: settings.username, password: settings.password ?? "", transport: dependencies.local)
         } : nil
@@ -263,7 +267,7 @@ public actor ImouPlugin: HomeswiftPlugin {
             download: dependencies.download, ffmpeg: ffmpeg, streamID: configuration.streamID,
             timing: ImouCamera.Timing(scale: dependencies.timeScale, snapshotWait: configuration.snapshotWaitSeconds, wakeWait: configuration.wakeWaitSeconds,
                                       dormantRetryWait: Double(configuration.dormantRetrySeconds)),
-            log: logger, unsupported: Set(unsupported[id] ?? []), recording: records)
+            log: logger, unsupported: Set(unsupported[id] ?? []), recording: records, presets: presets)
         let options = RTSPCameraOptions(encoder: (settings.encoder ?? "").split(whereSeparator: \.isWhitespace).map(String.init), rtspOverTCP: true)
         let open: RTSPSourceOpener = { [weak camera] purpose in
             guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
@@ -301,7 +305,7 @@ public actor ImouPlugin: HomeswiftPlugin {
                 id: id, name: name, manufacturer: "Imou", model: device.model, serialNumber: device.deviceID,
                 firmwareRevision: Self.firmwareRevision(device.firmware), category: features.doorbell ? .videoDoorbell : .ipCamera,
                 services: [services.motion, services.privacy, services.motionDetection, services.siren, services.light, services.battery, services.nightVision]
-                    .compactMap { $0 } + services.toggles.map(\.service))
+                    .compactMap { $0 } + services.toggles.map(\.service) + services.presets.map(\.service))
             camera.bindWrites()
             accessory.configureController(controller)
             context.configureController(controller, accessoryID: id)

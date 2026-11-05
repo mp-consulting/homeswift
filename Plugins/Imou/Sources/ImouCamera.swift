@@ -40,6 +40,11 @@ actor ImouCamera {
     static let sirenHold: Double = 15
     /// After three local failures in a row, the LAN is tried again only every five minutes (section 7.5).
     static let localCooldown: Double = 300
+    /// A preset's switch shows off again after this long: it is a button.
+    static let presetHold: Double = 1
+    /// `controlMovePTZ`'s duration in milliseconds: the libraries' range, and the default.
+    static let ptzDurations = 100...10_000
+    static let ptzDefaultDuration = 1000
     /// What a read of a switch answers for a camera without it (addendum, section 2.1).
     static let unsupportedCodes: Set<String> = ["DV1019", "DV1026"]
 
@@ -53,6 +58,8 @@ actor ImouCamera {
         /// Human detection, the status light (without HomeKit Secure Video), the siren and the light on alarm.
         let toggles: [Toggle]
         let nightVision: Service?
+        /// "Go to <preset>", by preset name.
+        let presets: [(name: String, service: Service)]
     }
 
     struct Toggle {
@@ -115,6 +122,8 @@ actor ImouCamera {
     private var legacyStatusLight = false
     private(set) var nightVisionMode: String?
     private(set) var nightVisionModes: [String] = []
+    /// The move under way, until its duration is over (addendum, section 1.1).
+    private var ptzMove: (move: ImouPTZMove, until: ContinuousClock.Instant)?
     /// Lets the last of quick successive writes to a switch through: those it overtook while queued are never sent.
     private let writes = LatestCallGuard(delay: .zero)
     private var snapshot: (data: Data, at: ContinuousClock.Instant, cloud: Bool)?
@@ -132,7 +141,7 @@ actor ImouCamera {
 
     init(accessoryID: String, deviceID: String, channel: ImouChannel, name: String, features: ImouFeatures, settings: ImouPlugin.CameraSettings,
          multiChannel: Bool, cloud: ImouCloud?, local: DahuaClient?, queue: SerialQueue, download: any HTTPSending, ffmpeg: RTSPCameraFFmpeg?,
-         streamID: Int, timing: Timing, log: Logger, unsupported: Set<String> = [], recording: Bool = false) {
+         streamID: Int, timing: Timing, log: Logger, unsupported: Set<String> = [], recording: Bool = false, presets: [String] = []) {
         self.unsupported = unsupported
         self.accessoryID = accessoryID
         self.deviceID = deviceID
@@ -166,7 +175,9 @@ actor ImouCamera {
                 ? Self.switches(features: features, settings: settings, unsupported: unsupported, indicator: recording).map {
                     Toggle(spec: $0, service: Service(.switch, name: "\(name) \($0.label)", subtype: $0.subtype))
                 } : [],
-            nightVision: control(features.nightVision && settings.nightVisionSwitch && !unsupported.contains("nightVision"), .switch, "Night Vision", "nightVision"))
+            nightVision: control(features.nightVision && settings.nightVisionSwitch && !unsupported.contains("nightVision"), .switch, "Night Vision", "nightVision"),
+            presets: cloudControls && features.presets && settings.presetSwitches
+                ? presets.map { ($0, Service(.switch, name: "\(name) Go to \($0)", subtype: "preset:\($0)")) } : [])
         // The siren unlocks nothing, but it is loud: MCP and the Assistant change it only after the user confirms.
         services.siren?.characteristic(.on).isSecurityControl = true
     }
@@ -211,6 +222,16 @@ actor ImouCamera {
         services.nightVision?.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
             guard let self else { return }
             try await self.setNightVision(mode: await self.nightVisionMode(on: value.boolValue ?? false))
+        }
+        for preset in services.presets {
+            let name = preset.name, on = preset.service.characteristic(.on)
+            let hold = timing.duration(Self.presetHold)
+            on.onWrite { [weak self, weak on] value in
+                guard value.boolValue == true, let self else { return }
+                try await self.goToPreset(name)
+                // A button: it shows off again.
+                on?.revert(to: false, after: hold)
+            }
         }
     }
 
@@ -417,6 +438,41 @@ actor ImouCamera {
         var description: String
     }
 
+    /// Moves the camera for `milliseconds` (addendum, section 1.1), one call at a time for the device. A move in another
+    /// direction while the last one runs stops that one first.
+    func move(_ move: ImouPTZMove, milliseconds: Int) async throws {
+        guard let cloud, let ptz = features.ptz else { throw ActionRefused(description: "\(name) cannot pan or tilt") }
+        guard ptz.allows(move) else { throw ActionRefused(description: "\(name) cannot \(move.name) (\(ptz.rawValue))") }
+        guard Self.ptzDurations.contains(milliseconds) else { throw ActionRefused(description: "the duration is 100 to 10000 milliseconds") }
+        let now = ContinuousClock.now
+        let stopFirst = move != .stop && ptzMove.map { $0.move != move && $0.until > now } == true
+        ptzMove = move == .stop ? nil : (move, now + .milliseconds(milliseconds))
+        let device = deviceID, channel = channel.id
+        try await queue.run {
+            if stopFirst { try await cloud.movePTZ(device, channel: channel, .stop, milliseconds: milliseconds) }
+            try await cloud.movePTZ(device, channel: channel, move, milliseconds: milliseconds)
+        }
+    }
+
+    /// Points the camera at `h` and `v` (-1 to 1) with zoom `z` (0 to 1).
+    func locate(h: Double, v: Double, z: Double) async throws {
+        guard let cloud, features.ptz != nil else { throw ActionRefused(description: "\(name) cannot pan or tilt") }
+        guard (-1...1).contains(h), (-1...1).contains(v), (0...1).contains(z) else { throw ActionRefused(description: "h and v are -1 to 1, z 0 to 1") }
+        let device = deviceID, channel = channel.id
+        try await queue.run { try await cloud.locatePTZ(device, channel: channel, h: h, v: v, z: z) }
+    }
+
+    func presets() async throws -> [String] {
+        guard let cloud, features.presets else { throw ActionRefused(description: "\(name) has no presets") }
+        return try await cloud.presets(deviceID, channel: channel.id)
+    }
+
+    func goToPreset(_ name: String) async throws {
+        guard let cloud, features.presets else { throw ActionRefused(description: "\(self.name) has no presets") }
+        let device = deviceID, channel = channel.id
+        try await queue.run { try await cloud.goToPreset(device, channel: channel, name: name) }
+    }
+
     /// Sets the night vision mode, one of those the camera has once they are known (addendum, section 2.6).
     func setNightVision(mode: String) async throws {
         guard let cloud, features.nightVision else { throw ActionRefused(description: "\(name) has no night vision modes") }
@@ -441,7 +497,8 @@ actor ImouCamera {
         if let indicator { switches["statusLight"] = indicator.characteristic.value.boolValue.map(JSONValue.bool) ?? .null }
         return [
             "accessoryId": .string(accessoryID), "deviceId": .string(deviceID), "channel": .string(channel.id), "name": .string(name),
-            "online": .string("\(online)"), "privacy": .bool(privacyOn), "switches": .object(switches),
+            "online": .string("\(online)"), "privacy": .bool(privacyOn), "ptz": features.ptz.map { .string($0.rawValue) } ?? .null,
+            "presets": .bool(features.presets), "switches": .object(switches),
             "nightVision": features.nightVision ? ["mode": nightVisionMode.map(JSONValue.string) ?? .null, "modes": .array(nightVisionModes.map(JSONValue.string))] : .null,
         ]
     }

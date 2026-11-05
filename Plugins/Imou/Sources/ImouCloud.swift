@@ -125,6 +125,10 @@ actor ImouCloud {
     /// The signature the account takes: the documented HMAC-SHA256 first, MD5 once the cloud refused it (addendum, section 0).
     private(set) var signing = ImouSigning.hmac
     private var signingSettled = false
+    /// Methods the cloud said are spent for the day (`OP1014`), with that UTC day (addendum, section 7.2).
+    private var spent: [String: Int] = [:]
+    /// `controlMovePTZ`'s `operation` as a number: the cloud refused it as a string (addendum, section 1.1).
+    private(set) var ptzOperationAsNumber = false
     /// Devices that answered `OP1003` to a device-level call without `channelId`: sent `"0"` from then on.
     private(set) var devicesWantingChannel: Set<String> = []
 
@@ -197,6 +201,7 @@ actor ImouCloud {
     /// A method's `data` (`{}` when the answer has none). A `TK1002` fetches the token again, once, and retries once.
     func call(_ method: String, _ params: [String: JSONValue] = [:], polling: Bool = false) async throws -> JSONValue {
         if polling, callsToday() >= ImouUsage.stopAt { throw ImouError.overBudget }
+        if spent[method] == ImouUsage.day(of: environment.now()) { throw ImouError.api(code: "OP1014", message: "spent for today") }
         let used = try await currentToken()
         do {
             return try await send(method, params, token: used)
@@ -221,6 +226,8 @@ actor ImouCloud {
         defer { fetching = nil }
         return try await task.value
     }
+
+    func ptzTakesNumbers() { ptzOperationAsNumber = true }
 
     func wantsChannel(_ deviceID: String) { devicesWantingChannel.insert(deviceID) }
 
@@ -283,6 +290,10 @@ actor ImouCloud {
         let code = result["code"]?.stringValue ?? result["code"]?.intValue.map(String.init)
         guard let code else { throw ImouError.malformed("no result code") }
         logger.trace("IMOU \(method): \(code)")
+        if code == "OP1014", spent[method] != ImouUsage.day(of: now) {
+            spent[method] = ImouUsage.day(of: now)
+            logger.warning("The IMOU cloud's daily limit for \(method) is reached: it is not called again until midnight UTC")
+        }
         guard code == "0" else { throw ImouError.api(code: code, message: String((result["msg"]?.stringValue ?? "").prefix(200))) }
         return result["data"]?.nonNull ?? [:]
     }

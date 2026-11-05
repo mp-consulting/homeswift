@@ -53,6 +53,9 @@ final class FakeImouCloud: HTTPSending, Sendable {
         /// enableTypes whose reads fail (the channel offline, `DV1020`).
         var failing: Set<String> = []
         var nightVision: (mode: String, modes: [String]) = ("Intelligent", ["Intelligent", "FullColor", "Infrared", "Off"])
+        /// `controlMovePTZ` answers `OP1003` to an `operation` sent as a string, as a cloud might.
+        var ptzWantsNumbers = false
+        var presets: [String] = []
     }
 
     let state = NIOLockedValueBox(State())
@@ -145,6 +148,13 @@ final class FakeImouCloud: HTTPSending, Sendable {
             case "setNightVisionMode":
                 state.nightVision.mode = params["mode"]?.stringValue ?? ""
                 return Self.ok([:])
+            case "controlMovePTZ":
+                if state.ptzWantsNumbers, params["operation"]?.stringValue != nil { return Self.error("OP1003", "invalid parameter") }
+                return Self.ok([:])
+            case "controlLocationPTZ", "turnCollection":
+                return Self.ok([:])
+            case "getCollection":
+                return Self.ok(["collections": .array(state.presets.map { ["name": .string($0)] })])
             case "getDevicePowerInfo":
                 return Self.ok(["electricitys": [["type": "battery", "electric": "89", "litElec": "77"]]])
             default:

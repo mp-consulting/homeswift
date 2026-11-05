@@ -81,7 +81,7 @@ extension ImouPlugin {
     public struct CameraSettings: Sendable, Equatable {
         static let keys: Set<String> = [
             "host", "rtspPort", "httpPort", "username", "localEvents", "motionTimeout", "privacySwitch", "lightSwitch", "sirenSwitch", "motionDetectSwitch",
-            "recording", "encoder", "personDetectSwitch", "statusLightSwitch", "linkageSirenSwitch", "linkageLightSwitch", "nightVisionSwitch",
+            "recording", "encoder", "personDetectSwitch", "statusLightSwitch", "linkageSirenSwitch", "linkageLightSwitch", "nightVisionSwitch", "presetSwitches",
         ]
 
         var host: String?
@@ -103,6 +103,8 @@ extension ImouPlugin {
         var linkageSirenSwitch = false
         var linkageLightSwitch = false
         var nightVisionSwitch = false
+        /// A "Go to <preset>" switch per PTZ preset.
+        var presetSwitches = false
 
         init(fields: [String: JSONValue], password: String?, defaults: Configuration) {
             let json = JSONValue.object(fields)
@@ -124,6 +126,7 @@ extension ImouPlugin {
             linkageSirenSwitch = json["linkageSirenSwitch"]?.boolValue ?? false
             linkageLightSwitch = json["linkageLightSwitch"]?.boolValue ?? false
             nightVisionSwitch = json["nightVisionSwitch"]?.boolValue ?? false
+            presetSwitches = json["presetSwitches"]?.boolValue ?? false
         }
 
         /// Video and snapshots can go local: an address and a password.

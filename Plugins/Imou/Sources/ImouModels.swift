@@ -119,6 +119,8 @@ struct ImouFeatures: Sendable, Equatable {
     var linkageSiren: Bool
     var linkageLight: Bool
     var nightVision: Bool
+    var ptz: ImouPTZ?
+    var presets: Bool
 
     init(abilities given: Set<String>) {
         var abilities = given
@@ -137,6 +139,33 @@ struct ImouFeatures: Sendable, Equatable {
         linkageSiren = abilities.contains("LinkageSiren")
         linkageLight = whiteLight || abilities.contains("LinkageWhiteLight")
         nightVision = abilities.contains("NVM")
+        ptz = abilities.contains("PTZ") ? .full : abilities.contains("PT") || abilities.contains("PT1") ? .fourWay : abilities.contains("PT2") ? .pan : nil
+        presets = abilities.contains("CollectionPoint")
+    }
+}
+
+/// What a camera's pan and tilt can do (addendum, section 1.1): `PTZ` all of it, `PT`/`PT1` four directions and their
+/// diagonals without zoom, `PT2` left and right.
+enum ImouPTZ: String, Sendable, Equatable {
+    case full = "PTZ", fourWay = "PT", pan = "PT2"
+
+    func allows(_ move: ImouPTZMove) -> Bool {
+        switch self {
+        case .full: true
+        case .fourWay: move != .zoomIn && move != .zoomOut
+        case .pan: [.left, .right, .stop].contains(move)
+        }
+    }
+}
+
+/// `controlMovePTZ`'s operations, by their code.
+enum ImouPTZMove: Int, CaseIterable, Sendable {
+    case up = 0, down, left, right, upLeft, downLeft, upRight, downRight, zoomIn, zoomOut, stop
+
+    var name: String { "\(self)" }
+    init?(name: String) {
+        guard let move = Self.allCases.first(where: { $0.name.lowercased() == name.lowercased() }) else { return nil }
+        self = move
     }
 }
 
@@ -272,6 +301,47 @@ extension ImouCloud {
 
     func setNightVision(_ deviceID: String, channel: String, mode: String) async throws {
         _ = try await call("setNightVisionMode", ["deviceId": .string(deviceID), "channelId": .string(channel), "mode": .string(mode)])
+    }
+
+    /// `controlMovePTZ` for `duration` milliseconds (addendum, section 1.1): `operation` as a string, as the documentation's
+    /// sample sends it, and once as a number when the cloud refuses that (`OP1003`), remembered.
+    func movePTZ(_ deviceID: String, channel: String, _ move: ImouPTZMove, milliseconds: Int) async throws {
+        func send(asNumber: Bool) async throws {
+            _ = try await call("controlMovePTZ", [
+                "deviceId": .string(deviceID), "channelId": .string(channel),
+                "operation": asNumber ? .number(Double(move.rawValue)) : .string(String(move.rawValue)), "duration": .number(Double(milliseconds)),
+            ])
+        }
+        if ptzOperationAsNumber { return try await send(asNumber: true) }
+        do {
+            try await send(asNumber: false)
+        } catch let error as ImouError where error.code == "OP1003" {
+            try await send(asNumber: true)
+            ptzTakesNumbers()
+        }
+    }
+
+    /// `controlLocationPTZ`: `h` and `v` from -1 to 1, `z` from 0 (widest) to 1 (addendum, section 1.2).
+    func locatePTZ(_ deviceID: String, channel: String, h: Double, v: Double, z: Double) async throws {
+        _ = try await call("controlLocationPTZ", ["deviceId": .string(deviceID), "channelId": .string(channel), "h": .number(h), "v": .number(v), "z": .number(z)])
+    }
+
+    /// `getCollection`'s preset names. Its answer's shape is not documented (addendum, section 1.2): the names of a list of
+    /// objects under any key of `data`, or strings, read leniently.
+    func presets(_ deviceID: String, channel: String) async throws -> [String] {
+        let data = try await call("getCollection", ["deviceId": .string(deviceID), "channelId": .string(channel)])
+        let lists = data.arrayValue.map { [$0] } ?? (data.objectValue ?? [:]).sorted { $0.key < $1.key }.compactMap(\.value.arrayValue)
+        var names: [String] = []
+        for item in lists.joined().prefix(64) {
+            guard let name = (item.stringValue ?? item["name"]?.stringValue ?? item["collectionName"]?.stringValue)?.trimmingCharacters(in: .whitespaces),
+                  !name.isEmpty, name.count <= 64, !names.contains(name) else { continue }
+            names.append(name)
+        }
+        return names
+    }
+
+    func goToPreset(_ deviceID: String, channel: String, name: String) async throws {
+        _ = try await call("turnCollection", ["deviceId": .string(deviceID), "channelId": .string(channel), "name": .string(name)])
     }
 
     /// The camera's own motion detection (section 4.5): `modifyDeviceAlarmStatus`, else `setDeviceCameraStatus`

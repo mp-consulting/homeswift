@@ -8,7 +8,7 @@ import Testing
 @testable import Homeswift
 @testable import HomeswiftImou
 
-/// The addendum's signatures, switches, privacy kept in step with HomeKit Camera Active, and the
+/// The addendum's signatures, PTZ, switches, privacy kept in step with HomeKit Camera Active, and the
 /// quota governor (docs/clean-room/Imou.md, "Addendum").
 @Suite(.timeLimit(.minutes(1)))
 struct ImouParityTests {
@@ -33,7 +33,7 @@ struct ImouParityTests {
     static var allSwitches: [String: Any] { [
         "personDetectSwitch": true, "statusLightSwitch": true, "linkageSirenSwitch": true, "linkageLightSwitch": true, "nightVisionSwitch": true,
     ] }
-    static let allAbilities = "WLAN,AlarmMD,CloseCamera,Siren,WhiteLight,BreathingLight,LinkageSiren,NVM"
+    static let allAbilities = "WLAN,AlarmMD,CloseCamera,Siren,WhiteLight,BreathingLight,LinkageSiren,NVM,PTZ,CollectionPoint,Reboot,LocalStorage"
 
     /// The garden's accessory once the plugin runs its camera (it is published a moment before).
     func garden(_ host: PluginHost) async throws -> Accessory {
@@ -107,6 +107,22 @@ struct ImouParityTests {
 
     // MARK: Cloud calls
 
+    @Test func ptzSendsTheOperationAsAStringThenAsANumberIfRefused() async throws {
+        let fake = FakeImouCloud()
+        let cloud = cloud(fake)
+        try await cloud.movePTZ("TEST000CAM1", channel: "0", .left, milliseconds: 500)
+        let first = try #require(fake.calls("controlMovePTZ").last)
+        #expect(first.params["operation"] == "2" && first.params["duration"] == 500 && first.params["channelId"] == "0")
+        fake.state.withLockedValue { $0.ptzWantsNumbers = true }
+        try await cloud.movePTZ("TEST000CAM1", channel: "0", .stop, milliseconds: 500)
+        #expect(fake.calls("controlMovePTZ").count == 3 && fake.calls("controlMovePTZ").last?.params["operation"] == 10)
+        // Remembered: one call from then on.
+        try await cloud.movePTZ("TEST000CAM1", channel: "0", .zoomIn, milliseconds: 500)
+        #expect(fake.calls("controlMovePTZ").count == 4 && fake.calls("controlMovePTZ").last?.params["operation"] == 8)
+        try await cloud.locatePTZ("TEST000CAM1", channel: "0", h: 0.5, v: -0.25, z: 0)
+        #expect(fake.calls("controlLocationPTZ").first?.params == ["token": "At_1", "deviceId": "TEST000CAM1", "channelId": "0", "h": 0.5, "v": -0.25, "z": 0])
+    }
+
     @Test func aDeviceLevelSwitchGoesWithoutAChannelAndOnceWithZeroIfAsked() async throws {
         let fake = FakeImouCloud()
         let cloud = cloud(fake)
@@ -126,6 +142,19 @@ struct ImouParityTests {
         #expect(read.mode == "Intelligent" && read.modes == ["Intelligent", "FullColor", "Infrared", "Off"])
         try await cloud.setNightVision("TEST000CAM1", channel: "0", mode: "FullColor")
         #expect(fake.calls("setNightVisionMode").first?.params == ["token": "At_1", "deviceId": "TEST000CAM1", "channelId": "0", "mode": "FullColor"])
+    }
+
+    @Test func aMethodSpentForTheDayIsNotCalledUntilTheNext() async throws {
+        let fake = FakeImouCloud()
+        let clock = NIOLockedValueBox(Date(timeIntervalSince1970: 1_762_300_000))
+        let cloud = cloud(fake) { clock.withLockedValue { $0 } }
+        fake.fail("controlMovePTZ", with: "OP1014")
+        await #expect(throws: ImouError.self) { try await cloud.movePTZ("TEST000CAM1", channel: "0", .up, milliseconds: 500) }
+        await #expect(throws: ImouError.self) { try await cloud.movePTZ("TEST000CAM1", channel: "0", .up, milliseconds: 500) }
+        #expect(fake.calls("controlMovePTZ").count == 1)
+        clock.withLockedValue { $0 += 86_400 }
+        try await cloud.movePTZ("TEST000CAM1", channel: "0", .up, milliseconds: 500)
+        #expect(fake.calls("controlMovePTZ").count == 2)
     }
 
     // MARK: Switches
@@ -324,10 +353,52 @@ struct ImouParityTests {
 
     // MARK: Actions
 
+    @Test func ptzMovesFollowTheAbilitiesAndStopBeforeTurning() async throws {
+        environment.cloud.addCamera(abilities: Self.allAbilities)
+        environment.cloud.addCamera("TEST000CAM2", name: "Drive", abilities: "WLAN,PT2", channelAbilities: "")
+        let host = try await environment.start()
+        _ = try await garden(host)
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.camera("Imou:TEST000CAM2:0") != nil })
+        let cloud = environment.cloud
+        #expect(try await request("POST", "ptz/move", ["accessoryId": .string(gardenID), "direction": "left", "duration": 10000]).status == 200)
+        #expect(cloud.calls("controlMovePTZ").last?.params == ["token": "At_1", "deviceId": "TEST000CAM1", "channelId": "0", "operation": "2", "duration": 10000])
+        // Another direction while the left move runs: a stop first.
+        #expect(try await request("POST", "ptz/move", ["deviceId": "TEST000CAM1", "direction": "up", "duration": 500]).status == 200)
+        #expect(cloud.calls("controlMovePTZ").suffix(2).map { $0.params["operation"] } == ["10", "0"])
+        #expect(try await request("POST", "ptz/move", ["deviceId": "TEST000CAM1", "direction": "up", "duration": 50]).status == 409)
+        // PT2: left and right only.
+        #expect(try await request("POST", "ptz/move", ["deviceId": "TEST000CAM2", "direction": "zoomIn"]).status == 409)
+        #expect(try await request("POST", "ptz/move", ["deviceId": "TEST000CAM2", "direction": "up"]).status == 409)
+        #expect(try await request("POST", "ptz/move", ["deviceId": "TEST000CAM2", "direction": "right"]).status == 200)
+        #expect(cloud.calls("controlMovePTZ").last?.params["duration"] == 1000)
+        #expect(try await request("POST", "ptz/position", ["deviceId": "TEST000CAM1", "h": 0.5, "v": -0.25, "z": 0]).status == 200)
+        #expect(try await request("POST", "ptz/position", ["deviceId": "TEST000CAM1", "h": 2, "v": 0]).status == 409)
+        #expect(cloud.calls("controlLocationPTZ").count == 1)
+        #expect(try await request("POST", "ptz/move", ["deviceId": "NOPE", "direction": "up"]).status == 404)
+        await host.stop()
+    }
+
     @Test func theActionsDeclareTheirScope() {
         let actions = Dictionary(uniqueKeysWithValues: ImouPlugin.assistantActions.map { ($0.name, $0) })
-        for name in ["set_night_vision"] { #expect(actions[name]?.access == .configure, "\(name)") }
+        for name in ["move", "point", "list_presets", "go_to_preset", "set_night_vision"] { #expect(actions[name]?.access == .configure, "\(name)") }
         #expect(actions["list_cameras"]?.access == .read)
     }
 
+    @Test func presetsAreActionsAndOptionalSwitches() async throws {
+        environment.cloud.addCamera(abilities: Self.allAbilities)
+        environment.cloud.state.withLockedValue { $0.presets = ["Door", "Gate"] }
+        let host = try await environment.start(block(["presetSwitches": true]))
+        let accessory = try await garden(host)
+        let presets = try await request("GET", "ptz/presets", query: ["accessoryId": gardenID])
+        #expect(presets.json["presets"] == ["Door", "Gate"])
+        #expect(try await request("POST", "ptz/preset", ["accessoryId": .string(gardenID), "name": "Gate"]).status == 200)
+        let door = try #require(service(accessory, "preset:Door"))
+        #expect(door.characteristic(.name).value == "Garden Go to Door")
+        try await door.characteristic(.on).write(true)
+        let cloud = environment.cloud
+        #expect(cloud.calls("turnCollection").map { $0.params["name"] } == ["Gate", "Door"])
+        #expect(await eventually { door.characteristic(.on).value == false })
+        await host.stop()
+    }
 }

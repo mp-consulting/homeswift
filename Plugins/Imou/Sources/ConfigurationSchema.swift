@@ -302,6 +302,15 @@ extension ImouPlugin {
           "camera"
         ]
       },
+      "presetSwitches": {
+        "title": "Preset Switches",
+        "type": "boolean",
+        "description": "A switch per pan and tilt preset that turns the camera to it, through the cloud.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
       "recording": {
         "title": "HomeKit Secure Video",
         "type": "boolean",
@@ -361,6 +370,7 @@ extension ImouPlugin {
       "A switch for the camera's human detection, through the cloud. Each switch costs calls of the account's 20,000 a day.": "Un interrupteur pour la détection de personnes de la caméra, par le cloud. Chaque interrupteur coûte des appels sur les 20 000 par jour du compte.",
       "A switch for the camera's own motion detection, through the cloud.": "Un interrupteur pour la détection de mouvement de la caméra, par le cloud.",
       "A switch for the camera's status light, through the cloud; with HomeKit Secure Video, the camera's status indicator in the Home app.": "Un interrupteur pour le voyant d'état de la caméra, par le cloud ; avec HomeKit Secure Video, le voyant d'état de la caméra dans l'app Maison.",
+      "A switch per pan and tilt preset that turns the camera to it, through the cloud.": "Un interrupteur par préréglage d'orientation, qui tourne la caméra vers lui, par le cloud.",
       "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Un interrupteur qui ferme la caméra (le mode confidentialité d'IMOU), par le cloud.",
       "A switch that has the siren sound when the camera raises an alarm, through the cloud.": "Un interrupteur qui fait sonner la sirène quand la caméra déclenche une alarme, par le cloud.",
       "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Un interrupteur qui allume le projecteur quand la caméra déclenche une alarme, par le cloud.",
@@ -402,6 +412,7 @@ extension ImouPlugin {
       "Person Detection Switch": "Interrupteur de détection de personnes",
       "Plugin name as shown in the logs": "Nom du plugin dans le journal",
       "Polling Interval (in seconds)": "Intervalle d'interrogation (en secondes)",
+      "Preset Switches": "Interrupteurs de préréglages",
       "Privacy Switch": "Interrupteur Confidentialité",
       "RTSP Port": "Port RTSP",
       "Region": "Région",
@@ -433,6 +444,7 @@ extension ImouPlugin {
       "A switch for the camera's human detection, through the cloud. Each switch costs calls of the account's 20,000 a day.": "Un interruptor para la detección de personas de la cámara, a través de la nube. Cada interruptor cuesta llamadas de las 20 000 diarias de la cuenta.",
       "A switch for the camera's own motion detection, through the cloud.": "Un interruptor para la detección de movimiento de la cámara, a través de la nube.",
       "A switch for the camera's status light, through the cloud; with HomeKit Secure Video, the camera's status indicator in the Home app.": "Un interruptor para la luz de estado de la cámara, a través de la nube; con HomeKit Secure Video, el indicador de estado de la cámara en la app Casa.",
+      "A switch per pan and tilt preset that turns the camera to it, through the cloud.": "Un interruptor por cada posición predefinida de giro e inclinación, que orienta la cámara hacia ella, a través de la nube.",
       "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Un interruptor que cierra la cámara (el modo de privacidad de IMOU), a través de la nube.",
       "A switch that has the siren sound when the camera raises an alarm, through the cloud.": "Un interruptor que hace sonar la sirena cuando la cámara da una alarma, a través de la nube.",
       "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Un interruptor que enciende el foco cuando la cámara da una alarma, a través de la nube.",
@@ -474,6 +486,7 @@ extension ImouPlugin {
       "Person Detection Switch": "Interruptor de detección de personas",
       "Plugin name as shown in the logs": "Nombre del plugin en el registro",
       "Polling Interval (in seconds)": "Intervalo de sondeo (en segundos)",
+      "Preset Switches": "Interruptores de posiciones predefinidas",
       "Privacy Switch": "Interruptor de privacidad",
       "RTSP Port": "Puerto RTSP",
       "Region": "Región",
@@ -505,6 +518,7 @@ extension ImouPlugin {
       "A switch for the camera's human detection, through the cloud. Each switch costs calls of the account's 20,000 a day.": "Um interruptor para a deteção de pessoas da câmara, através da nuvem. Cada interruptor custa chamadas das 20 000 diárias da conta.",
       "A switch for the camera's own motion detection, through the cloud.": "Um interruptor para a deteção de movimento da câmara, através da nuvem.",
       "A switch for the camera's status light, through the cloud; with HomeKit Secure Video, the camera's status indicator in the Home app.": "Um interruptor para a luz de estado da câmara, através da nuvem; com HomeKit Secure Video, o indicador de estado da câmara na app Casa.",
+      "A switch per pan and tilt preset that turns the camera to it, through the cloud.": "Um interruptor por cada posição predefinida de rotação e inclinação, que orienta a câmara para ela, através da nuvem.",
       "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Um interruptor que fecha a câmara (o modo de privacidade da IMOU), através da nuvem.",
       "A switch that has the siren sound when the camera raises an alarm, through the cloud.": "Um interruptor que faz soar a sirene quando a câmara dá um alarme, através da nuvem.",
       "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Um interruptor que acende o projetor quando a câmara dá um alarme, através da nuvem.",
@@ -546,6 +560,7 @@ extension ImouPlugin {
       "Person Detection Switch": "Interruptor de deteção de pessoas",
       "Plugin name as shown in the logs": "Nome do plugin no registo",
       "Polling Interval (in seconds)": "Intervalo de consulta (em segundos)",
+      "Preset Switches": "Interruptores de posições predefinidas",
       "Privacy Switch": "Interruptor de privacidade",
       "RTSP Port": "Porta RTSP",
       "Region": "Região",
