@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
   light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
 - Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
   a field a step may leave empty says Optional.
+- The Philips Hue Sync Box plugin (platform `PhilipsHueSyncBoxPlatform`, a clean-room implementation compatible with
+  homebridge-philips-hue-sync-box's configuration): a Lightbulb or Switch that starts and stops syncing, a power switch,
+  and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
+  Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
+  name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
 - The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
   doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
   Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
