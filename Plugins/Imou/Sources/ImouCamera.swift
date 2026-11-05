@@ -103,6 +103,9 @@ actor ImouCamera {
 
     private(set) var online: ImouOnline = .online
     private(set) var privacyOn = false
+    /// HomeKit Camera Active, on the Camera Operating Mode of a camera with HomeKit Secure Video: kept the inverse of
+    /// privacy (addendum, section 5).
+    private var cameraActive: Characteristic?
     /// The status light as the Camera Operating Mode's indicator.
     private var indicator: (spec: ImouSwitch, characteristic: Characteristic)?
     /// enableTypes the cloud said this camera lacks, not read again; `takeUnsupported` hands the new ones to the plugin.
@@ -179,10 +182,7 @@ actor ImouCamera {
     /// failure (sections 7.3 and 7.1.5).
     nonisolated func bindWrites() {
         services.privacy?.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
-            try await self?.write("privacy", value.boolValue ?? false) { cloud, device, channel, on in
-                try await cloud.setCameraStatus(device, channel: channel, "closeCamera", on)
-            }
-            await self?.privacyChanged(value.boolValue ?? false)
+            try await self?.setPrivacy(value.boolValue ?? false)
         }
         services.motionDetection?.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
             try await self?.write("motionDetection", value.boolValue ?? false) { cloud, device, channel, on in
@@ -214,10 +214,19 @@ actor ImouCamera {
         }
     }
 
-    /// The Camera Operating Mode of a camera with HomeKit Secure Video, before it is published: the status light as its
-    /// indicator (addendum, section 2.8).
+    /// The Camera Operating Mode of a camera with HomeKit Secure Video, before it is published: HomeKit Camera Active kept
+    /// the inverse of privacy, and the status light as its indicator (addendum, sections 2.8 and 5).
     func attach(operatingMode: Service) {
         guard cloud != nil else { return }
+        if features.privacy {
+            let active = operatingMode.characteristic(.homeKitCameraActive)
+            cameraActive = active
+            active.onWrite(changesOnly: true) { [weak self] value in
+                // Only an admin turns the camera off in the Home app, as without this handler.
+                try HAPRequestContext.requireAdmin()
+                try await self?.setPrivacy((value.intValue ?? 1) == 0)
+            }
+        }
         if settings.statusLightSwitch, features.statusLight, !unsupported.contains("breathingLight") {
             let spec = ImouSwitch.statusLight
             let characteristic = operatingMode.characteristic(adding: .cameraOperatingModeIndicator)
@@ -226,6 +235,14 @@ actor ImouCamera {
                 try await self?.write(spec, value.boolValue ?? false)
             }
         }
+    }
+
+    /// Opens or closes the camera, from the Privacy switch or HomeKit Camera Active, and keeps the other in step.
+    func setPrivacy(_ closed: Bool) async throws {
+        try await write("privacy", closed) { cloud, device, channel, on in
+            try await cloud.setCameraStatus(device, channel: channel, "closeCamera", on)
+        }
+        privacyChanged(closed)
     }
 
     /// A write to every enableType of a switch; it fails only when all of them fail.
@@ -278,6 +295,9 @@ actor ImouCamera {
 
     private func privacyChanged(_ on: Bool) {
         privacyOn = on
+        if let privacy = services.privacy { set(privacy.characteristic(.on), .bool(on)) }
+        if let cameraActive { set(cameraActive, .int(on ? 0 : 1)) }
+        updateStatusActive()
     }
 
     /// The siren's state cannot be read: it shows off again once it has had its time.
@@ -306,12 +326,11 @@ actor ImouCamera {
     func refresh(_ state: ImouOnline, battery level: Int? = nil, extras: Bool = true) async {
         online = state
         let reachable = state == .online || state == .sleeping
-        set(services.motion.characteristic(.statusActive), .bool(reachable || localEventsUp == true))
+        updateStatusActive()
         if local == nil { accessory?.isUnavailable = !reachable }
         guard state == .online, let cloud else { return }
-        if let privacy = services.privacy, let on = try? await cloud.cameraStatus(deviceID, channel: channel.id, "closeCamera", polling: true) {
-            privacyOn = on
-            set(privacy.characteristic(.on), .bool(on))
+        if services.privacy != nil || cameraActive != nil, let on = try? await cloud.cameraStatus(deviceID, channel: channel.id, "closeCamera", polling: true) {
+            privacyChanged(on)
         }
         if let light = services.light, let on = try? await cloud.cameraStatus(deviceID, channel: channel.id, "whiteLight", polling: true) {
             set(light.characteristic(.on), .bool(on))
@@ -342,7 +361,7 @@ actor ImouCamera {
 
     /// The reads a poll of an online camera makes: `base` every poll, `extras` those the quota governor may spread.
     func pollReads() -> (base: Int, extras: Int) {
-        let base = (services.privacy != nil ? 1 : 0) + (services.light != nil ? 1 : 0)
+        let base = (services.privacy != nil || cameraActive != nil ? 1 : 0) + (services.light != nil ? 1 : 0)
             + (services.motionDetection != nil ? ImouSwitch.motionDetection.enableTypes.count : 0)
         var extras = services.toggles.reduce(0) { $0 + $1.spec.enableTypes.count } + (indicator != nil ? 1 : 0)
         if services.nightVision != nil { extras += 1 }
@@ -425,6 +444,12 @@ actor ImouCamera {
             "online": .string("\(online)"), "privacy": .bool(privacyOn), "switches": .object(switches),
             "nightVision": features.nightVision ? ["mode": nightVisionMode.map(JSONValue.string) ?? .null, "modes": .array(nightVisionModes.map(JSONValue.string))] : .null,
         ]
+    }
+
+    /// The motion sensor is active while the camera answers (or its local events do) and is open.
+    private func updateStatusActive() {
+        let reachable = online == .online || online == .sleeping || localEventsUp == true
+        set(services.motion.characteristic(.statusActive), .bool(reachable && !privacyOn))
     }
 
     /// Sets a value only when it changed, so HomeKit hears of changes alone.

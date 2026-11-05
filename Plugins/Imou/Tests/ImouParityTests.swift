@@ -8,7 +8,7 @@ import Testing
 @testable import Homeswift
 @testable import HomeswiftImou
 
-/// The addendum's signatures, switches and the
+/// The addendum's signatures, switches, privacy kept in step with HomeKit Camera Active, and the
 /// quota governor (docs/clean-room/Imou.md, "Addendum").
 @Suite(.timeLimit(.minutes(1)))
 struct ImouParityTests {
@@ -252,6 +252,41 @@ struct ImouParityTests {
     }
 
     // MARK: Privacy and HomeKit Camera Active
+
+    @Test func privacyAndHomeKitCameraActiveStayInStep() async throws {
+        environment.cloud.addCamera(abilities: Self.allAbilities)
+        environment.cloud.state.withLockedValue { $0.statuses["TEST000CAM1:0:closeCamera"] = true }
+        let host = try await environment.start(block(["statusLightSwitch": true], local: true))
+        let accessory = try await garden(host)
+        let privacy = try #require(service(accessory, "privacy")).characteristic(.on)
+        let operatingMode = try #require(accessory.services.first { $0.type == .cameraOperatingMode })
+        let active = operatingMode.characteristic(.homeKitCameraActive)
+        // A poll reads closeCamera on: closed, so not active.
+        #expect(await eventually { privacy.value == true && active.value.intValue == 0 })
+        let motion = try #require(accessory.services.first { $0.type == .motionSensor }).characteristic(.statusActive)
+        #expect(motion.value == false)
+        // HomeKit turns the camera on: the camera opens, and the switch follows.
+        try await active.write(.int(1))
+        let cloud = environment.cloud
+        #expect(cloud.calls("setDeviceCameraStatus").last?.params == ["token": "At_1", "deviceId": "TEST000CAM1", "channelId": "0", "enableType": "closeCamera", "enable": false])
+        #expect(privacy.value == false)
+        // The switch closes it: Camera Active follows.
+        try await privacy.write(true)
+        #expect(active.value.intValue == 0)
+        // The camera opens on its own (a privacy plan): the next poll says so to both.
+        cloud.state.withLockedValue { $0.statuses["TEST000CAM1:0:closeCamera"] = false }
+        #expect(await eventually { privacy.value == false && active.value.intValue == 1 })
+        // A refused write changes neither.
+        cloud.fail("setDeviceCameraStatus", with: "OP1009")
+        await #expect(throws: HAPStatusError.self) { try await active.write(.int(0)) }
+        #expect(privacy.value == false && active.value.intValue == 1)
+        // With HomeKit Secure Video the status light is the operating mode's indicator, not a switch.
+        #expect(service(accessory, "statusLight") == nil)
+        let indicator = try #require(operatingMode[.cameraOperatingModeIndicator])
+        try await indicator.write(true)
+        #expect(cloud.calls("setDeviceCameraStatus").last?.params == ["token": "At_1", "deviceId": "TEST000CAM1", "enableType": "breathingLight", "enable": true])
+        await host.stop()
+    }
 
     // MARK: Quota
 
