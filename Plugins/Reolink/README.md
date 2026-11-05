@@ -87,6 +87,8 @@ no HTTP API: everything goes over Baichuan ([spec](../../docs/clean-room/Reolink
 accessories** by its address and a local user, as any device: when the HTTP API does not answer, Setup logs in over
 Baichuan (TCP 9000) and reads the abilities (`cmd_id` 199, `battery` on channel 0); a battery camera is kept with
 `batteryCamera: true` in its settings. A block written by hand says `"batteryCamera": true` in its `devices` entry.
+Wake the camera first (press its button, or move in front of it): whether a sleeping camera wakes for a connection is
+not known, and Setup says a camera that does not answer may be asleep.
 
 - **What HomeKit gets:** a camera accessory (Video Doorbell for a model whose name says Doorbell, or `doorbell: true`)
   with live video and snapshots, a Motion Sensor (the PIR) and Battery (level, charging, low). No HomeKit Secure Video
@@ -152,7 +154,7 @@ too:
 | `devices[].motionPollInterval` | 5 s | Motion polling while push is not active |
 | `devices[].batteryCamera` | `false` | A battery camera on its own, over Baichuan only (Experimental; Setup sets it) |
 | `devices[].takeOverEventPush` | `false` | A battery camera's event push replaces another receiver's (its single slot) |
-| `webhookPort` | chosen once | The port battery cameras post their events to |
+| `webhookPort` | chosen once | The port battery cameras post their events to; the cameras must reach it (a firewall opens it) |
 | `devices[].cameras["<channel>"]` | | A channel's options, below; once the settings are saved they move into the channel's Accessory Settings |
 
 A channel's options (also its Accessory Settings): `name`, `motionSensor` (true), `aiSensors` (every supported type),

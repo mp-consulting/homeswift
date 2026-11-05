@@ -386,7 +386,7 @@ final class ReolinkEnvironment: Sendable {
         #expect(outcome.credentials?["username"] == "admin" && outcome.credentials?["password"] == "secret")
 
         environment.http.state.withLockedValue { $0.unreachable = true }
-        await #expect(throws: SetupError("No Reolink device answered at 192.168.1.60")) {
+        await #expect(throws: SetupError("No Reolink device answered at 192.168.1.60. A battery camera on its own may be asleep: wake it (press its button, or move in front of it) and try again.")) {
             try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.168.1.60", "password": "secret"]))
         }
         environment.http.state.withLockedValue { $0.unreachable = false }

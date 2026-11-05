@@ -46,7 +46,7 @@ actor ReolinkBatteryHost {
     static let awakeSnapshotCache: Double = 10
     /// A request with reason `event` wakes the camera for a snapshot older than this (7).
     static let eventSnapshotAge: Double = 60
-    static let udpOnlyMessage = "this camera only talks over Reolink's UDP protocol, which Homeswift does not support yet; add it to a Reolink Home Hub instead"
+    static let udpOnlyMessage = "it may talk only over Reolink's UDP protocol, which Homeswift does not support yet; add it to a Reolink Home Hub or NVR instead"
 
     let device: ReolinkPlugin.Device
     private(set) var record: Record

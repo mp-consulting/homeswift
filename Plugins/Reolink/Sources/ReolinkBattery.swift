@@ -206,9 +206,9 @@ extension ReolinkPlugin {
         do {
             try await session.openOnce()
         } catch BaichuanError.unauthorized {
-            throw SetupError("The device refused the user name or password")
+            throw SetupError("The camera refused the user name or password.")
         } catch BaichuanError.accountDevice {
-            throw SetupError(BaichuanError.accountDevice.description)
+            throw SetupError("The camera is bound to a Reolink cloud account (an account device), which refuses local sign-in: switch it back to a local device in the Reolink app.")
         } catch {
             return nil
         }
@@ -220,7 +220,7 @@ extension ReolinkPlugin {
             }
             guard !kind.udpOnly else {
                 await session.stop()
-                throw SetupError("This Reolink camera only talks over Reolink's UDP protocol, which Homeswift does not support yet: add it to a Reolink Home Hub instead")
+                throw SetupError("This battery camera talks only over Reolink's UDP protocol, which Homeswift does not support yet: add it to a Reolink Home Hub or NVR, then add that instead.")
             }
             let identity = try await session.batteryIdentity()
             var record = ReolinkBatteryHost.Record(identity: identity, battery: try? await session.battery(channel: 0), webhookSupported: nil)

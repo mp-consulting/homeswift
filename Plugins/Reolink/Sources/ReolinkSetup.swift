@@ -134,7 +134,7 @@ extension ReolinkPlugin {
             // No HTTP API: a standalone battery camera answers over Baichuan only (ReolinkBattery.md 2.1).
             if let outcome = try await authorizeBattery(address: address, username: username, password: password) { return .done(outcome) }
             logger.info("No Reolink device answered at \(address): \(error)")
-            throw SetupError("No Reolink device answered at \(address)")
+            throw SetupError("No Reolink device answered at \(address). A battery camera on its own may be asleep: wake it (press its button, or move in front of it) and try again.")
         }
         let info = await host.info
         let channels = await host.channels.count
