@@ -20,7 +20,7 @@ final class FakeTapoCloud: HTTPSending, @unchecked Sendable {
         /// The next authorized calls answer -20651 (token expired).
         var expireNext = 0
         var cameras: [[String: Any]] = [["deviceId": "CLOUDID0001", "alias": Data("Garden".utf8).base64EncodedString(), "deviceModel": "C675D",
-                                         "deviceMac": "10-5A-95-2F-AD-17", "deviceType": "SMART.IPCAMERA"]]
+                                         "deviceMac": "10-5A-95-2F-AD-17", "deviceType": "SMART.IPCAMERA", "fwVer": "1.1.7 Build 250101"]]
         var notifications: [[String: Any]] = []
         var paths: [String] = []
         var badSignatures = 0

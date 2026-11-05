@@ -21,6 +21,8 @@ actor TapoMotionWatcher {
         var host: String
         var model: String?
         var onMotion: @Sendable (_ type: String) -> Void
+        /// The account's camera this one turned out to be: its MAC, model and firmware for Accessory Information.
+        var onMatched: @Sendable (TapoCloud.Device) -> Void = { _ in }
     }
 
     private let cloud: TapoCloud
@@ -96,6 +98,7 @@ actor TapoMotionWatcher {
             if let found {
                 result[found.deviceID, default: []].append(index)
                 logger.debug("\(camera.name): motion comes from the cloud's \(found.model) \"\(found.alias)\".")
+                camera.onMatched(found)
             } else {
                 let names = devices.map { "\($0.alias) (\($0.model), \($0.deviceID))" }.joined(separator: ", ")
                 logger.warning("\(camera.name): no camera of the Tapo account matches it (\(names.isEmpty ? "none" : names)); set its cloudId.")

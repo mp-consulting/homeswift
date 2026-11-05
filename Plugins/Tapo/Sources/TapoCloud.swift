@@ -33,6 +33,8 @@ actor TapoCloud {
         var alias: String
         var model: String
         var mac: String
+        /// `fwVer`, as the cloud last heard it from the camera.
+        var firmware: String = ""
     }
 
     /// The Android app's documented key pair (3.1): it identifies the app build, not the user.
@@ -249,7 +251,7 @@ actor TapoCloud {
             for item in list {
                 guard let id = item["deviceId"] as? String else { continue }
                 devices.append(Device(deviceID: id, alias: Self.alias(item["alias"] as? String ?? ""), model: item["deviceModel"] as? String ?? "",
-                                      mac: Self.normalizedMAC(item["deviceMac"] as? String ?? "")))
+                                      mac: Self.normalizedMAC(item["deviceMac"] as? String ?? ""), firmware: item["fwVer"] as? String ?? ""))
             }
             if list.count < 20 { break }
             index += 20

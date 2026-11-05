@@ -1141,6 +1141,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const tops = bridges.map((bridge) => ({
       kind: bridge.external ? "external" : bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge,
       count: bridge.accessories ?? 0, sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}),
+      accessory: bridge.external ? accessories.find((accessory) => accessory.name === bridge.name) : undefined,
       icon: bridge.external ? deviceIcon(accessories.find((accessory) => accessory.name === bridge.name)?.category) : undefined }));
     const topByName = new Map(tops.map((top) => [top.name, top]));
     const entries = plugins?.platforms ?? [];
@@ -1405,6 +1406,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   function bridgeDetails(top) {
     const bridge = top.raw;
+    // An accessory of its own is that accessory (a camera's live picture first), with its HomeKit server's pairing,
+    // port and Device ID.
+    if (top.kind === "external" && top.accessory) {
+      const details = accessoryDetails(top.accessory);
+      return { ...details, warn: top.paired === false || details.warn,
+        status: top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
+        facts: [...details.facts, factRow("bridgeType", topType(top)), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId)] };
+    }
     const type = topType(top);
     return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),

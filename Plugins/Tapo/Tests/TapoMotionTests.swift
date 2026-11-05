@@ -19,7 +19,7 @@ struct TapoCloudTests {
         let client = client()
         try await client.signIn()
         let cameras = try await client.cameras()
-        #expect(cameras == [TapoCloud.Device(deviceID: "CLOUDID0001", alias: "Garden", model: "C675D", mac: "105A952FAD17")])
+        #expect(cameras == [TapoCloud.Device(deviceID: "CLOUDID0001", alias: "Garden", model: "C675D", mac: "105A952FAD17", firmware: "1.1.7 Build 250101")])
         #expect(cloud.state.withLockedValue { $0.badSignatures } == 0)
         #expect(cloud.paths.first == "/api/v2/account/getAccountStatusAndUrl")
     }
@@ -107,6 +107,21 @@ struct TapoMotionTests {
         // And it clears after the hold.
         #expect(await eventually { motion(wide) == false })
         #expect(camera.connections == 0)
+        await host.stop()
+    }
+
+    @Test func theSerialIsTheCamerasMACWithItsLens() async throws {
+        let cloud = FakeTapoCloud()
+        let host = try await environment.start(devices: [["name": "Garden", "host": "192.168.1.40", "type": "DualLensCamera"]], cloud: cloud)
+        let wide = try await cameraAccessory(host, wideID)
+        let tele = try await cameraAccessory(host, teleID)
+        let info: @Sendable (Accessory, CharacteristicType) -> String? = { accessory, type in accessory.information[type]?.value.stringValue }
+        #expect(await eventually { info(wide, .serialNumber) == "105A952FAD17-wide" })
+        #expect(info(tele, .serialNumber) == "105A952FAD17-tele")
+        #expect(info(tele, .model) == "C675D")
+        #expect(info(wide, .firmwareRevision) == "1.1.7 Build 250101")
+        // The accessory keeps its identity.
+        #expect(wide.id == wideID)
         await host.stop()
     }
 

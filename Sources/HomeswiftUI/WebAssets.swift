@@ -1150,6 +1150,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const tops = bridges.map((bridge) => ({
       kind: bridge.external ? "external" : bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge,
       count: bridge.accessories ?? 0, sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}),
+      accessory: bridge.external ? accessories.find((accessory) => accessory.name === bridge.name) : undefined,
       icon: bridge.external ? deviceIcon(accessories.find((accessory) => accessory.name === bridge.name)?.category) : undefined }));
     const topByName = new Map(tops.map((top) => [top.name, top]));
     const entries = plugins?.platforms ?? [];
@@ -1414,6 +1415,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   function bridgeDetails(top) {
     const bridge = top.raw;
+    // An accessory of its own is that accessory (a camera's live picture first), with its HomeKit server's pairing,
+    // port and Device ID.
+    if (top.kind === "external" && top.accessory) {
+      const details = accessoryDetails(top.accessory);
+      return { ...details, warn: top.paired === false || details.warn,
+        status: top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
+        facts: [...details.facts, factRow("bridgeType", topType(top)), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId)] };
+    }
     const type = topType(top);
     return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
@@ -3828,6 +3837,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
     // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
     const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
+    // A server that is one accessory of its own (a camera, a television) shows that accessory's icon, not a bridge's.
+    const serverIcon = (name) => {
+      const on = all.filter((accessory) => accessory.bridge === name);
+      return on.length === 1 && on[0].name === name ? HomeswiftAdmin.deviceIcon(on[0].category) : "bridge";
+    };
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
     const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
@@ -4471,7 +4485,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         onSelect: () => changeFilter("from", source, from !== source) })),
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
-      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
+      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, serverIcon(name)))] : []),
       ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {

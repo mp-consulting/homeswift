@@ -79,6 +79,17 @@ final class TapoCamera: Sendable {
         motion?.characteristic(.motionDetected).value = false
     }
 
+    /// Accessory Information from the camera the TP-Link cloud knows (its device list, which never reaches the camera):
+    /// the MAC as the serial number, with `-<lens>` on a camera of several lenses (they are one device), its model and
+    /// its firmware. Display only: HomeKit pairs with the accessory's own identity, which stays.
+    func identify(as device: TapoCloud.Device, lens: String?) {
+        if !device.mac.isEmpty {
+            accessory.information.characteristic(.serialNumber).value = .string(device.mac + (lens.map { "-\($0.lowercased())" } ?? ""))
+        }
+        if !device.model.isEmpty { accessory.information.characteristic(.model).value = .string(device.model) }
+        if !device.firmware.isEmpty { accessory.information.characteristic(.firmwareRevision).value = .string(device.firmware) }
+    }
+
     /// A detection: Motion Detected for `hold`, longer if another one comes.
     func motionDetected() {
         guard let motion else { return }
@@ -168,11 +179,16 @@ extension TapoPlugin {
         }
         cameraRuntimes[deviceID] = TapoCameraRuntime(feed: feed, cameras: cameras)
         if device.motion ?? true {
+            // Each lens's serial: the MAC, with `-wide` or `-tele` when the camera has several.
+            let labels = lenses.map { lens in lenses.count > 1 ? lens.suffix ?? "Wide" : nil }
             await motionWatcher.add(TapoMotionWatcher.Camera(
-                name: name, cloudID: device.cloudId?.trimmingCharacters(in: .whitespaces).nonEmpty, host: host, model: kind == .dualLens ? "C675D" : nil
-            ) { [cameras] _ in
-                for camera in cameras { camera.motionDetected() }
-            })
+                name: name, cloudID: device.cloudId?.trimmingCharacters(in: .whitespaces).nonEmpty, host: host, model: kind == .dualLens ? "C675D" : nil,
+                onMotion: { [cameras] _ in
+                    for camera in cameras { camera.motionDetected() }
+                },
+                onMatched: { [cameras] found in
+                    for (camera, label) in zip(cameras, labels) { camera.identify(as: found, lens: label) }
+                }))
         }
         return cameras.map(\.accessory.id)
     }
