@@ -23,8 +23,6 @@ final class Confirmation: @unchecked Sendable {
 }
 
 extension Thing {
-    static let coalescing: Duration = .milliseconds(20)
-
     /// On, published on `setOn` with confirmation, `turnOffAfterms` and `resetStateAfterms` (5.17.1, 6.1, 6.3).
     @discardableResult
     func on(_ service: ServiceBuilder, _ entry: Entry, onChange: ((Bool) -> Void)? = nil) -> Characteristic {
@@ -132,7 +130,7 @@ extension Thing {
         serveReads(level, entry.online)
         let key = "level-\(ObjectIdentifier(level))"
         func schedule() {
-            after(key, Self.coalescing) { [weak on, weak level] in
+            after(key, dependencies.coalescing, scaled: false) { [weak on, weak level] in
                 guard let on, let level else { return }
                 let value = on.value.boolValue == true ? (level.value.intValue ?? 0) : 0
                 self.publish(config, set, property: property, .number(Double(value)))
@@ -245,7 +243,7 @@ extension Thing {
             return (text, white)
         }
         func schedule() {
-            after(key, Self.coalescing) {
+            after(key, dependencies.coalescing, scaled: false) {
                 let (text, white) = payload()
                 if text != light.lastPayload {
                     light.lastPayload = text
