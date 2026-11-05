@@ -4502,6 +4502,8 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 .wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
+/* Leave full screen, to the options' left: one button's width and a gap further in. */
+.wall-full-exit { top: max(var(--space-16), env(safe-area-inset-top)); right: calc(max(var(--space-16), env(safe-area-inset-right)) + 44px + var(--space-8)); }
 .wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
 /* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */

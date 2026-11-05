@@ -1862,7 +1862,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     addEventListener("pointerdown", onPointer, { passive: true });
     if (document.fullscreenElement) document.addEventListener("fullscreenchange", onFullScreen);
     wake();
-    return el("div", { class: "wall-full-chrome" }, optionsButton);
+    // Leaving at hand, beside the options, as on the wall.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setGraphFullScreen(false) }, HomeswiftCommon.icon("collapse"));
+    return el("div", { class: "wall-full-chrome" }, exitButton, optionsButton);
   }
 
   /// The radial graph: homeswift at the origin, each bridge an icon on the first ring, each plugin one on the second, each
@@ -4632,7 +4635,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const now = Math.round(content.scrollLeft / Math.max(1, content.clientWidth));
         if (now !== page) { page = now; mark(); }
       } : null;
-      chrome.replaceChildren(optionsButton,
+      chrome.replaceChildren(exitButton, optionsButton,
         ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
       mark();
       if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
@@ -4654,6 +4657,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     "wall-full-panel-title", { returnFocus: optionsButton });
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Accessory options"), "aria-haspopup": "dialog",
       title: t("Accessory options"), onclick: openToolbar }, HomeswiftCommon.icon("sliders"));
+    // Leaving at hand, beside the options.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setFullScreen(false) }, HomeswiftCommon.icon("collapse"));
     // A search from the panel changes which pages there are.
     search.addEventListener("input", () => { if (fullScreen) fullScreenChrome(); });
     // The chrome wakes on a touch, the mouse or a key, and fades after a few quiet seconds.
@@ -9084,6 +9090,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
     // Full screen: a frame with its corners pulled out, top right and bottom left.
     expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
+    // Leaving full screen: expand's corners turned inward.
+    collapse: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M16.5 10.5h-3v-3M7.5 13.5h3v3"/>',
     // The web UI: a browser window with a page of tiles in it.
     browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
     selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
@@ -29350,6 +29358,8 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 .wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
+/* Leave full screen, to the options' left: one button's width and a gap further in. */
+.wall-full-exit { top: max(var(--space-16), env(safe-area-inset-top)); right: calc(max(var(--space-16), env(safe-area-inset-right)) + 44px + var(--space-8)); }
 .wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
 /* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */

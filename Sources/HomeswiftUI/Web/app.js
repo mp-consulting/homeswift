@@ -2687,7 +2687,7 @@
         const now = Math.round(content.scrollLeft / Math.max(1, content.clientWidth));
         if (now !== page) { page = now; mark(); }
       } : null;
-      chrome.replaceChildren(optionsButton,
+      chrome.replaceChildren(exitButton, optionsButton,
         ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
       mark();
       if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
@@ -2709,6 +2709,9 @@
     "wall-full-panel-title", { returnFocus: optionsButton });
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Accessory options"), "aria-haspopup": "dialog",
       title: t("Accessory options"), onclick: openToolbar }, HomeswiftCommon.icon("sliders"));
+    // Leaving at hand, beside the options.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setFullScreen(false) }, HomeswiftCommon.icon("collapse"));
     // A search from the panel changes which pages there are.
     search.addEventListener("input", () => { if (fullScreen) fullScreenChrome(); });
     // The chrome wakes on a touch, the mouse or a key, and fades after a few quiet seconds.

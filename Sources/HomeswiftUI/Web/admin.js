@@ -1853,7 +1853,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     addEventListener("pointerdown", onPointer, { passive: true });
     if (document.fullscreenElement) document.addEventListener("fullscreenchange", onFullScreen);
     wake();
-    return el("div", { class: "wall-full-chrome" }, optionsButton);
+    // Leaving at hand, beside the options, as on the wall.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setGraphFullScreen(false) }, HomeswiftCommon.icon("collapse"));
+    return el("div", { class: "wall-full-chrome" }, exitButton, optionsButton);
   }
 
   /// The radial graph: homeswift at the origin, each bridge an icon on the first ring, each plugin one on the second, each

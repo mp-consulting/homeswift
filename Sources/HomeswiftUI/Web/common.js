@@ -41,6 +41,8 @@
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
     // Full screen: a frame with its corners pulled out, top right and bottom left.
     expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
+    // Leaving full screen: expand's corners turned inward.
+    collapse: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M16.5 10.5h-3v-3M7.5 13.5h3v3"/>',
     // The web UI: a browser window with a page of tiles in it.
     browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
     selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
