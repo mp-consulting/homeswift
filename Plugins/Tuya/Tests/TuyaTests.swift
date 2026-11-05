@@ -88,7 +88,8 @@ struct TuyaTests {
         #expect(first[TuyaEve.volts]?.value.doubleValue == 230.1)
         #expect(first[TuyaEve.kilowattHours]?.value.doubleValue == 1.25)
         #expect(outlets[1][TuyaEve.watts] == nil)
-        // The disabled scene is left out; the other is a switch.
+        // The disabled scene is left out; the other is a switch. Scenes are listed after the devices.
+        #expect(await eventually { host.accessory(TuyaPlugin.accessoryID(deviceID: "sc1")) != nil })
         let scene = try #require(host.accessory(TuyaPlugin.accessoryID(deviceID: "sc1")))
         #expect(scene.service(.switch)?[.on]?.value == .bool(false))
         #expect(host.accessory(TuyaPlugin.accessoryID(deviceID: "sc2")) == nil)
