@@ -14,6 +14,9 @@ extension PhilipsHuePlugin {
         let battery: Service?
         /// By the button resource's id.
         let buttons: [String: Service]
+        /// A Tap dial's ring: a switch per direction.
+        let clockwise: Service?
+        let anticlockwise: Service?
         /// The services it was built for: a device that gains or loses one is rebuilt.
         let shape: String
     }
@@ -32,7 +35,7 @@ extension PhilipsHuePlugin {
 
     static func shape(of sensor: HueSensorDevice) -> String {
         [sensor.motion != nil ? "m" : "", sensor.temperature != nil ? "t" : "", sensor.lightLevel != nil ? "l" : "",
-         sensor.contact != nil ? "c" : "", sensor.battery != nil ? "b" : "", sensor.buttons.map { "\($0.id)=\($0.controlID)" }.joined(separator: ",")]
+         sensor.contact != nil ? "c" : "", sensor.battery != nil ? "b" : "", sensor.buttons.map { "\($0.id)=\($0.controlID)" }.joined(separator: ","), sensor.rotary != nil ? "r" : ""]
             .joined(separator: "|")
     }
 
@@ -43,12 +46,14 @@ extension PhilipsHuePlugin {
             services.accessory.isUnavailable = !sensor.reachable
             Self.showValues(sensor, on: services)
             for button in sensor.buttons { noteButton(button, on: services) }
+            if let rotary = sensor.rotary { noteRotary(rotary, on: services) }
             return
         }
         do {
             sensorAccessories[sensor.id] = try addSensor(sensor, shape: shape)
             // What the buttons last reported is where presses start from, not a press.
             for button in sensor.buttons where buttonReports[button.id] == nil { buttonReports[button.id] = button.updated ?? "" }
+            if let rotary = sensor.rotary, buttonReports[rotary.id] == nil { buttonReports[rotary.id] = rotary.updated ?? "" }
         } catch {
             logger.error("Could not add \(sensor.name): \(error)")
         }
@@ -62,6 +67,31 @@ extension PhilipsHuePlugin {
         buttonReports[button.id] = updated
         guard let event = button.event.flatMap(HueSensorDevice.switchEvent) else { return }
         services.buttons[button.id]?.characteristic(.programmableSwitchEvent).sendEvent(.int(event))
+    }
+
+    /// Fires the ring's switch for a report newer than the last one seen (as `noteButton`): Single Press when a turn
+    /// starts, Long Press once when it goes on past its first report (a longer turn), on the switch of its direction.
+    func noteRotary(_ rotary: HueSensorDevice.Rotary, on services: SensorServices) {
+        guard let updated = rotary.updated, let last = buttonReports[rotary.id], updated > last else { return }
+        buttonReports[rotary.id] = updated
+        guard let clockwise = rotary.clockwise, let service = clockwise ? services.clockwise : services.anticlockwise else { return }
+        let event: Int?
+        switch rotary.action {
+        case "start":
+            rotaryTurns[rotary.id] = (clockwise, false)
+            event = HAPConstants.ProgrammableSwitchEvent.singlePress
+        case "repeat":
+            // The first repeat of a turn (or of a turn the start of which was missed, or that changed direction) is a long one.
+            if let turn = rotaryTurns[rotary.id], turn.clockwise == clockwise, turn.long {
+                event = nil
+            } else {
+                event = HAPConstants.ProgrammableSwitchEvent.longPress
+            }
+            rotaryTurns[rotary.id] = (clockwise, true)
+        default:
+            event = nil
+        }
+        if let event { service.characteristic(.programmableSwitchEvent).sendEvent(.int(event)) }
     }
 
     static func showValues(_ sensor: HueSensorDevice, on services: SensorServices) {
@@ -110,9 +140,7 @@ extension PhilipsHuePlugin {
         var services = [motion, contact, temperature, lightLevel].compactMap { $0 }
         var buttons: [String: Service] = [:]
         if !sensor.buttons.isEmpty {
-            // The label service says how the buttons are numbered: 1, 2, 3… as the Home app lists them.
-            let label = Service(.serviceLabel, subtype: "buttons")
-            label.characteristic(.serviceLabelNamespace).value = .int(HAPConstants.ServiceLabelNamespace.arabicNumerals)
+            // The label service (added after) says how the buttons are numbered: 1, 2, 3… as the Home app lists them.
             for button in sensor.buttons {
                 let name = sensor.buttons.count == 1 ? sensor.name : "Button \(button.controlID)"
                 let service = Service(
@@ -123,6 +151,30 @@ extension PhilipsHuePlugin {
                 buttons[button.id] = service
                 services.append(service)
             }
+        }
+        // The ring: a Stateless Programmable Switch per direction, numbered after the buttons, that knows a single and a
+        // long press (a turn, a longer turn).
+        var clockwise: Service?, anticlockwise: Service?
+        if sensor.rotary != nil {
+            let next = (sensor.buttons.map(\.controlID).max() ?? 0) + 1
+            func ring(_ name: String, _ subtype: String, index: Int) -> Service {
+                let event = CharacteristicType.programmableSwitchEvent.with(validValues: [
+                    HAPConstants.ProgrammableSwitchEvent.singlePress, HAPConstants.ProgrammableSwitchEvent.longPress,
+                ])
+                let service = Service(
+                    .statelessProgrammableSwitch, name: name, subtype: subtype, optional: [event, .serviceLabelIndex, .configuredName],
+                    isPrimary: leading && sensor.buttons.isEmpty && index == next)
+                service[.serviceLabelIndex]?.value = .int(min(max(index, 1), 255))
+                service[.configuredName]?.value = .string(name)
+                services.append(service)
+                return service
+            }
+            clockwise = ring("\(sensor.name) Clockwise", "rotary:clockwise", index: next)
+            anticlockwise = ring("\(sensor.name) Anticlockwise", "rotary:anticlockwise", index: next + 1)
+        }
+        if !sensor.buttons.isEmpty || sensor.rotary != nil {
+            let label = Service(.serviceLabel, subtype: "buttons")
+            label.characteristic(.serviceLabelNamespace).value = .int(HAPConstants.ServiceLabelNamespace.arabicNumerals)
             services.append(label)
         }
         var battery: Service?
@@ -135,11 +187,11 @@ extension PhilipsHuePlugin {
         let accessory = Accessory(
             id: Self.sensorAccessoryID(deviceID: sensor.id), name: sensor.name, manufacturer: sensor.manufacturer, model: sensor.model,
             serialNumber: sensor.serialNumber ?? sensor.id, firmwareRevision: sensor.firmware.isEmpty ? "1.0.0" : sensor.firmware,
-            category: motion == nil && contact == nil && !buttons.isEmpty ? .programmableSwitch : .sensor, services: services,
+            category: motion == nil && contact == nil && (!buttons.isEmpty || clockwise != nil) ? .programmableSwitch : .sensor, services: services,
             onIdentify: { [client, deviceID = sensor.id] in try? await client?.identify(deviceID: deviceID) })
         let built = SensorServices(
             accessory: accessory, motion: motion, temperature: temperature, lightLevel: lightLevel, contact: contact, battery: battery,
-            buttons: buttons, shape: shape)
+            buttons: buttons, clockwise: clockwise, anticlockwise: anticlockwise, shape: shape)
         Self.showValues(sensor, on: built)
         accessory.isUnavailable = !sensor.reachable
         try context.add(accessory)
@@ -219,6 +271,8 @@ extension PhilipsHuePlugin {
             guard let services = sensorAccessories[sensor.id] else { return true }
             if resource["type"]?.stringValue == "button", let button = sensor.buttons.first(where: { $0.id == rid }) {
                 noteButton(button, on: services)
+            } else if resource["type"]?.stringValue == "relative_rotary", let rotary = sensor.rotary, rotary.id == rid {
+                noteRotary(rotary, on: services)
             } else {
                 Self.showValues(sensor, on: services)
             }

@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Philips Hue: a Tap dial's ring as two Stateless Programmable Switches, Clockwise and Anticlockwise, from the event
+  stream's `relative_rotary` reports: a turn is a Single Press, a longer turn a Long Press, for scenes and automations.
 - Magic Home: the built-in effects as switches on the colour lights that play them, behind `effects` (off by default)
   with an `effectSpeed`, also per light in its Accessory Settings.
 - V2C Trydan: the dynamic power modes as a set of switches (`exposeModes`), the wiring (`ChargeMode`) as an Accessory

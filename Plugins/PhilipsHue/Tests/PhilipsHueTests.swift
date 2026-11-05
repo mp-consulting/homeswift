@@ -56,6 +56,9 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
         }
     }
 
+    /// Adds resources, as a device paired with the Hue app.
+    func add(_ resources: [JSONValue]) { state.withLockedValue { $0.resources += resources } }
+
     /// Sends an event to every open stream: `changes` is the event's data, the bridge's array of changes.
     func emit(_ changes: JSONValue) {
         let text = "id: 1\ndata: \(String(decoding: changes.encoded(), as: UTF8.self))\n\n"
@@ -949,6 +952,57 @@ struct HueSensorTests {
         await plugin.refresh()
         #expect(presses.withLockedValue { $0 } == [0, 0, 2])
         #expect(sensor.service(.motionSensor)?[.motionDetected]?.value == false)
+        await host.stop()
+    }
+
+    /// A Tap dial: four buttons and its ring (`relative_rotary`).
+    static let tapDial: [JSONValue] = [
+        ["id": "dev-6", "type": "device", "metadata": ["name": "Lounge dial"],
+         "product_data": ["model_id": "RDM002", "manufacturer_name": "Signify Netherlands B.V.", "product_name": "Hue tap dial switch", "software_version": "2.59.25"],
+         "services": [["rid": "dial-b1", "rtype": "button"], ["rid": "dial-b2", "rtype": "button"], ["rid": "dial-b3", "rtype": "button"],
+                      ["rid": "dial-b4", "rtype": "button"], ["rid": "dial-ring", "rtype": "relative_rotary"]]],
+        ["id": "dial-b1", "type": "button", "owner": ["rid": "dev-6", "rtype": "device"], "metadata": ["control_id": 1], "button": [:]],
+        ["id": "dial-b2", "type": "button", "owner": ["rid": "dev-6", "rtype": "device"], "metadata": ["control_id": 2], "button": [:]],
+        ["id": "dial-b3", "type": "button", "owner": ["rid": "dev-6", "rtype": "device"], "metadata": ["control_id": 3], "button": [:]],
+        ["id": "dial-b4", "type": "button", "owner": ["rid": "dev-6", "rtype": "device"], "metadata": ["control_id": 4], "button": [:]],
+        ["id": "dial-ring", "type": "relative_rotary", "owner": ["rid": "dev-6", "rtype": "device"],
+         "relative_rotary": ["rotary_report": ["updated": "2026-10-28T07:00:00.000Z", "action": "start",
+                                               "rotation": ["direction": "clock_wise", "steps": 30, "duration": 400]]]],
+    ]
+
+    /// The ring's turns fire its direction's switch: Single Press when a turn starts, Long Press once when it goes on;
+    /// the buttons stay as they are, and a read that sees the last report again fires nothing.
+    @Test func aTapDialsRingFiresItsDirectionsSwitch() async throws {
+        environment.bridge.add(Self.tapDial)
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])
+        let dial = try await accessory(host, PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-6"))
+        #expect(dial.category == .programmableSwitch)
+        let switches = dial.services.filter { $0.type == .statelessProgrammableSwitch }
+        #expect(switches.compactMap(\.subtype) == ["button:1", "button:2", "button:3", "button:4", "rotary:clockwise", "rotary:anticlockwise"])
+        let clockwise = try #require(dial.service(.statelessProgrammableSwitch, subtype: "rotary:clockwise"))
+        let anticlockwise = try #require(dial.service(.statelessProgrammableSwitch, subtype: "rotary:anticlockwise"))
+        #expect(clockwise[.serviceLabelIndex]?.value == 5 && anticlockwise[.serviceLabelIndex]?.value == 6)
+        #expect(clockwise[.programmableSwitchEvent]?.type.validValues == [0, 2])
+        #expect(await eventually { environment.bridge.openStreams > 0 })
+        let presses = NIOLockedValueBox<[String]>([])
+        for (name, service) in [("cw", clockwise), ("ccw", anticlockwise)] {
+            _ = service.characteristic(.programmableSwitchEvent).observe { change in
+                if change.reason == .event { presses.withLockedValue { $0.append("\(name) \(change.newValue.intValue ?? -1)") } }
+            }
+        }
+        func turn(_ action: String, _ direction: String, at time: String) -> JSONValue {
+            [["type": "update", "id": "e", "data": [["id": "dial-ring", "type": "relative_rotary", "owner": ["rid": "dev-6", "rtype": "device"],
+                                                    "relative_rotary": ["rotary_report": ["updated": .string(time), "action": .string(action),
+                                                                                          "rotation": ["direction": .string(direction), "steps": 15, "duration": 400]]]]]]]
+        }
+        environment.bridge.emit(turn("start", "clock_wise", at: "2026-10-28T09:00:00.000Z"))
+        environment.bridge.emit(turn("repeat", "clock_wise", at: "2026-10-28T09:00:00.400Z"))
+        environment.bridge.emit(turn("repeat", "clock_wise", at: "2026-10-28T09:00:00.800Z"))
+        environment.bridge.emit(turn("start", "counter_clock_wise", at: "2026-10-28T09:00:05.000Z"))
+        #expect(await eventually { presses.withLockedValue { $0 } == ["cw 0", "cw 2", "ccw 0"] })
+        // The read sees the bridge's resources, whose report is older: nothing fires.
+        await environment.plugin?.refresh()
+        #expect(presses.withLockedValue { $0 } == ["cw 0", "cw 2", "ccw 0"])
         await host.stop()
     }
 

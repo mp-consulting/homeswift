@@ -108,11 +108,20 @@ Each Hue device with sensors or buttons is an accessory, its services those the 
 | `light_level` | Light Sensor: Hue's 10,000 × log₁₀(lux) + 1 back to lux, 0 as darkness |
 | `contact` (Secure contact sensor) | Contact Sensor |
 | `button` (dimmer switch, Tap dial, Tap, smart button, wall switch module) | a Stateless Programmable Switch per button, numbered as `control_id` under a Service Label: a press is Single, `double_short_release` Double, `long_press` Long |
+| `relative_rotary` (Tap dial's ring) | two Stateless Programmable Switches, **Clockwise** and **Anticlockwise**, numbered after the buttons (5 and 6 on a Tap dial): a turn is Single, a turn that goes on past its first report Long |
 | `device_power` | Battery: its level, Low Battery below the bridge's `normal` |
 
 A press reaches the Home app as the bridge reports it, on its event stream, so a button can run a scene or an
-automation there. A Tap dial's ring (`relative_rotary`) has no HomeKit counterpart and is left out. A device that also
-has a light is the light's accessory. The accessory ids are `PhilipsHue:device:<device id>`.
+automation there. A device that also has a light is the light's accessory.
+
+**The Tap dial's ring.** HomeKit has no rotary control: a characteristic for brightness steps would need the dial bound
+to one light, and HomeKit's scenes and automations only set values, they cannot add to them. So the ring is what HomeKit
+does offer a remote: a Stateless Programmable Switch per direction, which the Home app lets a person bind to a scene or
+an automation on each press. The bridge reports a turn as `start`, then `repeat` every few hundred milliseconds while it
+goes on: `start` fires **Single Press** on the direction's switch (a nudge: "a bit brighter", "next scene"), and the
+first `repeat` fires **Long Press** once (a longer turn: "full brightness", "all off"); later repeats of the same turn
+fire nothing, so a scene is not run ten times by one turn. Double Press is not offered (the switches' valid values are
+Single and Long only). The buttons stay as they were (1 to 4). The accessory ids are `PhilipsHue:device:<device id>`.
 
 ![Sensors and switches on the plugin's page](../../docs/images/plugins/hue-sensors.png)
 

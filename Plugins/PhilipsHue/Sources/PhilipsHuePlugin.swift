@@ -117,6 +117,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     var sensorAccessories: [String: SensorServices] = [:]
     /// Each button's last report (its `updated` time), so a press fires once, from the event stream or a read.
     var buttonReports: [String: String] = [:]
+    /// Each Tap dial ring's turn going on: its direction, and whether its long press fired.
+    var rotaryTurns: [String: (clockwise: Bool, long: Bool)] = [:]
     /// Whether the event stream is open: while it is, polls are a safety net (`streamingPollInterval`).
     var streaming = false
     /// A read of the bridge asked for by an event, not yet run.
