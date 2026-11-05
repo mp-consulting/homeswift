@@ -53,7 +53,7 @@ actor RecordingPlugin: HomeswiftPlugin {
         }
         if let solar = configuration.solar {
             let roof = context.meter("solar", deviceID: "roof", device: "Roof", suggestedRole: .solar)
-            roof.record(watts: -solar)
+            roof.record(watts: solar)
             roof.record(counter: 1000, direction: .returned)
             roof.record(counter: 1500, direction: .returned)
         }

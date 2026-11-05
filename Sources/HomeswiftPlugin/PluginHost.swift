@@ -413,7 +413,7 @@ public final class PluginHost: @unchecked Sendable {
     /// Calls `observer` with each energy history a plugin imports (`PluginContext.importEnergy`), with the plugin's key
     /// as its source; imports made before anyone followed come first. The metrics store's archive follows these.
     public func observeEnergyImports(_ observer: @escaping @Sendable (String, [EnergyHourImport]) -> Void) -> Observation {
-        energyImports.add(observer)
+        energyImports.add { observer($0.source, $0.hours) }
     }
 
     /// Calls `observer` with each reading of a Meter a plugin declared (`PluginContext.meter`), until the observation is
@@ -726,7 +726,7 @@ public final class PluginHost: @unchecked Sendable {
             storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
             vaultStorage: storageDirectory, assistant: assistant, externals: externals, assistantBackground: assistantBackground,
             recordSink: { series, value, tag in values.publish(series, value, tag) },
-            energyImportSink: { hours in energyImports.publish(key, hours) },
+            energyImportSink: { hours in energyImports.publish(EnergyImport(source: key, hours: hours)) },
             energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } },
             meterSink: { reading in meterReadings.publish(reading) })
     }

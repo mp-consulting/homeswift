@@ -147,7 +147,7 @@ public final class Metrics: @unchecked Sendable {
     }
 
     private let state = NIOLockedValueBox(State())
-    private let queue = DispatchQueue(label: "homeswift.metrics")
+    let queue = DispatchQueue(label: "homeswift.metrics")
     let now: @Sendable () -> Date
     static let tagsName = "energy-tags.json"
 

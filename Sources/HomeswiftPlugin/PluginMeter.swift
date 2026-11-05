@@ -4,23 +4,23 @@ import Foundation
 /// battery system's flows), made by `PluginContext.meter`. The bridge keeps its Consumption and Returned by the hour as
 /// it does an accessory's Total Consumption; with an Energy Role, its power also counts in the Home Energy.
 ///
-/// Power is in watts, above zero drawn and below zero sent back or produced: a battery charging is drawing, a solar
-/// array producing is sending, a grid connection exporting is sending. Counters are in watt-hours and only go up, but
-/// for a reset.
+/// Power is in watts with the signs of the Meter's suggested role, as `EnergyRole` gives them: a solar array's
+/// production above zero (its Returned energy), a grid connection's import above zero and export below, a battery's
+/// charge above zero and discharge below, anything else's use above zero. Counters are in watt-hours and only go up,
+/// but for a reset.
 public struct PluginMeter: Sendable {
     public let id: MeterID
-    /// Its Energy Role, if it has one, and the name and shared figure the Home Energy shows it by.
-    public let tag: EnergyTag?
-    let series: RecordedSeries
+    /// Whether its power is production (a solar array's), so above zero is Returned.
+    let produces: Bool
     let readings: @Sendable (MeterReading) -> Void
-    let values: @Sendable (String, Double, EnergyTag?) -> Void
+    /// Its power into the Home Energy, when it has an Energy Role.
+    let homeEnergy: (@Sendable (Double) -> Void)?
 
     /// A power reading, in watts.
     public func record(watts: Double) {
         guard watts.isFinite else { return }
-        readings(.power(id, watts))
-        // The Home Energy's signs: solar is production, zero or above.
-        if let tag { values(series.name, tag.role == .solar ? -watts : watts, tag) }
+        readings(.power(id, produces ? -watts : watts))
+        homeEnergy?(watts)
     }
 
     /// A counter's reading, in watt-hours.
@@ -40,11 +40,14 @@ extension PluginContext {
     public func meter(_ key: String, deviceID: String, device: String, suggestedRole: EnergyRole? = nil, shared: String? = nil,
                       series: String? = nil) -> PluginMeter {
         let role = suggestedRole.flatMap { $0.isPower ? $0 : nil }
+        let recorded = self.series(series ?? "\(deviceID):\(key)")
         return PluginMeter(
             id: MeterID(accessory: "\(platform):\(deviceID)", meter: key),
-            tag: role.map { EnergyTag(role: $0, device: device, shared: shared) },
-            series: self.series(series ?? "\(deviceID):\(key)"),
+            produces: role == .solar,
             readings: meterSink,
-            values: { [self] series, value, tag in recordValue(value, series: RecordedSeries(name: series), energy: tag) })
+            homeEnergy: role.map { role in
+                let tag = EnergyTag(role: role, device: device, shared: shared)
+                return { [self] watts in recordValue(watts, series: recorded, energy: tag) }
+            })
     }
 }

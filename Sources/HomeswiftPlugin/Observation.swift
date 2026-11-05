@@ -78,50 +78,51 @@ final class TimingFeed: Sendable {
     }
 }
 
-/// The energy history plugins import with `PluginContext.importEnergy`, by source (the plugin's key), to whoever
-/// follows them (the metrics store's archive). Imports made while no one follows yet (a plugin that imports as it
-/// starts, before the metrics store follows the host) wait, and go to the first follower.
-final class EnergyImportFeed: Sendable {
+/// What a feed carries to whoever follows it, those published while no one follows yet waiting for the first follower:
+/// the energy history plugins import (`PluginContext.importEnergy`), and the readings of the Meters they declare
+/// (`PluginContext.meter`), which a plugin makes as it starts, before the metrics store follows the host. At most
+/// `limit` wait; the oldest go first.
+final class QueuedFeed<Payload: Sendable>: Sendable {
     private struct State {
-        var observers: [UUID: @Sendable (String, [EnergyHourImport]) -> Void] = [:]
-        var pending: [(String, [EnergyHourImport])] = []
+        var observers: [UUID: @Sendable (Payload) -> Void] = [:]
+        var pending: [Payload] = []
     }
     private let state = NIOLockedValueBox(State())
+    private let limit: Int
 
-    func publish(_ source: String, _ hours: [EnergyHourImport]) {
-        let observers = state.withLockedValue { state -> [@Sendable (String, [EnergyHourImport]) -> Void] in
-            if state.observers.isEmpty { state.pending.append((source, hours)) }
+    init(limit: Int = 10_000) { self.limit = limit }
+
+    func publish(_ payload: Payload) {
+        let observers = state.withLockedValue { state -> [@Sendable (Payload) -> Void] in
+            if state.observers.isEmpty {
+                state.pending.append(payload)
+                if state.pending.count > limit { state.pending.removeFirst(state.pending.count - limit) }
+            }
             return Array(state.observers.values)
         }
-        for observer in observers { observer(source, hours) }
+        for observer in observers { observer(payload) }
     }
 
-    func add(_ observer: @escaping @Sendable (String, [EnergyHourImport]) -> Void) -> Observation {
+    func add(_ observer: @escaping @Sendable (Payload) -> Void) -> Observation {
         let id = UUID()
-        let pending = state.withLockedValue { state -> [(String, [EnergyHourImport])] in
+        let pending = state.withLockedValue { state -> [Payload] in
             state.observers[id] = observer
             defer { state.pending = [] }
             return state.pending
         }
-        for (source, hours) in pending { observer(source, hours) }
+        for payload in pending { observer(payload) }
         return Observation { [self] in _ = state.withLockedValue { $0.observers.removeValue(forKey: id) } }
     }
 }
 
-/// The readings of the Meters plugins declare (`PluginContext.meter`), to whoever follows them (the metrics store).
-final class MeterFeed: Sendable {
-    private let observers = NIOLockedValueBox<[UUID: @Sendable (MeterReading) -> Void]>([:])
-
-    func publish(_ reading: MeterReading) {
-        for observer in observers.withLockedValue({ $0 }).values { observer(reading) }
-    }
-
-    func add(_ observer: @escaping @Sendable (MeterReading) -> Void) -> Observation {
-        let id = UUID()
-        observers.withLockedValue { $0[id] = observer }
-        return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
-    }
+/// An energy history a plugin imported, with its key as the source.
+struct EnergyImport: Sendable {
+    var source: String
+    var hours: [EnergyHourImport]
 }
+
+typealias EnergyImportFeed = QueuedFeed<EnergyImport>
+typealias MeterFeed = QueuedFeed<MeterReading>
 
 /// The readings plugins record with `PluginContext.recordValue`, to whoever follows them (the metrics store).
 final class ValueFeed: Sendable {

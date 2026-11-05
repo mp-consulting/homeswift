@@ -334,8 +334,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         for device in reported where device.online {
             for (key, value) in device.series {
                 switch recorded(device, key) {
-                // A home system's flow is a Meter: its solar produced (sent), the rest drawn as `EnergyRole` signs them.
-                case let .meter(meter): meter.record(watts: meter.tag?.role == .solar ? -value : value)
+                // A home system's flow is a Meter, in `EnergyRole`'s signs as EcoFlow reports them.
+                case let .meter(meter): meter.record(watts: value)
                 case let .series(series, tag): context.recordValue(value, series: series, energy: tag)
                 }
             }

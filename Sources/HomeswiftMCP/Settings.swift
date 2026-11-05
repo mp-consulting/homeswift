@@ -669,12 +669,14 @@ extension HomeswiftCatalog {
         }.keys
         let context = host.context(platform: target.platform, name: target.instance)
         let hadCredentials = credentialsGone || context?.haveCredentials([target.deviceKey]).isEmpty == false
+        let hadHistory = metrics?.meters.hasHistory(accessory: target.accessoryID) ?? false
         var answer: [String: JSONValue] = [
             "accessory": .string(target.accessoryID), "platform": .string(target.platform), "instance": .string(target.instance),
             "deviceID": .string(target.deviceKey), "settingsDropped": .array(dropped.map(JSONValue.string)), "credentialsDropped": .bool(hadCredentials),
+            "historyDropped": .bool(hadHistory),
         ]
-        guard dropped.isEmpty == false || hadCredentials || !legacy.isEmpty else {
-            answer["note"] = .string("Nothing to forget: \(target.displayName) has no Authorization or Accessory Settings.")
+        guard dropped.isEmpty == false || hadCredentials || hadHistory || !legacy.isEmpty else {
+            answer["note"] = .string("Nothing to forget: \(target.displayName) has no Authorization, Accessory Settings or energy history.")
             answer["reloaded"] = []
             if dryRun { answer["dryRun"] = true }
             return .object(answer)
@@ -697,7 +699,7 @@ extension HomeswiftCatalog {
             Self.copyApplied(applied, into: &answer)
         }
         // Its Meters' history goes with it (docs/adr/0004-meters-and-consumption-history.md).
-        metrics?.meters.forget(accessory: target.accessoryID)
+        if hadHistory { metrics?.meters.forget(accessory: target.accessoryID) }
         // Its plugin reloads without it, even when what it reads did not change (a device with live settings only).
         let restarted = ((answer["reloaded"]?.arrayValue ?? []) + (answer["started"]?.arrayValue ?? [])).contains(.string(target.instance))
         if !restarted {

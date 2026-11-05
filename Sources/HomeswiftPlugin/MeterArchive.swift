@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftAI
 import NIOConcurrencyHelpers
 
 /// A Meter's address: the accessory it belongs to (its Accessory Id) and which of its Meters (a key its source picks,
@@ -17,7 +18,7 @@ public struct MeterID: Hashable, Sendable, Codable, CustomStringConvertible {
 }
 
 /// Which way a Meter's energy flows: drawn (Consumption) or sent back, or produced (Returned).
-public enum MeterDirection: String, Sendable, Codable, CaseIterable {
+public enum MeterDirection: String, Sendable, Codable, CodingKeyRepresentable {
     case consumption, returned
 }
 
@@ -72,7 +73,8 @@ public struct MeterHourImport: Sendable, Equatable {
 /// across a restart is never counted.
 ///
 /// Files, under `directory`: a folder per Meter (its id in base64url), with `meter.json` (the id and the counters' last
-/// readings) and a file per UTC year of hours (`2026.json`), written a while after they change and on `flush()`.
+/// readings) and a file per UTC year of hours (`2026.json`), written a while after they change and on `flush()`. The
+/// years readings reach stay in memory; a past year read for a chart is read from its file each time.
 public final class MeterArchive: @unchecked Sendable {
     struct Hour: Codable, Equatable {
         /// The bridge's own figures (`c`, `r`), and whether some of them were an estimate (`e`).
@@ -93,25 +95,25 @@ public final class MeterArchive: @unchecked Sendable {
 
     struct Stored: Codable {
         var version: Int
-        var accessory: String
-        var meter: String
-        /// The counters' last readings, by direction.
-        var counters: [String: Reading]
+        var id: MeterID
+        /// The counters' last readings.
+        var counters: [MeterDirection: Reading]
     }
 
     private struct Meter {
         var counters: [MeterDirection: Reading] = [:]
         /// The power last read, held until the next reading; this run's only.
         var power: Reading?
-        /// Loaded years: the hours by their offset from the year's first, in hours.
+        /// The years readings reached: the hours by their offset from the year's first, in hours.
         var years: [Int: [Int: Hour]] = [:]
     }
 
     private struct State {
         var meters: [MeterID: Meter] = [:]
-        /// Meters whose `meter.json` and which of their years are to be written.
+        /// The Meters holding power, which `advance` carries forward.
+        var holding: Set<MeterID> = []
+        /// The Meters to write: their `meter.json` and the years given.
         var dirty: [MeterID: Set<Int>] = [:]
-        var dirtyMeters: Set<MeterID> = []
     }
 
     /// The longest time a counter's gain is spread over; a longer one sets the counter's reading again and is lost.
@@ -123,8 +125,7 @@ public final class MeterArchive: @unchecked Sendable {
     public let started: Date
     let now: @Sendable () -> Date
     private let state = NIOLockedValueBox(State())
-    private let saveDue = NIOLockedValueBox<DispatchTime?>(nil)
-    private let queue = DispatchQueue(label: "homeswift.meter-archive", qos: .utility)
+    private let saving = DebouncedSave(label: "homeswift.meter-archive")
     private let saveDelay: DispatchTimeInterval
 
     /// `directory` nil keeps the Meters in memory only. `now` is for tests.
@@ -138,9 +139,7 @@ public final class MeterArchive: @unchecked Sendable {
         for folder in folders {
             guard let data = try? Data(contentsOf: folder.appendingPathComponent("meter.json")),
                   let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.version == Self.version else { continue }
-            var meter = Meter()
-            for (key, reading) in stored.counters { if let direction = MeterDirection(rawValue: key) { meter.counters[direction] = reading } }
-            meters[MeterID(accessory: stored.accessory, meter: stored.meter)] = meter
+            meters[stored.id] = Meter(counters: stored.counters)
         }
         state.withLockedValue { $0.meters = meters }
     }
@@ -152,30 +151,30 @@ public final class MeterArchive: @unchecked Sendable {
 
     // MARK: Readings
 
-    /// A counter's reading, in watt-hours. `fresh` false is for a reading that may be old (an accessory's cached value,
-    /// read at start): it counts only when the counter went up, never as a reset, and leaves the last reading as it is
-    /// otherwise, so what the device counted while the bridge was away is spread over that time.
-    public func recordCounter(_ wattHours: Double, direction: MeterDirection = .consumption, meter id: MeterID, at: Date? = nil, fresh: Bool = true) {
+    /// A counter's reading, in watt-hours, as the device reports it now.
+    public func recordCounter(_ wattHours: Double, direction: MeterDirection = .consumption, meter id: MeterID, at: Date? = nil) {
         guard wattHours.isFinite, wattHours >= 0 else { return }
         let at = at ?? now()
-        let started = started
         changing(id) { meter, years in
-            if !fresh, let last = meter.counters[direction], wattHours <= last.value { return false }
-            defer { if meter.counters[direction].map({ at >= $0.at }) ?? true { meter.counters[direction] = Reading(value: wattHours, at: at) } }
-            guard let last = meter.counters[direction], at > last.at else { return true }
+            defer { if Self.isNewer(at, than: meter.counters[direction]) { meter.counters[direction] = Reading(value: wattHours, at: at) } }
+            guard let last = meter.counters[direction], at > last.at else { return }
             let gained = wattHours >= last.value ? wattHours - last.value : wattHours
-            guard gained > 0, at.timeIntervalSince(last.at) <= Self.longestGap else { return true }
+            let whole = at.timeIntervalSince(last.at)
+            guard gained > 0, whole <= Self.longestGap else { return }
             // The part before this run started is an estimate, the rest the bridge's own.
             let split = min(max(started, last.at), at)
-            let whole = at.timeIntervalSince(last.at)
-            if split > last.at {
-                Self.spread(gained * split.timeIntervalSince(last.at) / whole, direction: direction, from: last.at, to: split, estimate: true, into: &meter, years: &years, id: id, directory: self.directory)
+            for (from, to, estimate) in [(last.at, split, true), (split, at, false)] {
+                spread(gained * to.timeIntervalSince(from) / whole, direction, from: from, to: to, estimate: estimate, into: &meter, years: &years, id: id)
             }
-            if at > split {
-                Self.spread(gained * at.timeIntervalSince(split) / whole, direction: direction, from: split, to: at, estimate: false, into: &meter, years: &years, id: id, directory: self.directory)
-            }
-            return true
         }
+    }
+
+    /// A counter's reading that may be old (an accessory's cached value, read at start): it counts only when the
+    /// counter went up, never as a reset, and otherwise leaves the last reading as it is, so what the device counted
+    /// while the bridge was away is spread over that time. A Meter's first reading is its start.
+    public func seedCounter(_ wattHours: Double, direction: MeterDirection = .consumption, meter id: MeterID) {
+        if let last = state.withLockedValue({ $0.meters[id]?.counters[direction] }), wattHours <= last.value { return }
+        recordCounter(wattHours, direction: direction, meter: id)
     }
 
     /// A power reading, in watts: above zero drawn, below zero returned. Counted only for a direction the Meter has
@@ -184,9 +183,8 @@ public final class MeterArchive: @unchecked Sendable {
         guard watts.isFinite else { return }
         let at = at ?? now()
         changing(id) { meter, years in
-            let changed = Self.hold(&meter, to: at, years: &years, id: id, directory: self.directory)
-            if meter.power.map({ at >= $0.at }) ?? true { meter.power = Reading(value: watts, at: at) }
-            return changed
+            hold(&meter, to: at, years: &years, id: id)
+            if Self.isNewer(at, than: meter.power) { meter.power = Reading(value: watts, at: at) }
         }
     }
 
@@ -195,14 +193,8 @@ public final class MeterArchive: @unchecked Sendable {
         let date = date ?? now()
         let changed = state.withLockedValue { state -> Bool in
             var changed = false
-            for id in Array(state.meters.keys) {
-                guard var meter = state.meters[id], meter.power.map({ date > $0.at }) == true else { continue }
-                var years: Set<Int> = []
-                if Self.hold(&meter, to: date, years: &years, id: id, directory: directory) {
-                    state.dirty[id, default: []].formUnion(years)
-                    changed = true
-                }
-                state.meters[id] = meter
+            for id in state.holding {
+                changed = mutate(id, in: &state) { meter, years in hold(&meter, to: date, years: &years, id: id) } || changed
             }
             return changed
         }
@@ -216,73 +208,71 @@ public final class MeterArchive: @unchecked Sendable {
         changing(id) { meter, years in
             for hour in hours {
                 let (year, offset) = Self.position(hour.start)
-                Self.load(year, for: id, directory: self.directory, into: &meter)
+                load(year, of: id, into: &meter)
                 var known = meter.years[year]?[offset] ?? Hour()
                 known.ic = hour.consumption
                 known.ir = hour.returned
-                meter.years[year, default: [:]][offset] = known.isEmpty ? nil : known
+                meter.years[year]?[offset] = known.isEmpty ? nil : known
                 years.insert(year)
             }
-            return true
         }
+    }
+
+    /// Whether any Meter of an accessory or of the device's other accessories (`<accessory>:<more>`) has a history.
+    public func hasHistory(accessory: String) -> Bool {
+        state.withLockedValue { $0.meters.keys.contains { Self.belongs($0, to: accessory) } }
     }
 
     /// Forgets every Meter of an accessory and of the device's other accessories (`<accessory>:<more>`), files included.
     public func forget(accessory: String) {
         let gone = state.withLockedValue { state -> [MeterID] in
-            let gone = state.meters.keys.filter { $0.accessory == accessory || $0.accessory.hasPrefix("\(accessory):") }
+            let gone = state.meters.keys.filter { Self.belongs($0, to: accessory) }
             for id in gone {
                 state.meters[id] = nil
+                state.holding.remove(id)
                 state.dirty[id] = nil
-                state.dirtyMeters.remove(id)
             }
             return gone
         }
         guard let directory, !gone.isEmpty else { return }
-        queue.sync {
-            for id in gone { try? FileManager.default.removeItem(at: Self.folder(of: id, in: directory)) }
-        }
+        // After any save under way, so it cannot write the folder back.
+        saving.flush {}
+        for id in gone { try? FileManager.default.removeItem(at: Self.folder(of: id, in: directory)) }
+    }
+
+    private static func belongs(_ id: MeterID, to accessory: String) -> Bool {
+        id.accessory == accessory || id.accessory.hasPrefix("\(accessory):")
     }
 
     // MARK: Reading back
 
     /// A Meter's hours from `from` to `to`, oldest first, those with nothing known left out.
     public func hours(of id: MeterID, from: Date, to: Date) -> [MeterHour] {
-        let first = Int((from.timeIntervalSince1970 / 3600).rounded(.down)), last = Int((to.timeIntervalSince1970 / 3600).rounded(.down))
+        let first = Self.hourIndex(from), last = Self.hourIndex(to)
         guard first <= last else { return [] }
-        return state.withLockedValue { state -> [MeterHour] in
-            guard var meter = state.meters[id] else { return [] }
-            let firstYear = Self.position(Date(timeIntervalSince1970: TimeInterval(first * 3600))).year
-            let lastYear = Self.position(Date(timeIntervalSince1970: TimeInterval(last * 3600))).year
-            var found: [MeterHour] = []
-            for year in firstYear...lastYear {
-                Self.load(year, for: id, directory: directory, into: &meter)
-                let base = Self.yearStart(year) / 3600
-                for offset in (meter.years[year] ?? [:]).keys.sorted() where (first...last).contains(base + offset) {
-                    found.append(Self.merged(meter.years[year]![offset]!, start: Date(timeIntervalSince1970: TimeInterval((base + offset) * 3600))))
-                }
+        let span = Self.position(from).year...Self.position(to).year
+        // The years in memory, then those only on disk, read outside the lock.
+        guard var years = state.withLockedValue({ state in state.meters[id].map { $0.years.filter { span.contains($0.key) } } }) else { return [] }
+        for year in span where years[year] == nil { years[year] = readYear(year, of: id) }
+        var found: [MeterHour] = []
+        for year in span {
+            let base = Self.yearStart(year) / 3600
+            for (offset, hour) in (years[year] ?? [:]).filter({ (first...last).contains(base + $0.key) }).sorted(by: { $0.key < $1.key }) {
+                found.append(Self.merged(hour, start: Date(timeIntervalSince1970: TimeInterval((base + offset) * 3600))))
             }
-            state.meters[id] = meter
-            return found
         }
+        return found
     }
 
     /// A Meter's days (`.day`) or months (`.month`) from the one `from` is in to the one `to` is in, in `timeZone`,
     /// oldest first, each with the hours that start in it.
     public func periods(of id: MeterID, _ unit: Calendar.Component, from: Date, to: Date, timeZone: TimeZone) -> [MeterPeriod] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let components: Set<Calendar.Component> = unit == .month ? [.year, .month] : [.year, .month, .day]
-        guard var start = calendar.date(from: calendar.dateComponents(components, from: from)) else { return [] }
-        var periods: [MeterPeriod] = []
-        while start <= to {
-            periods.append(MeterPeriod(start: start))
-            guard let next = calendar.date(byAdding: unit, value: 1, to: start) else { break }
-            start = next
-        }
-        guard let first = periods.first?.start, let end = calendar.date(byAdding: unit, value: 1, to: periods.last!.start) else { return periods }
-        for hour in hours(of: id, from: first, to: end.addingTimeInterval(-1)) {
-            guard let index = periods.lastIndex(where: { $0.start <= hour.start }) else { continue }
+        guard let span = EnergyCalendar.periods(unit, from: from, to: to, timeZone: timeZone) else { return [] }
+        var periods = span.starts.map(MeterPeriod.init(start:))
+        // Both oldest first: one pass.
+        var index = 0
+        for hour in hours(of: id, from: span.starts[0], to: span.end.addingTimeInterval(-1)) {
+            while index + 1 < periods.count, periods[index + 1].start <= hour.start { index += 1 }
             periods[index].add(hour)
         }
         return periods
@@ -292,8 +282,7 @@ public final class MeterArchive: @unchecked Sendable {
     /// import's figures where it has them.
     static func merged(_ hour: Hour, start: Date) -> MeterHour {
         let estimate = hour.e ?? false
-        let imported = hour.ic != nil || hour.ir != nil
-        if estimate && imported {
+        if estimate && (hour.ic != nil || hour.ir != nil) {
             return MeterHour(start: start, consumption: hour.ic ?? hour.c, returned: hour.ir ?? hour.r, recorded: false)
         }
         let recorded = (hour.c != nil || hour.r != nil) && !estimate
@@ -302,42 +291,47 @@ public final class MeterArchive: @unchecked Sendable {
 
     // MARK: Spreading energy over hours
 
-    /// The held power from its reading to `date`, for the directions without a counter. Returns whether anything changed.
-    private static func hold(_ meter: inout Meter, to date: Date, years: inout Set<Int>, id: MeterID, directory: URL?) -> Bool {
-        guard let power = meter.power, date > power.at else { return false }
+    private static func isNewer(_ at: Date, than reading: Reading?) -> Bool {
+        reading.map { at >= $0.at } ?? true
+    }
+
+    /// The held power from its reading to `date`, for the directions without a counter.
+    private func hold(_ meter: inout Meter, to date: Date, years: inout Set<Int>, id: MeterID) {
+        guard let power = meter.power, date > power.at else { return }
         meter.power = Reading(value: power.value, at: date)
         let direction: MeterDirection = power.value >= 0 ? .consumption : .returned
-        guard power.value != 0, meter.counters[direction] == nil else { return false }
-        let wattHours = abs(power.value) * date.timeIntervalSince(power.at) / 3600
-        spread(wattHours, direction: direction, from: power.at, to: date, estimate: false, into: &meter, years: &years, id: id, directory: directory)
-        return true
+        guard power.value != 0, meter.counters[direction] == nil else { return }
+        spread(abs(power.value) * date.timeIntervalSince(power.at) / 3600, direction, from: power.at, to: date, estimate: false,
+               into: &meter, years: &years, id: id)
     }
 
     /// Adds `wattHours`, spent evenly from `from` to `to`, to the hours it covers.
-    private static func spread(_ wattHours: Double, direction: MeterDirection, from: Date, to: Date, estimate: Bool,
-                               into meter: inout Meter, years: inout Set<Int>, id: MeterID, directory: URL?) {
+    private func spread(_ wattHours: Double, _ direction: MeterDirection, from: Date, to: Date, estimate: Bool,
+                        into meter: inout Meter, years: inout Set<Int>, id: MeterID) {
         let whole = to.timeIntervalSince(from)
         guard whole > 0, wattHours > 0 else { return }
         var cursor = from
         while cursor < to {
-            let hourStart = (cursor.timeIntervalSince1970 / 3600).rounded(.down) * 3600
-            let next = min(to, Date(timeIntervalSince1970: hourStart + 3600))
+            let next = min(to, Date(timeIntervalSince1970: TimeInterval((Self.hourIndex(cursor) + 1) * 3600)))
             let share = wattHours * next.timeIntervalSince(cursor) / whole
-            let (year, offset) = position(cursor)
-            load(year, for: id, directory: directory, into: &meter)
+            let (year, offset) = Self.position(cursor)
+            load(year, of: id, into: &meter)
             var hour = meter.years[year]?[offset] ?? Hour()
             switch direction {
             case .consumption: hour.c = (hour.c ?? 0) + share
             case .returned: hour.r = (hour.r ?? 0) + share
             }
             if estimate { hour.e = true }
-            meter.years[year, default: [:]][offset] = hour
+            meter.years[year]?[offset] = hour
             years.insert(year)
             cursor = next
         }
     }
 
-    // MARK: Years
+    // MARK: Hours and years
+
+    /// Hours since 1970.
+    static func hourIndex(_ date: Date) -> Int { Int((date.timeIntervalSince1970 / 3600).rounded(.down)) }
 
     private static let utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -345,98 +339,118 @@ public final class MeterArchive: @unchecked Sendable {
         return calendar
     }()
 
-    /// The first second of a UTC year.
+    /// The first second of each UTC year asked for, worked out once.
+    private static let yearStarts = NIOLockedValueBox<[Int: Int]>([:])
+
     static func yearStart(_ year: Int) -> Int {
-        Int(utc.date(from: DateComponents(year: year, month: 1, day: 1))!.timeIntervalSince1970)
+        if let known = yearStarts.withLockedValue({ $0[year] }) { return known }
+        let start = Int(utc.date(from: DateComponents(year: year, month: 1, day: 1))!.timeIntervalSince1970)
+        yearStarts.withLockedValue { $0[year] = start }
+        return start
     }
 
     /// The UTC year an instant is in, and its hour's offset from the year's first.
     static func position(_ date: Date) -> (year: Int, offset: Int) {
-        let year = utc.component(.year, from: date)
-        return (year, (Int((date.timeIntervalSince1970 / 3600).rounded(.down)) * 3600 - yearStart(year)) / 3600)
+        let hour = hourIndex(date)
+        // A guess from the average year's 8 766 hours, then corrected.
+        var year = 1970 + Int((Double(hour) / 8766).rounded(.down))
+        while yearStart(year + 1) / 3600 <= hour { year += 1 }
+        while yearStart(year) / 3600 > hour { year -= 1 }
+        return (year, hour - yearStart(year) / 3600)
     }
 
     static func folder(of id: MeterID, in directory: URL) -> URL {
-        let name = Data("\(id.accessory)\u{0}\(id.meter)".utf8).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-        return directory.appendingPathComponent(name, isDirectory: true)
+        directory.appendingPathComponent(Secrets.base64URL(Data("\(id.accessory)\u{0}\(id.meter)".utf8)), isDirectory: true)
     }
 
-    private static func load(_ year: Int, for id: MeterID, directory: URL?, into meter: inout Meter) {
-        guard meter.years[year] == nil else { return }
+    /// A year's hours from its file; empty when it has none.
+    private func readYear(_ year: Int, of id: MeterID) -> [Int: Hour] {
         guard let directory,
-              let data = try? Data(contentsOf: folder(of: id, in: directory).appendingPathComponent("\(year).json")),
-              let stored = try? JSONDecoder().decode([String: Hour].self, from: data) else {
-            meter.years[year] = [:]
-            return
-        }
-        meter.years[year] = Dictionary(uniqueKeysWithValues: stored.compactMap { key, hour in Int(key).map { ($0, hour) } })
+              let data = try? Data(contentsOf: Self.folder(of: id, in: directory).appendingPathComponent("\(year).json")),
+              let stored = try? JSONDecoder().decode([String: Hour].self, from: data) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, hour in Int(key).map { ($0, hour) } })
     }
 
-    /// Changes one Meter under the lock (each year loaded as it is touched) and schedules a save.
-    private func changing(_ id: MeterID, _ change: (inout Meter, inout Set<Int>) -> Bool) {
-        let changed = state.withLockedValue { state -> Bool in
-            let isNew = state.meters[id] == nil
-            var meter = state.meters[id] ?? Meter()
-            var years: Set<Int> = []
+    /// Puts a year in memory before a reading reaches it.
+    private func load(_ year: Int, of id: MeterID, into meter: inout Meter) {
+        if meter.years[year] == nil { meter.years[year] = readYear(year, of: id) }
+    }
+
+    // MARK: Changes
+
+    /// Changes one Meter under the lock and schedules a save.
+    private func changing(_ id: MeterID, _ change: (inout Meter, inout Set<Int>) -> Void) {
+        if state.withLockedValue({ mutate(id, in: &$0, change) }) { scheduleSave() }
+    }
+
+    /// Changes one Meter in place, and marks what is to be written: its `meter.json` when it is new or its counters
+    /// moved, and the years changed. Returns whether anything is to be written.
+    private func mutate(_ id: MeterID, in state: inout State, _ change: (inout Meter, inout Set<Int>) -> Void) -> Bool {
+        let isNew = state.meters[id] == nil
+        var years: Set<Int> = []
+        // Changed through the dictionary's subscript, in place: a copy of the Meter would copy a year of hours.
+        func apply(_ meter: inout Meter) -> (countersMoved: Bool, holding: Bool) {
             let before = meter.counters
-            let changed = change(&meter, &years)
-            state.meters[id] = meter
-            // `meter.json` names the Meter: written for a new one, and when its counters move.
-            if isNew || meter.counters != before { state.dirtyMeters.insert(id) }
-            state.dirty[id, default: []].formUnion(years)
-            return changed || isNew || meter.counters != before
+            change(&meter, &years)
+            return (meter.counters != before, meter.power != nil)
         }
-        if changed { scheduleSave() }
+        let (countersMoved, holding) = apply(&state.meters[id, default: Meter()])
+        if holding { state.holding.insert(id) }
+        guard isNew || countersMoved || !years.isEmpty else { return false }
+        state.dirty[id, default: []].formUnion(years)
+        return true
     }
 
     // MARK: Files
 
     private func scheduleSave() {
         guard directory != nil else { return }
-        let deadline = DispatchTime.now() + saveDelay
-        let schedule = saveDue.withLockedValue { due -> Bool in
-            if let due, due <= deadline { return false }
-            due = deadline
-            return true
-        }
-        guard schedule else { return }
-        queue.asyncAfter(deadline: deadline) { [weak self] in self?.write() }
+        saving.schedule(after: saveDelay) { [weak self] in self?.write() }
     }
 
     /// Writes what changed now; the metrics store calls it when it stops.
     public func flush() {
-        queue.sync { write() }
+        saving.flush { [weak self] in self?.write() }
     }
 
     private func write() {
-        saveDue.withLockedValue { $0 = nil }
         guard let directory else { return }
-        let pending = state.withLockedValue { state -> [(MeterID, Stored?, [(Int, [Int: Hour])])] in
-            defer { state.dirty = [:]; state.dirtyMeters = [] }
-            let ids = Set(state.dirty.keys).union(state.dirtyMeters)
-            return ids.compactMap { id in
+        let pending = state.withLockedValue { state -> [(Stored, [(Int, [Int: Hour])])] in
+            defer { state.dirty = [:] }
+            return state.dirty.compactMap { id, years in
                 guard let meter = state.meters[id] else { return nil }
-                let stored = Stored(version: Self.version, accessory: id.accessory, meter: id.meter,
-                                    counters: Dictionary(uniqueKeysWithValues: meter.counters.map { ($0.key.rawValue, $0.value) }))
-                let years = (state.dirty[id] ?? []).compactMap { year in meter.years[year].map { (year, $0) } }
-                return (id, stored, years)
+                return (Stored(version: Self.version, id: id, counters: meter.counters), years.compactMap { year in meter.years[year].map { (year, $0) } })
             }
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        for (id, stored, years) in pending {
-            let folder = Self.folder(of: id, in: directory)
-            if let stored, let data = try? encoder.encode(stored) { try? OwnerOnlyFile.write(data, to: folder.appendingPathComponent("meter.json")) }
+        for (stored, years) in pending {
+            let folder = Self.folder(of: stored.id, in: directory)
+            if let data = try? encoder.encode(stored) { try? OwnerOnlyFile.write(data, to: folder.appendingPathComponent("meter.json")) }
             for (year, hours) in years {
-                let rounded = Dictionary(uniqueKeysWithValues: hours.map { offset, hour in
-                    (String(offset), Hour(c: hour.c.map(Self.round), r: hour.r.map(Self.round), e: hour.e, ic: hour.ic.map(Self.round), ir: hour.ir.map(Self.round)))
-                })
-                if let data = try? encoder.encode(rounded) { try? OwnerOnlyFile.write(data, to: folder.appendingPathComponent("\(year).json")) }
+                try? OwnerOnlyFile.write(Self.encoded(hours), to: folder.appendingPathComponent("\(year).json"))
             }
         }
     }
 
-    /// Watt-hours to a thousandth: the files stay small, the sums exact enough.
-    static func round(_ value: Double) -> Double { (value * 1000).rounded() / 1000 }
+    /// A year file's bytes: what `JSONEncoder` writes for `[String: Hour]` with sorted keys, watt-hours to a thousandth,
+    /// written straight as bytes (the encoder's generic path is slow for thousands of hours, as `EnergyArchive` found).
+    static func encoded(_ hours: [Int: Hour]) -> Data {
+        func round(_ value: Double) -> Double { (value * 1000).rounded() / 1000 }
+        var json = JSONBytesWriter(capacity: hours.count * 40)
+        json.object { json in
+            // Sorted as the encoder sorts keys: by their text.
+            for (key, hour) in hours.map({ (String($0.key), $0.value) }).sorted(by: { $0.0.utf8.lexicographicallyPrecedes($1.0.utf8) }) {
+                json.key(key)
+                json.object { json in
+                    if let value = hour.c { json.field("c", .number(round(value))) }
+                    if let value = hour.e { json.field("e", .bool(value)) }
+                    if let value = hour.ic { json.field("ic", .number(round(value))) }
+                    if let value = hour.ir { json.field("ir", .number(round(value))) }
+                    if let value = hour.r { json.field("r", .number(round(value))) }
+                }
+            }
+        }
+        return Data(json.bytes)
+    }
 }

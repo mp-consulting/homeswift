@@ -1,52 +1,59 @@
 import Foundation
 import Homeswift
+import NIOConcurrencyHelpers
 
 extension Metrics {
-    /// The Meter a characteristic of an accessory belongs to: one per service with Total Consumption or Current
-    /// Consumption, by the service's type and subtype (the same key as its iids, so it is as stable).
-    static func meterID(of accessory: Accessory, characteristic: Characteristic) -> MeterID? {
-        guard let service = accessory.services.first(where: { $0.characteristics.contains { $0 === characteristic } }) else { return nil }
-        return MeterID(accessory: accessory.id, meter: "\(service.type.uuid)/\(service.subtype ?? "")")
+    /// The Meter of a service with Total Consumption or Current Consumption, by the service's type and subtype (the
+    /// same key as its iids, so it is as stable).
+    static func meterID(of accessory: Accessory, service: Service) -> MeterID {
+        MeterID(accessory: accessory.id, meter: "\(service.type.uuid)/\(service.subtype ?? "")")
     }
 
-    /// Records a Meter's reading from one of its characteristics: Total Consumption (kWh, a counter) or Current
-    /// Consumption (watts). Other characteristics are left alone.
-    func recordMeter(_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue, at: Date? = nil, fresh: Bool = true) {
-        let uuid = characteristic.type.uuid
-        guard uuid == EveCharacteristic.totalConsumption.uuid || uuid == EveCharacteristic.currentConsumption.uuid,
-              let number = value.doubleValue, let id = Self.meterID(of: accessory, characteristic: characteristic) else { return }
-        if uuid == EveCharacteristic.totalConsumption.uuid {
-            meters.recordCounter(number * 1000, meter: id, at: at, fresh: fresh)
-        } else {
-            meters.recordPower(number, meter: id, at: at)
-        }
-    }
-
-    /// Follows every accessory's Total Consumption and Current Consumption on the host's servers. Counters are read
-    /// as they stand at start and when accessories come and go, so a counter's gain while the bridge was away counts;
-    /// power counts only from a change, never a cached accessory's last reading.
+    /// Follows every accessory's Total Consumption (kWh, a counter) and Current Consumption (watts), and the Meters
+    /// plugins declare. Counters are read as they stand at start and when accessories come and go, as seeds (a cached
+    /// accessory's may be old), so what a device counted while the bridge was away counts; power counts only from a
+    /// change, never a cached accessory's last reading.
     func followMeters(of host: PluginHost) -> Observation {
-        let counters: @Sendable () -> Void = { [weak self, weak host] in
+        let total = EveCharacteristic.totalConsumption.uuid, current = EveCharacteristic.currentConsumption.uuid
+        // Each metered characteristic's Meter, made again by each pass over the accessories: a change looks it up.
+        let known = NIOLockedValueBox<[ObjectIdentifier: MeterID]>([:])
+        let scanPending = NIOLockedValueBox(false)
+        let scan: @Sendable () -> Void = { [weak self, weak host] in
+            scanPending.withLockedValue { $0 = false }
             guard let self, let host else { return }
-            for bridge in host.bridges {
-                for accessory in bridge.server.accessories {
-                    for service in accessory.services {
-                        for characteristic in service.characteristics where characteristic.type.uuid == EveCharacteristic.totalConsumption.uuid {
-                            self.recordMeter(accessory, characteristic, characteristic.value, fresh: false)
-                        }
+            var found: [ObjectIdentifier: MeterID] = [:]
+            for accessory in host.bridges.flatMap(\.server.accessories) {
+                for service in accessory.services {
+                    for characteristic in service.characteristics where characteristic.type.uuid == total || characteristic.type.uuid == current {
+                        let id = Self.meterID(of: accessory, service: service)
+                        found[ObjectIdentifier(characteristic)] = id
+                        if characteristic.type.uuid == total, let kWh = characteristic.value.doubleValue { meters.seedCounter(kWh * 1000, meter: id) }
                     }
                 }
             }
+            known.withLockedValue { $0 = found }
         }
-        let changes = host.observeChanges { [weak self] accessory, characteristic, value in self?.recordMeter(accessory, characteristic, value) }
-        let structure = host.observeStructure(counters)
+        // A burst of structure changes (a plugin adding its devices one by one) makes one pass.
+        let structure = host.observeStructure { [queue] in
+            guard scanPending.withLockedValue({ pending in defer { pending = true }; return !pending }) else { return }
+            queue.async(execute: scan)
+        }
+        let changes = host.observeChanges { [weak self] accessory, characteristic, value in
+            let uuid = characteristic.type.uuid
+            guard let self, uuid == total || uuid == current, let number = value.doubleValue else { return }
+            // An accessory added since the last pass is found by its services.
+            let id = known.withLockedValue { $0[ObjectIdentifier(characteristic)] }
+                ?? accessory.services.first { $0.characteristics.contains { $0 === characteristic } }.map { Self.meterID(of: accessory, service: $0) }
+            guard let id else { return }
+            if uuid == total { meters.recordCounter(number * 1000, meter: id) } else { meters.recordPower(number, meter: id) }
+        }
         let declared = host.observeMeterReadings { [meters] reading in
             switch reading {
             case let .counter(id, wattHours, direction): meters.recordCounter(wattHours, direction: direction, meter: id)
             case let .power(id, watts): meters.recordPower(watts, meter: id)
             }
         }
-        counters()
+        scan()
         return Observation { changes.cancel(); structure.cancel(); declared.cancel() }
     }
 }
