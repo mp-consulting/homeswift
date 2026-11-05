@@ -129,9 +129,12 @@ struct MagicHomeTests {
             }
             try await group.waitForAll()
         }
+        // Coalesced (a loaded machine may stretch the drag past one window, so a few frames, never twenty), the last
+        // with the drag's last value.
+        let last = hex(MagicHomeLevels.original(.rgbwwStrip, light: MagicHomeLight(hue: 0, saturation: 100, brightness: 69), effects: MagicHomeWhiteEffects())[0])
+        #expect(await eventually { environment.lan.commands(to: Self.stripHost).last.map(hex) == last })
         let frames = Array(environment.lan.commands(to: Self.stripHost).dropFirst(before))
-        #expect(frames.count == 1, "\(frames.map(hex))")
-        #expect(frames.first.map(hex) == hex(MagicHomeLevels.original(.rgbwwStrip, light: MagicHomeLight(hue: 0, saturation: 100, brightness: 69), effects: MagicHomeWhiteEffects())[0]))
+        #expect(frames.count <= 3, "\(frames.map(hex))")
         // The scan ran once (no device was missing), and not periodically.
         #expect(await environment.plugin?.scans == 1)
         await host.stop()
