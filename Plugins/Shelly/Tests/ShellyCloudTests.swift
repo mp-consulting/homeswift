@@ -108,4 +108,19 @@ struct ShellyCloudTests {
         #expect(ask.headers.contains { $0.name == "Authorization" && $0.value == "Bearer \(token())" })
         #expect(ShellyCloud.names(["isok": false]) == [:])
     }
+    /// A few hours of a device that was offline, over three days and without the step named, are hours, not days.
+    @Test func aFewHoursAreHoursStill() async throws {
+        let http = FakeHTTP()
+        http.answer("/v2/users/auth/login", #"{"accessToken":"\#(token())"}"#)
+        http.answer("/v2/statistics/power-consumption", #"{"timezone":"Europe/Paris","history":[{"datetime":"2026-11-04 13:00:00","consumption":5},{"datetime":"2026-11-04 14:00:00","consumption":6}]}"#)
+        let cloud = ShellyCloud(credentials: credentials, http: http, logger: Logger(label: "test"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = paris
+        let first = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 2)))
+        guard case .hours(let hours) = await cloud.consumption(id: "x", channel: 0, day: first, days: 3, timeZone: paris) else { Issue.record("not hours"); return }
+        #expect(hours.count == 2)
+        // One a day at midnight is by day.
+        http.answer("/v2/statistics/power-consumption", #"{"timezone":"Europe/Paris","history":[{"datetime":"2026-11-02 00:00:00","consumption":500},{"datetime":"2026-11-03 00:00:00","consumption":600}]}"#)
+        #expect(await cloud.consumption(id: "x", channel: 0, day: first, days: 3, timeZone: paris) == .notHourly)
+    }
 }

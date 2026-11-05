@@ -1708,10 +1708,11 @@
       const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
       const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
       const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
-      const roleNames = { home: t("Whole home"), grid: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
+      const roleNames = { home: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
       const row = (one, nested) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
-        const caption = one.role ? roleNames[one.role] : null;
+        // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
+        const caption = !one.role ? null : wholes.includes(one) ? t("Whole home") : one.role === "grid" ? t("Grid") : roleNames[one.role];
         const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
         // At the grid's price, hour by hour, whatever source covered it.
         const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;

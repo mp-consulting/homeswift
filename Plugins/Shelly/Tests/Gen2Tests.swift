@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftAI
 import HomeswiftNetwork
 import HomeswiftPlugin
+import Logging
 import NIOConcurrencyHelpers
 import Testing
 
@@ -301,6 +302,41 @@ struct ShellyNGTests {
         #expect(await device.makeAccessories(platform: ShellyNGPlugin.platform).map(\.name) == ["Kitchen"])
     }
 
+    /// A first import from Shelly Cloud that a restart stopped goes on from where it reached, after the days since, and
+    /// forgets where it stopped once it ends.
+    @Test func aStoppedCloudImportGoesOnFromWhereItReached() async throws {
+        environment.add(plus1PM())
+        let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        await expectEventually { host.accessory(switchID) != nil }
+        let device = try #require(await environment.ng?.devices["shellyplus1pm-aabbccddeeff"])
+        let context = try #require(host.context(platform: ShellyNGPlugin.platform, name: "Shelly"))
+        let file = context.jsonFile("shelly-cloud-history.json", as: [String: Int].self)
+        let now = Date(), day = 86_400.0
+        let key = "shellyplus1pm-aabbccddeeff/switch:0"
+        try file.save([key: Int(now.timeIntervalSince1970 - 2 * day), "\(key)#resume": Int(now.timeIntervalSince1970 - 100 * day)])
+
+        let http = environment.http
+        http.answer("/v2/users/auth/login", #"{"accessToken":"\#(cloudToken())"}"#)
+        http.answer("/v2/statistics/power-consumption", #"{"history":[]}"#)
+        let cloud = ShellyCloud(credentials: ShellyCloudCredentials(email: "me@example.com", password: "pw"), http: http, logger: Logger(label: "test"))
+        await device.importCloudHistory(cloud, id: "aabbccddeeff", delay: .zero, now: now)
+
+        let format = ShellyCloud.formatter(.current)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let asked = http.requests.filter { $0.url.path == "/v2/statistics/power-consumption" }.compactMap { request in
+            URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "date_to" }?.value.flatMap { format.date(from: $0.replacingOccurrences(of: "+", with: " ")) }
+        }
+        // The days since the last import first, then on from a day before where the first import stopped.
+        #expect(asked.first.map { calendar.isDate($0, inSameDayAs: now) } == true)
+        let resumed = now.addingTimeInterval(-101 * day)
+        #expect(asked.contains { calendar.isDate($0, inSameDayAs: resumed) })
+        #expect(!asked.contains { $0 > now.addingTimeInterval(-90 * day) && $0 < now.addingTimeInterval(-5 * day) })
+        let kept = file.load() ?? [:]
+        #expect(kept["\(key)#resume"] == nil && kept[key] != nil)
+    }
+
     @Test func aWholeHomeMeterCountsAsTheGrid() async throws {
         let device = FakeShellyNG(
             info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM"}"#,
@@ -434,4 +470,10 @@ final class PressLog: Sendable {
     private let box = NIOLockedValueBox<[HAPValue]>([])
     func add(_ value: HAPValue) { box.withLockedValue { $0.append(value) } }
     var values: [HAPValue] { box.withLockedValue { $0 } }
+}
+
+/// A Shelly Cloud token (a JWT without a signature) naming the account's server, valid for an hour.
+func cloudToken() -> String {
+    let claims = #"{"user_api_url":"https://shelly-1-eu.shelly.cloud","exp":\#(Int(Date().timeIntervalSince1970) + 3600)}"#
+    return "e30." + Data(claims.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") + ".signature"
 }

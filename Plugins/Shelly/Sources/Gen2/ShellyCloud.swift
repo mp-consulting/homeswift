@@ -202,7 +202,10 @@ actor ShellyCloud {
                 let body = json["history"] != nil ? json : (json["data"] ?? .null)
                 let interval = (body["interval"] ?? body["history_interval"])?.stringValue
                 if days > 1 { logger.debug("Shelly Cloud gave \(days) days of history by \(interval ?? "an unnamed step") (\(hours.count) entries)", metadata: ["endpoint": "\(endpoint.isEmpty ? "relay" : endpoint)"]) }
-                if days > 1, interval.map({ $0 != "hour" }) ?? (hours.count <= days) { return .notHourly }
+                // Without the step named, figures by day are no more than one a day, each at midnight: a few hours of a
+                // device that was offline are hours still.
+                let byDay = hours.count <= days && hours.allSatisfy { calendar.dateComponents([.hour, .minute], from: $0.start) == DateComponents(hour: 0, minute: 0) }
+                if days > 1, interval.map({ $0 != "hour" }) ?? byDay { return .notHourly }
                 return answer
             }
             // The shape of an answer with nothing in it, to see what the unofficial endpoint gives: names, never values.

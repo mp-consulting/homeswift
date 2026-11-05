@@ -600,68 +600,108 @@ actor Gen2Device {
     /// Plugins page (`accountRefused`). Hours the bridge measured keep their own figures.
     func startCloudImport(_ cloud: ShellyCloud, delay: Duration, now: Date = Date()) {
         guard !cloudJobs.isEmpty, cloudImporter == nil, let id = cloudID else { return }
-        cloudImporter = Task { [weak self] in await self?.importCloudHistory(cloud, id: id, delay: delay, now: now) }
+        // After the device's own records (`importHistory`): the cloud fills the days before them, and the two never say
+        // their progress at once.
+        let local = importer
+        cloudImporter = Task { [weak self] in
+            await local?.value
+            await self?.importCloudHistory(cloud, id: id, delay: delay, now: now)
+        }
+    }
+
+    /// A stretch of days asked of the cloud, the newest first: from `newest` back to `oldest`. A first import's (`first`)
+    /// ends sooner, where the cloud's history does, and says how far it went as it goes (`<key>#resume`), so a restart
+    /// goes on from there.
+    private struct CloudStretch {
+        var newest: Date
+        var oldest: Date
+        var first: Bool
     }
 
     func importCloudHistory(_ cloud: ShellyCloud, id: String, delay: Duration, now: Date) async {
         let file = context.jsonFile("shelly-cloud-history.json", as: [String: Int].self)
         var reached = file.load() ?? [:]
         let day = 86_400.0
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
         // Where each energy meter's own records begin (`importHistory`): the cloud fills the days before.
         let local = context.jsonFile("shelly-ng-history.json", as: [String: ImportedSpan].self).load() ?? [:]
         for job in cloudJobs {
-            let key = "\(deviceID)/\(job.key)"
+            let key = "\(deviceID)/\(job.key)", resumeKey = "\(key)#resume"
             let first = job.records.flatMap { local["\(deviceID)/\($0)"] }.map { Date(timeIntervalSince1970: TimeInterval($0.from) - day) }
             let start = min(now, first ?? now)
-            let stop = reached[key].map { Date(timeIntervalSince1970: TimeInterval($0) - day) } ?? start.addingTimeInterval(-Double(Self.cloudDays) * day)
-            guard stop < start else { continue }
-            var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = .current
-            let total = max(1, Int(start.timeIntervalSince(stop) / day) + 1)
-            // A week a request, the newest first; shorter spans when the cloud sums a week by day, down to a day.
-            var span = Self.cloudSpan, done = 0, empty = 0, newest: Date?
-            var last = calendar.startOfDay(for: start)
-            while last >= calendar.startOfDay(for: stop) {
-                guard !Task.isCancelled else { return }
-                if done > 0 { try? await Task.sleep(for: delay) }
-                let first = max(calendar.startOfDay(for: stop), calendar.date(byAdding: .day, value: -(span - 1), to: last) ?? last)
-                let days = (calendar.dateComponents([.day], from: first, to: last).day ?? 0) + 1
-                context.reportEnergyImport(EnergyImportProgress(state: .running, done: done, total: total))
-                switch await cloud.consumption(id: id, channel: job.channel, day: first, days: days, timeZone: .current, endpoint: job.endpoint) {
-                case .refused:
-                    context.accountRefused("Shelly Cloud refused the email and password: sign in again")
-                    context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the email and password"))
-                    return
-                case .notHourly:
-                    // The cloud sums so long a span by day: half as long (7, 3, then 1 day), kept for the rest.
-                    span = max(1, span / 2)
-                    continue
-                case .nothing:
-                    empty += days
-                case .hours(let hours):
-                    // By day, newest first: a day of zeros alone is taken as nothing (the cloud answers so for a day it
-                    // has no record of, and once for days it had), and its zeros would stand over the day's real figures.
-                    let byDay = Dictionary(grouping: hours) { calendar.startOfDay(for: $0.start) }
-                    for offset in 0..<days {
-                        guard let date = calendar.date(byAdding: .day, value: -offset, to: last) else { continue }
-                        let hours = byDay[date] ?? []
-                        if hours.contains(where: { ($0.consumption ?? 0) > 0 || ($0.returned ?? 0) > 0 }) {
-                            job.meter.importHours(hours)
-                            newest = newest ?? date
-                            empty = 0
-                        } else {
-                            empty += 1
+            let floor = start.addingTimeInterval(-Double(Self.cloudDays) * day)
+            // The days since the last import (its last day again), then what a first import left to do.
+            var stretches: [CloudStretch] = []
+            if let through = reached[key] {
+                stretches.append(CloudStretch(newest: start, oldest: Date(timeIntervalSince1970: TimeInterval(through) - day), first: false))
+                if let resume = reached[resumeKey] {
+                    stretches.append(CloudStretch(newest: Date(timeIntervalSince1970: TimeInterval(resume) - day), oldest: floor, first: true))
+                }
+            } else {
+                stretches.append(CloudStretch(newest: start, oldest: floor, first: true))
+            }
+            stretches = stretches.filter { $0.oldest < $0.newest }
+            let total = max(1, stretches.map { Int($0.newest.timeIntervalSince($0.oldest) / day) + 1 }.reduce(0, +))
+            var done = 0
+            for stretch in stretches {
+                // Seeded from what is kept: a resumed first import keeps the newest day the last run found.
+                var newest: Date? = stretch.first ? reached[key].map { Date(timeIntervalSince1970: TimeInterval($0)) } : nil
+                // A week a request, the newest first; shorter spans when the cloud sums a week by day, down to a day.
+                var span = Self.cloudSpan, empty = 0
+                var last = calendar.startOfDay(for: stretch.newest)
+                let bottom = calendar.startOfDay(for: stretch.oldest)
+                while last >= bottom {
+                    guard !Task.isCancelled else { return }
+                    if done > 0 { try? await Task.sleep(for: delay) }
+                    let first = max(bottom, calendar.date(byAdding: .day, value: -(span - 1), to: last) ?? last)
+                    let days = (calendar.dateComponents([.day], from: first, to: last).day ?? 0) + 1
+                    context.reportEnergyImport(EnergyImportProgress(state: .running, done: done, total: total))
+                    switch await cloud.consumption(id: id, channel: job.channel, day: first, days: days, timeZone: .current, endpoint: job.endpoint) {
+                    case .refused:
+                        context.accountRefused("Shelly Cloud refused the email and password: sign in again")
+                        context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the email and password"))
+                        return
+                    case .notHourly:
+                        // The cloud sums so long a span by day: half as long (7, 3, then 1 day), kept for the rest.
+                        span = max(1, span / 2)
+                        continue
+                    case .nothing:
+                        empty += days
+                    case .hours(let hours):
+                        // By day, newest first: a day of zeros alone is taken as nothing (the cloud answers so for a day it
+                        // has no record of, and once for days it had), and its zeros would stand over the day's real figures.
+                        let byDay = Dictionary(grouping: hours) { calendar.startOfDay(for: $0.start) }
+                        for offset in 0..<days {
+                            guard let date = calendar.date(byAdding: .day, value: -offset, to: last) else { continue }
+                            let hours = byDay[date] ?? []
+                            if hours.contains(where: { ($0.consumption ?? 0) > 0 || ($0.returned ?? 0) > 0 }) {
+                                job.meter.importHours(hours)
+                                newest = newest ?? date
+                                empty = 0
+                            } else {
+                                empty += 1
+                            }
                         }
                     }
+                    done += days
+                    // A first import says how far it went after each request, and ends where the cloud's history does.
+                    if stretch.first {
+                        reached[key] = Int((newest ?? stretch.newest).timeIntervalSince1970)
+                        reached[resumeKey] = Int(first.timeIntervalSince1970)
+                        try? file.save(reached)
+                        if empty >= Self.cloudEmptyDays { break }
+                    }
+                    guard let next = calendar.date(byAdding: .day, value: -1, to: first) else { break }
+                    last = next
                 }
-                done += days
-                // A first import ends where the cloud's history does.
-                if reached[key] == nil, empty >= Self.cloudEmptyDays { break }
-                guard let next = calendar.date(byAdding: .day, value: -1, to: first) else { break }
-                last = next
+                if stretch.first {
+                    reached.removeValue(forKey: resumeKey)
+                } else {
+                    reached[key] = Int((newest ?? stretch.newest).timeIntervalSince1970)
+                }
+                try? file.save(reached)
             }
-            reached[key] = Int((newest ?? now).timeIntervalSince1970)
-            try? file.save(reached)
         }
         context.reportEnergyImport(EnergyImportProgress(state: .done, through: now))
     }
