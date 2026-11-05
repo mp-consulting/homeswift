@@ -25,6 +25,16 @@ enum BcMediaFrame: Sendable, Equatable {
     case adpcm([UInt8])
 }
 
+extension BcMediaFrame {
+    /// The payload's bytes.
+    var size: Int {
+        switch self {
+        case .info: 0
+        case .video(_, _, _, let payload), .aac(let payload), .adpcm(let payload): payload.count
+        }
+    }
+}
+
 enum BcMediaError: Error, Equatable, CustomStringConvertible {
     case frameTooLarge(Int)
 
@@ -167,6 +177,10 @@ struct BcMediaMuxer: Sendable {
     static let audioPID: UInt16 = 0x101
     /// How long, in video time, the header waits for the first audio frame.
     static let audioWait: UInt64 = 2 * 90000
+    /// The most frames, and bytes, held while the header waits for audio: a camera whose timestamps do not advance would
+    /// otherwise have them pile up (a frame may be 4 MiB). Reached, the header goes without audio.
+    static let pendingFrames = 120
+    static let pendingBytes = 8 * 1024 * 1024
     /// ADTS's sampling frequencies by index.
     static let sampleRates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
 
@@ -176,6 +190,7 @@ struct BcMediaMuxer: Sendable {
     private(set) var hasAudio = false
     private var headerWritten = false
     private var pending: [BcMediaFrame] = []
+    private var pendingSize = 0
     private var firstTimestamp: UInt32?
     private var lastTimestamp: UInt32 = 0
     private var elapsed: UInt64 = 0
@@ -211,12 +226,14 @@ struct BcMediaMuxer: Sendable {
         if !headerWritten {
             if case .aac = frame { hasAudio = true }
             pending.append(frame)
-            let waited = pendingVideoSpan
-            guard !wantsAudio || hasAudio || waited >= Self.audioWait else { return [] }
+            pendingSize += frame.size
+            let full = pending.count >= Self.pendingFrames || pendingSize >= Self.pendingBytes
+            guard !wantsAudio || hasAudio || full || pendingVideoSpan >= Self.audioWait else { return [] }
             headerWritten = true
             var output = tables()
             for item in pending { output += write(item) }
             pending = []
+            pendingSize = 0
             return output
         }
         return write(frame)

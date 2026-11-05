@@ -9,13 +9,16 @@ import NIOHTTP1
 import NIOPosix
 
 /// The listener battery cameras post their events to (docs/clean-room/ReolinkBattery.md 6.1): plain HTTP, any method,
-/// one path `/reolink/<token>` (the token a secret), bodies up to 64 KiB, `200 OK` at once and the body handled after.
+/// one path `/reolink/<token>` (the token a secret), bodies up to 64 KiB, `200 OK` at once and the body handled after. At
+/// most 16 connections at once (it listens on every interface): one more is closed as it comes.
 final class ReolinkWebhookServer: Sendable {
     typealias Handler = @Sendable (Data) async -> Void
 
     static let maximumBody = 64 * 1024
     static let pathPrefix = "/reolink/"
+    static let maximumConnections = 16
 
+    private let connections = NIOLockedValueBox(0)
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     let path: String
 
@@ -24,14 +27,24 @@ final class ReolinkWebhookServer: Sendable {
     }
 
     var port: Int? { channel.withLockedValue { $0?.localAddress?.port } }
+    /// The connections open, for tests.
+    var openConnections: Int { connections.withLockedValue { $0 } }
 
     func start(host: String, port: Int, handler: @escaping Handler) async throws {
         let path = path
+        let connections = connections
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.backlog, value: 16)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                channel.eventLoop.makeCompletedFuture {
+                let admitted = connections.withLockedValue { open -> Bool in
+                    guard open < Self.maximumConnections else { return false }
+                    open += 1
+                    return true
+                }
+                guard admitted else { return channel.close() }
+                channel.closeFuture.whenComplete { _ in connections.withLockedValue { $0 -= 1 } }
+                return channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(IdleStateHandler(allTimeout: .seconds(30)))
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline()
                     try channel.pipeline.syncOperations.addHandler(ReolinkWebhookHandler(path: path, handler: handler))

@@ -106,6 +106,20 @@ import Testing
         #expect(BcMediaMuxer.forward(from: 0xFFFF_FFF0, to: 0x10) == 0x20)
     }
 
+    @Test func framesWaitingForAudioAreCapped() {
+        // Audio asked, none comes, timestamps stuck: the header goes without audio once the cap is reached.
+        var muxer = BcMediaMuxer(audio: true)
+        let frame = BcMediaFrame.video(codec: .h264, keyframe: true, timestamp: 5, payload: [UInt8](repeating: 1, count: 1000))
+        for _ in 1..<BcMediaMuxer.pendingFrames { #expect(muxer.push(frame).isEmpty) }
+        #expect(!muxer.push(frame).isEmpty)
+        #expect(!muxer.hasAudio)
+        // And by bytes: three frames of 4 MiB.
+        var large = BcMediaMuxer(audio: true)
+        let big = BcMediaFrame.video(codec: .h264, keyframe: true, timestamp: 5, payload: [UInt8](repeating: 1, count: 4 * 1024 * 1024))
+        #expect(large.push(big).isEmpty)
+        #expect(!large.push(big).isEmpty)
+    }
+
     @Test func webhookBodiesFromTheSpec() async throws {
         let camera = FakeBatteryCamera()
         camera.state.withLockedValue { $0.asleep = true }
@@ -138,12 +152,13 @@ import Testing
     // MARK: The session
 
     func makeHost(_ camera: FakeBatteryCamera, record: ReolinkBatteryHost.Record? = nil, image: URL? = nil,
-                  saved: NIOLockedValueBox<[ReolinkBatteryHost.Record]> = .init([])) -> ReolinkBatteryHost {
+                  saved: NIOLockedValueBox<[ReolinkBatteryHost.Record]> = .init([]),
+                  toJPEG: (@Sendable (BcMediaCodec, [UInt8]) async -> Data?)? = nil) -> ReolinkBatteryHost {
         let device = ReolinkPlugin.Device(json: ["host": "192.168.1.50", "password": "secret", "batteryCamera": true])!
         let identity = ReolinkBatteryIdentity(uid: FakeBatteryCamera.uid, name: "Garden", model: "Argus 3 Pro", serial: "1", hardware: "", firmware: "")
         return ReolinkBatteryHost(device: device, record: record ?? .init(identity: identity, battery: nil, webhookSupported: nil),
                                   connect: { _, _, _ in try camera.connect() }, log: testLogger, timing: ReolinkTiming(scale: 0.01), motionTimeout: 30,
-                                  imageFile: image, saveRecord: { record in saved.withLockedValue { $0.append(record) } })
+                                  imageFile: image, saveRecord: { record in saved.withLockedValue { $0.append(record) } }, toJPEG: toJPEG)
     }
 
     @Test func aSnapshotComesInPartsOnAnyMessageNumber() async throws {
@@ -220,6 +235,40 @@ import Testing
         #expect(await eventually { camera.count(109) == 1 })
         #expect(await eventually { camera.count(2) == 1 })
         #expect(camera.connections == 1)
+        await host.stop()
+    }
+
+    @Test func aBrokenStreamStillStopsTheCamera() async throws {
+        // No snapshot command, and the stream's second frame is over the limit: the keyframe fallback fails, and the camera
+        // is told to stop sending all the same.
+        let camera = FakeBatteryCamera()
+        let tooLarge = Array("00dcH264".utf8) + Baichuan.littleEndian(UInt32(BcMediaParser.maximumFrame + 1)) + [UInt8](repeating: 0, count: 12)
+        camera.state.withLockedValue {
+            $0.snapshotWorks = false
+            $0.media = MediaVectors.info + tooLarge
+        }
+        let host = makeHost(camera, toJPEG: { _, _ in Data([0xFF, 0xD8]) })
+        await #expect(throws: HAPStatusError.self) { try await host.snapshot(for: SnapshotRequest(height: 360, width: 640, reason: .event)) }
+        #expect(camera.count(3) == 1 && camera.count(4) == 1)
+        await host.stop()
+    }
+
+    @Test func aFeedNobodyReadsEndsAndStopsTheCamera() async throws {
+        // FFmpeg stalled: the feed's chunks are not read; past the buffer it ends, the camera stops, nothing piles up.
+        let camera = FakeBatteryCamera()
+        camera.state.withLockedValue {
+            let frames = (0..<(ReolinkBatteryHost.feedChunks + 200)).map { index in
+                MediaVectors.h264(keyframe: index == 0, timestamp: UInt32(index * 66_000), payload: [0, 0, 0, 1, index == 0 ? 0x65 : 0x41, UInt8(index & 0xFF), UInt8(index >> 8)] + [UInt8](repeating: 7, count: 200))
+            }
+            $0.media = MediaVectors.info + Array(frames.joined())
+            $0.mediaChunk = 16_000
+        }
+        let host = makeHost(camera)
+        let feed = try await host.liveFeed(sub: true, audio: true)
+        #expect(await eventually { camera.count(4) == 1 })
+        await #expect(throws: ReolinkBatteryHost.ReolinkFeedError.self) { for try await _ in feed.data {} }
+        await feed.stop()
+        #expect(camera.count(4) == 1)
         await host.stop()
     }
 
@@ -327,5 +376,26 @@ import Testing
                         IPv4Network(address: 0xC0A8_010A, netmask: 0xFFFF_FF00)]
         #expect(ReolinkWebhookServer.localAddress(toward: "192.168.1.50", networks: networks) == "192.168.1.10")
         #expect(ReolinkWebhookServer.localAddress(toward: "camera.local", networks: networks) == "10.0.0.5")
+    }
+
+    @Test func theWebhookTakesSixteenConnectionsAtOnce() async throws {
+        let server = ReolinkWebhookServer(token: "abc")
+        try await server.start(host: "127.0.0.1", port: 0) { _ in }
+        let port = try #require(server.port)
+        var streams: [TCPStream] = []
+        for _ in 0..<ReolinkWebhookServer.maximumConnections {
+            streams.append(try await TCPStream.connect(host: "127.0.0.1", port: port, timeout: .seconds(5)))
+        }
+        #expect(await eventually { server.openConnections == ReolinkWebhookServer.maximumConnections })
+        // One more is closed at once: its stream ends.
+        let extra = try await TCPStream.connect(host: "127.0.0.1", port: port, timeout: .seconds(5))
+        do { for try await _ in extra.incoming {} } catch {}
+        #expect(server.openConnections == ReolinkWebhookServer.maximumConnections)
+        // A closed one frees its place.
+        await streams.removeLast().close()
+        #expect(await eventually { server.openConnections == ReolinkWebhookServer.maximumConnections - 1 })
+        for stream in streams { await stream.close() }
+        await extra.close()
+        await server.stop()
     }
 }

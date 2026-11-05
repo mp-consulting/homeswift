@@ -226,29 +226,44 @@ actor ReolinkBatteryHost {
         if self.session === session { self.session = nil }
     }
 
-    /// Ends `body` at `deadline` (it is cancelled, not waited for), throwing `timeout`.
+    /// Ends `body` at `deadline` (it is cancelled, not waited for), throwing `timeout`. The timer goes when `body` ends.
     static func withDeadline<T: Sendable>(_ deadline: ContinuousClock.Instant, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
         let once = NIOLockedValueBox<CheckedContinuation<T, any Error>?>(nil)
         let work = NIOLockedValueBox<Task<Void, Never>?>(nil)
+        let timer = NIOLockedValueBox<Task<Void, Never>?>(nil)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
                 once.withLockedValue { $0 = continuation }
-                let finish: @Sendable (Result<T, any Error>) -> Void = { result in once.withLockedValue { value in value?.resume(with: result); value = nil } }
+                let finish: @Sendable (Result<T, any Error>) -> Void = { result in
+                    once.withLockedValue { value in value?.resume(with: result); value = nil }
+                    timer.withLockedValue { $0 }?.cancel()
+                }
+                // The timer first, so that a body ending at once finds it to cancel.
+                timer.withLockedValue { timer in
+                    timer = Task {
+                        guard (try? await Task.sleep(until: deadline, clock: .continuous)) != nil else { return }
+                        finish(.failure(BaichuanError.timeout))
+                        work.withLockedValue { $0 }?.cancel()
+                    }
+                }
                 let task = Task {
                     do { finish(.success(try await body())) } catch { finish(.failure(error)) }
                 }
                 work.withLockedValue { $0 = task }
-                Task {
-                    try? await Task.sleep(until: deadline, clock: .continuous)
-                    finish(.failure(BaichuanError.timeout))
-                    task.cancel()
-                }
             }
         } onCancel: {
             once.withLockedValue { value in value?.resume(throwing: CancellationError()); value = nil }
             work.withLockedValue { $0 }?.cancel()
+            timer.withLockedValue { $0 }?.cancel()
         }
     }
+
+    /// The media a camera sends while a stream is read: at most this many messages wait for the parser; more ends the
+    /// stream (a message lost would leave the parser waiting for the rest of a frame).
+    static let mediaEvents = 1024
+    /// The MPEG-TS chunks a live feed holds for FFmpeg: past this (FFmpeg stopped reading), the feed ends and the camera
+    /// stops sending, rather than the bytes piling up.
+    static let feedChunks = 512
 
     // MARK: Talk (ReolinkTalk.md)
 
@@ -502,21 +517,31 @@ actor ReolinkBatteryHost {
     /// The first I-frame of a short stream start (7, the fallback).
     private func firstKeyframe(_ stream: Baichuan.MediaStream) async throws -> (BcMediaCodec, [UInt8]) {
         try await use(budget: Self.snapshotBudget) { session in
-            let (events, input) = AsyncStream.makeStream(of: BaichuanBinaryEvent.self)
-            let counter = try await session.startMedia(channel: 0, stream: stream, timeout: Self.snapshotBudget) { input.yield($0) }
+            let (events, input) = AsyncStream.makeStream(of: BaichuanBinaryEvent.self, bufferingPolicy: .bufferingNewest(Self.mediaEvents))
+            let counter = try await session.startMedia(channel: 0, stream: stream, timeout: Self.snapshotBudget) { event in
+                if case .dropped = input.yield(event) { input.finish() }
+            }
             var parser = BcMediaParser()
             var found: (BcMediaCodec, [UInt8])?
+            var failure: (any Error)?
             loop: for await event in events {
                 guard case .data(_, let payload) = event else { break }
-                for frame in try parser.push(payload) {
-                    if case .video(let codec, true, _, let data) = frame {
-                        found = (codec, data)
-                        break loop
+                do {
+                    for frame in try parser.push(payload) {
+                        if case .video(let codec, true, _, let data) = frame {
+                            found = (codec, data)
+                            break loop
+                        }
                     }
+                } catch {
+                    failure = error
+                    break
                 }
             }
+            // Whatever ended the loop, the camera stops sending (a battery's).
             input.finish()
             await session.stopMedia(channel: 0, stream: stream, counter: counter)
+            if let failure { throw failure }
             guard let found else { throw BaichuanError.timeout }
             return found
         }
@@ -534,11 +559,23 @@ actor ReolinkBatteryHost {
         let deadline = ContinuousClock.now + timing.timeout(Self.streamBudget)
         do {
             let session = try await Self.withDeadline(deadline) { try await self.openSession() }
-            let (events, input) = AsyncStream.makeStream(of: BaichuanBinaryEvent.self)
+            let (events, input) = AsyncStream.makeStream(of: BaichuanBinaryEvent.self, bufferingPolicy: .bufferingNewest(Self.mediaEvents))
+            let overflowed = NIOLockedValueBox(false)
             let counter = try await Self.withDeadline(deadline) {
-                try await session.startMedia(channel: 0, stream: stream, timeout: Self.streamBudget) { input.yield($0) }
+                try await session.startMedia(channel: 0, stream: stream, timeout: Self.streamBudget) { event in
+                    guard case .dropped = input.yield(event) else { return }
+                    overflowed.withLockedValue { $0 = true }
+                    input.finish()
+                }
             }
-            let (output, out) = AsyncThrowingStream.makeStream(of: Data.self)
+            // The camera's media stops once, whoever stops it first: the feed's end, a parse error, FFmpeg not reading.
+            let mediaStopped = NIOLockedValueBox(false)
+            let stopMedia: @Sendable () async -> Void = {
+                guard mediaStopped.withLockedValue({ value in defer { value = true }; return !value }) else { return }
+                input.finish()
+                await session.stopMedia(channel: 0, stream: stream, counter: counter)
+            }
+            let (output, out) = AsyncThrowingStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(Self.feedChunks))
             let (starts, started) = AsyncThrowingStream.makeStream(of: FirstFrame.self)
             let pump = Task {
                 var parser = BcMediaParser()
@@ -556,13 +593,22 @@ actor ReolinkBatteryHost {
                                 started.yield(FirstFrame(codec: codec, fps: muxer.fps, width: size?.0, height: size?.1))
                                 started.finish()
                             }
-                            if !bytes.isEmpty { out.yield(Data(bytes)) }
+                            if !bytes.isEmpty, case .dropped = out.yield(Data(bytes)) {
+                                throw ReolinkFeedError.notRead
+                            }
                         }
                     } catch {
                         out.finish(throwing: error)
                         started.finish(throwing: error)
+                        await stopMedia()
                         return
                     }
+                }
+                if overflowed.withLockedValue({ $0 }) {
+                    out.finish(throwing: ReolinkFeedError.notRead)
+                    started.finish(throwing: ReolinkFeedError.notRead)
+                    await stopMedia()
+                    return
                 }
                 out.finish()
                 started.finish(throwing: BaichuanError.closed)
@@ -575,16 +621,14 @@ actor ReolinkBatteryHost {
                 }
             } catch {
                 pump.cancel()
-                input.finish()
-                await session.stopMedia(channel: 0, stream: stream, counter: counter)
+                await stopMedia()
                 throw error
             }
             let stopped = NIOLockedValueBox(false)
             let stop: @Sendable () async -> Void = { [weak self] in
                 guard stopped.withLockedValue({ value in defer { value = true }; return !value }) else { return }
                 pump.cancel()
-                input.finish()
-                await session.stopMedia(channel: 0, stream: stream, counter: counter)
+                await stopMedia()
                 await self?.feedEnded()
             }
             let fallback = sub ? (640, 360) : (2560, 1440)
@@ -596,6 +640,11 @@ actor ReolinkBatteryHost {
             scheduleIdleClose()
             throw error
         }
+    }
+
+    enum ReolinkFeedError: Error, CustomStringConvertible {
+        case notRead
+        var description: String { "the camera's video was not read fast enough" }
     }
 
     private struct FirstFrame: Sendable {
