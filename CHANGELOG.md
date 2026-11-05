@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The APsystems ECU plugin (platform `APsystemsECU`, experimental, a clean-room implementation of the ECU's local
+  protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
+  energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
+  Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
 - The Philips Hue Sync Box plugin (platform `PhilipsHueSyncBoxPlatform`, a clean-room implementation compatible with
   homebridge-philips-hue-sync-box's configuration): a Lightbulb or Switch that starts and stops syncing, a power switch,
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by

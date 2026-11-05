@@ -76,6 +76,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(TapoPlugin.self)
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
+    registry.register(APsystemsECUPlugin.self)
     registry.register(HueSyncBoxPlugin.self)
     registry.register(TahomaPlugin.self)
     registry.register(V2CTrydanPlugin.self)
