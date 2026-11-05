@@ -2784,6 +2784,7 @@ HomeswiftI18n.add("pt", {
   "For {name} as a whole. A save reloads it once, its accessories kept.": "Para {name} no seu todo. Guardar recarrega-o uma vez, mantendo os acessórios.",
   "Something this form does not show is in config.json, the one place to write it as it is.": "O que este formulário não mostra está no config.json, o único sítio onde o escrever tal como é.",
   "Edit config.json": "Editar o config.json",
+  "Hide config.json": "Ocultar config.json",
   "What {plugin} finds, set up or not.": "O que {plugin} encontra, configurado ou não.",
   "Not set up yet: its devices show once it is.": "Ainda não configurado: os dispositivos aparecem depois.",
   "Settings of {name}": "Definições de {name}",

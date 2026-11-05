@@ -523,9 +523,7 @@
           formBox,
           form ? el("div", { class: "settings-bar" }, message, revert, save) : null),
         devices.node,
-        el("section", { class: "settings-section settings-foot" },
-          el("p", { class: "help" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ",
-            el("a", { href: "/settings/config", text: t("Edit config.json") })))),
+        blockJSON({ block, kit })),
       el("div", { class: "danger-zone" },
         el("div", {}, el("strong", { text: t("Remove this plugin") }),
           el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
@@ -544,6 +542,87 @@
           if (changed) devices.load();
         } });
     }
+  }
+
+  /// The settings' foot: what the form does not show is in config.json, and "Edit config.json" opens this block of it
+  /// (and only this block) as JSON under the form. Its Save writes the block as the Config tab does
+  /// (PUT /api/config/platforms/<index>, secrets sealed, the plugin reloaded) and draws the page again.
+  function blockJSON({ block, kit }) {
+    const textarea = el("textarea", { class: "short", spellcheck: false, "aria-label": t("The block as JSON") });
+    const editor = HomeswiftCommon.jsonEditor(textarea, { secretKey: kit.isSecretKey });
+    const message = el("span", { class: "muted" });
+    const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: t("Save") }));
+    const cancel = el("button", { class: "settings-action" }, HomeswiftCommon.icon("close"), el("span", { text: t("Cancel") }));
+    const format = el("button", { type: "button", class: "settings-action" }, HomeswiftCommon.icon("code"), el("span", { text: t("Format") }));
+    const panel = el("div", { class: "block-json" }, editor, el("div", { class: "settings-bar" }, message, format, cancel, save));
+    panel.hidden = true;
+    const toggle = el("button", { type: "button", class: "link", actionIcon: "code", "aria-expanded": "false", text: t("Edit config.json") });
+    let index = block.index, original = "";
+    const update = () => {
+      const result = editor.check();
+      format.disabled = !("value" in result);
+      if (!("value" in result)) {
+        message.className = "error";
+        message.replaceChildren(...(result.line ? [el("button", { type: "button", class: "line-link", text: t("Line {line}", { line: result.line }), onclick: () => editor.reveal(result.offset) })] : []), result.message);
+        save.disabled = true;
+        return;
+      }
+      const changed = textarea.value !== original;
+      save.disabled = !changed;
+      if (!message.classList.contains("error") && !message.classList.contains("ok")) {
+        message.className = changed ? "dirty" : "muted";
+        message.textContent = changed ? t("Unsaved changes · a save reloads {name} once", { name: block.name }) : t("Saved");
+      }
+    };
+    const close = () => {
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = t("Edit config.json");
+    };
+    const open = async () => {
+      // The block as config.json has it now (its secrets as the placeholder), found by its platform and name.
+      const config = await api("/api/config", { raw: true }).then(JSON.parse);
+      const platforms = config.platforms || [];
+      const at = platforms.findIndex((one) => one.platform === block.platform && one.name === block.name);
+      index = at >= 0 ? at : block.index;
+      original = JSON.stringify(platforms[index] ?? { platform: block.platform, name: block.name }, null, 2);
+      textarea.value = original;
+      message.className = "muted";
+      panel.hidden = false;
+      editor.repaint();
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.textContent = t("Hide config.json");
+      update();
+      textarea.focus();
+    };
+    toggle.addEventListener("click", () => HomeswiftCommon.busyButton(toggle, () => panel.hidden ? open() : close(), { report: (e) => HomeswiftCommon.showAlert(e.message) }));
+    panel.addEventListener("input", () => { message.className = ""; update(); });
+    format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); message.className = ""; update(); });
+    cancel.addEventListener("click", () => { textarea.value = original; editor.repaint(); message.className = ""; close(); });
+    save.addEventListener("click", () => HomeswiftCommon.busyButton(save, async () => {
+      const value = JSON.parse(textarea.value);
+      value.platform = block.platform;
+      message.className = "muted";
+      message.textContent = t("Saving…");
+      try {
+        const result = await api(`/api/config/platforms/${index}`, { method: "PUT", body: value });
+        message.className = "ok";
+        message.textContent = kit.savedText(result);
+        original = textarea.value;
+        // The form above shows the block as saved: the page is drawn again, at the block's new address if it was renamed.
+        kit.setLeaveGuard(null);
+        if (value.name && value.name !== block.name) app().navigate(`/plugins/${HomeswiftCommon.slug(value.name)}/settings`, { replace: true });
+        else app().route();
+      } catch (e) {
+        message.className = "error";
+        if (!e.problems) { message.textContent = e.message; return; }
+        message.replaceChildren(el("span", { text: t("The plugin's schema refuses this:") }),
+          kit.problemList(e.problems.map((problem) => ({ ...problem, text: HomeswiftI18n.message(problem.text) })), editor));
+      }
+    }, { report: (e) => { message.className = "error"; message.textContent = e.message; } }));
+    return el("section", { class: "settings-section settings-foot" },
+      el("p", { class: "help" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ", toggle),
+      panel);
   }
 
   /// A plugin instance's Discovered Devices: each with where it stands and what can be done with it: a set-up one opens

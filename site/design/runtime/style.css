@@ -4631,6 +4631,10 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 .settings-foot a, .form-foot a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
 @media (hover: hover) and (pointer: fine) { .settings-foot a:hover, .form-foot a:hover { text-decoration: underline; } }
+/* "Edit config.json" in the foot's sentence opens the block as JSON under it. */
+.settings-foot .help > button.link { display: inline-flex; vertical-align: baseline; min-height: 0; padding: 0; font: inherit; font-weight: var(--weight-medium); }
+.settings-foot .block-json { margin-top: var(--space-12); }
+.settings-foot .block-json .settings-bar { margin-top: var(--space-10); }
 /* A long block name in the breadcrumb is cut, not pushed past a phone's edge (its page's title has it whole). */
 .breadcrumb ol { min-width: 0; }
 .breadcrumb li { max-width: 100%; }
