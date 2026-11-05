@@ -33,9 +33,14 @@ final class FakeTapoCloud: HTTPSending, @unchecked Sendable {
     var paths: [String] { state.withLockedValue { $0.paths } }
     var logins: Int { paths.filter { $0 == "/api/v2/account/login" }.count }
 
+    /// A message as the real inbox has it: type, id and time (milliseconds) at the top, the camera in `attachments`.
     func notify(deviceID: String = "CLOUDID0001", type: String = "Motion", time: Date = Date()) {
         state.withLockedValue { state in
-            state.notifications.append(["msgId": "m\(state.notifications.count + 1)", "msgType": type, "deviceId": deviceID, "time": Int(time.timeIntervalSince1970)])
+            let seconds = Int(time.timeIntervalSince1970)
+            state.notifications.append([
+                "msgId": "m\(state.notifications.count + 1)", "msgType": type, "time": seconds * 1000 + 123, "title": "Garden", "content": "Motion detected",
+                "attachments": ["deviceId": deviceID, "chnId": "0", "deviceModel": "C675D", "msgType": type, "time": String(seconds)],
+            ])
         }
     }
 
@@ -101,6 +106,7 @@ final class FakeTapoCloud: HTTPSending, @unchecked Sendable {
                 case "/api/v2/common/getDeviceListByPage":
                     return ["error_code": 0, "result": ["deviceList": state.cameras]]
                 case "/api/v2/common/getAppNotificationByPage":
+                    // `indexTime` in milliseconds, as the messages' `time`.
                     let since = json["indexTime"] as? Int ?? 0
                     state.lastSince = since
                     let wanted = Set(json["msgTypes"] as? [String] ?? [])

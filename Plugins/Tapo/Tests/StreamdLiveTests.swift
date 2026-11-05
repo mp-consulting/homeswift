@@ -60,7 +60,8 @@ struct StreamdLiveTests {
             arguments.replaceSubrange(output..<(arguments.firstIndex(of: "-loglevel") ?? arguments.endIndex), with: ["-f", "null", "-"])
             print("Lens \(lens): ffmpeg \(arguments.joined(separator: " "))")
             let started = ContinuousClock.now
-            let result = try #require(await FfmpegExec(ffmpeg, commandLineArgs: arguments).exec(sample, timeout: 50_000))
+            var filter = MPEGTSLensFilter(videoIndex: lens)
+            let result = try #require(await FfmpegExec(ffmpeg, commandLineArgs: arguments).exec(filter.filter(sample), timeout: 50_000))
             let took = ContinuousClock.now - started
             print("Lens \(lens): exit \(result.exitCode.map(String.init) ?? "?") in \(took); \(String(decoding: result.stderr.suffix(400), as: UTF8.self))")
             #expect(result.exitCode == 0)

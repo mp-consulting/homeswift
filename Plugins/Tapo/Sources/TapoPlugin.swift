@@ -29,7 +29,7 @@ public actor TapoPlugin: HomeswiftPlugin {
         var ports = RtpPortAllocator()
         var cameraTiming = TapoCameraFeed.Timing()
         /// The TP-Link cloud, for the cameras' motion.
-        var cloudHTTP: any HTTPSending = HTTPClient(maximumBodySize: 1024 * 1024)
+        var cloudHTTP: any HTTPSending = HTTPClient(tls: .authority(pem: TapoCloud.rootCA, serverName: nil), maximumBodySize: 1024 * 1024)
         var cloudEntry = TapoCloud.entry
         var motionTiming = TapoMotionWatcher.Timing()
         var motionHold: Duration = .seconds(30)

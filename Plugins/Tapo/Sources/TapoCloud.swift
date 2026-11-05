@@ -41,6 +41,31 @@ actor TapoCloud {
     static let appType = "TP-Link_Tapo_Android"
     static let appVersion = "3.20.753"
     static let entry = URL(string: "https://n-wap-gw.tplinkcloud.com")!
+
+    /// TP-Link's private root (`CN=tp-link-CA`, valid to 2068, SHA-256 8B:54:F0:36:…:FD:EC:19), which the cloud's
+    /// `*.tplinkcloud.com` certificates chain to through `TP-LINK CA P1` and which no system trusts: the cloud's
+    /// requests trust it alone, rather than accepting any certificate.
+    static let rootCA = """
+        -----BEGIN CERTIFICATE-----
+        MIIDBzCCAe+gAwIBAgIQT5x0ma7QnINHCQvhnmzR9zANBgkqhkiG9w0BAQsFADAV
+        MRMwEQYDVQQDEwp0cC1saW5rLUNBMCAXDTE4MDExOTA4Mjc1MloYDzIwNjgwMTE5
+        MDgzNzUyWjAVMRMwEQYDVQQDEwp0cC1saW5rLUNBMIIBIjANBgkqhkiG9w0BAQEF
+        AAOCAQ8AMIIBCgKCAQEAuGG8n5zEUN1j5wuvUz4pAIMurhKHbpfUUu+b2acFHKS6
+        iU9hNJWvDyhXcihY5Wz6aq9m4D5SZcgW3k31YoNNtrztDjdg2qw7AaX85S99/G0B
+        VbIXktrhs34OW19WA/haDwut3dFhLem+gCRRKUXcmuqchZc84dY7JFVfhPcJci4m
+        sRjLCFNO0ho9OX+MZwfO4BLaeAqKVoAor6rf4BXVtO0xjYHDKO0fb3AWLLJ4EjGe
+        q6YieqPiYlPFEqRm5PrvBXTm0IuQogygyVpK4LHr/K207ZLyV33DxLLbsUgSEJVn
+        pZUv/WUujXjlIDgxIvyZZCYiXO3dle2/MEvpmZk6JQIDAQABo1EwTzALBgNVHQ8E
+        BAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUxu2iBRTsef5iNnsADVhM
+        JDQWi6kwEAYJKwYBBAGCNxUBBAMCAQAwDQYJKoZIhvcNAQELBQADggEBAB52Majd
+        +wo3cb5BsTo63z2Psbbyl4ACMUaw68NxUMy61Oihx3mcLzLJqiIZcKePiHskLqLJ
+        F7QfT9TqjvizMjFJVgsLuVubUBXKBzqyN+3KKlQci0PO3mH+ObhyaE7BzV+qrS3P
+        dVTgsCWFv8DkgLTRudSWxL7VwVoedc7lRz5EroGgJ33nRGCR0ngcW919tLTARDQO
+        pULmzulcdWeZgG+0PLX0xjJQIjFEvbOxR1Z+gxMupBz0rWFokmWYrcga8eWiWzjQ
+        Ia3/ASBVJ69srV77trWlfLumkChbXk9i64NXBKnce0Jmll0Y9OC1nMPqrbQKnzcn
+        dSAA4fejD/qMQn0=
+        -----END CERTIFICATE-----
+        """
     /// The detections the inbox is asked for.
     static let detectionTypes = [
         "Motion", "PersonDetected", "PersonEnhanced", "VehicleDetected", "PetDetected", "animalDetected", "tapoCameraLinecrossingDetection",
@@ -232,18 +257,22 @@ actor TapoCloud {
         return devices
     }
 
-    /// Notifications since `since` (Unix seconds), oldest first (5.3).
+    /// Notifications since `since` (Unix seconds), oldest first (5.3). The inbox pages from `indexTime` in milliseconds,
+    /// as its messages' `time` is.
     func notifications(since: Int) async throws -> [Notification] {
         let result = try await authorized("/api/v2/common/getAppNotificationByPage", [
-            "appType": Self.appType, "contentVersion": 2, "deviceToken": "", "direction": "asc", "index": 0, "indexTime": since, "limit": 50,
+            "appType": Self.appType, "contentVersion": 2, "deviceToken": "", "direction": "asc", "index": 0, "indexTime": since * 1000, "limit": 50,
             "locale": "en_US", "mobileType": "ANDROID", "msgTypes": Self.detectionTypes, "terminalUUID": session.terminalUUID,
         ])
         let list = (result["notifications"] as? [[String: Any]]) ?? (result["msgList"] as? [[String: Any]]) ?? []
         return list.compactMap(Self.notification(_:)).sorted { $0.time < $1.time }
     }
 
+    /// A message of the inbox: its type and time at the top, the camera in `attachments` (`deviceId`, and `chnId`,
+    /// `deviceModel`, `alias`), as the cloud answers; a `deviceId` at the top is read too.
     static func notification(_ item: [String: Any]) -> Notification? {
-        guard let deviceID = item["deviceId"] as? String, !deviceID.isEmpty else { return nil }
+        let attachments = item["attachments"] as? [String: Any] ?? [:]
+        guard let deviceID = (item["deviceId"] as? String) ?? (attachments["deviceId"] as? String), !deviceID.isEmpty else { return nil }
         let id = (item["msgId"] as? String) ?? (item["msgId"] as? NSNumber)?.stringValue ?? ""
         var time = (item["time"] as? NSNumber)?.doubleValue ?? (item["time"] as? String).flatMap(Double.init) ?? 0
         // Milliseconds, if that is what came.

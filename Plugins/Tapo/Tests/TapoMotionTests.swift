@@ -55,11 +55,18 @@ struct TapoCloudTests {
         }
     }
 
-    @Test func notificationsReadEitherTimeUnit() {
+    @Test func notificationsAsTheInboxSendsThem() {
+        // The real shape: the camera in `attachments`, the time in milliseconds.
+        let real = TapoCloud.notification([
+            "msgId": "8", "msgType": "PersonDetected", "time": 1_762_340_000_123, "title": "Garden", "content": "Person detected",
+            "attachments": ["deviceId": "D", "chnId": "0", "deviceModel": "C675D", "time": "1762340000"],
+        ])
+        #expect(real?.deviceID == "D")
+        #expect(real?.type == "PersonDetected")
+        #expect(real.map { abs($0.time - 1_762_340_000.123) < 0.001 } == true)
+        // A device id at the top, and seconds, are read too.
         let seconds = TapoCloud.notification(["msgId": 7, "msgType": "Motion", "deviceId": "D", "time": 1_762_340_000])
-        let millis = TapoCloud.notification(["msgId": "8", "msgType": "PersonDetected", "deviceId": "D", "time": 1_762_340_000_000])
         #expect(seconds == TapoCloud.Notification(id: "7", type: "Motion", deviceID: "D", time: 1_762_340_000))
-        #expect(millis?.time == 1_762_340_000)
         #expect(TapoCloud.notification(["msgType": "Motion"]) == nil)
         #expect(TapoCloud.alias("R2FyZGVu") == "Garden")
         #expect(TapoCloud.alias("Not base64!") == "Not base64!")
@@ -95,6 +102,8 @@ struct TapoMotionTests {
         #expect(motion(wide) == false)
         cloud.notify()
         #expect(await eventually { motion(wide) == true && motion(tele) == true })
+        // The inbox is asked from a time in milliseconds.
+        #expect(cloud.state.withLockedValue { $0.lastSince ?? 0 } > 1_000_000_000_000)
         // And it clears after the hold.
         #expect(await eventually { motion(wide) == false })
         #expect(camera.connections == 0)

@@ -107,9 +107,11 @@ struct StreamdProtocolTests {
     }
 
     @Test func ffmpegReadsTheLensFromStandardInput() {
-        let arguments = TapoCameraStreamer.snapshotArguments(videoIndex: 1)
-        #expect(arguments.contains("pipe:0"))
-        #expect(arguments.firstIndex(of: "0:v:1") != nil)
+        // The lens is filtered out before FFmpeg (`MPEGTSLensFilter`): it reads one video stream.
+        for arguments in [TapoCameraStreamer.snapshotArguments(), TapoCameraStreamer.liveFeedArguments()] {
+            #expect(arguments.contains("pipe:0"))
+            #expect(arguments.firstIndex(of: "0:v:0") != nil)
+        }
     }
 }
 
@@ -288,5 +290,83 @@ struct TapoCameraPluginTests {
         #expect(await eventually { host.bridges.flatMap(\.server.accessories).contains { $0.id == "TapoP100:192.168.1.40Garden" } })
         #expect(!host.bridges.flatMap(\.server.accessories).contains { $0.id.hasSuffix(":tele") })
         await host.stop()
+    }
+}
+
+/// `MPEGTSLensFilter` on a TS shaped as a C675D's in HD (docs/clean-room/TapoCamera.md, 7): a program per lens and one
+/// for the audio declared 0x91.
+struct MPEGTSLensFilterTests {
+    static let wide: UInt16 = 0x44, audio: UInt16 = 0x54, tele: UInt16 = 0x64
+
+    static func psi(pid: UInt16, _ body: [UInt8]) -> Data {
+        MPEGTSLensFilter.packet(pid: pid, section: body + MPEGTSLensFilter.crc32(body).bigEndianBytes)
+    }
+
+    static var pat: Data {
+        psi(pid: 0, [0x00, 0xB0, 0x15, 0x00, 0x01, 0xC1, 0x00, 0x00,
+                     0x00, 0x01, 0xF0, 0x00, 0x00, 0x02, 0xF0, 0x01, 0x00, 0x03, 0xF0, 0x02])
+    }
+
+    static func pmt(pid: UInt16, program: UInt8, type: UInt8, stream: UInt16) -> Data {
+        psi(pid: pid, [0x02, 0xB0, 0x12, 0x00, program, 0xC1, 0x00, 0x00, 0xE0 | UInt8(stream >> 8), UInt8(stream & 0xFF), 0xF0, 0x00,
+                       type, 0xE0 | UInt8(stream >> 8), UInt8(stream & 0xFF), 0xF0, 0x00])
+    }
+
+    static var tables: Data {
+        pat + pmt(pid: 0x1000, program: 1, type: 0x24, stream: wide) + pmt(pid: 0x1001, program: 2, type: 0x91, stream: audio)
+            + pmt(pid: 0x1002, program: 3, type: 0x24, stream: tele)
+    }
+
+    /// The start of a PES on `pid`: a keyframe opens with a VPS (NAL type 32), another picture with a TRAIL_R (1).
+    static func pes(_ pid: UInt16, keyframe: Bool, mark: UInt8) -> Data {
+        var bytes: [UInt8] = [0x47, 0x40 | UInt8(pid >> 8), UInt8(pid & 0xFF), 0x10,
+                              0x00, 0x00, 0x01, 0xE0, 0x00, 0x00, 0x80, 0x80, 0x05, 0x21, 0x00, 0x01, 0x00, 0x01,
+                              0x00, 0x00, 0x00, 0x01, keyframe ? 0x40 : 0x02, 0x01, mark]
+        bytes += [UInt8](repeating: 0xFF, count: 188 - bytes.count)
+        return Data(bytes)
+    }
+
+    static func pids(_ data: Data) -> [UInt16] {
+        stride(from: 0, to: data.count, by: 188).map { UInt16(data[$0 + 1] & 0x1F) << 8 | UInt16(data[$0 + 2]) }
+    }
+
+    @Test func theCRCIsMPEG2s() {
+        #expect(MPEGTSLensFilter.crc32(Array("123456789".utf8)) == 0x0376_E6E7)
+    }
+
+    @Test func keepsOneLensFromItsFirstKeyframe() throws {
+        let input = Self.tables + Self.pes(Self.tele, keyframe: false, mark: 1) + Self.pes(Self.wide, keyframe: true, mark: 2)
+            + Self.pes(Self.audio, keyframe: false, mark: 3) + Self.pes(Self.tele, keyframe: true, mark: 4) + Self.tables
+            + Self.pes(Self.tele, keyframe: false, mark: 5) + Self.pes(Self.wide, keyframe: false, mark: 6)
+        var filter = MPEGTSLensFilter(videoIndex: 1)
+        var output = Data()
+        // In uneven chunks, as the camera's parts split the TS.
+        var index = 0
+        for size in [100, 7, 500, 188, 3, 1000, 10_000] where index < input.count {
+            let end = min(input.count, index + size)
+            output += filter.filter(input[index..<end])
+            index = end
+        }
+        // The tables, then the tele lens from its keyframe on; nothing of the wide lens or the audio.
+        #expect(Self.pids(output) == [0, 0x1002, Self.tele, 0, 0x1002, Self.tele])
+        // The PAT lists program 3 alone, with a valid CRC.
+        let pat = [UInt8](output.prefix(188))
+        let section = Array(pat[5..<(5 + 3 + Int(pat[7]))])
+        #expect(Array(section[8..<12]) == [0x00, 0x03, 0xF0, 0x02])
+        #expect(MPEGTSLensFilter.crc32(Array(section.dropLast(4))).bigEndianBytes == Array(section.suffix(4)))
+        // The first tele packet out is the keyframe (mark 4), not the picture before it.
+        #expect(output[2 * 188 + 24] == 4)
+    }
+
+    @Test func theFirstVideoIsTheWideLens() {
+        var filter = MPEGTSLensFilter(videoIndex: 0)
+        let output = filter.filter(Self.tables + Self.pes(Self.tele, keyframe: true, mark: 1) + Self.pes(Self.wide, keyframe: true, mark: 2))
+        #expect(Self.pids(output) == [0, 0x1000, Self.wide])
+    }
+
+    @Test func nothingBeforeTheTables() {
+        var filter = MPEGTSLensFilter(videoIndex: 0)
+        #expect(filter.filter(Self.pes(Self.wide, keyframe: true, mark: 1)).isEmpty)
+        #expect(!filter.hasStarted)
     }
 }

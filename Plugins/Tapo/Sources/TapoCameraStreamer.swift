@@ -35,10 +35,10 @@ actor TapoCameraStreamer: CameraStreamingDelegate {
 
     private let name: String
     /// Which video stream of the feed is this lens's.
-    private let videoIndex: Int
-    private let feed: TapoCameraFeed
+    let videoIndex: Int
+    let feed: TapoCameraFeed
     private let snapshots: TapoSnapshotStore
-    private let ffmpeg: FfmpegOptions
+    let ffmpeg: FfmpegOptions
     private let ports: RtpPortAllocator
     private let log: Logger
     private let inputFps: Int
@@ -93,16 +93,19 @@ actor TapoCameraStreamer: CameraStreamingDelegate {
         return image
     }
 
-    /// FFmpeg's command line for one frame of `videoIndex` from a sample of MPEG-TS on its standard input, as JPEG.
-    static func snapshotArguments(videoIndex: Int) -> [String] {
-        ["-hide_banner", "-loglevel", "error", "-fflags", "+discardcorrupt", "-probesize", "5M", "-analyzeduration", "5M", "-f", "mpegts", "-i", "pipe:0",
-         "-map", "0:v:\(videoIndex)", "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-f", "image2", "-c:v", "mjpeg", "pipe:1"]
+    /// FFmpeg's command line for one frame from a lens's MPEG-TS (`MPEGTSLensFilter`'s) on its standard input, as JPEG.
+    static func snapshotArguments() -> [String] {
+        ["-hide_banner", "-loglevel", "error", "-fflags", "+discardcorrupt", "-probesize", "1M", "-analyzeduration", "500000", "-f", "mpegts", "-i", "pipe:0",
+         "-map", "0:v:0", "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-f", "image2", "-c:v", "mjpeg", "pipe:1"]
     }
 
-    /// Takes this lens's image from a sample of the feed.
+    /// Takes the image of the `videoIndex`th lens from a sample of the feed.
     static func snapshot(from sample: Data, videoIndex: Int, ffmpeg: FfmpegOptions) async -> Data? {
-        let exec = FfmpegExec(ffmpeg, commandLineArgs: snapshotArguments(videoIndex: videoIndex), logErrors: false)
-        guard let result = await exec.exec(sample, timeout: 20_000), result.exitCode == 0, !result.stdout.isEmpty else { return nil }
+        var filter = MPEGTSLensFilter(videoIndex: videoIndex)
+        let lens = filter.filter(sample)
+        guard !lens.isEmpty else { return nil }
+        let exec = FfmpegExec(ffmpeg, commandLineArgs: snapshotArguments(), logErrors: false)
+        guard let result = await exec.exec(lens, timeout: 20_000), result.exitCode == 0, !result.stdout.isEmpty else { return nil }
         return result.stdout
     }
 
@@ -148,16 +151,25 @@ actor TapoCameraStreamer: CameraStreamingDelegate {
     }
 
     /// FFmpeg's command line for a live stream: the feed's MPEG-TS on standard input, this lens's video encoded as
-    /// HomeKit asked, as SRTP.
+    /// HomeKit asked, as SRTP. The encoding is `RTSPCameraStreamer`'s, which HomeKit plays: libx264 with no latency,
+    /// yuv420p in the MPEG range, a keyframe a second; the 4K HEVC is decoded by VideoToolbox on a Mac.
     static func arguments(videoIndex: Int, request: StartStreamRequest, target: (address: String, isIPv6: Bool, port: Int, key: Data, ssrc: UInt32),
                           ffmpeg: FfmpegOptions, inputFps: Int, debug: Bool) -> [String] {
         let video = request.video
         let host = target.isIPv6 ? "[\(target.address)]" : target.address
-        var arguments = ["-hide_banner", "-nostats", "-fflags", "+genpts+discardcorrupt+nobuffer", "-err_detect", "ignore_err",
-                         "-probesize", "3M", "-analyzeduration", "3M", "-f", "mpegts", "-i", "pipe:0", "-map", "0:v:\(videoIndex)", "-an"]
-        arguments += ffmpeg.streamEncoder(VideoEncoderOptions(
-            bitrate: video.maxBitRate, fps: video.fps, height: video.height, idrInterval: HOMEKIT_IDR_INTERVAL, inputFps: inputFps,
-            level: H264Level(rawValue: video.level) ?? .level3_1, profile: H264Profile(rawValue: video.profile) ?? .main, width: video.width))
+        var arguments = ["-hide_banner", "-nostats", "-fflags", "+genpts+discardcorrupt+nobuffer", "-err_detect", "ignore_err"]
+        #if os(macOS)
+        arguments += ["-hwaccel", "videotoolbox"]
+        #endif
+        // One stream that opens on a keyframe (`MPEGTSLensFilter`): FFmpeg starts at once, with no backlog to send.
+        arguments += ["-probesize", "1M", "-analyzeduration", "500000", "-f", "mpegts", "-i", "pipe:0", "-map", "0:v:0", "-an", "-sn", "-dn"]
+        let bitrate = max(video.maxBitRate, 300) * 4
+        let fps = video.fps > 0 ? video.fps : inputFps
+        arguments += ["-codec:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p", "-color_range", "mpeg",
+                      "-bf", "0", "-r", "\(fps)", "-g", "\(fps)", "-b:v", "\(bitrate)k", "-bufsize", "\(bitrate)k", "-maxrate", "\(bitrate * 2)k"]
+        if video.width > 0, video.height > 0 {
+            arguments += ["-filter:v", "scale='min(\(video.width),iw)':'min(\(video.height),ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2"]
+        }
         arguments += ["-payload_type", "\(video.pt)", "-ssrc", "\(target.ssrc)", "-f", "rtp",
                       "-srtp_out_suite", "AES_CM_128_HMAC_SHA1_80", "-srtp_out_params", target.key.base64EncodedString(),
                       "srtp://\(host):\(target.port)?rtcpport=\(target.port)&pkt_size=\(video.mtu > 0 ? video.mtu : 1316)"]
@@ -188,9 +200,13 @@ actor TapoCameraStreamer: CameraStreamingDelegate {
         // The camera is reached now, and only now: the feed opens its session with its first viewer.
         let (viewer, stream) = await feed.join()
         sessions[sessionID]?.viewer = viewer
+        let lensIndex = videoIndex
         sessions[sessionID]?.pump = Task { [weak self] in
+            var filter = MPEGTSLensFilter(videoIndex: lensIndex)
             for await data in stream {
-                do { try await process.writeStdin(data) } catch { break }
+                let lens = filter.filter(data)
+                guard !lens.isEmpty else { continue }
+                do { try await process.writeStdin(lens) } catch { break }
             }
             // The feed ended (the camera kept dropping it, or the plugin stops): so does the HomeKit session.
             await self?.feedEnded(sessionID: sessionID, token: token)
