@@ -8,8 +8,12 @@ import Logging
 /// Runs one write at a time for a device, in order (section 7.3): a second toggle waits for the first.
 actor SerialQueue {
     private var tail: Task<Void, Never>?
+    /// The operations queued or running.
+    private(set) var pending = 0
 
     func run<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        pending += 1
+        defer { pending -= 1 }
         let previous = tail
         let task = Task {
             _ = await previous?.value
@@ -40,6 +44,13 @@ actor ImouCamera {
     static let sirenHold: Double = 15
     /// After three local failures in a row, the LAN is tried again only every five minutes (section 7.5).
     static let localCooldown: Double = 300
+    /// A preset's switch shows off again after this long: it is a button.
+    static let presetHold: Double = 1
+    /// `controlMovePTZ`'s duration in milliseconds: the libraries' range, and the default.
+    static let ptzDurations = 100...10_000
+    static let ptzDefaultDuration = 1000
+    /// What a read of a switch answers for a camera without it (addendum, section 2.1).
+    static let unsupportedCodes: Set<String> = ["DV1019", "DV1026"]
 
     struct Services {
         let motion: Service
@@ -48,6 +59,36 @@ actor ImouCamera {
         let siren: Service?
         let light: Service?
         let battery: Service?
+        /// Human detection, the status light (without HomeKit Secure Video), the siren and the light on alarm.
+        let toggles: [Toggle]
+        let nightVision: Service?
+        /// "Go to <preset>", by preset name.
+        let presets: [(name: String, service: Service)]
+    }
+
+    struct Toggle {
+        let spec: ImouSwitch
+        let service: Service
+    }
+
+    /// The switches of the addendum's table (section 2.2) a channel's abilities and settings give it; the status light
+    /// is the Camera Operating Mode's indicator instead when HomeKit Secure Video is on (`indicator`). enableTypes the
+    /// cloud said the camera lacks are left out.
+    static func switches(features: ImouFeatures, settings: ImouPlugin.CameraSettings, unsupported: Set<String>, indicator: Bool) -> [ImouSwitch] {
+        var found: [ImouSwitch] = []
+        if settings.personDetectSwitch { found.append(ImouSwitch(subtype: "personDetection", label: "Person Detection", enableTypes: features.humanDetection)) }
+        if settings.statusLightSwitch, features.statusLight, !indicator { found.append(.statusLight) }
+        if settings.linkageSirenSwitch, features.linkageSiren {
+            found.append(ImouSwitch(subtype: "alarmSiren", label: "Siren on Alarm", enableTypes: ["linkageSiren"]))
+        }
+        if settings.linkageLightSwitch, features.linkageLight {
+            found.append(ImouSwitch(subtype: "alarmLight", label: "Light on Alarm", enableTypes: ["linkageWhiteLight"]))
+        }
+        return found.compactMap { spec in
+            var spec = spec
+            spec.enableTypes.removeAll { unsupported.contains($0) }
+            return spec.enableTypes.isEmpty ? nil : spec
+        }
     }
 
     nonisolated let accessoryID: String
@@ -73,6 +114,22 @@ actor ImouCamera {
 
     private(set) var online: ImouOnline = .online
     private(set) var privacyOn = false
+    /// HomeKit Camera Active, on the Camera Operating Mode of a camera with HomeKit Secure Video: kept the inverse of
+    /// privacy (addendum, section 5).
+    private var cameraActive: Characteristic?
+    /// The status light as the Camera Operating Mode's indicator.
+    private var indicator: (spec: ImouSwitch, characteristic: Characteristic)?
+    /// enableTypes the cloud said this camera lacks, not read again; `takeUnsupported` hands the new ones to the plugin.
+    private var unsupported: Set<String>
+    private var newlyUnsupported: Set<String> = []
+    /// The status light read with `breathingLightStatus`: the camera does not answer its enableType.
+    private var legacyStatusLight = false
+    private(set) var nightVisionMode: String?
+    private(set) var nightVisionModes: [String] = []
+    /// The move under way, until its duration is over (addendum, section 1.1).
+    private var ptzMove: (move: ImouPTZMove, until: ContinuousClock.Instant)?
+    /// Lets the last of quick successive writes to a switch through: those it overtook while queued are never sent.
+    private let writes = LatestCallGuard(delay: .zero)
     private var snapshot: (data: Data, at: ContinuousClock.Instant, cloud: Bool)?
     private var fetching: Task<Data, any Error>?
     private var lastCloudSnapshot: ContinuousClock.Instant?
@@ -88,7 +145,8 @@ actor ImouCamera {
 
     init(accessoryID: String, deviceID: String, channel: ImouChannel, name: String, features: ImouFeatures, settings: ImouPlugin.CameraSettings,
          multiChannel: Bool, cloud: ImouCloud?, local: DahuaClient?, queue: SerialQueue, download: any HTTPSending, ffmpeg: RTSPCameraFFmpeg?,
-         streamID: Int, timing: Timing, log: Logger) {
+         streamID: Int, timing: Timing, log: Logger, unsupported: Set<String> = [], recording: Bool = false, presets: [String] = []) {
+        self.unsupported = unsupported
         self.accessoryID = accessoryID
         self.deviceID = deviceID
         self.channel = channel
@@ -116,7 +174,14 @@ actor ImouCamera {
             motionDetection: control(features.motionDetectSwitch && settings.motionDetectSwitch, .switch, "Motion Detection", "motionDetection"),
             siren: control(features.siren && settings.sirenSwitch, .switch, "Siren", "siren"),
             light: control(features.whiteLight && settings.lightSwitch, .lightbulb, "Spotlight", "spotlight"),
-            battery: features.battery && cloudControls ? Service(.battery, name: "\(name) Battery", subtype: "battery") : nil)
+            battery: features.battery && cloudControls ? Service(.battery, name: "\(name) Battery", subtype: "battery") : nil,
+            toggles: cloudControls
+                ? Self.switches(features: features, settings: settings, unsupported: unsupported, indicator: recording).map {
+                    Toggle(spec: $0, service: Service(.switch, name: "\(name) \($0.label)", subtype: $0.subtype))
+                } : [],
+            nightVision: control(features.nightVision && settings.nightVisionSwitch && !unsupported.contains("nightVision"), .switch, "Night Vision", "nightVision"),
+            presets: cloudControls && features.presets && settings.presetSwitches
+                ? presets.map { ($0, Service(.switch, name: "\(name) Go to \($0)", subtype: "preset:\($0)")) } : [])
         // The siren unlocks nothing, but it is loud: MCP and the Assistant change it only after the user confirms.
         services.siren?.characteristic(.on).isSecurityControl = true
     }
@@ -132,39 +197,106 @@ actor ImouCamera {
     /// failure (sections 7.3 and 7.1.5).
     nonisolated func bindWrites() {
         services.privacy?.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
-            try await self?.write(\.privacy, value.boolValue ?? false) { cloud, device, channel, on in
-                try await cloud.setCameraStatus(device, channel: channel, "closeCamera", on)
-            }
-            await self?.privacyChanged(value.boolValue ?? false)
+            try await self?.setPrivacy(value.boolValue ?? false)
         }
         services.motionDetection?.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
-            try await self?.write(\.motionDetection, value.boolValue ?? false) { cloud, device, channel, on in
+            try await self?.write("motionDetection", value.boolValue ?? false) { cloud, device, channel, on in
                 try await cloud.setMotionDetection(device, channel: channel, on)
             }
         }
         services.light?.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
-            try await self?.write(\.light, value.boolValue ?? false) { cloud, device, channel, on in
+            try await self?.write("light", value.boolValue ?? false) { cloud, device, channel, on in
                 try await cloud.setCameraStatus(device, channel: channel, "whiteLight", on)
             }
         }
         let multiChannel = multiChannel
         services.siren?.characteristic(.on).onWrite { [weak self] value in
             let on = value.boolValue ?? false
-            try await self?.write(\.siren, on) { cloud, device, channel, on in
+            try await self?.write("siren", on) { cloud, device, channel, on in
                 try await cloud.siren(device, channel: channel, multiChannel: multiChannel, on)
             }
             await self?.sirenWritten(on)
         }
+        for toggle in services.toggles {
+            let spec = toggle.spec
+            toggle.service.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
+                try await self?.write(spec, value.boolValue ?? false)
+            }
+        }
+        services.nightVision?.characteristic(.on).onWrite(changesOnly: true) { [weak self] value in
+            guard let self else { return }
+            try await self.setNightVision(mode: await self.nightVisionMode(on: value.boolValue ?? false))
+        }
+        for preset in services.presets {
+            let name = preset.name, on = preset.service.characteristic(.on)
+            let hold = timing.duration(Self.presetHold)
+            on.onWrite { [weak self, weak on] value in
+                guard value.boolValue == true, let self else { return }
+                try await self.goToPreset(name)
+                // A button: it shows off again.
+                on?.revert(to: false, after: hold)
+            }
+        }
     }
 
-    private func write(_ service: KeyPath<Services, Service?>, _ on: Bool,
-                       _ send: @escaping @Sendable (ImouCloud, String, String, Bool) async throws -> Void) async throws {
+    /// The Camera Operating Mode of a camera with HomeKit Secure Video, before it is published: HomeKit Camera Active kept
+    /// the inverse of privacy, and the status light as its indicator (addendum, sections 2.8 and 5).
+    func attach(operatingMode: Service) {
+        guard cloud != nil else { return }
+        if features.privacy {
+            let active = operatingMode.characteristic(.homeKitCameraActive)
+            cameraActive = active
+            active.onWrite(changesOnly: true) { [weak self] value in
+                // Only an admin turns the camera off in the Home app, as without this handler.
+                try HAPRequestContext.requireAdmin()
+                try await self?.setPrivacy((value.intValue ?? 1) == 0)
+            }
+        }
+        if settings.statusLightSwitch, features.statusLight, !unsupported.contains("breathingLight") {
+            let spec = ImouSwitch.statusLight
+            let characteristic = operatingMode.characteristic(adding: .cameraOperatingModeIndicator)
+            indicator = (spec, characteristic)
+            characteristic.onWrite(changesOnly: true) { [weak self] value in
+                try await self?.write(spec, value.boolValue ?? false)
+            }
+        }
+    }
+
+    /// Opens or closes the camera, from the Privacy switch or HomeKit Camera Active, and keeps the other in step.
+    func setPrivacy(_ closed: Bool) async throws {
+        // A write a later one overtook was never sent: that one says where privacy stands.
+        guard try await write("privacy", closed, { cloud, device, channel, on in
+            try await cloud.setCameraStatus(device, channel: channel, "closeCamera", on)
+        }) else { return }
+        privacyChanged(closed)
+    }
+
+    /// A write to every enableType of a switch; it fails only when all of them fail.
+    private func write(_ spec: ImouSwitch, _ on: Bool) async throws {
+        try await write(spec.subtype, on) { cloud, device, channel, on in
+            var failure: (any Error)?
+            var sent = false
+            for type in spec.enableTypes {
+                do {
+                    try await cloud.setCameraStatus(device, channel: spec.deviceLevel ? nil : channel, type, on)
+                    sent = true
+                } catch {
+                    failure = error
+                }
+            }
+            if !sent, let failure { throw failure }
+        }
+    }
+
+    /// Sends a write, one at a time per device; false when a later write to the same switch overtook it, so it was not sent.
+    @discardableResult
+    private func write(_ key: String, _ on: Bool, _ send: @escaping @Sendable (ImouCloud, String, String, Bool) async throws -> Void) async throws -> Bool {
         guard let cloud else { throw HAPStatusError(.serviceCommunicationFailure) }
         let device = deviceID, channel = channel.id
         let sleeping = online == .sleeping
         let retryWait = timing.duration(timing.dormantRetryWait)
         do {
-            try await queue.run {
+            return try await sendLatest(key) {
                 do {
                     try await send(cloud, device, channel, on)
                 } catch let error as ImouError where sleeping && error.isDormant {
@@ -179,8 +311,29 @@ actor ImouCamera {
         }
     }
 
+    /// Runs `send` in the device's queue unless a later write to `key` came in while it waited (only that one is sent);
+    /// false when it was not sent.
+    private func sendLatest(_ key: String, _ send: @escaping @Sendable () async throws -> Void) async throws -> Bool {
+        let isLatest = writes.claim(key)
+        return try await queue.run {
+            guard isLatest() else { return false }
+            try await send()
+            return true
+        }
+    }
+
+    /// The mode the Night Vision switch sets: off, or the camera's smart mode (another of its modes without one).
+    func nightVisionMode(on: Bool) -> String {
+        guard on else { return "Off" }
+        if nightVisionModes.isEmpty || nightVisionModes.contains("Intelligent") { return "Intelligent" }
+        return nightVisionModes.first { $0 != "Off" } ?? "Intelligent"
+    }
+
     private func privacyChanged(_ on: Bool) {
         privacyOn = on
+        if let privacy = services.privacy { set(privacy.characteristic(.on), .bool(on)) }
+        if let cameraActive { set(cameraActive, .int(on ? 0 : 1)) }
+        updateStatusActive()
     }
 
     /// The siren's state cannot be read: it shows off again once it has had its time.
@@ -204,36 +357,167 @@ actor ImouCamera {
     // MARK: State from the cloud
 
     /// What a poll found: whether the device answers, and the switches it reads (section 7.1). A sleeping or offline camera
-    /// keeps its last state: it is never woken for a poll.
-    func refresh(_ state: ImouOnline, battery level: Int? = nil) async {
+    /// keeps its last state: it is never woken for a poll. `extras` reads the switches beyond privacy, the light and motion
+    /// detection: the plugin's quota governor leaves them out of some polls.
+    func refresh(_ state: ImouOnline, battery level: Int? = nil, extras: Bool = true) async {
         online = state
         let reachable = state == .online || state == .sleeping
-        set(services.motion.characteristic(.statusActive), .bool(reachable || localEventsUp == true))
+        updateStatusActive()
         if local == nil { accessory?.isUnavailable = !reachable }
         guard state == .online, let cloud else { return }
-        if let privacy = services.privacy, let on = try? await cloud.cameraStatus(deviceID, channel: channel.id, "closeCamera", polling: true) {
-            privacyOn = on
-            set(privacy.characteristic(.on), .bool(on))
+        if services.privacy != nil || cameraActive != nil, let on = try? await cloud.cameraStatus(deviceID, channel: channel.id, "closeCamera", polling: true) {
+            privacyChanged(on)
         }
         if let light = services.light, let on = try? await cloud.cameraStatus(deviceID, channel: channel.id, "whiteLight", polling: true) {
             set(light.characteristic(.on), .bool(on))
         }
         if let detection = services.motionDetection {
-            // On when either reads on; off only when both answered off (section 4.4).
-            var answers: [Bool?] = []
-            for type in ["mobileDetect", "motionDetect"] {
-                do { answers.append(try await cloud.cameraStatus(deviceID, channel: channel.id, type, polling: true)) } catch { answers.append(nil) }
-            }
-            if answers.contains(true) {
-                set(detection.characteristic(.on), true)
-            } else if answers.allSatisfy({ $0 == false }) {
-                set(detection.characteristic(.on), false)
-            }
+            await read(.motionDetection, into: detection.characteristic(.on))
         }
         if let battery = services.battery, let level {
             set(battery.characteristic(.batteryLevel), .int(level))
             set(battery.characteristic(.statusLowBattery), .int(level < 20 ? 1 : 0))
         }
+        guard extras else { return }
+        for toggle in services.toggles { await read(toggle.spec, into: toggle.service.characteristic(.on)) }
+        if let indicator { await read(indicator.spec, into: indicator.characteristic) }
+        if let nightVision = services.nightVision, !unsupported.contains("nightVision") {
+            do {
+                let read = try await cloud.nightVision(deviceID, channel: channel.id)
+                nightVisionModes = read.modes
+                if let mode = read.mode {
+                    nightVisionMode = mode
+                    set(nightVision.characteristic(.on), .bool(mode.lowercased() != "off"))
+                }
+            } catch let error as ImouError where error.code.map(Self.unsupportedCodes.contains) == true {
+                lacks("nightVision")
+            } catch {}
+        }
+    }
+
+    /// The reads a poll of an online camera makes: `base` every poll, `extras` those the quota governor may spread.
+    func pollReads() -> (base: Int, extras: Int) {
+        let base = (services.privacy != nil || cameraActive != nil ? 1 : 0) + (services.light != nil ? 1 : 0)
+            + (services.motionDetection != nil ? ImouSwitch.motionDetection.enableTypes.count : 0)
+        var extras = services.toggles.reduce(0) { $0 + $1.spec.enableTypes.count } + (indicator != nil ? 1 : 0)
+        if services.nightVision != nil { extras += 1 }
+        return (base, extras)
+    }
+
+    /// Reads a switch's enableTypes (addendum, section 2.1): on when any reads on, off only when all answered off; a failed
+    /// read never turns it off. One the camera lacks is not read again.
+    private func read(_ spec: ImouSwitch, into characteristic: Characteristic) async {
+        guard let cloud else { return }
+        var answers: [Bool?] = []
+        for type in spec.enableTypes where !unsupported.contains(type) {
+            do {
+                if type == "breathingLight", legacyStatusLight {
+                    answers.append(try await cloud.breathingLightStatus(deviceID))
+                } else {
+                    answers.append(try await cloud.cameraStatus(deviceID, channel: spec.deviceLevel ? nil : channel.id, type, polling: true))
+                }
+            } catch let error as ImouError where error.code.map(Self.unsupportedCodes.contains) == true {
+                if type == "breathingLight", !legacyStatusLight, let on = try? await cloud.breathingLightStatus(deviceID) {
+                    legacyStatusLight = true
+                    answers.append(on)
+                } else {
+                    lacks(type)
+                }
+            } catch {
+                answers.append(nil)
+            }
+        }
+        if answers.contains(true) {
+            set(characteristic, true)
+        } else if !answers.isEmpty, answers.allSatisfy({ $0 == false }) {
+            set(characteristic, false)
+        }
+    }
+
+    private func lacks(_ type: String) {
+        guard unsupported.insert(type).inserted else { return }
+        newlyUnsupported.insert(type)
+        log.info("\(name): the camera does not have \(type): it is no longer read, and its switch goes at the next start")
+    }
+
+    /// The enableTypes found missing since the last call, for the plugin to keep.
+    func takeUnsupported() -> Set<String> {
+        defer { newlyUnsupported = [] }
+        return newlyUnsupported
+    }
+
+    // MARK: Actions
+
+    /// What an action asked of a camera that cannot do it, or with values out of range.
+    struct ActionRefused: Error, CustomStringConvertible {
+        var description: String
+    }
+
+    /// Moves the camera for `milliseconds` (addendum, section 1.1), one call at a time for the device. A move in another
+    /// direction while the last one runs stops that one first.
+    func move(_ move: ImouPTZMove, milliseconds: Int) async throws {
+        guard let cloud, let ptz = features.ptz else { throw ActionRefused(description: "\(name) cannot pan or tilt") }
+        guard ptz.allows(move) else { throw ActionRefused(description: "\(name) cannot \(move.name) (\(ptz.rawValue))") }
+        guard Self.ptzDurations.contains(milliseconds) else { throw ActionRefused(description: "the duration is 100 to 10000 milliseconds") }
+        let now = ContinuousClock.now
+        let stopFirst = move != .stop && ptzMove.map { $0.move != move && $0.until > now } == true
+        ptzMove = move == .stop ? nil : (move, now + .milliseconds(milliseconds))
+        let device = deviceID, channel = channel.id
+        try await queue.run {
+            if stopFirst { try await cloud.movePTZ(device, channel: channel, .stop, milliseconds: milliseconds) }
+            try await cloud.movePTZ(device, channel: channel, move, milliseconds: milliseconds)
+        }
+    }
+
+    /// Points the camera at `h` and `v` (-1 to 1) with zoom `z` (0 to 1).
+    func locate(h: Double, v: Double, z: Double) async throws {
+        guard let cloud, features.ptz != nil else { throw ActionRefused(description: "\(name) cannot pan or tilt") }
+        guard (-1...1).contains(h), (-1...1).contains(v), (0...1).contains(z) else { throw ActionRefused(description: "h and v are -1 to 1, z 0 to 1") }
+        let device = deviceID, channel = channel.id
+        try await queue.run { try await cloud.locatePTZ(device, channel: channel, h: h, v: v, z: z) }
+    }
+
+    func presets() async throws -> [String] {
+        guard let cloud, features.presets else { throw ActionRefused(description: "\(name) has no presets") }
+        return try await cloud.presets(deviceID, channel: channel.id)
+    }
+
+    func goToPreset(_ name: String) async throws {
+        guard let cloud, features.presets else { throw ActionRefused(description: "\(self.name) has no presets") }
+        let device = deviceID, channel = channel.id
+        try await queue.run { try await cloud.goToPreset(device, channel: channel, name: name) }
+    }
+
+    /// Sets the night vision mode, one of those the camera has once they are known (addendum, section 2.6).
+    func setNightVision(mode: String) async throws {
+        guard let cloud, features.nightVision else { throw ActionRefused(description: "\(name) has no night vision modes") }
+        guard nightVisionModes.isEmpty || nightVisionModes.contains(mode) else {
+            throw ActionRefused(description: "\(name)'s modes are \(nightVisionModes.joined(separator: ", "))")
+        }
+        let device = deviceID, channel = channel.id
+        guard try await sendLatest("nightVision", { try await cloud.setNightVision(device, channel: channel, mode: mode) }) else { return }
+        nightVisionMode = mode
+        if let service = services.nightVision { set(service.characteristic(.on), .bool(mode != "Off")) }
+    }
+
+    /// What the plugin's `cameras` action says of the camera.
+    func summary() -> [String: JSONValue] {
+        var switches: [String: JSONValue] = [:]
+        let all = [services.privacy, services.motionDetection, services.siren, services.light, services.nightVision].compactMap { $0 } + services.toggles.map(\.service)
+        for service in all { switches[service.subtype ?? ""] = service.characteristic(.on).value.boolValue.map(JSONValue.bool) ?? .null }
+        if let indicator { switches["statusLight"] = indicator.characteristic.value.boolValue.map(JSONValue.bool) ?? .null }
+        return [
+            "accessoryId": .string(accessoryID), "deviceId": .string(deviceID), "channel": .string(channel.id), "name": .string(name),
+            "online": .string("\(online)"), "privacy": .bool(privacyOn), "ptz": features.ptz.map { .string($0.rawValue) } ?? .null,
+            "presets": .bool(features.presets), "restart": .bool(features.reboot), "switches": .object(switches),
+            "nightVision": features.nightVision ? ["mode": nightVisionMode.map(JSONValue.string) ?? .null, "modes": .array(nightVisionModes.map(JSONValue.string))] : .null,
+        ]
+    }
+
+    /// The motion sensor is active while the camera answers (or its local events do) and is open.
+    private func updateStatusActive() {
+        let reachable = online == .online || online == .sleeping || localEventsUp == true
+        set(services.motion.characteristic(.statusActive), .bool(reachable && !privacyOn))
     }
 
     /// Sets a value only when it changed, so HomeKit hears of changes alone.
@@ -305,7 +589,7 @@ actor ImouCamera {
         // The cloud's alarms seen before the stream came back are old news when it drops again: the first is only noted.
         if up { lastAlarm = nil }
         localEventsUp = up
-        if cloud == nil { set(services.motion.characteristic(.statusActive), .bool(up)) }
+        if cloud == nil { set(services.motion.characteristic(.statusActive), .bool(up)) } else { updateStatusActive() }
     }
 
     /// The event source nobody has: the sensor never triggers, said once.
@@ -447,6 +731,9 @@ actor ImouCamera {
             log.warning("\(name): failed to wake up: \(error)")
         }
     }
+
+    /// The writes and moves queued or running for the device (for tests).
+    func queuedOperations() async -> Int { await queue.pending }
 
     func shutdown() async {
         await streamer?.stopAll()

@@ -69,6 +69,11 @@ enum ImouError: Error, CustomStringConvertible, Equatable {
     var isDormant: Bool { ["DV1030", "DV1007", "DV1026"].contains(code ?? "") }
 }
 
+/// The two forms of a request's `sign` (addendum, section 0).
+enum ImouSigning: Sendable, Equatable {
+    case hmac, md5
+}
+
 /// The calls made today (UTC), against the account's limit of 20,000 a day (section 7.2).
 struct ImouUsage: Sendable, Equatable {
     static let warnAbove = 15_000
@@ -117,6 +122,18 @@ actor ImouCloud {
     private var token: (value: String, expires: Date)?
     private var fetching: Task<String, any Error>?
     private(set) var usage = ImouUsage()
+    /// The signature the account takes: the documented HMAC-SHA256 first, MD5 once the cloud refused it (addendum, section 0).
+    private(set) var signing = ImouSigning.hmac
+    private var signingSettled = false
+    /// The App Id and App Secret, once the cloud refused them: every later call fails at once, without a request, until
+    /// Setup makes a new client.
+    private var refusal: ImouError?
+    /// Methods the cloud said are spent for the day (`OP1014`), with that UTC day (addendum, section 7.2).
+    private var spent: [String: Int] = [:]
+    /// `controlMovePTZ`'s `operation` as a number: the cloud refused it as a string (addendum, section 1.1).
+    private(set) var ptzOperationAsNumber = false
+    /// Devices that answered `OP1003` to a device-level call without `channelId`: sent `"0"` from then on.
+    private(set) var devicesWantingChannel: Set<String> = []
 
     init(appID: String, appSecret: String, region: ImouRegion, apiURL: String?, environment: Environment, logger: Logger) {
         self.appID = appID
@@ -124,6 +141,9 @@ actor ImouCloud {
         self.environment = environment
         self.logger = logger
         base = Self.baseURL(region: region, apiURL: apiURL)
+        if base.scheme?.lowercased() == "http" {
+            logger.warning("apiUrl is plain HTTP: the IMOU cloud's access token crosses the network unencrypted")
+        }
     }
 
     /// The region's host, or `apiUrl`: a host name (`openapi-fk.easy4ip.com`) or a whole base URL
@@ -139,18 +159,39 @@ actor ImouCloud {
         return URL(string: "https://\(text)/openapi") ?? fallback
     }
 
-    /// `sign`: the lowercase hex MD5 of `time:<time>,nonce:<nonce>,appSecret:<appSecret>` (section 3.2).
+    /// The text both signatures sign (section 3.2).
+    private static func signed(time: Int, nonce: String, appSecret: String) -> Data { Data("time:\(time),nonce:\(nonce),appSecret:\(appSecret)".utf8) }
+
+    /// `sign` as the libraries send it: the lowercase hex MD5 of `time:<time>,nonce:<nonce>,appSecret:<appSecret>` (section 3.2).
     static func sign(time: Int, nonce: String, appSecret: String) -> String {
-        Secrets.hex(Insecure.MD5.hash(data: Data("time:\(time),nonce:\(nonce),appSecret:\(appSecret)".utf8)))
+        Secrets.hex(Insecure.MD5.hash(data: signed(time: time, nonce: nonce, appSecret: appSecret)))
+    }
+
+    /// `sign` as the platform's documentation defines it now (addendum, section 0): Base64 of the HMAC-SHA256 of the same text,
+    /// keyed with the 64 characters of the lowercase hex SHA-256 of the App Secret.
+    static func hmacSign(time: Int, nonce: String, appSecret: String) -> String {
+        let key = SymmetricKey(data: Data(password(appSecret: appSecret).utf8))
+        return Data(HMAC<SHA256>.authenticationCode(for: signed(time: time, nonce: nonce, appSecret: appSecret), using: key)).base64EncodedString()
+    }
+
+    /// The HMAC's key: the lowercase hex SHA-256 of the App Secret, as text.
+    static func password(appSecret: String) -> String { Secrets.hex(SHA256.hash(data: Data(appSecret.utf8))) }
+
+    static func sign(_ signing: ImouSigning, time: Int, nonce: String, appSecret: String) -> String {
+        switch signing {
+        case .hmac: hmacSign(time: time, nonce: nonce, appSecret: appSecret)
+        case .md5: sign(time: time, nonce: nonce, appSecret: appSecret)
+        }
     }
 
     /// A request's body: `system` (signed), `params` with the token (except for `accessToken`) and `id`.
-    static func body(appID: String, appSecret: String, params: [String: JSONValue], token: String?, time: Int, nonce: String, id: String) -> JSONValue {
+    static func body(appID: String, appSecret: String, signing: ImouSigning = .hmac, params: [String: JSONValue], token: String?, time: Int, nonce: String,
+                     id: String) -> JSONValue {
         var params = params
         if let token { params["token"] = .string(token) }
         return [
             "system": [
-                "ver": "1.0", "sign": .string(sign(time: time, nonce: nonce, appSecret: appSecret)), "appId": .string(appID),
+                "ver": "1.0", "sign": .string(sign(signing, time: time, nonce: nonce, appSecret: appSecret)), "appId": .string(appID),
                 "time": .number(Double(time)), "nonce": .string(nonce),
             ],
             "params": .object(params),
@@ -165,7 +206,9 @@ actor ImouCloud {
 
     /// A method's `data` (`{}` when the answer has none). A `TK1002` fetches the token again, once, and retries once.
     func call(_ method: String, _ params: [String: JSONValue] = [:], polling: Bool = false) async throws -> JSONValue {
+        if let refusal { throw refusal }
         if polling, callsToday() >= ImouUsage.stopAt { throw ImouError.overBudget }
+        if spent[method] == ImouUsage.day(of: environment.now()) { throw ImouError.api(code: "OP1014", message: "spent for today") }
         let used = try await currentToken()
         do {
             return try await send(method, params, token: used)
@@ -179,6 +222,7 @@ actor ImouCloud {
     /// Checks the App Id and App Secret: a token fetched now.
     func verify() async throws {
         token = nil
+        refusal = nil
         _ = try await currentToken()
     }
 
@@ -191,8 +235,30 @@ actor ImouCloud {
         return try await task.value
     }
 
+    func ptzTakesNumbers() { ptzOperationAsNumber = true }
+
+    func wantsChannel(_ deviceID: String) { devicesWantingChannel.insert(deviceID) }
+
     private func fetchToken() async throws -> String {
-        let data = try await send("accessToken", [:], token: nil)
+        do {
+            return try await requestToken()
+        } catch let error as ImouError where error.isAuthRefused {
+            refusal = error
+            throw error
+        }
+    }
+
+    private func requestToken() async throws -> String {
+        let data: JSONValue
+        do {
+            data = try await send("accessToken", [:], token: nil)
+        } catch let error as ImouError where error.code == "SN1001" && signing == .hmac && !signingSettled {
+            // The documented signature refused: the one the libraries send, remembered for the account.
+            signing = .md5
+            logger.info("The IMOU cloud refused the HMAC-SHA256 signature: signing with MD5")
+            data = try await send("accessToken", [:], token: nil)
+        }
+        signingSettled = true
         guard let value = data["accessToken"]?.stringValue, !value.isEmpty else { throw ImouError.malformed("no access token") }
         let seconds = data["expireTime"]?.doubleValue ?? data["expireTime"]?.stringValue.flatMap(Double.init) ?? 3600
         token = (value, environment.now().addingTimeInterval(seconds.finite ?? 3600))
@@ -222,7 +288,8 @@ actor ImouCloud {
             logger.warning("More than \(ImouUsage.slowDownAbove) IMOU cloud calls today (the limit is 20,000): polling slows down until midnight UTC")
         }
         let time = Int(now.timeIntervalSince1970.rounded())
-        let body = Self.body(appID: appID, appSecret: appSecret, params: params, token: token, time: time, nonce: environment.nonce(), id: environment.requestID())
+        let body = Self.body(appID: appID, appSecret: appSecret, signing: signing, params: params, token: token, time: time, nonce: environment.nonce(),
+                             id: environment.requestID())
         let request = HomeswiftNetwork.HTTPRequest(method: "POST", url: base.appendingPathComponent(method), headers: [("Content-Type", "application/json")],
                                   body: body.encoded(), timeout: .seconds(30))
         let response: HomeswiftNetwork.HTTPResponse
@@ -240,6 +307,10 @@ actor ImouCloud {
         let code = result["code"]?.stringValue ?? result["code"]?.intValue.map(String.init)
         guard let code else { throw ImouError.malformed("no result code") }
         logger.trace("IMOU \(method): \(code)")
+        if code == "OP1014", spent[method] != ImouUsage.day(of: now) {
+            spent[method] = ImouUsage.day(of: now)
+            logger.warning("The IMOU cloud's daily limit for \(method) is reached: it is not called again until midnight UTC")
+        }
         guard code == "0" else { throw ImouError.api(code: code, message: String((result["msg"]?.stringValue ?? "").prefix(200))) }
         return result["data"]?.nonNull ?? [:]
     }

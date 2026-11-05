@@ -81,7 +81,7 @@ extension ImouPlugin {
     public struct CameraSettings: Sendable, Equatable {
         static let keys: Set<String> = [
             "host", "rtspPort", "httpPort", "username", "localEvents", "motionTimeout", "privacySwitch", "lightSwitch", "sirenSwitch", "motionDetectSwitch",
-            "recording", "encoder",
+            "recording", "encoder", "personDetectSwitch", "statusLightSwitch", "linkageSirenSwitch", "linkageLightSwitch", "nightVisionSwitch", "presetSwitches",
         ]
 
         var host: String?
@@ -97,22 +97,36 @@ extension ImouPlugin {
         var motionDetectSwitch = true
         var recording = true
         var encoder: String?
+        /// The addendum's switches (section 2): off unless asked for, since each read costs calls of the day's budget.
+        var personDetectSwitch = false
+        var statusLightSwitch = false
+        var linkageSirenSwitch = false
+        var linkageLightSwitch = false
+        var nightVisionSwitch = false
+        /// A "Go to <preset>" switch per PTZ preset.
+        var presetSwitches = false
 
         init(fields: [String: JSONValue], password: String?, defaults: Configuration) {
             let json = JSONValue.object(fields)
             host = json["host"].text
-            rtspPort = json["rtspPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? 554
-            httpPort = json["httpPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? 80
-            username = json["username"].text ?? "admin"
+            rtspPort = json["rtspPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? rtspPort
+            httpPort = json["httpPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? httpPort
+            username = json["username"].text ?? username
             self.password = password
-            localEvents = json["localEvents"]?.boolValue ?? true
-            motionTimeout = min(max(json["motionTimeout"].lenientInt ?? defaults.motionTimeout ?? 15, 1), 3600)
-            privacySwitch = json["privacySwitch"]?.boolValue ?? true
-            lightSwitch = json["lightSwitch"]?.boolValue ?? true
-            sirenSwitch = json["sirenSwitch"]?.boolValue ?? true
-            motionDetectSwitch = json["motionDetectSwitch"]?.boolValue ?? true
-            recording = json["recording"]?.boolValue ?? true
+            localEvents = json["localEvents"]?.boolValue ?? localEvents
+            motionTimeout = min(max(json["motionTimeout"].lenientInt ?? defaults.motionTimeout ?? motionTimeout, 1), 3600)
+            privacySwitch = json["privacySwitch"]?.boolValue ?? privacySwitch
+            lightSwitch = json["lightSwitch"]?.boolValue ?? lightSwitch
+            sirenSwitch = json["sirenSwitch"]?.boolValue ?? sirenSwitch
+            motionDetectSwitch = json["motionDetectSwitch"]?.boolValue ?? motionDetectSwitch
+            recording = json["recording"]?.boolValue ?? recording
             encoder = json["encoder"].text ?? defaults.encoder
+            personDetectSwitch = json["personDetectSwitch"]?.boolValue ?? personDetectSwitch
+            statusLightSwitch = json["statusLightSwitch"]?.boolValue ?? statusLightSwitch
+            linkageSirenSwitch = json["linkageSirenSwitch"]?.boolValue ?? linkageSirenSwitch
+            linkageLightSwitch = json["linkageLightSwitch"]?.boolValue ?? linkageLightSwitch
+            nightVisionSwitch = json["nightVisionSwitch"]?.boolValue ?? nightVisionSwitch
+            presetSwitches = json["presetSwitches"]?.boolValue ?? presetSwitches
         }
 
         /// Video and snapshots can go local: an address and a password.

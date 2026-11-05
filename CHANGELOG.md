@@ -97,6 +97,10 @@ All notable changes to this project are documented here. The format follows
   FFmpeg 5, left out for an unknown version, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
   `RTSPCameraStreamer.standardResolutions` and `minimumInactivity`, and every query value of an RTSP URL masked in FFmpeg's
   logs.
+- IMOU: the documented HMAC-SHA256 signature, with MD5 kept for accounts that refuse it; pan, tilt, zoom, presets, night
+  vision's modes, restart and the SD card as actions for MCP and the Assistant; person detection, status light, siren and
+  light on alarm, night vision and preset switches (Accessory Settings, off by default); privacy kept in step with
+  HomeKit Camera Active; the extra switches' reads spread over polls to keep within the day's budget.
 
 ### Changed
 
@@ -105,6 +109,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- IMOU: one camera's error from the cloud (unbound, shared without permission) no longer stops the poll of the others
+  or reads as the cloud being down, and is logged once; a refused App Id or App Secret stops every cloud call, polls and
+  switches alike, until Setup; a camera the account stops listing but that is set up on the LAN goes on without the
+  cloud's switches; a quick second change to privacy or night vision no longer shows the first one for a moment; an App
+  Secret or safety code newly written in the block reaches the vault instead of being dropped; Setup checks the safety
+  code of a camera whose serial request fails in any way; a firmware version such as `V2.1` reads 2.1.0.
 - Setup sheet: a step asked again after an error keeps the choices made too (Tahoma's service), as the server now
   sends each field's answer back with the error, to MCP clients as well. A first step that fails reaches MCP clients as
   untrusted data. Looking for devices again after a failure keeps the device's settings at the end. The Add a plugin
