@@ -71,6 +71,8 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
         var discoveryWindow: Duration = .seconds(3)
         /// Multiplies every delay: the poll, the retries, the back-off, the brightness guard.
         var timeScale: Double = 1
+        /// How long a slider rests before its brightness is sent: 300 ms times `timeScale` when nil.
+        var sliderRest: Duration?
     }
 
     public static let platform = "PhilipsHueSyncBoxPlatform"
@@ -90,7 +92,9 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     let mapping: SyncBoxMapping
     private let tasks = TaskBag()
-    private let brightnessGuard: LatestCallGuard
+    private let brightnessGuard = LatestCallGuard(delay: .zero)
+    /// How long a slider rests before its brightness is sent.
+    private let sliderRest: Duration
     var logger: Logger { context.logger }
 
     private var client: SyncBoxClient?
@@ -114,7 +118,7 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         mapping = configuration.mapping
-        brightnessGuard = LatestCallGuard(delay: .milliseconds(300) * dependencies.timeScale)
+        sliderRest = dependencies.sliderRest ?? .milliseconds(300) * dependencies.timeScale
     }
 
     var interval: Duration {
@@ -314,9 +318,13 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
 
     /// A slider's write, sent once the slider rests.
     func sendBrightness(_ value: Int, key: String) {
-        let guarded = brightnessGuard
+        // Claimed now, in the order the writes came: the tasks need not start in that order, and the last to start
+        // is not always the last write.
+        let isLatest = brightnessGuard.claim(key)
+        let rest = sliderRest
         tasks.add { [weak self] in
-            guard await guarded(key) else { return }
+            do { try await Task.sleep(for: rest) } catch { return }
+            guard isLatest() else { return }
             await self?.send(.brightness(SyncBoxMapping.boxBrightness(value)))
         }
     }

@@ -123,6 +123,10 @@ final class TestEnvironment: Sendable {
     let found = NIOLockedValueBox<[SyncBoxDiscovery.Box]>([])
     let tls = NIOLockedValueBox<[HTTPClient.TLS]>([])
     private let plugins = NIOLockedValueBox<[HueSyncBoxPlugin]>([])
+    /// The brightness guard's wait, when a test needs one longer than its writes take on a loaded machine.
+    let sliderRest: Duration?
+
+    init(sliderRest: Duration? = nil) { self.sliderRest = sliderRest }
 
     static var block: [String: Any] { [
         "syncBoxIpAddress": "192.0.2.50", "syncBoxApiAccessToken": "EXAMPLE-TOKEN-0123456789abcdef",
@@ -145,7 +149,7 @@ final class TestEnvironment: Sendable {
                     continuation.finish()
                 }
             },
-            discoveryWindow: .milliseconds(100), timeScale: 0.01)
+            discoveryWindow: .milliseconds(100), timeScale: 0.01, sliderRest: sliderRest)
     }
 
     func start(settings: [String: Any] = TestEnvironment.block, credentials: HueSyncBoxPlugin.Registration? = nil) async throws -> PluginHost {
@@ -308,7 +312,9 @@ struct SyncBoxClientTests {
     }
 
     @Test func retriesTransportFailuresButNotAnswers() async throws {
-        let timing = SyncBoxClient.Timing(attempt: .milliseconds(100), budget: .seconds(2), retryDelays: [.milliseconds(1), .milliseconds(2), .milliseconds(4)], lockWait: .seconds(1))
+        // A budget no machine runs out of: the fakes fail at once, and what this proves is which failures are retried and
+        // how often (the budget has its own test).
+        let timing = SyncBoxClient.Timing(attempt: .milliseconds(100), budget: .seconds(50), retryDelays: [.milliseconds(1), .milliseconds(2), .milliseconds(4)], lockWait: .seconds(1))
         let flaky = Flaky([.failure(.timeout), .failure(.connectionClosed), .success(HTTPResponse(status: 200, body: Data(vectorState.utf8)))])
         let client = try #require(SyncBoxClient(address: "192.0.2.50", token: "t", transport: flaky, timing: timing, logger: testLogger))
         #expect(try await client.state().name == "Lounge Sync Box")
@@ -324,6 +330,15 @@ struct SyncBoxClientTests {
         let gone = try #require(SyncBoxClient(address: "192.0.2.50", token: "t", transport: down, timing: timing, logger: testLogger))
         await #expect(throws: HTTPClientError.timeout) { try await gone.state() }
         #expect(down.count.withLockedValue { $0 } == 4)
+    }
+
+    /// No retry that would start past the budget.
+    @Test func retriesWithinTheBudget() async throws {
+        let timing = SyncBoxClient.Timing(attempt: .milliseconds(100), budget: .milliseconds(50), retryDelays: [.seconds(10)], lockWait: .seconds(1))
+        let down = Flaky([])
+        let client = try #require(SyncBoxClient(address: "192.0.2.50", token: "t", transport: down, timing: timing, logger: testLogger))
+        await #expect(throws: HTTPClientError.timeout) { try await client.state() }
+        #expect(down.count.withLockedValue { $0 } == 1)
     }
 
     @Test func buildsTheBaseURL() {
@@ -469,19 +484,27 @@ struct HueSyncBoxTests {
 
     /// One read per cycle for all the accessories, and a brightness drag is one request.
     @Test func pollsOncePerCycleAndCoalescesSliders() async throws {
+        // A slider's rest longer than six writes take on a loaded machine.
+        let environment = TestEnvironment(sliderRest: .milliseconds(200))
         let host = try await environment.start()
         let box = environment.box
         let light = try await accessory(host, id(.lightbulb))
         #expect(await eventually { await environment.plugin?.state != nil })
+        let interval = try #require(await environment.plugin?.interval)
+        let clock = ContinuousClock()
+        let started = clock.now
         let start = box.reads
-        try await Task.sleep(for: .milliseconds(260))
+        #expect(await eventually { box.reads - start >= 3 })
+        let elapsed = clock.now - started
         let reads = box.reads - start
-        // 50 ms a cycle: about five in 260 ms, never one per accessory (seven here).
-        #expect((2...7).contains(reads), "\(reads) reads")
+        // A cycle at most every interval (50 ms): one read each, however slow the machine; one per accessory would be
+        // seven at once.
+        let cycles = Int(elapsed / interval) + 1
+        #expect(reads <= cycles, "\(reads) reads in \(elapsed), \(cycles) cycles at most")
         let brightness = light.service(.lightbulb)?[.brightness]
         for value in stride(from: 10, through: 60, by: 10) { try await write(brightness, .int(value)) }
         #expect(await eventually { box.writes.count == 1 })
-        try await Task.sleep(for: .milliseconds(50))
+        // The first write to go out is the last value: the earlier ones are no longer the latest when their turns come.
         #expect(box.writes.map(\.body) == [["brightness": 120]])
         await host.stop()
     }
