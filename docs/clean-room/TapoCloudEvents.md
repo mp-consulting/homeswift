@@ -30,6 +30,13 @@
   "Copyright (c) 2026 FlyzDev".
 - Source 10: `docs/clean-room/TapoCamera.md` sections 9 and 12 (this repository), and Homeswift's own
   `Sources/HomeswiftNetwork/FCMReceiver.swift` doc comments (what the receiver needs).
+- Source 11: https://github.com/python-kasa/python-kasa, `kasa/discover.py` and `kasa/transports/aestransport.py`,
+  commit `9478ed25ac9fc72ddafcbdf6bd1f9328e8632df4`. GPL-3.0. Read for the UDP discovery (TDP) wire shape only.
+- Source 12: https://github.com/JurajNyiri/HomeAssistant-Tapo-Control, `custom_components/tapo_control/manifest.json`,
+  commit `6d2c8adb81f3551070ec62fd9590f26254df145a`. Apache-2.0. Read for how it finds cameras (DHCP host names).
+- Section 4.4 also used, from Source 1: the Objective-C class metadata (class and instance-variable **names** only,
+  `otool -oV`) and `strings` of `TPIoTCloudClient`, `TPCameraNetwork`, `TPTDPNetwork`, `IotSwiftSDK` (all
+  `cryptid 0`), and the app's entitlements (`com.apple.developer.networking.multicast`). No code was disassembled.
 - Downloads were fetched as tarballs into the scratchpad and only read; nothing was executed. No request was sent to
   any TP-Link server while writing this. Every account value below is a placeholder (`owner@example.com`,
   `ExamplePassw0rd!`, `00000000-…`).
@@ -187,10 +194,114 @@ category, status, mac, appServerUrlV2, isSubThing, …}]}` [src4, src8, src9].
 - By **MAC**: compare `deviceMac` / `mac` after stripping separators and upper-casing (seen as `105A952FAD17`
   [src4]); the camera's MAC comes from Homeswift's `ARPTable` after a Streamd connection or from Setup.
 - By **device id**: `deviceId` = `thingName`.
-- By **IP**: the cloud lists hold no LAN IP for cameras as far as the sources show; [src5] asks the device for it
+- By **IP**: the cloud **lists** hold no LAN IP; the per-device details call does (4.4). [src5] asks the device for it
   through passthrough, which **wakes the camera** (section 7). Do not.
 - **Recommendation:** at Setup, list `SMART.IPCAMERA` devices, match the MAC (or let the user pick by decoded alias
   and model), and store `deviceId` in the Accessory Settings.
+
+### 4.4 The camera's LAN address
+
+Where the app's Device Info page can get the "IP Address" of a C675D from. The page's own code is in the encrypted
+main executable, so which route it takes is not visible; what is visible is every route the frameworks offer.
+
+**Route 1: cloud device details (no wake).** `GET {appServerUrlV2}/v1/things/{thingName}/details` (the device's
+`appServerUrlV2` from the `/v2/things` list (4.2), on the user's account `https://n-euw1-wap-gw.i.tplinkcloud.com`; the
+v1 `appServerUrl` host answers 404 for this path [coordinator, live account]; NBU headers of 5.1; `thingName` =
+`deviceId`) [app: path string and the method name `getDeviceDetail` in
+`TPIoTCloudClient`]. Its response model is the **only** cloud model in the app with an IP: its fields are `ip`, `mac`,
+`ssid`, `model`, `deviceType`, `category`, `role`, `fwVer`, `fwId`, `hwId`, `hwVersion`, `oemId`, `onboardingTime`,
+`position`, `shellColor`, `slotNumber`, plus Matter fields (`matterIoTNodeId`, `matterNodeLabel`, `matterProductName`,
+`matterVendorName`) [app: instance-variable names]. The JSON key is **inferred** to be `ip` (the app's JSON mappers
+use the property name unless mapped; not seen on the wire). Expected value: the address the camera reported to the
+cloud when it last connected (dotted IPv4 string), so it can be stale after a DHCP change while the camera keeps its
+cloud session. The call reads the cloud registry and does **not** reach the camera (section 7). Whether it is filled
+for battery cameras: **unverified**. Confidence: medium (endpoint and field name from the app; no source shows a
+third party using it).
+
+**TLS for the `*.i.tplinkcloud.com` hosts.** Their chain is leaf `*.i.tplinkcloud.com` <- "TP-Link Cloud Server CA"
+(O=TP-Link Systems Inc., valid 2025-02-25 to 2040-02-22) <- "TP-Link Cloud Root CA". The server does not send the
+root, it is in no system store, and its AIA names only a CRL [coordinator, live account]. The root is bundled in the
+app as `tp-link-root-CA-new.der` (main bundle and each widget/intent extension) and, the same certificate in PEM, as
+`Frameworks/IotSwiftSDK.framework/tp-link-root-CA.pem` [app]. Checked: `openssl verify -CAfile <this root>
+<the intermediate>` answers OK (OpenSSL 4.1.0, no partial chain). Add it as an extra trust anchor for these hosts
+(Homeswift's `TLSOptions`), next to the system store.
+- Subject = Issuer: `CN=TP-Link Cloud Root CA, O=TP-Link Systems Inc., L=Irvine, ST=California, C=US`
+- Serial `5D91E844A22F85E282C492F8B36AD9FDA95F1063`; ECDSA P-256 key, signed ecdsa-with-SHA384; CA:TRUE
+- Valid 2025-02-25 03:47:11 UTC to 2055-02-18 03:47:11 UTC
+- SHA-256 fingerprint `8D:27:22:4D:AC:20:C2:DB:8A:38:0E:31:03:B4:E3:83:C4:81:EE:41:B6:81:90:85:79:AE:E4:16:76:1D:A2:89`
+
+```
+-----BEGIN CERTIFICATE-----
+MIICKTCCAdCgAwIBAgIUXZHoRKIvheKCxJL4s2rZ/alfEGMwCgYIKoZIzj0EAwMw
+cjEeMBwGA1UEAwwVVFAtTGluayBDbG91ZCBSb290IENBMR0wGwYDVQQKDBRUUC1M
+aW5rIFN5c3RlbXMgSW5jLjEPMA0GA1UEBwwGSXJ2aW5lMRMwEQYDVQQIDApDYWxp
+Zm9ybmlhMQswCQYDVQQGEwJVUzAgFw0yNTAyMjUwMzQ3MTFaGA8yMDU1MDIxODAz
+NDcxMVowcjEeMBwGA1UEAwwVVFAtTGluayBDbG91ZCBSb290IENBMR0wGwYDVQQK
+DBRUUC1MaW5rIFN5c3RlbXMgSW5jLjEPMA0GA1UEBwwGSXJ2aW5lMRMwEQYDVQQI
+DApDYWxpZm9ybmlhMQswCQYDVQQGEwJVUzBZMBMGByqGSM49AgEGCCqGSM49AwEH
+A0IABAHpyZzXk1E4VWyIB+9VMci2Sw5OdeQ+kyFc2/R/f/OiHt6hk4PfMcCKKgS6
+hkVVYyVlobJNn052z+s9DJKJgfajQjBAMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0P
+AQH/BAQDAgGGMB0GA1UdDgQWBBQLV0PTee1jvnJMcUCEtQgJSg/oyTAKBggqhkjO
+PQQDAwNHADBEAiAURU4PvHXUrVViDF+rCky3RD9BeUpe91kYoNWe0oKVUwIgY0C5
+MsDHbQrwLHs1I7+f2MvZDGBHhNjnl0n4MF9q0L0=
+-----END CERTIFICATE-----
+```
+
+(The older `tp-link-root-CA.der`, `CN=tp-link-CA`, is a different root; the device roots `tp-link-device-root-CA.der`
+and `tp-link-device-beta-root-CA.der` are for devices, not cloud hosts [app].)
+
+**Not in the lists.** The response models of `getDeviceListByPage` (4.1, `TPAppCloudNetwork`: no IP-named field at
+all) and `/v2/things` (4.2) carry no IP [app: class metadata; src2, src4, src8 show none]. `getDeviceInfo` (v2 API)
+neither. No "running info" or shadow-style cloud endpoint returning an IP was found. The only other IP-named cloud
+fields are a voice-sign-URL response (`ipAddress`, unrelated) and the camera's **public** IP (`getPubIP` /
+`CameraGetPublicIPRequest`, the WAN address, through the device).
+
+**Route 2: ask the camera (wakes it).** `TPCameraNetwork` has a device request `getDeviceIpAddress` (response field
+`ip`), next to `getPubIP`, and the system module keeps an `ipAddress` [app]. Device requests go over the local
+transport or the cloud passthrough/relay (`IPCTSTransportManager` retries the IoT-cloud transport after HTTP);
+either way the camera must be awake to answer. The request body (likely a `network` section with `ipaddr`) is
+**inferred** from adjacent strings. Hub child devices report a `local_ip` in the hub's child list, which is the hub's
+data, not the camera's. **Wakes the camera.** Do not use.
+
+**Route 3: UDP discovery, TDP (may or may not reach a sleeping camera).** The app has a TP-Link Discovery Protocol
+stack (`TPTDPNetwork`: broadcast and unicast scans, "send unicast to known ip address", a multicast group
+`239.255.255.250` it joins; `TDPCamera` in `TPCameraNetwork`) and holds the multicast entitlement; `Info.plist`
+declares only Matter Bonjour types (`_matter._tcp`, `_matterc._udp`, `_matterd._udp`), so cameras are **not** found
+by mDNS [app]. Wire shape [src11]:
+- Request to UDP **20002** (broadcast `255.255.255.255`, or unicast to a known address): a 16-byte header, all
+  big-endian: version 2 (1 byte), message type 0 (1), op code 1 = probe (2), payload length (2), flags 17 (1), a
+  zero byte (1), a random 4-byte serial, then a CRC32 (4); followed by the JSON payload
+  `{"params":{"rsa_key":"<PEM of a fresh RSA-2048 public key>"}}`. The CRC is computed over the whole packet with the
+  CRC field first set to `0x5A6B7C8D`, then written into bytes 12–15.
+- Reply from the device's port 20002 to the sender: the same 16-byte header, then JSON whose `result` has
+  `device_id`, `device_type` (`SMART.IPCAMERA`), `device_model`, **`ip`**, `mac` (with dashes), `owner` (an MD5 of the
+  owner), `factory_default`, `is_support_iot_cloud`, `obd_src`, `isResetWiFi`, `mgt_encrypt_schm`
+  (`is_support_https`, `encrypt_type`, `http_port`, `lv`) and, for cameras, `encrypt_info` {`sym_schm`, `key`, `data`}.
+  `key` is Base64 of RSA-OAEP(SHA-1) ciphertext of 32 bytes: AES-128 key (16) then IV (16); `data` is Base64 of
+  AES-128-CBC/PKCS7 ciphertext of a JSON object with more device data [src11]. The app's camera parser reads
+  `device_id`, `device_model`, `device_type`, `http_port`, `connect_type`, `connect_ssid`, `encrypt_info`,
+  `sym_schm`, `is_support_https`, `isResetWiFi`, `owner`, `factory_default` and logs "TDP reply after decrypt" [app].
+  The UDP source address is the device's address as well.
+- Wake: a broadcast probe is handled by the camera's main processor. A sleeping battery camera keeps only a Wi-Fi
+  keep-alive with the cloud; that it does **not** answer TDP while asleep is **inferred** (the app models "TDP and IoT
+  both offline", `hasTdpAndIotOffline`, and validity flags for TDP info before local play [app]), not shown. If it
+  does answer, it has woken for it. Confidence: wire shape high (src11, matching app strings); sleeping behaviour
+  unknown.
+
+**Route 4: passive LAN signals (no wake).**
+- **ARP**: with the MAC from the cloud list (`deviceMac`, 4.1), look up the address in the host's ARP table
+  (Homeswift's `ARPTable`). Entries exist only after traffic with the camera; Wi-Fi chips often answer ARP for a
+  sleeping host (ARP offload), which does not wake the main processor; **unverified** for the C675D.
+- **DHCP**: Home Assistant's integration discovers cameras by their DHCP host names (patterns like a model prefix,
+  `c###*_*`, `d###*_*`, `tc##*_*`) [src12]; seeing them needs the DHCP broadcast (join or reboot), not renewals.
+
+**Recommendation.**
+1. At Setup and on each start: call `/v1/things/{thingName}/details` and take `ip`; check it against the MAC
+   (`mac` there, or `deviceMac`) through `ARPTable` when an entry exists. Store it as a hint, never as the identity.
+2. When a live-view connection to the hint fails, refresh it from the same cloud call (cheap, no wake) before giving up.
+3. Never use `getDeviceIpAddress` or passthrough for this. Do not run periodic TDP scans aimed at battery cameras;
+   a single unicast TDP probe is acceptable only right after a detection (camera already awake, section 8).
+4. Test with the user's C675D: whether `details.ip` is present and fresh, and whether TDP is answered while asleep.
 
 ## 5. Event history
 

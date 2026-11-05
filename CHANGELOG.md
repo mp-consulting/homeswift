@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Pan and tilt in the web UI: a camera that moves gets a **Pan and tilt** pad over its live view, pressed or dragged like
+  a joystick (or steered with the arrow keys) to turn it a step at a time while held, with its presets and home position
+  beside it. Plugins answer HomeswiftPlugin's new `cameraControls(accessoryID:)` and `controlCamera(accessoryID:_:)`
+  (`CameraControls`, `CameraCommand`); `GET /api/cameras/<id>/controls` and `POST /api/cameras/<id>/control` are for users
+  who may control accessories. Reolink's PTZ cameras use it (a step is a move stopped after 0.4 s; the guard is home).
+- TP-Link Tapo: pan and tilt of a C675D's tele lens through the camera's control API (HTTPS on 443, the encrypt_type 3
+  login with the owner's cloud password, a clean-room implementation of docs/clean-room/TapoPTZ.md), on the web UI's pad
+  and as `list_ptz_cameras`, `move_camera` and `go_to_preset`; only while a live view keeps the camera awake, so a move
+  never wakes it. Experimental, not yet tried on a real camera.
+- TP-Link Tapo: Add accessories lists the account's cameras from the TP-Link cloud, at the address the ARP table gives
+  their MAC (the local networks resolved once when it lacks one), and sets one up with its address, type and cloud id in
+  one click, or asks the address when the bridge does not see the camera (another subnet); the account's sign-in reaches
+  the cloud with or without cameras (its e-mailed code may be left empty without them). `HomeswiftNetwork` gains
+  `ARPTable.resolveLocalNetworks(lookingFor:)`, and `HomeswiftPlugin` a shared `withTimeout` (APsystems ECU, Govee,
+  Tahoma and Tapo use it).
+
+### Fixed
+
+- The ARP table is read through `ChildProcess` (`posix_spawn`): Foundation's `Process` reads the current directory as it
+  starts, which hung discovery on macOS when the bridge was started from a folder under the privacy checks (`~/Documents`).
+  Elgato Key Lights reads it through `ARPTable` too.
+
 ## [0.21.0] - 2026-11-05
 
 ### Added

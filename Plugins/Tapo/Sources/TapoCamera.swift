@@ -119,6 +119,10 @@ final class TapoCamera: Sendable {
 struct TapoCameraRuntime: Sendable {
     var feed: TapoCameraFeed
     var cameras: [TapoCamera]
+    /// The camera's control API, for pan and tilt (TapoControl).
+    var control: TapoControl? = nil
+    /// The accessory id of the lens on the motor: the tele lens of a C675D, the only lens of another camera.
+    var movableLens: String? = nil
 }
 
 extension TapoPlugin {
@@ -177,7 +181,10 @@ extension TapoPlugin {
             try await context.publishExternal(camera.accessory)
             cameras.append(camera)
         }
-        cameraRuntimes[deviceID] = TapoCameraRuntime(feed: feed, cameras: cameras)
+        let control = makeControl(deviceID: deviceID, host: host)
+        // The lens on the motor: the tele one when both show, the one shown otherwise (a C675D in VGA shows its tele lens).
+        let movable = zip(lenses, cameras).first { $0.0.suffix == "Tele" }?.1 ?? (cameras.count == 1 ? cameras[0] : nil)
+        cameraRuntimes[deviceID] = TapoCameraRuntime(feed: feed, cameras: cameras, control: control, movableLens: movable?.accessory.id)
         if device.motion ?? true {
             // Each lens's serial: the MAC, with `-wide` or `-tele` when the camera has several.
             let labels = lenses.map { lens in lenses.count > 1 ? lens.suffix ?? "Wide" : nil }
