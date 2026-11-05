@@ -115,6 +115,9 @@ struct RTSPResponseReader: Sendable {
 
         func header(_ name: String) -> String? { headers.first { $0.0.lowercased() == name.lowercased() }?.1 }
 
+        /// Its `WWW-Authenticate` headers, one challenge each.
+        var challenges: [String] { headers.filter { $0.0.lowercased() == "www-authenticate" }.map(\.1) }
+
         static func == (lhs: Response, rhs: Response) -> Bool {
             lhs.status == rhs.status && lhs.body == rhs.body && lhs.headers.map { "\($0.0):\($0.1)" } == rhs.headers.map { "\($0.0):\($0.1)" }
         }
@@ -138,20 +141,29 @@ struct RTSPResponseReader: Sendable {
                 if buffer.count > Self.maximum { buffer = [] }
                 break
             }
-            let head = String(decoding: buffer[..<end], as: UTF8.self).components(separatedBy: "\r\n")
-            var headers: [(String, String)] = []
-            for line in head.dropFirst() {
-                guard let colon = line.firstIndex(of: ":") else { continue }
-                headers.append((line[..<colon].trimmingCharacters(in: .whitespaces), line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)))
-            }
+            let (status, headers) = Self.head(buffer[..<end])
             let length = headers.first { $0.0.lowercased() == "content-length" }.flatMap { Int($0.1) }.map { min(max($0, 0), Self.maximum) } ?? 0
             guard buffer.count >= end + 4 + length else { break }
-            let status = head.first.flatMap { line in line.split(separator: " ").dropFirst().first.flatMap { Int($0) } } ?? 0
             responses.append(Response(status: status, headers: headers, body: Array(buffer[(end + 4)..<(end + 4 + length)])))
             buffer.removeFirst(end + 4 + length)
         }
         return responses
     }
+
+    /// An RTSP or HTTP head without its blank line: the status line's code (0 when it has none) and the headers.
+    static func head(_ bytes: ArraySlice<UInt8>) -> (status: Int, headers: [(String, String)]) {
+        let lines = String(decoding: bytes, as: UTF8.self).components(separatedBy: "\r\n")
+        var headers: [(String, String)] = []
+        for line in lines.dropFirst() {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            headers.append((line[..<colon].trimmingCharacters(in: .whitespaces), line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)))
+        }
+        let status = lines.first.flatMap { line in line.split(separator: " ").dropFirst().first.flatMap { Int($0) } } ?? 0
+        return (status, headers)
+    }
+
+    /// The Digest challenge among `challenges`, nil without one.
+    static func digest(in challenges: [String]) -> String? { challenges.first { $0.lowercased().hasPrefix("digest") } }
 
     static func find(_ needle: [UInt8], in bytes: [UInt8]) -> Int? {
         needle.isEmpty ? nil : bytes.firstRange(of: needle)?.lowerBound
@@ -370,12 +382,30 @@ actor ImouTalk {
         }
     }
 
-    /// The audio still to play on the camera once the last piece is written (section 3.4).
-    private func tailWait(_ written: [(at: ContinuousClock.Instant, duration: Duration)]) -> Duration {
-        let window = duration(Self.tailWindow)
-        let now = ContinuousClock.now
-        let recent = written.filter { now - $0.at <= window }.reduce(Duration.zero) { $0 + $1.duration }
-        return min(recent * scale, window) + duration(Self.tailMargin)
+    /// The pieces written on a connection, for the audio still to play on the camera once the last is (section 3.4).
+    struct Tail {
+        let scale: Double
+        /// The pieces written in all.
+        private(set) var count = 0
+        private var recent: [(at: ContinuousClock.Instant, duration: Duration)] = []
+
+        init(scale: Double) { self.scale = scale }
+
+        private var window: Duration { ImouTalk.tailWindow * scale }
+
+        mutating func wrote(_ duration: Duration) {
+            count += 1
+            recent.append((.now, duration))
+            let now = ContinuousClock.now, kept = window * 4
+            recent.removeAll { now - $0.at > kept }
+        }
+
+        /// What was written in the last 300 ms, at most that, plus 200 ms.
+        var wait: Duration {
+            let now = ContinuousClock.now
+            let played = recent.filter { now - $0.at <= window }.reduce(Duration.zero) { $0 + $1.duration }
+            return min(played * scale, window) + ImouTalk.tailMargin * scale
+        }
     }
 
     // MARK: postAudio (section 3)
@@ -396,12 +426,10 @@ actor ImouTalk {
                 guard state.status == nil else { return }
                 state.bytes += bytes.prefix(8192 - state.bytes.count)
                 guard let end = RTSPResponseReader.find([0x0D, 0x0A, 0x0D, 0x0A], in: state.bytes) ?? (state.bytes.count >= 8192 ? state.bytes.count : nil) else { return }
-                let lines = String(decoding: state.bytes[..<end], as: UTF8.self).components(separatedBy: "\r\n")
-                state.status = lines.first.flatMap { $0.split(separator: " ").dropFirst().first.flatMap { Int($0) } } ?? 0
-                let challenges = lines.dropFirst().filter { $0.lowercased().hasPrefix("www-authenticate:") }.map {
-                    String($0.dropFirst("www-authenticate:".count)).trimmingCharacters(in: .whitespaces)
-                }
-                state.challenge = challenges.first { $0.lowercased().hasPrefix("digest") } ?? challenges.first
+                let (status, headers) = RTSPResponseReader.head(state.bytes[..<end])
+                let challenges = RTSPResponseReader.Response(status: status, headers: headers, body: []).challenges
+                state.status = status
+                state.challenge = RTSPResponseReader.digest(in: challenges) ?? challenges.first
             }
         }
 
@@ -412,62 +440,70 @@ actor ImouTalk {
     private func postAudio(_ talk: Talk) async throws {
         let (pieces, producer) = pieces(talk, codec: settings.codec, rate: settings.codec.format.sampleRate)
         defer { producer.cancel() }
-        var iterator = pieces.makeAsyncIterator()
-        // The connection opens with the Talk, so that the camera's answer to the head (a 401) can come before the audio.
-        var first: TalkPiece?
+        var carried: TalkPiece?
         var retried = false
         while true {
-            let stream = try await open(port: settings.httpPort)
-            let answer = Answer()
-            let reader = Task {
-                do { for try await bytes in stream.incoming { answer.push(bytes) } } catch {}
-                answer.close()
-            }
-            let uri = Self.postURI(channel: settings.channel)
-            let authorization = await client.postAuthorization(uri: uri)
-            do {
-                try await write(stream, Array(Self.postHead(host: settings.host, port: settings.httpPort, channel: settings.channel,
-                                                            authorization: authorization, codec: settings.codec).utf8))
-                var written: [(at: ContinuousClock.Instant, duration: Duration)] = []
-                var piece = first
-                if piece == nil { piece = await iterator.next() }
-                first = nil
-                while let current = piece {
-                    let state = answer.current
-                    if let status = state.status, status != 200 {
-                        // The first piece goes out before the camera's answer to the head can come: a 401 then still means the
-                        // head, and is retried with the new challenge (a 128 ms piece lost at most).
-                        if status == 401, written.count <= 1, !retried, let challenge = state.challenge, await client.accept(challenge: challenge) {
-                            throw Retry(piece: current)
-                        }
-                        throw Self.error(status: status, beforeAudio: written.count <= 1)
-                    }
-                    if state.closed { throw written.count < 2 ? TalkError.busy : TalkError.failed("the camera closed the connection") }
-                    try await write(stream, current.bytes)
-                    written.append((.now, current.duration))
-                    written.removeAll { ContinuousClock.now - $0.at > duration(Self.tailWindow) * 4 }
-                    piece = await iterator.next()
-                }
-                try await Task.sleep(for: tailWait(written))
-                reader.cancel()
-                await stream.close()
-                if let status = answer.current.status, status != 200 { throw Self.error(status: status, beforeAudio: false) }
-                return
-            } catch let retry as Retry {
-                reader.cancel()
-                await stream.close()
+            switch try await post(first: carried, pieces: pieces, mayRetry: !retried) {
+            case .done: return
+            case .retry(let piece):
                 retried = true
-                first = retry.piece
-            } catch {
-                reader.cancel()
-                await stream.close()
-                throw error
+                carried = piece
             }
         }
     }
 
-    private struct Retry: Error {
-        var piece: TalkPiece
+    private enum PostOutcome {
+        case done
+        /// A 401 brought a challenge to answer: a new connection takes the pieces not sent, from this one.
+        case retry(TalkPiece)
+    }
+
+    /// One `postAudio` connection: the head, then the pieces (`first`, then the Talk's) until the Talk ends, and the tail.
+    /// The connection opens with the Talk, so that the camera's answer to the head (a 401) can come before the audio.
+    /// A retry's connection reads on from where the last one stopped (one consumer at a time).
+    private func post(first: TalkPiece?, pieces: AsyncStream<TalkPiece>, mayRetry: Bool) async throws -> PostOutcome {
+        let stream = try await open(port: settings.httpPort)
+        let answer = Answer()
+        let reader = Task {
+            do { for try await bytes in stream.incoming { answer.push(bytes) } } catch {}
+            answer.close()
+        }
+        let result: Result<PostOutcome, any Error>
+        do {
+            let authorization = await client.postAuthorization(uri: Self.postURI(channel: settings.channel))
+            try await write(stream, Array(Self.postHead(host: settings.host, port: settings.httpPort, channel: settings.channel,
+                                                        authorization: authorization, codec: settings.codec).utf8))
+            var tail = Tail(scale: scale)
+            var iterator = pieces.makeAsyncIterator()
+            var piece = first
+            if piece == nil { piece = await iterator.next() }
+            var outcome = PostOutcome.done
+            while let current = piece {
+                let state = answer.current
+                if let status = state.status, status != 200 {
+                    // A 401 is answered once with its new challenge, whenever it comes: the first piece goes out before the
+                    // camera's answer to the head can come, and a slower network brings it later still.
+                    if status == 401, mayRetry, let challenge = state.challenge, await client.accept(challenge: challenge) {
+                        outcome = .retry(current)
+                        break
+                    }
+                    throw Self.error(status: status, beforeAudio: tail.count <= 1)
+                }
+                if state.closed { throw tail.count < 2 ? TalkError.busy : TalkError.failed("the camera closed the connection") }
+                try await write(stream, current.bytes)
+                tail.wrote(current.duration)
+                piece = await iterator.next()
+            }
+            if case .done = outcome { try await Task.sleep(for: tail.wait) }
+            result = .success(outcome)
+        } catch {
+            result = .failure(error)
+        }
+        reader.cancel()
+        await stream.close()
+        let outcome = try result.get()
+        if case .done = outcome, let status = answer.current.status, status != 200 { throw Self.error(status: status, beforeAudio: false) }
+        return outcome
     }
 
     static func error(status: Int, beforeAudio: Bool) -> TalkError {
@@ -526,7 +562,7 @@ actor ImouTalk {
         /// False when there is nothing to answer.
         func accept(_ challenges: [String]) -> Bool {
             values.withLockedValue { values in
-                if let digest = challenges.first(where: { $0.lowercased().hasPrefix("digest") }) {
+                if let digest = RTSPResponseReader.digest(in: challenges) {
                     values.digestOffered = true
                     values.useBasic = false
                     return values.digest.accept(challenge: digest)
@@ -541,57 +577,25 @@ actor ImouTalk {
     }
 
     /// The answers on an RTSP connection, in order, interleaved frames skipped; nil once the connection ended.
-    private final class Responses: Sendable {
-        private struct State {
-            var pending: [RTSPResponseReader.Response] = []
-            var waiter: CheckedContinuation<RTSPResponseReader.Response?, Never>?
-            var finished = false
-        }
-
-        private let state = NIOLockedValueBox(State())
-
-        func push(_ response: RTSPResponseReader.Response) {
-            state.withLockedValue { state -> CheckedContinuation<RTSPResponseReader.Response?, Never>? in
-                guard let waiter = state.waiter else {
-                    state.pending.append(response)
-                    return nil
-                }
-                state.waiter = nil
-                return waiter
-            }?.resume(returning: response)
-        }
-
-        func finish() {
-            state.withLockedValue { state -> CheckedContinuation<RTSPResponseReader.Response?, Never>? in
-                state.finished = true
-                defer { state.waiter = nil }
-                return state.waiter
-            }?.resume(returning: nil)
-        }
+    private struct Responses: Sendable {
+        let stream: AsyncStream<RTSPResponseReader.Response>
 
         func next() async -> RTSPResponseReader.Response? {
-            await withCheckedContinuation { continuation in
-                let ready = state.withLockedValue { state -> RTSPResponseReader.Response?? in
-                    if !state.pending.isEmpty { return .some(state.pending.removeFirst()) }
-                    if state.finished { return .some(nil) }
-                    state.waiter = continuation
-                    return nil
-                }
-                if let ready { continuation.resume(returning: ready) }
-            }
+            var iterator = stream.makeAsyncIterator()
+            return await iterator.next()
         }
     }
 
     private nonisolated static func responses(_ stream: any ByteStream) -> (Responses, Task<Void, Never>) {
-        let responses = Responses()
+        let (responses, continuation) = AsyncStream.makeStream(of: RTSPResponseReader.Response.self)
         let reader = Task {
             var parser = RTSPResponseReader()
             do {
-                for try await bytes in stream.incoming { for response in parser.push(bytes) { responses.push(response) } }
+                for try await bytes in stream.incoming { for response in parser.push(bytes) { continuation.yield(response) } }
             } catch {}
-            responses.finish()
+            continuation.finish()
         }
-        return (responses, reader)
+        return (Responses(stream: responses), reader)
     }
 
     /// Sends a request and waits for its answer within the response timeout (a camera that does not answer has its
@@ -610,8 +614,7 @@ actor ImouTalk {
             timer.cancel()
             guard let response else { throw TalkError.failed("the camera did not answer RTSP \(method)") }
             guard response.status == 401 else { return response }
-            let challenges = response.headers.filter { $0.0.lowercased() == "www-authenticate" }.map(\.1)
-            guard !answered, state.accept(challenges) else { throw TalkError.wrongPassword }
+            guard !answered, state.accept(response.challenges) else { throw TalkError.wrongPassword }
             answered = true
         }
     }
@@ -677,7 +680,7 @@ actor ImouTalk {
             let ssrc = UInt32.random(in: 0...UInt32.max)
             var sequence: UInt16 = 0
             var timestamp: UInt32 = 0
-            var written: [(at: ContinuousClock.Instant, duration: Duration)] = []
+            var tail = Tail(scale: scale)
             for await piece in pieces {
                 let payload: [UInt8]
                 if codec == .aac {
@@ -688,12 +691,11 @@ actor ImouTalk {
                 }
                 try await write(stream, interleavedRTP(channel: channel, payloadType: track.payloadType, sequence: sequence,
                                                             timestamp: settings.zeroTimestamps ? 0 : timestamp, ssrc: ssrc, payload: payload))
-                written.append((.now, piece.duration))
-                written.removeAll { ContinuousClock.now - $0.at > duration(Self.tailWindow) * 4 }
+                tail.wrote(piece.duration)
                 sequence &+= 1
                 timestamp &+= UInt32(piece.samples)
             }
-            try await Task.sleep(for: tailWait(written))
+            try await Task.sleep(for: tail.wait)
             keepAlive?.cancel()
             try? await write(stream, state.head("TEARDOWN", url, []))
             await stream.close()

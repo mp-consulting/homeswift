@@ -92,7 +92,8 @@ final class FakeTalkConnection: ByteStream, Sendable {
 
 /// The camera's `postAudio` and RTSP server in memory.
 final class FakeTalkCamera: Sendable {
-    enum HTTPMode: Sendable { case accept, unauthorizedOnce, notFound, refused }
+    /// `unauthorizedAfterAudio`: the first connection's 401 comes once two pieces were sent (a slow network).
+    enum HTTPMode: Sendable { case accept, unauthorizedOnce, unauthorizedAfterAudio, notFound, refused }
 
     struct State {
         var connections: [FakeTalkConnection] = []
@@ -163,15 +164,16 @@ final class FakeTalkCamera: Sendable {
 
     /// The head of a POST: answered at once, as a camera that has read it.
     private func http(_ bytes: [UInt8], on connection: FakeTalkConnection) {
-        guard connection.allSends.count == 1 else { return }
-        let lines = String(decoding: bytes, as: UTF8.self).components(separatedBy: "\r\n")
         let mode = state.withLockedValue { $0.http }
         let index = connections(port: 80).count
+        let unauthorized = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"Login to \(camera.serial)\",qop=\"auth\",nonce=\"fresh\",opaque=\"abcd\"\r\nContent-Length: 0\r\n\r\n"
+        if mode == .unauthorizedAfterAudio, index == 1, connection.allSends.count == 3 { connection.answer(unauthorized) }
+        guard connection.allSends.count == 1 else { return }
         switch mode {
         case .notFound:
             connection.answer("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
         case .unauthorizedOnce where index == 1:
-            connection.answer("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"Login to \(camera.serial)\",qop=\"auth\",nonce=\"fresh\",opaque=\"abcd\"\r\nContent-Length: 0\r\n\r\n")
+            connection.answer(unauthorized)
         default:
             break
         }
@@ -360,6 +362,25 @@ func feed(_ continuation: AsyncStream<PCMFrame>.Continuation, count: Int, sample
         let retry = String(decoding: connections[1].allSends[0], as: UTF8.self)
         #expect(f.talkCamera.validPost(retry, nonce: "fresh"))
         #expect(connections[1].allSends.dropFirst().map(\.count).reduce(0, +) == 3200)
+    }
+
+    @Test func a401AfterTheAudioBeganIsAnsweredOnANewConnectionWithTheRest() async throws {
+        let f = fixture()
+        f.talkCamera.state.withLockedValue { $0.http = .unauthorizedAfterAudio }
+        let (talk, frames) = makeTalk()
+        async let handled: Void = f.talk.handle(talk)
+        func frame(_ index: Int) -> PCMFrame { PCMFrame(samples: Array(repeating: 1000, count: 160), offset: index * 160) }
+        // Two pieces (2048 bytes) go out before the camera's 401 is read.
+        for index in 0..<13 { frames.yield(frame(index)) }
+        #expect(await eventually { (f.talkCamera.connections(port: 80).first?.reads ?? 0) >= 2 })
+        for index in 13..<20 { frames.yield(frame(index)) }
+        frames.finish()
+        await handled
+        let connections = f.talkCamera.connections(port: 80)
+        #expect(connections.count == 2)
+        #expect(connections[0].allSends.count == 3)
+        #expect(f.talkCamera.validPost(String(decoding: connections[1].allSends[0], as: UTF8.self), nonce: "fresh"))
+        #expect(connections[1].allSends.dropFirst().map(\.count).reduce(0, +) == 3200 - 2048)
     }
 
     @Test func aCameraWithoutPostAudioFallsBackToTheBackchannel() async throws {
