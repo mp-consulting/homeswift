@@ -177,14 +177,19 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
 | [HTTP Webhooks](Plugins/HTTPWebhooks) | `HttpWebHooks` | Experimental virtual sensors, switches, lights, locks, blinds, fans and more, set by webhooks and calling URLs on HomeKit writes (homebridge-http-webhooks' block) |
 | [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired on Add accessories) |
+| [IMOU](Plugins/Imou) | `Imou` | Experimental: IMOU cameras and doorbells, local first (RTSP video, CGI snapshots, Dahua event stream, HomeKit Secure Video), with the IMOU cloud's privacy mode, siren and spotlight |
 | [IP Cameras](Plugins/IPCameras) | `Camera-ffmpeg` | Experimental: IP cameras over RTSP, HTTP snapshots or MJPEG, through FFmpeg, with snapshots, live video, two-way audio, HomeKit Secure Video, and motion and doorbell triggers over MQTT or HTTP |
 | [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
+| [Magic Home](Plugins/MagicHome) | `homebridge-magichome-dynamic-platform` | Experimental: Magic Home Wi-Fi bulbs, LED controllers and sockets on the local network, newer firmware included, with Adaptive Lighting on tunable whites |
 | [MQTT Thing](Plugins/MQTTThing) | `mqttthing` (accessory) | Experimental: devices that speak MQTT, described topic by topic as homebridge-mqttthing's accessory blocks |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired on Add accessories) |
 | [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired on Add accessories) |
+| [Reolink](Plugins/Reolink) | `Reolink` | Experimental: Reolink cameras, doorbells, NVRs and Home Hubs on the LAN: live video, HomeKit Secure Video, motion and AI detections by push, floodlights, sirens and IR lights |
+| [Renault](Plugins/Renault) | `Renault` | Experimental: Renault, Dacia and Alpine cars through MyRenault: battery, charging, plug, climate, horn and lights, temperatures (signed in on Add accessories, with the e-mailed code) |
 | [Ring](Plugins/Ring) | `Ring` | Experimental: Ring alarm, Smart Lighting, cameras and doorbells (snapshots, motion, rings by push; no live video yet), chimes and intercoms |
 | [Roborock](Plugins/Roborock) | `RoborockVacuumPlatform` | Experimental: Roborock robot vacuums, on the LAN with the cloud's MQTT as a fallback: clean, dock, mop washing, scenes, brushes and filter |
 | [Shelly](Plugins/Shelly) | `ShellyNG`, `Shelly` | Experimental: Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters (WebSocket RPC), and Gen 1 devices (CoIoT and HTTP) |
+| [Somfy TaHoma](Plugins/Tahoma) | `Tahoma` | Experimental: Somfy TaHoma and Connexoon (cloud or the gateway's local API), Atlantic Cozytouch and other Overkiz setups: shutters, blinds, awnings, garage doors, gates, locks, alarms, lights, sensors, heaters and water heaters, and scenarios |
 | [Sonos](Plugins/Sonos) | `ZP` | Experimental Sonos zones over UPnP: play, volume and groups, a Speakers service per zone, LEDs, alarms, and a TV per zone with the favourites as inputs |
 | [SwitchBot](Plugins/SwitchBot) | `SwitchBot` | Experimental SwitchBot Bots, curtains, blinds, meters, sensors, locks, lights, plugs and IR remotes, through SwitchBot's cloud and its webhook |
 | [tado°](Plugins/Tado) | `TadoPlatform` | Experimental tado° thermostats, radiator valves, hot water and air conditioners through tado's cloud, within its daily request limit |
@@ -193,6 +198,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Tuya](Plugins/Tuya) | `TuyaPlatform` | Experimental Tuya and Smart Life devices through the Tuya Cloud OpenAPI (Smart Home or Custom project), with MQTT push, IR remotes and scenes |
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
+| [V2C Trydan](Plugins/V2CTrydan) | `V2CTrydan` | Experimental: V2C Trydan EV chargers on the local network: charging, the current offered, the charger's lock, the car plugged in, power and energy |
 | [Wingman](Plugins/Wingman) | `Wingman` | The Home app's accessories (Matter ones too) through [Homeswift Wingman](https://github.com/mp-consulting/homeswift-wingman) on a Mac: in the web UI, scenes and MCP, never published to HomeKit again |
 | [Zigbee2MQTT](Plugins/Zigbee2MQTT) | `zigbee2mqtt` | Experimental: the devices and groups of a Zigbee2MQTT installation (lights, switches, blinds, locks, thermostats, sensors, remotes), over its MQTT broker |
 

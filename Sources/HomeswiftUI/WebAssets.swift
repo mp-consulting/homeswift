@@ -12767,7 +12767,11 @@ HomeswiftI18n.add("es", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Cámaras, timbres, NVR y Home Hubs de Reolink: vídeo en directo, movimiento, personas y vehículos, focos",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmas, cámaras, timbres, carillones y Smart Lighting de Ring",
+  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Cámaras y timbres IMOU en la red local, con el modo de privacidad y la sirena de la nube IMOU",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luces, controladores LED y enchufes Wi-Fi Magic Home en la red local",
+  "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Coches Renault, Dacia y Alpine: batería, carga, climatización, claxon y luces",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Altavoces Sonos: reproducción, volumen y grupos, favoritos como entradas de TV, LED y alarmas",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya y Smart Life a través de la nube de Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, cerraduras, luces y mandos IR a través de la nube de SwitchBot",
@@ -12775,7 +12779,9 @@ HomeswiftI18n.add("es", {
   "Nest thermostats, cameras and doorbells through Google's Device Access": "Termostatos, cámaras y timbres Nest, mediante el Device Access de Google",
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interruptores, sensores y más que solo existen en HomeKit, para automatizaciones",
   "Devices that speak MQTT, described topic by topic": "Dispositivos que hablan MQTT, descritos tema por tema",
+  "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Persianas, calefacción y sensores Somfy TaHoma, Connexoon y Cozytouch",
   "Tapo plugs and bulbs on the local network": "Enchufes y bombillas Tapo en la red local",
+  "Trydan EV chargers on the local network: charging, current, lock and power": "Cargadores Trydan en la red local: carga, corriente, bloqueo y potencia",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luces, sensores, persianas, ventiladores y climatizadores de dispositivos ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 y Gen4: relés, persianas, botones, luces y medidores",
@@ -12792,6 +12798,7 @@ HomeswiftI18n.add("es", {
   "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores y cerraduras virtuales controlados por webhooks",
   "Protects the webhooks with a user name and password.": "Protege los webhooks con un nombre de usuario y una contraseña.",
   "Signs in to the MQTT broker that reports motion and doorbell presses.": "Inicia sesión en el broker MQTT que avisa de los movimientos y las pulsaciones del timbre.",
+  "Lists the cameras of your IMOU account, and adds privacy mode, the siren and the spotlight.": "Muestra las cámaras de su cuenta IMOU y añade el modo de privacidad, la sirena y el foco.",
   "Signs in to the MQTT broker for the accessories whose block has no password.": "Inicia sesión en el broker MQTT para los accesorios cuyo bloque no tiene contraseña.",
   "A user name cannot contain a colon (:)": "Un nombre de usuario no puede contener dos puntos (:)",
   "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Elige el nombre de usuario y la contraseña que debe dar cada webhook (autenticación HTTP Basic).",
@@ -15381,6 +15388,8 @@ HomeswiftI18n.add("es", {
   "MAC address": "Dirección MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicia sesión con tu cuenta MyDolphin: Maytronics te envía un código.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicia sesión con tu cuenta Tapo y activa la compatibilidad con servicios de terceros en la app Tapo.",
+  "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Escribe la dirección del V2C Trydan: su dirección IP o nombre de host en la red local, en tu router o en la app V2C.",
+  "That is not an address: type an IP address or a host name, such as 192.168.1.50": "No es una dirección: escribe una dirección IP o un nombre de host, como 192.168.1.50",
   "A Tapo device refused this email and password.": "Un dispositivo Tapo rechazó este correo y esta contraseña.",
   "Email": "Correo electrónico",
   "Code": "Código",
@@ -15583,7 +15592,11 @@ HomeswiftI18n.add("fr", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Caméras, sonnettes, NVR et Home Hubs Reolink : vidéo en direct, mouvements, personnes et véhicules, projecteurs",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, caméras, sonnettes, carillons et Smart Lighting de Ring",
+  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Caméras et sonnettes IMOU sur le réseau local, avec le mode confidentialité et la sirène du cloud IMOU",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Lampes, contrôleurs LED et prises Wi-Fi Magic Home sur le réseau local",
+  "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Voitures Renault, Dacia et Alpine : batterie, recharge, climatisation, klaxon et feux",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Enceintes Sonos : lecture, volume et groupes, favoris en entrées TV, voyants et alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Appareils Tuya et Smart Life via le cloud Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, rideaux, thermomètres, serrures, lampes et télécommandes IR via le cloud SwitchBot",
@@ -15591,7 +15604,9 @@ HomeswiftI18n.add("fr", {
   "Nest thermostats, cameras and doorbells through Google's Device Access": "Thermostats, caméras et sonnettes Nest, par le Device Access de Google",
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interrupteurs, capteurs et plus qui n'existent que dans HomeKit, pour les automatisations",
   "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
+  "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Volets, chauffages et capteurs Somfy TaHoma, Connexoon et Cozytouch",
   "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
+  "Trydan EV chargers on the local network: charging, current, lock and power": "Bornes de recharge Trydan sur le réseau local : charge, courant, verrou et puissance",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interrupteurs, lumières, capteurs, volets, ventilateurs et climatiseurs des appareils ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 et Gen4 : relais, volets, boutons, lumières et compteurs",
@@ -15608,6 +15623,7 @@ HomeswiftI18n.add("fr", {
   "Virtual sensors, switches and locks driven by webhooks": "Capteurs, interrupteurs et serrures virtuels pilotés par webhooks",
   "Protects the webhooks with a user name and password.": "Protège les webhooks par un nom d'utilisateur et un mot de passe.",
   "Signs in to the MQTT broker that reports motion and doorbell presses.": "Se connecte au broker MQTT qui signale les mouvements et les appuis sur la sonnette.",
+  "Lists the cameras of your IMOU account, and adds privacy mode, the siren and the spotlight.": "Liste les caméras de votre compte IMOU, et ajoute le mode confidentialité, la sirène et le projecteur.",
   "Signs in to the MQTT broker for the accessories whose block has no password.": "Se connecte au broker MQTT pour les accessoires dont le bloc n'a pas de mot de passe.",
   "A user name cannot contain a colon (:)": "Un nom d'utilisateur ne peut pas contenir de deux-points (:)",
   "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Choisissez le nom d'utilisateur et le mot de passe que chaque webhook doit donner (authentification HTTP Basic).",
@@ -18197,6 +18213,8 @@ HomeswiftI18n.add("fr", {
   "MAC address": "Adresse MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Connectez-vous avec votre compte MyDolphin : Maytronics vous envoie un code.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Connectez-vous avec votre compte Tapo, et activez la compatibilité avec les services tiers dans l’app Tapo.",
+  "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Saisissez l’adresse du V2C Trydan : son adresse IP ou son nom d’hôte sur le réseau local, dans votre routeur ou l’app V2C.",
+  "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Ce n’est pas une adresse : saisissez une adresse IP ou un nom d’hôte, comme 192.168.1.50",
   "A Tapo device refused this email and password.": "Un appareil Tapo a refusé cet e-mail et ce mot de passe.",
   "Email": "E-mail",
   "Code": "Code",
@@ -18399,7 +18417,11 @@ HomeswiftI18n.add("pt", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Câmaras, campainhas, NVR e Home Hubs Reolink: vídeo em direto, movimento, pessoas e veículos, projetores",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
+  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Câmaras e campainhas IMOU na rede local, com o modo de privacidade e a sirene da nuvem IMOU",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luzes, controladores LED e tomadas Wi-Fi Magic Home na rede local",
+  "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Carros Renault, Dacia e Alpine: bateria, carregamento, climatização, buzina e luzes",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Colunas Sonos: reprodução, volume e grupos, favoritos como entradas de TV, LED e alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya e Smart Life através da nuvem Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, fechaduras, luzes e comandos IV através da nuvem da SwitchBot",
@@ -18407,7 +18429,9 @@ HomeswiftI18n.add("pt", {
   "Nest thermostats, cameras and doorbells through Google's Device Access": "Termóstatos, câmaras e campainhas Nest, através do Device Access da Google",
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interruptores, sensores e mais que só existem no HomeKit, para automações",
   "Devices that speak MQTT, described topic by topic": "Dispositivos que falam MQTT, descritos tópico a tópico",
+  "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Estores, aquecimento e sensores Somfy TaHoma, Connexoon e Cozytouch",
   "Tapo plugs and bulbs on the local network": "Tomadas e lâmpadas Tapo na rede local",
+  "Trydan EV chargers on the local network: charging, current, lock and power": "Carregadores Trydan na rede local: carga, corrente, bloqueio e potência",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luzes, sensores, estores, ventoinhas e climatizadores de dispositivos ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 e Gen4: relés, estores, botões, luzes e contadores",
@@ -18424,6 +18448,7 @@ HomeswiftI18n.add("pt", {
   "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores e fechaduras virtuais controlados por webhooks",
   "Protects the webhooks with a user name and password.": "Protege os webhooks com um nome de utilizador e uma palavra-passe.",
   "Signs in to the MQTT broker that reports motion and doorbell presses.": "Inicia sessão no broker MQTT que comunica os movimentos e os toques da campainha.",
+  "Lists the cameras of your IMOU account, and adds privacy mode, the siren and the spotlight.": "Lista as câmaras da sua conta IMOU e acrescenta o modo de privacidade, a sirene e o projetor.",
   "Signs in to the MQTT broker for the accessories whose block has no password.": "Inicia sessão no broker MQTT para os acessórios cujo bloco não tem palavra-passe.",
   "A user name cannot contain a colon (:)": "Um nome de utilizador não pode conter dois pontos (:)",
   "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Escolha o nome de utilizador e a palavra-passe que cada webhook tem de dar (autenticação HTTP Basic).",
@@ -21013,6 +21038,8 @@ HomeswiftI18n.add("pt", {
   "MAC address": "Endereço MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicie sessão com a sua conta MyDolphin: a Maytronics envia-lhe um código.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicie sessão com a sua conta Tapo e ative a compatibilidade com serviços de terceiros na app Tapo.",
+  "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Introduza o endereço do V2C Trydan: o seu endereço IP ou nome de anfitrião na rede local, no seu router ou na app V2C.",
+  "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Não é um endereço: introduza um endereço IP ou um nome de anfitrião, como 192.168.1.50",
   "A Tapo device refused this email and password.": "Um dispositivo Tapo recusou este e-mail e esta palavra-passe.",
   "Email": "E-mail",
   "Code": "Código",
@@ -28657,9 +28684,11 @@ select option:disabled { color: var(--muted); }
 .size-large .battery-graphic .bat-bolt { --bolt: 26px; }
 .size-xlarge .battery-graphic .bat-bolt { --bolt: 32px; }
 .battery-graphic.charging .bat-bolt { display: block; animation: bat-bolt 1.8s ease-in-out infinite; }
-.battery-graphic.charging .bat-bar.live { animation: bat-flicker 1.1s steps(1, end) infinite; }
-@keyframes bat-flicker { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
-@keyframes bat-bolt { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.05); } }
+/* Charging breathes rather than blinks: a hard on and off reads as a fault, and a wall is looked at all day, so the bolt
+   pulses its opacity only, without the scale that pulled the eye. */
+.battery-graphic.charging .bat-bar.live { animation: bat-breathe 1.6s ease-in-out infinite alternate; }
+@keyframes bat-breathe { from { opacity: 1; } to { opacity: 0.35; } }
+@keyframes bat-bolt { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .battery-graphic.charging .bat-bar.live, .battery-graphic.charging .bat-bolt { animation: none; }
 }

@@ -6,6 +6,46 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
+  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
+  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
+  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
+  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
+  and `HomeswiftNetwork` `ARPTable.entries()`.
+- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
+  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
+  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
+  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
+  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
+  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
+  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
+- The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
+  homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
+  the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
+  families (the B0 wrapper, the 25-byte bulbs, addressable strips, tunable whites) as flux_led documents them; polled
+  with No Response after repeated failures, pushes read on a kept connection, Adaptive Lighting on tunable whites.
+- The Renault plugin (platform `Renault`, experimental, a clean-room implementation): Renault, Dacia and Alpine cars from
+  the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
+  and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
+  Setup with the e-mailed two-factor code, within Renault's hourly request quota.
+- The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
+  plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
+  offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
+  dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
+  (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
+  repaired.
+- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
+  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
+  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
+  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
+  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
+### Changed
+
+- A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
+  shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
@@ -14,6 +54,9 @@ All notable changes to this project are documented here. The format follows
   read past the end of a directory entry while listing `/proc/self/fd` (fixed after Swift 6.2), and the read sources on
   FFmpeg's pipes crashed libdispatch's event loop once processes started at once; tools now start through
   `HomeswiftNetwork.ChildProcess` (`posix_spawn`), and FFmpeg's output is read on a thread of its own.
+
+### Added
+
 
 ## [0.20.0] - 2026-11-04
 

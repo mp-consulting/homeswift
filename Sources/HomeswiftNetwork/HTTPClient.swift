@@ -14,6 +14,16 @@ public struct HTTPRequest: Sendable {
     public var body: Data?
     /// From the connection attempt to the last byte of the response.
     public var timeout: Duration
+    /// The request target sent on the request line as written, in place of the URL's path and query: for a device that
+    /// wants characters `URL` percent-encodes, such as a Dahua camera's `codes=[VideoMotion]`. nil sends the URL's. It
+    /// must start with `/` and hold printable ASCII only (no space, CR or LF): another is refused as `invalidURL`.
+    public var target: String?
+
+    /// `target`, when it is one the request line can carry as it is.
+    var validTarget: Bool {
+        guard let target else { return true }
+        return target.hasPrefix("/") && target.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7F }
+    }
 
     public init(method: String = "GET", url: URL, headers: [(name: String, value: String)] = [], body: Data? = nil, timeout: Duration = .seconds(10)) {
         self.method = method
@@ -92,8 +102,9 @@ public enum HTTPClientError: Error, CustomStringConvertible, Equatable, Sendable
 /// minute, and keep-alive would only hold a socket open on a TV that drops it anyway. A request whose connection
 /// the server closes before any of the response arrived goes once more on a new one, when its method is
 /// idempotent or it never went out. The TLS mode decides what the client accepts from a server: the system's
-/// roots (`.system`), any certificate (`.any`, trust on first use), or exactly one (`.pinned`). The last two
-/// record the certificate's fingerprint on the response so the caller can pin it from then on.
+/// roots (`.system`), any certificate (`.any`, trust on first use), exactly one (`.pinned`), or those a maker's own
+/// CA signed (`.authority`). `.any` and `.pinned` record the certificate's fingerprint on the response so the caller
+/// can pin it from then on.
 public final class HTTPClient: HTTPSending, Sendable {
     public enum TLS: Sendable, Equatable {
         /// Verify the server's certificate against the system's trusted roots.
@@ -102,6 +113,10 @@ public final class HTTPClient: HTTPSending, Sendable {
         case any
         /// Accept only the certificate with this SHA-256 fingerprint, in any spelling (`aa:bb:…` or hex).
         case pinned(String)
+        /// Accept only a certificate these PEM roots signed: a maker's own CA, the same in every device (the Hue Sync
+        /// Box's). With `serverName`, the certificate must name it too, and it goes as SNI: a device whose certificate
+        /// names its serial number rather than its address. Without, any certificate the roots signed.
+        case authority(pem: String, serverName: String?)
     }
 
     public let tls: TLS
@@ -140,7 +155,7 @@ public final class HTTPClient: HTTPSending, Sendable {
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        guard let scheme = request.url.scheme?.lowercased(), scheme == "http" || scheme == "https", let host = request.url.host, !host.isEmpty else {
+        guard let scheme = request.url.scheme?.lowercased(), scheme == "http" || scheme == "https", let host = request.url.host, !host.isEmpty, request.validTarget else {
             throw HTTPClientError.invalidURL(redactingPassword(request.url))
         }
         let secure = scheme == "https"
@@ -217,7 +232,7 @@ public final class HTTPClient: HTTPSending, Sendable {
     /// calls `failed` and closes the channel; the collector is in the pipeline from the start, so it fails the response
     /// with what it saw (`connectionClosed`, a TLS error), not NIO's "I/O on closed channel" for the write.
     func writeRequest(_ request: HTTPRequest, on channel: any Channel, host: String, port: Int, secure: Bool, failed: @escaping @Sendable (any Error) -> Void) {
-        var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: requestTarget(of: request.url))
+        var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: request.target ?? requestTarget(of: request.url))
         head.headers.add(name: "Host", value: hostHeader(host: host, port: port, defaultPort: secure ? 443 : 80))
         head.headers.add(name: "Connection", value: "close")
         if let body = request.body {
