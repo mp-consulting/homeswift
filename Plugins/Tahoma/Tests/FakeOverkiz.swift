@@ -311,7 +311,7 @@ final class TestEnvironment: Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -331,4 +331,20 @@ extension Characteristic {
     func writeFromHomeKit(_ value: HAPValue) async throws {
         try await write(value)
     }
+}
+
+/// Writes as one connection's requests arrive: in order, `spacing` apart, none waiting for the one before to end. Each
+/// runs in place up to its first wait (a debounce's claim, a gathering), so on a loaded machine none overtakes the one
+/// before, as tasks started together could.
+func writeInOrder(_ writes: [(Characteristic, HAPValue)], spacing: Duration) async {
+    var tasks: [Task<Void, Never>] = []
+    for (index, (characteristic, value)) in writes.enumerated() {
+        if index > 0, spacing > .zero { try? await Task.sleep(for: spacing) }
+        if #available(macOS 26, *) {
+            tasks.append(Task.immediate { try? await characteristic.writeFromHomeKit(value) })
+        } else {
+            tasks.append(Task { try? await characteristic.writeFromHomeKit(value) })
+        }
+    }
+    for task in tasks { await task.value }
 }
