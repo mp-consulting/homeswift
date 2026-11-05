@@ -190,7 +190,10 @@ refreshed once, a refused password stopping the watch, the camera found by its M
 and clearing after its hold without a connection to the camera.
 
 `StreamdLiveTests` records a sample from a real camera when `TAPO_LIVE_HOST`, `TAPO_LIVE_PASSWORD_FILE` (a file holding
-the cloud password) and `TAPO_LIVE_OUTPUT` are set, and is skipped otherwise.
+the cloud password) and `TAPO_LIVE_OUTPUT` are set, and runs the live stream's FFmpeg command on a recorded sample for
+each lens when `TAPO_LIVE_SAMPLE` is; both are skipped otherwise. On a C675D (firmware 1.1.7) the session opened in 2
+seconds and the HD sample held two 3840 × 2160 HEVC streams at 15 fps (wide, then tele) and the 0x91 audio, each lens
+encoding to 1080p H.264 several times faster than real time with VideoToolbox.
 
 ## Clean-room implementation
 
