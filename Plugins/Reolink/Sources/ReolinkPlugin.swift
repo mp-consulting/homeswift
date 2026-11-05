@@ -24,6 +24,8 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             await stream.close()
             return true
         }
+        /// How long discovery looks on the network (the ARP table, then each candidate's Baichuan port).
+        var networkSearchTime: Duration = .seconds(3)
         var now: @Sendable () -> Date = { Date() }
     }
 

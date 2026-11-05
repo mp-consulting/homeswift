@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 
 // Setup (GLOSSARY.md, "Setup"; 2.5): each host is a device authorized with an Account Login, a local user of the device.
 // Its Device Id is its host id (the P2P UID, else its MAC); a camera on its own is that device, an NVR's or a hub's
@@ -33,17 +34,7 @@ extension ReolinkPlugin {
             found.append(device)
         }
         // Reolink devices on the network that are not set up.
-        let candidates = await dependencies.neighbours().filter { $0.mac.uppercased().hasPrefix(Self.macPrefix) && !addresses.contains($0.ip.lowercased()) }
-        let accepts = dependencies.accepts
-        let reachable = await withTaskGroup(of: String?.self) { group in
-            for candidate in candidates.prefix(32) {
-                group.addTask { await accepts(candidate.ip, 9000) ? candidate.ip : nil }
-            }
-            var list: [String] = []
-            for await ip in group { if let ip { list.append(ip) } }
-            return list.sorted()
-        }
-        for ip in reachable {
+        for ip in await networkCandidates(excluding: addresses) {
             found.append(DiscoveredDevice(deviceID: "\(Self.byAddressID)\(ip)", name: "Reolink device at \(ip)", model: "Reolink", address: ip,
                                           authorization: .accountLogin, isSetUp: false, excludedBySettings: false, kind: Self.cameraKind))
         }
@@ -52,6 +43,33 @@ extension ReolinkPlugin {
         return found
     }
 
+    /// The addresses of the ARP table with Reolink's MAC prefix, not in `addresses`, that accept Baichuan's port: those
+    /// that answered within `networkSearchTime`. Discovery never waits longer for the network (a camera that drops the
+    /// connection, an `arp` that hangs), so a Devices list or the Add accessories page is not held up by it.
+    private func networkCandidates(excluding addresses: Set<String>) async -> [String] {
+        let neighbours = dependencies.neighbours, accepts = dependencies.accepts, timeout = dependencies.networkSearchTime
+        let answered = NIOLockedValueBox<[String]>([])
+        let finished = NIOLockedValueBox<CheckedContinuation<Void, Never>?>(nil)
+        let finish: @Sendable () -> Void = { finished.withLockedValue { continuation in continuation?.resume(); continuation = nil } }
+        await withCheckedContinuation { continuation in
+            finished.withLockedValue { $0 = continuation }
+            let search = Task {
+                let candidates = await neighbours().filter { $0.mac.uppercased().hasPrefix(Self.macPrefix) && !addresses.contains($0.ip.lowercased()) }
+                await withTaskGroup(of: Void.self) { group in
+                    for candidate in candidates.prefix(32) {
+                        group.addTask { if await accepts(candidate.ip, 9000) { answered.withLockedValue { $0.append(candidate.ip) } } }
+                    }
+                }
+                finish()
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                search.cancel()
+                finish()
+            }
+        }
+        return answered.withLockedValue { $0 }.sorted()
+    }
 
     /// A connected host's devices: itself (an NVR or a hub) and its channels.
     private func devices(of info: ReolinkHostInfo, hostID: String, address: String, channels: [Int: ReolinkChannel]) -> [DiscoveredDevice] {
