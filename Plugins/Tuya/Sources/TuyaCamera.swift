@@ -10,20 +10,14 @@ import NIOConcurrencyHelpers
 /// accessory's, so HomeKit's notifications carry a picture. The bridged doorbell, motion sensor and floodlight stay where
 /// they are: homes keep their rooms and automations.
 actor TuyaCamera {
-    /// The camera's timers; tests shorten them.
-    struct Timing: Sendable {
-        var scale: Double = 1
-
-        func duration(_ seconds: Double) -> Duration { .milliseconds(Int((seconds * 1000 * scale).rounded())) }
-    }
-
     /// One frame of an RTSP URL as a JPEG, nil when FFmpeg gave none; tests swap it for a fake.
     typealias FrameGrabber = @Sendable (RTSPCameraFFmpeg, String) async -> Data?
 
-    /// How long a snapshot answers the requests that follow (section 7): each one costs an allocation and an RTSP connection.
-    static let snapshotWindow: Double = 10
+    /// How long a snapshot, or the failure to take one, answers the requests that follow (section 7): each one costs an
+    /// allocation and an RTSP connection.
+    static let snapshotWindow: Duration = .seconds(10)
     /// After Tuya refuses an allocation for the subscription or its quota, none is asked for this long (section 9).
-    static let refusalBackoff: Double = 300
+    static let refusalBackoff: Duration = .seconds(300)
     /// The codes of an expired or missing API subscription (section 9).
     static let subscriptionCodes: Set<Int> = [28841002, 28841101, 28841105]
     /// FFmpeg reads the cloud's stream over TCP and gives up after 10 seconds of silence (section 8).
@@ -42,25 +36,27 @@ actor TuyaCamera {
     private let api: TuyaOpenAPI
     private let ffmpeg: RTSPCameraFFmpeg
     private let grabFrame: FrameGrabber
-    private let timing: Timing
+    /// Shortens the timers in tests.
+    private let timeScale: Double
     private let log: Logger
     private var controller: CameraController?
     private var streamer: RTSPCameraStreamer?
     private var recorder: RTSPCameraRecorder?
     private var snapshot: (data: Data, at: ContinuousClock.Instant)?
+    private var snapshotFailed: (error: any Error, at: ContinuousClock.Instant)?
     private var fetching: Task<Data, any Error>?
     private var refusedUntil: ContinuousClock.Instant?
     /// The bridged characteristics this camera follows, and its observers' tokens.
     private let observers = NIOLockedValueBox<[(Characteristic, Int)]>([])
 
-    init(accessoryID: String, device: TuyaDevice, api: TuyaOpenAPI, ffmpeg: RTSPCameraFFmpeg, grabFrame: @escaping FrameGrabber, timing: Timing, log: Logger) {
+    init(accessoryID: String, device: TuyaDevice, api: TuyaOpenAPI, ffmpeg: RTSPCameraFFmpeg, grabFrame: @escaping FrameGrabber, timeScale: Double, log: Logger) {
         self.accessoryID = accessoryID
         self.name = device.name
         self.device = device
         self.api = api
         self.ffmpeg = ffmpeg
         self.grabFrame = grabFrame
-        self.timing = timing
+        self.timeScale = timeScale
         self.log = log
         motion = Service(.motionSensor, name: device.name, optional: [.statusActive])
         motion.characteristic(.statusActive).value = .bool(device.online)
@@ -106,9 +102,15 @@ actor TuyaCamera {
         do {
             let url = try await api.streamURL(device.id)
             refusedUntil = nil
+            // FFmpeg reads whatever `-i` names (files, other protocols): only the RTSP the request asked for goes there.
+            let scheme = url.prefix { $0 != ":" }.lowercased()
+            guard scheme == "rtsp" || scheme == "rtsps" else {
+                log.warning("\(name): Tuya gave a stream that is not RTSP: not read")
+                throw Unavailable(description: "\(name): not an RTSP stream")
+            }
             return url
         } catch let error as TuyaAPIError where Self.subscriptionCodes.contains(error.code) {
-            refusedUntil = .now + timing.duration(Self.refusalBackoff)
+            refusedUntil = .now + Self.refusalBackoff * timeScale
             log.error("\(name): Tuya gives no video stream: \(error). Authorize IoT Video Live Stream on the cloud project, and check its quota; no stream is asked for the next 5 minutes")
             throw error
         } catch {
@@ -125,15 +127,23 @@ actor TuyaCamera {
     // MARK: Snapshots
 
     /// The picture HomeKit asks for (section 7): a frame of a freshly allocated stream, kept `snapshotWindow`; requests while
-    /// one is fetched share it. An offline device is refused without a cloud call.
+    /// one is fetched share it, and a failure answers the requests of the same window without another cloud call. An
+    /// offline device is refused without a cloud call.
     func snapshotImage() async throws -> Data {
         guard device.online else { throw Unavailable(description: "\(name) is offline") }
-        if let snapshot, ContinuousClock.now - snapshot.at < timing.duration(Self.snapshotWindow) { return snapshot.data }
+        let window = Self.snapshotWindow * timeScale
+        if let snapshot, ContinuousClock.now - snapshot.at < window { return snapshot.data }
+        if let snapshotFailed, ContinuousClock.now - snapshotFailed.at < window { throw snapshotFailed.error }
         if let fetching { return try await fetching.value }
         let task = Task { try await self.fetchSnapshot() }
         fetching = task
         defer { fetching = nil }
-        return try await task.value
+        do {
+            return try await task.value
+        } catch {
+            snapshotFailed = (error, .now)
+            throw error
+        }
     }
 
     private func fetchSnapshot() async throws -> Data {
@@ -143,6 +153,7 @@ actor TuyaCamera {
             throw Unavailable(description: "\(name): no snapshot")
         }
         snapshot = (image, .now)
+        snapshotFailed = nil
         return image
     }
 

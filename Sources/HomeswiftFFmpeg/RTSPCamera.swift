@@ -98,15 +98,17 @@ public final class RTSPCameraFFmpeg: Sendable {
     }
 
     /// The RTSP demuxer's socket timeout option: `-timeout` since FFmpeg 5, `-stimeout` before (where `-timeout` made FFmpeg
-    /// listen for a connection instead).
-    public func rtspTimeoutFlag() async -> String {
-        guard let version = await probe.value?.ffmpegVersion else { return "-timeout" }
+    /// listen for a connection instead); nil when FFmpeg's version is unknown, and the input goes without one.
+    public func rtspTimeoutFlag() async -> String? {
+        guard let version = await probe.value?.ffmpegVersion else { return nil }
         return RTSPCameraArguments.timeoutFlag(version: version)
     }
 
-    /// Reading `url`, with the timeout option this FFmpeg takes: what every caller passes to the command lines below.
+    /// Reading `url`, with the timeout option this FFmpeg takes: what every caller passes to the command lines below. The
+    /// probe is waited for only when `options` has a socket timeout.
     public func input(url: String, options: RTSPCameraOptions) async -> [String] {
-        RTSPCameraArguments.input(url: url, options: options, timeoutFlag: await rtspTimeoutFlag())
+        let flag = options.socketTimeout == nil ? nil : await rtspTimeoutFlag()
+        return RTSPCameraArguments.input(url: url, options: options, timeoutFlag: flag)
     }
 
     /// One JPEG frame of `url`, FFmpeg killed after `timeout` milliseconds; nil when it gave none.
@@ -151,19 +153,21 @@ public enum RTSPCameraArguments {
         }
     }
 
-    /// Reading the camera's URL; `timeoutFlag` is `RTSPCameraFFmpeg.rtspTimeoutFlag()`'s.
-    public static func input(url: String, options: RTSPCameraOptions, timeoutFlag: String = "-timeout") -> [String] {
+    /// Reading the camera's URL; `timeoutFlag` is `RTSPCameraFFmpeg.rtspTimeoutFlag()`'s, and nil leaves the socket timeout out.
+    public static func input(url: String, options: RTSPCameraOptions, timeoutFlag: String? = "-timeout") -> [String] {
         var arguments: [String] = []
         let rtsp = url.lowercased().hasPrefix("rtsp")
         if options.rtspOverTCP, rtsp { arguments += ["-rtsp_transport", "tcp"] }
-        if let timeout = options.socketTimeout, rtsp { arguments += [timeoutFlag, "\(timeout)"] }
+        if let timeout = options.socketTimeout, let timeoutFlag, rtsp { arguments += [timeoutFlag, "\(timeout)"] }
         return arguments + ["-analyzeduration", "\(options.analyzeDuration)", "-probesize", "\(options.probeSize)", "-i", url]
     }
 
-    /// `-stimeout` for an FFmpeg before 5 (`4.4.2`, `n4.3`), `-timeout` otherwise, an unknown version included.
-    public static func timeoutFlag(version: String) -> String {
+    /// `-stimeout` for an FFmpeg before 5 (`4.4.2`, `n4.3`), `-timeout` for 5 and later and for a git build (`N-112345-g…`);
+    /// nil for a version that does not say (`unknown`): `-timeout` on FFmpeg 4 would make it listen instead of connecting.
+    public static func timeoutFlag(version: String) -> String? {
+        if version.hasPrefix("N-") { return "-timeout" }
         let digits = (version.hasPrefix("n") ? version.dropFirst() : Substring(version)).prefix { $0.isNumber }
-        guard let major = Int(digits) else { return "-timeout" }
+        guard let major = Int(digits) else { return nil }
         return major < 5 ? "-stimeout" : "-timeout"
     }
 

@@ -50,10 +50,10 @@ All notable changes to this project are documented here. The format follows
   Setup with the e-mailed two-factor code, within Renault's hourly request quota.
 - Tuya: live video and snapshots for Tuya cameras (`sp`), each on an accessory of its own with a Motion Sensor and
   Doorbell that follow the bridged ones (which stay where they are); an RTSP URL allocated from the cloud for each
-  stream, snapshots coalesced for 10 seconds, a refused subscription backed off for 5 minutes, offline cameras refused
+  stream, snapshots (and a failed one) coalesced for 10 seconds, a refused subscription backed off for 5 minutes, offline cameras refused
   without a call, the URL never logged. The `video` Accessory Setting (on by default) turns it off, `recording` (off by
   default) adds HomeKit Secure Video. `RTSPCameraOptions.socketTimeout` (FFmpeg's `-timeout`, `-stimeout` before
-  FFmpeg 5, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
+  FFmpeg 5, left out for an unknown version, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
   `RTSPCameraStreamer.standardResolutions` and `minimumInactivity`, and every query value of an RTSP URL masked in FFmpeg's
   logs.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras

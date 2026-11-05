@@ -32,13 +32,14 @@ devices. Maintainer: Mickael Palma.
   Home app as a camera, with the bridge's setup code. It has live video, snapshots, and a Motion Sensor and a Doorbell
   that follow the bridged ones, so HomeKit's notifications carry a picture. Each stream asks the cloud for a fresh RTSP
   URL (`POST /v1.0/devices/{id}/stream/actions/allocate`, `{"type":"rtsp"}`), read by FFmpeg over TCP with a 10 second
-  socket timeout; snapshots are a frame of such a stream, kept 10 seconds and shared by the requests that come
-  meanwhile. The cloud project needs the **IoT Video Live Stream** service authorized; when Tuya answers that it is not
+  socket timeout (left out when FFmpeg's version is unknown, where the option's name differs); an answer that is not an
+  RTSP URL is not read. Snapshots are a frame of such a stream, kept 10 seconds and shared by the requests that come
+  meanwhile; a failed one answers the requests of the next 10 seconds without another cloud call. The cloud project needs the **IoT Video Live Stream** service authorized; when Tuya answers that it is not
   subscribed or expired, no stream is asked for that camera for 5 minutes. An offline camera is refused without a cloud
   call. The URL carries a credential: it is never logged, and FFmpeg's command lines and messages show it masked.
   FFmpeg is the `ffmpeg` on the `PATH` (with `libfdk_aac` for audio, or AudioToolbox's AAC on macOS). Virtual devices
   (ids starting `vdevo`) have no video. In the camera's Accessory Settings, **Video** (`video`, on by default) turns the
-  video accessory off, and **HomeKit Secure Video** (`recording`, off by default) records it on motion, each recording
+  video accessory off, and **HomeKit Secure Video** (`recording`, off by default) records its motion and rings, each recording
   opening a stream of its own.
 
 ## Configuration

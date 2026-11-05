@@ -90,8 +90,9 @@ public actor TuyaPlugin: HomeswiftPlugin {
     public func stop() async {
         tasks.cancelAll()
         await push?.stop()
-        for camera in cameras.values { await camera.shutdown() }
+        let stopping = cameras
         cameras = [:]
+        for camera in stopping.values { await camera.shutdown() }
     }
 
     func makeAPI(_ settings: TuyaSettings) -> TuyaOpenAPI {
@@ -285,7 +286,9 @@ public actor TuyaPlugin: HomeswiftPlugin {
             }
             guard !context.isExcluded(device.id) else { continue }
             if await add(device, among: devices) { keep.insert(Self.accessoryID(deviceID: device.id)) }
-            if cameras[device.id] != nil { keep.insert(Self.cameraID(deviceID: device.id)) }
+            // A camera whose publishing failed this time keeps its cached accessory, and with it its pairing.
+            let cameraID = Self.cameraID(deviceID: device.id)
+            if cameras[device.id] != nil || (Self.hasVideo(device) && context.accessory(id: cameraID) != nil) { keep.insert(cameraID) }
         }
         await context.removeAccessories(keeping: keep, message: "Removing an accessory no Tuya device has")
     }
@@ -343,14 +346,19 @@ public actor TuyaPlugin: HomeswiftPlugin {
     }
 
     /// A camera's video, snapshots, Motion Sensor and Doorbell on an accessory of its own (docs/clean-room/TuyaCamera.md),
-    /// following the bridged accessory's events. A camera published again replaces the one before.
+    /// following the bridged accessory's events. A camera published again replaces the one before; one whose video is now
+    /// off loses its accessory.
     private func publishCamera(_ device: TuyaDevice, bridged: Accessory, api: TuyaOpenAPI) async {
-        if let old = cameras.removeValue(forKey: device.id) { await old.shutdown() }
-        guard Self.hasVideo(device), !tasks.isStopped else { return }
         let id = Self.cameraID(deviceID: device.id)
+        if let old = cameras.removeValue(forKey: device.id) { await old.shutdown() }
+        guard !tasks.isStopped else { return }
+        guard Self.hasVideo(device) else {
+            if context.accessory(id: id) != nil { try? await context.remove(id: id) }
+            return
+        }
         let ffmpeg = sharedFFmpeg()
         let camera = TuyaCamera(accessoryID: id, device: device, api: api, ffmpeg: ffmpeg, grabFrame: dependencies.grabFrame,
-                                timing: TuyaCamera.Timing(scale: dependencies.timeScale), log: logger)
+                                timeScale: dependencies.timeScale, log: logger)
         var options = TuyaCamera.options
         options.debug = settings?.debugDevice(device.id) ?? false
         let open: RTSPSourceOpener = { [weak camera] _ in
@@ -392,7 +400,12 @@ public actor TuyaPlugin: HomeswiftPlugin {
             camera.follow(bridged: bridged, doorbell: controller as? DoorbellController)
             await camera.attach(controller: controller, streamer: streamer, recorder: recorder)
             try await context.publishExternal(accessory)
-            cameras[device.id] = camera
+            // The plugin stopped while it published: nothing would shut this camera down.
+            guard !tasks.isStopped else {
+                await camera.shutdown()
+                return
+            }
+            if let other = cameras.updateValue(camera, forKey: device.id) { await other.shutdown() }
             logger.info("\(device.name)'s video is an accessory of its own: add it in the Home app as a camera")
         } catch {
             await camera.shutdown()

@@ -133,6 +133,18 @@ struct TuyaCameraTests {
         await host.stop()
     }
 
+    @Test func aFailedSnapshotAnswersTheRequestsOfItsWindow() async throws {
+        let environment = Self.environment()
+        let (host, camera) = try await started(environment)
+        environment.cloud.refuse("POST \(Self.allocatePath(Self.cameraDeviceID))", code: 2008, message: "command or value not support")
+        await #expect(throws: (any Error).self) { _ = try await camera.snapshotImage() }
+        let calls = allocations(environment).count
+        #expect(calls == 1)
+        await #expect(throws: (any Error).self) { _ = try await camera.snapshotImage() }
+        #expect(allocations(environment).count == calls)
+        await host.stop()
+    }
+
     @Test func aFailedAllocationIsAnsweredAndARefusedSubscriptionBacksOff() async throws {
         let environment = Self.environment(collectLogs: true)
         let (host, camera) = try await started(environment)
@@ -234,7 +246,9 @@ struct TuyaCameraTests {
         #expect(RTSPCameraArguments.timeoutFlag(version: "7.1") == "-timeout")
         #expect(RTSPCameraArguments.timeoutFlag(version: "n4.4.2") == "-stimeout")
         #expect(RTSPCameraArguments.timeoutFlag(version: "4.3.1-0+deb11u1") == "-stimeout")
-        #expect(RTSPCameraArguments.timeoutFlag(version: "unknown") == "-timeout")
+        #expect(RTSPCameraArguments.timeoutFlag(version: "N-112345-gabcdef0") == "-timeout")
+        #expect(RTSPCameraArguments.timeoutFlag(version: "unknown") == nil)
+        #expect(!RTSPCameraArguments.input(url: TuyaCameraTests.url, options: TuyaCamera.options, timeoutFlag: nil).contains("10000000"))
         #expect(RTSPCameraArguments.input(url: "http://cam/x", options: TuyaCamera.options).first == "-analyzeduration")
     }
 
