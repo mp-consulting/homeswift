@@ -68,6 +68,8 @@ struct MagicHomeServices: @unchecked Sendable {
     var hue: Characteristic?
     var saturation: Characteristic?
     var colorTemperature: Characteristic?
+    /// The effect switches (`effects` on), by pattern id.
+    var effects: [UInt8: Characteristic] = [:]
 }
 
 /// One device: its connection, its light as last known, HomeKit's writes (gathered, the sliders' last only) and the
@@ -76,6 +78,8 @@ actor MagicHomeDevice {
     struct Options: Sendable {
         var effects = MagicHomeWhiteEffects()
         var timing = MagicHomeTiming()
+        /// The built-in patterns' speed, 0 to 100 (`effectSpeed`).
+        var effectSpeed = 50
     }
 
     /// The Device Id, the MAC.
@@ -87,6 +91,8 @@ actor MagicHomeDevice {
     private(set) var profile: MagicHomeProfile
     private(set) var light = MagicHomeLight()
     private(set) var isReachable = true
+    /// The built-in pattern playing, as the device reports it (state byte 3) or as it was last sent.
+    private(set) var playing: UInt8?
     private var services: MagicHomeServices?
     private var adaptiveLighting: AdaptiveLightingController?
     private var batcher: LightChangeBatcher?
@@ -131,7 +137,10 @@ actor MagicHomeDevice {
         if batcher == nil {
             batcher = LightChangeBatcher(window: options.timing.coalesce) { [weak self] changes in try await self?.flush(changes) }
         }
-        if let state { show(MagicHomeReading.of(state, profile: profile, effects: options.effects)) }
+        if let state {
+            show(MagicHomeReading.of(state, profile: profile, effects: options.effects))
+            showEffect(state)
+        }
         await connection.setPush { [weak self] message in await self?.pushed(message) }
     }
 
@@ -185,11 +194,14 @@ actor MagicHomeDevice {
         if profile.family.pushes, await connection.isOpen, let lastUpdate, now - lastUpdate < interval { return interval - (now - lastUpdate) }
         do {
             let heard = pushesHeard
+            let written = lastWrite
             let state = try await connection.query(wrapped: profile.family.wrapsRequests)
             await answered()
             // A push that came while the reply made its way here may be newer than it (sent after it, it was shown
             // first): the push stands.
             if pushesHeard == heard { await received(state) }
+            // A write that went meanwhile found no sleeper to wake: its read comes once it settled.
+            if lastWrite != written, let lastWrite { return max(options.timing.settle - (ContinuousClock.now - lastWrite), .zero) }
             return interval
         } catch {
             return await unanswered(error)
@@ -261,6 +273,41 @@ actor MagicHomeDevice {
         guard !isSettling else { return }
         lastUpdate = .now
         show(MagicHomeReading.of(state, profile: profile, effects: options.effects))
+        showEffect(state)
+    }
+
+    /// The effect switches from state byte 3: the one of the pattern playing on, while the light is on.
+    private func showEffect(_ state: MagicHomeState) {
+        playing = state.isOn && services?.effects[state.pattern] != nil ? state.pattern : nil
+        showPlaying()
+    }
+
+    private func showPlaying() {
+        for (id, characteristic) in services?.effects ?? [:] { set(characteristic, .bool(id == playing)) }
+    }
+
+    // MARK: Effects
+
+    /// An effect switch: On plays the pattern at `effectSpeed` (the light turned on first when it is off), Off on the
+    /// pattern playing puts the light's colour back, which ends it.
+    func playEffect(_ effect: MagicHomeEffect, on: Bool) async throws {
+        guard profile.effects.contains(effect) else { throw HAPStatusError(.notAllowedInCurrentState) }
+        identifying?.cancel()
+        identifying = nil
+        if on {
+            let bytes = MagicHomeFrame.effect(effect, speed: options.effectSpeed, brightness: Int(light.brightness.rounded()), family: profile.family)
+            try await send(poweredFirst([.plain(bytes)], always: !light.isOn), what: "the effect")
+            light.isOn = true
+            set(services?.on, .bool(true))
+            playing = effect.id
+            log.info("\(name) plays \(effect.name)")
+        } else {
+            guard playing == effect.id else { return }
+            try await send(poweredFirst(MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)), what: "the colour")
+            playing = nil
+        }
+        showPlaying()
+        wake()
     }
 
     /// The device's report: Adaptive Lighting turned off by a colour or a white set elsewhere, then each value that
@@ -313,7 +360,7 @@ actor MagicHomeDevice {
     // MARK: HomeKit's writes
 
     /// A change from HomeKit: a slider's only when no later one came within `slider`, then gathered with the others of
-    /// the moment into one command.
+    /// the moment into one command. The power waits as long, so an On and its levels of one request stay one command.
     func write(_ change: LightChangeBatcher.Change) async throws {
         let slider: String? = switch change {
         case .brightness: "brightness"
@@ -322,13 +369,11 @@ actor MagicHomeDevice {
         case .mirek: "mirek"
         case .on: nil
         }
-        if let slider {
-            // Claimed here, on the device, so the last write to reach it wins (the guard's own call would claim it after a
-            // hop off the actor, where two writes a moment apart can swap); then the wait for a later one.
-            let isLatest = sliders.claim(slider)
-            do { try await Task.sleep(for: options.timing.slider) } catch { return }
-            guard isLatest() else { return }
-        }
+        // Claimed here, on the device, so the last write to reach it wins (the guard's own call would claim it after a hop
+        // off the actor, where two writes a moment apart can swap); then the wait for a later one.
+        let isLatest = slider.map { sliders.claim($0) }
+        do { try await Task.sleep(for: options.timing.slider) } catch { return }
+        guard isLatest?() ?? true else { return }
         guard let batcher else { return }
         try await batcher.set(change)
     }
@@ -354,26 +399,38 @@ actor MagicHomeDevice {
         // A command of HomeKit's ends the flash (which then leaves the light as it is).
         identifying?.cancel()
         identifying = nil
-        var frames: [MagicHomeOutgoing]
-        if !levelsChanged || !light.isOn || profile.writer == .powerOnly {
-            frames = [power(light.isOn)]
-        } else {
-            frames = MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)
-            if profile.needsPowerOnFirst(module: record.module), !frames.isEmpty {
-                frames[0].delay = max(frames[0].delay, options.timing.powerToLevels)
-                frames.insert(power(true), at: 0)
-            }
+        // Levels end a pattern; the power alone does not.
+        if levelsChanged, light.isOn, playing != nil {
+            playing = nil
+            showPlaying()
         }
-        lastWrite = .now
+        let frames = !levelsChanged || !light.isOn || profile.writer == .powerOnly
+            ? [power(light.isOn)]
+            : poweredFirst(MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects))
         log.debug("\(name): \(changes)")
+        try await send(frames, what: "the command")
+        wake()
+    }
+
+    /// `frames` after `71 23 0F` when the device needs it before levels or effects (or `always`), the first of them
+    /// `powerToLevels` later.
+    private func poweredFirst(_ frames: [MagicHomeOutgoing], always: Bool = false) -> [MagicHomeOutgoing] {
+        guard !frames.isEmpty, always || profile.needsPowerOnFirst(module: record.module) else { return frames }
+        var frames = frames
+        frames[0].delay = max(frames[0].delay, options.timing.powerToLevels)
+        return [power(true)] + frames
+    }
+
+    /// Sends a write's frames, noting the write so the reads of its settling time are not shown.
+    private func send(_ frames: [MagicHomeOutgoing], what: String) async throws {
+        lastWrite = .now
         log.trace("\(name): sending \(frames.map { $0.bytes.map { String(format: "%02X", $0) }.joined(separator: " ") })")
         do {
             try await connection.send(frames)
         } catch {
-            log.debug("\(name) did not take the command: \(error)")
+            log.debug("\(name) did not take \(what): \(error)")
             throw HAPStatusError(.serviceCommunicationFailure)
         }
-        wake()
     }
 
     private func power(_ on: Bool) -> MagicHomeOutgoing {
@@ -413,7 +470,8 @@ actor MagicHomeDevice {
             log.debug("\(name) did not take the identify flash: \(error)")
         }
         lastWrite = .now
-        identifying = nil
+        // Whoever cancelled the flash let go of it already, and may have started the next.
+        if !Task.isCancelled { identifying = nil }
         wake()
     }
 }

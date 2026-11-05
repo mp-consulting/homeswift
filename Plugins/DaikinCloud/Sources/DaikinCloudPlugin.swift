@@ -24,6 +24,8 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
     // `webFiles` in WebFiles.swift, generated from ../Web.
 
     static let rateLimitFileName = ".daikin-rate-limit.json"
+    /// The days whose two-hour slots went into the Energy section (`DaikinSession.detailedDays`).
+    static let energyDaysFileName = "daikin-energy-days.json"
     static let certificateDirectoryName = "daikin-cloud-certs"
     static let climateControlIDs = ["climateControl", "climateControlMainZone", "climateControlSecondaryZone"]
     /// How long a Developer Portal login may take before the callback server stops.

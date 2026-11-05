@@ -347,10 +347,15 @@ enum Vectors {
     @Test func theMeterTakesEachArraysLastElement() throws {
         let json = #"{"power1":[{"powerA":1,"powerB":2,"powerC":3},{"powerA":1000,"powerB":"500.5","powerC":0}],"power2":[{"powerA":-200,"powerB":100,"powerC":50}]}"#
         let meter = try ECUMeter.parse(Data(json.utf8))
-        #expect(meter.production == [1000, 500.5, 0])
-        #expect(meter.grid == [-200, 100, 50])
+        #expect(meter.gridPhases == ["A": -200, "B": 100, "C": 50])
         #expect(meter.gridPower == -50)
         #expect(meter.homePower == 1450.5)
+        #expect(meter.productionPhases == ["A": 1000, "B": 500.5, "C": 0])
+        #expect(meter.homePhases == ["A": 800, "B": 600.5, "C": 50])
+        // A phase left out keeps the others' names.
+        let twoPhases = try ECUMeter.parse(Data(#"{"power1":[{"powerA":"x","powerB":10,"powerC":20}],"power2":[{"powerB":5}]}"#.utf8))
+        #expect(twoPhases.productionPhases == ["B": 10, "C": 20])
+        #expect(twoPhases.homePhases == ["B": 15])
         let empty = try ECUMeter.parse(Data(#"{"power1":[],"power2":[]}"#.utf8))
         #expect(empty.gridPower == nil && empty.homePower == nil)
         #expect(throws: (any Error).self) { try ECUMeter.parse(Data("<html>".utf8)) }

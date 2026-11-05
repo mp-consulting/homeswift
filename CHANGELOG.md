@@ -42,6 +42,28 @@ All notable changes to this project are documented here. The format follows
   protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
   energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
   Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
+- Renault: the rest of the battery's report on the car's Battery service and in the history (available energy, the
+  charge status in words, when the car last reported, the level and status codes); the location stays out.
+- APsystems ECU: each phase of an ECU-C's CT clamps (production, grid and home on A, B and C) as its own series in the
+  Status page's history.
+- V2C Trydan: the current's limits and the installation's voltage as Accessory Settings sent once per change, and the
+  session's time, the meter's code, the Wi-Fi signal and each phase's current and voltage in the Status page's history.
+- Daikin Cloud: each unit's kWh today in the Status page's history, and with `energyHistory` the units' `consumptionData`
+  imported into the Energy section as the home's use (two-hour slots for yesterday and today, days for two weeks), on
+  each unit's own time zone; a day imported from its slots keeps them once only its week's total is left.
+- Philips Hue: an Eve history on the motion, temperature and light level sensors (fakegato's format), with Eve's Last
+  Activation on the motion sensor.
+- Philips Hue: a Tap dial's ring as two Stateless Programmable Switches, Clockwise and Anticlockwise, from the event
+  stream's `relative_rotary` reports: a turn is a Single Press, a longer turn a Long Press, for scenes and automations.
+- Magic Home: the built-in effects as switches on the colour lights that play them, behind `effects` (off by default)
+  with an `effectSpeed`, also per light in its Accessory Settings.
+- V2C Trydan: the dynamic power modes as a set of switches (`exposeModes`), the wiring (`ChargeMode`) as an Accessory
+  Setting sent once per change, and a lifetime energy total made of the sessions' energy, kept across restarts, as
+  Eve's Total Consumption and on the Status page (the session's energy beside it).
+- Renault: the range, the time to a full charge and the charge power on the car's Battery service (the plugin's own
+  characteristics and Eve's Current Consumption), a battery temperature sensor where the car reports it, the four on
+  the Status page's history, and the charge target and minimum as Accessory Settings sent to the car once per change;
+  all from reads the plugin made already, within Renault's hourly quota.
 - The Philips Hue Sync Box plugin (platform `PhilipsHueSyncBoxPlatform`, a clean-room implementation compatible with
   homebridge-philips-hue-sync-box's configuration): a Lightbulb or Switch that starts and stops syncing, a power switch,
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
@@ -75,15 +97,6 @@ All notable changes to this project are documented here. The format follows
   FFmpeg 5, left out for an unknown version, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
   `RTSPCameraStreamer.standardResolutions` and `minimumInactivity`, and every query value of an RTSP URL masked in FFmpeg's
   logs.
-- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
-  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
-  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
-  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
-  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
-  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
-  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
-- Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
-  a field a step may leave empty says Optional.
 
 ### Changed
 

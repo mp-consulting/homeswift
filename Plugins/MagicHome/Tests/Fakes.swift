@@ -178,11 +178,17 @@ final class FakeLAN: Sendable {
         switch (frame.first, frame.count) {
         case (0x71, 4):
             state.isOn = frame[1] == 0x23
+        case (0x61, 5), (0x38, 5):
+            // A built-in pattern: it plays, at the delay sent.
+            state.isOn = true
+            (state.pattern, state.speed) = (frame[1], frame[2])
         case (0x31, 8):
             state.isOn = true
+            state.pattern = 0x61
             (state.red, state.green, state.blue, state.warm) = (frame[1], frame[2], frame[3], frame[4])
         case (0x31, 9):
             state.isOn = true
+            state.pattern = 0x61
             (state.red, state.green, state.blue, state.warm, state.cool) = (frame[1], frame[2], frame[3], frame[4], frame[5])
         case (0x35, 9):
             state.isOn = true
