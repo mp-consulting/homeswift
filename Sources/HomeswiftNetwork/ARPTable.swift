@@ -60,12 +60,7 @@ public enum ARPTable {
     /// `/proc/net/arp`: a header, then `IP address  HW type  Flags  HW address  Mask  Device`; flags `0x0`
     /// mark an entry still being resolved.
     static func linuxEntry(in table: String, ip: String) -> String? {
-        for line in table.split(separator: "\n").dropFirst() {
-            let columns = line.split(whereSeparator: \.isWhitespace)
-            guard columns.count >= 4, columns[0] == ip, columns[2] != "0x0" else { continue }
-            if let mac = normalized(String(columns[3])) { return mac }
-        }
-        return nil
+        linuxEntries(in: table).first { $0.ip == ip }?.mac
     }
 
     /// The address in canonical form; nil for `(incomplete)`, all zeros and broadcast.
@@ -75,8 +70,9 @@ public enum ARPTable {
     }
 
     #if canImport(Darwin)
-    /// Runs a tool and returns what it printed. Nothing waits on a thread of Swift's pool: the output is read
-    /// on Foundation's handler thread once the tool exits (one line of `arp`, far below a pipe's buffer).
+    /// Runs a tool and returns what it printed. The output is read on a thread of Dispatch's own while the tool runs
+    /// (`arp -an` on a large network fills a pipe's buffer, and a tool blocked writing would never exit), so nothing
+    /// waits on a thread of Swift's pool.
     private static func run(_ path: String, _ arguments: [String]) async -> String? {
         await withCheckedContinuation { continuation in
             let process = Process()
@@ -85,11 +81,15 @@ public enum ARPTable {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
-            process.terminationHandler = { _ in
+            do { try process.run() } catch {
+                continuation.resume(returning: nil)
+                return
+            }
+            DispatchQueue.global().async {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 continuation.resume(returning: String(decoding: data, as: UTF8.self))
             }
-            do { try process.run() } catch { continuation.resume(returning: nil) }
         }
     }
     #endif
