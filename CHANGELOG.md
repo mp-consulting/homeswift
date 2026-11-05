@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows
   protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
   energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
   Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
+- The Renault plugin (platform `Renault`, experimental, a clean-room implementation): Renault, Dacia and Alpine cars from
+  the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
+  and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
+  Setup with the e-mailed two-factor code, within Renault's hourly request quota.
 - The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
   plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
   offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,

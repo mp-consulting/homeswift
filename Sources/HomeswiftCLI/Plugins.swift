@@ -17,6 +17,7 @@ import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftRenault
 import HomeswiftRing
 import HomeswiftRoborock
 import HomeswiftShelly
@@ -72,6 +73,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
     registry.register(APsystemsECUPlugin.self)
+    registry.register(RenaultPlugin.self)
     registry.register(V2CTrydanPlugin.self)
     registry.register(TahomaPlugin.self)
     return registry
