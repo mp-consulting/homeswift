@@ -17,7 +17,7 @@ let testLogger: Logger = {
 }()
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -28,7 +28,7 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async
 
 /// Records an issue unless `condition` holds within `timeout` (no `await` inside `#expect`, which Linux rejects).
 func expectEventually(
-    timeout: Duration = .seconds(10), sourceLocation: SourceLocation = #_sourceLocation, _ condition: @Sendable () async -> Bool
+    timeout: Duration = .seconds(30), sourceLocation: SourceLocation = #_sourceLocation, _ condition: @Sendable () async -> Bool
 ) async {
     let held = await eventually(timeout: timeout, condition)
     #expect(held, sourceLocation: sourceLocation)

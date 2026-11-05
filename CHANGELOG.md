@@ -8,6 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
+  **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
+  like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
+  anything else it needs, probes the device, and finishes with the Device Id the device answered with. That id keys
+  the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
+  discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
+  light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
+  V2C Trydan adds a charger, APsystems ECU an ECU, IMOU a local camera (with its safety code) and Reolink a camera, NVR or
+  hub (with a local user's login) the same way.
+- Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
+  a field a step may leave empty says Optional.
+- The APsystems ECU plugin (platform `APsystemsECU`, experimental, a clean-room implementation of the ECU's local
+  protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
+  energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
+  Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
 - Renault: the rest of the battery's report on the car's Battery service and in the history (available energy, the
   charge status in words, when the car last reported, the level and status codes); the location stays out.
 - APsystems ECU: each phase of an ECU-C's CT clamps (production, grid and home on A, B and C) as its own series in the
@@ -45,10 +60,6 @@ All notable changes to this project are documented here. The format follows
   dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
   (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
   repaired.
-- The APsystems ECU plugin (platform `APsystemsECU`, experimental, a clean-room implementation of the ECU's local
-  protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
-  energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
-  Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
 - The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
   homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
   the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
@@ -65,15 +76,6 @@ All notable changes to this project are documented here. The format follows
   spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
   within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
   streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
-- Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
-  **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
-  like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
-  anything else it needs, probes the device, and finishes with the Device Id the device answered with. That id keys
-  the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
-  discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
-  light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
-  V2C Trydan adds a charger, APsystems ECU an ECU, IMOU a local camera (with its safety code) and Reolink a camera, NVR or
-  hub (with a local user's login) the same way.
 - Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
   a field a step may leave empty says Optional.
 - The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,

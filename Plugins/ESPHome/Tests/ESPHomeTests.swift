@@ -26,6 +26,8 @@ final class ESPHomeTestEnvironment: @unchecked Sendable {
         timing.handshakeTimeout = .seconds(10)
         timing.responseTimeout = .seconds(10)
         timing.liveness = .seconds(10)
+        // The real window: the writes of one change, made at once, can be further apart than 1 ms on a busy runner.
+        timing.lightCoalescing = ESPHomeTiming().lightCoalescing
         return timing
     }()
 

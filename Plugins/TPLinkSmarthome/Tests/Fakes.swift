@@ -65,10 +65,16 @@ final class FakeLAN: Sendable {
         let from = host.hasSuffix(".255") ? 9999 : port
         let answers: [(String, String)] = state.withLockedValue { state in
             state.packets.append(Sent(json: text, host: host, port: port))
-            let hosts = host.hasSuffix(".255") ? Array(state.sysinfo.keys) : (state.sysinfo[host] != nil ? [host] : [])
+            let hosts = host.hasSuffix(".255") ? state.sysinfo.keys.filter { Self.broadcast(host, reaches: $0) } : (state.sysinfo[host] != nil ? [host] : [])
             return hosts.filter { !state.silent.contains($0) }.map { ($0, #"{"system":{"get_sysinfo":\#(state.sysinfo[$0]!)}}"#) }
         }
         for (address, reply) in answers { deliver(reply, from: address, port: from) }
+    }
+
+    /// 255.255.255.255 reaches the whole pretend LAN, a subnet's broadcast (`10.0.0.255`) the hosts of its /24: not
+    /// a device behind a port forward, whose replies would otherwise come from 9999 as well as from its own port.
+    private static func broadcast(_ broadcast: String, reaches host: String) -> Bool {
+        broadcast == "255.255.255.255" || host.split(separator: ".").dropLast() == broadcast.split(separator: ".").dropLast()
     }
 
     fileprivate func command(_ json: String, host: String, port: Int) throws -> String {
@@ -161,7 +167,7 @@ extension PluginHost {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }

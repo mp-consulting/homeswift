@@ -48,9 +48,8 @@ struct TCPSocketTests {
     }
 
     @Test func aRefusedConnectionThrows() async throws {
-        let server = try await Self.echoServer()
-        let port = try #require(server.localAddress?.port)
-        try await server.close()
-        await #expect(throws: (any Error).self) { try await TCPSocket.connect(host: "127.0.0.1", port: port, timeout: .seconds(2)) }
+        // Port 1 on the loopback: nothing listens there. A port freed by closing a server could be taken by another test
+        // running at the same time, and then the connection succeeds.
+        await #expect(throws: (any Error).self) { try await TCPSocket.connect(host: "127.0.0.1", port: 1, timeout: .seconds(2)) }
     }
 }

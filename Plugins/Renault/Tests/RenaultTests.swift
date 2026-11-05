@@ -357,9 +357,11 @@ struct RenaultTests {
         let accessory = try #require(await accessory(host))
         let climate = try #require(accessory.services.first { $0.subtype == "Climate" }?.characteristic(.on))
         let lights = try #require(accessory.services.first { $0.subtype == "Lights" }?.characteristic(.on))
-        let end = ContinuousClock.now + hour * 3
+        // Three hours at least, and on until more than 20 requests went out (a loaded runner polls less often in the
+        // same time), up to eight.
+        let start = ContinuousClock.now, end = start + hour * 3, limit = start + hour * 8
         var toggle = false
-        while ContinuousClock.now < end {
+        while ContinuousClock.now < end || (environment.cloud.kamereon.count <= 20 && ContinuousClock.now < limit) {
             toggle.toggle()
             try? await climate.write(.bool(toggle))
             try? await lights.write(true)

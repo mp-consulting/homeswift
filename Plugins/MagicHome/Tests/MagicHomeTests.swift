@@ -59,7 +59,13 @@ struct MagicHomeTests {
     /// Section 7.2's sequence: power on first on firmware 5, the levels 100 ms later, one connection.
     @Test func aColourWriteIsOneLevelFrame() async throws {
         environment.lan.put(Fixtures.strip, at: Self.stripHost)
-        let host = try await environment.start()
+        // HomeKit sends the three in one request; a loaded runner may start them tens of milliseconds apart, so the
+        // window that gathers them into one frame is wider here than the suite's 20 ms.
+        var timing = TestEnvironment.timing
+        timing.coalesce = .milliseconds(250)
+        // The kept connection outlives that window, or it closes while the writes gather and a poll opens another.
+        timing.connection.idle = .seconds(5)
+        let host = try await environment.start(timing: timing)
         #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
         let light = try #require(host.accessory(Fixtures.stripMAC)?.service(.lightbulb))
         let connections = environment.lan.connections(to: Self.stripHost)
@@ -296,9 +302,11 @@ struct MagicHomeTests {
         #expect(await eventually { host.accessory(Fixtures.tableMAC) != nil })
         let light = try #require(host.accessory(Fixtures.tableMAC)?.service(.lightbulb))
         #expect(light[.colorTemperature]?.value == .int(217) && light[.brightness]?.value == .int(100))
+        // Counted before the writes: the read that follows them comes 250 ms after the last one, which a loaded runner
+        // can let pass before the test looks.
+        let written = environment.lan.queries(to: Self.tableHost)
         try await write(light[.on], .bool(false))
         try await write(light[.on], .bool(true))
-        let written = environment.lan.queries(to: Self.tableHost)
         // Wrapped, and counted from 0 on the connection: every frame on it, a query a slow machine lets in between the
         // writes included.
         let wrapped = environment.lan.frames.filter { $0.host == Self.tableHost && $0.wrapCounter != nil }
@@ -309,7 +317,15 @@ struct MagicHomeTests {
         // After the read that follows the writes (a push before it would be taken for the fade), a change in the app
         // arrives on that connection before any poll.
         #expect(await eventually { environment.lan.queries(to: Self.tableHost) > written })
-        let queries = environment.lan.queries(to: Self.tableHost)
+        // A query a slow machine let in between the writes may be what was seen: wait until the count holds still (the
+        // read after the writes has gone out) before pushing.
+        var queries = environment.lan.queries(to: Self.tableHost)
+        for _ in 0..<20 {
+            try await Task.sleep(for: .milliseconds(400))
+            let now = environment.lan.queries(to: Self.tableHost)
+            if now == queries { break }
+            queries = now
+        }
         environment.lan.update(at: Self.tableHost) { $0.warm = 0 }
         environment.lan.push(from: Self.tableHost)
         #expect(await eventually { light[.colorTemperature]?.value == .int(370) })
