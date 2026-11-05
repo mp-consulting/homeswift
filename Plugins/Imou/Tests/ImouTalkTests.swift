@@ -380,7 +380,10 @@ func feed(_ continuation: AsyncStream<PCMFrame>.Continuation, count: Int, sample
         #expect(connections.count == 2)
         #expect(connections[0].allSends.count == 3)
         #expect(f.talkCamera.validPost(String(decoding: connections[1].allSends[0], as: UTF8.self), nonce: "fresh"))
-        #expect(connections[1].allSends.dropFirst().map(\.count).reduce(0, +) == 3200 - 2048)
+        // In steps: CI's compiler times out type-checking the expression whole.
+        let audioSends: [[UInt8]] = Array(connections[1].allSends.dropFirst())
+        let audioBytes: Int = audioSends.reduce(0) { $0 + $1.count }
+        #expect(audioBytes == 3200 - 2048)
     }
 
     @Test func aCameraWithoutPostAudioFallsBackToTheBackchannel() async throws {
