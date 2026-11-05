@@ -81,6 +81,9 @@ All notable changes to this project are documented here. The format follows
 - Somfy TaHoma: Excluded scenarios stay on Add accessories, and `exclude` entries naming a scenario move to its
   Accessory Settings. Setup pauses its sign-ins after three refusals in a row. A `user` and `password` typed into the
   block are the ones sealed in the vault, not the running ones.
+- Synology: the bridge no longer warns at every start that other accounts can reach its secrets when the only entry
+  in its shared folder's ACL is the package's own. DSM shows the package's user the mode `777` on a folder with an ACL;
+  the bridge now reads the entries with `synoacltool -get` and names any that gives access to another account or group.
 
 ## [0.20.1] - 2026-11-04
 
