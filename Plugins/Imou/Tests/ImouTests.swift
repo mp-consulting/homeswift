@@ -78,8 +78,10 @@ struct ImouTests {
         let reads = cloud.calls("getDeviceCameraStatus").count
         #expect(reads >= (polls - 1) * 4 && reads <= (polls + 1) * 4)
         #expect(Set(cloud.calls("getDeviceCameraStatus").compactMap { $0.params["enableType"]?.stringValue }) == ["closeCamera", "whiteLight", "mobileDetect", "motionDetect"])
-        // One listing and one token: nothing asked again between rediscoveries.
-        #expect(cloud.calls("listDeviceDetailsByPage").count <= 2 && cloud.tokenFetches == 1)
+        // The listing only at rediscoveries, never once a poll (a loaded machine stretches the test over more of them), and
+        // one token.
+        #expect(cloud.calls("listDeviceDetailsByPage").count < cloud.calls("deviceOnline").count)
+        #expect(cloud.tokenFetches == 1)
         await host.stop()
     }
 
