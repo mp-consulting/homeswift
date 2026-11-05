@@ -14,6 +14,7 @@ import HomeswiftHueSyncBox
 import HomeswiftIPCameras
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
+import HomeswiftMagicHome
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
@@ -73,6 +74,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
     registry.register(HueSyncBoxPlugin.self)
+    registry.register(MagicHomePlugin.self)
     registry.register(RenaultPlugin.self)
     registry.register(V2CTrydanPlugin.self)
     registry.register(TahomaPlugin.self)

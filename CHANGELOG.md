@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
   Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
   name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
+- The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
+  homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
+  the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
+  families (the B0 wrapper, the 25-byte bulbs, addressable strips, tunable whites) as flux_led documents them; polled
+  with No Response after repeated failures, pushes read on a kept connection, Adaptive Lighting on tunable whites.
 - The Renault plugin (platform `Renault`, experimental, a clean-room implementation): Renault, Dacia and Alpine cars from
   the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
   and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
