@@ -104,6 +104,7 @@ final class TestEnvironment: Sendable {
     let charger: FakeCharger
     let timing: TrydanTiming
     private let plugins = NIOLockedValueBox<[V2CTrydanPlugin]>([])
+    private let observations = NIOLockedValueBox<[Observation]>([])
 
     init(_ charger: FakeCharger = FakeCharger(Vectors.charging), timing: TrydanTiming = fastTiming) {
         self.charger = charger
@@ -123,11 +124,13 @@ final class TestEnvironment: Sendable {
         return registry
     }
 
-    func start(settings: [String: Any] = ["devices": [["host": "192.0.2.50"]]]) async throws -> PluginHost {
+    /// `observing` sees each reading recorded for the Status page from the first.
+    func start(settings: [String: Any] = ["devices": [["host": "192.0.2.50"]]], observing: (@Sendable (String, Double) -> Void)? = nil) async throws -> PluginHost {
         let block = try HomeswiftConfiguration.Platform(platform: V2CTrydanPlugin.platform, name: V2CTrydanPlugin.name, settings: settings)
         let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
         let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         let host = try PluginHost(configuration: configuration, registry: registry(), storageDirectory: directory, options: options)
+        if let observing { observations.withLockedValue { $0.append(host.observeValues(observing)) } }
         try await host.start()
         return host
     }
@@ -656,6 +659,50 @@ struct V2CTrydanPluginTests {
         let again = environment.charger.count("/RealTimeData")
         #expect(await eventually { environment.charger.count("/RealTimeData") >= again + 3 })
         #expect(environment.charger.writes == ["/write/ChargeMode=2"])
+        await host.stop()
+    }
+
+    /// The current limits and the voltage of the Accessory Settings go to the charger once, in an order that keeps the
+    /// minimum at or below the maximum; values out of range, or a minimum above the maximum, are not sent.
+    @Test func theInstallationLimitsAreSentOnce() async throws {
+        let environment = TestEnvironment()
+        // The charger offers 6 to 16 A; the settings ask for 20 to 25 A at 400 V: the maximum goes first.
+        var settings: [String: Any] = [
+            "devices": [["host": "192.0.2.50", "id": "TRY4F2A"]],
+            "_accessories": ["TRY4F2A": ["minIntensity": 20, "maxIntensity": 25, "voltageInstallation": 400]],
+        ]
+        var host = try await environment.start(settings: settings)
+        #expect(await eventually { environment.charger.writes.count == 3 })
+        #expect(environment.charger.writes == ["/write/MaxIntensity=25", "/write/MinIntensity=20", "/write/VoltageInstallation=400"])
+        await host.stop()
+
+        // Out of range, or the minimum above the maximum: nothing.
+        for limits in [["maxIntensity": 40], ["voltageInstallation": 0], ["minIntensity": 30, "maxIntensity": 20]] {
+            settings["_accessories"] = ["TRY4F2A": limits]
+            environment.charger.set(Vectors.charging)
+            let sent = environment.charger.writes.count
+            host = try await environment.start(settings: settings)
+            let reads = environment.charger.count("/RealTimeData")
+            #expect(await eventually { environment.charger.count("/RealTimeData") >= reads + 3 })
+            #expect(environment.charger.writes.count == sent, "\(limits)")
+            await host.stop()
+        }
+    }
+
+    /// The session's time, the meter's code, the signal and each phase measured reach the Status page's history.
+    @Test func theDiagnosticsAreRecorded() async throws {
+        let body = Vectors.charging.replacingOccurrences(of: #""SignalStatus":3}"#, with: #""SignalStatus":3,"IntensityMeasure_L1y":6.5,"VoltageMeasure_L1":231}"#)
+        let environment = TestEnvironment(FakeCharger(body))
+        let values = NIOLockedValueBox<[String: Double]>([:])
+        let host = try await environment.start(observing: { series, value in values.withLockedValue { $0[series] = value } })
+        let prefix = "plugin:V2CTrydan:TRY4F2A:"
+        #expect(await eventually { values.withLockedValue { $0[prefix + "signal"] } == 3 })
+        #expect(values.withLockedValue { $0[prefix + "chargeTime"] } == 4355)
+        #expect(values.withLockedValue { $0[prefix + "meterError"] } == 4)
+        #expect(values.withLockedValue { $0[prefix + "currentL1"] } == 6.5)
+        #expect(values.withLockedValue { $0[prefix + "voltageL1"] } == 231)
+        let snapshot = await environment.plugin?.charger(deviceID: "TRY4F2A")?.snapshot()
+        #expect(snapshot?["chargeTime"] == 4355 && snapshot?["signal"] == 3 && snapshot?["installationVoltage"] == 230)
         await host.stop()
     }
 

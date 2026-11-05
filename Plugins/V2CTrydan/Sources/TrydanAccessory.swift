@@ -20,6 +20,11 @@ struct ChargerSettings: Decodable, Sendable, Equatable {
     var exposeModes: Bool?
     /// The wiring (`ChargeMode`): `monophasic`, `threephase` or `mixed`; nil leaves the charger's.
     var chargeMode: String?
+    /// Installation limits (3.4): the lowest and highest current offered, 6 to 32 A, and the installation's voltage, 1 to
+    /// 500 V; nil leaves the charger's.
+    var minIntensity: Int?
+    var maxIntensity: Int?
+    var voltageInstallation: Int?
 
     var showsCurrent: Bool { exposeCurrent ?? true }
     var showsLock: Bool { exposeLock ?? true }
@@ -32,6 +37,9 @@ struct ChargerSettings: Decodable, Sendable, Equatable {
     var installation: [(keyword: String, value: Int)] {
         var writes: [(keyword: String, value: Int)] = []
         if let wiring = chargeMode.flatMap(ChargeWiring.init(rawValue:)) { writes.append(("ChargeMode", wiring.value)) }
+        if let minIntensity { writes.append(("MinIntensity", minIntensity)) }
+        if let maxIntensity { writes.append(("MaxIntensity", maxIntensity)) }
+        if let voltageInstallation { writes.append(("VoltageInstallation", voltageInstallation)) }
         return writes
     }
 }

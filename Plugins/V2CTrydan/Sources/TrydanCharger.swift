@@ -67,6 +67,7 @@ actor TrydanCharger {
     /// An installation write in flight, and when a failed one may be tried again, by keyword.
     private var installing = false
     private var installRetry: [String: ContinuousClock.Instant] = [:]
+    private var warnedLimits = false
 
     init(
         host: String, deviceID: String?, name: String, settings: ChargerSettings, transport: any HTTPSending, interval: Duration, timeout: Duration,
@@ -230,17 +231,33 @@ actor TrydanCharger {
     func installationWrites(_ report: TrydanReport) -> [(keyword: String, value: Int)] {
         guard let memory = loadedMemory() else { return [] }
         let now = ContinuousClock.now
-        return settings.installation.filter { write in
+        let writes = settings.installation.filter { write in
             guard memory.sent[write.keyword] != write.value, installRetry[write.keyword].map({ now >= $0 }) ?? true else { return false }
+            guard (try? validate(write.keyword, write.value)) != nil else { return false }
             guard let current = Self.reported(write.keyword, in: report) else { return false }
             return current != write.value
         }
+        // The minimum never above the maximum (3.4), counting the one not asked for as the charger reports it; a
+        // minimum raised past the maximum goes after the maximum.
+        let minimum = settings.minIntensity ?? report.minIntensity, maximum = settings.maxIntensity ?? report.maxIntensity
+        guard minimum <= maximum else {
+            if !warnedLimits {
+                warnedLimits = true
+                logger.warning("The current limits of \(name) are not sent: the minimum \(minimum) A is above the maximum \(maximum) A")
+            }
+            return writes.filter { $0.keyword != "MinIntensity" && $0.keyword != "MaxIntensity" }
+        }
+        guard minimum > report.maxIntensity else { return writes }
+        return writes.filter { $0.keyword == "MaxIntensity" } + writes.filter { $0.keyword != "MaxIntensity" }
     }
 
     /// The value of an installation keyword the report holds; nil when the charger has not reported it.
     static func reported(_ keyword: String, in report: TrydanReport) -> Int? {
         switch keyword {
         case "ChargeMode": report.chargeMode
+        case "MinIntensity": report.minIntensity
+        case "MaxIntensity": report.maxIntensity
+        case "VoltageInstallation": report.voltageInstallation
         default: nil
         }
     }
@@ -323,6 +340,13 @@ actor TrydanCharger {
         // kWh, untagged: the charge power is already in the history.
         readings.append(("session", report.chargeEnergy, nil))
         if let lifetimeEnergy { readings.append(("energy", lifetimeEnergy, nil)) }
+        // The diagnostics HomeKit has no place for: the session's seconds, the meter's code (3.5), the Wi-Fi signal,
+        // and the current and voltage of each phase measured.
+        readings.append(("chargeTime", Double(report.chargeTime), nil))
+        readings.append(("meterError", Double(report.slaveError), nil))
+        if let signal = report.signalStatus { readings.append(("signal", Double(signal), nil)) }
+        for (index, current) in report.intensityMeasures.enumerated() { readings.append(("currentL\(index + 1)", current, nil)) }
+        for (index, voltage) in report.voltageMeasures.enumerated() { readings.append(("voltageL\(index + 1)", voltage, nil)) }
         for reading in readings {
             guard let watts = reading.watts.finite else { continue }
             let recorded: RecordedSeries
@@ -436,6 +460,10 @@ actor TrydanCharger {
             allowed = (0...5).contains(value) ? nil : "0 to 5"
         case "ChargeMode":
             allowed = (0...2).contains(value) ? nil : "0, 1 or 2"
+        case "MinIntensity", "MaxIntensity":
+            allowed = (6...32).contains(value) ? nil : "6 to 32"
+        case "VoltageInstallation":
+            allowed = (1...500).contains(value) ? nil : "1 to 500"
         case "LightLED", "LogoLED":
             allowed = (0...100).contains(value) ? nil : "0 to 100"
         default:
@@ -483,6 +511,9 @@ actor TrydanCharger {
         case "Intensity": report.intensity = value
         case "DynamicPowerMode": report.dynamicPowerMode = value
         case "ChargeMode": report.chargeMode = value
+        case "MinIntensity": report.minIntensity = value
+        case "MaxIntensity": report.maxIntensity = value
+        case "VoltageInstallation": report.voltageInstallation = value
         case "LightLED": report.lightLED = value
         case "LogoLED": report.logoLED = value
         default: break
@@ -510,6 +541,9 @@ actor TrydanCharger {
             fields["housePower"] = .number(report.housePower)
             fields["solarPower"] = .number(report.fvPower)
             fields["meterStatus"] = .string(SlaveError.name(report.slaveError))
+            fields["chargeTime"] = .number(Double(report.chargeTime))
+            if let signal = report.signalStatus { fields["signal"] = .number(Double(signal)) }
+            if let voltage = report.voltageInstallation { fields["installationVoltage"] = .number(Double(voltage)) }
             fields["dynamicPowerMode"] = .string(DynamicPowerMode(rawValue: report.dynamicPowerMode)?.name ?? "\(report.dynamicPowerMode)")
             if let firmware = report.firmwareVersion { fields["firmware"] = .string(firmware) }
         }

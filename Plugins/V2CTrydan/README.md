@@ -30,7 +30,10 @@ back. Requests to a charger go one at a time.
 Some firmware sends malformed JSON (a duplicated `FirmwareVersion`, an unquoted version, a missing comma before
 `ReadyState`): the plugin repairs those and logs it once per firmware version.
 
-**Energy.** The Status page's history records each charger's `ChargePower`, `HousePower`, `FVPower` and `BatteryPower`.
+**Energy.** The Status page's history records each charger's `ChargePower`, `HousePower`, `FVPower` and `BatteryPower`,
+and its diagnostics HomeKit has no place for: the session's time (`chargeTime`, seconds), the meter's code
+(`meterError`, 3.5's codes; non-zero is normal without a meter, so it is never a fault), the Wi-Fi signal (`signal`,
+its scale undocumented) and the current and voltage of each phase the charger measures (`currentL1`…, `voltageL1`…).
 None is counted in the Energy section by default: the car's draw is part of the home's use (a meter plugin counts it), and
 the charger's own meter clamp may measure the home or the grid depending on where the installer put it. Tag them per
 charger with `houseEnergyRole` (`home` or `grid`) and `solarEnergy`; several chargers on one meter count once.
@@ -51,6 +54,12 @@ while the bridge was down (its part before the restart is lost).
 **The wiring** (`ChargeMode`: single-phase, three-phase or mixed) is an installation setting: set it in the charger's
 Accessory Settings (`chargeMode`) and the plugin sends it once, when the charger reports another, and remembers it sent
 it (a later change on the charger itself stays until the setting changes).
+
+**The installation's limits** work the same way: `minIntensity` and `maxIntensity` (6 to 32 A, the minimum never above
+the maximum, the one not set taken from the charger) and `voltageInstallation` (1 to 500 V). A raised minimum past the
+charger's maximum sends the maximum first. A value out of range, or a minimum above the maximum, is not sent (logged
+once). `maxIntensity` must never exceed what the wiring and the breaker take: like every Accessory Setting, only an
+administrator's settings write sets it, and each write is in the log.
 
 ## Configuration
 
@@ -84,6 +93,8 @@ Once a charger listed in `devices` has answered, the next settings write moves i
 | `solarEnergy` | false | Count `FVPower` as solar |
 | `exposeModes` | false | The dynamic power mode switches |
 | `chargeMode` | | `monophasic`, `threephase` or `mixed`: the wiring, sent once when it changes |
+| `minIntensity`, `maxIntensity` | | 6 to 32 A: the current's limits, sent once when they change |
+| `voltageInstallation` | | 1 to 500 V: the installation's voltage, sent once when it changes |
 
 The charger has no password: anyone on the network can read and drive it, and so the plugin keeps no secret.
 
@@ -129,7 +140,7 @@ Choices made where the spec is silent or a device must confirm, each worth check
    from 120 s to 300 s directly.
 7. **The lifetime energy** is the plugin's own sum of the sessions (see above), not the charger's: a session's energy
    during a bridge restart can be partly missed.
-8. **Not done:** `MinIntensity`, `MaxIntensity`, `ContractedPower` and `VoltageInstallation` writes (the
-   plugin validates them, but no tool sets them: a wrong `MaxIntensity` can exceed the wiring), the V2C cloud, MQTT, and
-   firmware without `/RealTimeData`.
+8. **Not done:** `ContractedPower` writes (the home's contract with its supplier, and its sign rule depends on the
+   dynamic power mode: 3.4), the V2C cloud, MQTT, and firmware without `/RealTimeData`. `SignalStatus` is recorded
+   as the charger sends it: its scale is unknown.
 9. **Write latency:** how long the charger takes to show a write is unknown; hence the second read after two seconds.

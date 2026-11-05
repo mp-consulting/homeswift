@@ -143,6 +143,27 @@ extension V2CTrydanPlugin {
           { "title": "Mixed", "enum": ["mixed"] }
         ],
         "description": "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation."
+      },
+      "minIntensity": {
+        "title": "Minimum current (A)",
+        "type": "integer",
+        "minimum": 6,
+        "maximum": 32,
+        "description": "The lowest current the charger offers (MinIntensity), 6 to 32 A and not above the maximum, sent once when it changes. Empty leaves the charger's."
+      },
+      "maxIntensity": {
+        "title": "Maximum current (A)",
+        "type": "integer",
+        "minimum": 6,
+        "maximum": 32,
+        "description": "The highest current the charger offers (MaxIntensity), 6 to 32 A, sent once when it changes. Never above what the installation's wiring and breaker take. Empty leaves the charger's."
+      },
+      "voltageInstallation": {
+        "title": "Installation voltage (V)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "description": "The installation's nominal voltage (VoltageInstallation), 1 to 500 V, sent once when it changes. Empty leaves the charger's."
       }
     }
   },
@@ -198,7 +219,13 @@ extension V2CTrydanPlugin {
       "Single-phase": "Monophasé",
       "Three-phase": "Triphasé",
       "Mixed": "Mixte",
-      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Le câblage de la borne (ChargeMode), envoyé une fois quand il change. Vide garde celui de la borne : ne le réglez que pour suivre l'installation."
+      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Le câblage de la borne (ChargeMode), envoyé une fois quand il change. Vide garde celui de la borne : ne le réglez que pour suivre l'installation.",
+      "Minimum current (A)": "Courant minimal (A)",
+      "Maximum current (A)": "Courant maximal (A)",
+      "Installation voltage (V)": "Tension de l'installation (V)",
+      "The lowest current the charger offers (MinIntensity), 6 to 32 A and not above the maximum, sent once when it changes. Empty leaves the charger's.": "Le courant le plus bas que la borne propose (MinIntensity), de 6 à 32 A et pas au-dessus du maximum, envoyé une fois quand il change. Vide garde celui de la borne.",
+      "The highest current the charger offers (MaxIntensity), 6 to 32 A, sent once when it changes. Never above what the installation's wiring and breaker take. Empty leaves the charger's.": "Le courant le plus haut que la borne propose (MaxIntensity), de 6 à 32 A, envoyé une fois quand il change. Jamais au-dessus de ce que supportent le câblage et le disjoncteur de l'installation. Vide garde celui de la borne.",
+      "The installation's nominal voltage (VoltageInstallation), 1 to 500 V, sent once when it changes. Empty leaves the charger's.": "La tension nominale de l'installation (VoltageInstallation), de 1 à 500 V, envoyée une fois quand elle change. Vide garde celle de la borne."
     },
     "es": {
       "A contact sensor that shows when a car is plugged in, and the charger's faults.": "Un sensor de contacto que indica cuándo hay un coche enchufado, y los fallos del cargador.",
@@ -237,7 +264,13 @@ extension V2CTrydanPlugin {
       "Single-phase": "Monofásico",
       "Three-phase": "Trifásico",
       "Mixed": "Mixto",
-      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Cómo está cableado el cargador (ChargeMode), enviado una vez cuando cambia. Vacío deja el del cargador: ajústelo solo para que coincida con la instalación."
+      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Cómo está cableado el cargador (ChargeMode), enviado una vez cuando cambia. Vacío deja el del cargador: ajústelo solo para que coincida con la instalación.",
+      "Minimum current (A)": "Corriente mínima (A)",
+      "Maximum current (A)": "Corriente máxima (A)",
+      "Installation voltage (V)": "Tensión de la instalación (V)",
+      "The lowest current the charger offers (MinIntensity), 6 to 32 A and not above the maximum, sent once when it changes. Empty leaves the charger's.": "La corriente más baja que ofrece el cargador (MinIntensity), de 6 a 32 A y no por encima del máximo, enviada una vez cuando cambia. Vacío deja la del cargador.",
+      "The highest current the charger offers (MaxIntensity), 6 to 32 A, sent once when it changes. Never above what the installation's wiring and breaker take. Empty leaves the charger's.": "La corriente más alta que ofrece el cargador (MaxIntensity), de 6 a 32 A, enviada una vez cuando cambia. Nunca por encima de lo que admiten el cableado y el interruptor de la instalación. Vacío deja la del cargador.",
+      "The installation's nominal voltage (VoltageInstallation), 1 to 500 V, sent once when it changes. Empty leaves the charger's.": "La tensión nominal de la instalación (VoltageInstallation), de 1 a 500 V, enviada una vez cuando cambia. Vacío deja la del cargador."
     },
     "pt": {
       "A contact sensor that shows when a car is plugged in, and the charger's faults.": "Um sensor de contacto que indica quando um carro está ligado, e as falhas do carregador.",
@@ -276,7 +309,13 @@ extension V2CTrydanPlugin {
       "Single-phase": "Monofásico",
       "Three-phase": "Trifásico",
       "Mixed": "Misto",
-      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Como o carregador está cablado (ChargeMode), enviado uma vez quando muda. Vazio mantém o do carregador: defina-o só para corresponder à instalação."
+      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Como o carregador está cablado (ChargeMode), enviado uma vez quando muda. Vazio mantém o do carregador: defina-o só para corresponder à instalação.",
+      "Minimum current (A)": "Corrente mínima (A)",
+      "Maximum current (A)": "Corrente máxima (A)",
+      "Installation voltage (V)": "Tensão da instalação (V)",
+      "The lowest current the charger offers (MinIntensity), 6 to 32 A and not above the maximum, sent once when it changes. Empty leaves the charger's.": "A corrente mais baixa que o carregador oferece (MinIntensity), de 6 a 32 A e não acima do máximo, enviada uma vez quando muda. Vazio mantém a do carregador.",
+      "The highest current the charger offers (MaxIntensity), 6 to 32 A, sent once when it changes. Never above what the installation's wiring and breaker take. Empty leaves the charger's.": "A corrente mais alta que o carregador oferece (MaxIntensity), de 6 a 32 A, enviada uma vez quando muda. Nunca acima do que a cablagem e o disjuntor da instalação suportam. Vazio mantém a do carregador.",
+      "The installation's nominal voltage (VoltageInstallation), 1 to 500 V, sent once when it changes. Empty leaves the charger's.": "A tensão nominal da instalação (VoltageInstallation), de 1 a 500 V, enviada uma vez quando muda. Vazio mantém a do carregador."
     }
   }
 }
