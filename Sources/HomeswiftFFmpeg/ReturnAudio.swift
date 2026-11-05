@@ -5,7 +5,7 @@ import NIOConcurrencyHelpers
 
 // HomeKit's return audio for camera plugins (docs/clean-room/ReturnAudio.md): while someone talks in the Home app, HomeKit
 // sends SRTP AAC-ELD to the stream's audio return port; FFmpeg decodes it to PCM, cut into frames, handed to the plugin one
-// Talk at a time (a burst of speech, from the first packet to an idle gap). The plugin re-encodes them for its camera's
+// Talk at a time (a burst of speech, from the first decoded audio to an idle gap). The plugin re-encodes them for its camera's
 // speaker (AudioEncoders.swift).
 
 /// The PCM a plugin wants: 8000 or 16000 Hz mono, in frames of 10 to 60 ms (a multiple of 10).
@@ -153,9 +153,11 @@ public enum ReturnAudioArguments {
 
 extension RTSPCameraFFmpeg {
     /// The decoder of HomeKit's AAC-ELD return audio: libfdk_aac when FFmpeg has it, then AudioToolbox's on macOS, then none
-    /// (FFmpeg's own `aac` decodes ER AAC ELD).
+    /// (FFmpeg's own `aac` decodes ER AAC ELD), which is also the choice when the codecs could not be probed: every FFmpeg
+    /// has its own decoder, not every one libfdk_aac.
     public func returnAudioDecoder() async -> [String] {
-        guard let codecs = await codecs, !codecs.hasDecoder("aac", "libfdk_aac") else { return ["-c:a", "libfdk_aac"] }
+        guard let codecs = await codecs else { return [] }
+        if codecs.hasDecoder("aac", "libfdk_aac") { return ["-c:a", "libfdk_aac"] }
         return codecs.hasDecoder("aac", "aac_at") ? ["-c:a", "aac_at"] : []
     }
 }
@@ -266,6 +268,8 @@ public actor ReturnAudioReceiver {
     }
 
     private var talk: OpenTalk?
+    /// When the last RTP packet came: a Talk begins on decoded audio only while packets keep coming.
+    private var lastPacket: ContinuousClock.Instant?
     private var talks = 0
     private var handlers: [Int: Task<Void, Never>] = [:]
 
@@ -291,6 +295,10 @@ public actor ReturnAudioReceiver {
     public var talkCount: Int { talks }
     /// Whether a Talk is under way.
     public var isTalking: Bool { talk != nil }
+    /// Whether FFmpeg is running, the packets and FFmpeg's chunks handled: for tests.
+    var isDecoding: Bool { decoder != nil }
+    private(set) var packetCount = 0
+    private(set) var chunkCount = 0
     /// Whether the demuxer listens on the audio return port.
     public var isListening: Bool { demuxer?.isRunning ?? false }
 
@@ -354,13 +362,16 @@ public actor ReturnAudioReceiver {
 
     // MARK: Packets and Talks
 
-    /// One RTP packet of return audio (section 4.2, steps 3 and 4).
+    /// One RTP packet of return audio (section 4.2, steps 3 and 4). A packet only starts FFmpeg and keeps a Talk open: the
+    /// Talk, and with it the camera's talk channel, begins on FFmpeg's first PCM, which only audio that passed SRTP's
+    /// authentication gives. Anyone can send a datagram to the return port; only the controller can make it decode.
     func packet() async {
-        guard !closed, !muted else { return }
-        if talk == nil { beginTalk() }
+        packetCount += 1
+        guard !closed, !muted, !gaveUp else { return }
+        lastPacket = .now
         talk?.lastPacket = .now
         talk?.packets += 1
-        if decoder == nil, !decoderStarting, !gaveUp { await startDecoder() }
+        if decoder == nil, !decoderStarting { await startDecoder() }
     }
 
     private func beginTalk() {
@@ -368,8 +379,7 @@ public actor ReturnAudioReceiver {
         let number = talks
         let (frames, continuation) = AsyncStream.makeStream(of: PCMFrame.self, bufferingPolicy: .bufferingNewest(Self.frameBuffer))
         let now = ContinuousClock.now
-        talk = OpenTalk(number: number, continuation: continuation, startedAt: now, lastPacket: now)
-        framer.reset()
+        talk = OpenTalk(number: number, continuation: continuation, startedAt: now, lastPacket: lastPacket ?? now)
         talk?.watcher = watch(number)
         log.info("\(name): Talk started.")
         let talk = Talk(sessionID: stream.sessionID, format: options.format, frames: frames, volume: volume)
@@ -455,10 +465,16 @@ public actor ReturnAudioReceiver {
         }
     }
 
-    /// PCM from FFmpeg: whole frames to the Talk under way; none open, they are dropped (step 5).
+    /// PCM from FFmpeg: whole frames to the Talk under way, the first of them beginning one while packets still come; frames
+    /// after a Talk went idle (FFmpeg flushing late) are dropped (step 5).
     private func output(_ chunk: Data, generation: Int) {
+        chunkCount += 1
         guard decoder?.generation == generation else { return }
         let frames = framer.push(chunk)
+        if talk == nil, !frames.isEmpty, !closed, !muted, !gaveUp, let lastPacket,
+           ContinuousClock.now - lastPacket < options.idleTimeout * timeScale {
+            beginTalk()
+        }
         guard var talk else {
             framer.reset()
             return

@@ -173,17 +173,19 @@ public struct ADTSFrameSplitter: Sendable {
 /// AAC-LC in ADTS from PCM, through a second FFmpeg (section 5.4): frames go to its standard input as they come, ADTS frames
 /// come out of `frames`, which ends when FFmpeg does (after `finish()`, or when it fails).
 public final class AACTalkEncoder: Sendable {
-    public static func arguments(sampleRate: Int, debug: Bool = false) -> [String] {
-        ["-hide_banner", "-loglevel", debug ? "level+verbose" : "error", "-f", "s16le", "-ar", "\(sampleRate)", "-ac", "1", "-i", "pipe:0",
-         "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "32k", "-f", "adts", "-flush_packets", "1", "pipe:1"]
+    /// `sampleRate` is the PCM's; `outputRate`, when another, the AAC's, FFmpeg resampling.
+    public static func arguments(sampleRate: Int, outputRate: Int? = nil, debug: Bool = false) -> [String] {
+        ["-hide_banner", "-loglevel", debug ? "level+verbose" : "error", "-f", "s16le", "-ar", "\(sampleRate)", "-ac", "1", "-i", "pipe:0"]
+            + (outputRate.map { $0 == sampleRate ? [] : ["-ar", "\($0)"] } ?? [])
+            + ["-c:a", "aac", "-profile:a", "aac_low", "-b:a", "32k", "-f", "adts", "-flush_packets", "1", "pipe:1"]
     }
 
     public let frames: AsyncStream<[UInt8]>
     private let process: FfmpegProcess
 
     /// Starts FFmpeg; nil when it cannot.
-    public init?(ffmpeg: RTSPCameraFFmpeg, sampleRate: Int, debug: Bool = false) {
-        let process = FfmpegProcess(ffmpeg.options, commandLineArgs: Self.arguments(sampleRate: sampleRate, debug: debug))
+    public init?(ffmpeg: RTSPCameraFFmpeg, sampleRate: Int, outputRate: Int? = nil, debug: Bool = false) {
+        let process = FfmpegProcess(ffmpeg.options, commandLineArgs: Self.arguments(sampleRate: sampleRate, outputRate: outputRate, debug: debug))
         let (frames, continuation) = AsyncStream.makeStream(of: [UInt8].self)
         process.start()
         let splitter = NIOLockedSplitter()

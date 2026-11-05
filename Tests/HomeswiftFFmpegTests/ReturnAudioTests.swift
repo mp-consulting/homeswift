@@ -75,11 +75,19 @@ import Testing
         #expect(await ffmpeg(["aac", "libfdk_aac"]).returnAudioDecoder() == ["-c:a", "libfdk_aac"])
         #expect(await ffmpeg(["aac", "aac_at"]).returnAudioDecoder() == ["-c:a", "aac_at"])
         #expect(await ffmpeg(["aac"]).returnAudioDecoder() == [])
+        // No probe: FFmpeg's own decoder, which every build has.
+        let config = FfmpegOptionsConfig(codecSupport: FfmpegCodecs(log: Logger(label: "test"), ffmpegVersion: "7.0"), hardwareDecoding: false,
+                                         hardwareTranscoding: false, log: Logger(label: "test"), name: { "test" })
+        #expect(await RTSPCameraFFmpeg(options: FfmpegOptions(config), codecs: nil).returnAudioDecoder() == [])
     }
 
     @Test func aacEncoderCommandLine() {
         #expect(AACTalkEncoder.arguments(sampleRate: 16000).joined(separator: " ") ==
             "-hide_banner -loglevel error -f s16le -ar 16000 -ac 1 -i pipe:0 -c:a aac -profile:a aac_low -b:a 32k -f adts -flush_packets 1 pipe:1")
+        // 8 kHz PCM for a 48 kHz track: FFmpeg resamples, the AAC is the track's.
+        #expect(AACTalkEncoder.arguments(sampleRate: 8000, outputRate: 48000).joined(separator: " ") ==
+            "-hide_banner -loglevel error -f s16le -ar 8000 -ac 1 -i pipe:0 -ar 48000 -c:a aac -profile:a aac_low -b:a 32k -f adts -flush_packets 1 pipe:1")
+        #expect(AACTalkEncoder.arguments(sampleRate: 16000, outputRate: 16000) == AACTalkEncoder.arguments(sampleRate: 16000))
     }
 
     @Test func formats() {
@@ -241,12 +249,32 @@ final class TalkRecorder: Sendable {
         #expect(!f.logs.messages.contains { $0.contains("Talk") })
     }
 
-    @Test func aTalkGetsWholeFramesUntilItGoesIdle() async throws {
-        let f = try await fixture(volume: 70)
-        #expect(await f.receiver.start())
+    /// Sends a packet and waits for FFmpeg (the fake) to have been started for it.
+    func firstPacket(_ f: Fixture) async throws -> FakeReturnAudioDecoder {
         try await sendUDP(Self.packet, to: f.port)
-        #expect(await eventually { f.decoders.count == 1 && f.talks.count == 1 })
-        let decoder = try #require(f.decoders.last)
+        #expect(await eventually { f.decoders.count == 1 })
+        return try #require(f.decoders.last)
+    }
+
+    @Test func aTalkBeginsOnDecodedAudioOnly() async throws {
+        // Datagrams to the return port start FFmpeg, but only audio it decodes (which passed SRTP) begins a Talk.
+        let f = try await fixture(idle: .seconds(60))
+        #expect(await f.receiver.start())
+        let decoder = try await firstPacket(f)
+        try await sendUDP(Self.packet, to: f.port)
+        #expect(await eventuallyAsync { await f.receiver.packetCount == 2 })
+        #expect(f.talks.count == 0)
+        #expect(await !f.receiver.isTalking)
+        #expect(!f.logs.messages.contains("Camera: Talk started."))
+        decoder.emit(Data(repeating: 0x01, count: 640))
+        #expect(await eventually { f.talks.talk(0)?.frames.count == 1 })
+        await f.receiver.close()
+    }
+
+    @Test func aTalkGetsWholeFramesUntilItGoesIdle() async throws {
+        let f = try await fixture(idle: .seconds(3), volume: 70)
+        #expect(await f.receiver.start())
+        let decoder = try await firstPacket(f)
         #expect(decoder.arguments.contains("libfdk_aac") && decoder.arguments.contains("16000"))
         #expect(decoder.state.withLockedValue { $0.sdp }.contains("inline:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd"))
         decoder.emit(Data(repeating: 0x01, count: 1000))
@@ -260,14 +288,19 @@ final class TalkRecorder: Sendable {
         #expect(talk.frames[1].samples[229] == 0x0101 && talk.frames[1].samples[230] == 0)
         #expect(f.logs.messages.contains("Camera: Talk started."))
         #expect(f.logs.messages.contains { $0.hasPrefix("Camera: Talk ended (") })
-        // FFmpeg flushing late, no Talk open: dropped.
+        // FFmpeg flushing late, after the Talk went idle: dropped, no Talk begun.
         decoder.emit(Data(repeating: 0, count: 640))
+        #expect(await eventuallyAsync { await f.receiver.chunkCount == 3 })
+        #expect(f.talks.count == 1)
         try await sendUDP(Self.packet, to: f.port)
+        #expect(await eventuallyAsync { await f.receiver.packetCount == 2 })
+        decoder.emit(Data(repeating: 0x02, count: 640))
         #expect(await eventually { f.talks.count == 2 })
         #expect(f.decoders.count == 1)
         await f.receiver.close()
         #expect(await eventually { f.talks.talk(1)?.ended == true })
-        #expect(f.talks.talk(1)?.frames.isEmpty == true)
+        #expect(f.talks.talk(1)?.frames.map(\.offset) == [0])
+        #expect(f.talks.talk(1)?.frames.first?.samples.first == 0x0202)
         #expect(decoder.state.withLockedValue { $0.stopped })
     }
 
@@ -275,16 +308,19 @@ final class TalkRecorder: Sendable {
         // Idle 5 s × 0.1: packets every 30 ms keep it open, the silence after them ends it.
         let f = try await fixture(idle: .seconds(5))
         #expect(await f.receiver.start())
+        let decoder = try await firstPacket(f)
+        decoder.emit(Data(repeating: 0x01, count: 640))
+        #expect(await eventually { f.talks.count == 1 })
         for _ in 0..<10 {
             try await sendUDP(Self.packet, to: f.port)
             try await Task.sleep(for: .milliseconds(30))
         }
         #expect(f.talks.count == 1)
         #expect(await eventuallyAsync { await !f.receiver.isTalking })
-        for _ in 0..<3 {
-            try await sendUDP(Self.packet, to: f.port)
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        let packets = await f.receiver.packetCount
+        try await sendUDP(Self.packet, to: f.port)
+        #expect(await eventuallyAsync { await f.receiver.packetCount > packets })
+        decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.count == 2 })
         #expect(await f.receiver.talkCount == 2)
         await f.receiver.close()
@@ -293,7 +329,8 @@ final class TalkRecorder: Sendable {
     @Test func theLongestTalkEnds() async throws {
         let f = try await fixture(idle: .seconds(60), maximum: .seconds(1))
         #expect(await f.receiver.start())
-        try await sendUDP(Self.packet, to: f.port)
+        let decoder = try await firstPacket(f)
+        decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.talk(0)?.ended == true })
         await f.receiver.close()
     }
@@ -301,15 +338,19 @@ final class TalkRecorder: Sendable {
     @Test func muteEndsATalkAndStopsNewOnes() async throws {
         let f = try await fixture(idle: .seconds(60))
         #expect(await f.receiver.start())
-        try await sendUDP(Self.packet, to: f.port)
+        let decoder = try await firstPacket(f)
+        decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventuallyAsync { await f.receiver.isTalking })
         await f.receiver.speakerChanged(muted: true, volume: 40)
         #expect(await eventually { f.talks.talk(0)?.ended == true })
         try await sendUDP(Self.packet, to: f.port)
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await eventuallyAsync { await f.receiver.packetCount == 2 })
+        decoder.emit(Data(repeating: 0x01, count: 640))
+        #expect(await eventuallyAsync { await f.receiver.chunkCount == 2 })
         #expect(f.talks.count == 1)
         await f.receiver.speakerChanged(muted: false, volume: 40)
         try await sendUDP(Self.packet, to: f.port)
+        decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.count == 2 })
         #expect(f.talks.talk(1)?.volume == 40)
         await f.receiver.close()
@@ -318,17 +359,19 @@ final class TalkRecorder: Sendable {
     @Test func aDecoderThatCannotDecodeIsGivenUpOn() async throws {
         let f = try await fixture(idle: .seconds(60))
         #expect(await f.receiver.start())
-        try await sendUDP(Self.packet, to: f.port)
-        #expect(await eventually { f.decoders.count == 1 })
+        _ = try await firstPacket(f)
         f.decoders.last?.end()
-        try await Task.sleep(for: .milliseconds(20))
+        #expect(await eventuallyAsync { await !f.receiver.isDecoding })
         try await sendUDP(Self.packet, to: f.port)
         #expect(await eventually { f.decoders.count == 2 })
         f.decoders.last?.end()
         #expect(await eventually { f.logs.messages(.error).contains { $0.contains("cannot decode") && $0.contains("libfdk_aac") } })
+        // Given up: packets start nothing, neither FFmpeg nor a Talk (which would open the camera's talk channel).
         try await sendUDP(Self.packet, to: f.port)
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await eventuallyAsync { await f.receiver.packetCount == 3 })
         #expect(f.decoders.count == 2)
+        #expect(f.talks.count == 0)
+        #expect(await !f.receiver.isTalking)
         await f.receiver.close()
     }
 

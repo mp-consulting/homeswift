@@ -70,7 +70,7 @@ or more), and, when it does not say, whether its stream has an ONVIF backchannel
 then is it published with two-way audio, which gives it the Speaker service and the Home app its talk button; a camera
 that could not be asked (unreachable) is asked again at the next start.
 
-Each Talk (HomeKit's return audio, from the first packet to a second of silence, ten minutes at most) is decoded by
+Each Talk (HomeKit's return audio, from the first decoded audio to a second of silence, ten minutes at most) is decoded by
 FFmpeg (`HomeswiftFFmpeg`'s return audio) and sent to the camera:
 
 - **HTTP**, first: `POST /cgi-bin/audio.cgi?action=postAudio&httptype=singlepart&channel=<n>` on a connection of its own,
