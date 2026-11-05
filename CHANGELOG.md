@@ -46,8 +46,41 @@ All notable changes to this project are documented here. The format follows
   through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
   Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
   heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
+- Meters (GLOSSARY.md, "Energy"; docs/adr/0004-meters-and-consumption-history.md): the bridge keeps each Meter's
+  Consumption and Returned by the hour, for years (`MeterArchive`, under `metrics/meters/`), whatever its plugin. Every
+  service with Total Consumption or Current Consumption is a Meter on its own, counted from the device's counter so a
+  restart loses nothing; a plugin declares one for readings no characteristic carries (`context.meter(_:deviceID:…)`),
+  takes over a service's (`context.meter(of:accessoryID:…)`), and imports a device's or a cloud's past hours
+  (`PluginMeter.importHours`). Forget removes an accessory's Meters.
+- Energy Roles: what each Meter measures in the Home Energy (the grid, solar, the home, a battery, or one device), its
+  plugin's suggestion until a person changes it in the accessory's settings (**Energy**, `energyRoles` in
+  `_accessories`), live, without reloading the plugin. Its power counts in the Status page's Energy section by it, and
+  its imported hours fill the Home Energy's long-term history.
+- Energy Tariffs (`bridge.tariffs` in config.json; Settings › Bridge › **Energy tariff**): what the home pays per kWh
+  from a day on, by period of the day and week, in a currency, and what a kWh sent back is paid. A new price is a new
+  Tariff, so past costs stay as they were; no restart. The Status page's energy history shows the **Energy cost**
+  (import less export, without fixed charges), and each Meter's Consumption its cost at the grid's price, hour by hour.
+- The Status page's Energy section has **Consumption by device**: each Meter's kWh in the period, the most first, the
+  devices nested under the whole-home Meter with **Unmetered** (what no Meter measures), and solar and batteries apart.
+  `/api/metrics/consumption` answers it.
+- An accessory's **History** shows its Meters' Consumption, by hour over a day and by day beyond, what it returned below
+  the line; any accessory with a Meter has it.
+- Every accessory that measures power and has no Eve history of its plugin's gets one from the runtime
+  (`EnergyHistory.swift`), so the Eve app graphs its power.
+- MCP: `get_consumption` (each Meter's Consumption, Returned, Energy Role and cost over the last hours or a week, month
+  or year), `get_tariffs` and `update_tariffs` (admin, with a dry run). `get_settings` lists an accessory's `meters`
+  and `update_settings` takes `energyRoles`; `forget_device` reports `historyDropped`.
+- Shelly: every metered component is a Meter with the device's own watt-hours and what it sent back; energy meters
+  (`em`, `em1`) have suggested Energy Roles (the grid for a whole home's), and the weeks of per-minute records a Pro 3EM
+  or Pro EM keeps are imported by the hour as it connects. An optional Shelly Cloud account (Setup: the Shelly app's
+  email and password, in the vault) imports the history the Shelly app shows for plugs and relays, and names the
+  devices named only in the Shelly app.
+
 ### Changed
 
+- EcoFlow: a home system's flows (solar, the home, the grid, the batteries) are Meters, so their energy is kept by the
+  hour for years and their Energy Roles can be changed; the Status page's history carries on under the same series.
+- The web UI writes energy under a kWh in Wh, on the charts' axes too.
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
   shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 

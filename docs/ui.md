@@ -77,7 +77,8 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
 - **Vault**, for administrators, once the vault has an entry or config.json a secret to move: how many entries the vault keeps, how many config.json uses and how many secrets
   config.json still holds, then what needs attention, most pressing first (a reference to an entry that is gone, one
   that cannot read its entry, an entry expired or expiring within 30 days), and **Open the vault**.
-- **Energy**, once a plugin records readings with an energy role (`EnergyTag`, docs/plugins.md). See [Energy](#energy) below.
+- **Energy**, once a plugin records readings with an energy role (`EnergyTag`, docs/plugins.md) or some Meter has a
+  history. See [Energy](#energy) below.
 - **System**: the version, uptime, machine and configuration file, and, for administrators, **Restart homeswift…**,
   Settings and Notifications.
 
@@ -108,7 +109,16 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
   the home's energy came from (solar as it was produced, the batteries, the grid), below it where the rest went (into
   the batteries, out to the grid). Over the bars, the period's home use with a strip of the share each source covered
   (its percentage written beside each colour), then the flows: solar produced, battery charged and discharged, grid
-  import and export. The axis writes its unit once, on the top tick.
+  import and export. The axis writes its unit once, on the top tick. With an energy Tariff ([Settings](#settings),
+  Bridge), **Energy cost**: what the grid's import cost hour by hour at its price, less what the export was paid,
+  without fixed charges. Without a Meter of the home's use, the grid's import is drawn above the line.
+- **Consumption by device**: what each Meter measured in the same period (GLOSSARY.md, "Energy"), the most first, a
+  bar as long as its share and its kWh, with what it returned. The whole home (a Meter with the home's Energy Role,
+  else the grid's when no Meter measures solar or a battery) heads the list, with the devices measured on their own
+  nested under it and **Unmetered** last, what no Meter measures (the home less its devices, never below zero); the
+  grid, solar (what it produced) and batteries are listed apart. Without a whole-home Meter, the devices alone. The first eight show, then **Show all**. A row opens the device's History. With a
+  Tariff, each device's cost at the grid's price, hour by hour, and the card's total. Energy measured in less than a
+  kWh is written in Wh.
 
 The history is the bridge's long-term archive (`metrics/energy-hours.json`, kept for years): each hour of what it
 recorded, and what plugins import, such as a device cloud's solar, home use, battery and grid since a system was set
@@ -121,8 +131,14 @@ Each entity keeps one colour in every chart (solar yellow, the home blue, the ba
 palette checked for colour blindness in both modes. **Show as a table** lists the points and the days (solar produced,
 home used, grid import and export, battery charged and discharged, the share solar covered). Days are counted from each
 minute's average power, midnight to midnight in the browser's time zone. `/api/metrics/energy?from=…&to=…&timeZone=…`
-answers the power in one request and `/api/metrics/energy/history?period=week|month|year&date=…&timeZone=…` the
-history, for any signed-in user.
+answers the power in one request, `/api/metrics/energy/history?period=week|month|year&date=…&timeZone=…` the
+history (with each bar's `cost` and the `currency` once there is a Tariff), and
+`/api/metrics/consumption?period=…&date=…` (or `hours=…`, and `accessory=…` for one accessory's Meters) each Meter's
+Consumption, the same answer as the MCP tool `get_consumption` (docs/mcp.md), for any signed-in user.
+
+Each Meter's Consumption is the bridge's own record (`metrics/meters/`, by the hour, kept for years,
+docs/adr/0004-meters-and-consumption-history.md): every accessory's Total Consumption and Current Consumption, whatever
+its plugin, and the Meters plugins declare, with the hours they import from a device or its cloud.
 
 ### Accessories
 
@@ -137,7 +153,10 @@ screenshots, and what a plugin does to get good ones.
 - **A widget's ⋯ menu** (a right click on a tile): its size or its kind's, **All controls** (every control in a sheet,
   the rest under More), Identify, its log, ask the Assistant about it, add to the Quick Controls, **Settings…** and its
   plugin's Settings (administrators), resume a paused plugin, and **History** for an accessory whose plugin records an
-  Eve history (temperature, humidity, power…): a day, a week or four weeks.
+  Eve history (temperature, humidity, power…) or that has a Meter: a day, a week or four weeks. A Meter's
+  **Consumption** comes first, a chart per Meter (named by its service on a device with several): bars of what it drew,
+  and what it returned below the line, by hour over a day and by day beyond, with the range's kWh and, with a Tariff,
+  its cost.
 - **Full screen** (the toolbar's last button, or `/accessories?full=1` for a wall tablet's bookmark): the widgets alone,
   in the browser's own full screen where it has one. Grouped by room or by plugin, one group fills the screen at a time
   and the next is a swipe away (the arrow keys, the dots, the side arrows with a mouse); one button opens the toolbar
@@ -151,13 +170,17 @@ screenshots, and what a plugin does to get good ones.
     Sync on, or a mirrored accessory) or only Homeswift's pages do.
   - **Hidden** (off the wall, still in the Home app) and **Not in Home** (out of the Home app, with its room, scenes and
     automations, while Homeswift and Matter keep it; it asks first).
+  - **Energy**, for an accessory with Meters: **What it measures** (or one field per Meter, on a device with several),
+    its Energy Role: solar production, the home's use, the grid connection, a battery, or this device alone. The
+    plugin's suggestion comes first; chosen again, it stands once more. It applies at once without reloading the
+    plugin, and counts from then on: the history it measured stays as it was (`energyRoles` in `_accessories`).
   - **Parts**, a switch each, from what the plugin's discovery says the device brings; a change reloads the plugin.
   - **Plugin settings**: the plugin's Plugin Accessory Settings (its schema's `accessorySchema`, the fields of the
     device's Device Kind), drawn by the same renderer as its Plugin Settings. A field with a plugin-wide default shows
     *Default (X)* while the accessory has no value of its own; cleared, it takes the default again.
   - **Exclude** (asks first): its plugin makes no accessory of it; it leaves the Home app, the wall and Matter until it is
-    included again, here or from its plugin's Devices. **Forget** (asks first): its Authorization and Accessory Settings
-    go (`DELETE /api/settings/accessories/<id>`), and it is only a Discovered Device again.
+    included again, here or from its plugin's Devices. **Forget** (asks first): its Authorization, Accessory Settings
+    and Meters' energy history go (`DELETE /api/settings/accessories/<id>`), and it is only a Discovered Device again.
 
   ![An accessory's Settings: its Name, room, where it shows and its plugin's settings](images/ui/accessory-settings.png)
 
@@ -543,7 +566,13 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   the HomeswiftUI block. A HomeKit port is checked before it is saved; an empty one picks a free port. Homeswift listens
   and advertises on every interface with the system's mDNS (Bonjour, or Avahi on Linux): there is no interface to bind
   or advertiser to choose, as Homebridge's `bind` and `advertiser` settings do, and no Node-specific setting
-  (environment, debug mode, keep orphans).
+  (environment, debug mode, keep orphans). **Energy tariff**, under the form: what the home pays per kWh, for the costs
+  on the Status page. It edits the latest Tariff (GLOSSARY.md): the day it applies from, the currency, the export price (empty when a
+  kWh sent back is not paid) and the prices, a row per period (a name, from, to, every day, weekdays or weekends, a
+  price per kWh), which must cover each part of the week once; a period ending before it starts runs past midnight.
+  Saved with another first day, it is a new Tariff from that day and the days before keep their prices; the earlier
+  Tariffs are listed under it. No restart (`bridge.tariffs` in config.json; `GET` and `PUT /api/settings/tariffs`,
+  `update_tariffs` over MCP).
 - **Config** (`/settings/config`): the whole config.json in an editor; see [Config](#config) below.
 - **Child bridges**: each with its status, uptime, restarts, the plugins that did not start and why, and, until the Home
   app has it, its setup code and QR code. Its ⋯ menu restarts, stops or starts it, shows its log, and resets its
