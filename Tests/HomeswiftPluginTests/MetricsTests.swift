@@ -172,4 +172,33 @@ struct MetricsTests {
         metrics.stop()
         await host.stop()
     }
+
+    /// A Meter's power counts in the Home Energy under the Energy Role a person gave it, live, else its plugin's
+    /// suggestion; a role other than the suggestion is a series of its own, and none counts nothing.
+    @Test func homeEnergyFollowsEachMetersRole() async throws {
+        let environment = TestEnvironment()
+        let outlet = "\(ServiceType.outlet.uuid)/"
+        let config = #"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs", "meters": ["plug-1"], "solarMeter": true, "_accessories": { "plug-1": { "energyRoles": { "OUTLET": "grid" } }, "array": { "energyRoles": { "solar": "none" } } } }] }"#
+            .replacingOccurrences(of: "OUTLET", with: outlet)
+        let host = try environment.host(config)
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        try await host.start()
+        let plugin = try #require(environment.createdPlugins.last)
+        #expect(host.energyRole(of: MeterID(accessory: "Recording:plug-1", meter: outlet)) == .some(.grid))
+        #expect(host.energyRole(of: MeterID(accessory: "Recording:array", meter: "solar")) == .some(nil))
+        #expect(host.energyRole(of: MeterID(accessory: "Recording:plug-9", meter: outlet)) == nil)
+
+        // The plug, a grid meter by its settings: its power is the grid's.
+        let plug = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:plug-1" })
+        plug.service(.outlet)?[EveCharacteristic.currentConsumption]?.value = .int(1200)
+        #expect(metrics.energyTags["meter:Recording:plug-1#\(outlet):grid"] == EnergyTag(role: .grid, device: "plug-1"))
+        // The array, suggested solar but set to none: nothing in the Home Energy, yet still a Meter.
+        await plugin.recordSolar(700)
+        #expect(metrics.meters.meters.contains(MeterID(accessory: "Recording:array", meter: "solar")))
+        #expect(!metrics.energyTags.values.contains { $0.role == .solar })
+        #expect(metrics.meterDescription(of: MeterID(accessory: "Recording:array", meter: "solar"))?.suggestedRole == .solar)
+        metrics.stop()
+        await host.stop()
+    }
 }

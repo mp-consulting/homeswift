@@ -801,10 +801,26 @@ public struct RecordedSeries: Sendable, Hashable {
     let name: String
 }
 
+/// What a Meter is to the Home Energy: the name the Status page shows it by, its plugin's suggested Energy Role, the
+/// figure several devices report alike (`EnergyTag.shared`), and the series its power is recorded as.
+public struct MeterDescription: Sendable, Equatable {
+    public var device: String
+    public var suggestedRole: EnergyRole?
+    public var shared: String?
+    public var series: String
+
+    public init(device: String, suggestedRole: EnergyRole? = nil, shared: String? = nil, series: String) {
+        self.device = device
+        self.suggestedRole = suggestedRole.flatMap { $0.isPower ? $0 : nil }
+        self.shared = shared
+        self.series = series
+    }
+}
+
 /// A reading of a Meter a plugin declared, on its way to the metrics store.
 public enum MeterReading: Sendable, Equatable {
     /// A counter, in watt-hours, and when it was read.
     case counter(MeterID, Double, MeterDirection, Date)
-    /// Power, in watts (above zero drawn, below zero sent back or produced), and when it was read.
-    case power(MeterID, Double, Date)
+    /// Power, in watts (above zero drawn, below zero sent back or produced), when it was read, and what the Meter is.
+    case power(MeterID, Double, Date, MeterDescription)
 }

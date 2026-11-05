@@ -127,6 +127,8 @@ public final class Metrics: @unchecked Sendable {
     public let archive: EnergyArchive
     /// Each Meter's Consumption and Returned by the hour, for years.
     public let meters: MeterArchive
+    /// What each Meter with power is to the Home Energy, as its last reading said (`MeterDescription`).
+    let meterDescriptions = NIOLockedValueBox<[MeterID: MeterDescription]>([:])
     public let days: Int
     public let interval: Duration
 

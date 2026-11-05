@@ -3,6 +3,23 @@ import Homeswift
 import NIOConcurrencyHelpers
 
 extension Metrics {
+    /// What a Meter is to the Home Energy, as its last power reading said; nil for one with no power yet.
+    public func meterDescription(of id: MeterID) -> MeterDescription? {
+        meterDescriptions.withLockedValue { $0[id] }
+    }
+
+    /// A Meter's power (its signs: above zero drawn) in the Home Energy, under its Energy Role: the one a person gave it
+    /// (`PluginHost.energyRole(of:)`, live), else its plugin's suggestion; nothing for none. Solar and the home's use
+    /// count as amounts, whichever way the Meter measures them; the grid and a battery keep their direction.
+    func recordHomeEnergy(_ id: MeterID, watts: Double, _ description: MeterDescription, role given: EnergyRole??) {
+        meterDescriptions.withLockedValue { $0[id] = description }
+        guard let role = given ?? description.suggestedRole else { return }
+        let value = role == .solar || role == .home ? abs(watts) : watts
+        // A role other than the suggestion is a series of its own: what was recorded under another role stays as it was.
+        let series = role == description.suggestedRole ? description.series : "\(description.series):\(role.rawValue)"
+        record(value, series: series, tag: EnergyTag(role: role, device: description.device, shared: description.shared))
+    }
+
     /// The Meter of a service with Total Consumption or Current Consumption, by the service's type and subtype (the
     /// same key as its iids, so it is as stable).
     static func meterID(of accessory: Accessory, service: Service) -> MeterID {
@@ -38,20 +55,28 @@ extension Metrics {
             guard scanPending.withLockedValue({ pending in defer { pending = true }; return !pending }) else { return }
             queue.async(execute: scan)
         }
-        let changes = host.observeChanges { [weak self] accessory, characteristic, value in
+        let changes = host.observeChanges { [weak self, weak host] accessory, characteristic, value in
             let uuid = characteristic.type.uuid
             guard let self, uuid == total || uuid == current, let number = value.doubleValue else { return }
             // An accessory added since the last pass is found by its services.
             let id = known.withLockedValue { $0[ObjectIdentifier(characteristic)] }
                 ?? accessory.services.first { $0.characteristics.contains { $0 === characteristic } }.map { Self.meterID(of: accessory, service: $0) }
             guard let id else { return }
-            if uuid == total { meters.recordCounter(number * 1000, meter: id) } else { meters.recordPower(number, meter: id) }
+            if uuid == total {
+                meters.recordCounter(number * 1000, meter: id)
+            } else {
+                meters.recordPower(number, meter: id)
+                recordHomeEnergy(id, watts: number, MeterDescription(device: accessory.name, series: "meter:\(id)"), role: host?.energyRole(of: id))
+            }
         }
-        let declared = host.observeMeterReadings { [meters] reading in
+        let declared = host.observeMeterReadings { [weak self, weak host] reading in
+            guard let self else { return }
             switch reading {
             // When they were read: those a plugin made before the store followed arrive late.
             case let .counter(id, wattHours, direction, at): meters.recordCounter(wattHours, direction: direction, meter: id, at: at)
-            case let .power(id, watts, at): meters.recordPower(watts, meter: id, at: at)
+            case let .power(id, watts, at, description):
+                meters.recordPower(watts, meter: id, at: at)
+                recordHomeEnergy(id, watts: watts, description, role: host?.energyRole(of: id))
             }
         }
         scan()

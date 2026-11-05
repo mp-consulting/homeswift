@@ -63,4 +63,30 @@ struct ConsumptionToolTests {
         #expect(HomeswiftCatalog.accessoryJSON(try #require(catalog.find(id: id)), detailed: false)["consumption"] == true)
         #expect(catalog.located().first { $0.accessory.id == id }?.metered == true)
     }
+
+    /// A Meter's Energy Role is a Core Accessory Setting: get_settings lists the Meters with their suggestions, and a
+    /// write keeps the role by the Meter's key, null giving the suggestion back.
+    @Test func writesEnergyRoles() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let metrics = Metrics(directory: nil)
+        let id = try #require(environment.host.mainBridge.server.accessories.first { $0.id.hasPrefix("Devices:") }?.id)
+        metrics.meters.recordCounter(10, meter: MeterID(accessory: id, meter: "x"))
+        let catalog = catalog(environment, metrics: metrics)
+
+        let before = try await catalog.accessorySettingsJSON(accessoryID: id)
+        #expect(before["meters"] == [["key": "x", "suggestedRole": .null]])
+        #expect(before["fields"]?["energyRoles"]?["core"] == true)
+
+        try await catalog.updateAccessorySettings([(id, ["energyRoles": ["x": "grid"]])])
+        let written = try await catalog.accessorySettingsJSON(accessoryID: id)
+        #expect(written["settings"]?["energyRoles"] == ["x": "grid"])
+        #expect(environment.host.energyRole(of: MeterID(accessory: id, meter: "x")) == .some(.grid))
+
+        try await catalog.updateAccessorySettings([(id, ["energyRoles": ["x": .null]])])
+        #expect(try await catalog.accessorySettingsJSON(accessoryID: id)["settings"]?["energyRoles"] == nil)
+
+        await #expect(throws: (any Error).self) { try await catalog.updateAccessorySettings([(id, ["energyRoles": ["x": "sun"]])]) }
+    }
 }

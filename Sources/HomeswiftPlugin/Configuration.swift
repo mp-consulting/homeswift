@@ -118,6 +118,8 @@ public struct HomeswiftConfiguration: Sendable {
         public var accessoryRooms: [String: String] = [:]
         /// The keys of `_accessories` that are Hidden: off the web UI's wall. Not in `json`.
         public var hiddenOnWall: Set<String> = []
+        /// The Energy Roles given in `_accessories`, by key, then by Meter (`AccessorySettings.energyRoles`). Not in `json`.
+        public var energyRoles: [String: [String: EnergyRole?]] = [:]
         /// `_accessories`: Accessory Settings by Device Id (`AccessorySettings`), without the live ones (`liveKeys`), which
         /// are the properties above. In `json` too: a change reloads the plugin.
         public var accessorySettings: [String: AccessorySettings] = [:]
@@ -224,6 +226,7 @@ public struct HomeswiftConfiguration: Sendable {
         var names: [String: String] = [:]
         var rooms: [String: String] = [:]
         var hiddenOnWall: Set<String> = []
+        var energyRoles: [String: [String: EnergyRole?]] = [:]
         // The devices whose entry holds live settings only: out of the plugin's JSON (a rename reloads nothing), but still
         // among its Accessory Settings (`context.allAccessorySettings`), as a device set up with a Name only.
         var liveOnly: Set<String> = []
@@ -244,6 +247,12 @@ public struct HomeswiftConfiguration: Sendable {
                     guard let text = given as? String else { throw ConfigurationError.invalidValue(key: "\(at).room", expected: "a room's name") }
                     rooms[deviceID] = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
+                if let given = fields["energyRoles"] {
+                    guard let roles = given as? [String: Any], roles.values.allSatisfy({ ($0 as? String).map(AccessorySettings.energyRoleChoices.contains) ?? false }) else {
+                        throw ConfigurationError.invalidValue(key: "\(at).energyRoles", expected: "each Meter's role: solar, home, grid, battery or none")
+                    }
+                    energyRoles[deviceID] = AccessorySettings.energyRoles(from: JSONValue.object(roles.compactMapValues { ($0 as? String).map(JSONValue.string) }))
+                }
                 for key in ["hidden", "notInHome"] {
                     guard let given = fields[key] else { continue }
                     guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).\(key)", expected: "true or false") }
@@ -261,12 +270,14 @@ public struct HomeswiftConfiguration: Sendable {
         entry.accessoryNames = names
         entry.accessoryRooms = rooms
         entry.hiddenOnWall = hiddenOnWall
+        entry.energyRoles = energyRoles
         // The live settings as they are now, for a plugin that reads them (a device's Name for its own list): they
         // changed without reloading it, so the runtime keeps its context's copy in step (`PluginHost.apply`).
         for deviceID in liveOnly where entry.accessorySettings[deviceID] == nil { entry.accessorySettings[deviceID] = AccessorySettings() }
         for (deviceID, name) in names { entry.accessorySettings[deviceID]?.name = name }
         for (deviceID, room) in rooms { entry.accessorySettings[deviceID]?.room = room }
         for deviceID in hiddenOnWall { entry.accessorySettings[deviceID]?.hidden = true }
+        for (deviceID, roles) in energyRoles { entry.accessorySettings[deviceID]?.energyRoles = roles }
         for id in hidden where id.hasPrefix("\(platform):") { entry.accessorySettings[String(id.dropFirst(platform.count + 1))]?.notInHome = true }
         return entry
     }

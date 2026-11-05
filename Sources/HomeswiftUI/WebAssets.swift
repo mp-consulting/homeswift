@@ -15660,6 +15660,16 @@ HomeswiftI18n.add("es", {
   "Returned": "Devuelto",
   "Measured by the hour, kept for years.": "Medida hora a hora, guardada durante años.",
   "{title}, a bar per hour": "{title}, una barra por hora",
+  "Solar production": "Producción solar",
+  "The home's use": "El consumo de la casa",
+  "The grid connection": "La conexión a la red",
+  "A battery": "Una batería",
+  "This device alone": "Este dispositivo solo",
+  "A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption.": "Un medidor que mide la red, la solar, la casa o una batería se suma a la energía de la casa en la página Estado; cualquier otro es el consumo de un solo dispositivo.",
+  "{role} (suggested)": "{role} (sugerido)",
+  "Meter: {meter}": "Medidor: {meter}",
+  "What it measures": "Lo que mide",
+  "Counts from now on; the history it measured stays as it was.": "Cuenta desde ahora; el historial ya medido queda como estaba.",
 });
 
 """#),
@@ -18503,6 +18513,16 @@ HomeswiftI18n.add("fr", {
   "Returned": "Renvoyé",
   "Measured by the hour, kept for years.": "Mesurée heure par heure, conservée des années.",
   "{title}, a bar per hour": "{title}, une barre par heure",
+  "Solar production": "Production solaire",
+  "The home's use": "La consommation de la maison",
+  "The grid connection": "Le raccordement au réseau",
+  "A battery": "Une batterie",
+  "This device alone": "Cet appareil seul",
+  "A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption.": "Un compteur qui mesure le réseau, le solaire, la maison ou une batterie s'ajoute à l'énergie de la maison sur la page État ; tout autre compteur est la consommation d'un seul appareil.",
+  "{role} (suggested)": "{role} (suggéré)",
+  "Meter: {meter}": "Compteur : {meter}",
+  "What it measures": "Ce qu'il mesure",
+  "Counts from now on; the history it measured stays as it was.": "Compte dès maintenant ; l'historique déjà mesuré reste tel quel.",
 });
 
 """#),
@@ -21346,6 +21366,16 @@ HomeswiftI18n.add("pt", {
   "Returned": "Devolvido",
   "Measured by the hour, kept for years.": "Medida hora a hora, guardada durante anos.",
   "{title}, a bar per hour": "{title}, uma barra por hora",
+  "Solar production": "Produção solar",
+  "The home's use": "O consumo da casa",
+  "The grid connection": "A ligação à rede",
+  "A battery": "Uma bateria",
+  "This device alone": "Só este dispositivo",
+  "A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption.": "Um medidor que mede a rede, a solar, a casa ou uma bateria soma-se à energia da casa na página Estado; qualquer outro é o consumo de um só dispositivo.",
+  "{role} (suggested)": "{role} (sugerido)",
+  "Meter: {meter}": "Medidor: {meter}",
+  "What it measures": "O que mede",
+  "Counts from now on; the history it measured stays as it was.": "Conta a partir de agora; o histórico já medido fica como estava.",
 });
 
 """#),
@@ -23604,6 +23634,27 @@ HomeswiftI18n.add("pt", {
           if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
         } });
 
+      // Energy: what each of its meters measures in the home's energy. Applies at once; the plugin keeps running.
+      const roleNames = { solar: t("Solar production"), home: t("The home's use"), grid: t("The grid connection"), battery: t("A battery"), none: t("This device alone") };
+      const energySection = (answer.meters ?? []).length ? section(t("Energy"),
+        t("A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption."),
+        ...answer.meters.map((meter) => {
+          const state = stateNode();
+          const suggested = meter.suggestedRole ?? "none";
+          const chosen = settings.energyRoles?.[meter.key] ?? "";
+          // The suggestion first, as the empty choice: chosen again, the person's role goes and the plugin's stands.
+          const select = el("select", {}, el("option", { value: "", text: t("{role} (suggested)", { role: roleNames[suggested] }), selected: chosen === "" }),
+            ...Object.entries(roleNames).filter(([value]) => value !== suggested).map(([value, text]) => el("option", { value, text, selected: chosen === value })));
+          select.addEventListener("change", async () => {
+            const before = settings.energyRoles?.[meter.key] ?? "";
+            if (!await save({ energyRoles: { [meter.key]: select.value || null } }, state, "energyRoles")) select.value = before;
+          });
+          const title = el("span", { text: meter.label ? t("Meter: {meter}", { meter: meter.label }) : t("What it measures") });
+          const help = el("span", { class: "help", text: t("Counts from now on; the history it measured stays as it was.") });
+          describe(select, title, help, state);
+          return el("label", { class: "field" }, el("span", { class: "field-title" }, title, state), select, help);
+        })) : null;
+
       // Parts: from the discovery, which knows their names; the plugin reloads with each.
       const partsBox = el("div", { class: "settings-parts" });
       const partsSection = section(t("Parts"), t("Switched off, a part is left out while the device stays. A change reloads {plugin}.", { plugin }), partsBox);
@@ -23683,6 +23734,7 @@ HomeswiftI18n.add("pt", {
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        energySection,
         partsSection,
         pluginSection,
         danger,

@@ -9,10 +9,10 @@ import Logging
 /// { "platform": "PhilipsHue", "_accessories": { "00:17:88:01:02:03:04:05-0b": { "excluded": true }, "abc": { "offset": 1.5 } } }
 /// ```
 ///
-/// `name`, `room`, `hidden`, `notInHome`, `excluded` and `parts` are the Core Accessory Settings
+/// `name`, `room`, `hidden`, `notInHome`, `excluded`, `parts` and `energyRoles` are the Core Accessory Settings
 /// (docs/adr/0003-room-and-visibility-in-accessory-settings.md); the other keys are the plugin's own (Plugin Accessory
 /// Settings), which it declares in its config.schema.json's `accessorySchema` and reads with `decode`. `name`, `room`,
-/// `hidden` and `notInHome` apply live: they leave the plugin's JSON (`HomeswiftConfiguration.decode` takes them out of its
+/// `hidden`, `notInHome` and `energyRoles` apply live: they leave the plugin's JSON (`HomeswiftConfiguration.decode` takes them out of its
 /// block), so a change to them never reloads it; its context's Accessory Settings have their current values.
 ///
 /// A device's own accessory is keyed by its Device Id; another accessory of the device by its Accessory Id without the
@@ -32,15 +32,31 @@ public struct AccessorySettings: Sendable, Equatable {
     public var parts: [String: Bool]
     /// The plugin's own settings for it.
     public var plugin: [String: JSONValue]
+    /// The Energy Role a person gave each of its Meters, by the Meter's key: a role, or none (`.some(nil)`) where its
+    /// plugin suggested one. A Meter left out has its plugin's suggestion (docs/adr/0004-meters-and-consumption-history.md).
+    public var energyRoles: [String: EnergyRole?]
 
-    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts"]
+    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts", "energyRoles"]
     /// The Core Accessory Settings that apply without reloading the plugin: they never reach it.
-    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome"]
+    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome", "energyRoles"]
+    /// What `energyRoles` holds for a Meter: a power role's name, or `none`.
+    public static let energyRoleChoices = ["solar", "home", "grid", "battery", "none"]
+
+    /// `energyRoles` as config.json has it: `{ "<meter>": "grid" | "none" }`, anything else left out.
+    public static func energyRoles(from json: JSONValue?) -> [String: EnergyRole?] {
+        var roles: [String: EnergyRole?] = [:]
+        for (meter, value) in json?.objectValue ?? [:] {
+            guard let text = value.stringValue else { continue }
+            if text == "none" { roles[meter] = .some(nil) } else if let role = EnergyRole(rawValue: text), role.isPower { roles[meter] = role }
+        }
+        return roles
+    }
 
     public init(
         excluded: Bool = false, name: String? = nil, parts: [String: Bool] = [:], plugin: [String: JSONValue] = [:],
-        room: String? = nil, hidden: Bool = false, notInHome: Bool = false
+        room: String? = nil, hidden: Bool = false, notInHome: Bool = false, energyRoles: [String: EnergyRole?] = [:]
     ) {
+        self.energyRoles = energyRoles
         self.excluded = excluded
         self.name = name
         self.room = room
@@ -58,6 +74,7 @@ public struct AccessorySettings: Sendable, Equatable {
         hidden = fields["hidden"]?.boolValue ?? false
         notInHome = fields["notInHome"]?.boolValue ?? false
         parts = (fields["parts"]?.objectValue ?? [:]).compactMapValues(\.boolValue)
+        energyRoles = Self.energyRoles(from: fields["energyRoles"])
         plugin = fields.filter { !Self.coreKeys.contains($0.key) }
     }
 
@@ -69,6 +86,7 @@ public struct AccessorySettings: Sendable, Equatable {
         if hidden { fields["hidden"] = true }
         if notInHome { fields["notInHome"] = true }
         if !parts.isEmpty { fields["parts"] = .object(parts.mapValues(JSONValue.bool)) }
+        if !energyRoles.isEmpty { fields["energyRoles"] = .object(energyRoles.mapValues { .string($0?.rawValue ?? "none") }) }
         return .object(fields)
     }
 

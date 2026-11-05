@@ -416,6 +416,19 @@ public final class PluginHost: @unchecked Sendable {
         energyImports.add { observer($0.source, $0.hours) }
     }
 
+    /// The Energy Role a person gave a Meter in its accessory's settings (`_accessories.<key>.energyRoles`): nil when
+    /// they gave none (its plugin's suggestion stands), `.some(nil)` for none. Live: read from the configuration as it
+    /// is now.
+    public func energyRole(of id: MeterID) -> EnergyRole?? {
+        guard let colon = id.accessory.firstIndex(of: ":") else { return nil }
+        let platform = String(id.accessory[..<colon])
+        let key = AccessoryNaming.deviceID(of: id.accessory, platform: platform)
+        for block in configuration.platforms where block.platform == platform {
+            if let roles = block.energyRoles[key], let role = roles[id.meter] { return .some(role) }
+        }
+        return nil
+    }
+
     /// Calls `observer` with each reading of a Meter a plugin declared (`PluginContext.meter`), until the observation is
     /// cancelled. The metrics store's Meters follow these.
     public func observeMeterReadings(_ observer: @escaping @Sendable (MeterReading) -> Void) -> Observation {
