@@ -63,6 +63,7 @@ HomeswiftI18n.add("pt", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Câmaras, campainhas, NVR e Home Hubs Reolink: vídeo em direto, movimento, pessoas e veículos, projetores",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
   "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "A sincronização, os modos, as entradas e as áreas de entretenimento de uma Sync Box HDMI",
   "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luzes, controladores LED e tomadas Wi-Fi Magic Home na rede local",

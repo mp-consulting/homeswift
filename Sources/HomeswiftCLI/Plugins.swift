@@ -21,6 +21,7 @@ import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
 import HomeswiftRenault
+import HomeswiftReolink
 import HomeswiftRing
 import HomeswiftRoborock
 import HomeswiftShelly
@@ -82,5 +83,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(MagicHomePlugin.self)
     registry.register(RenaultPlugin.self)
     registry.register(ImouPlugin.self)
+    registry.register(ReolinkPlugin.self)
     return registry
 }
