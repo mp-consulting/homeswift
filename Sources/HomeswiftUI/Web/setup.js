@@ -226,7 +226,7 @@
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
           ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
-          : t("This plugin finds no devices by itself: its settings name them.") }));
+          : t("No devices found") }));
         // Under its devices, a way to add one the plugin does not find.
         if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
           el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
