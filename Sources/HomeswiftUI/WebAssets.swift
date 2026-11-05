@@ -15557,6 +15557,7 @@ HomeswiftI18n.add("es", {
   "Its sign-in is kept in the vault, never in these settings.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes.",
   "Range (km)": "Autonomía (km)",
   "Time to Full (min)": "Tiempo hasta carga completa (min)",
+  "Session Energy (kWh)": "Energía de la sesión (kWh)",
 });
 
 """#),
@@ -18414,6 +18415,7 @@ HomeswiftI18n.add("fr", {
   "Its sign-in is kept in the vault, never in these settings.": "Sa connexion est gardée dans le coffre, jamais dans ces réglages.",
   "Range (km)": "Autonomie (km)",
   "Time to Full (min)": "Temps avant charge complète (min)",
+  "Session Energy (kWh)": "Énergie de la session (kWh)",
 });
 
 """#),
@@ -21271,6 +21273,7 @@ HomeswiftI18n.add("pt", {
   "Its sign-in is kept in the vault, never in these settings.": "O início de sessão fica no cofre, nunca nestas definições.",
   "Range (km)": "Autonomia (km)",
   "Time to Full (min)": "Tempo até carga completa (min)",
+  "Session Energy (kWh)": "Energia da sessão (kWh)",
 });
 
 """#),

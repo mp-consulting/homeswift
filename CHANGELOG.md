@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- V2C Trydan: the dynamic power modes as a set of switches (`exposeModes`), the wiring (`ChargeMode`) as an Accessory
+  Setting sent once per change, and a lifetime energy total made of the sessions' energy, kept across restarts, as
+  Eve's Total Consumption and on the Status page (the session's energy beside it).
 - Renault: the range, the time to a full charge and the charge power on the car's Battery service (the plugin's own
   characteristics and Eve's Current Consumption), a battery temperature sensor where the car reports it, the four on
   the Status page's history, and the charge target and minimum as Accessory Settings sent to the car once per change;

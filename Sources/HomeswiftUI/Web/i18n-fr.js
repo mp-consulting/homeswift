@@ -2851,4 +2851,5 @@ HomeswiftI18n.add("fr", {
   "Its sign-in is kept in the vault, never in these settings.": "Sa connexion est gardée dans le coffre, jamais dans ces réglages.",
   "Range (km)": "Autonomie (km)",
   "Time to Full (min)": "Temps avant charge complète (min)",
+  "Session Energy (kWh)": "Énergie de la session (kWh)",
 });

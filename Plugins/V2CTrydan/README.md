@@ -12,12 +12,13 @@ Each charger is one accessory, `V2CTrydan:<ID>` (the `ID` its `/RealTimeData` re
 
 | Service | What it shows | What a write does |
 |---|---|---|
-| Outlet (primary) | On: charging allowed (`Paused` 0). Outlet In Use: charging. Eve power (W), the session's energy (kWh), voltage and current | On pauses or resumes the session (`Paused`) |
+| Outlet (primary) | On: charging allowed (`Paused` 0). Outlet In Use: charging. Eve power (W), the lifetime energy (Eve's Total Consumption, kWh), the session's energy (Session Energy, kWh), voltage and current | On pauses or resumes the session (`Paused`) |
 | Fan v2 "Charge current" | Active as the Outlet's On; Rotation Speed is the current offered, **in amperes** (the Home app labels it %), up to the installation's maximum | Speed 1-32 sets `Intensity`, clamped to the charger's minimum and maximum; 0 pauses |
 | Lock Mechanism "Charger lock" | Secured while the charger is disabled (`Locked` 1) | Locks or unlocks it. A security control: the bridge's MCP tools and Assistant ask before writing it |
 | Contact Sensor "Car connected" | Contact detected while a car is plugged in; Status Fault on states E, F and D (pilot, leak, ventilation) | |
 | Switches "Charge timer", "Dynamic power", "Pause dynamic" (opt-in) | `Timer`, `Dynamic`, `PauseDynamic` | Sets them |
 | Lightbulbs "Light LED" and "Logo LED" (opt-in, when the firmware reports them) | The light ring's level, the logo on or off | Sets them |
+| Switches "Timed power", "Solar and minimum", "Solar only", "Solar and grid", "Stop mode" (opt-in) | On for the `DynamicPowerMode` in force | On puts the charger in that mode; Off on the mode in force turns it back on (one mode is always in force) |
 
 The charger is polled every `pollingInterval` seconds (one `/RealTimeData` request; the four optional keywords some
 firmware leaves out, `ChargeMode`, `LightLED`, `LogoLED` and `VoltageInstallation`, are asked through `/read/` at the first
@@ -34,8 +35,22 @@ None is counted in the Energy section by default: the car's draw is part of the 
 the charger's own meter clamp may measure the home or the grid depending on where the installer put it. Tag them per
 charger with `houseEnergyRole` (`home` or `grid`) and `solarEnergy`; several chargers on one meter count once.
 
-**The dynamic power mode** (`DynamicPowerMode`: timed, solar and minimum power, solar only, solar and grid, stop) has no
-place in HomeKit: the Assistant and MCP clients set it with the `V2CTrydan_set_mode` tool.
+**The dynamic power mode** (`DynamicPowerMode`: timed, solar and minimum power, solar only, solar and grid, stop) is a
+set of switches with `exposeModes`, one per mode, which scenes and automations can turn on (solar only by day, say). The
+deprecated "timed power off" (1) is not offered. The Assistant and MCP clients also set it with the `V2CTrydan_set_mode`
+tool.
+
+**The lifetime energy.** The charger only reports the session's energy (`ChargeEnergy`, which starts again at each
+session). The plugin adds what each reading grew by, or all of it when it fell (a new session), into a total kept in
+`charger-<Device Id>.json` in the plugin's storage, so it only grows and survives restarts. It is Eve's Total
+Consumption (Eve's history expects a total that only grows) and the Status page's `<Device Id>:energy` series; the
+session's energy is the Session Energy characteristic and the `session` series. The total counts from the first read:
+what a charger delivered before the plugin ran is not in it, nor a session that started and grew past the last reading
+while the bridge was down (its part before the restart is lost).
+
+**The wiring** (`ChargeMode`: single-phase, three-phase or mixed) is an installation setting: set it in the charger's
+Accessory Settings (`chargeMode`) and the plugin sends it once, when the charger reports another, and remembers it sent
+it (a later change on the charger itself stays until the setting changes).
 
 ## Configuration
 
@@ -67,6 +82,8 @@ Once a charger listed in `devices` has answered, the next settings write moves i
 | `exposeLeds` | false | The LEDs, when the firmware reports them |
 | `houseEnergyRole` | `none` | `home` or `grid`: how the Energy section counts `HousePower` |
 | `solarEnergy` | false | Count `FVPower` as solar |
+| `exposeModes` | false | The dynamic power mode switches |
+| `chargeMode` | | `monophasic`, `threephase` or `mixed`: the wiring, sent once when it changes |
 
 The charger has no password: anyone on the network can read and drive it, and so the plugin keeps no secret.
 
@@ -110,8 +127,9 @@ Choices made where the spec is silent or a device must confirm, each worth check
    chargers with separate meters, both tagged, would be averaged rather than added.
 6. **Backoff** after three failures is 30 s, 60 s, 120 s, 240 s, then 300 s (`Backoff` doubling); the spec's source goes
    from 120 s to 300 s directly.
-7. **The session's energy** is Eve's Total Consumption and starts again each session; no lifetime total is kept.
-8. **Not done:** `MinIntensity`, `MaxIntensity`, `ContractedPower`, `ChargeMode` and `VoltageInstallation` writes (the
+7. **The lifetime energy** is the plugin's own sum of the sessions (see above), not the charger's: a session's energy
+   during a bridge restart can be partly missed.
+8. **Not done:** `MinIntensity`, `MaxIntensity`, `ContractedPower` and `VoltageInstallation` writes (the
    plugin validates them, but no tool sets them: a wrong `MaxIntensity` can exceed the wiring), the V2C cloud, MQTT, and
    firmware without `/RealTimeData`.
 9. **Write latency:** how long the charger takes to show a write is unknown; hence the second read after two seconds.

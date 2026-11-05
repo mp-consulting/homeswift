@@ -60,6 +60,21 @@ enum DynamicPowerMode: Int, Sendable, CaseIterable {
         }
     }
 
+    /// The modes offered as switches: all but the deprecated one.
+    static let switchable: [DynamicPowerMode] = [.timed, .solarMin, .solarOnly, .solarGrid, .stop]
+
+    /// A mode switch's name.
+    var switchName: String {
+        switch self {
+        case .timed: "Timed power"
+        case .timedOff: "Timed power off"
+        case .solarMin: "Solar and minimum"
+        case .solarOnly: "Solar only"
+        case .solarGrid: "Solar and grid"
+        case .stop: "Stop mode"
+        }
+    }
+
 
     init?(name: String) {
         let lowered = name.trimmingCharacters(in: .whitespaces).lowercased()

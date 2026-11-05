@@ -284,7 +284,7 @@ struct V2CTrydanPluginTests {
         #expect(outlet[.on]?.value == .bool(true))
         #expect(outlet[.outletInUse]?.value == .bool(true))
         #expect(outlet[EveCharacteristic.currentConsumption]?.value == .int(1500))
-        #expect(outlet[EveCharacteristic.totalConsumption]?.value == .double(1.8))
+        #expect(await eventually { outlet[EveCharacteristic.totalConsumption]?.value == .double(1.8) })
         #expect(outlet[EveCharacteristic.voltage]?.value == .double(230))
         #expect(outlet[EveCharacteristic.electricCurrent]?.value == .double(6.5))
         let fan = try #require(accessory.service(.fanv2, subtype: "current"))
@@ -571,6 +571,91 @@ struct V2CTrydanPluginTests {
         #expect(environment.charger.writes == ["/write/DynamicPowerMode=3"])
         let probe = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "probe", query: ["host": "192.0.2.50"], body: .null, user: "test"))
         #expect(probe.json["charger"]?["deviceID"] == "TRY4F2A")
+        await host.stop()
+    }
+
+    /// The charger's current accessory's outlet and mode switches, looked up each time: it is built again once the LEDs
+    /// are reported.
+    static func outlet(_ host: PluginHost) -> Service? {
+        host.mainBridge.server.accessories.first { $0.id == V2CTrydanPlugin.accessoryID(deviceID: "TRY4F2A") }?.service(.outlet)
+    }
+
+    static func mode(_ host: PluginHost, _ name: String) -> Characteristic? {
+        host.mainBridge.server.accessories.first { $0.id == V2CTrydanPlugin.accessoryID(deviceID: "TRY4F2A") }?.service(.switch, subtype: "mode.\(name)")?[.on]
+    }
+
+    /// The lifetime total grows by what each session adds, a new session counted from 0, and survives a restart.
+    @Test func theLifetimeEnergyGrowsAndSurvivesARestart() async throws {
+        var energy = LifetimeEnergy()
+        for reading in [1.0, 1.5, 1.5, 0.2, 0.7, -1, .nan] { energy.add(sessionEnergy: reading) }
+        #expect(abs(energy.total - 2.2) < 1e-9)
+        #expect(energy.session == 0.7)
+
+        let environment = TestEnvironment()
+        var host = try await environment.start()
+        // Looked up each time: the accessory is built again once the charger's LEDs are reported.
+        let counted = await eventually { [host] in Self.outlet(host)?[EveCharacteristic.totalConsumption]?.value == .double(1.8) }
+        #expect(counted)
+        environment.charger.set(Vectors.charging.replacingOccurrences(of: #""ChargeEnergy":1.80"#, with: #""ChargeEnergy":2.30"#))
+        let grown = await eventually { [host] in Self.outlet(host)?[EveCharacteristic.totalConsumption]?.value == .double(2.3) }
+        #expect(grown)
+        let session = await eventually { [host] in Self.outlet(host)?[TrydanCharacteristic.sessionEnergy]?.value == .double(2.3) }
+        #expect(session)
+        await host.stop()
+
+        // Restarted during a new session: the total goes on from what was kept.
+        environment.charger.set(Vectors.charging.replacingOccurrences(of: #""ChargeEnergy":1.80"#, with: #""ChargeEnergy":0.50"#))
+        host = try await environment.start()
+        let kept = await eventually { [host] in Self.outlet(host)?[EveCharacteristic.totalConsumption]?.value == .double(2.8) }
+        #expect(kept)
+        let newSession = await eventually { [host] in Self.outlet(host)?[TrydanCharacteristic.sessionEnergy]?.value == .double(0.5) }
+        #expect(newSession)
+        let snapshot = await environment.plugin?.charger(deviceID: "TRY4F2A")?.snapshot()
+        #expect(snapshot?["lifetimeEnergy"] == 2.8)
+        await host.stop()
+    }
+
+    /// The mode switches are a radio: On sets `DynamicPowerMode`, the mode in force cannot be turned off.
+    @Test func theModeSwitchesSetTheDynamicPowerMode() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start(settings: [
+            "devices": [["host": "192.0.2.50", "id": "TRY4F2A"]], "_accessories": ["TRY4F2A": ["exposeModes": true]],
+        ])
+        let mode: @Sendable (String) -> Characteristic? = { name in Self.mode(host, name) }
+        // Built again once the first read reports the LEDs: the switches are looked up each time.
+        #expect(await eventually { mode("solar-min")?.value == .bool(true) && environment.charger.count("/RealTimeData") >= 2 })
+        #expect(mode("solar-only")?.value == .bool(false))
+        #expect(mode("timed-off") == nil, "the deprecated mode is not offered")
+
+        try await #require(mode("solar-only")).write(.bool(true))
+        #expect(environment.charger.writes == ["/write/DynamicPowerMode=3"])
+        #expect(await eventually { mode("solar-only")?.value == .bool(true) && mode("solar-min")?.value == .bool(false) })
+
+        // Off on the mode in force: nothing is sent, the switch comes back on.
+        try await #require(mode("solar-only")).write(.bool(false))
+        #expect(await eventually { mode("solar-only")?.value == .bool(true) })
+        #expect(environment.charger.writes == ["/write/DynamicPowerMode=3"])
+        await host.stop()
+    }
+
+    /// The wiring of the Accessory Settings goes to the charger once, not again after a restart, nor when it is changed
+    /// back on the charger.
+    @Test func theWiringIsSentOncePerChange() async throws {
+        let environment = TestEnvironment()
+        let settings: [String: Any] = ["devices": [["host": "192.0.2.50", "id": "TRY4F2A"]], "_accessories": ["TRY4F2A": ["chargeMode": "mixed"]]]
+        var host = try await environment.start(settings: settings)
+        _ = try #require(await accessory(host, accessoryID))
+        #expect(await eventually { environment.charger.writes == ["/write/ChargeMode=2"] })
+        let reads = environment.charger.count("/RealTimeData")
+        #expect(await eventually { environment.charger.count("/RealTimeData") >= reads + 3 })
+        await host.stop()
+
+        environment.charger.set(Vectors.charging)
+        host = try await environment.start(settings: settings)
+        _ = try #require(await accessory(host, accessoryID))
+        let again = environment.charger.count("/RealTimeData")
+        #expect(await eventually { environment.charger.count("/RealTimeData") >= again + 3 })
+        #expect(environment.charger.writes == ["/write/ChargeMode=2"])
         await host.stop()
     }
 

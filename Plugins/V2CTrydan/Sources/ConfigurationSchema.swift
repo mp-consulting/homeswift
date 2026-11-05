@@ -127,6 +127,22 @@ extension V2CTrydanPlugin {
         "type": "boolean",
         "default": false,
         "description": "Counts the solar power the charger's meter reads; leave it off when an inverter plugin reports it."
+      },
+      "exposeModes": {
+        "title": "Dynamic power modes",
+        "type": "boolean",
+        "default": false,
+        "description": "A switch for each dynamic power mode (timed, solar and minimum, solar only, solar and grid, stop): turning one on puts the charger in that mode, for scenes and automations."
+      },
+      "chargeMode": {
+        "title": "Wiring",
+        "type": "string",
+        "oneOf": [
+          { "title": "Single-phase", "enum": ["monophasic"] },
+          { "title": "Three-phase", "enum": ["threephase"] },
+          { "title": "Mixed", "enum": ["mixed"] }
+        ],
+        "description": "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation."
       }
     }
   },
@@ -175,7 +191,14 @@ extension V2CTrydanPlugin {
       "The name in HomeKit; V2C Trydan when empty.": "Le nom dans HomeKit ; V2C Trydan s’il est vide.",
       "Timeout (in seconds)": "Délai d’attente (en secondes)",
       "Timer and dynamic power": "Minuterie et puissance dynamique",
-      "What the charger's meter clamp measures, for the Status page's Energy section. Leave it uncounted when another plugin reports it.": "Ce que mesure la pince du compteur du chargeur, pour la section Énergie de la page État. Laissez-la non comptée quand un autre plugin l’indique."
+      "What the charger's meter clamp measures, for the Status page's Energy section. Leave it uncounted when another plugin reports it.": "Ce que mesure la pince du compteur du chargeur, pour la section Énergie de la page État. Laissez-la non comptée quand un autre plugin l’indique.",
+      "Dynamic power modes": "Modes de puissance dynamique",
+      "A switch for each dynamic power mode (timed, solar and minimum, solar only, solar and grid, stop): turning one on puts the charger in that mode, for scenes and automations.": "Un interrupteur par mode de puissance dynamique (programmé, solaire et minimum, solaire seul, solaire et réseau, arrêt) : en allumer un met la borne dans ce mode, pour les scènes et les automatisations.",
+      "Wiring": "Câblage",
+      "Single-phase": "Monophasé",
+      "Three-phase": "Triphasé",
+      "Mixed": "Mixte",
+      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Le câblage de la borne (ChargeMode), envoyé une fois quand il change. Vide garde celui de la borne : ne le réglez que pour suivre l'installation."
     },
     "es": {
       "A contact sensor that shows when a car is plugged in, and the charger's faults.": "Un sensor de contacto que indica cuándo hay un coche enchufado, y los fallos del cargador.",
@@ -207,7 +230,14 @@ extension V2CTrydanPlugin {
       "The name in HomeKit; V2C Trydan when empty.": "El nombre en HomeKit; V2C Trydan si está vacío.",
       "Timeout (in seconds)": "Tiempo de espera (en segundos)",
       "Timer and dynamic power": "Temporizador y potencia dinámica",
-      "What the charger's meter clamp measures, for the Status page's Energy section. Leave it uncounted when another plugin reports it.": "Lo que mide la pinza del contador del cargador, para la sección Energía de la página Estado. Déjelo sin contar si otro plugin lo indica."
+      "What the charger's meter clamp measures, for the Status page's Energy section. Leave it uncounted when another plugin reports it.": "Lo que mide la pinza del contador del cargador, para la sección Energía de la página Estado. Déjelo sin contar si otro plugin lo indica.",
+      "Dynamic power modes": "Modos de potencia dinámica",
+      "A switch for each dynamic power mode (timed, solar and minimum, solar only, solar and grid, stop): turning one on puts the charger in that mode, for scenes and automations.": "Un interruptor por modo de potencia dinámica (programado, solar y mínimo, solo solar, solar y red, parada): encender uno pone el cargador en ese modo, para escenas y automatizaciones.",
+      "Wiring": "Cableado",
+      "Single-phase": "Monofásico",
+      "Three-phase": "Trifásico",
+      "Mixed": "Mixto",
+      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Cómo está cableado el cargador (ChargeMode), enviado una vez cuando cambia. Vacío deja el del cargador: ajústelo solo para que coincida con la instalación."
     },
     "pt": {
       "A contact sensor that shows when a car is plugged in, and the charger's faults.": "Um sensor de contacto que indica quando um carro está ligado, e as falhas do carregador.",
@@ -239,7 +269,14 @@ extension V2CTrydanPlugin {
       "The name in HomeKit; V2C Trydan when empty.": "O nome no HomeKit; V2C Trydan se estiver vazio.",
       "Timeout (in seconds)": "Tempo limite (em segundos)",
       "Timer and dynamic power": "Temporizador e potência dinâmica",
-      "What the charger's meter clamp measures, for the Status page's Energy section. Leave it uncounted when another plugin reports it.": "O que mede a pinça do contador do carregador, para a secção Energia da página Estado. Deixe-o por contabilizar quando outro plugin o indica."
+      "What the charger's meter clamp measures, for the Status page's Energy section. Leave it uncounted when another plugin reports it.": "O que mede a pinça do contador do carregador, para a secção Energia da página Estado. Deixe-o por contabilizar quando outro plugin o indica.",
+      "Dynamic power modes": "Modos de potência dinâmica",
+      "A switch for each dynamic power mode (timed, solar and minimum, solar only, solar and grid, stop): turning one on puts the charger in that mode, for scenes and automations.": "Um interruptor por modo de potência dinâmica (programado, solar e mínimo, só solar, solar e rede, paragem): ligar um põe o carregador nesse modo, para cenas e automatizações.",
+      "Wiring": "Cablagem",
+      "Single-phase": "Monofásico",
+      "Three-phase": "Trifásico",
+      "Mixed": "Misto",
+      "How the charger is wired (ChargeMode), sent to it once when it changes. Empty leaves the charger's: set it only to match the installation.": "Como o carregador está cablado (ChargeMode), enviado uma vez quando muda. Vazio mantém o do carregador: defina-o só para corresponder à instalação."
     }
   }
 }

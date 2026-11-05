@@ -2851,4 +2851,5 @@ HomeswiftI18n.add("es", {
   "Its sign-in is kept in the vault, never in these settings.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes.",
   "Range (km)": "Autonomía (km)",
   "Time to Full (min)": "Tiempo hasta carga completa (min)",
+  "Session Energy (kWh)": "Energía de la sesión (kWh)",
 });

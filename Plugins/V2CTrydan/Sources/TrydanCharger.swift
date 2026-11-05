@@ -61,6 +61,12 @@ actor TrydanCharger {
     private var lastLogoLevel = 100
     private let coalesce: LatestCallGuard
     private var series: [String: RecordedSeries] = [:]
+    /// The lifetime energy and the installation settings sent, from `charger-<Device Id>.json`; loaded once the Device Id
+    /// is known.
+    private(set) var memory: ChargerMemory?
+    /// An installation write in flight, and when a failed one may be tried again, by keyword.
+    private var installing = false
+    private var installRetry: [String: ContinuousClock.Instant] = [:]
 
     init(
         host: String, deviceID: String?, name: String, settings: ChargerSettings, transport: any HTTPSending, interval: Duration, timeout: Duration,
@@ -179,8 +185,83 @@ actor TrydanCharger {
             lastLogoLevel = min(level, 100)
         }
         noteIdentity(report)
-        services?.show(report)
-        record(report)
+        let lifetime = accumulate(report)
+        services?.show(report, lifetimeEnergy: lifetime)
+        record(report, lifetimeEnergy: lifetime)
+        if !installing, !installationWrites(report).isEmpty {
+            installing = true
+            tasks.add { [weak self] in await self?.applyInstallation() }
+        }
+    }
+
+    // MARK: What is kept across restarts
+
+    /// The memory of the charger's Device Id, read once.
+    private func loadedMemory() -> ChargerMemory? {
+        guard let deviceID else { return nil }
+        if let memory { return memory }
+        let loaded = ChargerMemory.file(context, deviceID: deviceID).load() ?? ChargerMemory()
+        memory = loaded
+        return loaded
+    }
+
+    private func save(_ updated: ChargerMemory) {
+        guard let deviceID, updated != memory else { return }
+        memory = updated
+        do {
+            try ChargerMemory.file(context, deviceID: deviceID).save(updated)
+        } catch {
+            logger.warning("Could not keep what \(name) delivered: \(error)")
+        }
+    }
+
+    /// The session's energy added to the lifetime total, kept; nil before the Device Id is known.
+    private func accumulate(_ report: TrydanReport) -> Double? {
+        guard var updated = loadedMemory() else { return nil }
+        updated.energy.add(sessionEnergy: report.chargeEnergy)
+        save(updated)
+        return updated.energy.total
+    }
+
+    // MARK: Installation settings
+
+    /// The installation keywords the Accessory Settings ask for that the charger does not report and were not sent
+    /// already (a value is sent once per change of the settings) nor failed a moment ago.
+    func installationWrites(_ report: TrydanReport) -> [(keyword: String, value: Int)] {
+        guard let memory = loadedMemory() else { return [] }
+        let now = ContinuousClock.now
+        return settings.installation.filter { write in
+            guard memory.sent[write.keyword] != write.value, installRetry[write.keyword].map({ now >= $0 }) ?? true else { return false }
+            guard let current = Self.reported(write.keyword, in: report) else { return false }
+            return current != write.value
+        }
+    }
+
+    /// The value of an installation keyword the report holds; nil when the charger has not reported it.
+    static func reported(_ keyword: String, in report: TrydanReport) -> Int? {
+        switch keyword {
+        case "ChargeMode": report.chargeMode
+        default: nil
+        }
+    }
+
+    /// Sends what `installationWrites` lists, one at a time, remembering each value the charger took.
+    func applyInstallation() async {
+        defer { installing = false }
+        guard let report else { return }
+        for write in installationWrites(report) {
+            do {
+                try await set(write.keyword, write.value)
+                installRetry[write.keyword] = nil
+                if var updated = memory {
+                    updated.sent[write.keyword] = write.value
+                    save(updated)
+                }
+                logger.info("Set \(write.keyword) of \(name) to \(write.value), as its settings ask")
+            } catch {
+                installRetry[write.keyword] = .now + timing.fallbackRetry
+            }
+        }
     }
 
     private func failed(_ error: any Error) {
@@ -236,9 +317,13 @@ actor TrydanCharger {
     /// Several chargers of one installation read the same meter: its figures count once.
     static let meterShared = "v2c-meter"
 
-    private func record(_ report: TrydanReport) {
+    private func record(_ report: TrydanReport, lifetimeEnergy: Double?) {
         guard let deviceID else { return }
-        for reading in Self.energyReadings(report, settings: settings, device: name) {
+        var readings = Self.energyReadings(report, settings: settings, device: name)
+        // kWh, untagged: the charge power is already in the history.
+        readings.append(("session", report.chargeEnergy, nil))
+        if let lifetimeEnergy { readings.append(("energy", lifetimeEnergy, nil)) }
+        for reading in readings {
             guard let watts = reading.watts.finite else { continue }
             let recorded: RecordedSeries
             if let known = series[reading.key] {
@@ -269,7 +354,8 @@ actor TrydanCharger {
             guard let self else { throw HAPStatusError(.serviceCommunicationFailure) }
             try await self.perform(command)
         }
-        if let report { built.show(report) }
+        // The first reports came before the Device Id was known: counted now (counting one twice adds nothing).
+        if let report { built.show(report, lifetimeEnergy: accumulate(report)) }
         built.accessory.isUnavailable = !isReachable
         try context.add(built.accessory)
         services = built
@@ -328,6 +414,13 @@ actor TrydanCharger {
             try await set("LightLED", min(max(level, 0), 100))
         case .logoLED(let on):
             try await set("LogoLED", on ? (logoDimmable ? lastLogoLevel : 1) : 0)
+        case .mode(let mode, let on):
+            guard on else {
+                // A radio: the mode in force cannot be turned off, only another one on.
+                if report?.dynamicPowerMode == mode.rawValue { _ = services?.modes[mode]?.characteristic(.on).revert(to: .bool(true), after: .milliseconds(100)) }
+                return
+            }
+            try await set("DynamicPowerMode", mode.rawValue)
         }
     }
 
@@ -341,6 +434,8 @@ actor TrydanCharger {
             allowed = (6...32).contains(value) ? nil : "6 to 32"
         case "DynamicPowerMode":
             allowed = (0...5).contains(value) ? nil : "0 to 5"
+        case "ChargeMode":
+            allowed = (0...2).contains(value) ? nil : "0, 1 or 2"
         case "LightLED", "LogoLED":
             allowed = (0...100).contains(value) ? nil : "0 to 100"
         default:
@@ -367,7 +462,7 @@ actor TrydanCharger {
         if var report {
             Self.apply(keyword, value, to: &report)
             self.report = report
-            services?.show(report)
+            services?.show(report, lifetimeEnergy: memory?.energy.total)
         }
         let settle = timing.settle
         tasks.add { [weak self] in
@@ -387,6 +482,7 @@ actor TrydanCharger {
         case "PauseDynamic": report.pauseDynamic = value
         case "Intensity": report.intensity = value
         case "DynamicPowerMode": report.dynamicPowerMode = value
+        case "ChargeMode": report.chargeMode = value
         case "LightLED": report.lightLED = value
         case "LogoLED": report.logoLED = value
         default: break
@@ -407,6 +503,7 @@ actor TrydanCharger {
             fields["locked"] = .bool(report.locked == 1)
             fields["chargePower"] = .number(report.chargePower)
             fields["sessionEnergy"] = .number(report.chargeEnergy)
+            if let total = memory?.energy.total { fields["lifetimeEnergy"] = .number((total * 100).rounded() / 100) }
             fields["intensity"] = .number(Double(report.intensity))
             fields["minIntensity"] = .number(Double(report.minIntensity))
             fields["maxIntensity"] = .number(Double(report.maxIntensity))
