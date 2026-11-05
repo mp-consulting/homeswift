@@ -53,12 +53,18 @@ struct BcMediaParser: Sendable {
     /// The magics searched for when resynchronising.
     static let knownMagics: [[UInt8]] = ["1001", "1002", "00dc", "01dc", "05wb", "01wb"].map { Array($0.utf8) }
 
+    /// Bytes consumed before the buffer is compacted (a frame is at most 4 MiB; a message's frames cost their length).
+    static let compaction = 64 * 1024
+    static let h265Tag = Array("H265".utf8)
+
     private var buffer: [UInt8] = []
+    /// Where the bytes not parsed yet start: those before it go at the next compaction.
+    private var head = 0
     private var lastVideo: [UInt8]?
     private var seenVideo = false
 
     /// Bytes waiting for the rest of their frame.
-    var pendingCount: Int { buffer.count }
+    var pendingCount: Int { buffer.count - head }
 
     static func padding(_ length: Int) -> Int { (8 - length % 8) % 8 }
 
@@ -77,17 +83,12 @@ struct BcMediaParser: Sendable {
         }
     }
 
-    private static func uint16(_ bytes: [UInt8], _ offset: Int) -> Int { Int(bytes[offset]) | Int(bytes[offset + 1]) << 8 }
-    private static func uint32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
-        UInt32(bytes[offset]) | UInt32(bytes[offset + 1]) << 8 | UInt32(bytes[offset + 2]) << 16 | UInt32(bytes[offset + 3]) << 24
-    }
-
     /// The frames `chunk` completes.
     mutating func push(_ chunk: [UInt8]) throws -> [BcMediaFrame] {
         buffer += chunk
         var frames: [BcMediaFrame] = []
-        var start = 0
-        defer { buffer.removeFirst(min(start, buffer.count)) }
+        var start = head
+        defer { compact(to: min(start, buffer.count)) }
         while true {
             guard buffer.count - start >= 4 else { break }
             guard let kind = Self.kind(buffer[start...]) else {
@@ -102,24 +103,23 @@ struct BcMediaParser: Sendable {
             case .info:
                 total = 32
                 guard available >= total else { return frames }
-                let width = Int(Self.uint32(buffer, start + 8)), height = Int(Self.uint32(buffer, start + 12))
+                let width = Int(Baichuan.readUInt32(buffer, start + 8)), height = Int(Baichuan.readUInt32(buffer, start + 12))
                 frame = .info(width: width, height: height, fps: Int(buffer[start + 17]))
             case .iframe, .pframe:
                 guard available >= 24 else { return frames }
-                let size = Int(Self.uint32(buffer, start + 8)), extra = Int(Self.uint32(buffer, start + 12))
+                let size = Int(Baichuan.readUInt32(buffer, start + 8)), extra = Int(Baichuan.readUInt32(buffer, start + 12))
                 guard size <= Self.maximumFrame, extra <= Self.maximumFrame else {
                     start = buffer.count
                     throw BcMediaError.frameTooLarge(max(size, extra))
                 }
                 total = 24 + extra + size + Self.padding(size)
                 guard available >= total else { return frames }
-                let codecBytes = Array(buffer[(start + 4)..<(start + 8)])
-                let codec: BcMediaCodec = codecBytes == Array("H265".utf8) ? .h265 : .h264
+                let codec: BcMediaCodec = buffer[(start + 4)..<(start + 8)].elementsEqual(Self.h265Tag) ? .h265 : .h264
                 let payloadStart = start + 24 + extra
                 let payload = Array(buffer[payloadStart..<(payloadStart + size)])
-                frame = .video(codec: codec, keyframe: kind == .iframe, timestamp: Self.uint32(buffer, start + 16), payload: payload)
+                frame = .video(codec: codec, keyframe: kind == .iframe, timestamp: Baichuan.readUInt32(buffer, start + 16), payload: payload)
             case .aac, .adpcm:
-                let size = Self.uint16(buffer, start + 4)
+                let size = Int(Baichuan.readUInt16(buffer, start + 4))
                 total = 8 + size + Self.padding(size)
                 guard available >= total else { return frames }
                 if kind == .aac {
@@ -147,6 +147,19 @@ struct BcMediaParser: Sendable {
             throw BcMediaError.frameTooLarge(buffer.count)
         }
         return frames
+    }
+
+    /// Moves the read position to `start`: the buffer emptied when all of it was read, else compacted past `compaction`.
+    private mutating func compact(to start: Int) {
+        if start == buffer.count {
+            buffer.removeAll(keepingCapacity: true)
+            head = 0
+        } else if start >= Self.compaction {
+            buffer.removeFirst(start)
+            head = 0
+        } else {
+            head = start
+        }
     }
 
     /// The offset of the next known magic at or after `start`; the last 3 bytes are kept when none is found, in case a
@@ -202,41 +215,45 @@ struct BcMediaMuxer: Sendable {
         wantsAudio = audio
     }
 
-    /// Whether the first I-frame came (the codec is known).
-    var hasStarted: Bool { codec != nil }
-
     /// The TS bytes the frame makes (none while it waits for the first I-frame or the audio).
     mutating func push(_ frame: BcMediaFrame) -> [UInt8] {
+        var output: [UInt8] = []
+        push(frame, into: &output)
+        return output
+    }
+
+    /// Appends the TS bytes the frame makes to `output`.
+    mutating func push(_ frame: BcMediaFrame, into output: inout some RangeReplaceableCollection<UInt8>) {
         switch frame {
         case .info(_, _, let fps):
             if fps > 0 { self.fps = fps }
-            return []
+            return
         case .adpcm:
             // No MPEG-TS mapping (5.3): dropped.
-            return []
+            return
         case .video(let codec, let keyframe, _, _):
             if self.codec == nil {
-                guard keyframe else { return [] }
+                guard keyframe else { return }
                 self.codec = codec
             }
-            guard codec == self.codec else { return [] }
+            guard codec == self.codec else { return }
         case .aac:
-            guard wantsAudio, codec != nil else { return [] }
+            guard wantsAudio, codec != nil else { return }
         }
         if !headerWritten {
             if case .aac = frame { hasAudio = true }
             pending.append(frame)
             pendingSize += frame.size
             let full = pending.count >= Self.pendingFrames || pendingSize >= Self.pendingBytes
-            guard !wantsAudio || hasAudio || full || pendingVideoSpan >= Self.audioWait else { return [] }
+            guard !wantsAudio || hasAudio || full || pendingVideoSpan >= Self.audioWait else { return }
             headerWritten = true
-            var output = tables()
-            for item in pending { output += write(item) }
+            tables(into: &output)
+            for item in pending { write(item, into: &output) }
             pending = []
             pendingSize = 0
-            return output
+            return
         }
-        return write(frame)
+        write(frame, into: &output)
     }
 
     /// The video time the pending frames span, in 90 kHz units.
@@ -258,7 +275,7 @@ struct BcMediaMuxer: Sendable {
         return delta > 0x8000_0000 ? 0 : UInt64(delta)
     }
 
-    private mutating func write(_ frame: BcMediaFrame) -> [UInt8] {
+    private mutating func write(_ frame: BcMediaFrame, into output: inout some RangeReplaceableCollection<UInt8>) {
         switch frame {
         case .video(_, let keyframe, let timestamp, let payload):
             if firstTimestamp == nil {
@@ -268,50 +285,52 @@ struct BcMediaMuxer: Sendable {
             elapsed += Self.forward(from: lastTimestamp, to: timestamp)
             lastTimestamp = timestamp
             videoPTS = 90000 + elapsed * 9 / 100
-            var output = keyframe ? tables() : []
-            output += pes(pid: Self.videoPID, streamID: 0xE0, pts: videoPTS, payload: payload, pcr: true, randomAccess: keyframe)
-            return output
+            if keyframe { tables(into: &output) }
+            pes(pid: Self.videoPID, streamID: 0xE0, pts: videoPTS, payload: payload, pcr: true, randomAccess: keyframe, into: &output)
         case .aac(let payload):
-            guard hasAudio else { return [] }
+            guard hasAudio else { return }
             let rate = payload.count > 2 ? Self.sampleRates[min(Int(payload[2] >> 2 & 0x0F), Self.sampleRates.count - 1)] : 16000
             var pts = audioPTS ?? videoPTS
             if pts + 90000 < videoPTS { pts = videoPTS }
             audioPTS = pts + UInt64(1024 * 90000 / rate)
-            return pes(pid: Self.audioPID, streamID: 0xC0, pts: pts, payload: payload, pcr: false, randomAccess: false)
+            pes(pid: Self.audioPID, streamID: 0xC0, pts: pts, payload: payload, pcr: false, randomAccess: false, into: &output)
         default:
-            return []
+            return
         }
     }
 
     // MARK: Tables
 
     /// The PAT and the PMT, a packet each.
-    private mutating func tables() -> [UInt8] {
+    private mutating func tables(into output: inout some RangeReplaceableCollection<UInt8>) {
         var pat: [UInt8] = [0x00, 0xB0, 0x00, 0x00, 0x01, 0xC1, 0x00, 0x00, 0x00, 0x01, 0xE0 | UInt8(Self.pmtPID >> 8), UInt8(Self.pmtPID & 0xFF)]
         pat[2] = UInt8(pat.count - 3 + 4)
         pat += Self.bigEndian(Self.crc32(pat))
-        guard let codec else { return [] }
+        guard let codec else { return }
         var streams: [(UInt8, UInt16)] = [(codec.streamType, Self.videoPID)]
         if hasAudio { streams.append((0x0F, Self.audioPID)) }
         var pmt: [UInt8] = [0x02, 0xB0, 0x00, 0x00, 0x01, 0xC1, 0x00, 0x00, 0xE0 | UInt8(Self.videoPID >> 8), UInt8(Self.videoPID & 0xFF), 0xF0, 0x00]
         for (type, pid) in streams { pmt += [type, 0xE0 | UInt8(pid >> 8), UInt8(pid & 0xFF), 0xF0, 0x00] }
         pmt[2] = UInt8(pmt.count - 3 + 4)
         pmt += Self.bigEndian(Self.crc32(pmt))
-        return section(pid: Self.patPID, pat) + section(pid: Self.pmtPID, pmt)
+        section(pid: Self.patPID, pat, into: &output)
+        section(pid: Self.pmtPID, pmt, into: &output)
     }
 
-    private mutating func section(pid: UInt16, _ table: [UInt8]) -> [UInt8] {
-        var packet = header(pid: pid, start: true, adaptation: false)
-        packet.append(0x00)
-        packet += table
-        packet += [UInt8](repeating: 0xFF, count: Self.packetSize - packet.count)
-        return packet
+    private mutating func section(pid: UInt16, _ table: [UInt8], into output: inout some RangeReplaceableCollection<UInt8>) {
+        header(pid: pid, start: true, adaptation: false, into: &output)
+        output.append(0x00)
+        output.append(contentsOf: table)
+        output.append(contentsOf: repeatElement(0xFF, count: Self.packetSize - 5 - table.count))
     }
 
-    private mutating func header(pid: UInt16, start: Bool, adaptation: Bool) -> [UInt8] {
+    private mutating func header(pid: UInt16, start: Bool, adaptation: Bool, into output: inout some RangeReplaceableCollection<UInt8>) {
         let counter = continuity[pid, default: 0]
         continuity[pid] = (counter + 1) & 0x0F
-        return [0x47, (start ? 0x40 : 0x00) | UInt8(pid >> 8 & 0x1F), UInt8(pid & 0xFF), (adaptation ? 0x30 : 0x10) | counter]
+        output.append(0x47)
+        output.append((start ? 0x40 : 0x00) | UInt8(pid >> 8 & 0x1F))
+        output.append(UInt8(pid & 0xFF))
+        output.append((adaptation ? 0x30 : 0x10) | counter)
     }
 
     // MARK: PES
@@ -321,58 +340,71 @@ struct BcMediaMuxer: Sendable {
         return [0x21 | UInt8(value >> 29 & 0x0E), UInt8(value >> 22 & 0xFF), UInt8(value >> 14 & 0xFE) | 1, UInt8(value >> 7 & 0xFF), UInt8(value << 1 & 0xFE) | 1]
     }
 
-    private mutating func pes(pid: UInt16, streamID: UInt8, pts: UInt64, payload: [UInt8], pcr: Bool, randomAccess: Bool) -> [UInt8] {
+    /// The PES packet of `payload` in TS packets, written straight into `output`: its header in the first packet, the
+    /// payload sliced after it.
+    private mutating func pes(pid: UInt16, streamID: UInt8, pts: UInt64, payload: [UInt8], pcr: Bool, randomAccess: Bool,
+                              into output: inout some RangeReplaceableCollection<UInt8>) {
         let headerData = Self.ptsBytes(pts)
         let length = 3 + headerData.count + payload.count
         // Video may leave the length at 0 (unbounded); audio frames always fit.
         let declared = streamID == 0xE0 && length > 0xFFFF ? 0 : length
-        var pes: [UInt8] = [0x00, 0x00, 0x01, streamID, UInt8(declared >> 8 & 0xFF), UInt8(declared & 0xFF), 0x80, 0x80, UInt8(headerData.count)]
-        pes += headerData
-        pes += payload
-        var output: [UInt8] = []
-        output.reserveCapacity((pes.count / 184 + 2) * Self.packetSize)
+        var pesHeader: [UInt8] = [0x00, 0x00, 0x01, streamID, UInt8(declared >> 8 & 0xFF), UInt8(declared & 0xFF), 0x80, 0x80, UInt8(headerData.count)]
+        pesHeader += headerData
+        let total = pesHeader.count + payload.count
+        output.reserveCapacity(output.count + (total / 184 + 2) * Self.packetSize)
         var offset = 0
+        /// The next `count` bytes of the PES packet: the rest of its header, then the payload's.
+        func copy(_ count: Int) {
+            var count = count
+            if offset < pesHeader.count {
+                let taken = min(count, pesHeader.count - offset)
+                output.append(contentsOf: pesHeader[offset..<(offset + taken)])
+                offset += taken
+                count -= taken
+            }
+            guard count > 0 else { return }
+            let from = offset - pesHeader.count
+            output.append(contentsOf: payload[from..<(from + count)])
+            offset += count
+        }
         var first = true
-        while offset < pes.count {
-            var adaptation: [UInt8] = []
-            if first, pcr || randomAccess {
-                var flags: UInt8 = 0
-                if randomAccess { flags |= 0x40 }
-                if pcr { flags |= 0x10 }
-                adaptation = [flags]
+        while offset < total {
+            // The first packet's adaptation field: its flags, and the PCR.
+            let field = first && (pcr || randomAccess) ? (pcr ? 7 : 1) : 0
+            let room = 184 - (field == 0 ? 0 : field + 1)
+            let remaining = total - offset
+            // Stuffing in the adaptation field fills the last packet.
+            let stuffing = remaining < room ? room - remaining : 0
+            if field == 0, stuffing > 0 {
+                header(pid: pid, start: first, adaptation: true, into: &output)
+                if stuffing == 1 {
+                    output.append(0x00)
+                } else {
+                    output.append(UInt8(stuffing - 1))
+                    output.append(0x00)
+                    output.append(contentsOf: repeatElement(0xFF, count: stuffing - 2))
+                }
+                copy(remaining)
+                break
+            }
+            header(pid: pid, start: first, adaptation: field > 0, into: &output)
+            if field > 0 {
+                output.append(UInt8(field + stuffing))
+                output.append((randomAccess ? 0x40 : 0) | (pcr ? 0x10 : 0))
                 if pcr {
                     let base = pts & 0x1_FFFF_FFFF
-                    adaptation += [UInt8(base >> 25 & 0xFF), UInt8(base >> 17 & 0xFF), UInt8(base >> 9 & 0xFF), UInt8(base >> 1 & 0xFF), UInt8(base << 7 & 0x80) | 0x7E, 0x00]
+                    output.append(UInt8(base >> 25 & 0xFF))
+                    output.append(UInt8(base >> 17 & 0xFF))
+                    output.append(UInt8(base >> 9 & 0xFF))
+                    output.append(UInt8(base >> 1 & 0xFF))
+                    output.append(UInt8(base << 7 & 0x80) | 0x7E)
+                    output.append(0x00)
                 }
+                output.append(contentsOf: repeatElement(0xFF, count: stuffing))
             }
-            let room = 184 - (adaptation.isEmpty ? 0 : adaptation.count + 1)
-            let remaining = pes.count - offset
-            if remaining < room {
-                // Stuffing in the adaptation field fills the last packet.
-                let stuffing = room - remaining
-                if adaptation.isEmpty {
-                    adaptation = stuffing == 1 ? [] : [0x00] + [UInt8](repeating: 0xFF, count: stuffing - 2)
-                    var packet = header(pid: pid, start: first, adaptation: true)
-                    packet.append(UInt8(adaptation.count))
-                    packet += adaptation
-                    packet += pes[offset...]
-                    output += packet
-                    break
-                }
-                adaptation += [UInt8](repeating: 0xFF, count: stuffing)
-            }
-            var packet = header(pid: pid, start: first, adaptation: !adaptation.isEmpty)
-            if !adaptation.isEmpty {
-                packet.append(UInt8(adaptation.count))
-                packet += adaptation
-            }
-            let take = min(Self.packetSize - packet.count, remaining)
-            packet += pes[offset..<(offset + take)]
-            offset += take
-            output += packet
+            copy(min(room - stuffing, remaining))
             first = false
         }
-        return output
     }
 
     // MARK: CRC

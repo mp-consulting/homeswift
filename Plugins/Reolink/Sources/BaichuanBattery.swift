@@ -61,17 +61,19 @@ extension Baichuan {
         """
     }
 
-    /// The `encryptLen` of a binary message's extension (any case); nil without one.
-    static func encryptLength(_ xml: String) -> Int? {
-        guard let root = try? BXParser.parse(xml) else { return nil }
-        let element = ([root] + root.descendants).first { $0.name.lowercased() == "encryptlen" }
-        return element.flatMap { Int($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
-    }
+    /// What a message's extension says of its binary payload, its XML parsed once.
+    struct BinaryExtension: Sendable, Equatable {
+        /// Whether it switches its message id to binary (`binaryData` 1).
+        var isBinary = false
+        /// Its `encryptLen` (any case); nil without one.
+        var encryptLength: Int?
 
-    /// Whether an extension switches its message id to binary (`binaryData` 1).
-    static func isBinary(_ xml: String?) -> Bool {
-        guard let xml, let root = try? BXParser.parse(xml) else { return false }
-        return root.first("binaryData")?.text.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+        init(_ xml: String?) {
+            guard let xml, let root = try? BXParser.parse(xml) else { return }
+            isBinary = root.first("binaryData")?.text.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+            let element = ([root] + root.descendants).first { $0.name.lowercased() == "encryptlen" }
+            encryptLength = element.flatMap { Int($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        }
     }
 }
 

@@ -423,9 +423,12 @@ actor BaichuanSession {
                 let key = Key(command: message.command, messageID: message.messageID)
                 if let request = pending.removeValue(forKey: key) {
                     // A reply in binary mode carries the first bytes itself: the sink gets them before what follows.
-                    if let sink = binarySinks[key] ?? commandSinks[message.command], Baichuan.isBinary(extensionText(of: message)) {
-                        let payload = binaryPayload(of: message)
-                        if !payload.isEmpty || message.status == 201 { sink(.data(status: message.status, payload: payload)) }
+                    if let sink = binarySinks[key] ?? commandSinks[message.command] {
+                        let ext = Baichuan.BinaryExtension(extensionText(of: message))
+                        if ext.isBinary {
+                            let payload = binaryPayload(of: message, encryptLength: ext.encryptLength)
+                            if !payload.isEmpty || message.status == 201 { sink(.data(status: message.status, payload: payload)) }
+                        }
                     }
                     request.waiter.resume(returning: message)
                 } else if let sink = binarySinks[key] ?? commandSinks[message.command] {
@@ -498,12 +501,19 @@ actor BaichuanSession {
     /// A message's binary payload: what follows its extension (all of the body without one), its first `encryptLen`
     /// bytes AES-decrypted in a full-AES session.
     func binaryPayload(of message: BaichuanMessage) -> [UInt8] {
-        var payload = message.body
-        guard !message.extensionBytes.isEmpty, fullAES, let aesKey,
-              let xml = try? BaichuanDecoder.decrypt(message.extensionBytes, expected: .aes, offset: message.channel, key: aesKey),
-              let length = Baichuan.encryptLength(xml), length > 0 else { return payload }
-        let count = min(length, payload.count)
-        if let clear = try? Baichuan.aes(Array(payload[..<count]), key: aesKey, decrypt: true) { payload.replaceSubrange(..<count, with: clear) }
+        guard fullAES, aesKey != nil, !message.extensionBytes.isEmpty else { return message.body }
+        return binaryPayload(of: message, encryptLength: Baichuan.BinaryExtension(extensionText(of: message)).encryptLength)
+    }
+
+    /// The payload with the extension's `encryptLen` already read: the prefix decrypted into the one copy of the body.
+    private func binaryPayload(of message: BaichuanMessage, encryptLength: Int?) -> [UInt8] {
+        let body = message.body
+        guard fullAES, let aesKey, let length = encryptLength, length > 0 else { return body }
+        let count = min(length, body.count)
+        guard let clear = try? Baichuan.aes(body[..<count], key: aesKey, decrypt: true) else { return body }
+        var payload = clear
+        payload.reserveCapacity(body.count)
+        payload += body[count...]
         return payload
     }
 

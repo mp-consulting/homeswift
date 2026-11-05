@@ -47,7 +47,7 @@ enum Baichuan {
     }
 
     /// AES-128-CFB128 with the fixed IV, a fresh cipher state per call: no padding, the output as long as the input.
-    static func aes(_ bytes: [UInt8], key: [UInt8], decrypt: Bool) throws -> [UInt8] {
+    static func aes(_ bytes: some DataProtocol, key: [UInt8], decrypt: Bool) throws -> [UInt8] {
         guard !bytes.isEmpty else { return [] }
         let symmetric = SymmetricKey(data: key)
         let iv = try AES._CFB.IV(ivBytes: aesIV)

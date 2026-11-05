@@ -601,13 +601,14 @@ actor ReolinkBatteryHost {
                     do {
                         for frame in try parser.push(payload) {
                             if case .info(let width, let height, _) = frame { size = (width, height) }
-                            let bytes = muxer.push(frame)
+                            var bytes = Data()
+                            muxer.push(frame, into: &bytes)
                             if !announced, let codec = muxer.codec {
                                 announced = true
                                 started.yield(FirstFrame(codec: codec, fps: muxer.fps, width: size?.0, height: size?.1))
                                 started.finish()
                             }
-                            if !bytes.isEmpty, case .dropped = out.yield(Data(bytes)) {
+                            if !bytes.isEmpty, case .dropped = out.yield(bytes) {
                                 throw ReolinkFeedError.notRead
                             }
                         }
