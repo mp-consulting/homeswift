@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format follows
   protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
   energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
   Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
+- The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
+  plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
+  offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
+  dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
+  (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
+  repaired.
 - The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
   configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
   through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
