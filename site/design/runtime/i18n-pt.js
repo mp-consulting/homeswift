@@ -2644,7 +2644,6 @@ HomeswiftI18n.add("pt", {
   "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
   "Include": "Incluir",
   "Exclude": "Excluir",

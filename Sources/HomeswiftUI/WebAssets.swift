@@ -15350,7 +15350,6 @@ HomeswiftI18n.add("es", {
   "Could not look for its devices: {error}": "No se pudieron buscar sus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Ya está configurado. Vuelve a buscar ahora, o más tarde desde esta página.",
   "Find again": "Buscar de nuevo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
   "Set up again": "Configurar de nuevo",
   "Include": "Incluir",
   "Exclude": "Excluir",
@@ -18178,7 +18177,6 @@ HomeswiftI18n.add("fr", {
   "Could not look for its devices: {error}": "Impossible de rechercher ses appareils : {error}",
   "It is set up. Look again now, or later from this page.": "Il est configuré. Relancez la recherche maintenant, ou plus tard depuis cette page.",
   "Find again": "Chercher à nouveau",
-  "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
   "Set up again": "Configurer à nouveau",
   "Include": "Inclure",
   "Exclude": "Exclure",
@@ -21006,7 +21004,6 @@ HomeswiftI18n.add("pt", {
   "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
   "Include": "Incluir",
   "Exclude": "Excluir",
@@ -23771,7 +23768,7 @@ HomeswiftI18n.add("pt", {
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
           : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
-            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("No devices found") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -24045,7 +24042,7 @@ HomeswiftI18n.add("pt", {
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
           ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
-          : t("This plugin finds no devices by itself: its settings name them.") }));
+          : t("No devices found") }));
         // Under its devices, a way to add one the plugin does not find.
         if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
           el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));

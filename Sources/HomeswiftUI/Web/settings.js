@@ -573,7 +573,7 @@
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
           : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
-            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("No devices found") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
