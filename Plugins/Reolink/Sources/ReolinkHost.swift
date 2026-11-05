@@ -570,11 +570,55 @@ actor ReolinkHost {
     /// device differs.
     struct DeviceSettings: Sendable, Equatable {
         var floodlightMode: String?
+        /// Motion sensitivity, 1 (least) to 50 (most); the device's own scale is the other way round (D.4).
+        var motionSensitivity: Int?
+        /// AI detections' sensitivity, 0 to 100, for every type the camera detects.
+        var aiSensitivity: Int?
+
+        var isEmpty: Bool { floodlightMode == nil && motionSensitivity == nil && aiSensitivity == nil }
+    }
+
+    /// The device's motion sensitivity for a user's (D.4): `sensDef` is 51 − s.
+    static func sensDef(_ sensitivity: Int) -> Int { 51 - min(50, max(1, sensitivity)) }
+
+    /// The reads that tell the sensitivities now (one batch), and the writes where they differ.
+    private func sensitivityWrites(_ settings: DeviceSettings, channel: ReolinkChannel, name: String) async -> [ReolinkCommand] {
+        let ch = channel.channel
+        var reads: [ReolinkCommand] = []
+        if settings.motionSensitivity != nil, channel.motion { reads.append(.channel("GetMdAlarm", ch)) }
+        if settings.aiSensitivity != nil {
+            for type in channel.aiTypes.sorted() {
+                reads.append(ReolinkCommand(cmd: "GetAiAlarm", action: 0, param: ["channel": .number(Double(ch)), "ai_type": .string(type)]))
+            }
+        }
+        guard !reads.isEmpty, let replies = try? await http.execute(reads) else { return [] }
+        var writes: [ReolinkCommand] = []
+        for (command, reply) in zip(reads, replies) {
+            switch command.cmd {
+            case "GetMdAlarm":
+                guard let wanted = settings.motionSensitivity, reply.ok, let current = reply.value?["MdAlarm"]?["newSens"]?["sensDef"]?.saturatingIntValue else {
+                    log.warning("\(name): the camera has no motion sensitivity the plugin can set (GetMdAlarm without newSens).")
+                    continue
+                }
+                guard current != Self.sensDef(wanted) else { continue }
+                writes.append(ReolinkCommand(cmd: "SetMdAlarm", action: 0, param: ["MdAlarm": [
+                    "channel": .number(Double(ch)), "useNewSens": 1, "newSens": ["sensDef": .number(Double(Self.sensDef(wanted)))],
+                ]]))
+            default:
+                guard let wanted = settings.aiSensitivity.map({ min(100, max(0, $0)) }), let type = command.param?["ai_type"], reply.ok,
+                      let current = reply.value?["AiAlarm"]?["sensitivity"]?.saturatingIntValue else { continue }
+                guard current != wanted else { continue }
+                writes.append(ReolinkCommand(cmd: "SetAiAlarm", action: 0, param: ["AiAlarm": [
+                    "channel": .number(Double(ch)), "ai_type": type, "sensitivity": .number(Double(wanted)),
+                ]]))
+            }
+        }
+        return writes
     }
 
     func apply(_ settings: DeviceSettings, channel ch: Int, name: String) async {
-        guard let channel = channels[ch], !isPrivate else { return }
-        var writes: [ReolinkCommand] = []
+        guard !settings.isEmpty, let channel = channels[ch], !isPrivate else { return }
+        var writes = await sensitivityWrites(settings, channel: channel, name: name)
         if let mode = settings.floodlightMode, channel.floodlight {
             if let number = ReolinkFloodlight.modeNumber(mode), channel.floodlightModes.contains(mode) {
                 if channel.state.floodlightMode != number {
@@ -594,9 +638,8 @@ actor ReolinkHost {
             log.warning("\(name): could not write the settings: \(error)")
             return
         }
-        // Read back in one batch.
-        let reads = Set(writes.map { "Get" + $0.cmd.dropFirst(3) }).sorted().map { ReolinkCommand.channel($0, ch) }
-        guard let replies = try? await http.execute(reads), var state = channels[ch] else { return }
+        // The floodlight's mode read back; sensitivities are not shown in HomeKit.
+        guard writes.contains(where: { $0.cmd == "SetWhiteLed" }), let replies = try? await http.execute([.channel("GetWhiteLed", ch)]), var state = channels[ch] else { return }
         for reply in replies { apply(reply, to: &state) }
         channels[ch] = state
         publish(ch)

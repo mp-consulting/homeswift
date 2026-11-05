@@ -793,6 +793,26 @@ extension ReolinkPlugin {
         "x-kinds": [
           "camera"
         ]
+      },
+      "motionSensitivity": {
+        "title": "Motion sensitivity",
+        "type": "integer",
+        "description": "How readily the camera sees motion, from 1 (least) to 50 (most), set on the camera at start; empty leaves the camera's.",
+        "minimum": 1,
+        "maximum": 50,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "aiSensitivity": {
+        "title": "Detection sensitivity",
+        "type": "integer",
+        "description": "How readily the camera detects people, vehicles and pets, from 0 to 100, for every kind it detects, set on the camera at start; empty leaves the camera's.",
+        "minimum": 0,
+        "maximum": 100,
+        "x-kinds": [
+          "camera"
+        ]
       }
     }
   },
@@ -843,6 +863,7 @@ extension ReolinkPlugin {
       "Copy": "Copier",
       "Copy sends an H.264 stream as it is (light on the bridge); otherwise the video is encoded as HomeKit asks. H.265 is always encoded.": "Copier envoie un flux H.264 tel quel (léger pour le pont) ; sinon la vidéo est encodée comme HomeKit le demande. Le H.265 est toujours encodé.",
       "Detection": "Détection",
+      "Detection sensitivity": "Sensibilité des détections",
       "Detection sensors": "Détecteurs de reconnaissance",
       "Device": "Appareil",
       "Devices": "Appareils",
@@ -865,12 +886,15 @@ extension ReolinkPlugin {
       "How many HomeKit viewers may watch at once.": "Combien de spectateurs HomeKit peuvent regarder à la fois.",
       "How often motion is asked for while push events are not active.": "La fréquence d'interrogation des mouvements tant que les événements poussés ne sont pas actifs.",
       "How often the lights, battery and channel list are read. Empty: 60 seconds, 10 more per camera above six.": "La fréquence de lecture des lumières, de la batterie et des canaux. Vide : 60 secondes, 10 de plus par caméra au-delà de six.",
+      "How readily the camera detects people, vehicles and pets, from 0 to 100, for every kind it detects, set on the camera at start; empty leaves the camera's.": "La facilité avec laquelle la caméra détecte personnes, véhicules et animaux, de 0 à 100, pour chaque type qu'elle détecte, réglée sur la caméra au démarrage ; vide garde celle de la caméra.",
+      "How readily the camera sees motion, from 1 (least) to 50 (most), set on the camera at start; empty leaves the camera's.": "La facilité avec laquelle la caméra voit un mouvement, de 1 (le moins) à 50 (le plus), réglée sur la caméra au démarrage ; vide garde celle de la caméra.",
       "Infrared switch": "Interrupteur infrarouge",
       "Keeps the last seconds of video so recordings start before the motion (one stream always open).": "Garde les dernières secondes de vidéo pour que les enregistrements commencent avant le mouvement (un flux toujours ouvert).",
       "Loop": "Boucle",
       "Main stream": "Flux principal",
       "Moonlight": "Clair de lune",
       "Motion polling interval (seconds)": "Intervalle d'interrogation des mouvements (secondes)",
+      "Motion sensitivity": "Sensibilité au mouvement",
       "Motion sensor": "Détecteur de mouvement",
       "Motion, detections and rings pushed by the device; off polls them every few seconds instead.": "Mouvements, détections et sonneries poussés par l'appareil ; désactivé, ils sont interrogés toutes les quelques secondes.",
       "Name": "Nom",
@@ -956,6 +980,7 @@ extension ReolinkPlugin {
       "Copy": "Copiar",
       "Copy sends an H.264 stream as it is (light on the bridge); otherwise the video is encoded as HomeKit asks. H.265 is always encoded.": "Copiar envía un flujo H.264 tal cual (ligero para el puente); si no, el vídeo se codifica como pide HomeKit. El H.265 siempre se codifica.",
       "Detection": "Detección",
+      "Detection sensitivity": "Sensibilidad de las detecciones",
       "Detection sensors": "Sensores de detección",
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
@@ -978,12 +1003,15 @@ extension ReolinkPlugin {
       "How many HomeKit viewers may watch at once.": "Cuántos espectadores de HomeKit pueden mirar a la vez.",
       "How often motion is asked for while push events are not active.": "Cada cuánto se consulta el movimiento mientras los eventos enviados no están activos.",
       "How often the lights, battery and channel list are read. Empty: 60 seconds, 10 more per camera above six.": "Cada cuánto se leen las luces, la batería y los canales. Vacío: 60 segundos, 10 más por cámara a partir de seis.",
+      "How readily the camera detects people, vehicles and pets, from 0 to 100, for every kind it detects, set on the camera at start; empty leaves the camera's.": "Con qué facilidad la cámara detecta personas, vehículos y mascotas, de 0 a 100, para cada tipo que detecta, ajustada en la cámara al arrancar; vacío deja la de la cámara.",
+      "How readily the camera sees motion, from 1 (least) to 50 (most), set on the camera at start; empty leaves the camera's.": "Con qué facilidad la cámara ve movimiento, de 1 (menos) a 50 (más), ajustada en la cámara al arrancar; vacío deja la de la cámara.",
       "Infrared switch": "Interruptor de infrarrojos",
       "Keeps the last seconds of video so recordings start before the motion (one stream always open).": "Guarda los últimos segundos de vídeo para que las grabaciones empiecen antes del movimiento (un flujo siempre abierto).",
       "Loop": "Bucle",
       "Main stream": "Flujo principal",
       "Moonlight": "Luz de luna",
       "Motion polling interval (seconds)": "Intervalo de consulta de movimiento (segundos)",
+      "Motion sensitivity": "Sensibilidad al movimiento",
       "Motion sensor": "Sensor de movimiento",
       "Motion, detections and rings pushed by the device; off polls them every few seconds instead.": "Movimiento, detecciones y timbres enviados por el dispositivo; desactivado, se consultan cada pocos segundos.",
       "Name": "Nombre",
@@ -1069,6 +1097,7 @@ extension ReolinkPlugin {
       "Copy": "Copiar",
       "Copy sends an H.264 stream as it is (light on the bridge); otherwise the video is encoded as HomeKit asks. H.265 is always encoded.": "Copiar envia um fluxo H.264 tal como está (leve para a ponte); caso contrário o vídeo é codificado como o HomeKit pede. O H.265 é sempre codificado.",
       "Detection": "Deteção",
+      "Detection sensitivity": "Sensibilidade das deteções",
       "Detection sensors": "Sensores de deteção",
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
@@ -1091,12 +1120,15 @@ extension ReolinkPlugin {
       "How many HomeKit viewers may watch at once.": "Quantos espectadores do HomeKit podem ver ao mesmo tempo.",
       "How often motion is asked for while push events are not active.": "Com que frequência o movimento é consultado enquanto os eventos enviados não estão ativos.",
       "How often the lights, battery and channel list are read. Empty: 60 seconds, 10 more per camera above six.": "Com que frequência são lidas as luzes, a bateria e os canais. Vazio: 60 segundos, mais 10 por câmara acima de seis.",
+      "How readily the camera detects people, vehicles and pets, from 0 to 100, for every kind it detects, set on the camera at start; empty leaves the camera's.": "A facilidade com que a câmara deteta pessoas, veículos e animais, de 0 a 100, para cada tipo que deteta, definida na câmara ao arrancar; vazio mantém a da câmara.",
+      "How readily the camera sees motion, from 1 (least) to 50 (most), set on the camera at start; empty leaves the camera's.": "A facilidade com que a câmara vê movimento, de 1 (menos) a 50 (mais), definida na câmara ao arrancar; vazio mantém a da câmara.",
       "Infrared switch": "Interruptor de infravermelhos",
       "Keeps the last seconds of video so recordings start before the motion (one stream always open).": "Guarda os últimos segundos de vídeo para que as gravações comecem antes do movimento (um fluxo sempre aberto).",
       "Loop": "Ciclo",
       "Main stream": "Fluxo principal",
       "Moonlight": "Luar",
       "Motion polling interval (seconds)": "Intervalo de consulta de movimento (segundos)",
+      "Motion sensitivity": "Sensibilidade ao movimento",
       "Motion sensor": "Sensor de movimento",
       "Motion, detections and rings pushed by the device; off polls them every few seconds instead.": "Movimento, deteções e toques enviados pelo dispositivo; desativado, são consultados de poucos em poucos segundos.",
       "Name": "Nome",

@@ -518,4 +518,41 @@ import Testing
         let camera = try #require(await Self.camera(environment))
         #expect(camera.recordingService == nil)
     }
+
+    // MARK: Sensitivity
+
+    @Test func sensitivitiesAreWrittenInOneBatchWhereTheyDiffer() async throws {
+        #expect(ReolinkHost.sensDef(30) == 21)
+        var answers = cameraAnswers()
+        answers["GetMdAlarm"] = okAnswer("GetMdAlarm", ["MdAlarm": ["channel": 0, "useNewSens": 1, "newSens": ["sensDef": 10]]])
+        answers["GetAiAlarm"] = { param in
+            let type = param?["ai_type"]?.stringValue ?? ""
+            return ["cmd": "GetAiAlarm", "code": 0, "value": ["AiAlarm": ["channel": 0, "ai_type": .string(type), "sensitivity": type == "vehicle" ? 60 : 50]]]
+        }
+        for cmd in ["SetMdAlarm", "SetAiAlarm"] { answers[cmd] = okAnswer(cmd, ["rspCode": 200]) }
+        let environment = ReolinkEnvironment(answers, scale: 0.01)
+        let host = try await environment.start(Self.block(["motionSensitivity": 30, "aiSensitivity": 60]))
+        defer { Task { await host.stop() } }
+        _ = try #require(await Self.camera(environment))
+        #expect(await eventually { environment.http.count("SetMdAlarm") == 1 })
+        // The addendum's vector: sensitivity 30 is sensDef 21; vehicle is already at 60, people is not.
+        let writes = environment.http.state.withLockedValue { $0.requests.first { $0.cmd == "SetMdAlarm" }?.body }
+        #expect(writes == [
+            ["cmd": "SetMdAlarm", "action": 0, "param": ["MdAlarm": ["channel": 0, "useNewSens": 1, "newSens": ["sensDef": 21]]]],
+            ["cmd": "SetAiAlarm", "action": 0, "param": ["AiAlarm": ["channel": 0, "ai_type": "people", "sensitivity": 60]]],
+        ])
+        // The reads were one request too.
+        let reads = environment.http.state.withLockedValue { $0.requests.filter { $0.cmd == "GetMdAlarm" }.count }
+        #expect(reads == 1)
+    }
+
+    @Test func noSensitivityNoRead() async throws {
+        let environment = ReolinkEnvironment(scale: 0.01)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        _ = try #require(await Self.camera(environment))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(environment.http.count("GetMdAlarm") == 0)
+        #expect(environment.http.count("GetAiAlarm") == 0)
+    }
 }
