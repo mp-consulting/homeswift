@@ -168,6 +168,7 @@ import Testing
         for secret in ["c00kie", "s3ss10n", "5ig", "abcdefghijklmnop"] { #expect(!headers.contains(secret), "\(secret)") }
         #expect(Redaction.isSecretKey("Authorization") && Redaction.isSecretKey("sessionId") && Redaction.isSecretKey("sid"))
         #expect(!Redaction.isSecretKey("session") && !Redaction.isSecretKey("sensor"))
+        #expect(!Redaction.isSecretKey("token_type") && !Redaction.isSecretKey("tokenType") && Redaction.isSecretKey("access_token"))
         #expect(Redaction.isSecretKey("encryptionKey") && Redaction.isSecretKey("encryption_key"))
         #expect(Redaction.isSecretKey("safetyCode") && Redaction.isSecretKey("safety_code"))
         #expect(!Redaction.redactText("encryptionKey: QRTIErOb/fcE9Ukd").contains("QRTIErOb"))
