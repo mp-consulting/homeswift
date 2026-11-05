@@ -570,9 +570,12 @@ actor Gen2Device {
 
     /// How far back a first import from the cloud looks; it stops sooner after `cloudEmptyDays` days in a row with nothing.
     static let cloudDays = 3660, cloudEmptyDays = 45
+    /// The days asked of the cloud at a time, when it answers them by hour.
+    static let cloudSpan = 7
 
     /// Imports the relays' and the energy meters' history from Shelly Cloud (`ShellyCloud`: unofficial), once (an energy
-    /// meter's from the day before its own records begin): a day a request, the newest first,
+    /// meter's from the day before its own records begin): a week a request (a day when the cloud sums a week by day), the
+    /// newest first,
     /// one a second (the cloud's limit, `delay`), back to the day the last import reached (`shelly-cloud-history.json`) or,
     /// the first time, until the cloud has nothing for `cloudEmptyDays` days in a row. A refused key is said on the
     /// Plugins page (`accountRefused`). Hours the bridge measured keep their own figures.
@@ -593,33 +596,49 @@ actor Gen2Device {
             let start = min(now, first ?? now)
             let stop = reached[key].map { Date(timeIntervalSince1970: TimeInterval($0) - day) } ?? start.addingTimeInterval(-Double(Self.cloudDays) * day)
             guard stop < start else { continue }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .current
             let total = max(1, Int(start.timeIntervalSince(stop) / day) + 1)
-            var empty = 0, newest: Date?
-            var date = start
-            for index in 0..<total {
+            // A week a request, the newest first; a day at a time when the cloud sums a week by day.
+            var span = Self.cloudSpan, done = 0, empty = 0, newest: Date?
+            var last = calendar.startOfDay(for: start)
+            while last >= calendar.startOfDay(for: stop) {
                 guard !Task.isCancelled else { return }
-                if index > 0 { try? await Task.sleep(for: delay) }
-                context.reportEnergyImport(EnergyImportProgress(state: .running, done: index, total: total))
-                switch await cloud.consumption(id: id, channel: job.channel, day: date, timeZone: .current, endpoint: job.endpoint) {
+                if done > 0 { try? await Task.sleep(for: delay) }
+                let first = max(calendar.startOfDay(for: stop), calendar.date(byAdding: .day, value: -(span - 1), to: last) ?? last)
+                let days = (calendar.dateComponents([.day], from: first, to: last).day ?? 0) + 1
+                context.reportEnergyImport(EnergyImportProgress(state: .running, done: done, total: total))
+                switch await cloud.consumption(id: id, channel: job.channel, day: first, days: days, timeZone: .current, endpoint: job.endpoint) {
                 case .refused:
                     context.accountRefused("Shelly Cloud refused the email and password: sign in again")
                     context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the email and password"))
                     return
+                case .notHourly:
+                    span = 1
+                    continue
                 case .nothing:
-                    empty += 1
+                    empty += days
                 case .hours(let hours):
-                    // A day of zeros alone is taken as nothing: the cloud answers so for a day it has no record of (and
-                    // has once for days it had), and its zeros would stand over an import of the day's real figures.
-                    let known = hours.contains { ($0.consumption ?? 0) > 0 || ($0.returned ?? 0) > 0 }
-                    empty = known ? 0 : empty + 1
-                    if known {
-                        job.meter.importHours(hours)
-                        newest = newest ?? date
+                    // By day, newest first: a day of zeros alone is taken as nothing (the cloud answers so for a day it
+                    // has no record of, and once for days it had), and its zeros would stand over the day's real figures.
+                    let byDay = Dictionary(grouping: hours) { calendar.startOfDay(for: $0.start) }
+                    for offset in 0..<days {
+                        guard let date = calendar.date(byAdding: .day, value: -offset, to: last) else { continue }
+                        let hours = byDay[date] ?? []
+                        if hours.contains(where: { ($0.consumption ?? 0) > 0 || ($0.returned ?? 0) > 0 }) {
+                            job.meter.importHours(hours)
+                            newest = newest ?? date
+                            empty = 0
+                        } else {
+                            empty += 1
+                        }
                     }
                 }
+                done += days
                 // A first import ends where the cloud's history does.
                 if reached[key] == nil, empty >= Self.cloudEmptyDays { break }
-                date = date.addingTimeInterval(-day)
+                guard let next = calendar.date(byAdding: .day, value: -1, to: first) else { break }
+                last = next
             }
             reached[key] = Int((newest ?? now).timeIntervalSince1970)
             try? file.save(reached)

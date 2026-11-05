@@ -78,4 +78,22 @@ struct ShellyCloudTests {
         #expect(hours.map(\.consumption) == [600, 10])
         #expect(hours.first?.returned == 3)
     }
+
+    /// A week asked at once is taken when it comes by hour, and refused (to be asked a day at a time) when by day.
+    @Test func aWeekIsTakenOnlyByTheHour() async throws {
+        let http = FakeHTTP()
+        http.answer("/v2/users/auth/login", #"{"accessToken":"\#(token())"}"#)
+        http.answer("/v2/statistics/power-consumption", #"{"interval":"day","history":[{"datetime":"2026-11-01 00:00:00","consumption":120}]}"#)
+        let cloud = ShellyCloud(credentials: credentials, http: http, logger: Logger(label: "test"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = paris
+        let first = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 30)))
+        #expect(await cloud.consumption(id: "x", channel: 0, day: first, days: 7, timeZone: paris) == .notHourly)
+        let query = http.requests.last?.url.query ?? ""
+        #expect(query.contains("date_from=2026-10-30+00%3A00%3A00") && query.contains("date_to=2026-11-05+23%3A59%3A59"))
+
+        http.answer("/v2/statistics/power-consumption", #"{"interval":"hour","history":[{"datetime":"2026-10-30 01:00:00","consumption":1},{"datetime":"2026-11-05 23:00:00","consumption":2}]}"#)
+        guard case .hours(let hours) = await cloud.consumption(id: "x", channel: 0, day: first, days: 7, timeZone: paris) else { Issue.record("no hours"); return }
+        #expect(hours.count == 2)
+    }
 }

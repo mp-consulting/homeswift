@@ -47,6 +47,8 @@ actor ShellyCloud {
         case refused
         /// Nothing usable: another shape, an error, or no such device.
         case nothing
+        /// The span came back in steps longer than an hour (days): it must be asked a day at a time.
+        case notHourly
     }
 
     /// How signing in went.
@@ -121,13 +123,14 @@ actor ShellyCloud {
 
     /// One day's hours of a device's channel (`id` its MAC in lowercase, as the cloud names it), midnight to midnight in
     /// `timeZone`. A refused token signs in again once.
-    func consumption(id: String, channel: Int, day: Date, timeZone: TimeZone, endpoint: String = "") async -> Answer {
+    func consumption(id: String, channel: Int, day: Date, days: Int = 1, timeZone: TimeZone, endpoint: String = "") async -> Answer {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let start = calendar.startOfDay(for: day)
         let format = Self.formatter(timeZone)
         let query = URLEncoding.form([("id", id), ("channel", String(channel)), ("date_range", "custom"),
-                                      ("date_from", format.string(from: start)), ("date_to", format.string(from: start.addingTimeInterval(86_399)))])
+                                      ("date_from", format.string(from: start)),
+                                      ("date_to", format.string(from: (calendar.date(byAdding: .day, value: max(1, days), to: start) ?? start.addingTimeInterval(86_400)).addingTimeInterval(-1)))])
         for attempt in 0..<2 {
             let session: (token: String, server: URL)
             switch await currentSession() {
@@ -152,7 +155,14 @@ actor ShellyCloud {
                 return .nothing
             }
             let answer = Self.answer(json, timeZone: timeZone, logger: logger)
-            if case .hours(let hours) = answer, !hours.isEmpty { return answer }
+            if case .hours(let hours) = answer, !hours.isEmpty {
+                // Several days asked: hourly figures only, else a day at a time (the cloud may sum a long span by day).
+                let body = json["history"] != nil ? json : (json["data"] ?? .null)
+                let interval = (body["interval"] ?? body["history_interval"])?.stringValue
+                Self.tell(logger, "Shelly Cloud gives \(days) day\(days == 1 ? "" : "s") of history by \(interval ?? "an unnamed step") (\(hours.count) entries)")
+                if days > 1, interval.map({ $0 != "hour" }) ?? (hours.count <= days) { return .notHourly }
+                return answer
+            }
             // The shape of an answer with nothing in it, to see what the unofficial endpoint gives: names, never values.
             let history = (json["history"] ?? json["data"]?["history"])?.arrayValue
             Self.describe(logger, "answered isok \(json["isok"].map { "\($0)" } ?? "missing"), keys \(json.objectValue?.keys.sorted() ?? []), "
@@ -161,6 +171,15 @@ actor ShellyCloud {
             return answer
         }
         return .nothing
+    }
+
+    /// Whether the step of the history's answers was said in the log, this run: once.
+    private static let told = NIOLockedValueBox(false)
+
+    /// Says something about the answers once a run.
+    static func tell(_ logger: Logger, _ text: String) {
+        guard told.withLockedValue({ told in defer { told = true }; return !told }) else { return }
+        logger.info("\(text)")
     }
 
     /// How many answers with nothing in them were described in the log, this run: the first few, not a year's.
