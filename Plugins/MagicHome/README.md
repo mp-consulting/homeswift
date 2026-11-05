@@ -35,8 +35,8 @@ the original LEDENET protocol (`01` to `03`), are left out with a line in the lo
 
 - **Colours** are written as the Homebridge plugin wrote them on the models it knew (section 5.2 of the spec: the value
   of the colour fixed, scaled by the brightness, HomeKit's two white swatches and the `whiteEffects` thresholds that
-  light the white LEDs), and by the newer firmware's rules on the others. Hue, Saturation and Brightness of one change
-  go out as one frame; a slider's drag sends its last value only.
+  light the white LEDs), and by the newer firmware's rules on the others. On, Hue, Saturation and Brightness of one
+  change go out as one command; a slider's drag sends its last value only.
 - **Turning on**: a level change on a light that is off sends power off, as the Homebridge plugin did; Adaptive
   Lighting's white for a light that is off waits until it is on. Some firmware needs `71 23 0F` before levels; it is
   sent first there (the Homebridge plugin's rule on the version byte for its models, the family's for the others).

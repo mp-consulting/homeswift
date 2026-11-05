@@ -59,7 +59,7 @@ extension V2CTrydanPlugin {
 
     static let addPrompt = SetupPrompt(
         message: "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.",
-        fields: [SetupField("host", label: "Address")])
+        fields: [SetupField("host", label: "IP address or host name")])
 
     /// A charger the plugin cannot find is added by its address (Add by address).
     public static let addsDevicesByAddress = true
