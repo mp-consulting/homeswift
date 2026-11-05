@@ -106,7 +106,8 @@ struct TahomaPluginTests {
             ["name": "ExecutionStateChangedEvent", "execId": .string(execID), "newState": "COMPLETED", "timeToNextState": -1],
         ])
         #expect(await eventually { covering.characteristic(.positionState).value == .int(HAP.stopped) })
-        #expect(covering.characteristic(.currentPosition).value == 60)
+        // The batch's position may land a moment after its stop on a loaded runner.
+        #expect(await eventually { covering.characteristic(.currentPosition).value == 60 })
         #expect(covering.characteristic(.targetPosition).value == 60)
         #expect(covering.characteristic(.obstructionDetected).value == false)
         #expect(await environment.plugin?.executions.inFlight == 0)

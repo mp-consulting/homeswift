@@ -169,14 +169,16 @@ struct HTTPWebhooksTests {
 
     @Test func aNewTriggerRestartsTheAutoRelease() async throws {
         var settings = exampleBlock
-        settings["sensors"] = [["id": "motion1", "name": "Hall Motion", "type": "motion", "autoRelease": true, "autoReleaseTime": 20_000]]
+        // A release 2 s after a trigger (at the tests' hundredth): room enough for a loaded runner between the steps.
+        settings["sensors"] = [["id": "motion1", "name": "Hall Motion", "type": "motion", "autoRelease": true, "autoReleaseTime": 200_000]]
         let host = try await environment.start(settings: settings)
         let motion = try #require(try host.accessory(named: "Hall Motion").service(.motionSensor)?[.motionDetected])
+        let first = ContinuousClock.now
         _ = try await environment.call("/?accessoryId=motion1&state=true")
-        try await Task.sleep(for: .milliseconds(120))
+        try await Task.sleep(until: first + .milliseconds(1200))
         _ = try await environment.call("/?accessoryId=motion1&state=true")
-        // 200 ms after the first trigger, the second one's release is still to come.
-        try await Task.sleep(for: .milliseconds(100))
+        // Past the first trigger's release (2 s), before the second one's (3.2 s): still detected.
+        try await Task.sleep(until: first + .milliseconds(2600))
         #expect(motion.value == .bool(true))
         #expect(await eventually { motion.value == .bool(false) })
         await host.stop()
