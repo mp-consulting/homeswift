@@ -246,7 +246,10 @@ final class TestEnvironment: Sendable {
         timing.settle = .milliseconds(250)
         timing.identifyStep = .milliseconds(5)
         timing.identifyTicks = 4
-        timing.scanWindow = .milliseconds(60)
+        // A scan long enough for a loaded runner to answer in, and a device missed by one tried again soon: with the real
+        // five minutes, one late reply would leave it out for the rest of the test.
+        timing.scanWindow = .milliseconds(300)
+        timing.retryRejected = .milliseconds(400)
         timing.periodicDiscovery = .milliseconds(150)
         timing.addAttempts = 2
         return timing

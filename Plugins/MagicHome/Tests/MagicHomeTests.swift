@@ -315,7 +315,9 @@ struct MagicHomeTests {
         strange.state.model = 0x99
         environment.lan.put(strange, at: Self.stripHost)
         environment.lan.put(Fixtures.socket, at: Self.socketHost)
-        let host = try await environment.start()
+        var timing = TestEnvironment.timing
+        timing.retryRejected = .seconds(300)
+        let host = try await environment.start(timing: timing)
         #expect(await eventually { host.accessory(Fixtures.socketMAC) != nil })
         #expect(host.accessory(Fixtures.stripMAC) == nil)
         // The periodic scans hear it again, and do not ask it again (`retryRejected`).
