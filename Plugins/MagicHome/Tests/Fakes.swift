@@ -234,7 +234,9 @@ final class TestEnvironment: Sendable {
 
     static var timing: MagicHomeTiming {
         var timing = MagicHomeTiming()
-        timing.connection = MagicHomeConnection.Timing(connect: .milliseconds(200), reply: .milliseconds(100), idle: .milliseconds(150))
+        // The fakes answer at once or refuse at once: these only bound a wait that no test sits out, so they are the real
+        // ones, which a process running thousands of tests on a few cores can take a reply's several hops close to.
+        timing.connection = MagicHomeConnection.Timing(connect: .seconds(2), reply: .seconds(2), idle: .milliseconds(150))
         timing.poll = .milliseconds(200)
         timing.pushPoll = .milliseconds(400)
         timing.retry = Backoff(initial: .milliseconds(20), maximum: .milliseconds(80))

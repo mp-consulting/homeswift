@@ -183,7 +183,10 @@ struct MagicHomeTests {
         let controller = try #require(await environment.plugin?.adaptiveLighting[Fixtures.bulbMAC])
         // Turned on, it writes its white through the characteristic's handler, as HomeKit would.
         try controller.activateForTesting(mireds: 300)
-        #expect(await eventually { environment.lan.commands(to: Self.bulbHost).count >= 2 })
+        // The frames go out before the write returns, and the characteristic takes the white once it has.
+        #expect(await eventually {
+            environment.lan.commands(to: Self.bulbHost).count >= 2 && light[.colorTemperature]?.value.intValue.map { abs($0 - 300) <= 2 } == true
+        })
         let shown = try #require(light[.colorTemperature]?.value.intValue)
         #expect(abs(shown - 300) <= 2)
         // Version 8 needs the power first.
@@ -238,16 +241,20 @@ struct MagicHomeTests {
     /// A family that wraps its requests and pushes its changes on a connection it keeps open.
     @Test func aWrappedDeviceKeepsItsConnectionAndPushes() async throws {
         environment.lan.put(Fixtures.table, at: Self.tableHost)
-        let host = try await environment.start()
+        // No poll of its own while the test waits for the push: what arrives is the push.
+        var timing = TestEnvironment.timing
+        timing.pushPoll = .seconds(60)
+        let host = try await environment.start(timing: timing)
         #expect(await eventually { host.accessory(Fixtures.tableMAC) != nil })
         let light = try #require(host.accessory(Fixtures.tableMAC)?.service(.lightbulb))
         #expect(light[.colorTemperature]?.value == .int(217) && light[.brightness]?.value == .int(100))
         try await write(light[.on], .bool(false))
         try await write(light[.on], .bool(true))
-        let sent = environment.lan.frames.filter { $0.host == Self.tableHost && $0.wrapCounter != nil && $0.inner != MagicHomeFrame.stateQuery }
-        // Wrapped, and counted from 0 on the connection.
-        #expect(sent.map(\.inner).map(hex) == ["71 24 0F A4", "71 23 0F A3"])
-        #expect(sent.map(\.wrapCounter) == [0, 1])
+        // Wrapped, and counted from 0 on the connection: every frame on it, a query a slow machine lets in between the
+        // writes included.
+        let wrapped = environment.lan.frames.filter { $0.host == Self.tableHost && $0.wrapCounter != nil }
+        #expect(wrapped.map(\.wrapCounter) == wrapped.indices.map { UInt8($0) })
+        #expect(wrapped.filter { $0.inner != MagicHomeFrame.stateQuery }.map(\.inner).map(hex) == ["71 24 0F A4", "71 23 0F A3"])
         // One connection: the query that found it had its own.
         #expect(environment.lan.connections(to: Self.tableHost) == 2)
         // After the read that follows the writes, a change in the app arrives on that connection before any poll.
@@ -255,7 +262,7 @@ struct MagicHomeTests {
         let queries = environment.lan.queries(to: Self.tableHost)
         environment.lan.update(at: Self.tableHost) { $0.warm = 0 }
         environment.lan.push(from: Self.tableHost)
-        #expect(await eventually(timeout: .milliseconds(300)) { light[.colorTemperature]?.value == .int(370) })
+        #expect(await eventually { light[.colorTemperature]?.value == .int(370) })
         #expect(environment.lan.queries(to: Self.tableHost) == queries)
         await host.stop()
     }

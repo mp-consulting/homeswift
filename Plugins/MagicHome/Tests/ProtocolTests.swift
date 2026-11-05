@@ -143,6 +143,16 @@ struct ProtocolTests {
         #expect(MagicHomeDiscovery.targets(networks: networks, extra: ["192.168.2.255", "192.168.1.255", "10.0.0.7", "not an address"]) == ["192.168.1.255", "192.168.2.255", "10.0.0.7"])
     }
 
+    /// The replies a scan received count even when its reader had not read them by the window's end.
+    @Test func aScanKeepsTheRepliesItHasNotReadYet() async {
+        let lan = FakeLAN()
+        lan.put(Fixtures.strip, at: "192.168.1.50")
+        lan.put(Fixtures.cct, at: "192.168.1.53")
+        let found = await MagicHomeDiscovery.scan(on: lan.socket(), targets: ["192.168.1.255"], window: .zero, ownAddresses: [FakeLAN.ownAddress])
+        #expect(found.map(\.announcement.mac) == [Fixtures.stripMAC, Fixtures.cctMAC])
+        #expect(found.last?.version?.model == 0x09)
+    }
+
     /// The accessory's id carries the MAC as discovered, the Homebridge plugin's UUID seed.
     @Test func accessoryID() {
         #expect(MagicHomeAccessory.accessoryID("ACCF23A1B2C3") == "homebridge-magichome-dynamic-platform:ACCF23A1B2C3")
