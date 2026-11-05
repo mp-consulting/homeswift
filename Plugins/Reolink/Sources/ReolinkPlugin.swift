@@ -27,6 +27,17 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         /// How long discovery looks on the network (the ARP table, then each candidate's Baichuan port).
         var networkSearchTime: Duration = .seconds(3)
         var now: @Sendable () -> Date = { Date() }
+        /// The bridge's address on a camera's network, for its webhook.
+        var localAddress: @Sendable (_ toward: String) -> String? = { ReolinkWebhookServer.localAddress(toward: $0) }
+        /// Where the battery cameras' webhook listens.
+        var webhookBindHost = "0.0.0.0"
+    }
+
+    /// A standalone battery camera and its accessory.
+    struct BatteryRuntime {
+        let device: Device
+        let host: ReolinkBatteryHost
+        let camera: ReolinkCamera
     }
 
     /// A host and its cameras, once connected.
@@ -61,6 +72,12 @@ public actor ReolinkPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     private let tasks = TaskBag()
     private(set) var runtimes: [String: HostRuntime] = [:]
+    /// The battery cameras by address (ReolinkBattery.md).
+    var batteryRuntimes: [String: BatteryRuntime] = [:]
+    /// What each battery camera said of itself, by UID: its accessory is published while it sleeps.
+    let batteryRecords: PersistedDictionary<ReolinkBatteryHost.Record>
+    /// The battery cameras' webhook listener, started with the first of them.
+    var webhookServer: Task<ReolinkWebhookServer?, Never>?
     private var ffmpegOptions: FfmpegOptions?
     var logger: Logger { context.logger }
 
@@ -73,6 +90,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         certificates = context.persistedDictionary("certificates.json", of: String.self, autosave: nil)
+        batteryRecords = context.persistedDictionary("battery-cameras.json", of: ReolinkBatteryHost.Record.self, autosave: nil)
     }
 
     // MARK: Ids (6.1)
@@ -131,6 +149,10 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         let known = hostsFile.load() ?? [:]
         for entry in entries {
             if let hostID = known[entry.host.lowercased()], context.isExcluded(hostID) { continue }
+            if entry.batteryCamera {
+                tasks.add { [weak self] in await self?.startBattery(entry) }
+                continue
+            }
             if entry.streamProtocol != "rtsp" {
                 logger.warning("[\(entry.host)] streamProtocol \(entry.streamProtocol) puts the password in the stream URL's query, readable on the network (rtmp) or over HTTPS that FFmpeg does not check (flv): prefer rtsp.")
             }
@@ -149,6 +171,11 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             for camera in runtime.cameras.values { await camera.stop() }
             await runtime.host.stop()
         }
+        for runtime in batteryRuntimes.values {
+            await runtime.camera.stop()
+            await runtime.host.stop()
+        }
+        await webhookServer?.value?.stop()
     }
 
     /// `trustingAgain` (Setup) forgets the host's pinned certificate: the next one is pinned in its place.
@@ -291,7 +318,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         }
     }
 
-    private func ffmpeg() -> FfmpegOptions {
+    func ffmpeg() -> FfmpegOptions {
         if let ffmpegOptions { return ffmpegOptions }
         let codecs = FfmpegCodecs(ffmpegExec: configuration.videoProcessor, log: logger)
         let options = FfmpegOptions(FfmpegOptionsConfig(codecSupport: codecs, hardwareDecoding: false, hardwareTranscoding: false, log: logger, name: { "Reolink" }))

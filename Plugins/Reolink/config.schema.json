@@ -18,6 +18,13 @@
         "description": "The FFmpeg that streams and records the cameras: a path, or a name in PATH.",
         "placeholder": "ffmpeg"
       },
+      "webhookPort": {
+        "title": "Battery cameras' event port",
+        "type": "integer",
+        "description": "The port battery cameras post their events to. Empty: one chosen once and kept.",
+        "minimum": 1,
+        "maximum": 65535
+      },
       "devices": {
         "title": "Devices",
         "type": "array",
@@ -115,6 +122,16 @@
               "description": "How often motion is asked for while push events are not active.",
               "placeholder": 5,
               "minimum": 1
+            },
+            "batteryCamera": {
+              "title": "Battery camera on its own",
+              "type": "boolean",
+              "description": "A battery camera without a Home Hub or NVR, reached over Baichuan only when HomeKit asks (Experimental). Setup sets it."
+            },
+            "takeOverEventPush": {
+              "title": "Take over event push",
+              "type": "boolean",
+              "description": "A battery camera sends its events to one receiver only: replace another one's (Home Assistant's, say) with the bridge's."
             },
             "cameras": {
               "title": "Cameras",
@@ -290,6 +307,14 @@
                     "description": "Presses within this many seconds of a ring are ignored.",
                     "placeholder": 3,
                     "minimum": 0
+                  },
+                  "motionTimeout": {
+                    "title": "Motion duration (seconds)",
+                    "type": "integer",
+                    "description": "How long a battery camera's motion stays on: it never says that motion stopped.",
+                    "placeholder": 30,
+                    "minimum": 5,
+                    "maximum": 3600
                   }
                 }
               }
@@ -417,6 +442,22 @@
         "x-kinds": [
           "camera",
           "nvr"
+        ]
+      },
+      "batteryCamera": {
+        "title": "Battery camera on its own",
+        "type": "boolean",
+        "description": "A battery camera without a Home Hub or NVR, reached over Baichuan only when HomeKit asks (Experimental). Setup sets it.",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "takeOverEventPush": {
+        "title": "Take over event push",
+        "type": "boolean",
+        "description": "A battery camera sends its events to one receiver only: replace another one's (Home Assistant's, say) with the bridge's.",
+        "x-kinds": [
+          "camera"
         ]
       },
       "motionSensor": {
@@ -626,6 +667,17 @@
           "camera"
         ]
       },
+      "motionTimeout": {
+        "title": "Motion duration (seconds)",
+        "type": "integer",
+        "description": "How long a battery camera's motion stays on: it never says that motion stopped.",
+        "placeholder": 30,
+        "minimum": 5,
+        "maximum": 3600,
+        "x-kinds": [
+          "camera"
+        ]
+      },
       "presetSwitches": {
         "title": "Preset switches",
         "type": "boolean",
@@ -819,6 +871,7 @@
       "expanded": false,
       "items": [
         "videoProcessor",
+        "webhookPort",
         "devices"
       ]
     },
@@ -833,7 +886,8 @@
         "motionSensitivity",
         "aiSensitivity",
         "doorbell",
-        "ringThrottleSeconds"
+        "ringThrottleSeconds",
+        "motionTimeout"
       ]
     },
     {
@@ -884,7 +938,9 @@
         "streamProtocol",
         "pushEvents",
         "pollInterval",
-        "motionPollInterval"
+        "motionPollInterval",
+        "batteryCamera",
+        "takeOverEventPush"
       ]
     }
   ],
@@ -1008,7 +1064,15 @@
       "Sensors": "Capteurs",
       "Lights and switches": "Lumières et interrupteurs",
       "Video": "Vidéo",
-      "Connection": "Connexion"
+      "Connection": "Connexion",
+      "Battery camera on its own": "Caméra sur batterie autonome",
+      "A battery camera without a Home Hub or NVR, reached over Baichuan only when HomeKit asks (Experimental). Setup sets it.": "Une caméra sur batterie sans Home Hub ni NVR, jointe par Baichuan seulement quand HomeKit le demande (expérimental). La configuration le règle.",
+      "Take over event push": "Reprendre l'envoi des événements",
+      "A battery camera sends its events to one receiver only: replace another one's (Home Assistant's, say) with the bridge's.": "Une caméra sur batterie n'envoie ses événements qu'à un seul destinataire : remplacer celui d'un autre (Home Assistant, par exemple) par le pont.",
+      "Motion duration (seconds)": "Durée du mouvement (secondes)",
+      "How long a battery camera's motion stays on: it never says that motion stopped.": "Combien de temps le mouvement d'une caméra sur batterie reste actif : elle ne dit jamais qu'il a cessé.",
+      "Battery cameras' event port": "Port des événements des caméras sur batterie",
+      "The port battery cameras post their events to. Empty: one chosen once and kept.": "Le port où les caméras sur batterie envoient leurs événements. Vide : un port choisi une fois et conservé."
     },
     "es": {
       "A channel number, from 0.": "Un número de canal, desde 0.",
@@ -1129,7 +1193,15 @@
       "Sensors": "Sensores",
       "Lights and switches": "Luces e interruptores",
       "Video": "Vídeo",
-      "Connection": "Conexión"
+      "Connection": "Conexión",
+      "Battery camera on its own": "Cámara de batería independiente",
+      "A battery camera without a Home Hub or NVR, reached over Baichuan only when HomeKit asks (Experimental). Setup sets it.": "Una cámara de batería sin Home Hub ni NVR, a la que se llega por Baichuan solo cuando HomeKit lo pide (experimental). La configuración lo ajusta.",
+      "Take over event push": "Tomar el envío de eventos",
+      "A battery camera sends its events to one receiver only: replace another one's (Home Assistant's, say) with the bridge's.": "Una cámara de batería envía sus eventos a un solo destinatario: sustituir el de otro (Home Assistant, por ejemplo) por el puente.",
+      "Motion duration (seconds)": "Duración del movimiento (segundos)",
+      "How long a battery camera's motion stays on: it never says that motion stopped.": "Cuánto tiempo sigue activo el movimiento de una cámara de batería: nunca dice que ha terminado.",
+      "Battery cameras' event port": "Puerto de eventos de las cámaras de batería",
+      "The port battery cameras post their events to. Empty: one chosen once and kept.": "El puerto al que las cámaras de batería envían sus eventos. Vacío: uno elegido una vez y conservado."
     },
     "pt": {
       "A channel number, from 0.": "Um número de canal, a partir de 0.",
@@ -1250,7 +1322,15 @@
       "Sensors": "Sensores",
       "Lights and switches": "Luzes e interruptores",
       "Video": "Vídeo",
-      "Connection": "Ligação"
+      "Connection": "Ligação",
+      "Battery camera on its own": "Câmara de bateria autónoma",
+      "A battery camera without a Home Hub or NVR, reached over Baichuan only when HomeKit asks (Experimental). Setup sets it.": "Uma câmara de bateria sem Home Hub nem NVR, contactada por Baichuan só quando o HomeKit pede (experimental). A configuração define-o.",
+      "Take over event push": "Assumir o envio de eventos",
+      "A battery camera sends its events to one receiver only: replace another one's (Home Assistant's, say) with the bridge's.": "Uma câmara de bateria envia os eventos a um só destinatário: substituir o de outro (o Home Assistant, por exemplo) pela ponte.",
+      "Motion duration (seconds)": "Duração do movimento (segundos)",
+      "How long a battery camera's motion stays on: it never says that motion stopped.": "Quanto tempo o movimento de uma câmara de bateria fica ativo: nunca diz que terminou.",
+      "Battery cameras' event port": "Porta de eventos das câmaras de bateria",
+      "The port battery cameras post their events to. Empty: one chosen once and kept.": "A porta para onde as câmaras de bateria enviam os eventos. Vazio: uma escolhida uma vez e mantida."
     }
   }
 }

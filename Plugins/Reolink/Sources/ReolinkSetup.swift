@@ -22,6 +22,12 @@ extension ReolinkPlugin {
         for entry in hostEntries() {
             let address = entry.host.lowercased()
             addresses.insert(address)
+            if let battery = batteryRuntimes[entry.host] {
+                let identity = await battery.host.record.identity
+                found.append(DiscoveredDevice(deviceID: identity.uid, name: battery.camera.accessory.name, model: identity.model.nonEmptyText ?? "Reolink",
+                                              address: entry.host, authorization: .accountLogin, isSetUp: true, excludedBySettings: false, kind: Self.cameraKind))
+                continue
+            }
             if let runtime = runtimes[entry.host], let info = runtime.info, let hostID = runtime.hostID {
                 found += devices(of: info, hostID: hostID, address: entry.host, channels: await runtime.host.channels)
                 continue
@@ -125,6 +131,8 @@ extension ReolinkPlugin {
             throw SetupError("The device refused the user name or password (\(detail))")
         } catch {
             await host.stop()
+            // No HTTP API: a standalone battery camera answers over Baichuan only (ReolinkBattery.md 2.1).
+            if let outcome = try await authorizeBattery(address: address, username: username, password: password) { return .done(outcome) }
             logger.info("No Reolink device answered at \(address): \(error)")
             throw SetupError("No Reolink device answered at \(address)")
         }

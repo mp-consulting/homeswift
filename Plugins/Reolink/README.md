@@ -26,7 +26,7 @@ Each published channel is an external camera accessory (category IP Camera, or V
 | Lightbulb (`floodlight`) | the camera has a floodlight or spotlight | On, Brightness 1 to 100; Color Temperature (3000 to 6000 K) and Adaptive Lighting where Baichuan's `ledCtrl` has the colour bit |
 | Switch (`siren`) | `siren: true` and the camera has one | A manual siren; the switch turns itself off after a minute. A security control: MCP clients confirm before they change it |
 | Switch (`ir`, "Infrared") | `irLights: true` and the camera has IR lights | On is `Auto`, off is `Off` |
-| Battery (`battery`) | a battery camera behind a hub or NVR | Level, Charging, Low below 20 % |
+| Battery (`battery`) | a battery camera behind a hub or NVR, or on its own | Level, Charging, Low below 20 % (or when the camera says so) |
 | Switch (`privacy`, "Privacy") | the camera has privacy mode (`privacySwitch`, on by default) | Privacy mode on or off; kept in step with HomeKit's Camera Active (with `recording`): privacy on is Camera Active off, and the other way round |
 | Switch (`recording`, "Recording") | `recordingSwitch: true` and `GetRec`/`GetRecV20` answered | The device's own recording to its SD card or the NVR's disk (not HomeKit Secure Video) |
 | Switches (`preset<id>`, "Go to <preset>") | `presetSwitches: true` and a PTZ camera with presets | Momentary: on turns the camera to the preset, then the switch turns itself off |
@@ -54,6 +54,43 @@ device's `Snap` command (the sub stream for small sizes), cached 10 seconds, wit
 **HomeKit Secure Video.** With `recording`, a motion event records the main stream transcoded to what HomeKit chose
 (`RTSPRecordingSource` in HomeswiftFFmpeg). With `prebuffer` one stream stays open and keeps the last four seconds, so
 recordings start before the motion; without it a recording starts when the event is seen.
+
+## Battery cameras on their own (Experimental)
+
+Argus, Altas, battery doorbells and other Reolink battery cameras on their own Wi-Fi, not behind a Home Hub or NVR, have
+no HTTP API: everything goes over Baichuan ([spec](../../docs/clean-room/ReolinkBattery.md)). Add one on **Add
+accessories** by its address and a local user, as any device: when the HTTP API does not answer, Setup logs in over
+Baichuan (TCP 9000) and reads the abilities (`cmd_id` 199, `battery` on channel 0); a battery camera is kept with
+`batteryCamera: true` in its settings. A block written by hand says `"batteryCamera": true` in its `devices` entry.
+
+- **What HomeKit gets:** a camera accessory (Video Doorbell for a model whose name says Doorbell, or `doorbell: true`)
+  with live video and snapshots, a Motion Sensor (the PIR) and Battery (level, charging, low). No HomeKit Secure Video
+  (it needs a prebuffer, so a camera always awake), no AI sensors, lights, siren or PIR switch; one stream at a time.
+- **It sleeps.** The plugin never polls it: no periodic connection, snapshot or battery read. A Baichuan session is
+  opened only when HomeKit asks for video, for a snapshot the cache cannot answer, or once after the camera wakes on its
+  own (to read the battery and take a snapshot while it is up), and it is closed (logout) **5 seconds** after its last
+  use. Logins are at least 15 s apart; one session at a time. A request the camera answers with 400 (still waking) is
+  sent again 1.5 s later, up to 3 times; a connection gets 4 s, the nonce 5 s, a snapshot 10 s in all and a stream's
+  first frame 15 s.
+- **Accessory Information** comes from what Setup read (`VersionInfo`, the UID), kept in `battery-cameras.json`: the
+  accessory is published at launch without waking the camera, and a camera not seen awake since shows its last state
+  and snapshot rather than No Response. Its Device Id is its UID (`Reolink:<UID>`).
+- **Snapshots** come from Baichuan's `cmd_id` 109 (the sub stream up to 640 wide), with the first I-frame of a short
+  stream through FFmpeg when it fails. **Cache:** while the camera sleeps, every request is answered with the last image,
+  whatever its age, and a `periodic` request (the Home app's every 10 s) never wakes it; a request for an `event` wakes
+  it when the image is over 60 s old; while a session is open anyway, the image is refreshed when over 10 s old. A new
+  image is also taken after each wake and at the end of each live stream. The last one is kept on disk for a restart.
+- **Live video:** the media stream (`cmd_id` 3, the sub stream for sizes up to 640 × 360, the main one above; stopped
+  with `cmd_id` 4) is split into its frames (H.264 or H.265, AAC or ADPCM audio), remuxed into MPEG-TS in Swift and
+  piped to FFmpeg, which encodes for HomeKit as for wired cameras (H.265 is always encoded, H.264 copied with `vcodec:
+  copy`). With `audio`, the camera's AAC goes along (its ADPCM is dropped); the TS header waits up to 2 s of video for it.
+- **Events** need no connection: the camera posts them to the bridge (its webhook, `cmd_id` 806/807). The plugin
+  listens on a port of its own (`webhookPort`; empty: one chosen once and kept in `webhook.json`), at
+  `/reolink/<token>`, a random token kept in the vault and never logged. A wake by the PIR is motion, on for
+  `motionTimeout` seconds (30; the camera never says it stopped), a wake by the doorbell button is a press. The camera
+  has one webhook slot: when another receiver holds it (Home Assistant's Reolink integration), the plugin leaves it and
+  logs so; `takeOverEventPush: true` in the camera's settings replaces it. A firmware without the webhook gets no
+  motion or doorbell events at all (logged once).
 
 ## Configuration
 
@@ -88,12 +125,15 @@ too:
 | `devices[].pushEvents` | `true` | Baichuan push; `false` polls only |
 | `devices[].pollInterval` | 60 s, +10 per camera above six | The full refresh: lights, battery, the NVR's channel list |
 | `devices[].motionPollInterval` | 5 s | Motion polling while push is not active |
+| `devices[].batteryCamera` | `false` | A battery camera on its own, over Baichuan only (Experimental; Setup sets it) |
+| `devices[].takeOverEventPush` | `false` | A battery camera's event push replaces another receiver's (its single slot) |
+| `webhookPort` | chosen once | The port battery cameras post their events to |
 | `devices[].cameras["<channel>"]` | | A channel's options, below; once the settings are saved they move into the channel's Accessory Settings |
 
 A channel's options (also its Accessory Settings): `name`, `motionSensor` (true), `aiSensors` (every supported type),
 `doorbell` (auto), `floodlight` (true), `siren` (false), `irLights` (false), `stream` (`auto`, `main`, `sub`), `audio`
 (false), `recording` (false), `prebuffer` (false), `maxStreams` (2), `vcodec` (`libx264` or `copy`), `encoderOptions`,
-`debug`, `ringThrottleSeconds` (3).
+`debug`, `ringThrottleSeconds` (3), and for a battery camera on its own `motionTimeout` (30 s).
 
 New in the Accessory Settings: `presetSwitches` (false), `patrolSwitch` (false), `privacySwitch` (true), `recordingSwitch`
 (false), `chimeSwitch` (false) and `chimeTone` (`citybird`, `originaltune`, `pianokey`, `loop`, `attraction`, `hophop`,
@@ -161,8 +201,24 @@ URLs are masked in FFmpeg's command lines).
 
 Choices made where the spec is silent or leaves it open:
 
-- **Standalone battery cameras** (Argus, Go… on their own) are out of scope: they have no HTTP API and speak Baichuan
-  over UDP. Their login fails; connect them to a Reolink Home Hub or NVR and add that instead.
+- **Standalone battery cameras** are Experimental and over **local TCP only** (spec 2.1): a camera that refuses TCP 9000,
+  or whose abilities say Baichuan V3 over UDP (`netPort & 0x40`), is refused at Setup with a message to add it to a Home
+  Hub instead; one that refuses TCP three times right after waking up is reported in the log the same way. Cellular
+  models (Go) and cameras on another network (P2P relay) are out.
+- **Whether a sleeping camera wakes for a TCP connection** is not settled by the sources (spec 13). The plugin takes
+  the safe way: a connection that fails inside its 4 s is "asleep and out of reach", a snapshot is answered from the
+  cache and a stream fails at once (HomeKit shows the camera as not available for that view) rather than retrying or
+  holding the radio up. If your camera wakes only on motion, live view works after a wake, not before.
+- **Battery cameras on wired power** (`powerSupplyStatus` `normal`) still stream over Baichuan: the spec's "RTSP first"
+  recommendation is not done.
+- **Battery camera choices:** one stream at a time (a single session); a doorbell is told by `Doorbell` in its model
+  name (the sources give no ability for it; `doorbell` in the settings decides otherwise); camera timestamps that step
+  back count as no time passing; the PIR switch (`cmd_id` 212/213), talk, floodlights and sirens of battery models, and
+  AI sensors are not offered; the webhook is plain HTTP (the camera is told `verify_cert` 0) and its first check runs at
+  Setup or at the first connection of a run; another receiver's webhook is replaced only with `takeOverEventPush`, not
+  asked for in Setup.
+- **Snapshot size:** an image whose length differs from the camera's `pictureSize` is accepted (and logged at debug)
+  when it is a whole JPEG (starts `ff d8`, ends `ff d9`).
 - **ONVIF events** are not implemented (spec 5.6): Baichuan push and polling cover them.
 - **RTSP URL probing**: the spec says reolink-aio checks each RTSP candidate with `DESCRIBE`; the plugin uses the URL of
   the codec `GetEnc` reports (or `GetRtspUrl`'s) without probing. If a camera's stream does not start, try
@@ -177,7 +233,7 @@ Choices made where the spec is silent or leaves it open:
 - **Battery cameras' waking refresh** (Home Assistant's hourly/12-hourly policy) is not done: battery channels are only
   read with non-waking commands.
 - Baichuan's watchdog restart is not needed (the keepalive runs in the session's own loop); its snapshot (`cmd_id` 109)
-  is not used.
+  is used for battery cameras on their own only.
 - **Discovery** reads the ARP table, so it sees only devices the bridge's machine talked to lately; others are added by
   address. `ARPTable.entries()` was added to HomeswiftNetwork for it.
 - **While push is active** the full refresh leaves the event commands out and a poll answered late is not applied, so
@@ -185,8 +241,8 @@ Choices made where the spec is silent or leaves it open:
 - The spec's AES vector says its plaintext is 48 bytes; the text and the ciphertext it gives are 47, and they match.
 - **Two-way audio** is not supported: none of the sources describes how to send talk audio (Home Assistant relies on an
   RTSP backchannel whose details they do not give, and FFmpeg cannot send one).
-- **Standalone battery cameras** over Baichuan UDP stay out (see above): that transport is about as large as the whole
-  plugin again; they are supported behind a Home Hub or NVR.
+- **Baichuan over UDP** (P2P, port 2015) stays out: that transport is about as large as the whole plugin again; such
+  cameras are supported behind a Home Hub or NVR.
 - **The hardwired chime** of a doorbell (Baichuan 483) is left out: reading its state makes the chime rattle.
 - **Detection zones** are left out: the sources do not state the cell order of the motion and AI zone bitmaps, and a
   wrong guess would mask the wrong parts of the picture. Set them in the Reolink app.
@@ -216,6 +272,13 @@ push, presets, `ptzType` 2 and 7, `ToPos`, `StartPatrol`, a zoom of 34 refused, 
 for 30, ColorTemp 40 as 4800 K and 4500 K as 50; privacy and Camera Active both ways, no login while private and no outage
 when a refresh fails in privacy mode; Adaptive Lighting turned off by a colour set elsewhere and not by its echo; every
 feature absent without its ability; writes coalesced, no extra request per poll cycle and never two requests at once.
+Battery cameras on their own (`ReolinkBatteryTests`, a fake camera that sleeps, answers 400 while waking and speaks full
+AES): the headers of ReolinkBattery.md 12.1 and the body lengths, its media frames (in one buffer, split at every
+position, garbage, a duplicate, early audio, a split magic), the MPEG-TS remux (PAT and PMT with their CRCs, PTS), the
+webhook bodies of 12.3, a snapshot in parts on another message number (12.4), the cache answering a sleeping camera and
+a `periodic` request never waking it, the retry on 400, a live stream (byte 13, the stop's bytes 12 to 15, a snapshot
+then a logout 5 s after), Setup by address, a UDP-only camera refused, another receiver's webhook kept, and the
+accessory published from what Setup kept without a connection, its motion and doorbell from the webhook.
 
 ## Clean-room implementation
 

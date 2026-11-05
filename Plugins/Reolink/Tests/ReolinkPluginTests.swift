@@ -18,6 +18,8 @@ final class ReolinkEnvironment: Sendable {
     let silentNetwork: Bool
     /// Sets up each fake Baichuan camera before the plugin talks to it (its answers, its login reply).
     let prepareCamera = NIOLockedValueBox<(@Sendable (FakeBaichuanCamera) -> Void)?>(nil)
+    /// A standalone battery camera answers Baichuan in place of `FakeBaichuanCamera` when set.
+    let batteryCamera = NIOLockedValueBox<FakeBatteryCamera?>(nil)
     private let plugins = NIOLockedValueBox<[ReolinkPlugin]>([])
 
     init(_ answers: [String: @Sendable (JSONValue?) -> JSONValue] = cameraAnswers(), baichuanFails: Bool = false, scale: Double = 0.002, silentNetwork: Bool = false) {
@@ -35,9 +37,13 @@ final class ReolinkEnvironment: Sendable {
         let cameras = cameras
         let fails = baichuanFails
         let prepare = prepareCamera
+        let battery = batteryCamera
         var dependencies = ReolinkPlugin.Dependencies()
         dependencies.makeSender = { _ in http }
+        dependencies.localAddress = { _ in "192.168.1.10" }
+        dependencies.webhookBindHost = "127.0.0.1"
         dependencies.connectBaichuan = { _, _, _ in
+            if let camera = battery.withLockedValue({ $0 }) { return try camera.connect() }
             if fails { throw HTTPClientError.cannotConnect(host: "camera", port: 9000, code: 61, reason: "refused") }
             let camera = FakeBaichuanCamera()
             prepare.withLockedValue { $0 }?(camera)
