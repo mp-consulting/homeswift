@@ -27,11 +27,7 @@ public struct SetupSession: Sendable {
     /// The Device Id what a finished step gives goes under: none for the account, the one the outcome names, else the
     /// discovered device's. Add by address has none until the plugin names it.
     func deviceID(of outcome: SetupOutcome) -> String? {
-        switch target {
-        case .account: nil
-        case .device(let device): outcome.deviceID ?? device.deviceID
-        case .newDevice: outcome.deviceID
-        }
+        target == .account ? nil : outcome.deviceID ?? deviceID
     }
 }
 
@@ -245,18 +241,12 @@ extension HomeswiftCatalog {
                 if let deviceID {
                     Self.editAccessorySettings(&block, deviceID: deviceID) { settings in
                         // A null setting goes, as an account's does: a port back to its default.
-                        var fields = settings.json.objectValue ?? [:]
-                        for (key, value) in outcome.settings {
-                            if value.isNull { fields.removeValue(forKey: key) } else { fields[key] = value }
-                        }
-                        settings = AccessorySettings(json: .object(fields))
+                        settings = AccessorySettings(json: Self.merged(settings.json, outcome.settings) { _ in })
                         if adding { settings.excluded = false }
                     }
                 } else {
                     // A null setting goes: what the Setup moved into the vault leaves the block.
-                    for (key, value) in outcome.settings {
-                        if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
-                    }
+                    block = Self.merged(.object(block), outcome.settings) { _ in }.objectValue ?? block
                 }
             }
         }
@@ -333,8 +323,9 @@ extension HomeswiftCatalog {
                 let name = call.optionalString("name") ?? (blocks.contains { $0["platform"]?.stringValue == platform } ? nil : catalog.host.registry.entry(for: platform)?.name)
                 let exists = blocks.contains { $0["platform"]?.stringValue == platform && ($0["name"]?.stringValue ?? platform) == (name ?? platform) }
                 let draft: JSONValue? = exists ? nil : ["platform": .string(platform), "name": .string(name ?? platform)]
-                let addByAddress = call.arguments["addByAddress"]?.boolValue ?? false
-                return Self.untrusted(try await catalog.startSetup(platform: platform, name: name, deviceID: call.optionalString("deviceID"), addByAddress: addByAddress, block: draft))
+                // A value that is not a boolean is refused rather than taken for the account's Setup.
+                if let value = call.arguments["addByAddress"], value.boolValue == nil, !value.isNull { throw CatalogError("addByAddress must be true or false") }
+                return Self.untrusted(try await catalog.startSetup(platform: platform, name: name, deviceID: call.optionalString("deviceID"), addByAddress: call.bool("addByAddress"), block: draft))
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",

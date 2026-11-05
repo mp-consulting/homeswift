@@ -45,7 +45,8 @@ keeps the light's own), and `host` and `port` for a light added by its address.
 **Add by address…** on the instance in the Add accessories page (or `start_setup` with `addByAddress`) asks for a
 light's IP address or host name and its port (9123 by default), asks the light there who it is, and keeps where it
 answers in its Accessory Settings under its MAC: the plugin reaches it there, as a light of `addresses`, without
-Bonjour. Nothing answering says so in the sheet ("No light answered at 192.0.2.50:9123"). `addresses` keeps working.
+Bonjour. Nothing answering says so in the sheet ("No light answered at 192.0.2.50:9123"). `addresses` keeps working;
+a light in both is reached where Add by address last found it.
 
 ```json
 {

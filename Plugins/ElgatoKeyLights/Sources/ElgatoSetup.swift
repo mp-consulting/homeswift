@@ -64,15 +64,12 @@ extension ElgatoKeyLightsPlugin {
             guard let port = Int(text), KeyLightClient.isValidPort(port) else { throw SetupError("The port must be between 1 and 65535") }
             return port
         } ?? KeyLightClient.defaultPort
-        let info: KeyLightInfo
+        let mac: String?
         do {
-            info = try await KeyLightClient(host: host, port: port, transport: dependencies.transport).info()
+            mac = try await identify(host: host, port: port).mac
         } catch {
             throw SetupError("No light answered at \(host):\(port)")
         }
-        // Older firmware leaves the MAC out; the ARP table has it, the light having just answered.
-        var mac = info.macAddress.flatMap(MACAddress.canonical)
-        if mac == nil { mac = await ARPTable.macAddress(for: host).flatMap(MACAddress.canonical) }
         guard let mac else { throw SetupError("The light at \(host) did not give its MAC address") }
         var settings: [String: JSONValue] = ["host": .string(host)]
         // The default port is left out; a port no longer given is taken out.

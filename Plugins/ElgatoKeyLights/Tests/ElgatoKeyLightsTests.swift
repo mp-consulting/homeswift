@@ -526,9 +526,10 @@ struct ElgatoKeyLightsTests {
     }
 
     /// A light whose Accessory Settings give its host (Add by address) is reached there without Bonjour, pinned, and
-    /// listed by Setup at that address.
+    /// listed by Setup at that address; its older entry of `addresses` is left aside.
     @Test func aLightAddedByAddressIsReachedAtItsHost() async throws {
         let host = try await environment.start(settings: [
+            "addresses": [["host": "192.168.1.50", "mac": "3C:6A:9D:04:0A:0B"]],
             "_accessories": ["3C:6A:9D:04:0A:0B": ["host": "192.168.1.60", "port": 9124]],
         ])
         #expect(host.mainBridge.server.accessories.map(\.id) == ["bridge", lightID])
