@@ -30,6 +30,8 @@ actor ReolinkHost {
     private var hasLoginPrivacy = false
     /// Privacy mode of a camera on its own before its channels are read (its first channel, by push or at login).
     private var privacyBeforeConnect: Bool?
+    /// `cmd_id` 199's abilities by channel, when Baichuan answered before the channels were read.
+    private var baichuanAbilities: [Int: [String: Int]] = [:]
     /// Who waits for privacy mode to end (`waitForPrivacyOff`).
     private var privacyWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
     private var nextWaiter = 0
@@ -89,6 +91,7 @@ actor ReolinkHost {
         guard !info.serial.isEmpty || info.hostID != nil else { throw ReolinkError.invalidResponse("GetDevInfo gave no serial") }
         if info.isAdmin == false { log.warning("The user \(device.username) is not an administrator: floodlights, sirens and IR lights stay read-only.") }
         self.info = info
+        if let baichuan, await baichuan.isConnected, let abilities = try? await baichuan.abilities() { baichuanAbilities = abilities }
         channels = try await readWantedChannels()
         await readPrivacy()
         setOnline(true)
@@ -163,6 +166,11 @@ actor ReolinkHost {
         if model.contains("Doorbell") || info.ability("supportDoorbellLight", channel: ch) > 0 { channel.doorbell = true }
         if items["GetWhiteLed"]?.ok == true, info.ability("floodLight", channel: ch) > 0 || info.ability("supportFLswitch", channel: ch) > 0 {
             channel.floodlight = true
+            let ledCtrl = baichuanAbilities[ch]?["ledCtrl"]
+            channel.floodlightColour = (ledCtrl ?? 0) & (1 << 17) != 0
+            channel.floodlightModes = ReolinkFloodlight.offeredModes(
+                ledCtrl: ledCtrl, flSchedule: info.ability("supportFLSchedule", channel: ch) > 0, flKeepOn: info.ability("supportFLKeepOn", channel: ch) > 0,
+                autoBrightness: info.ability("supportLightAutoBrightness", channel: ch) > 0)
         }
         if info.ability("ledControl", channel: ch) > 0, items["GetIrLights"]?.ok == true { channel.irLights = true }
         let audio = items["GetAudioAlarmV20"] ?? items["GetAudioAlarm"]
@@ -304,6 +312,10 @@ actor ReolinkHost {
             let led = value["WhiteLed"]
             if let state = led?["state"]?.saturatingIntValue { channel.state.floodlightOn = state == 1 }
             if let bright = led?["bright"]?.saturatingIntValue(in: 0...100) { channel.state.floodlightBrightness = bright }
+            if let mode = led?["mode"]?.saturatingIntValue(in: 0...255) { channel.state.floodlightMode = mode }
+            if channel.floodlightColour, let value = led?["ColorTemp"]?.saturatingIntValue(in: 0...100) {
+                channel.state.floodlightMireds = ReolinkFloodlight.mireds(kelvin: ReolinkFloodlight.kelvin(value))
+            }
         case "GetIrLights":
             if let state = value["IrLights"]?["state"]?.stringValue { channel.state.irOn = state != "Off" }
         case "GetBatteryInfo":
@@ -499,6 +511,61 @@ actor ReolinkHost {
             try? await Task.sleep(for: delay)
             await self?.reread("GetWhiteLed", channel: channel)
         }
+    }
+
+    /// The floodlight's colour temperature, over Baichuan (D.1: 289 read, `newColorTemperature` changed, 290 back), then
+    /// read back over HTTP as a brightness is.
+    func setFloodlightColour(channel: Int, mireds: Int) async throws {
+        guard channels[channel]?.floodlightColour == true else { throw ReolinkError.unsupported("colour temperature") }
+        guard let baichuan, await baichuan.isConnected else { throw ReolinkError.unsupported("colour temperature without the Baichuan connection") }
+        guard let value = ReolinkFloodlight.value(kelvin: ReolinkFloodlight.kelvin(mireds: mireds)) else {
+            throw ReolinkError.outOfRange("\(mireds) mireds is outside 3000 to 6000 K")
+        }
+        try await baichuan.updateFloodlightTask(channel: channel, changes: ["newColorTemperature": String(value)])
+        channels[channel]?.state.floodlightMireds = mireds
+        let delay = timing.seconds(3)
+        tasks.add { [weak self] in
+            try? await Task.sleep(for: delay)
+            await self?.reread("GetWhiteLed", channel: channel)
+        }
+    }
+
+    // MARK: Accessory Settings the device keeps
+
+    /// What a channel's Accessory Settings ask of the device itself: written once at start, in one batch, only where the
+    /// device differs.
+    struct DeviceSettings: Sendable, Equatable {
+        var floodlightMode: String?
+    }
+
+    func apply(_ settings: DeviceSettings, channel ch: Int, name: String) async {
+        guard let channel = channels[ch], !isPrivate else { return }
+        var writes: [ReolinkCommand] = []
+        if let mode = settings.floodlightMode, channel.floodlight {
+            if let number = ReolinkFloodlight.modeNumber(mode), channel.floodlightModes.contains(mode) {
+                if channel.state.floodlightMode != number {
+                    writes.append(ReolinkCommand(cmd: "SetWhiteLed", action: 0, param: ["WhiteLed": ["channel": .number(Double(ch)), "mode": .number(Double(number))]]))
+                }
+            } else {
+                log.warning("\(name): the floodlight has no mode \(mode); it offers \(channel.floodlightModes.joined(separator: ", ")).")
+            }
+        }
+        guard !writes.isEmpty else { return }
+        do {
+            let replies = try await http.execute(writes)
+            for (command, reply) in zip(writes, replies) where !reply.writeOK {
+                log.warning("\(name): the device refused \(command.cmd) (\(reply.rspCode.map(String.init) ?? "?")).")
+            }
+        } catch {
+            log.warning("\(name): could not write the settings: \(error)")
+            return
+        }
+        // Read back in one batch.
+        let reads = Set(writes.map { "Get" + $0.cmd.dropFirst(3) }).sorted().map { ReolinkCommand.channel($0, ch) }
+        guard let replies = try? await http.execute(reads), var state = channels[ch] else { return }
+        for reply in replies { apply(reply, to: &state) }
+        channels[ch] = state
+        publish(ch)
     }
 
     func setIRLights(channel: Int, on: Bool) async throws {

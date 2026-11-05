@@ -165,6 +165,10 @@ struct ReolinkChannel: Sendable, Equatable {
     var ptz: ReolinkPTZ?
     /// Whether the channel has privacy mode: a `cmd_id` 574 reply said where it is (addendum C).
     var privacy = false
+    /// Whether the floodlight takes a colour temperature (Baichuan `ledCtrl` bit 17).
+    var floodlightColour = false
+    /// The floodlight modes the camera offers, by `ReolinkFloodlight.modes` name.
+    var floodlightModes: [String] = []
     var state = ReolinkChannelState()
 
     /// The device's AI type names and the HomeKit sensors' subtypes (6.3).
@@ -189,6 +193,47 @@ struct ReolinkChannelState: Sendable, Equatable {
     var patrolling: Bool?
     /// Privacy mode: the camera's streams and HTTP API off.
     var privacy: Bool?
+    /// The floodlight's colour temperature in mireds, from `GetWhiteLed`'s `ColorTemp`.
+    var floodlightMireds: Int?
+    /// The floodlight's mode, in HTTP's numbering (`ReolinkFloodlight.modes`).
+    var floodlightMode: Int?
+}
+
+/// The floodlight's colour temperature and modes (addendum D.1).
+enum ReolinkFloodlight {
+    /// The modes by the name Accessory Settings give them, with HTTP's `mode` numbers (`SetWhiteLed`).
+    static let modes: [(name: String, number: Int)] = [("off", 0), ("auto", 1), ("night", 2), ("schedule", 3), ("autoAdaptive", 4), ("adaptive", 5)]
+
+    static func modeNumber(_ name: String) -> Int? { modes.first { $0.name == name }?.number }
+
+    /// The device's colour temperature (0 is 6000 K, 100 is 3000 K) in kelvin.
+    static func kelvin(_ value: Int) -> Int { 6000 - 30 * min(100, max(0, value)) }
+
+    /// A kelvin value in the device's scale; nil outside 3000 to 6000 K.
+    static func value(kelvin: Int) -> Int? {
+        guard (3000...6000).contains(kelvin) else { return nil }
+        return Int((Double(6000 - kelvin) / 30).rounded())
+    }
+
+    static func mireds(kelvin: Int) -> Int { Int((1_000_000 / Double(max(1, kelvin))).rounded()) }
+    static func kelvin(mireds: Int) -> Int { Int((1_000_000 / Double(max(1, mireds))).rounded()) }
+
+    /// HomeKit's Color Temperature range for 3000 to 6000 K.
+    static let miredRange = 167...333
+
+    /// What `ledCtrl` (nil when Baichuan gave none) and the HTTP abilities say the floodlight offers.
+    static func offeredModes(ledCtrl: Int?, flSchedule: Bool, flKeepOn: Bool, autoBrightness: Bool) -> [String] {
+        func bit(_ n: Int) -> Bool { (ledCtrl ?? 0) & (1 << n) != 0 }
+        let auto = ledCtrl.map { $0 & (1 << 6) == 0 } ?? true
+        let adaptive = bit(14) || autoBrightness
+        var offered = ["off"]
+        if auto { offered.append("auto") }
+        if bit(4) || flKeepOn { offered.append("night") }
+        if bit(5) || flSchedule { offered.append("schedule") }
+        if adaptive, auto || bit(13) { offered.append("autoAdaptive") }
+        if adaptive { offered.append("adaptive") }
+        return offered
+    }
 }
 
 /// A channel's pan, tilt and zoom (addendum B): what `ptzType` allows, and the presets, patrols, guard and zoom range

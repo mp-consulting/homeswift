@@ -658,6 +658,52 @@ extension ReolinkPlugin {
         "x-kinds": [
           "camera"
         ]
+      },
+      "floodlightMode": {
+        "title": "Floodlight mode",
+        "type": "string",
+        "description": "What the floodlight does on its own, set on the camera at start; empty leaves the camera's. Only the modes the camera offers are taken.",
+        "oneOf": [
+          {
+            "title": "Off",
+            "enum": [
+              "off"
+            ]
+          },
+          {
+            "title": "At night when there is motion",
+            "enum": [
+              "auto"
+            ]
+          },
+          {
+            "title": "On at night",
+            "enum": [
+              "night"
+            ]
+          },
+          {
+            "title": "On a schedule",
+            "enum": [
+              "schedule"
+            ]
+          },
+          {
+            "title": "Adaptive, at night when there is motion",
+            "enum": [
+              "autoAdaptive"
+            ]
+          },
+          {
+            "title": "Adaptive brightness",
+            "enum": [
+              "adaptive"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "camera"
+        ]
       }
     }
   },
@@ -686,9 +732,12 @@ extension ReolinkPlugin {
       "A switch per PTZ preset that turns the camera there, then turns itself off.": "Un interrupteur par position PTZ enregistrée, qui y tourne la caméra puis s'éteint seul.",
       "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Un interrupteur qui lance la première patrouille PTZ de la caméra, définie dans l'app Reolink.",
       "API port": "Port de l'API",
+      "Adaptive brightness": "Luminosité adaptative",
+      "Adaptive, at night when there is motion": "Adaptatif, la nuit en cas de mouvement",
       "Address": "Adresse",
       "Advanced": "Avancé",
       "An NVR's or a hub's channels to publish, counted from 0; empty for every online channel.": "Les canaux d'un NVR ou d'un hub à publier, comptés à partir de 0 ; vide pour tous les canaux en ligne.",
+      "At night when there is motion": "La nuit, en cas de mouvement",
       "Audio": "Audio",
       "Automatic: the sub stream for small sizes": "Automatique : le flux secondaire pour les petites tailles",
       "Baichuan port": "Port Baichuan",
@@ -712,6 +761,7 @@ extension ReolinkPlugin {
       "FLV": "FLV",
       "Face": "Visage",
       "Floodlight": "Projecteur",
+      "Floodlight mode": "Mode du projecteur",
       "Force HTTPS or HTTP; unset tries both. The device's certificate is trusted the first time and pinned.": "Impose HTTPS ou HTTP ; sans réglage, les deux sont essayés. Le certificat de l'appareil est accepté la première fois puis épinglé.",
       "HomeKit Secure Video": "HomeKit Secure Video",
       "How FFmpeg reads the video.": "Comment FFmpeg lit la vidéo.",
@@ -725,6 +775,9 @@ extension ReolinkPlugin {
       "Motion sensor": "Détecteur de mouvement",
       "Motion, detections and rings pushed by the device; off polls them every few seconds instead.": "Mouvements, détections et sonneries poussés par l'appareil ; désactivé, ils sont interrogés toutes les quelques secondes.",
       "Name": "Nom",
+      "Off": "Éteint",
+      "On a schedule": "Selon un horaire",
+      "On at night": "Allumé la nuit",
       "Options by channel number (\"0\", \"1\"…); once saved they move to each camera's settings.": "Options par numéro de canal (« 0 », « 1 »…) ; une fois enregistrées, elles passent dans les réglages de chaque caméra.",
       "Package": "Colis",
       "Password": "Mot de passe",
@@ -761,6 +814,7 @@ extension ReolinkPlugin {
       "User name": "Nom d'utilisateur",
       "Vehicle": "Véhicule",
       "Video encoding": "Encodage vidéo",
+      "What the floodlight does on its own, set on the camera at start; empty leaves the camera's. Only the modes the camera offers are taken.": "Ce que fait le projecteur de lui-même, réglé sur la caméra au démarrage ; vide garde celui de la caméra. Seuls les modes que la caméra propose sont pris.",
       "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Si la caméra a un mode confidentialité, un interrupteur qui l'active : ni vidéo ni détection tant qu'il est allumé. Il suit la caméra allumée ou éteinte dans HomeKit.",
       "Which of the camera's streams answers HomeKit.": "Lequel des flux de la caméra répond à HomeKit."
     },
@@ -775,9 +829,12 @@ extension ReolinkPlugin {
       "A switch per PTZ preset that turns the camera there, then turns itself off.": "Un interruptor por posición PTZ guardada, que gira la cámara hacia ella y luego se apaga solo.",
       "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Un interruptor que inicia la primera patrulla PTZ de la cámara, definida en la app Reolink.",
       "API port": "Puerto de la API",
+      "Adaptive brightness": "Brillo adaptativo",
+      "Adaptive, at night when there is motion": "Adaptativo, de noche si hay movimiento",
       "Address": "Dirección",
       "Advanced": "Avanzado",
       "An NVR's or a hub's channels to publish, counted from 0; empty for every online channel.": "Los canales de un NVR o un hub que publicar, contados desde 0; vacío para todos los canales en línea.",
+      "At night when there is motion": "De noche, si hay movimiento",
       "Audio": "Audio",
       "Automatic: the sub stream for small sizes": "Automático: el flujo secundario para tamaños pequeños",
       "Baichuan port": "Puerto Baichuan",
@@ -801,6 +858,7 @@ extension ReolinkPlugin {
       "FLV": "FLV",
       "Face": "Cara",
       "Floodlight": "Foco",
+      "Floodlight mode": "Modo del foco",
       "Force HTTPS or HTTP; unset tries both. The device's certificate is trusted the first time and pinned.": "Fuerza HTTPS o HTTP; sin ajuste se prueban ambos. El certificado del dispositivo se acepta la primera vez y se fija.",
       "HomeKit Secure Video": "HomeKit Secure Video",
       "How FFmpeg reads the video.": "Cómo lee FFmpeg el vídeo.",
@@ -814,6 +872,9 @@ extension ReolinkPlugin {
       "Motion sensor": "Sensor de movimiento",
       "Motion, detections and rings pushed by the device; off polls them every few seconds instead.": "Movimiento, detecciones y timbres enviados por el dispositivo; desactivado, se consultan cada pocos segundos.",
       "Name": "Nombre",
+      "Off": "Apagado",
+      "On a schedule": "Según un horario",
+      "On at night": "Encendido de noche",
       "Options by channel number (\"0\", \"1\"…); once saved they move to each camera's settings.": "Opciones por número de canal («0», «1»…); una vez guardadas pasan a los ajustes de cada cámara.",
       "Package": "Paquete",
       "Password": "Contraseña",
@@ -850,6 +911,7 @@ extension ReolinkPlugin {
       "User name": "Nombre de usuario",
       "Vehicle": "Vehículo",
       "Video encoding": "Codificación de vídeo",
+      "What the floodlight does on its own, set on the camera at start; empty leaves the camera's. Only the modes the camera offers are taken.": "Lo que hace el foco por sí solo, ajustado en la cámara al arrancar; vacío deja el de la cámara. Solo se aceptan los modos que ofrece la cámara.",
       "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Si la cámara tiene modo de privacidad, un interruptor que lo activa: sin vídeo ni detecciones mientras esté encendido. Sigue el encendido y apagado de la cámara en HomeKit.",
       "Which of the camera's streams answers HomeKit.": "Qué flujo de la cámara responde a HomeKit."
     },
@@ -864,9 +926,12 @@ extension ReolinkPlugin {
       "A switch per PTZ preset that turns the camera there, then turns itself off.": "Um interruptor por posição PTZ guardada, que vira a câmara para ela e depois se desliga sozinho.",
       "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Um interruptor que inicia a primeira patrulha PTZ da câmara, definida na app Reolink.",
       "API port": "Porta da API",
+      "Adaptive brightness": "Brilho adaptativo",
+      "Adaptive, at night when there is motion": "Adaptativo, à noite quando há movimento",
       "Address": "Endereço",
       "Advanced": "Avançado",
       "An NVR's or a hub's channels to publish, counted from 0; empty for every online channel.": "Os canais de um NVR ou hub a publicar, contados a partir de 0; vazio para todos os canais em linha.",
+      "At night when there is motion": "À noite, quando há movimento",
       "Audio": "Áudio",
       "Automatic: the sub stream for small sizes": "Automático: o fluxo secundário para tamanhos pequenos",
       "Baichuan port": "Porta Baichuan",
@@ -890,6 +955,7 @@ extension ReolinkPlugin {
       "FLV": "FLV",
       "Face": "Rosto",
       "Floodlight": "Projetor",
+      "Floodlight mode": "Modo do projetor",
       "Force HTTPS or HTTP; unset tries both. The device's certificate is trusted the first time and pinned.": "Força HTTPS ou HTTP; sem definição, tenta os dois. O certificado do dispositivo é aceite da primeira vez e fixado.",
       "HomeKit Secure Video": "HomeKit Secure Video",
       "How FFmpeg reads the video.": "Como o FFmpeg lê o vídeo.",
@@ -903,6 +969,9 @@ extension ReolinkPlugin {
       "Motion sensor": "Sensor de movimento",
       "Motion, detections and rings pushed by the device; off polls them every few seconds instead.": "Movimento, deteções e toques enviados pelo dispositivo; desativado, são consultados de poucos em poucos segundos.",
       "Name": "Nome",
+      "Off": "Desligado",
+      "On a schedule": "Segundo um horário",
+      "On at night": "Ligado à noite",
       "Options by channel number (\"0\", \"1\"…); once saved they move to each camera's settings.": "Opções por número de canal («0», «1»…); uma vez guardadas passam para as definições de cada câmara.",
       "Package": "Encomenda",
       "Password": "Palavra-passe",
@@ -939,6 +1008,7 @@ extension ReolinkPlugin {
       "User name": "Nome de utilizador",
       "Vehicle": "Veículo",
       "Video encoding": "Codificação de vídeo",
+      "What the floodlight does on its own, set on the camera at start; empty leaves the camera's. Only the modes the camera offers are taken.": "O que o projetor faz sozinho, definido na câmara ao arrancar; vazio mantém o da câmara. Só são aceites os modos que a câmara oferece.",
       "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Se a câmara tiver modo de privacidade, um interruptor que o ativa: sem vídeo nem deteções enquanto estiver ligado. Acompanha a câmara ligada ou desligada no HomeKit.",
       "Which of the camera's streams answers HomeKit.": "Qual dos fluxos da câmara responde ao HomeKit."
     }

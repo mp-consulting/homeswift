@@ -237,6 +237,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
                 try await context.publishExternal(camera.accessory)
                 runtime.cameras[channel.channel] = camera
                 published.insert(camera.accessory.id)
+                await host.apply(options.deviceSettings, channel: channel.channel, name: camera.accessory.name)
                 if options.siren, !channel.siren { logger.info("[\(address)] \(camera.accessory.name): this camera has no siren.") }
             } catch {
                 logger.error("[\(address)] Could not publish channel \(channel.channel + 1): \(error)")
@@ -309,10 +310,16 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             ir: { on in try await host.setIRLights(channel: ch, on: on) },
             goToPreset: { id in try await host.ptzControl(channel: ch, op: "ToPos", id: id) },
             privacy: { on in try await host.setPrivacy(channel: ch, on: on) },
+            floodlightColour: { mireds in try await host.setFloodlightColour(channel: ch, mireds: mireds) },
             patrol: { on in try await host.setPatrol(channel: ch, on: on) })
-        return try ReolinkCamera(
+        let camera = try ReolinkCamera(
             id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite,
             streamer: streamer, recorder: recorder, writes: writes, log: logger, timing: dependencies.timing)
+        // A floodlight with Brightness and Color Temperature gets Adaptive Lighting, before the accessory is published.
+        if let floodlight = camera.services.floodlight {
+            camera.adaptiveLighting = context.adaptiveLighting(for: floodlight, accessoryID: camera.accessory.id)
+        }
+        return camera
     }
 
     // MARK: Tests

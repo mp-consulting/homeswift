@@ -92,9 +92,11 @@ extension ReolinkPlugin {
         public var patrolSwitch: Bool
         /// A Privacy switch where the camera has privacy mode.
         public var privacySwitch: Bool
+        /// The floodlight's mode (`ReolinkFloodlight.modes`), written to the device at start; nil leaves it.
+        public var floodlightMode: String?
 
         static let settingKeys = ["motionSensor", "aiSensors", "doorbell", "floodlight", "siren", "irLights", "stream", "audio", "recording", "prebuffer",
-                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch"]
+                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch", "floodlightMode"]
 
         init(json: JSONValue) {
             name = json["name"]?.stringValue?.nonEmptyText
@@ -117,6 +119,7 @@ extension ReolinkPlugin {
             presetSwitches = json["presetSwitches"]?.boolValue ?? false
             patrolSwitch = json["patrolSwitch"]?.boolValue ?? false
             privacySwitch = json["privacySwitch"]?.boolValue ?? true
+            floodlightMode = json["floodlightMode"]?.stringValue.flatMap { ReolinkFloodlight.modeNumber($0) == nil ? nil : $0 }
         }
 
         /// The options with Accessory Settings on top.
@@ -139,10 +142,14 @@ extension ReolinkPlugin {
             if let floodlight { fields["floodlight"] = .bool(floodlight) }
             if let vcodec { fields["vcodec"] = .string(vcodec) }
             if let encoderOptions { fields["encoderOptions"] = .string(encoderOptions) }
+            if let floodlightMode { fields["floodlightMode"] = .string(floodlightMode) }
             return .object(fields)
         }
 
         static let defaults = CameraOptions(json: [:])
+
+        /// The options the device itself keeps, written at start.
+        var deviceSettings: ReolinkHost.DeviceSettings { ReolinkHost.DeviceSettings(floodlightMode: floodlightMode) }
     }
 }
 

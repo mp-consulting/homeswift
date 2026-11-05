@@ -387,6 +387,26 @@ actor BaichuanSession {
         return try BaichuanDecoder.decrypt(piece, expected: reply.declaredEncryption ?? .aes, offset: reply.channel, key: aesKey)
     }
 
+    /// The abilities of `cmd_id` 199 by channel (addendum A.2): each list's `item` elements, by `chnID`, with every
+    /// other child an ability and its integer text the version.
+    func abilities() async throws -> [Int: [String: Int]] {
+        let reply = try await request(command: 199, channel: Baichuan.hostChannel, body: nil, encryption: .aes)
+        let xml = try replyText(reply)
+        guard !xml.isEmpty, let root = try? BXParser.parse(xml) else { return [:] }
+        return BaichuanEvents.abilities(root)
+    }
+
+    /// The floodlight task (`cmd_id` 289) with `changes` made to its children, sent back whole (`cmd_id` 290).
+    func updateFloodlightTask(channel: Int, changes: [String: String]) async throws {
+        var xml = try await channelRequest(command: 289, channel: channel)
+        guard xml.contains("<FloodlightTask") else { throw BaichuanError.undecryptable }
+        for (name, value) in changes {
+            guard let changed = Baichuan.replacingText(of: name, with: value, in: xml) else { throw ReolinkError.unsupported(name) }
+            xml = changed
+        }
+        _ = try await channelRequest(command: 290, channel: channel, body: xml)
+    }
+
     /// Privacy mode (addendum C, `cmd_id` 574): the reply's `sleep`; nil when it has none (the device has no privacy mode).
     func privacy(channel: Int) async throws -> Bool? {
         let xml = try await channelRequest(command: 574, channel: channel)

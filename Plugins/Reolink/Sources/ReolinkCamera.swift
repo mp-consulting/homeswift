@@ -52,6 +52,8 @@ final class ReolinkCamera: @unchecked Sendable {
         var holds: [String: Task<Void, Never>] = [:]
         var sirenReset: Task<Void, Never>?
         var momentary: [String: Task<Void, Never>] = [:]
+        var adaptiveLighting: AdaptiveLightingController?
+        var lastColourWrite: ContinuousClock.Instant?
     }
 
     private let state = NIOLockedValueBox(State())
@@ -62,6 +64,7 @@ final class ReolinkCamera: @unchecked Sendable {
         var ir: @Sendable (_ on: Bool) async throws -> Void
         var goToPreset: @Sendable (_ id: Int) async throws -> Void
         var privacy: @Sendable (_ on: Bool) async throws -> Void
+        var floodlightColour: @Sendable (_ mireds: Int) async throws -> Void
         var patrol: @Sendable (_ on: Bool) async throws -> Void
     }
 
@@ -89,7 +92,9 @@ final class ReolinkCamera: @unchecked Sendable {
         let doorbell = isDoorbell ? Service(.doorbell, name: name, subtype: "doorbell", isPrimary: true) : nil
         self.doorbell = doorbell
         let floodlight = (options.floodlight ?? true) && info.floodlight
-            ? Service(.lightbulb, name: "\(name) Floodlight", subtype: "floodlight", optional: [.brightness]) : nil
+            ? Service(.lightbulb, name: "\(name) Floodlight", subtype: "floodlight",
+                      optional: [.brightness] + (info.floodlightColour ? [.colorTemperature.with(minValue: Double(ReolinkFloodlight.miredRange.lowerBound), maxValue: Double(ReolinkFloodlight.miredRange.upperBound))] : []))
+            : nil
         self.floodlight = floodlight
         let siren = options.siren && info.siren ? Service(.switch, name: "\(name) Siren", subtype: "siren") : nil
         self.siren = siren
@@ -157,6 +162,17 @@ final class ReolinkCamera: @unchecked Sendable {
                 guard await lightGuard() else { return }
                 try await writes.floodlight(level > 0, level > 0 ? min(100, level) : nil)
             })
+            if let colour = floodlight[.colorTemperature] {
+                colour.value = .int(ReolinkFloodlight.mireds(kelvin: 4500))
+                let colourGuard = LatestCallGuard(delay: timing.seconds(0.3))
+                colour.onWrite(guarded { [weak self] value in
+                    guard let mireds = value.intValue else { return }
+                    // From the write on, reports are of the colour before it or its echo.
+                    self?.state.withLockedValue { $0.lastColourWrite = .now }
+                    guard await colourGuard() else { return }
+                    try await writes.floodlightColour(min(ReolinkFloodlight.miredRange.upperBound, max(ReolinkFloodlight.miredRange.lowerBound, mireds)))
+                })
+            }
         }
         if let siren {
             siren.characteristic(.on).onWrite(changesOnly: true, guarded { [weak self] value in
@@ -262,6 +278,9 @@ final class ReolinkCamera: @unchecked Sendable {
             if let level = new.floodlightBrightness, previous?.floodlightBrightness != level, let brightness = floodlight[.brightness], level > 0 {
                 brightness.value = .int(level)
             }
+            if let mireds = new.floodlightMireds, previous?.floodlightMireds != mireds, let colour = floodlight[.colorTemperature] {
+                reportColour(mireds, to: colour)
+            }
         }
         if let siren, let playing = new.sirenPlaying, previous?.sirenPlaying != playing {
             siren.characteristic(.on).value = .bool(playing)
@@ -278,6 +297,26 @@ final class ReolinkCamera: @unchecked Sendable {
             battery.characteristic(.statusLowBattery).value = .int(percent < 20 ? 1 : 0)
             battery.characteristic(.chargingState).value = .int(new.charging == true ? 1 : 0)
         }
+    }
+
+    /// Adaptive Lighting of the floodlight (with Brightness and Color Temperature), set by the plugin before the
+    /// accessory is published; kept here, as the service holds it weakly.
+    var adaptiveLighting: AdaptiveLightingController? {
+        get { state.withLockedValue { $0.adaptiveLighting } }
+        set { state.withLockedValue { $0.adaptiveLighting = newValue } }
+    }
+
+    /// How long after the bridge's own colour write a report is taken as its echo.
+    static let colourEcho: Double = 10
+
+    /// A colour the device reports: shown, and Adaptive Lighting turned off when it was set elsewhere (the Reolink app),
+    /// not when it is the echo of the bridge's own write.
+    private func reportColour(_ mireds: Int, to colour: Characteristic) {
+        let (adaptive, written) = state.withLockedValue { ($0.adaptiveLighting, $0.lastColourWrite) }
+        // Soon after the bridge's own write, a report is its echo, or older: what was written stays shown.
+        if let written, ContinuousClock.now - written < timing.seconds(Self.colourEcho) { return }
+        adaptive?.disableIfChangedElsewhere(mireds: mireds)
+        colour.value = .int(mireds)
     }
 
     /// A detection on at once; off no sooner than `motionHold` after it went on.

@@ -55,6 +55,19 @@ enum BaichuanEvents {
         }
     }
 
+    /// `cmd_id` 199's abilities by channel: every `item` of the support lists, wherever they sit, its `chnID` and its
+    /// other children (their integer text); a `subItem` (a lens) is left out.
+    static func abilities(_ root: BXElement) -> [Int: [String: Int]] {
+        var result: [Int: [String: Int]] = [:]
+        for item in root.all("item") {
+            guard let channel = item.value("chnID").flatMap(Int.init) else { continue }
+            for ability in item.children where ability.name != "chnID" && ability.name != "subItem" {
+                if let version = Int(ability.text.trimmingCharacters(in: .whitespacesAndNewlines)) { result[channel, default: [:]][ability.name] = version }
+            }
+        }
+        return result
+    }
+
     /// root → every child → every grandchild, whatever the list is called (reolink-aio does not check it).
     private static func alarms(_ root: BXElement, unknown: inout Set<String>) -> [ReolinkPush] {
         var pushes: [ReolinkPush] = []

@@ -294,4 +294,120 @@ import Testing
         #expect(camera.privacyControls.cameraActive == nil)
         #expect(environment.camera?.commands.contains(574) != true)
     }
+
+    // MARK: Floodlight
+
+    /// `ledCtrl`: floodlight (bits 1 and 2), on at night (bit 4), colour temperature (bit 17).
+    static let ledCtrl = 0b110 | 1 << 4 | 1 << 17
+
+    static func abilitiesXML(ledCtrl: Int) -> String {
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<AbilityInfo version=\"1.1\">\n<userName>admin</userName>\n<system>\n"
+            + "<item>\n<chnID>0</chnID>\n<ledCtrl>\(ledCtrl)</ledCtrl>\n<subItem>\n<chnID>0</chnID>\n<ledCtrl>0</ledCtrl>\n</subItem>\n</item>\n</system>\n</AbilityInfo>\n</body>\n"
+    }
+
+    static let floodlightTask = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<FloodlightTask version=\"1.1\">\n<channel>0</channel>\n<alarmMode>1</alarmMode>\n"
+        + "<enable>1</enable>\n<brightness_cur>80</brightness_cur>\n<newColorTemperature>40</newColorTemperature>\n<duration>180</duration>\n</FloodlightTask>\n</body>\n"
+
+    static func colourCamera(_ environment: ReolinkEnvironment, ledCtrl: Int = ledCtrl) {
+        environment.prepareCamera.withLockedValue {
+            $0 = { camera in
+                camera.answer(199) { _, _ in abilitiesXML(ledCtrl: ledCtrl) }
+                camera.answer(289) { _, _ in floodlightTask }
+            }
+        }
+    }
+
+    static func whiteLed(colour: Int, mode: Int = 1) -> @Sendable (JSONValue?) -> JSONValue {
+        okAnswer("GetWhiteLed", ["WhiteLed": ["channel": 0, "state": 1, "bright": 80, "mode": .number(Double(mode)), "ColorTemp": .number(Double(colour))]])
+    }
+
+    @Test func colourTemperatureAndModes() throws {
+        // The addendum's vectors: ColorTemp 40 is 4800 K; 4500 K is 50.
+        #expect(ReolinkFloodlight.kelvin(40) == 4800)
+        #expect(ReolinkFloodlight.value(kelvin: 4500) == 50)
+        #expect(ReolinkFloodlight.value(kelvin: 2900) == nil)
+        #expect(ReolinkFloodlight.mireds(kelvin: 4800) == 208)
+        #expect(ReolinkFloodlight.offeredModes(ledCtrl: Self.ledCtrl, flSchedule: false, flKeepOn: false, autoBrightness: false) == ["off", "auto", "night"])
+        // Bit 6 set: no automatic mode; bit 14 adaptive, and auto-adaptive with bit 13.
+        #expect(ReolinkFloodlight.offeredModes(ledCtrl: 1 << 6 | 1 << 14, flSchedule: true, flKeepOn: false, autoBrightness: false) == ["off", "schedule", "adaptive"])
+        #expect(ReolinkFloodlight.offeredModes(ledCtrl: 1 << 6 | 1 << 13 | 1 << 14, flSchedule: false, flKeepOn: false, autoBrightness: false) == ["off", "autoAdaptive", "adaptive"])
+        let root = try BXParser.parse(Self.abilitiesXML(ledCtrl: 5))
+        #expect(BaichuanEvents.abilities(root) == [0: ["ledCtrl": 5]])
+        let changed = Baichuan.replacingText(of: "newColorTemperature", with: "50", in: Self.floodlightTask)
+        #expect(changed == Self.floodlightTask.replacingOccurrences(of: "<newColorTemperature>40<", with: "<newColorTemperature>50<"))
+    }
+
+    @Test func floodlightColourGoesOverBaichuanWithAdaptiveLighting() async throws {
+        var answers = cameraAnswers()
+        let colour = NIOLockedValueBox(40)
+        answers["GetWhiteLed"] = { param in Self.whiteLed(colour: colour.withLockedValue { $0 })(param) }
+        // The echo window is 10 s at a twentieth: 500 ms; refreshes are asked for rather than waited for.
+        let environment = ReolinkEnvironment(answers, scale: 0.05)
+        Self.colourCamera(environment)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        let device = try #require(await environment.plugin?.runtimes[Self.address]?.host)
+        let light = try #require(camera.services.floodlight)
+        let temperature = try #require(light[.colorTemperature])
+        // GetWhiteLed's 40: 4800 K.
+        #expect(await eventually { temperature.value == .int(208) })
+        let adaptive = try #require(camera.adaptiveLighting)
+
+        // 222 mireds is 4500 K: 50, sent back in the whole task, the rest kept.
+        let handler = try #require(temperature.writeHandler(for: .int(222)))
+        try await handler(.int(222))
+        #expect(environment.camera?.bodies(290) == [Self.floodlightTask.replacingOccurrences(of: "<newColorTemperature>40<", with: "<newColorTemperature>50<")])
+        // A drag: one more 289 read and 290 write.
+        await withTaskGroup(of: Void.self) { group in
+            for mireds in [300, 280, 260, 240, 230] { group.addTask { try? await handler(.int(mireds)) } }
+        }
+        #expect(environment.camera?.bodies(290).count == 2)
+        #expect(environment.camera?.bodies(289).count == 2)
+
+        // Adaptive Lighting: its own write's echo leaves it on; a colour set in the Reolink app turns it off.
+        try adaptive.activateForTesting(mireds: 300)
+        #expect(await eventually { environment.camera?.bodies(290).count == 3 })
+        #expect(await eventually { temperature.value == .int(300) })
+        colour.withLockedValue { $0 = 89 }
+        await device.refresh()
+        #expect(temperature.value == .int(300))
+        #expect(adaptive.isAdaptiveLightingActive)
+        try await Task.sleep(for: .milliseconds(600))
+        colour.withLockedValue { $0 = 0 }
+        await device.refresh()
+        #expect(await eventually { !adaptive.isAdaptiveLightingActive && temperature.value == .int(167) })
+    }
+
+    @Test func floodlightModeSettingIsWrittenOnceWhenItDiffers() async throws {
+        var answers = cameraAnswers()
+        answers["GetWhiteLed"] = Self.whiteLed(colour: 40, mode: 1)
+        let environment = ReolinkEnvironment(answers, scale: 0.01)
+        Self.colourCamera(environment)
+        let host = try await environment.start(Self.block(["floodlightMode": "night"]))
+        defer { Task { await host.stop() } }
+        _ = try #require(await Self.camera(environment))
+        #expect(await eventually { sentItems(environment.http, "SetWhiteLed").count == 1 })
+        #expect(sentItems(environment.http, "SetWhiteLed").first?["param"] == ["WhiteLed": ["channel": 0, "mode": 2]])
+    }
+
+    @Test func aModeTheCameraDoesNotOfferIsNotWritten() async throws {
+        let environment = ReolinkEnvironment(scale: 0.01)
+        Self.colourCamera(environment)
+        let host = try await environment.start(Self.block(["floodlightMode": "adaptive"]))
+        defer { Task { await host.stop() } }
+        _ = try #require(await Self.camera(environment))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(environment.http.count("SetWhiteLed") == 0)
+    }
+
+    @Test func aFloodlightWithoutColourHasNoColourTemperature() async throws {
+        let environment = ReolinkEnvironment(scale: 0.01)
+        Self.colourCamera(environment, ledCtrl: 0b110)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        #expect(camera.services.floodlight?[.colorTemperature] == nil)
+        #expect(camera.adaptiveLighting == nil)
+    }
 }
