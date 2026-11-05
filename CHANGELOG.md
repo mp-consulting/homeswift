@@ -75,21 +75,6 @@ All notable changes to this project are documented here. The format follows
   FFmpeg 5, left out for an unknown version, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
   `RTSPCameraStreamer.standardResolutions` and `minimumInactivity`, and every query value of an RTSP URL masked in FFmpeg's
   logs.
-- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
-  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
-  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
-  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
-  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
-  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
-  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
-- Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
-  a field a step may leave empty says Optional.
-- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
-  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
-  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
-  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
-  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
-  and `HomeswiftNetwork` `ARPTable.entries()`.
 - IMOU: the documented HMAC-SHA256 signature, with MD5 kept for accounts that refuse it; pan, tilt, zoom, presets, night
   vision's modes, restart and the SD card as actions for MCP and the Assistant; person detection, status light, siren and
   light on alarm, night vision and preset switches (Accessory Settings, off by default); privacy kept in step with
