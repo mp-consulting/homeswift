@@ -79,6 +79,12 @@ enum BXParser {
         return root
     }
 
+    /// Text with XML's special characters as entities.
+    static func escape(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
     static func decode(_ text: String) -> String {
         guard text.contains("&") else { return text }
         return text.replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")

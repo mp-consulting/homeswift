@@ -32,6 +32,8 @@ actor ReolinkHost {
     private var privacyBeforeConnect: Bool?
     /// `cmd_id` 199's abilities by channel, when Baichuan answered before the channels were read.
     private var baichuanAbilities: [Int: [String: Int]] = [:]
+    /// Each channel's talk ability once asked (ReolinkTalk.md 2): kept for the host's life.
+    private var talkAbilities: [Int: ReolinkTalkAbility] = [:]
     /// Who waits for privacy mode to end (`waitForPrivacyOff`).
     private let privacyWaiters = Waiters<Void>()
 
@@ -228,6 +230,43 @@ actor ReolinkHost {
         return session
     }
 
+    /// A channel's talk format (ReolinkTalk.md 2), asked once when its abilities say it may talk; nil without one. Talk
+    /// goes over the Baichuan session: none without push (`pushEvents`).
+    func talkConfig(channel ch: Int, name: String) async -> ReolinkTalkConfig? {
+        if let known = talkAbilities[ch] { return known.config }
+        guard ReolinkTalkAbility.permitted(httpTalk: info.ability("talk", channel: ch), baichuan: baichuanAbilities, channel: ch, multiChannel: info.isMultiChannel) else {
+            log.info("\(name): the device reports no talk ability: no two-way audio.")
+            talkAbilities[ch] = .unsupported("no talk ability")
+            return nil
+        }
+        guard let baichuan, await baichuan.isConnected else {
+            log.info("\(name): two-way audio goes over the Baichuan connection, which is \(device.pushEvents ? "not up" : "off (pushEvents)"): no two-way audio for now.")
+            return nil
+        }
+        let ability: ReolinkTalkAbility
+        do {
+            ability = try await baichuan.talkAbility(channel: ch)
+        } catch {
+            log.info("\(name): could not ask the talk ability (\(error)): no two-way audio for now.")
+            return nil
+        }
+        talkAbilities[ch] = ability
+        switch ability {
+        case .supported(let config): log.info("\(name): two-way audio (Experimental): \(config.summary).")
+        case .unsupported(let reason): log.info("\(name): no two-way audio: \(reason).")
+        }
+        return ability.config
+    }
+
+    /// A Talk's way to the session: the host's Baichuan connection while it is up.
+    func talkLink(channel ch: Int) -> ReolinkTalkLink {
+        let battery = channels[ch]?.battery ?? false
+        return ReolinkTalkLink(withSession: { [weak self] body in
+            guard let session = await self?.baichuan, await session.isOpen else { throw BaichuanError.closed }
+            try await body(session)
+        }, retriesWaking: battery)
+    }
+
     /// Privacy mode of each channel that may have it (a camera whose login reply had `sleep`; an NVR's channel with
     /// `remoteAbility`): a 574 reply with `sleep` says it has it.
     private func readPrivacy() async {
@@ -314,7 +353,11 @@ actor ReolinkHost {
             if let on = ReolinkRecording.isOn(value, v20: reply.cmd == "GetRecV20", multiChannel: info.isMultiChannel) { channel.state.recordingOn = on }
         case "GetBatteryInfo":
             let battery = value["Battery"]
-            channel.state.batteryPercent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) ?? channel.state.batteryPercent
+            if let percent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) {
+                // A push's low flag holds for the level it came with; a new level decides it again (else it never clears).
+                if percent != channel.state.batteryPercent { channel.state.batteryLow = percent < 20 }
+                channel.state.batteryPercent = percent
+            }
             if let status = battery?["chargeStatus"]?.saturatingIntValue { channel.state.charging = status == 1 }
         default:
             break
@@ -398,9 +441,14 @@ actor ReolinkHost {
             return
         case .dayNight:
             return
+        case .battery(let ch, let report):
+            guard channels[ch] != nil else { return }
+            if let percent = report.percent { channels[ch]?.state.batteryPercent = percent }
+            channels[ch]?.state.charging = report.charging
+            channels[ch]?.state.batteryLow = report.isLow
         }
         switch push {
-        case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _): publish(ch)
+        case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _), .battery(let ch, _): publish(ch)
         case .dayNight, .privacy: break
         }
     }

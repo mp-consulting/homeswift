@@ -82,6 +82,7 @@ extension ImouPlugin {
         static let keys: Set<String> = [
             "host", "rtspPort", "httpPort", "username", "localEvents", "motionTimeout", "privacySwitch", "lightSwitch", "sirenSwitch", "motionDetectSwitch",
             "recording", "encoder", "personDetectSwitch", "statusLightSwitch", "linkageSirenSwitch", "linkageLightSwitch", "nightVisionSwitch", "presetSwitches",
+            "twoWayAudio", "talkCodec", "talkMethod", "talkZeroTimestamps",
         ]
 
         var host: String?
@@ -105,6 +106,11 @@ extension ImouPlugin {
         var nightVisionSwitch = false
         /// A "Go to <preset>" switch per PTZ preset.
         var presetSwitches = false
+        /// Two-way talk (ImouTalk.md): experimental, off unless asked for; `auto` asks the camera whether it has a speaker.
+        var twoWayAudio = TalkMode.off
+        var talkCodec = TalkCodec.g711A
+        var talkMethod = TalkMethod.auto
+        var talkZeroTimestamps = false
 
         init(fields: [String: JSONValue], password: String?, defaults: Configuration) {
             let json = JSONValue.object(fields)
@@ -127,6 +133,13 @@ extension ImouPlugin {
             linkageLightSwitch = json["linkageLightSwitch"]?.boolValue ?? linkageLightSwitch
             nightVisionSwitch = json["nightVisionSwitch"]?.boolValue ?? nightVisionSwitch
             presetSwitches = json["presetSwitches"]?.boolValue ?? presetSwitches
+            // A boolean turns it on or off, as the spec's "twoWayAudio boolean" reads.
+            if let flag = json["twoWayAudio"]?.boolValue { twoWayAudio = flag ? .on : .off } else {
+                twoWayAudio = json["twoWayAudio"].text.flatMap { TalkMode(rawValue: $0.lowercased()) } ?? twoWayAudio
+            }
+            talkCodec = json["talkCodec"].text.flatMap { text in [TalkCodec.g711A, .g711Mu, .aac].first { $0.rawValue.lowercased() == text.lowercased() } } ?? talkCodec
+            talkMethod = json["talkMethod"].text.flatMap { TalkMethod(rawValue: $0.lowercased()) } ?? talkMethod
+            talkZeroTimestamps = json["talkZeroTimestamps"]?.boolValue ?? talkZeroTimestamps
         }
 
         /// Video and snapshots can go local: an address and a password.

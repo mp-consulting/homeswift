@@ -20,6 +20,17 @@ All notable changes to this project are documented here. The format follows
   wireless Reolink Chime; a Recording switch for the device's own recording; motion and AI sensitivity. Privacy and
   Recording are security controls, confirmed by MCP clients. A camera's settings sheet groups its settings (Sensors,
   Lights and switches, Video, Connection).
+- Reolink: battery cameras on their own Wi-Fi, without a Home Hub or NVR (experimental, a clean-room implementation of
+  docs/clean-room/ReolinkBattery.md; TCP only): found at Setup by their Baichuan abilities when the HTTP API does not
+  answer, published from what they said of themselves so they are never woken at launch, live video from the Baichuan
+  media stream remuxed to MPEG-TS for FFmpeg (H.264 and H.265, AAC audio), Baichuan snapshots with a cache that never
+  wakes the camera for the Home app's periodic requests, battery level and charging, and motion and doorbell presses by
+  the camera's webhook; a connection is opened only on demand and closed 5 seconds after its last use.
+- Reolink: two-way audio over Baichuan (experimental, off unless a channel's `twoWayAudio` is on; a clean-room
+  implementation of docs/clean-room/ReolinkTalk.md): a camera, an NVR or Home Hub channel or a battery camera whose talk
+  ability says it can gets a Speaker, and the Home app's talk button reaches its speaker as IMA ADPCM, started with
+  `TalkConfig` and stopped once the audio has played; a battery camera stays awake only while a Talk runs. Tested
+  against fake devices only.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
@@ -27,6 +38,13 @@ All notable changes to this project are documented here. The format follows
   spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
   within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
   streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
+- `HomeswiftFFmpeg`: HomeKit's return audio for camera plugins. `RTSPCameraStreamer` takes `ReturnAudioOptions`: a
+  `ReturnAudioReceiver` per live stream decodes the SRTP AAC-ELD HomeKit sends while someone talks into PCM frames,
+  one `Talk` per burst of speech, for the plugin's handler; G.711 A-law and µ-law and IMA ADPCM encoders, and AAC in ADTS
+  through FFmpeg.
+- IMOU: two-way audio (experimental, off unless a camera's `twoWayAudio` is `auto` or `on`): the Home app's talk button
+  sends to the camera's speaker over Dahua's `postAudio` CGI, or its ONVIF RTSP backchannel where that CGI is missing;
+  tested against fake cameras only.
 - Tapo battery cameras (`TapoP100`, `type` `Camera` or `DualLensCamera`): a C675D's wide and tele lenses as two HomeKit
   cameras, streamed without RTSP through the cameras' Streamd server on port 8800 (signed in with the owner's cloud
   password, HEVC transcoded to H.264), reached only while someone watches: snapshots are the last live view's, and the

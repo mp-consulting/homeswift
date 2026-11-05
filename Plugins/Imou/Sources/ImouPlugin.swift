@@ -29,6 +29,10 @@ public actor ImouPlugin: HomeswiftPlugin {
         var eventSilence: Duration = .seconds(30)
         /// The plugin's log, the context's when nil: tests read what it says.
         var logger: Logger?
+        /// Two-way talk's raw connections to a camera (ImouTalk.md, sections 3 and 4).
+        var talkConnect: TalkConnector = { host, port, timeout in try await TCPStream.connect(host: host, port: port, timeout: timeout) }
+        /// Replaces FFmpeg's decoding of HomeKit's return audio (tests).
+        var returnAudioDecoder: ReturnAudioDecoderFactory?
     }
 
     public static let platform = "Imou"
@@ -58,6 +62,8 @@ public actor ImouPlugin: HomeswiftPlugin {
     /// The cloud's camera devices, by Device Id, from its last listing.
     private(set) var cloudDevices: [String: ImouDevice] = [:]
     private var queues: [String: SerialQueue] = [:]
+    /// Whether each camera talks, as last detected (ImouTalk.md, section 2), by what it was asked with.
+    private var talkDetected: [String: Bool] = [:]
     private var eventStreams: [String: Task<Void, Never>] = [:]
     private var ffmpeg: RTSPCameraFFmpeg?
     private(set) var cloud: ImouCloud?
@@ -272,6 +278,7 @@ public actor ImouPlugin: HomeswiftPlugin {
             DahuaClient(host: $0, port: settings.httpPort, username: settings.username, password: settings.password ?? "", transport: dependencies.local)
         } : nil
         let ffmpeg = sharedFFmpeg()
+        let talk = await talk(for: device, channel: channel, settings: settings, local: local, ffmpeg: ffmpeg, name: name)
         let camera = ImouCamera(
             accessoryID: id, deviceID: device.deviceID, channel: channel, name: name, features: features, settings: settings,
             multiChannel: !device.isIPC, cloud: cameraCloud, local: local, queue: queue(for: device.deviceID),
@@ -289,7 +296,9 @@ public actor ImouPlugin: HomeswiftPlugin {
             snapshot: { [weak camera] _ in
                 guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
                 return try await camera.snapshotImage()
-            }, log: logger, timeScale: dependencies.timeScale)
+            }, log: logger, timeScale: dependencies.timeScale,
+            returnAudio: talk.map { talk in ReturnAudioOptions(format: talk.settings.codec.format) { await talk.handle($0) } },
+            returnAudioDecoder: dependencies.returnAudioDecoder)
         let recorder = records ? RTSPCameraRecorder(name: name, options: options, ffmpeg: ffmpeg, open: open, log: logger) : nil
         do {
             let controllerOptions = CameraControllerOptions(
@@ -298,7 +307,7 @@ public actor ImouPlugin: HomeswiftPlugin {
                     supportedCryptoSuites: [.aesCM128HMACSHA1_80],
                     video: VideoStreamingOptions(
                         codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]), resolutions: Self.resolutions),
-                    audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: false)),
+                    audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: talk != nil)),
                 recording: recorder.map {
                     CameraRecordingSetup(options: RTSPCameraRecorder.options(resolutions: Self.resolutions, triggers: features.doorbell ? [.motion, .doorbell] : [.motion]),
                                          delegate: $0)
@@ -327,6 +336,34 @@ public actor ImouPlugin: HomeswiftPlugin {
         } catch {
             logger.error("Could not publish \(name): \(error)")
         }
+    }
+
+    // MARK: Two-way talk
+
+    /// The camera's talk (ImouTalk.md, sections 2 and 6), when its `twoWayAudio` setting allows it, it is reached on the LAN
+    /// and it has a speaker (`on` takes that for granted): `devAudioOutput` says so, or, when it cannot, a backchannel track
+    /// in its stream. Asked before the camera is published, since only a camera published with two-way audio has a Speaker.
+    private func talk(for device: ImouDevice, channel: ImouChannel, settings: CameraSettings, local: DahuaClient?, ffmpeg: RTSPCameraFFmpeg,
+                      name: String) async -> ImouTalk? {
+        guard settings.twoWayAudio != .off, let local, let host = settings.host else { return nil }
+        let talk = ImouTalk(
+            settings: .init(host: host, httpPort: settings.httpPort, rtspPort: settings.rtspPort, channel: channel.localChannel, codec: settings.talkCodec,
+                            method: settings.talkMethod, zeroTimestamps: settings.talkZeroTimestamps),
+            client: local, connect: dependencies.talkConnect, ffmpeg: ffmpeg, name: name, log: logger, scale: dependencies.timeScale)
+        guard settings.twoWayAudio == .auto else { return talk }
+        let key = "\(device.deviceID)|\(channel.id)|\(host)|\(settings.httpPort)|\(settings.rtspPort)|\(settings.talkMethod.rawValue)"
+        if let known = talkDetected[key] { return known ? talk : nil }
+        var speaker: Bool?
+        if settings.talkMethod != .rtsp, let outputs = await local.audioOutputs() { speaker = outputs > 0 }
+        if speaker == nil, settings.talkMethod != .http { speaker = await talk.probeBackchannel() }
+        // A camera that could not be asked is asked again with the next publication (the next restart).
+        guard let speaker else {
+            logger.info("\(name): could not tell whether the camera has a speaker: no two-way audio for now")
+            return nil
+        }
+        talkDetected[key] = speaker
+        if !speaker { logger.info("\(name): camera has no speaker") }
+        return speaker ? talk : nil
     }
 
     /// The leading numbers of a firmware version, as HomeKit takes them (`2.840.0000000.12.R` is `2.840.0`).

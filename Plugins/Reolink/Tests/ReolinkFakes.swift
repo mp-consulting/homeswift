@@ -199,6 +199,12 @@ final class FakeBaichuanCamera: ByteStream, @unchecked Sendable {
         var answers: [UInt32: @Sendable (_ channel: UInt8, _ body: String) -> String?] = [:]
         /// Extra children of the login reply's `DeviceInfo` (its `sleep`, say).
         var deviceInfo = ""
+        /// The statuses the next requests of a `cmd_id` get, in turn (200 once they are used up), by `ch_id` when given.
+        var statuses: [UInt32: [UInt16]] = [:]
+        /// `cmd_id`s that get no answer.
+        var silent: Set<UInt32> = []
+        /// Every request as sent: its header and what follows the extension (a Talk's binary, in clear).
+        var raw: [(header: [UInt8], payload: [UInt8])] = []
     }
 
     let state = NIOLockedValueBox(State())
@@ -241,17 +247,32 @@ final class FakeBaichuanCamera: ByteStream, @unchecked Sendable {
         }
         let decrypt = { (piece: [UInt8]) in String(decoding: (try? Baichuan.aes(piece, key: self.key, decrypt: true)) ?? [], as: UTF8.self) }
         let text = decrypt(rest)
-        let answer = state.withLockedValue { state in
+        let (answer, status, silent) = state.withLockedValue { state -> ((@Sendable (UInt8, String) -> String?)?, UInt16, Bool) in
             state.received.append((command, channel, decrypt(ext), text))
-            return state.answers[command]
+            state.raw.append((Array(bytes.prefix(24)), rest))
+            var status: UInt16 = 200
+            if var queue = state.statuses[command], !queue.isEmpty {
+                status = queue.removeFirst()
+                state.statuses[command] = queue
+            }
+            return (state.answers[command], status, state.silent.contains(command))
         }
-        let xml = answer?(channel, text)
-        reply(command: command, channel: channel, counter: counter, status: 200, body: xml.map { (try? Baichuan.aes(Array($0.utf8), key: key, decrypt: false)) ?? [] } ?? [])
+        guard !silent else { return }
+        let xml = status == 200 ? answer?(channel, text) : nil
+        reply(command: command, channel: channel, counter: counter, status: status, body: xml.map { (try? Baichuan.aes(Array($0.utf8), key: key, decrypt: false)) ?? [] } ?? [])
     }
 
     func answer(_ command: UInt32, _ reply: @escaping @Sendable (_ channel: UInt8, _ body: String) -> String?) {
         state.withLockedValue { $0.answers[command] = reply }
     }
+
+    /// The requests with this `cmd_id` as sent, in order: header and clear payload.
+    func raw(_ command: UInt32) -> [(header: [UInt8], payload: [UInt8])] {
+        state.withLockedValue { $0.raw.filter { Baichuan.readUInt32($0.header, 4) == command } }
+    }
+
+    /// The `cmd_id`s of the talk (10, 201, 202, 11), in the order they came.
+    var talkCommands: [UInt32] { commands.filter { [10, 201, 202, 11].contains($0) } }
 
     /// The bodies of the requests with this `cmd_id`, in order.
     func bodies(_ command: UInt32) -> [String] { state.withLockedValue { $0.received.filter { $0.command == command }.map(\.body) } }

@@ -47,7 +47,7 @@ enum Baichuan {
     }
 
     /// AES-128-CFB128 with the fixed IV, a fresh cipher state per call: no padding, the output as long as the input.
-    static func aes(_ bytes: [UInt8], key: [UInt8], decrypt: Bool) throws -> [UInt8] {
+    static func aes(_ bytes: some DataProtocol, key: [UInt8], decrypt: Bool) throws -> [UInt8] {
         guard !bytes.isEmpty else { return [] }
         let symmetric = SymmetricKey(data: key)
         let iv = try AES._CFB.IV(ivBytes: aesIV)
@@ -175,6 +175,10 @@ enum Baichuan {
         [UInt8(value & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value >> 16 & 0xFF), UInt8(value >> 24 & 0xFF)]
     }
 
+    static func littleEndian16(_ value: UInt16) -> [UInt8] { [UInt8(value & 0xFF), UInt8(value >> 8)] }
+
+    static func readUInt16(_ bytes: [UInt8], _ offset: Int) -> UInt16 { UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8 }
+
     static func readUInt32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
         UInt32(bytes[offset]) | UInt32(bytes[offset + 1]) << 8 | UInt32(bytes[offset + 2]) << 16 | UInt32(bytes[offset + 3]) << 24
     }
@@ -201,6 +205,8 @@ struct BaichuanMessage: Sendable, Equatable {
     var extensionBytes: [UInt8]
     /// The XML body, or the binary payload after an extension.
     var body: [UInt8]
+    /// Byte 16 of a 20-byte header (`0x12` with `dd`: "full AES", ReolinkBattery.md 4.4); nil for a 24-byte one.
+    var encryptionCode: UInt8? = nil
 }
 
 enum BaichuanError: Error, CustomStringConvertible, Equatable {
@@ -291,6 +297,7 @@ struct BaichuanFramer: Sendable {
                 message.extensionBytes = Array(buffer[bodyStart..<(bodyStart + extensionLength)])
                 payloadStart += extensionLength
             } else {
+                if buffer[start + 17] == 0xDD { message.encryptionCode = buffer[start + 16] }
                 message.declaredEncryption = switch (buffer[start + 16], buffer[start + 17]) {
                 case (0x01, 0xDD), (0x12, 0xDD): .xor
                 case (0x02, 0xDD), (0x03, 0xDD): .aes

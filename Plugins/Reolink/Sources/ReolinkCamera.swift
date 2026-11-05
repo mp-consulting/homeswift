@@ -25,6 +25,8 @@ final class ReolinkCamera: @unchecked Sendable {
     let controller: CameraController
     let streamer: ReolinkStreamer
     let recorder: ReolinkRecorder?
+    /// Two-way talk, when the camera was published with it (ReolinkTalk.md).
+    let talker: ReolinkTalker?
     let channel: Int
     private let name: String
     private let log: Logger
@@ -72,11 +74,20 @@ final class ReolinkCamera: @unchecked Sendable {
         var chime: @Sendable (_ id: Int) async throws -> Void
         var recording: @Sendable (_ on: Bool) async throws -> Void
         var patrol: @Sendable (_ on: Bool) async throws -> Void
+
+        /// Every write refused (a camera made with `canWrite` false, which rejects them first).
+        static let refusingAll: Writes = {
+            let refused: @Sendable () throws -> Void = { throw ReolinkError.unsupported("this control") }
+            return Writes(floodlight: { _, _ in try refused() }, siren: { _ in try refused() }, ir: { _ in try refused() }, goToPreset: { _ in try refused() },
+                          privacy: { _ in try refused() }, floodlightColour: { _ in try refused() }, chime: { _ in try refused() },
+                          recording: { _ in try refused() }, patrol: { _ in try refused() })
+        }()
     }
 
     /// The services a channel gets, from what it supports and its options.
     init(id: String, channel info: ReolinkChannel, host: ReolinkHostInfo, options: ReolinkPlugin.CameraOptions, canWrite: Bool,
-         streamer: ReolinkStreamer, recorder: ReolinkRecorder?, writes: Writes, log: Logger, timing: ReolinkTiming) throws {
+         streamer: ReolinkStreamer, recorder: ReolinkRecorder?, writes: Writes, log: Logger, timing: ReolinkTiming, talker: ReolinkTalker? = nil) throws {
+        self.talker = talker
         let name = options.name ?? info.name
         self.name = name
         self.channel = info.channel
@@ -108,7 +119,7 @@ final class ReolinkCamera: @unchecked Sendable {
         self.siren = siren
         let ir = options.irLights && info.irLights ? Service(.switch, name: "\(name) Infrared", subtype: "ir") : nil
         self.ir = ir
-        let battery = info.battery ? Service(.battery, name: "\(name) Battery", subtype: "battery") : nil
+        let battery = info.battery ? Service(.battery, name: "\(name) Battery", subtype: "battery", optional: [.batteryLevel, .chargingState]) : nil
         self.battery = battery
         // PTZ (addendum B.7): HomeKit has no PTZ service; presets and the patrol are switches, when asked for.
         var presets: [Int: Service] = [:]
@@ -137,7 +148,7 @@ final class ReolinkCamera: @unchecked Sendable {
             supportedCryptoSuites: [.aesCM128HMACSHA1_80],
             video: VideoStreamingOptions(codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]),
                                          resolutions: Self.resolutions(upTo: info.main)),
-            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: false))
+            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: talker != nil))
         let controllerOptions = CameraControllerOptions(
             cameraStreamCount: options.maxStreams, delegate: streamer, streamingOptions: streaming,
             recording: recorder.map { CameraRecordingSetup(options: ReolinkRecorder.options(resolutions: Self.resolutions(upTo: info.main)), delegate: $0) },
@@ -318,9 +329,10 @@ final class ReolinkCamera: @unchecked Sendable {
             privacy?.characteristic(.on).value = .bool(on)
             cameraActive?.value = .int(on ? 0 : 1)
         }
-        if let battery, let percent = new.batteryPercent, previous?.batteryPercent != percent || previous?.charging != new.charging {
+        if let battery, let percent = new.batteryPercent,
+           previous?.batteryPercent != percent || previous?.charging != new.charging || previous?.batteryLow != new.batteryLow {
             battery.characteristic(.batteryLevel).value = .int(percent)
-            battery.characteristic(.statusLowBattery).value = .int(percent < 20 ? 1 : 0)
+            battery.characteristic(.statusLowBattery).value = .int(percent < 20 || new.batteryLow == true ? 1 : 0)
             battery.characteristic(.chargingState).value = .int(new.charging == true ? 1 : 0)
         }
     }
