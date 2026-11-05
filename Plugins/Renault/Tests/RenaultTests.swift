@@ -77,17 +77,21 @@ struct RenaultTests {
     }
 
     @Test func climateWritesAndStaysOptimistic() async throws {
-        let environment = TestEnvironment()
+        // A hold a loaded runner reads the car within, waited out from the write rather than from the read.
+        var timing = testTiming()
+        timing.optimisticHold = .seconds(2)
+        let environment = TestEnvironment(timing: timing)
         let host = try await environment.start()
         let accessory = try #require(await accessory(host))
         let on = try #require(accessory.services.first { $0.subtype == "Climate" }?.characteristic(.on))
         try await on.write(true)
+        let written = ContinuousClock.now
         let start = try #require(environment.cloud.kamereon("/kca/car-adapter/v1/cars/\(Fixtures.vin)/actions/hvac-start", method: "POST").last)
         #expect(start.body == ["data": ["type": "HvacStart", "attributes": ["action": "start", "targetTemperature": 21]]])
         // The car still says off for a while: the switch keeps On until the hold runs out.
         await environment.plugin?.vehicles[Fixtures.vin]?.read(.hvacStatus, .poll)
         #expect(on.value == true)
-        try await Task.sleep(for: environment.timing.optimisticHold + .milliseconds(50))
+        try await Task.sleep(until: written + environment.timing.optimisticHold + .milliseconds(50))
         await environment.plugin?.vehicles[Fixtures.vin]?.read(.hvacStatus, .poll)
         #expect(on.value == false)
         // The confirmation reads went out after the action.
