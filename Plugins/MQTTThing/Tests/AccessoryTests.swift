@@ -52,6 +52,8 @@ struct AccessoryTests {
         #expect(environment.connections.map(\.url).sorted() == ["mqtt://broker.local", "mqtt://other.local"])
         let check4 = await eventually { broker.subscriptions.keys.sorted() == ["one", "two"] }
         #expect(check4)
+        // The connection is made in the background: subscriptions can come first.
+        #expect(await eventually { broker.connectCount > 0 })
         #expect(broker.connectCount == 1)
     }
 

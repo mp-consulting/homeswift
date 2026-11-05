@@ -84,6 +84,12 @@ A device a plugin has found and can tell apart by its Device Id, whether or not 
 keeps is one too, Excluded like any other.
 _Avoid_: Candidate, scan result, found device
 
+**Add by address**:
+A Setup that starts from a device the person names by its address (a host, perhaps a port, a user and password) rather
+than from a Discovered Device: the plugin probes it and says its Device Id, and the device is then set up like a
+discovered one. For devices discovery cannot find; with or without an account.
+_Avoid_: Manual device, add manually, static device
+
 **Device Kind**:
 What sort of device a plugin says a Discovered Device is, such as a camera or a sensor, which decides the Plugin
 Accessory Settings it has.

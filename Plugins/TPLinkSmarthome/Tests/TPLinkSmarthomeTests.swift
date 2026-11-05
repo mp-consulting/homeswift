@@ -205,9 +205,13 @@ struct TPLinkSmarthomeTests {
     }
 
     @Test func commandsGoToTheReplysPortWhenAsked() async throws {
-        // A device behind a port forward: its reply comes from the outside port.
+        // A device behind a port forward: its reply comes from the outside port. The LAN's broadcast does not reach
+        // it, as a real one would not: the commands follow the reply that came last, and one to the broadcast comes
+        // from 9999.
         environment.lan.put(Fixtures.hs200, at: "203.0.113.9")
-        let host = try await environment.start(settings: ["devicesUseDiscoveryPort": true, "devices": [["host": "203.0.113.9", "port": 20002]]])
+        let host = try await environment.start(settings: [
+            "broadcast": "192.168.1.255", "devicesUseDiscoveryPort": true, "devices": [["host": "203.0.113.9", "port": 20002]],
+        ])
         #expect(await eventually { host.accessory(Fixtures.hs200ID) != nil })
         try await write(host.accessory(Fixtures.hs200ID)?.service(.switch)?[.on], .bool(true))
         #expect(environment.lan.commands("set_relay_state").last.map { "\($0.host):\($0.port)" } == "203.0.113.9:20002")

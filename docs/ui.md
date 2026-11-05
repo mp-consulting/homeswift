@@ -405,7 +405,8 @@ Response says **Not responding**. Sorted by **Needs attention first**, they come
     secret kept in the vault, is left alone); the plugin reloads once, its accessories kept.
   - **Devices**: every Discovered Device of the instance, as Setup's discovery finds them, with where each stands: one set
     up opens its accessory's Settings sheet, an Excluded one has **Include**, one that Needs Authorization has **Set
-    up**. **Find again** asks the plugin again. `?accessory=<Accessory Id>` opens that accessory's sheet over the
+    up**. **Find again** asks the plugin again. A plugin that adds a device by address has **Add by address…** under
+    its devices, the Add accessories page's sheet. `?accessory=<Accessory Id>` opens that accessory's sheet over the
     page (a plugin page's link to one of its devices, or to a scene through `scenePictures`' `settings` option), and the
     address loses it once the sheet closes.
   - What the form does not show is in config.json: the page links to its editor (Settings › Config), the one place to
@@ -459,6 +460,13 @@ again. One that needs someone opens by itself and comes first, and when there is
 needs a code, a button or a sign-in, with **Set up**; then the devices set up, a quiet dot each (**Not responding** for one set up that its plugin cannot reach now, such as a
 UniFi console that is off), and those excluded.
 While a plugin looks for devices, its row says so and its devices dim.
+
+A plugin whose devices cannot be found, reached by their address (Elgato's lights on another network; Add by address,
+[plugins.md](plugins.md#setup)), has **Add by address…** under its devices and in its ⋯. It opens the Setup sheet on
+what the plugin asks: the device's IP address or host name, perhaps a port, a user and password or a camera's code. The
+plugin asks the device who it is; one that does not answer says so in the sheet ("No light answered at
+192.0.2.50:9123") and is asked again, and one that does ends at done with its Accessory Settings under it, named by
+the device, as a device's Setup does. It is then in the list, set up, and in the Home app.
 
 **Ask the Assistant**, when the Assistant is configured, opens the chat for it: it finds the plugin, starts the
 Setup and answers what you tell it (a PIN), and hands a step with a password, a sign-in page or a button to press back to
