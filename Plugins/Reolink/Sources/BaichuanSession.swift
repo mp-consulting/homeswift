@@ -6,11 +6,16 @@ import Logging
 struct ReolinkTiming: Sendable {
     var scale: Double = 1
 
-    func seconds(_ value: Double) -> Duration { .milliseconds(Int(max(0, value * scale * 1000))) }
+    func seconds(_ value: Double) -> Duration { Self.duration(value * scale) }
+
+    /// At most a year: a configured interval can be any number, and a larger one would trap converting to `Int`.
+    private static func duration(_ seconds: Double) -> Duration {
+        .milliseconds(Int(min(max(0, seconds.isNaN ? 0 : seconds), 365 * 86_400) * 1000))
+    }
 
     /// A bound on a wait for the device (a connection, a reply), never scaled: tests' fakes answer or refuse at once, and a
     /// scaled one (30 ms of 15 s) is shorter than a loaded machine takes to pass a reply on.
-    func timeout(_ value: Double) -> Duration { .milliseconds(Int(max(0, value * 1000))) }
+    func timeout(_ value: Double) -> Duration { Self.duration(value) }
 }
 
 /// What a Baichuan session reports to its host.
@@ -45,7 +50,9 @@ actor BaichuanSession {
     private var stream: (any ByteStream)?
     private var counter: UInt32 = 0
     private var aesKey: [UInt8]?
-    private var pending: [Key: CheckedContinuation<BaichuanMessage, any Error>] = [:]
+    /// The requests waiting for their reply, each with the order it was sent in.
+    private var pending: [Key: (order: UInt64, waiter: CheckedContinuation<BaichuanMessage, any Error>)] = [:]
+    private var sent: UInt64 = 0
     private var lastLogin: ContinuousClock.Instant?
     private var lastReceive = ContinuousClock.now
     private var eventsActive = false
@@ -168,7 +175,7 @@ actor BaichuanSession {
         self.stream = nil
         subscribed = false
         aesKey = nil
-        for (_, waiter) in pending { waiter.resume(throwing: BaichuanError.closed) }
+        for (_, request) in pending { request.waiter.resume(throwing: BaichuanError.closed) }
         pending = [:]
         keepaliveWait?.cancel()
         if let stream { Task { await stream.close() } }
@@ -304,16 +311,17 @@ actor BaichuanSession {
         }
         defer { timer.cancel() }
         return try await withCheckedThrowingContinuation { (waiter: CheckedContinuation<BaichuanMessage, any Error>) in
-            pending[key]?.resume(throwing: BaichuanError.closed)
-            pending[key] = waiter
+            pending[key]?.waiter.resume(throwing: BaichuanError.closed)
+            sent += 1
+            pending[key] = (sent, waiter)
             Task {
                 do { try await stream.send(bytes) } catch { self.fail(key, error) }
             }
         }
     }
 
-    private func expire(_ key: Key) { pending.removeValue(forKey: key)?.resume(throwing: BaichuanError.timeout) }
-    private func fail(_ key: Key, _ error: any Error) { pending.removeValue(forKey: key)?.resume(throwing: error) }
+    private func expire(_ key: Key) { pending.removeValue(forKey: key)?.waiter.resume(throwing: BaichuanError.timeout) }
+    private func fail(_ key: Key, _ error: any Error) { pending.removeValue(forKey: key)?.waiter.resume(throwing: error) }
 
     // MARK: Received
 
@@ -324,11 +332,11 @@ actor BaichuanSession {
             case .failure(let error):
                 log.debug("Baichuan: \(error)")
                 // An unparsed reply fails the oldest waiting request rather than leaving it to time out.
-                if error == .legacyReply, let key = pending.keys.first { fail(key, error) }
+                if error == .legacyReply, let key = pending.min(by: { $0.value.order < $1.value.order })?.key { fail(key, error) }
             case .success(let message):
                 let key = Key(command: message.command, messageID: message.messageID)
-                if let waiter = pending.removeValue(forKey: key) {
-                    waiter.resume(returning: message)
+                if let request = pending.removeValue(forKey: key) {
+                    request.waiter.resume(returning: message)
                 } else {
                     handlePush(message)
                 }

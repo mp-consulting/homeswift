@@ -225,13 +225,23 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             try? hostsFile.save(known)
         }
         let channels = await host.channels.values.sorted { $0.channel < $1.channel }
+        // A channel whose camera was swapped (its UID changed) is another device: the old one's accessory goes, and
+        // the new one gets its own Device Id rather than the old one's rooms and settings.
+        for channel in channels {
+            guard let camera = runtime.cameras[channel.channel],
+                  camera.accessory.id != Self.accessoryID(deviceID: Self.deviceID(hostID: hostID, info: info, channel: channel)) else { continue }
+            await camera.stop()
+            runtime.cameras[channel.channel] = nil
+        }
         var published = Set(runtime.cameras.values.map(\.accessory.id))
         for channel in channels where runtime.cameras[channel.channel] == nil {
             let deviceID = Self.deviceID(hostID: hostID, info: info, channel: channel)
             guard !context.isExcluded(deviceID) else { continue }
             let options = (runtime.device.cameras[String(channel.channel)] ?? .defaults).with(settings: context.accessorySettings(for: deviceID).plugin)
+            var started: ReolinkCamera?
             do {
                 let camera = try makeCamera(deviceID: deviceID, channel: channel, info: info, options: options, host: host, canWrite: await host.isAdmin)
+                started = camera
                 await camera.start()
                 camera.apply(channel.state)
                 try await context.publishExternal(camera.accessory)
@@ -242,6 +252,8 @@ public actor ReolinkPlugin: HomeswiftPlugin {
                 if !settings.isEmpty { tasks.add { await host.apply(settings, channel: ch, name: name) } }
                 if options.siren, !channel.siren { logger.info("[\(address)] \(camera.accessory.name): this camera has no siren.") }
             } catch {
+                // Its streamer and prebuffer were started: they would hold one of the camera's RTSP sessions.
+                await started?.stop()
                 logger.error("[\(address)] Could not publish channel \(channel.channel + 1): \(error)")
                 published.insert(Self.accessoryID(deviceID: deviceID))
             }

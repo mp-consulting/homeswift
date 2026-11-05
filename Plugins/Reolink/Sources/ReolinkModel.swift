@@ -462,10 +462,12 @@ enum ReolinkStreamURL {
 
     static func rtmp(host: String, port: Int, username: String, password: String, channel: Int, sub: Bool) -> String {
         let stream = sub ? "sub" : "main"
-        return "rtmp://\(host):\(port)/bcs/channel\(channel)_\(stream).bcs?channel=\(channel)&stream=\(sub ? 1 : 0)&user=\(username)&password=\(password)"
+        return "rtmp://\(bracketed(host)):\(port)/bcs/channel\(channel)_\(stream).bcs?channel=\(channel)&stream=\(sub ? 1 : 0)"
+            + "&user=\(rtspEncoded(username))&password=\(rtspEncoded(password))"
     }
 
     static func flv(https: Bool, host: String, apiPort: Int, rtmpPort: Int, username: String, password: String, channel: Int, sub: Bool) -> String {
-        "\(https ? "https" : "http")://\(host):\(apiPort)/flv?port=\(rtmpPort)&app=bcs&stream=channel\(channel)_\(sub ? "sub" : "main").bcs&user=\(username)&password=\(password)"
+        "\(https ? "https" : "http")://\(bracketed(host)):\(apiPort)/flv?port=\(rtmpPort)&app=bcs&stream=channel\(channel)_\(sub ? "sub" : "main").bcs"
+            + "&user=\(rtspEncoded(username))&password=\(rtspEncoded(password))"
     }
 }

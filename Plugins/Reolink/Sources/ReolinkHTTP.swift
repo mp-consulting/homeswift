@@ -269,6 +269,12 @@ actor ReolinkHTTPClient {
                         try await Task.sleep(for: timing.seconds(5))
                         continue
                     }
+                    // A command on its own has nothing to split into: it failed.
+                    guard runnable.count > 1 else {
+                        return zip(batch, isSkipped).map { command, isSkipped in
+                            isSkipped ? ReolinkReply.skipped(command.cmd) : ReolinkReply(cmd: command.cmd, code: 1)
+                        }
+                    }
                     return try await individually(batch)
                 }
                 var byIndex = items.makeIterator()
@@ -389,8 +395,9 @@ actor ReolinkHTTPClient {
                 throw Self.loginError(item, setting: &nextLoginAllowed, now: now(), timing: timing)
             }
             token = name
-            let lease = item.value?["Token"]?["leaseTime"]?.doubleValue.flatMap { $0.isFinite ? $0 : nil } ?? 3600
-            expiry = now().addingTimeInterval(max(lease, 0))
+            // Bounded to a day: the device's number, a huge one included, is logged as an `Int`.
+            let lease = min(max(item.value?["Token"]?["leaseTime"]?.doubleValue.flatMap { $0.isFinite ? $0 : nil } ?? 3600, 0), 86_400)
+            expiry = now().addingTimeInterval(lease)
             skipped = []
             log.trace("Reolink login: token for \(Int(lease)) s")
             return

@@ -30,7 +30,15 @@ public final class RTSPRecordingSource: Sendable {
         var nextNumber = 0
         var pendingMoof: Data?
         var recordings = 0
+        /// The configuration `start` asked the prebuffer for; nil once `stop` ran.
+        var wanted: CameraRecordingConfiguration?
+        /// A restart of the prebuffer after its livestream ended, waiting.
+        var restart: Task<Void, Never>?
     }
+
+    /// How long a prebuffer whose livestream ended waits before starting again (the camera rebooting, the RTSP
+    /// session dropped).
+    static let restartDelay: Duration = .seconds(10)
 
     private let options: FfmpegOptions
     private let url: String
@@ -53,22 +61,32 @@ public final class RTSPRecordingSource: Sendable {
     /// Starts the prebuffer, when it is kept, once HomeKit selected a recording configuration (the livestream's audio
     /// settings come from it); call it again when the configuration changes, which restarts it.
     public func start(_ configuration: CameraRecordingConfiguration) {
-        if keepsPrebuffer { ensureLivestream(configuration) }
+        guard keepsPrebuffer else { return }
+        state.withLockedValue { $0.wanted = configuration }
+        ensureLivestream(configuration)
     }
 
     /// Stops the livestream and forgets the timeshift (a recording still running keeps its count, so the livestream
     /// it restarts stops with it).
     public func stop() {
         let livestream = state.withLockedValue { state -> FfmpegLivestreamProcess? in
-            defer {
-                state.livestream = nil
-                state.configuration = nil
-                state.fragments = []
-                state.pendingMoof = nil
-            }
-            return state.livestream
+            state.wanted = nil
+            return Self.takeLivestream(&state)
         }
         livestream?.stop()
+    }
+
+    /// Clears the livestream and the timeshift and answers the livestream, for the caller to stop outside the lock.
+    private static func takeLivestream(_ state: inout State) -> FfmpegLivestreamProcess? {
+        defer {
+            state.livestream = nil
+            state.configuration = nil
+            state.fragments = []
+            state.pendingMoof = nil
+            state.restart?.cancel()
+            state.restart = nil
+        }
+        return state.livestream
     }
 
     /// The livestream for `configuration`: the one already there (running, or starting for another caller), else a new
@@ -76,7 +94,11 @@ public final class RTSPRecordingSource: Sendable {
     @discardableResult
     private func ensureLivestream(_ configuration: CameraRecordingConfiguration) -> FfmpegLivestreamProcess {
         let (livestream, previous, isNew) = state.withLockedValue { state -> (FfmpegLivestreamProcess, FfmpegLivestreamProcess?, Bool) in
-            if let current = state.livestream, state.configuration == configuration { return (current, nil, false) }
+            // A livestream recordings are reading stays: replacing it would hand them another stream's fragments
+            // after the first one's initialization segment (the recordings transcode with their own configuration).
+            if let current = state.livestream, state.configuration == configuration || state.recordings > 0 {
+                return (current, nil, false)
+            }
             // The source's audio is left out: recordings take it from their own encoder's silence otherwise.
             let livestream = FfmpegLivestreamProcess(options, recordingConfig: configuration,
                                                      livestreamOptions: FMp4LivestreamOptions(url: url, codec: codec, enableAudio: false))
@@ -94,17 +116,30 @@ public final class RTSPRecordingSource: Sendable {
             self?.received(box, from: livestream)
         }
         livestream.start()
-        // A livestream that ended is made again by the next caller.
+        // A livestream that ended is made again by the next caller, and a prebuffer kept starts again on its own.
         let forget: @Sendable (FfmpegExitStatus) -> Void = { [weak self, weak livestream] _ in
-            self?.state.withLockedValue { state in
-                if let livestream, state.livestream === livestream {
-                    state.livestream = nil
-                    state.configuration = nil
+            guard let self else { return }
+            self.state.withLockedValue { state in
+                guard let livestream, state.livestream === livestream else { return }
+                state.livestream = nil
+                state.configuration = nil
+                guard self.keepsPrebuffer, state.wanted != nil, state.restart == nil else { return }
+                state.restart = Task { [weak self] in
+                    try? await Task.sleep(for: Self.restartDelay)
+                    self?.restartPrebuffer()
                 }
             }
         }
         if !livestream.onceExit(forget) { forget(FfmpegExitStatus(exitCode: nil, signal: nil)) }
         return livestream
+    }
+
+    private func restartPrebuffer() {
+        let wanted = state.withLockedValue { state -> CameraRecordingConfiguration? in
+            state.restart = nil
+            return Task.isCancelled || state.livestream != nil ? nil : state.wanted
+        }
+        if let wanted { ensureLivestream(wanted) }
     }
 
     private func received(_ box: Data, from livestream: FfmpegLivestreamProcess) {
@@ -124,13 +159,23 @@ public final class RTSPRecordingSource: Sendable {
             let fragment = Fragment(number: state.nextNumber, data: moof, at: now, isKeyframe: isKeyframe(moof))
             state.nextNumber += 1
             state.fragments.append(fragment)
-            // Keep what covers the prebuffer, starting at a keyframe.
-            while state.fragments.count > 1, now - state.fragments[1].at >= prebufferLength { state.fragments.removeFirst() }
-            while state.fragments.count > 1, !state.fragments[0].isKeyframe { state.fragments.removeFirst() }
             if state.fragments.count > 64 { state.fragments.removeFirst(state.fragments.count - 64) }
+            Self.trim(&state.fragments, now: now, prebuffer: prebufferLength)
             return fragment
         }
         if let fragment { fragmentEvents.emit(fragment) }
+    }
+
+    /// Keeps what covers the prebuffer, starting at a keyframe: from the last keyframe at or before `now - prebuffer`
+    /// (its frames are in the window), else from the first keyframe, else the newest fragment alone.
+    private static func trim(_ fragments: inout [Fragment], now: ContinuousClock.Instant, prebuffer: Duration) {
+        guard !fragments.isEmpty else { return }
+        let cutoff = now - prebuffer
+        if let start = fragments.lastIndex(where: { $0.isKeyframe && $0.at <= cutoff }) ?? fragments.firstIndex(where: \.isKeyframe) {
+            fragments.removeFirst(start)
+        } else {
+            fragments.removeFirst(fragments.count - 1)
+        }
     }
 
     /// A recording as HomeKit selected it: the timeshift then the live fragments, transcoded, until the stream is cancelled.
@@ -143,11 +188,16 @@ public final class RTSPRecordingSource: Sendable {
                                                    fMp4Options: FMp4RecordingOptions(codec: codec, enableAudio: enableAudio, fps: fps))
             defer {
                 recording.stop()
-                let idle = state.withLockedValue { state -> Bool in
+                // Decided and taken under one lock, so a recording starting now never has its livestream stopped.
+                let (ended, restart) = state.withLockedValue { state -> (FfmpegLivestreamProcess?, CameraRecordingConfiguration?) in
                     state.recordings -= 1
-                    return state.recordings == 0
+                    guard state.recordings == 0 else { return (nil, nil) }
+                    if !keepsPrebuffer { return (Self.takeLivestream(&state), nil) }
+                    // A prebuffer `start` asked for another configuration while recordings held this one.
+                    return (nil, state.wanted != nil && state.wanted != state.configuration ? state.wanted : nil)
                 }
-                if idle, !keepsPrebuffer { stop() }
+                ended?.stop()
+                if let restart { ensureLivestream(restart) }
             }
             do {
                 let initSegment = try await livestream.getInitSegment()
