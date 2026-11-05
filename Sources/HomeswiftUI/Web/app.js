@@ -1910,6 +1910,8 @@
   /// (with `top`) a whole number when it is one.
   function formatKWh(kWh, top) {
     const size = Math.abs(kWh);
+    // A figure under a kWh in Wh (a plug's few hours), not 0.00 kWh; an axis keeps one unit.
+    if (top == null && size > 0 && size < 1) return `${Math.round(kWh * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
     const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
     return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }

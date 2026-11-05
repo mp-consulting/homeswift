@@ -1081,7 +1081,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
 
   /// Kilowatt-hours: two decimals under 10, one under 100, whole from there.
-  function formatKWh(kWh) {
+  function formatKWh(kWh, top) {
+    // A figure under a kWh in Wh, not 0.00 kWh; an axis keeps one unit.
+    if (top == null && Math.abs(kWh) > 0 && Math.abs(kWh) < 1) return `${Math.round(kWh * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
     const size = Math.abs(kWh), digits = kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
     return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
