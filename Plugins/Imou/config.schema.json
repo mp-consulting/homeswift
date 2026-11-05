@@ -9,7 +9,6 @@
         "title": "Name",
         "type": "string",
         "description": "Plugin name as shown in the logs",
-        "required": true,
         "default": "Imou"
       },
       "appId": {
@@ -272,6 +271,38 @@
       }
     }
   },
+  "layout": [
+    "name",
+    "appId",
+    "region",
+    {
+      "type": "fieldset",
+      "title": "Video",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "resolution",
+        "snapshotWait",
+        "wakeWait",
+        "videoProcessor",
+        "encoder"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "pollingInterval",
+        "alarmPollInterval",
+        "motionTimeout",
+        "dormantRetryWait",
+        "apiUrl",
+        "devices"
+      ]
+    }
+  ],
   "i18n": {
     "fr": {
       "A light for the camera's spotlight, through the cloud.": "Une lumière pour le projecteur de la caméra, par le cloud.",
@@ -281,6 +312,7 @@
       "API Address": "Adresse de l'API",
       "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire.",
       "Address": "Adresse",
+      "Advanced": "Avancé",
       "App Id": "App Id",
       "Asia Pacific (Singapore)": "Asie-Pacifique (Singapour)",
       "Camera": "Caméra",
@@ -328,6 +360,7 @@
       "The port of the camera's web interface, for snapshots and events.": "Le port de l'interface web de la caméra, pour les instantanés et les événements.",
       "The stream cloud live video uses, when the camera cannot be reached on the local network.": "Le flux qu'utilise la vidéo en direct du cloud, quand la caméra n'est pas joignable sur le réseau local.",
       "User Name": "Nom d'utilisateur",
+      "Video": "Vidéo",
       "Video Encoder": "Encodeur vidéo",
       "Wake-up Wait (in seconds)": "Attente du réveil (en secondes)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Où votre application de développeur IMOU a été créée : elle doit correspondre à la région du portail.",
@@ -341,6 +374,7 @@
       "API Address": "Dirección de la API",
       "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio.",
       "Address": "Dirección",
+      "Advanced": "Avanzado",
       "App Id": "App Id",
       "Asia Pacific (Singapore)": "Asia-Pacífico (Singapur)",
       "Camera": "Cámara",
@@ -388,6 +422,7 @@
       "The port of the camera's web interface, for snapshots and events.": "El puerto de la interfaz web de la cámara, para instantáneas y eventos.",
       "The stream cloud live video uses, when the camera cannot be reached on the local network.": "El flujo que usa el vídeo en directo de la nube, cuando la cámara no está accesible en la red local.",
       "User Name": "Nombre de usuario",
+      "Video": "Vídeo",
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera del despertar (en segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Dónde se creó su aplicación de desarrollador IMOU: debe coincidir con la región del portal.",
@@ -401,6 +436,7 @@
       "API Address": "Endereço da API",
       "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório.",
       "Address": "Endereço",
+      "Advanced": "Avançado",
       "App Id": "App Id",
       "Asia Pacific (Singapore)": "Ásia-Pacífico (Singapura)",
       "Camera": "Câmara",
@@ -448,6 +484,7 @@
       "The port of the camera's web interface, for snapshots and events.": "A porta da interface web da câmara, para instantâneos e eventos.",
       "The stream cloud live video uses, when the camera cannot be reached on the local network.": "O fluxo que o vídeo em direto da nuvem usa, quando a câmara não está acessível na rede local.",
       "User Name": "Nome de utilizador",
+      "Video": "Vídeo",
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera do despertar (em segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Onde a sua aplicação de programador IMOU foi criada: tem de corresponder à região do portal.",
