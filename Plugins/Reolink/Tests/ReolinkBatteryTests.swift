@@ -257,8 +257,11 @@ import Testing
         // FFmpeg stalled: the feed's chunks are not read; past the buffer it ends, the camera stops, nothing piles up.
         let camera = FakeBatteryCamera()
         camera.state.withLockedValue {
-            let frames = (0..<(ReolinkBatteryHost.feedChunks + 200)).map { index in
-                MediaVectors.h264(keyframe: index == 0, timestamp: UInt32(index * 66_000), payload: [0, 0, 0, 1, index == 0 ? 0x65 : 0x41, UInt8(index & 0xFF), UInt8(index >> 8)] + [UInt8](repeating: 7, count: 200))
+            let frames: [[UInt8]] = (0..<(ReolinkBatteryHost.feedChunks + 200)).map { (index: Int) -> [UInt8] in
+                let nal: UInt8 = index == 0 ? 0x65 : 0x41
+                var payload: [UInt8] = [0, 0, 0, 1, nal, UInt8(index & 0xFF), UInt8(index >> 8)]
+                payload += [UInt8](repeating: 7, count: 200)
+                return MediaVectors.h264(keyframe: index == 0, timestamp: UInt32(index * 66_000), payload: payload)
             }
             $0.media = MediaVectors.info + Array(frames.joined())
             $0.mediaChunk = 16_000

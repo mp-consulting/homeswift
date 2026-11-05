@@ -107,7 +107,14 @@ extension Baichuan {
         let padding = (8 - payload % 8) % 8
         let size = [UInt8(payload & 0xFF), UInt8(payload >> 8 & 0xFF)]
         let half = (block.count - 4) / 2
-        return Array("01wb".utf8) + size + size + [0x00, 0x01, UInt8(half & 0xFF), UInt8(half >> 8 & 0xFF)] + block + [UInt8](repeating: 0, count: padding)
+        let header: [UInt8] = [0x00, 0x01, UInt8(half & 0xFF), UInt8(half >> 8 & 0xFF)]
+        var frame: [UInt8] = Array("01wb".utf8)
+        frame += size
+        frame += size
+        frame += header
+        frame += block
+        frame += [UInt8](repeating: 0, count: padding)
+        return frame
     }
 }
 

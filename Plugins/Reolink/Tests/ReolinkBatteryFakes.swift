@@ -208,20 +208,34 @@ enum MediaVectors {
 
     /// An H.264 I-frame of the camera's stream, `timestamp` in microseconds.
     static func h264(keyframe: Bool, timestamp: UInt32, payload: [UInt8]) -> [UInt8] {
-        Array((keyframe ? "00dc" : "01dc").utf8) + Array("H264".utf8) + Baichuan.littleEndian(UInt32(payload.count)) + Baichuan.littleEndian(0)
-            + Baichuan.littleEndian(timestamp) + Baichuan.littleEndian(0) + payload + [UInt8](repeating: 0, count: BcMediaParser.padding(payload.count))
+        var frame: [UInt8] = Array((keyframe ? "00dc" : "01dc").utf8)
+        frame += Array("H264".utf8)
+        frame += Baichuan.littleEndian(UInt32(payload.count))
+        frame += Baichuan.littleEndian(0)
+        frame += Baichuan.littleEndian(timestamp)
+        frame += Baichuan.littleEndian(0)
+        frame += payload
+        frame += [UInt8](repeating: 0, count: BcMediaParser.padding(payload.count))
+        return frame
     }
 
     static func aacFrame(_ payload: [UInt8]) -> [UInt8] {
         let size = [UInt8(payload.count & 0xFF), UInt8(payload.count >> 8)]
-        return Array("05wb".utf8) + size + size + payload + [UInt8](repeating: 0, count: BcMediaParser.padding(payload.count))
+        var frame: [UInt8] = Array("05wb".utf8)
+        frame += size
+        frame += size
+        frame += payload
+        frame += [UInt8](repeating: 0, count: BcMediaParser.padding(payload.count))
+        return frame
     }
 
     /// A second of 15 fps video with AAC between the frames.
     static var stream: [UInt8] {
         var bytes = info
         for frame in 0..<15 {
-            bytes += h264(keyframe: frame == 0, timestamp: UInt32(frame) * 66_666, payload: [0, 0, 0, 1, frame == 0 ? 0x65 : 0x41] + [UInt8](repeating: UInt8(frame), count: 300))
+            let nal: UInt8 = frame == 0 ? 0x65 : 0x41
+            let payload: [UInt8] = [0, 0, 0, 1, nal] + [UInt8](repeating: UInt8(frame), count: 300)
+            bytes += h264(keyframe: frame == 0, timestamp: UInt32(frame) * 66_666, payload: payload)
             bytes += aacFrame(aacPayload)
         }
         return bytes
