@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
   Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
   name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
+### Changed
+
+- A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
+  shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
 ## [0.20.1] - 2026-11-04
 
