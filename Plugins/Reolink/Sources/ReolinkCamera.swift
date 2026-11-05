@@ -101,6 +101,7 @@ final class ReolinkCamera: @unchecked Sendable {
             ? Service(.lightbulb, name: "\(name) Floodlight", subtype: "floodlight",
                       optional: [.brightness] + (info.floodlightColour ? [.colorTemperature.with(minValue: Double(ReolinkFloodlight.miredRange.lowerBound), maxValue: Double(ReolinkFloodlight.miredRange.upperBound))] : []))
             : nil
+            ? Service(.lightbulb, name: "\(name) Floodlight", subtype: "floodlight", optional: [.brightness]) : nil
         self.floodlight = floodlight
         let siren = options.siren && info.siren ? Service(.switch, name: "\(name) Siren", subtype: "siren") : nil
         self.siren = siren
@@ -157,6 +158,9 @@ final class ReolinkCamera: @unchecked Sendable {
         // It drives privacy mode too: a security control as the Privacy switch is, so no surface of the bridge writes it
         // unconfirmed.
         cameraActive?.securityControl()
+            services: [doorbell].compactMap { $0 } + sensors + [floodlight, siren, ir, battery].compactMap { $0 },
+            onIdentify: { [log] in log.info("\(name): identify requested.") })
+        accessory.configureController(controller)
         for service in sensors { service.characteristic(.motionDetected).value = false }
 
         // Writes (7.2): the value is kept optimistically, put back when the device refuses.

@@ -108,6 +108,9 @@ extension ReolinkPlugin {
         static let settingKeys = ["motionSensor", "aiSensors", "doorbell", "floodlight", "siren", "irLights", "stream", "audio", "recording", "prebuffer",
                                   "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch", "floodlightMode", "chimeSwitch", "chimeTone", "recordingSwitch", "motionSensitivity", "aiSensitivity"]
 
+        static let settingKeys = ["motionSensor", "aiSensors", "doorbell", "floodlight", "siren", "irLights", "stream", "audio", "recording", "prebuffer",
+                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds"]
+
         init(json: JSONValue) {
             name = json["name"]?.stringValue?.nonEmptyText
             motionSensor = json["motionSensor"]?.boolValue
@@ -151,6 +154,7 @@ extension ReolinkPlugin {
                                                "presetSwitches": .bool(presetSwitches), "patrolSwitch": .bool(patrolSwitch),
                                                "privacySwitch": .bool(privacySwitch),
                                                "chimeSwitch": .bool(chimeSwitch), "recordingSwitch": .bool(recordingSwitch), "chimeTone": .string(ReolinkChime.tones[chimeTone])]
+                                               "debug": .bool(debug), "ringThrottleSeconds": .number(Double(ringThrottleSeconds))]
             if let name { fields["name"] = .string(name) }
             if let motionSensor { fields["motionSensor"] = .bool(motionSensor) }
             if let aiSensors { fields["aiSensors"] = .array(aiSensors.map(JSONValue.string)) }

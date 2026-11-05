@@ -236,6 +236,7 @@ final class FakeBaichuanCamera: ByteStream, @unchecked Sendable {
             let good = text.contains(Baichuan.md5mod(username + nonce)) && text.contains(Baichuan.md5mod(password + nonce))
             let extra = state.withLockedValue { $0.deviceInfo }
             let info = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<DeviceInfo version=\"1.1\">\n<type>ipc</type>\n<channelNum>1</channelNum>\n\(extra)</DeviceInfo>\n</body>\n"
+            let info = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n<DeviceInfo version=\"1.1\">\n<type>ipc</type>\n<channelNum>1</channelNum>\n</DeviceInfo>\n</body>\n"
             reply(command: 1, channel: channel, counter: counter, status: good ? 200 : 401, body: good ? Baichuan.xor(Array(info.utf8), offset: channel) : [])
             return
         }
@@ -255,6 +256,10 @@ final class FakeBaichuanCamera: ByteStream, @unchecked Sendable {
 
     /// The bodies of the requests with this `cmd_id`, in order.
     func bodies(_ command: UInt32) -> [String] { state.withLockedValue { $0.received.filter { $0.command == command }.map(\.body) } }
+
+        state.withLockedValue { $0.received.append((command, channel, decrypt(ext), decrypt(rest))) }
+        reply(command: command, channel: channel, counter: counter, status: 200, body: [])
+    }
 
     private func reply(command: UInt32, channel: UInt8, counter: UInt32, status: UInt16, body: [UInt8]) {
         var header = Baichuan.header(command: command, bodyLength: body.count, channel: channel, counter: counter, extensionLength: 0)
