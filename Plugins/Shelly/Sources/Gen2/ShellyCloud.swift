@@ -16,7 +16,8 @@ struct ShellyCloudCredentials: Codable, Sendable, Equatable {
 ///
 /// **Unofficial.** Shelly documents no history endpoint, nor a sign-in for others' apps (its Cloud Control API, v1 and v2,
 /// reads status and controls devices with an authorization key). This does what the Shelly app's web view
-/// (control.shelly.cloud) does: it signs in (`POST https://api2.shelly.cloud/v2/users/auth/login`, `{email, password}`), whose
+/// (control.shelly.cloud) does: it signs in (`POST https://api2.shelly.cloud/v2/users/auth/login`, `{email, password}`, the
+/// password's SHA-1 in hex, as the app's sign-in form sends it), whose
 /// access token (a JWT) names the account's server (`user_api_url`) and when it expires, then asks that server
 /// `GET /v2/statistics/power-consumption?id=&channel=&date_range=custom&date_from=&date_to=` with the token as a Bearer.
 /// It may change or go without notice: an answer of another shape is taken as no history, never as figures. It signs in
@@ -67,7 +68,8 @@ actor ShellyCloud {
     /// Signs in with the email and password, keeping the token for the requests that follow. An account with several homes
     /// (units) signs in to the one the cloud selects, else the first.
     func signIn() async -> SignIn {
-        var fields: [String: JSONValue] = ["email": .string(credentials.email.lowercased()), "password": .string(credentials.password)]
+        // The password as the Shelly app sends it: its SHA-1, in lowercase hex.
+        var fields: [String: JSONValue] = ["email": .string(credentials.email.lowercased()), "password": .string(TextDigest.sha1(credentials.password))]
         for attempt in 0..<2 {
             guard let body = try? JSONValue.object(fields).encoded() else { return .failed("cannot write the request") }
             let request = HTTPRequest(method: "POST", url: authServer.appendingPathComponent("v2/users/auth/login"),

@@ -37,7 +37,10 @@ struct ShellyCloudTests {
         let login = try #require(http.requests.first)
         #expect(login.method == "POST" && login.url.absoluteString == "https://api2.shelly.cloud/v2/users/auth/login")
         let body = try JSONValue(data: login.body ?? Data())
-        #expect(body["email"] == "me@example.com" && body["password"] == "s3cret")
+        // The password's SHA-1 in hex, never the password.
+        #expect(body["email"] == "me@example.com" && body["password"] == .string(TextDigest.sha1("s3cret")))
+        #expect(TextDigest.sha1("abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
+        #expect(!(login.body.map { String(decoding: $0, as: UTF8.self) } ?? "").contains("s3cret"))
         let ask = try #require(http.requests.last)
         #expect(ask.method == "GET" && ask.url.host == "shelly-238-eu.shelly.cloud" && ask.url.path == "/v2/statistics/power-consumption")
         #expect(ask.headers.contains { $0.name == "Authorization" && $0.value == "Bearer \(token())" })
