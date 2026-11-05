@@ -76,6 +76,12 @@ All notable changes to this project are documented here. The format follows
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
   shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
+### Fixed
+
+- Synology: the bridge no longer warns at every start that other accounts can reach its secrets when the only entry
+  in its shared folder's ACL is the package's own. DSM shows the package's user the mode `777` on a folder with an ACL;
+  the bridge now reads the entries with `synoacltool -get` and names any that gives access to another account or group.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
