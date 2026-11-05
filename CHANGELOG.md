@@ -13,6 +13,13 @@ All notable changes to this project are documented here. The format follows
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
   Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
   name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
+- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
+  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
+  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
+  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
+  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
+  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
+  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
 - The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
   homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
   the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
