@@ -283,6 +283,24 @@ extension TuyaPlugin {
           "light"
         ]
       },
+      "video": {
+        "type": "boolean",
+        "title": "Video",
+        "default": true,
+        "description": "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "recording": {
+        "type": "boolean",
+        "title": "HomeKit Secure Video",
+        "default": false,
+        "description": "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud",
+        "x-kinds": [
+          "camera"
+        ]
+      },
       "schema": {
         "type": "array",
         "title": "DP overrides",
@@ -432,11 +450,13 @@ extension TuyaPlugin {
       "Enum": "Énumération",
       "Hidden": "Masqué",
       "Home ID": "Identifiant du domicile",
+      "HomeKit Secure Video": "HomeKit Secure Video",
       "Homes": "Domiciles",
       "ID": "Identifiant",
       "Integer": "Entier",
       "JSON": "JSON",
       "Leave the DP out, as if the device did not have it": "Écarter le DP, comme si l'appareil ne l'avait pas",
+      "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service": "Vidéo en direct et instantanés sur un accessoire à part, avec le détecteur de mouvement et la sonnette : ajoutez-le dans l'app Maison comme une caméra. Chaque flux et chaque instantané est un appel au service IoT Video Live Stream du cloud",
       "Log the API's requests and the push messages at debug level": "Journaliser les requêtes de l'API et les messages push au niveau débogage",
       "Maximum": "Maximum",
       "Minimum": "Minimum",
@@ -453,6 +473,7 @@ extension TuyaPlugin {
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publié seul, hors du pont : ajoutez-le dans l'app Maison comme un accessoire",
       "Raw": "Brut",
       "Read conversion": "Conversion en lecture",
+      "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud": "Enregistre dans iCloud les mouvements et les sonneries de la caméra : chaque enregistrement ouvre un flux du cloud",
       "Scale": "Échelle",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -479,6 +500,7 @@ extension TuyaPlugin {
       "Unbridged": "Hors du pont",
       "Value": "Valeur",
       "Values": "Valeurs",
+      "Video": "Vidéo",
       "What debug logs: api, or device ids, separated by commas; everything when it is empty": "Ce que le débogage journalise : api, ou des identifiants d'appareils, séparés par des virgules ; tout s'il est vide",
       "Write conversion": "Conversion en écriture"
     },
@@ -508,11 +530,13 @@ extension TuyaPlugin {
       "Enum": "Enumeración",
       "Hidden": "Oculto",
       "Home ID": "Identificador del hogar",
+      "HomeKit Secure Video": "HomeKit Secure Video",
       "Homes": "Hogares",
       "ID": "Identificador",
       "Integer": "Entero",
       "JSON": "JSON",
       "Leave the DP out, as if the device did not have it": "Dejar fuera el DP, como si el dispositivo no lo tuviera",
+      "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service": "Vídeo en directo e instantáneas en un accesorio propio, con el sensor de movimiento y el timbre: añádelo en la app Casa como una cámara. Cada transmisión e instantánea es una llamada al servicio IoT Video Live Stream de la nube",
       "Log the API's requests and the push messages at debug level": "Registrar las peticiones de la API y los mensajes push en el nivel de depuración",
       "Maximum": "Máximo",
       "Minimum": "Mínimo",
@@ -529,6 +553,7 @@ extension TuyaPlugin {
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado por separado, fuera del puente: añádelo en la app Casa como un accesorio",
       "Raw": "Sin procesar",
       "Read conversion": "Conversión de lectura",
+      "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud": "Graba en iCloud el movimiento y los timbrazos de la cámara: cada grabación abre una transmisión desde la nube",
       "Scale": "Escala",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -555,6 +580,7 @@ extension TuyaPlugin {
       "Unbridged": "Fuera del puente",
       "Value": "Valor",
       "Values": "Valores",
+      "Video": "Vídeo",
       "What debug logs: api, or device ids, separated by commas; everything when it is empty": "Lo que registra la depuración: api, o identificadores de dispositivos, separados por comas; todo si está vacío",
       "Write conversion": "Conversión de escritura"
     },
@@ -584,11 +610,13 @@ extension TuyaPlugin {
       "Enum": "Enumeração",
       "Hidden": "Oculto",
       "Home ID": "Identificador da casa",
+      "HomeKit Secure Video": "HomeKit Secure Video",
       "Homes": "Casas",
       "ID": "Identificador",
       "Integer": "Inteiro",
       "JSON": "JSON",
       "Leave the DP out, as if the device did not have it": "Deixar o DP de fora, como se o dispositivo não o tivesse",
+      "Live video and snapshots on an accessory of its own, with the motion sensor and doorbell: add it in the Home app as a camera. Each stream and snapshot is a call to the cloud's IoT Video Live Stream service": "Vídeo em direto e capturas num acessório próprio, com o sensor de movimento e a campainha: adicione-o na app Casa como uma câmara. Cada transmissão e captura é uma chamada ao serviço IoT Video Live Stream da cloud",
       "Log the API's requests and the push messages at debug level": "Registar os pedidos da API e as mensagens push no nível de depuração",
       "Maximum": "Máximo",
       "Minimum": "Mínimo",
@@ -605,6 +633,7 @@ extension TuyaPlugin {
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado à parte, fora da ponte: adicione-o na app Casa como um acessório",
       "Raw": "Bruto",
       "Read conversion": "Conversão de leitura",
+      "Records the camera's motion and rings to iCloud: each recording opens a stream from the cloud": "Grava no iCloud o movimento e os toques da câmara: cada gravação abre uma transmissão da cloud",
       "Scale": "Escala",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -631,6 +660,7 @@ extension TuyaPlugin {
       "Unbridged": "Fora da ponte",
       "Value": "Valor",
       "Values": "Valores",
+      "Video": "Vídeo",
       "What debug logs: api, or device ids, separated by commas; everything when it is empty": "O que a depuração regista: api, ou identificadores de dispositivos, separados por vírgulas; tudo quando está vazio",
       "Write conversion": "Conversão de escrita"
     }

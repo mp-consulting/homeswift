@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftAI
+import HomeswiftFFmpeg
 import HomeswiftNetwork
 import HomeswiftNetworkTestSupport
 import HomeswiftPlugin
@@ -31,6 +32,7 @@ final class FakeTuyaCloud: HTTPSending {
         var answers: [String: JSONValue] = [:]
         var sent: [Sent] = []
         var failures: Set<String> = []
+        var refusals: [String: (code: Int, message: String)] = [:]
     }
 
     private let state = NIOLockedValueBox(State())
@@ -67,6 +69,11 @@ final class FakeTuyaCloud: HTTPSending {
         state.withLockedValue { _ = $0.failures.remove(route) }
     }
 
+    /// Answers `route` with `success: false` and this code and message.
+    func refuse(_ route: String, code: Int, message: String) {
+        state.withLockedValue { $0.refusals[route] = (code, message) }
+    }
+
     var sent: [Sent] { state.withLockedValue { $0.sent } }
 
     func sent(_ method: String, _ path: String) -> [Sent] { sent.filter { $0.method == method && $0.path == path } }
@@ -76,10 +83,15 @@ final class FakeTuyaCloud: HTTPSending {
         let route = "\(request.method) \(path)"
         var headers: [String: String] = [:]
         for header in request.headers { headers[header.name] = header.value }
-        let (answer, failing) = state.withLockedValue { state -> (JSONValue?, Bool) in
+        let (answer, failing, refusal) = state.withLockedValue { state -> (JSONValue?, Bool, (code: Int, message: String)?) in
             state.sent.append(Sent(method: request.method, path: path, query: request.url.query, body: request.body.map { String(decoding: $0, as: UTF8.self) },
                                    headers: headers))
-            return (state.answers[route], state.failures.contains(route))
+            return (state.answers[route], state.failures.contains(route), state.refusals[route])
+        }
+        if let refusal {
+            return HomeswiftNetwork.HTTPResponse(status: 200, body: JSONValue.object([
+                "success": false, "code": .number(Double(refusal.code)), "msg": .string(refusal.message), "t": 1_700_000_000_123,
+            ]).encoded())
         }
         guard let answer, !failing else {
             return HomeswiftNetwork.HTTPResponse(status: 200, body: JSONValue.object(["success": false, "code": 1100, "msg": .string("no such route \(route)")]).encoded())
@@ -138,9 +150,17 @@ final class TestEnvironment: Sendable {
     let cloud = FakeTuyaCloud()
     let mqtt = FakeMQTTConnection()
     let timeScale: Double
+    /// Every log line, when `collectLogs`; else the log goes to `testLogger`.
+    let log = LogCollector()
+    let collectLogs: Bool
+    /// The URLs the cameras' fake FFmpeg read a frame of.
+    let frames = NIOLockedValueBox<[String]>([])
     private let plugins = NIOLockedValueBox<[TuyaPlugin]>([])
 
-    init(timeScale: Double = 0.5) { self.timeScale = timeScale }
+    init(timeScale: Double = 0.5, collectLogs: Bool = false) {
+        self.timeScale = timeScale
+        self.collectLogs = collectLogs
+    }
 
     var plugin: TuyaPlugin? { plugins.withLockedValue { $0.last } }
 
@@ -153,23 +173,66 @@ final class TestEnvironment: Sendable {
 
     func start(settings: [String: Any] = TestEnvironment.smartHome) async throws -> PluginHost {
         var registry = PluginRegistry()
-        let dependencies = TuyaPlugin.Dependencies(
+        var logger = testLogger
+        if collectLogs {
+            logger = Logger(label: "homeswift") { [log] _ in log }
+            logger.logLevel = .trace
+        }
+        var dependencies = TuyaPlugin.Dependencies(
             transport: cloud, makeMQTT: { [mqtt] _ in mqtt }, timeScale: timeScale,
             loginBackoff: Backoff(initial: .milliseconds(10), maximum: .milliseconds(50)), pushBackoff: Backoff(initial: .milliseconds(10), maximum: .milliseconds(50)),
-            requestBackoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(5)))
+            requestBackoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(5)), ffmpeg: { testFFmpeg($0) },
+            grabFrame: { [frames] _, url in
+                frames.withLockedValue { $0.append(url) }
+                // Slow enough for requests at the same moment to share it.
+                try? await Task.sleep(for: .milliseconds(100))
+                return testJPEG
+            })
+        if collectLogs { dependencies.logger = logger }
+        let configured = dependencies
         registry.register(platform: TuyaPlugin.platform, name: TuyaPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(TuyaPlugin.Configuration.self, from: json)
-            let plugin = TuyaPlugin(configuration: configuration, context: context, dependencies: dependencies)
+            let plugin = TuyaPlugin(configuration: configuration, context: context, dependencies: configured)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
         let block = try HomeswiftConfiguration.Platform(platform: TuyaPlugin.platform, name: TuyaPlugin.name, settings: settings)
         let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
-        let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
+        let options = PluginHost.Options(advertise: false, logger: logger) { _ in MemoryStorage() }
         let host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: directory, options: options)
         try await host.start()
         return host
     }
+}
+
+/// The external accessories' servers' accessory of this id.
+extension PluginHost {
+    func externalAccessory(_ id: String) -> Accessory? { bridges.dropFirst().flatMap { $0.server.accessories }.first { $0.id == id } }
+}
+
+/// A JPEG's first bytes: what the fake FFmpeg answers.
+let testJPEG = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10])
+
+/// FFmpeg known in advance: libfdk_aac, nothing probed, nothing run.
+func testFFmpeg(_ logger: Logger) -> RTSPCameraFFmpeg {
+    let codecs = FfmpegCodecs(log: logger, ffmpegVersion: "7.0", encoders: ["aac": ["libfdk_aac", "aac"]])
+    let config = FfmpegOptionsConfig(codecSupport: codecs, hardwareDecoding: false, hardwareTranscoding: false, log: logger, name: { "test" })
+    return RTSPCameraFFmpeg(options: FfmpegOptions(config), codecs: codecs)
+}
+
+/// Collects log lines, to check what never reaches them.
+final class LogCollector: LogHandler, @unchecked Sendable {
+    let lines = NIOLockedValueBox<[String]>([])
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .trace
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+    func log(event: LogEvent) {
+        lines.withLockedValue { $0.append("\(event.message) \(event.metadata ?? [:])") }
+    }
+    var text: String { lines.withLockedValue { $0 }.joined(separator: "\n") }
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
