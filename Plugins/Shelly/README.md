@@ -30,7 +30,9 @@ Each family runs only when its block is there: a `ShellyNG` block alone does not
   Mini) are Power Meters. Every metered component is a Meter whose Consumption the bridge keeps by the hour for years;
   an `em` or `em1` also keeps what it sent back (Returned), and a whole home's meter (an `em`, or the first `em1`) is
   suggested as the grid on the Status page's Energy section. Each Meter's Energy Role can be changed in its accessory's
-  settings (a Pro EM's second clamp on the solar, say). Models the original did not know (Plus Plug S, Gen3, Gen4…) are mapped from
+  settings (a Pro EM's second clamp on the solar, say). The weeks of per-minute records an `em` or `em1` keeps
+  (`EMData`, `EM1Data`) are imported into its Meter by the hour as it connects, from where the last import stopped.
+  Models the original did not know (Plus Plug S, Gen3, Gen4…) are mapped from
   the components their status lists.
 
 **Gen 1**, as homebridge-shelly has them: relays as switches (or `outlet`, `valve`, `contactSensor`, `motionSensor`,

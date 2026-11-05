@@ -60,6 +60,19 @@ actor Gen2Device {
     private(set) var accessories: [Accessory] = []
     private let writes: LatestCallGuard
     private var watcher: Task<Void, Never>?
+    /// The energy meters whose per-minute records are imported (`importHistory`): the RPC method, the component's id,
+    /// its Meter, and the record's keys of energy drawn and sent back, added up (a 3EM's three phases).
+    private var historyJobs: [HistoryJob] = []
+    private var importer: Task<Void, Never>?
+
+    struct HistoryJob: Sendable {
+        var method: String
+        var id: Int
+        var meter: PluginMeter
+        var drawn: [String]
+        var back: [String]
+        var key: String { "\(method)#\(id)" }
+    }
 
     init(deviceID: String, rpc: ShellyRPC, info: JSONValue, status: JSONValue, config: JSONValue, options: Gen2DeviceOptions, context: PluginContext,
          logger: Logger, writeDelay: Duration) {
@@ -97,6 +110,7 @@ actor Gen2Device {
 
     /// Follows the RPC's events until it stops.
     func watch() {
+        if !historyJobs.isEmpty, importer == nil { importer = Task { [weak self] in await self?.importHistory() } }
         let events = rpc.events
         watcher = Task { [weak self] in
             for await event in events {
@@ -108,6 +122,7 @@ actor Gen2Device {
 
     func stop() async {
         watcher?.cancel()
+        importer?.cancel()
         await rpc.stop()
     }
 
@@ -282,7 +297,8 @@ actor Gen2Device {
     /// suggested for the Home Energy; the series keeps the name it had when the plugin recorded the power itself.
     private func powerMeter(_ key: String, id: Int, voltage: String, current: String, power: String, energyKey: String? = nil,
                             energy: @escaping @Sendable ([String: JSONValue]) -> Double?, returned: (@Sendable ([String: JSONValue]) -> Double?)? = nil,
-                            takeOver: (accessoryID: String, device: String, role: EnergyRole?)? = nil) -> Service {
+                            takeOver: (accessoryID: String, device: String, role: EnergyRole?)? = nil,
+                            history: (method: String, drawn: [String], back: [String])? = nil) -> Service {
         let fields = status[key] ?? [:]
         var optional: [CharacteristicType] = []
         if fields[voltage] != nil { optional.append(PowerMeter.voltage) }
@@ -293,6 +309,7 @@ actor Gen2Device {
         let meter = Service(PowerMeter.service, name: "Power Meter \(id + 1)", subtype: "power-meter-\(id)", optional: optional)
         let deviceID = deviceID, present = optional
         let owned = takeOver.map { context.meter(of: meter, accessoryID: $0.accessoryID, device: $0.device, suggestedRole: $0.role, series: "\(deviceID):\(key):power") }
+        if let owned, let history { historyJobs.append(HistoryJob(method: history.method, id: id, meter: owned, drawn: history.drawn, back: history.back)) }
         bind(key) { fields in
             let watts = fields[power]?.number ?? 0
             meter.characteristic(PowerMeter.consumption).update(clamping: watts)
@@ -385,14 +402,75 @@ actor Gen2Device {
         case "em":
             return powerMeter(key, id: id, voltage: "a_voltage", current: "total_current", power: "total_act_power", energyKey: "emdata:\(id)",
                               energy: { $0["total_act"]?.number }, returned: { $0["total_act_ret"]?.number },
-                              takeOver: (accessoryID, name, .grid))
+                              takeOver: (accessoryID, name, .grid),
+                              history: ("EMData.GetData", ["a", "b", "c"].map { "\($0)_total_act_energy" }, ["a", "b", "c"].map { "\($0)_total_act_ret_energy" }))
         case "em1":
             return powerMeter(key, id: id, voltage: "voltage", current: "current", power: "act_power", energyKey: "em1data:\(id)",
                               energy: { $0["total_act_energy"]?.number }, returned: { $0["total_act_ret_energy"]?.number },
-                              takeOver: (accessoryID, name, id == 0 ? .grid : nil))
+                              takeOver: (accessoryID, name, id == 0 ? .grid : nil),
+                              history: ("EM1Data.GetData", ["total_act_energy"], ["total_act_ret_energy"]))
         default:
             return powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number })
         }
+    }
+
+    // MARK: History
+
+    /// The most pages of records asked for one meter at a time: weeks of minutes, in the device's own chunks.
+    static let historyPages = 400
+
+    /// Imports each energy meter's records the device keeps (`EMData.GetData`, `EM1Data.GetData`: a row of Wh per period,
+    /// a minute, for weeks), from where the last import stopped (`shelly-ng-history.json`; all of them the first time),
+    /// added up by hour into its Meter (`PluginMeter.importHours`). A device that answers otherwise, or not at all, keeps
+    /// what was imported. Says on the Status page what it covers.
+    func importHistory(now: Date = Date()) async {
+        let file = context.jsonFile("shelly-ng-history.json", as: [String: Double].self)
+        var done = file.load() ?? [:]
+        let end = Int(now.timeIntervalSince1970)
+        var covered: (from: Date, through: Date)?
+        for job in historyJobs {
+            let stored = done["\(deviceID)/\(job.key)"]
+            // The hour the last import stopped in again: it was still filling.
+            var ts = stored.map { max(0, Int($0) - 3600) } ?? 0
+            var hours: [Int: (drawn: Double, back: Double?)] = [:]
+            var last: Int?
+            for _ in 0..<Self.historyPages {
+                guard !Task.isCancelled else { return }
+                guard let page = try? await rpc.call(job.method, ["id": .number(Double(job.id)), "ts": .number(Double(ts)), "end_ts": .number(Double(end))]),
+                      let keys = page["keys"]?.arrayValue?.compactMap(\.stringValue) else { break }
+                let drawn = job.drawn.compactMap { keys.firstIndex(of: $0) }, back = job.back.compactMap { keys.firstIndex(of: $0) }
+                guard drawn.count == job.drawn.count else { break }
+                for block in page["data"]?.arrayValue ?? [] {
+                    guard let start = block["ts"]?.number, let period = block["period"]?.number, period > 0 else { continue }
+                    for (index, row) in (block["values"]?.arrayValue ?? []).enumerated() {
+                        let values = row.arrayValue?.map { $0.number } ?? []
+                        let at = Int(start) + index * Int(period)
+                        let sum = { (columns: [Int]) -> Double? in
+                            let known = columns.compactMap { $0 < values.count ? values[$0] : nil }
+                            return known.count == columns.count ? known.reduce(0, +) : nil
+                        }
+                        guard let used = sum(drawn) else { continue }
+                        let hour = at / 3600 * 3600
+                        var known = hours[hour] ?? (0, back.count == job.back.count ? 0 : nil)
+                        known.drawn += used
+                        if let returned = sum(back), back.count == job.back.count { known.back = (known.back ?? 0) + returned }
+                        hours[hour] = known
+                        last = max(last ?? at, at)
+                    }
+                }
+                guard let next = page["next_record_ts"]?.number.map(Int.init), next > ts, next < end else { break }
+                ts = next
+            }
+            guard !hours.isEmpty else { continue }
+            job.meter.importHours(hours.keys.sorted().map { hour in
+                MeterHourImport(start: Date(timeIntervalSince1970: TimeInterval(hour)), consumption: hours[hour]!.drawn, returned: hours[hour]!.back)
+            })
+            if let last { done["\(deviceID)/\(job.key)"] = Double(last) }
+            let from = Date(timeIntervalSince1970: TimeInterval(hours.keys.min()!)), through = Date(timeIntervalSince1970: TimeInterval(hours.keys.max()!))
+            covered = (min(covered?.from ?? from, from), max(covered?.through ?? through, through))
+        }
+        try? file.save(done)
+        if let covered { context.reportEnergyImport(EnergyImportProgress(state: .done, from: covered.from, through: covered.through)) }
     }
 
     // MARK: Lights (beyond the Homebridge plugin: Shelly's `Light`, `RGB`, `RGBW` and `CCT` components)
