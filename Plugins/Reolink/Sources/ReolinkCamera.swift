@@ -41,6 +41,8 @@ final class ReolinkCamera: @unchecked Sendable {
     private let presets: [Int: Service]
     private let patrol: Service?
     private let privacy: Service?
+    /// A momentary switch per paired Reolink Chime, by id.
+    private let chimes: [Int: Service]
     /// HomeKit's Camera Active (with HomeKit Secure Video): off while privacy mode is on, and the other way round.
     private let cameraActive: Characteristic?
     private let sensors: [Service]
@@ -65,6 +67,7 @@ final class ReolinkCamera: @unchecked Sendable {
         var goToPreset: @Sendable (_ id: Int) async throws -> Void
         var privacy: @Sendable (_ on: Bool) async throws -> Void
         var floodlightColour: @Sendable (_ mireds: Int) async throws -> Void
+        var chime: @Sendable (_ id: Int) async throws -> Void
         var patrol: @Sendable (_ on: Bool) async throws -> Void
     }
 
@@ -114,6 +117,11 @@ final class ReolinkCamera: @unchecked Sendable {
         let privacy = info.privacy && options.privacySwitch ? Service(.switch, name: "\(name) Privacy", subtype: "privacy") : nil
         privacy?.characteristic(.on).securityControl()
         self.privacy = privacy
+        var chimes: [Int: Service] = [:]
+        if options.chimeSwitch {
+            for chime in info.chimes { chimes[chime.id] = Service(.switch, name: "\(name) Chime \(chime.name)", subtype: "chime\(chime.id)") }
+        }
+        self.chimes = chimes
         sensors = [motion].compactMap { $0 } + ReolinkChannel.aiSensors.compactMap { ai[$0.type] }
 
         let streaming = CameraStreamingOptions(
@@ -135,7 +143,7 @@ final class ReolinkCamera: @unchecked Sendable {
             id: id, name: name, manufacturer: "Reolink", model: info.model.nonEmptyText ?? "Reolink", serialNumber: serial.nonEmptyText ?? id,
             firmwareRevision: info.firmware, category: isDoorbell ? .videoDoorbell : .ipCamera,
             services: [doorbell].compactMap { $0 } + sensors + [floodlight, siren, ir, battery].compactMap { $0 }
-                + presets.keys.sorted().compactMap { presets[$0] } + [patrol, privacy].compactMap { $0 },
+                + presets.keys.sorted().compactMap { presets[$0] } + [patrol, privacy].compactMap { $0 } + chimes.keys.sorted().compactMap { chimes[$0] },
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
         cameraActive = info.privacy ? accessory.service(.cameraOperatingMode)?.characteristic(.homeKitCameraActive) : nil
@@ -184,14 +192,16 @@ final class ReolinkCamera: @unchecked Sendable {
         if let ir {
             ir.characteristic(.on).onWrite(changesOnly: true, guarded { value in try await writes.ir(value.boolValue ?? false) })
         }
-        for (id, service) in presets {
+        func momentary(_ service: Service, key: String, _ action: @escaping @Sendable () async throws -> Void) {
             service.characteristic(.on).value = false
             service.characteristic(.on).onWrite(guarded { [weak self] value in
                 guard value.boolValue == true else { return }
-                try await writes.goToPreset(id)
-                self?.resetMomentary(service, key: "preset\(id)")
+                try await action()
+                self?.resetMomentary(service, key: key)
             })
         }
+        for (id, service) in presets { momentary(service, key: "preset\(id)") { try await writes.goToPreset(id) } }
+        for (id, service) in chimes { momentary(service, key: "chime\(id)") { try await writes.chime(id) } }
         if let privacy {
             let privacyGuard = LatestCallGuard(delay: timing.seconds(0.3))
             privacy.characteristic(.on).onWrite(changesOnly: true, guarded { value in
@@ -377,4 +387,5 @@ final class ReolinkCamera: @unchecked Sendable {
 
     var ptzServices: (presets: [Int: Service], patrol: Service?) { (presets, patrol) }
     var privacyControls: (privacy: Service?, cameraActive: Characteristic?) { (privacy, cameraActive) }
+    var chimeServices: [Int: Service] { chimes }
 }

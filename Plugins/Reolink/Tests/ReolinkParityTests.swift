@@ -410,4 +410,49 @@ import Testing
         #expect(camera.services.floodlight?[.colorTemperature] == nil)
         #expect(camera.adaptiveLighting == nil)
     }
+
+    // MARK: Chime
+
+    static func chimeAnswers() -> [String: @Sendable (JSONValue?) -> JSONValue] {
+        var answers = answers(adding: ["supportDingDongCtrl": 1], to: cameraAnswers(model: "Reolink Video Doorbell PoE", doorbell: true))
+        answers["GetDingDongList"] = okAnswer("GetDingDongList", ["DingDongList": ["pairedlist": [["deviceId": 7, "deviceName": "Hall", "netState": 1]]]])
+        answers["DingDongOpt"] = okAnswer("DingDongOpt", ["rspCode": 200])
+        return answers
+    }
+
+    @Test func aChimeSwitchPlaysTheTone() async throws {
+        let environment = ReolinkEnvironment(Self.chimeAnswers(), scale: 0.01)
+        let host = try await environment.start(Self.block(["chimeSwitch": true, "chimeTone": "loop"]))
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        let chime = try #require(camera.chimeServices[7]?.characteristic(.on))
+        #expect(camera.chimeServices[7]?.subtype == "chime7")
+        try await chime.write(.bool(true))
+        // The addendum's vector: tone 3 (loop) on chime 7.
+        #expect(sentItems(environment.http, "DingDongOpt") == [["cmd": "DingDongOpt", "action": 0, "param": ["DingDong": ["channel": 0, "id": 7, "option": 4, "musicId": 3]]]])
+        #expect(await eventually { chime.value == false })
+        // The hardwired chime (Baichuan 483) is never asked: reading it makes the chime rattle.
+        #expect(environment.camera?.commands.contains(483) != true)
+    }
+
+    @Test func chimesAreOptInAndNeedTheAbility() async throws {
+        // The ability but no switch asked for: the list is read, no service.
+        let environment = ReolinkEnvironment(Self.chimeAnswers(), scale: 0.01)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        #expect(camera.chimeServices.isEmpty)
+        // No ability: not even read.
+        let plain = ReolinkEnvironment(scale: 0.01)
+        let other = try await plain.start(Self.block(["chimeSwitch": true]))
+        defer { Task { await other.stop() } }
+        let second = try #require(await Self.camera(plain))
+        #expect(second.chimeServices.isEmpty)
+        #expect(plain.http.count("GetDingDongList") == 0)
+    }
+
+    @Test func pairedChimesParse() {
+        let value: JSONValue = ["DingDongList": ["pairedlist": [["deviceId": 7, "deviceName": "Hall", "netState": 1], ["deviceId": 2, "deviceName": ""]]]]
+        #expect(ReolinkChime.paired(value) == [.init(id: 2, name: "Chime 2"), .init(id: 7, name: "Hall")])
+    }
 }

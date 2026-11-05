@@ -311,6 +311,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             goToPreset: { id in try await host.ptzControl(channel: ch, op: "ToPos", id: id) },
             privacy: { on in try await host.setPrivacy(channel: ch, on: on) },
             floodlightColour: { mireds in try await host.setFloodlightColour(channel: ch, mireds: mireds) },
+            chime: { [tone = options.chimeTone] id in try await host.playChime(channel: ch, chime: id, tone: tone) },
             patrol: { on in try await host.setPatrol(channel: ch, on: on) })
         let camera = try ReolinkCamera(
             id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite,

@@ -116,6 +116,8 @@ actor ReolinkHost {
             if v20 { commands.append(.channel("GetAudioAlarmV20", ch)) } else if !battery { commands.append(.channel("GetAudioAlarm", ch)) }
             if battery { commands.append(.channel("GetBatteryInfo", ch)) }
             commands += Self.ptzCommands(info: info, channel: ch, battery: battery)
+            // A battery doorbell on a hub is left out, as reolink-aio does.
+            if info.ability("supportDingDongCtrl", channel: ch) > 0, !(battery && info.isHub) { commands.append(.channel("GetDingDongList", ch)) }
             ranges.append((status, start..<commands.count, battery))
         }
         let replies = try await http.execute(commands)
@@ -178,6 +180,7 @@ actor ReolinkHost {
             channel.siren = true
         }
         channel.ptz = Self.ptz(info: info, channel: ch, items: items)
+        if let list = items["GetDingDongList"], list.ok { channel.chimes = ReolinkChime.paired(list.value) }
         for reply in items.values { apply(reply, to: &channel) }
         return channel
     }
@@ -528,6 +531,14 @@ actor ReolinkHost {
             try? await Task.sleep(for: delay)
             await self?.reread("GetWhiteLed", channel: channel)
         }
+    }
+
+    /// Plays a tone on a paired Reolink Chime (`DingDongOpt` option 4).
+    func playChime(channel: Int, chime: Int, tone: Int) async throws {
+        guard channels[channel]?.chimes.contains(where: { $0.id == chime }) == true else { throw ReolinkError.unsupported("DingDongOpt") }
+        try await write(ReolinkCommand(cmd: "DingDongOpt", action: 0, param: ["DingDong": [
+            "channel": .number(Double(channel)), "id": .number(Double(chime)), "option": 4, "musicId": .number(Double(min(9, max(0, tone)))),
+        ]]))
     }
 
     // MARK: Accessory Settings the device keeps

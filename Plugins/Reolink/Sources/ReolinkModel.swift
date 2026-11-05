@@ -169,6 +169,8 @@ struct ReolinkChannel: Sendable, Equatable {
     var floodlightColour = false
     /// The floodlight modes the camera offers, by `ReolinkFloodlight.modes` name.
     var floodlightModes: [String] = []
+    /// The Reolink Chimes paired to a doorbell (`GetDingDongList`), by id.
+    var chimes: [ReolinkPTZ.Entry] = []
     var state = ReolinkChannelState()
 
     /// The device's AI type names and the HomeKit sensors' subtypes (6.3).
@@ -197,6 +199,20 @@ struct ReolinkChannelState: Sendable, Equatable {
     var floodlightMireds: Int?
     /// The floodlight's mode, in HTTP's numbering (`ReolinkFloodlight.modes`).
     var floodlightMode: Int?
+}
+
+/// Reolink Chime, the wireless chime of a doorbell (addendum D.2).
+enum ReolinkChime {
+    /// The tones `DingDongOpt` plays, by `musicId`.
+    static let tones = ["citybird", "originaltune", "pianokey", "loop", "attraction", "hophop", "goodday", "operetta", "moonlight", "waybackhome"]
+
+    /// `GetDingDongList`'s paired chimes.
+    static func paired(_ value: JSONValue?) -> [ReolinkPTZ.Entry] {
+        (value?["DingDongList"]?["pairedlist"]?.arrayValue ?? []).compactMap { item in
+            guard let id = item["deviceId"]?.saturatingIntValue else { return nil }
+            return ReolinkPTZ.Entry(id: id, name: item["deviceName"]?.stringValue?.nonEmptyText ?? "Chime \(id)")
+        }.sorted { $0.id < $1.id }
+    }
 }
 
 /// The floodlight's colour temperature and modes (addendum D.1).
