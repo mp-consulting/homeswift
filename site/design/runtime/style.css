@@ -640,6 +640,9 @@ label > input, label > select { margin-top: 5px; }
 .page-head .tools { display: flex; gap: var(--space-10); align-items: center; }
 /* The title and its line keep room to read (the tools go under them when both do not fit), not a word a line. */
 .page-head > .who { flex: 1 1 280px; }
+/* The Accessories page's toolbar on a line of its own under the title, whatever its width: the wall's and the graph's
+   then sit in the same place. */
+.page-head > .tools:has(> .accessories-toolbar) { flex-basis: 100%; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 /* A count beside its title, the tools at the end: spread out, the count floated alone in the middle. */
 .section-head > h2 + .muted:not(:last-child) { margin-right: auto; }
