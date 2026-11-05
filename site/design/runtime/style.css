@@ -1566,7 +1566,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
    opens the device's history. */
 .consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .consumer.action-with-icon { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-12);
-  padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; text-align: left;
+  padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left;
   cursor: pointer; min-height: 40px; }
 .consumer:hover { background: var(--material-thin); }
 .consumer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
