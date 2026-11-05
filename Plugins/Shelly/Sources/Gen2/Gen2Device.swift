@@ -68,6 +68,8 @@ actor Gen2Device {
     /// its Meter, and the record's keys of energy drawn and sent back, added up (a 3EM's three phases).
     private var historyJobs: [HistoryJob] = []
     private var importer: Task<Void, Never>?
+    /// The accessory whose services are being made (`makeAccessories`): the one a power meter's Meter belongs to.
+    private var building: (id: String, name: String)?
 
     struct HistoryJob: Sendable {
         /// The component: `emdata` or `em1data`.
@@ -79,6 +81,8 @@ actor Gen2Device {
         var key: String { "\(component):\(id)" }
         /// `EMData.GetRecords` or `EM1Data.GetRecords`: the spans of records the device keeps.
         var recordsMethod: String { component == "emdata" ? "EMData.GetRecords" : "EM1Data.GetRecords" }
+        /// `EMData.GetNetEnergies` or `EM1Data.GetNetEnergies`: each hour's energy, net of what was sent back.
+        var netMethod: String { component == "emdata" ? "EMData.GetNetEnergies" : "EM1Data.GetNetEnergies" }
     }
 
     init(deviceID: String, rpc: ShellyRPC, info: JSONValue, status: JSONValue, config: JSONValue, options: Gen2DeviceOptions, context: PluginContext,
@@ -219,6 +223,7 @@ actor Gen2Device {
         for item in layout.items {
             let name = item.suffix.map { "\(baseName) \($0)" } ?? baseName
             let id = Self.accessoryID(platform: platform, deviceID: deviceID, item: item.accessoryID)
+            building = (id, name)
             guard let (services, category) = makeServices(item.part, name: name, accessoryID: id) else { continue }
             let rpc = rpc, logger = logger
             made.append(Accessory(
@@ -228,6 +233,7 @@ actor Gen2Device {
                     logger.info("\(name) at \(host) identified")
                 }))
         }
+        building = nil
         accessories = made
         return made
     }
@@ -317,6 +323,10 @@ actor Gen2Device {
         if hasEnergy { optional.append(PowerMeter.totalConsumption) }
         let meter = Service(PowerMeter.service, name: "Power Meter \(id + 1)", subtype: "power-meter-\(id)", optional: optional)
         let deviceID = deviceID, present = optional
+        // Every power meter is the plugin's Meter: the device's own watt-hours (Total Consumption is in steps of 0.1 kWh, a
+        // small plug's hours long), the power with its sign, and what a component sent back (`ret_aenergy`).
+        let takeOver = takeOver ?? building.map { (accessoryID: $0.id, device: $0.name, role: EnergyRole?.none) }
+        let returned: (@Sendable ([String: JSONValue]) -> Double?)? = returned ?? (energyKey == nil ? Self.returnedEnergy : nil)
         let owned = takeOver.map { context.meter(of: meter, accessoryID: $0.accessoryID, device: $0.device, suggestedRole: $0.role, series: "\(deviceID):\(key):power") }
         if let owned, let history { historyJobs.append(HistoryJob(component: history.component, id: id, meter: owned, drawn: history.drawn, back: history.back)) }
         bind(key) { fields in
@@ -425,7 +435,13 @@ actor Gen2Device {
 
     // MARK: History
 
-    /// The records asked for at a time: a day of minutes, half a megabyte of CSV that a Pro 3EM takes half a minute to make.
+    /// What a switch's or cover's meter sent back, in Wh.
+    @Sendable static func returnedEnergy(_ fields: [String: JSONValue]) -> Double? { fields["ret_aenergy"]?["total"]?.number }
+
+    /// The most pages of hours asked for one meter: years of them, a hundred hours a page.
+    static let historyPages = 1000
+
+    /// The records asked for at a time from the CSV: a day of minutes, half a megabyte that a Pro 3EM takes half a minute to make.
     static let historyChunk = 86_400
     /// How long one day's CSV may take.
     static let historyTimeout: Duration = .seconds(180)
@@ -437,11 +453,13 @@ actor Gen2Device {
         var through: Int
     }
 
-    /// Imports each energy meter's records the device keeps (a row of Wh a minute, for weeks), by the day as the device
-    /// writes them (`/emdata/<id>/data.csv`, `/em1data/<id>/data.csv`; `EMData.GetData` gives seven rows a request),
-    /// added up by hour into its Meter (`PluginMeter.importHours`). The newest days come first, so recent weeks fill in
-    /// soon; then back to the oldest record (`EMData.GetRecords`). What was covered is kept after each day, so a restart
-    /// starts with what is new and goes on where it stopped. Says on the Status page how far it is.
+    /// Imports each energy meter's records the device keeps, for weeks, into its Meter by the hour
+    /// (`PluginMeter.importHours`), from the oldest record (`EMData.GetRecords`) the first time, then from where the last
+    /// import stopped (its last hour again: it was still filling); what was covered is kept as each part comes, so a
+    /// restart goes on from there. Each hour comes summed by the device (`EMData.GetNetEnergies`: a hundred hours a
+    /// request, seconds for months): net of what was sent back, so an hour above zero is drawn and one below sent back.
+    /// A device without it gives its per-minute records by the day instead (its CSV, half a minute a day). Says on the
+    /// Status page how far it is.
     func importHistory(now: Date = Date()) async {
         let file = context.jsonFile("shelly-ng-history.json", as: [String: ImportedSpan].self)
         var spans = file.load() ?? [:]
@@ -449,38 +467,79 @@ actor Gen2Device {
         var covered: (from: Int, through: Int)?
         for job in historyJobs {
             let key = "\(deviceID)/\(job.key)"
-            let oldest = await oldestRecord(job) ?? (end - 7 * 86_400)
-            var span = spans[key]
-            // The day chunks: what is new since the last import (its last hour again: it was still filling), newest
-            // first, then what is older than the import reached, back to the oldest record.
-            var chunks: [(from: Int, to: Int)] = []
-            let newFrom = span.map { max(oldest, $0.through - 3600) } ?? oldest
-            var to = end
-            while to > newFrom { chunks.append((max(newFrom, to - Self.historyChunk), to)); to -= Self.historyChunk }
-            if let known = span { to = known.from; while to > oldest { chunks.append((max(oldest, to - Self.historyChunk), to)); to -= Self.historyChunk } }
-            for (index, chunk) in chunks.enumerated() {
-                guard !Task.isCancelled else { return }
-                context.reportEnergyImport(EnergyImportProgress(state: .running, done: index, total: chunks.count))
-                guard let hours = await recordsCSV(job, from: chunk.from, to: chunk.to) else {
-                    context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "\(baseName) did not give its records; the next start tries again"))
-                    try? file.save(spans)
-                    return
-                }
-                if !hours.isEmpty {
-                    job.meter.importHours(hours.keys.sorted().map { hour in
-                        MeterHourImport(start: Date(timeIntervalSince1970: TimeInterval(hour)), consumption: hours[hour]!.drawn, returned: hours[hour]!.back)
-                    })
-                }
-                span = ImportedSpan(from: min(span?.from ?? chunk.from, chunk.from), through: max(span?.through ?? chunk.to, chunk.to))
+            let oldest = (await oldestRecord(job) ?? (end - 7 * 86_400)) / 3600 * 3600
+            let known = spans[key]
+            // A first import, or one that stopped before the oldest record: from the oldest; else from the last hour.
+            let from = known.map { $0.from > oldest + 3600 ? oldest : max(oldest, ($0.through - 3600) / 3600 * 3600) } ?? oldest
+            guard from < end else { continue }
+            let save = { (part: (from: Int, to: Int)) in
+                let span = ImportedSpan(from: min(spans[key]?.from ?? part.from, part.from), through: max(spans[key]?.through ?? part.to, part.to))
                 spans[key] = span
                 try? file.save(spans)
             }
-            if let span { covered = (min(covered?.from ?? span.from, span.from), max(covered?.through ?? span.through, span.through)) }
+            var done = await importNet(job, from: from, to: end, save: save)
+            if !done { done = await importCSV(job, from: from, to: end, save: save) }
+            guard done else {
+                context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "\(baseName) did not give its records; the next start tries again"))
+                return
+            }
+            if let span = spans[key] { covered = (min(covered?.from ?? span.from, span.from), max(covered?.through ?? span.through, span.through)) }
         }
         if let covered {
             context.reportEnergyImport(EnergyImportProgress(state: .done, from: Date(timeIntervalSince1970: TimeInterval(covered.from)),
                                                             through: Date(timeIntervalSince1970: TimeInterval(covered.through))))
         }
+    }
+
+    /// The hours from `from` (on the hour) to `to` from `GetNetEnergies`, a page at a time as the device chunks them
+    /// (`next_record_ts`): each phase's net energy added up. False when the device does not answer it.
+    private func importNet(_ job: HistoryJob, from: Int, to: Int, save: (_ part: (from: Int, to: Int)) -> Void) async -> Bool {
+        var ts = from
+        for _ in 0..<Self.historyPages {
+            guard !Task.isCancelled else { return true }
+            guard let page = try? await rpc.call(job.netMethod, ["id": .number(Double(job.id)), "ts": .number(Double(ts)), "end_ts": .number(Double(to)), "period": 3600]),
+                  let keys = page["keys"]?.arrayValue?.compactMap(\.stringValue) else { return ts > from }
+            let columns = keys.indices.filter { keys[$0].hasSuffix("net_act_energy") }
+            guard !columns.isEmpty else { return ts > from }
+            var hours: [MeterHourImport] = []
+            var last = ts
+            for block in page["data"]?.arrayValue ?? [] {
+                guard let start = block["ts"]?.number, let period = block["period"]?.number, period > 0 else { continue }
+                for (index, row) in (block["values"]?.arrayValue ?? []).enumerated() {
+                    let values = row.arrayValue?.map { $0.number } ?? []
+                    let known = columns.compactMap { $0 < values.count ? values[$0] : nil }
+                    guard known.count == columns.count else { continue }
+                    let net = known.reduce(0, +), at = Int(start) + index * Int(period)
+                    hours.append(MeterHourImport(start: Date(timeIntervalSince1970: TimeInterval(at)), consumption: max(0, net), returned: max(0, -net)))
+                    last = max(last, at + Int(period))
+                }
+            }
+            if !hours.isEmpty { job.meter.importHours(hours) }
+            save((ts, min(last, to)))
+            context.reportEnergyImport(EnergyImportProgress(state: .running, done: (min(last, to) - from) / 3600, total: max(1, (to - from) / 3600)))
+            guard let next = page["next_record_ts"]?.number.map(Int.init), next > ts, next < to else { return true }
+            ts = next
+        }
+        return true
+    }
+
+    /// The days from `from` to `to` from the per-minute CSV, the newest first, so recent weeks come soon.
+    private func importCSV(_ job: HistoryJob, from: Int, to: Int, save: (_ part: (from: Int, to: Int)) -> Void) async -> Bool {
+        var chunks: [(from: Int, to: Int)] = []
+        var end = to
+        while end > from { chunks.append((max(from, end - Self.historyChunk), end)); end -= Self.historyChunk }
+        for (index, chunk) in chunks.enumerated() {
+            guard !Task.isCancelled else { return true }
+            context.reportEnergyImport(EnergyImportProgress(state: .running, done: index, total: chunks.count))
+            guard let hours = await recordsCSV(job, from: chunk.from, to: chunk.to) else { return index > 0 }
+            if !hours.isEmpty {
+                job.meter.importHours(hours.keys.sorted().map { hour in
+                    MeterHourImport(start: Date(timeIntervalSince1970: TimeInterval(hour)), consumption: hours[hour]!.drawn, returned: hours[hour]!.back)
+                })
+            }
+            save(chunk)
+        }
+        return true
     }
 
     /// The first record a meter keeps: the earliest of its data blocks.

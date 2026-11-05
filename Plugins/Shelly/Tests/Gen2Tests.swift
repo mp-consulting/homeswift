@@ -338,6 +338,31 @@ struct ShellyNGTests {
         await expectEventually { host.energyImportProgress.first?.state == .done }
     }
 
+    /// A device that sums its hours (`EMData.GetNetEnergies`) gives them in pages: each phase's net energy added up, an
+    /// hour above zero drawn and one below sent back; no CSV is asked for.
+    @Test func anEnergyMetersHoursComeSummedByTheDevice() async throws {
+        let device = FakeShellyNG(
+            info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM"}"#,
+            status: #"{"em:0":{"id":0,"a_voltage":230.1,"total_current":3.2,"total_act_power":735.5},"emdata:0":{"id":0,"total_act":123456.0,"total_act_ret":10.0}}"#)
+        let hour = (Int(Date().timeIntervalSince1970) / 3600 - 3) * 3600
+        device.answer("EMData.GetRecords", #"{"data_blocks":[{"ts":\#(hour),"period":60,"records":120}]}"#)
+        device.answer("EMData.GetNetEnergies", #"{"keys":["a_net_act_energy","b_net_act_energy","c_net_act_energy"],"data":[{"ts":\#(hour),"period":3600,"values":[[100,200,300],[0,0,-50]]}]}"#)
+        environment.add(device)
+        let host = try await environment.start(settings: ["devices": [["id": "shellypro3em-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        defer { metrics.stop() }
+        let meterID = MeterID(accessory: "ShellyNG:shellypro3em-aabbccddeeff-em-0", meter: "\(PowerMeter.service.uuid)/power-meter-0")
+        let start = Date(timeIntervalSince1970: TimeInterval(hour))
+        await expectEventually { metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600)).count == 2 }
+        let hours = metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600))
+        #expect(hours.map(\.consumption) == [600, 0])
+        #expect(hours.map(\.returned) == [0, 50])
+        #expect(device.calls("EMData.GetNetEnergies").first?["params"]?["period"] == 3600)
+        #expect(!environment.http.paths.contains { $0.hasPrefix("/emdata/") })
+    }
+
     /// The CSV's rows added up by hour, a row with a missing value left out.
     @Test func recordsAddUpByHour() throws {
         let csv = Data("timestamp,total_act_energy,total_act_ret_energy\n3600,1.5,0\n3660,2.5,1\n7200,4,\n7260,x,1\n".utf8)

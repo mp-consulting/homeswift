@@ -1693,7 +1693,8 @@
     function fillConsumers(found) {
       lastConsumption = found;
       consumers.node.hidden = !found.meters.length;
-      const used = found.meters.filter((one) => one.consumption > 0 || one.returned > 0);
+      // Every meter, one that measured nothing too (at the end): it is there, and says so.
+      const used = found.meters;
       const most = Math.max(...used.map((one) => Math.max(one.consumption ?? 0, one.returned ?? 0)), 0);
       const shown = consumersAll ? used : used.slice(0, 8);
       const total = used.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
@@ -1760,6 +1761,8 @@
         has("homeFromGrid") ? { label: t("Home from the grid"), tone: 7, field: "homeFromGrid" } : null,
         has("homeNotSplit") ? { label: t("Home, not split by source"), tone: 8, field: "homeNotSplit" } : null,
         !has("home") && has("solar") ? { label: t("Solar produced"), tone: 4, field: "solar" } : null,
+        // Without the home's use (a grid meter alone), what the grid brought in, above the line.
+        !has("home") && has("gridImport") ? { label: t("Grid import"), tone: 7, field: "gridImport" } : null,
         has("batteryCharge") ? { label: t("Into batteries"), tone: 3, field: "batteryCharge", below: true } : null,
         has("gridExport") ? { label: t("Exported to the grid"), tone: 7, field: "gridExport", below: true } : null,
       ].filter(Boolean);

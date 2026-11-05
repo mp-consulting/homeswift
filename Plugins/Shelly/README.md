@@ -31,8 +31,9 @@ Each family runs only when its block is there: a `ShellyNG` block alone does not
   an `em` or `em1` also keeps what it sent back (Returned), and a whole home's meter (an `em`, or the first `em1`) is
   suggested as the grid on the Status page's Energy section. Each Meter's Energy Role can be changed in its accessory's
   settings (a Pro EM's second clamp on the solar, say). The weeks of per-minute records an `em` or `em1` keeps
-  are imported into its Meter by the hour as it connects, a day at a time from its CSV (`/emdata/<id>/data.csv`), the
-  newest days first, then on from where the last import stopped.
+  are imported into its Meter by the hour as it connects: summed by the device (`EMData.GetNetEnergies`, net of what
+  was sent back, months in seconds), else a day at a time from its CSV; then on from where the last import stopped.
+  Every metered component (plugs and relays too) records the device's own watt-hours, with what it sent back.
   Models the original did not know (Plus Plug S, Gen3, Gen4…) are mapped from
   the components their status lists.
 
