@@ -823,4 +823,7 @@ public enum MeterReading: Sendable, Equatable {
     case counter(MeterID, Double, MeterDirection, Date)
     /// Power, in watts (above zero drawn, below zero sent back or produced), when it was read, and what the Meter is.
     case power(MeterID, Double, Date, MeterDescription)
+    /// A plugin takes over a service's Meter (`PluginContext.meter(of:accessoryID:…)`): the bridge stops reading it from
+    /// the service's Total Consumption and Current Consumption.
+    case claim(MeterID)
 }

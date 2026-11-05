@@ -34,6 +34,8 @@ extension Metrics {
         let total = EveCharacteristic.totalConsumption.uuid, current = EveCharacteristic.currentConsumption.uuid
         // Each metered characteristic's Meter, made again by each pass over the accessories: a change looks it up.
         let known = NIOLockedValueBox<[ObjectIdentifier: MeterID]>([:])
+        // The Meters plugins took over: the bridge reads them no more from their characteristics.
+        let claimed = NIOLockedValueBox<Set<MeterID>>([])
         let scanPending = NIOLockedValueBox(false)
         let scan: @Sendable () -> Void = { [weak self, weak host] in
             scanPending.withLockedValue { $0 = false }
@@ -43,12 +45,25 @@ extension Metrics {
                 for service in accessory.services {
                     for characteristic in service.characteristics where characteristic.type.uuid == total || characteristic.type.uuid == current {
                         let id = Self.meterID(of: accessory, service: service)
+                        guard !claimed.withLockedValue({ $0.contains(id) }) else { continue }
                         found[ObjectIdentifier(characteristic)] = id
                         if characteristic.type.uuid == total, let kWh = characteristic.value.doubleValue { meters.seedCounter(kWh * 1000, meter: id) }
                     }
                 }
             }
             known.withLockedValue { $0 = found }
+        }
+        // The plugins' own Meters first: what they took over before the bridge looked is not read twice.
+        let declared = host.observeMeterReadings { [weak self, weak host] reading in
+            guard let self else { return }
+            switch reading {
+            // When they were read: those a plugin made before the store followed arrive late.
+            case let .counter(id, wattHours, direction, at): meters.recordCounter(wattHours, direction: direction, meter: id, at: at)
+            case let .claim(id): claimed.withLockedValue { _ = $0.insert(id) }
+            case let .power(id, watts, at, description):
+                meters.recordPower(watts, meter: id, at: at)
+                recordHomeEnergy(id, watts: watts, description, role: host?.energyRole(of: id))
+            }
         }
         // A burst of structure changes (a plugin adding its devices one by one) makes one pass.
         let structure = host.observeStructure { [queue] in
@@ -61,22 +76,12 @@ extension Metrics {
             // An accessory added since the last pass is found by its services.
             let id = known.withLockedValue { $0[ObjectIdentifier(characteristic)] }
                 ?? accessory.services.first { $0.characteristics.contains { $0 === characteristic } }.map { Self.meterID(of: accessory, service: $0) }
-            guard let id else { return }
+            guard let id, !claimed.withLockedValue({ $0.contains(id) }) else { return }
             if uuid == total {
                 meters.recordCounter(number * 1000, meter: id)
             } else {
                 meters.recordPower(number, meter: id)
                 recordHomeEnergy(id, watts: number, MeterDescription(device: accessory.name, series: "meter:\(id)"), role: host?.energyRole(of: id))
-            }
-        }
-        let declared = host.observeMeterReadings { [weak self, weak host] reading in
-            guard let self else { return }
-            switch reading {
-            // When they were read: those a plugin made before the store followed arrive late.
-            case let .counter(id, wattHours, direction, at): meters.recordCounter(wattHours, direction: direction, meter: id, at: at)
-            case let .power(id, watts, at, description):
-                meters.recordPower(watts, meter: id, at: at)
-                recordHomeEnergy(id, watts: watts, description, role: host?.energyRole(of: id))
             }
         }
         scan()

@@ -228,7 +228,7 @@ actor Gen2Device {
             return (lightServices(part, id: id, accessoryID: accessoryID), .lightbulb)
         case .meter(let type, let id):
             guard !options.component("\(type):\(id)").exclude else { return nil }
-            return ([meterService(type, id, name: name)], .sensor)
+            return ([meterService(type, id, name: name, accessoryID: accessoryID)], .sensor)
         }
     }
 
@@ -277,9 +277,12 @@ actor Gen2Device {
         return [service, powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number })]
     }
 
-    /// The Power Meter of a component, with the characteristics its first status had.
+    /// The Power Meter of a component, with the characteristics its first status had. `takeOver` makes its Meter the
+    /// plugin's (`PluginContext.meter(of:)`): the power with its sign, the energy counter and `returned`'s, and the role
+    /// suggested for the Home Energy; the series keeps the name it had when the plugin recorded the power itself.
     private func powerMeter(_ key: String, id: Int, voltage: String, current: String, power: String, energyKey: String? = nil,
-                            energy: @escaping @Sendable ([String: JSONValue]) -> Double?, record: EnergyTag? = nil) -> Service {
+                            energy: @escaping @Sendable ([String: JSONValue]) -> Double?, returned: (@Sendable ([String: JSONValue]) -> Double?)? = nil,
+                            takeOver: (accessoryID: String, device: String, role: EnergyRole?)? = nil) -> Service {
         let fields = status[key] ?? [:]
         var optional: [CharacteristicType] = []
         if fields[voltage] != nil { optional.append(PowerMeter.voltage) }
@@ -288,7 +291,8 @@ actor Gen2Device {
         let hasEnergy = energy(status[energySource] ?? [:]) != nil
         if hasEnergy { optional.append(PowerMeter.totalConsumption) }
         let meter = Service(PowerMeter.service, name: "Power Meter \(id + 1)", subtype: "power-meter-\(id)", optional: optional)
-        let context = context, deviceID = deviceID, present = optional
+        let deviceID = deviceID, present = optional
+        let owned = takeOver.map { context.meter(of: meter, accessoryID: $0.accessoryID, device: $0.device, suggestedRole: $0.role, series: "\(deviceID):\(key):power") }
         bind(key) { fields in
             let watts = fields[power]?.number ?? 0
             meter.characteristic(PowerMeter.consumption).update(clamping: watts)
@@ -296,11 +300,14 @@ actor Gen2Device {
             if let amps = fields[current]?.number, present.contains(PowerMeter.electricCurrent) {
                 meter.characteristic(PowerMeter.electricCurrent).update(clamping: amps)
             }
-            if let record { context.recordValue(watts, series: "\(deviceID):\(key):power", energy: record) }
+            if let watts = fields[power]?.number { owned?.record(watts: watts) }
         }
         if hasEnergy {
             bind(energySource) { fields in
-                if let wattHours = energy(fields) { meter.characteristic(PowerMeter.totalConsumption).update(clamping: wattHours / 1000) }
+                guard let wattHours = energy(fields) else { return }
+                meter.characteristic(PowerMeter.totalConsumption).update(clamping: wattHours / 1000)
+                owned?.record(counter: wattHours)
+                if let back = returned?(fields) { owned?.record(counter: back, direction: .returned) }
             }
         }
         return meter
@@ -370,16 +377,19 @@ actor Gen2Device {
         return service
     }
 
-    private func meterService(_ type: String, _ id: Int, name: String) -> Service {
+    private func meterService(_ type: String, _ id: Int, name: String, accessoryID: String) -> Service {
         let key = "\(type):\(id)"
-        // A whole home's meter (a 3EM's em, an EM's first em1) counts on the Status page's Energy section as the grid.
+        // An energy meter is the plugin's Meter, with what it sent back to the grid; a whole home's (a 3EM's em, an EM's
+        // first em1) suggested as the grid, the person's to change.
         switch type {
         case "em":
             return powerMeter(key, id: id, voltage: "a_voltage", current: "total_current", power: "total_act_power", energyKey: "emdata:\(id)",
-                              energy: { $0["total_act"]?.number }, record: EnergyTag(role: .grid, device: name))
+                              energy: { $0["total_act"]?.number }, returned: { $0["total_act_ret"]?.number },
+                              takeOver: (accessoryID, name, .grid))
         case "em1":
             return powerMeter(key, id: id, voltage: "voltage", current: "current", power: "act_power", energyKey: "em1data:\(id)",
-                              energy: { $0["total_act_energy"]?.number }, record: id == 0 ? EnergyTag(role: .grid, device: name) : nil)
+                              energy: { $0["total_act_energy"]?.number }, returned: { $0["total_act_ret_energy"]?.number },
+                              takeOver: (accessoryID, name, id == 0 ? .grid : nil))
         default:
             return powerMeter(key, id: id, voltage: "voltage", current: "current", power: "apower", energy: { $0["aenergy"]?["total"]?.number })
         }

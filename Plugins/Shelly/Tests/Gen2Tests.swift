@@ -287,6 +287,21 @@ struct ShellyNGTests {
         let meter = try #require(host.accessory(id)?.services.first { $0.type == PowerMeter.service })
         #expect(meter.characteristic(PowerMeter.consumption).value.doubleValue == 735.5)
         #expect(abs((meter.characteristic(PowerMeter.totalConsumption).value.doubleValue ?? 0) - 123.456) <= 0.051)
+
+        // Its Meter is the plugin's, suggested as the grid: exporting, the grid's power goes below zero, which the
+        // characteristic (a consumption, zero or above) cannot show.
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        defer { metrics.stop() }
+        let meterID = MeterID(accessory: id, meter: "\(PowerMeter.service.uuid)/power-meter-0")
+        await expectEventually { metrics.meterDescription(of: meterID)?.suggestedRole == .grid }
+        let series = "plugin:ShellyNG:shellypro3em-aabbccddeeff:em:0:power"
+        device.notify("NotifyStatus", #"{"em:0":{"total_act_power":-480.0}}"#)
+        await expectEventually {
+            metrics.valueHistories(from: Date().addingTimeInterval(-120), to: Date().addingTimeInterval(60), series: [series]).points[series]?.last?.values.low == -480
+        }
+        #expect(metrics.energyTags[series]?.role == .grid)
+        #expect(metrics.meters.meters == [meterID])
     }
 
     @Test func canonicalSettingsMoveDevicesIntoAccessorySettings() throws {

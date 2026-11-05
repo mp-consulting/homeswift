@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 
 /// A Meter a plugin declares for readings no characteristic carries (an inverter's solar, a meter's Returned energy, a
 /// battery system's flows), made by `PluginContext.meter`. The bridge keeps its Consumption and Returned by the hour as
@@ -29,6 +30,22 @@ public struct PluginMeter: Sendable {
 }
 
 extension PluginContext {
+    /// Takes over the Meter of one of its services (a power meter service with Total Consumption or Current
+    /// Consumption, which the bridge would read on its own): its readings come from this `PluginMeter` instead, with the
+    /// power's sign, a counter of Returned energy, or a figure the characteristics cannot carry (several phases added up).
+    /// The Meter keeps the service's key (`<uuid>/<subtype>`), so its history and Energy Role stay. Take it over before
+    /// the accessory is added.
+    public func meter(of service: Service, accessoryID: String, device: String, suggestedRole: EnergyRole? = nil, shared: String? = nil,
+                      series: String? = nil) -> PluginMeter {
+        let id = MeterID(accessory: accessoryID, meter: "\(service.type.uuid)/\(service.subtype ?? "")")
+        meterSink(.claim(id))
+        return PluginMeter(
+            id: id,
+            description: MeterDescription(device: device, suggestedRole: suggestedRole, shared: shared,
+                                          series: self.series(series ?? "\(AccessoryNaming.deviceID(of: accessoryID, platform: platform)):\(id.meter)").name),
+            readings: meterSink)
+    }
+
     /// Declares a Meter of the device `deviceID` (its accessory is `<platform>:<deviceID>`), `key` naming it among the
     /// device's Meters for as long as the device is there. `device` is the name the Status page shows it by;
     /// `suggestedRole` its Energy Role in the Home Energy (solar, home, grid or battery; nil for none, a single device's
