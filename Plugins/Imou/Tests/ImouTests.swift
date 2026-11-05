@@ -314,6 +314,34 @@ struct ImouTests {
         await again.stop()
     }
 
+    @Test func addByAddressChecksTheAddressThenTheCodeAndKeysTheCameraByItsSerial() async throws {
+        #expect(ImouPlugin.addsDevicesByAddress)
+        let host = try await environment.start([:])
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let first, let none) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
+        #expect(first.fields.map(\.key) == ["host"] && none.isNull)
+        guard case .ask(let second, let state) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": " 192.0.2.20 "])) else {
+            Issue.record("no code asked"); return
+        }
+        #expect(second.fields.map(\.key) == ["password", "username"] && second.fields[0].kind == .secret)
+        #expect(state == ["host": "192.0.2.20"])
+        await #expect(throws: SetupError("The camera at 192.0.2.20 refused this safety code.")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["password": "WRONG"], state: state))
+        }
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["password": "L2A3B4C5"], state: state)) else {
+            Issue.record("expected done"); return
+        }
+        #expect(outcome.deviceID == "TEST000CAM1")
+        #expect(outcome.credentials?["password"]?.stringValue == "L2A3B4C5")
+        #expect(outcome.settings == ["host": "192.0.2.20", "username": "admin"])
+
+        environment.camera.state.withLockedValue { $0.reachable = false }
+        await #expect(throws: SetupError("No camera answered at 192.0.2.60")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.60"]))
+        }
+        await host.stop()
+    }
+
     @Test func aCloudCameraMustBeTheCameraAtItsAddress() async throws {
         environment.cloud.addCamera("OTHER0000001", name: "Drive")
         let host = try await environment.start()

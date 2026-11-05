@@ -189,6 +189,19 @@ extension ElgatoKeyLightsPlugin {
           "max": 7000,
           "step": 50
         }
+      },
+      "host": {
+        "title": "IP address or host name",
+        "type": "string",
+        "description": "Where this light answers when Bonjour does not reach it, as Add by address set it. Empty, Bonjour finds it."
+      },
+      "port": {
+        "title": "Port",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+        "placeholder": 9123,
+        "description": "The port of the light's HTTP API, 9123 by default."
       }
     }
   },
@@ -265,7 +278,8 @@ extension ElgatoKeyLightsPlugin {
       "Use IP address instead of hostname": "Utiliser l'adresse IP au lieu du nom d'hôte",
       "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "Ce que font les lampes à l'allumage : reprendre leurs derniers réglages, ou la luminosité et la température de couleur par défaut ci-dessous. Vide garde le réglage de la lampe.",
       "What this light does when switched on. Empty takes the plugin's setting.": "Ce que fait cette lampe à l'allumage. Vide prend le réglage du plugin.",
-      "Where the light answers, for example 192.168.1.50.": "Là où la lampe répond, par exemple 192.168.1.50."
+      "Where the light answers, for example 192.168.1.50.": "Là où la lampe répond, par exemple 192.168.1.50.",
+      "Where this light answers when Bonjour does not reach it, as Add by address set it. Empty, Bonjour finds it.": "Là où cette lampe répond quand Bonjour ne la joint pas, comme Ajouter par adresse l'a réglé. Vide, Bonjour la trouve."
     },
     "es": {
       "Address": "Dirección",
@@ -303,7 +317,8 @@ extension ElgatoKeyLightsPlugin {
       "Use IP address instead of hostname": "Usar la dirección IP en lugar del nombre de host",
       "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "Lo que hacen las luces al encenderse: sus últimos ajustes, o el brillo y la temperatura de color predeterminados de abajo. Vacío conserva el ajuste de la luz.",
       "What this light does when switched on. Empty takes the plugin's setting.": "Lo que hace esta luz al encenderse. Vacío toma el ajuste del plugin.",
-      "Where the light answers, for example 192.168.1.50.": "Donde responde la luz, por ejemplo 192.168.1.50."
+      "Where the light answers, for example 192.168.1.50.": "Donde responde la luz, por ejemplo 192.168.1.50.",
+      "Where this light answers when Bonjour does not reach it, as Add by address set it. Empty, Bonjour finds it.": "Donde responde esta luz cuando Bonjour no la alcanza, tal como lo fijó Añadir por dirección. Vacío, Bonjour la encuentra."
     },
     "pt": {
       "Address": "Endereço",
@@ -341,7 +356,8 @@ extension ElgatoKeyLightsPlugin {
       "Use IP address instead of hostname": "Usar o endereço IP em vez do nome de anfitrião",
       "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "O que as luzes fazem ao ligar: as últimas definições, ou o brilho e a temperatura de cor predefinidos abaixo. Vazio mantém a definição da luz.",
       "What this light does when switched on. Empty takes the plugin's setting.": "O que esta luz faz ao ligar. Vazio usa a definição do plugin.",
-      "Where the light answers, for example 192.168.1.50.": "Onde a luz responde, por exemplo 192.168.1.50."
+      "Where the light answers, for example 192.168.1.50.": "Onde a luz responde, por exemplo 192.168.1.50.",
+      "Where this light answers when Bonjour does not reach it, as Add by address set it. Empty, Bonjour finds it.": "Onde esta luz responde quando o Bonjour não a alcança, tal como Adicionar por endereço o definiu. Vazio, o Bonjour encontra-a."
     }
   }
 }

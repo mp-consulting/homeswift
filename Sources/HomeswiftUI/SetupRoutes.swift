@@ -6,7 +6,7 @@ import HomeswiftPlugin
 extension UIServer {
     /// Setup (GLOSSARY.md, "Setup"), for administrators, all `POST` with a JSON body: `/api/setup/discover` with
     /// `platform` and `name` (and `block`, an instance not saved yet) finds devices; `/api/setup/start` with the same and
-    /// a `deviceID` (none for the account) starts a Setup Session and answers its first prompt; `/api/setup/<session>`
+    /// a `deviceID` (none for the account), or `addByAddress: true` (Add by address), starts a Setup Session and answers its first prompt; `/api/setup/<session>`
     /// with `answers` answers it; `/api/setup/<session>/cancel` ends it. Excluding a device or leaving out a part
     /// is an Accessory Setting (`PATCH /api/settings/accessories/<id>`). A person types secrets here; MCP clients cannot.
     func setupRoute(_ route: [String], body: JSONValue, username: String) async throws -> Reply? {
@@ -20,7 +20,8 @@ extension UIServer {
                 return .json(try await catalog.discoverDevices(platform: platform, name: name, block: block))
             case ["start"]:
                 guard !platform.isEmpty else { return .error(400, "platform is required") }
-                let answer = try await catalog.startSetup(platform: platform, name: name, deviceID: body["deviceID"]?.stringValue, block: block)
+                let answer = try await catalog.startSetup(platform: platform, name: name, deviceID: body["deviceID"]?.stringValue,
+                                                      addByAddress: body["addByAddress"]?.boolValue ?? false, block: block)
                 noteSetup(answer, by: username)
                 return .json(answer)
             case let path where path.count == 2 && path[1] == "state":

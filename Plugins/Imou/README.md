@@ -108,7 +108,11 @@ its safety code (and its user name, `admin` unless changed): the plugin checks t
 at that address is the one the account lists. Leave them empty to use a camera through the cloud alone. A camera of
 `devices` (by address) asks for its safety code; its serial, read from the camera (`magicBox.cgi?action=getSerialNo`,
 else the realm of its Digest challenge, `Login to <serial>`), becomes its Device Id, the same as the cloud's `deviceId`, so
-the camera keeps its accessory if the account lists it later.
+the camera keeps its accessory if the account lists it later. A camera neither lists is added with **Add by address…**
+on the instance (`start_setup` with `addByAddress: true` through MCP), with or without an account: it asks for the
+camera's address, checks that something answers there ("No camera answered at 192.0.2.60"), then asks for its safety code
+and reads its serial the same way. The address and user name go in the camera's Accessory Settings under its serial, the
+safety code in the vault.
 
 **The cloud's limits.** A developer account has 20,000 calls a day and, on a free account, 5 devices (`FL1001` beyond:
 use a second account, or share the camera to one). At 300 s, a camera with all four switches costs about 1,500 calls a

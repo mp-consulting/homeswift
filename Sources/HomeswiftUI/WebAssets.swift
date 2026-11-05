@@ -5544,6 +5544,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // Its Add button says it as a sentence does: "Address" in lower case, a name in capitals (ECU, UniFi, TV) kept.
+        const inSentence = (text) => text.replace(/(?<![\p{L}\p{N}])\p{Lu}\p{Ll}*(?![\p{L}\p{N}])/gu, (word) => word.toLowerCase());
         // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
         const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
         const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
@@ -5621,7 +5623,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: inSentence(noun) }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       if (type === "string" && property["x-schema-form"]?.type === "menu" && property["x-schema-form"].source) {
@@ -12767,7 +12769,11 @@ HomeswiftI18n.add("es", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Cámaras, timbres, NVR y Home Hubs de Reolink: vídeo en directo, movimiento, personas y vehículos, focos",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmas, cámaras, timbres, carillones y Smart Lighting de Ring",
+  "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "La sincronización, los modos, las entradas y las zonas de entretenimiento de una Sync Box HDMI",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luces, controladores LED y enchufes Wi-Fi Magic Home en la red local",
+  "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Coches Renault, Dacia y Alpine: batería, carga, climatización, claxon y luces",
   "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Cámaras y timbres IMOU en la red local, con el modo de privacidad y la sirena de la nube IMOU",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Altavoces Sonos: reproducción, volumen y grupos, favoritos como entradas de TV, LED y alarmas",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya y Smart Life a través de la nube de Tuya",
@@ -12778,6 +12784,9 @@ HomeswiftI18n.add("es", {
   "Devices that speak MQTT, described topic by topic": "Dispositivos que hablan MQTT, descritos tema por tema",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Persianas, calefacción y sensores Somfy TaHoma, Connexoon y Cozytouch",
   "Tapo plugs and bulbs on the local network": "Enchufes y bombillas Tapo en la red local",
+  "Solar production from an APsystems ECU on the local network": "La producción solar de una ECU APsystems en la red local",
+  "Trydan EV chargers on the local network: charging, current, lock and power": "Cargadores Trydan en la red local: carga, corriente, bloqueo y potencia",
+  "Solar production from an APsystems ECU on the local network": "La producción solar de una ECU APsystems en la red local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luces, sensores, persianas, ventiladores y climatizadores de dispositivos ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 y Gen4: relés, persianas, botones, luces y medidores",
@@ -15351,13 +15360,25 @@ HomeswiftI18n.add("es", {
   "Could not look for its devices: {error}": "No se pudieron buscar sus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Ya está configurado. Vuelve a buscar ahora, o más tarde desde esta página.",
   "Find again": "Buscar de nuevo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
   "Set up again": "Configurar de nuevo",
   "Include": "Incluir",
   "Exclude": "Excluir",
   "Asking the plugin…": "Consultando al plugin…",
   "Account of {name}": "Cuenta de {name}",
   "{name} is set up.": "{name} está configurado.",
+  "Add by address…": "Añadir por dirección…",
+  "Optional": "Opcional",
+  "Add by address": "Añadir por dirección",
+  "No devices found yet: add one by its address.": "Aún no se encontraron dispositivos: añade uno por su dirección.",
+  "The device is added.": "El dispositivo está añadido.",
+  "{name} is added.": "{name} está añadido.",
+  "{platform} did not say which device it reached": "{platform} no indicó qué dispositivo alcanzó",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Introduce la dirección de la luz: su dirección IP o nombre de host, tal como lo muestra tu router o la app Control Center.",
+  "IP address or host name": "Dirección IP o nombre de host",
+  "No light answered at {address}": "Ninguna luz respondió en {address}",
+  "{host} is not an IP address or a host name": "{host} no es una dirección IP ni un nombre de host",
+  "The port must be between 1 and 65535": "El puerto debe estar entre 1 y 65535",
+  "The light at {host} did not give its MAC address": "La luz en {host} no dio su dirección MAC",
   "The account is set up.": "La cuenta está configurada.",
   "Its accessories reach the Home app in a moment.": "Sus accesorios llegan a la app Casa en un momento.",
   "Time is up. Try again when you are ready.": "Se acabó el tiempo. Inténtalo de nuevo cuando estés listo.",
@@ -15384,6 +15405,25 @@ HomeswiftI18n.add("es", {
   "MAC address": "Dirección MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicia sesión con tu cuenta MyDolphin: Maytronics te envía un código.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicia sesión con tu cuenta Tapo y activa la compatibilidad con servicios de terceros en la app Tapo.",
+  "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Escribe la dirección del V2C Trydan: su dirección IP o nombre de host en la red local, en tu router o en la app V2C.",
+  "That is not an address: type an IP address or a host name, such as 192.168.1.50": "No es una dirección: escribe una dirección IP o un nombre de host, como 192.168.1.50",
+  "No V2C Trydan answered at {address}": "Ningún V2C Trydan respondió en {address}",
+  "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Escribe la dirección del ECU: su dirección IP o nombre de host, en tu router, donde suele aparecer como un dispositivo Espressif.",
+  "No ECU answered at {address}": "Ningún ECU respondió en {address}",
+  "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Escribe la dirección de la cámara: su dirección IP o nombre de host en tu red, en tu router o en IMOU Life.",
+  "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Escribe el código de seguridad de la cámara, impreso en su etiqueta (o la contraseña que le diste en IMOU Life).",
+  "Safety code": "Código de seguridad",
+  "That is not an address.": "No es una dirección.",
+  "No camera answered at {address}": "Ninguna cámara respondió en {address}",
+  "The camera at {host} refused this safety code.": "La cámara en {host} rechazó este código de seguridad.",
+  "The camera at {host} did not give its serial number.": "La cámara en {host} no dio su número de serie.",
+  "Cannot reach the camera at {host}: is it on, and on this network? ({error})": "No se puede contactar con la cámara en {host}: ¿está encendida y en esta red? ({error})",
+  "Enter the Reolink device's address, from your router or the Reolink app, and a local user's name and password (an administrator, for floodlights, sirens and IR lights).": "Introduce la dirección del dispositivo Reolink, desde tu router o la app Reolink, y el nombre y la contraseña de un usuario local (un administrador, para los focos, las sirenas y las luces infrarrojas).",
+  "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).": "Inicia sesión en el dispositivo Reolink con un usuario local (un administrador, para los focos, las sirenas y las luces infrarrojas).",
+  "Enter the device's address": "Introduce la dirección del dispositivo",
+  "No Reolink device answered at {address}": "Ningún dispositivo Reolink respondió en {address}",
+  "The device refused the user name or password ({detail})": "El dispositivo rechazó el nombre de usuario o la contraseña ({detail})",
+  "The device at {address} gave no serial number": "El dispositivo en {address} no dio ningún número de serie",
   "A Tapo device refused this email and password.": "Un dispositivo Tapo rechazó este correo y esta contraseña.",
   "Email": "Correo electrónico",
   "Code": "Código",
@@ -15585,7 +15625,11 @@ HomeswiftI18n.add("fr", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Caméras, sonnettes, NVR et Home Hubs Reolink : vidéo en direct, mouvements, personnes et véhicules, projecteurs",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, caméras, sonnettes, carillons et Smart Lighting de Ring",
+  "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "La synchronisation, les modes, les entrées et les zones de divertissement d'une Sync Box HDMI",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Lampes, contrôleurs LED et prises Wi-Fi Magic Home sur le réseau local",
+  "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Voitures Renault, Dacia et Alpine : batterie, recharge, climatisation, klaxon et feux",
   "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Caméras et sonnettes IMOU sur le réseau local, avec le mode confidentialité et la sirène du cloud IMOU",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Enceintes Sonos : lecture, volume et groupes, favoris en entrées TV, voyants et alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Appareils Tuya et Smart Life via le cloud Tuya",
@@ -15596,6 +15640,9 @@ HomeswiftI18n.add("fr", {
   "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Volets, chauffages et capteurs Somfy TaHoma, Connexoon et Cozytouch",
   "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
+  "Solar production from an APsystems ECU on the local network": "La production solaire d’un ECU APsystems sur le réseau local",
+  "Trydan EV chargers on the local network: charging, current, lock and power": "Bornes de recharge Trydan sur le réseau local : charge, courant, verrou et puissance",
+  "Solar production from an APsystems ECU on the local network": "La production solaire d’un ECU APsystems sur le réseau local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interrupteurs, lumières, capteurs, volets, ventilateurs et climatiseurs des appareils ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 et Gen4 : relais, volets, boutons, lumières et compteurs",
@@ -18169,13 +18216,25 @@ HomeswiftI18n.add("fr", {
   "Could not look for its devices: {error}": "Impossible de rechercher ses appareils : {error}",
   "It is set up. Look again now, or later from this page.": "Il est configuré. Relancez la recherche maintenant, ou plus tard depuis cette page.",
   "Find again": "Chercher à nouveau",
-  "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
   "Set up again": "Configurer à nouveau",
   "Include": "Inclure",
   "Exclude": "Exclure",
   "Asking the plugin…": "Le plugin répond…",
   "Account of {name}": "Compte de {name}",
   "{name} is set up.": "{name} est configuré.",
+  "Add by address…": "Ajouter par adresse…",
+  "Optional": "Facultatif",
+  "Add by address": "Ajouter par adresse",
+  "No devices found yet: add one by its address.": "Aucun appareil trouvé pour l’instant : ajoutez-en un par son adresse.",
+  "The device is added.": "L’appareil est ajouté.",
+  "{name} is added.": "{name} est ajouté.",
+  "{platform} did not say which device it reached": "{platform} n’a pas dit quel appareil il a joint",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Saisissez l’adresse de la lampe : son adresse IP ou son nom d’hôte, tel que votre routeur ou l’app Control Center l’affiche.",
+  "IP address or host name": "Adresse IP ou nom d’hôte",
+  "No light answered at {address}": "Aucune lampe n’a répondu à {address}",
+  "{host} is not an IP address or a host name": "{host} n’est ni une adresse IP ni un nom d’hôte",
+  "The port must be between 1 and 65535": "Le port doit être compris entre 1 et 65535",
+  "The light at {host} did not give its MAC address": "La lampe à {host} n’a pas donné son adresse MAC",
   "The account is set up.": "Le compte est configuré.",
   "Its accessories reach the Home app in a moment.": "Ses accessoires arrivent dans l'app Maison dans un instant.",
   "Time is up. Try again when you are ready.": "Le temps est écoulé. Réessayez quand vous êtes prêt.",
@@ -18202,6 +18261,25 @@ HomeswiftI18n.add("fr", {
   "MAC address": "Adresse MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Connectez-vous avec votre compte MyDolphin : Maytronics vous envoie un code.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Connectez-vous avec votre compte Tapo, et activez la compatibilité avec les services tiers dans l’app Tapo.",
+  "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Saisissez l’adresse du V2C Trydan : son adresse IP ou son nom d’hôte sur le réseau local, dans votre routeur ou l’app V2C.",
+  "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Ce n’est pas une adresse : saisissez une adresse IP ou un nom d’hôte, comme 192.168.1.50",
+  "No V2C Trydan answered at {address}": "Aucun V2C Trydan n’a répondu à {address}",
+  "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Saisissez l’adresse de l’ECU : son adresse IP ou son nom d’hôte, dans votre routeur, où il apparaît souvent comme un appareil Espressif.",
+  "No ECU answered at {address}": "Aucun ECU n’a répondu à {address}",
+  "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Saisissez l’adresse de la caméra : son adresse IP ou son nom d’hôte sur votre réseau, dans votre routeur ou IMOU Life.",
+  "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Saisissez le code de sécurité de la caméra, imprimé sur son étiquette (ou le mot de passe que vous lui avez donné dans IMOU Life).",
+  "Safety code": "Code de sécurité",
+  "That is not an address.": "Ce n’est pas une adresse.",
+  "No camera answered at {address}": "Aucune caméra n’a répondu à {address}",
+  "The camera at {host} refused this safety code.": "La caméra à {host} a refusé ce code de sécurité.",
+  "The camera at {host} did not give its serial number.": "La caméra à {host} n’a pas donné son numéro de série.",
+  "Cannot reach the camera at {host}: is it on, and on this network? ({error})": "Impossible de joindre la caméra à {host} : est-elle allumée, et sur ce réseau ? ({error})",
+  "Enter the Reolink device's address, from your router or the Reolink app, and a local user's name and password (an administrator, for floodlights, sirens and IR lights).": "Saisissez l’adresse de l’appareil Reolink, dans votre routeur ou l’app Reolink, et le nom et le mot de passe d’un utilisateur local (un administrateur, pour les projecteurs, les sirènes et les lumières infrarouges).",
+  "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).": "Connectez-vous à l’appareil Reolink avec un utilisateur local (un administrateur, pour les projecteurs, les sirènes et les lumières infrarouges).",
+  "Enter the device's address": "Saisissez l’adresse de l’appareil",
+  "No Reolink device answered at {address}": "Aucun appareil Reolink n’a répondu à {address}",
+  "The device refused the user name or password ({detail})": "L’appareil a refusé le nom d’utilisateur ou le mot de passe ({detail})",
+  "The device at {address} gave no serial number": "L’appareil à {address} n’a donné aucun numéro de série",
   "A Tapo device refused this email and password.": "Un appareil Tapo a refusé cet e-mail et ce mot de passe.",
   "Email": "E-mail",
   "Code": "Code",
@@ -18403,7 +18481,11 @@ HomeswiftI18n.add("pt", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Câmaras, campainhas, NVR e Home Hubs Reolink: vídeo em direto, movimento, pessoas e veículos, projetores",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
+  "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "A sincronização, os modos, as entradas e as áreas de entretenimento de uma Sync Box HDMI",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luzes, controladores LED e tomadas Wi-Fi Magic Home na rede local",
+  "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Carros Renault, Dacia e Alpine: bateria, carregamento, climatização, buzina e luzes",
   "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Câmaras e campainhas IMOU na rede local, com o modo de privacidade e a sirene da nuvem IMOU",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Colunas Sonos: reprodução, volume e grupos, favoritos como entradas de TV, LED e alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya e Smart Life através da nuvem Tuya",
@@ -18414,6 +18496,9 @@ HomeswiftI18n.add("pt", {
   "Devices that speak MQTT, described topic by topic": "Dispositivos que falam MQTT, descritos tópico a tópico",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Estores, aquecimento e sensores Somfy TaHoma, Connexoon e Cozytouch",
   "Tapo plugs and bulbs on the local network": "Tomadas e lâmpadas Tapo na rede local",
+  "Solar production from an APsystems ECU on the local network": "A produção solar de uma ECU APsystems na rede local",
+  "Trydan EV chargers on the local network: charging, current, lock and power": "Carregadores Trydan na rede local: carga, corrente, bloqueio e potência",
+  "Solar production from an APsystems ECU on the local network": "A produção solar de uma ECU APsystems na rede local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luzes, sensores, estores, ventoinhas e climatizadores de dispositivos ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 e Gen4: relés, estores, botões, luzes e contadores",
@@ -20987,13 +21072,25 @@ HomeswiftI18n.add("pt", {
   "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
   "Include": "Incluir",
   "Exclude": "Excluir",
   "Asking the plugin…": "A consultar o plugin…",
   "Account of {name}": "Conta de {name}",
   "{name} is set up.": "{name} está configurado.",
+  "Add by address…": "Adicionar por endereço…",
+  "Optional": "Opcional",
+  "Add by address": "Adicionar por endereço",
+  "No devices found yet: add one by its address.": "Ainda não foram encontrados dispositivos: adicione um pelo seu endereço.",
+  "The device is added.": "O dispositivo foi adicionado.",
+  "{name} is added.": "{name} foi adicionado.",
+  "{platform} did not say which device it reached": "{platform} não indicou que dispositivo alcançou",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Introduza o endereço da luz: o seu endereço IP ou nome de anfitrião, tal como o router ou a app Control Center o mostra.",
+  "IP address or host name": "Endereço IP ou nome de anfitrião",
+  "No light answered at {address}": "Nenhuma luz respondeu em {address}",
+  "{host} is not an IP address or a host name": "{host} não é um endereço IP nem um nome de anfitrião",
+  "The port must be between 1 and 65535": "A porta tem de estar entre 1 e 65535",
+  "The light at {host} did not give its MAC address": "A luz em {host} não deu o seu endereço MAC",
   "The account is set up.": "A conta está configurada.",
   "Its accessories reach the Home app in a moment.": "Os seus acessórios chegam à app Casa num instante.",
   "Time is up. Try again when you are ready.": "O tempo acabou. Tente de novo quando estiver pronto.",
@@ -21020,6 +21117,25 @@ HomeswiftI18n.add("pt", {
   "MAC address": "Endereço MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicie sessão com a sua conta MyDolphin: a Maytronics envia-lhe um código.",
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicie sessão com a sua conta Tapo e ative a compatibilidade com serviços de terceiros na app Tapo.",
+  "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Introduza o endereço do V2C Trydan: o seu endereço IP ou nome de anfitrião na rede local, no seu router ou na app V2C.",
+  "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Não é um endereço: introduza um endereço IP ou um nome de anfitrião, como 192.168.1.50",
+  "No V2C Trydan answered at {address}": "Nenhum V2C Trydan respondeu em {address}",
+  "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Introduza o endereço do ECU: o seu endereço IP ou nome de anfitrião, no seu router, onde aparece muitas vezes como um dispositivo Espressif.",
+  "No ECU answered at {address}": "Nenhum ECU respondeu em {address}",
+  "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Introduza o endereço da câmara: o seu endereço IP ou nome de anfitrião na sua rede, no seu router ou na IMOU Life.",
+  "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Introduza o código de segurança da câmara, impresso na sua etiqueta (ou a palavra-passe que lhe deu na IMOU Life).",
+  "Safety code": "Código de segurança",
+  "That is not an address.": "Não é um endereço.",
+  "No camera answered at {address}": "Nenhuma câmara respondeu em {address}",
+  "The camera at {host} refused this safety code.": "A câmara em {host} recusou este código de segurança.",
+  "The camera at {host} did not give its serial number.": "A câmara em {host} não deu o seu número de série.",
+  "Cannot reach the camera at {host}: is it on, and on this network? ({error})": "Não é possível contactar a câmara em {host}: está ligada e nesta rede? ({error})",
+  "Enter the Reolink device's address, from your router or the Reolink app, and a local user's name and password (an administrator, for floodlights, sirens and IR lights).": "Introduza o endereço do dispositivo Reolink, no seu router ou na app Reolink, e o nome e a palavra-passe de um utilizador local (um administrador, para os projetores, as sirenes e as luzes infravermelhas).",
+  "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).": "Inicie sessão no dispositivo Reolink com um utilizador local (um administrador, para os projetores, as sirenes e as luzes infravermelhas).",
+  "Enter the device's address": "Introduza o endereço do dispositivo",
+  "No Reolink device answered at {address}": "Nenhum dispositivo Reolink respondeu em {address}",
+  "The device refused the user name or password ({detail})": "O dispositivo recusou o nome de utilizador ou a palavra-passe ({detail})",
+  "The device at {address} gave no serial number": "O dispositivo em {address} não deu nenhum número de série",
   "A Tapo device refused this email and password.": "Um dispositivo Tapo recusou este e-mail e esta palavra-passe.",
   "Email": "E-mail",
   "Code": "Código",
@@ -23722,7 +23838,10 @@ HomeswiftI18n.add("pt", {
     const node = el("section", { class: "settings-section" },
       el("div", { class: "settings-section-head with-tools" },
         el("div", {}, el("h3", {}, t("Devices"), " ", count), el("p", { class: "help", text: t("What {plugin} finds, set up or not.", { plugin: block.name }) })), again),
-      list);
+      list,
+      // A device the plugin does not find, added by its address: the Add accessories page's sheet.
+      plugin?.addByAddress ? el("div", { class: "setup-add-address" },
+        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -23735,7 +23854,8 @@ HomeswiftI18n.add("pt", {
         showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("No devices found") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -23950,9 +24070,12 @@ HomeswiftI18n.add("pt", {
     // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
     // work: an optional account left alone needs no one.
     let accountState = "notSetUp", needsAccount = false;
-    // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
+    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
+    const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
+      plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
       action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
@@ -24005,7 +24128,11 @@ HomeswiftI18n.add("pt", {
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
+          : t("No devices found") }));
+        // Under its devices, a way to add one the plugin does not find.
+        if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
+          el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
         list.replaceChildren(...rows);
         const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
@@ -24139,16 +24266,20 @@ HomeswiftI18n.add("pt", {
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? block.name;
+  /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
+  /// whatever else the plugin needs, then ends on the device's settings as any device's does.
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
+    const title = device?.name ?? (adding ? t("Add by address") : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
-    // way to sign in may be the person's choice, asked in the sheet).
-    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
+    // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
+    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
-    const picking = firstTime && !device;
+    const picking = firstTime && !device && !adding;
     const devicesStage = t("Devices");
-    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
+    const stages = [device || adding ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
+    /// What was typed in the last step's fields, secrets left out: a step asked again after an error keeps it.
+    let typed = {};
     /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
     let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
@@ -24177,11 +24308,18 @@ HomeswiftI18n.add("pt", {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
-        const editor = device && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device }) : null;
+        // A device added by address is named once its settings have loaded: the sheet's title and the line say it.
+        const named = el("strong", { text: device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
+          : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
+        const onTitle = (name) => {
+          if (!adding || !name) return;
+          form.querySelector("#setup-title").textContent = name;
+          named.textContent = t("{name} is added.", { name });
+        };
+        const editor = (device || adding) && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device, onTitle }) : null;
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
-            el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
-              : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
+            el("p", {}, named),
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
@@ -24320,6 +24458,9 @@ HomeswiftI18n.add("pt", {
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
           });
+          // Asked again after an error, the field keeps what was typed; else what the plugin knows already.
+          const known = answer.error ? typed[field.key] : undefined;
+          if (field.kind !== "secret") input.value = known ?? field.value ?? "";
           return [field, input];
         });
         const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
@@ -24329,6 +24470,7 @@ HomeswiftI18n.add("pt", {
           const missing = inputs.find(([field, input]) => !field.optional && !input.value.trim());
           if (missing) { missing[1].focus(); return; }
           stop();
+          typed = Object.fromEntries(inputs.filter(([field]) => field.kind !== "secret" && field.kind !== "choice").map(([field, input]) => [field.key, input.value]));
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         const link = /^https?:\/\//i.test(prompt.url ?? "")
@@ -24337,17 +24479,21 @@ HomeswiftI18n.add("pt", {
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
           ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
-            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title" }, t(field.label),
+              field.optional ? el("span", { class: "muted field-optional", text: t("Optional") }) : null), input)),
           left,
           error,
           el("div", { class: "actions" }, cancel, submit));
-        (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
+        // After an error, the first field, its text selected to type it again; else the first one left to fill.
+        const first = answer.error ? inputs.find(([field]) => field.kind !== "choice")?.[1] : null;
+        if (first) { first.focus(); first.select(); }
+        else (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }
 
       const step = (answers) => post(session, { answers });
       // A plugin added from the catalog: its block is saved once its Setup is done.
       // A Setup the Assistant started is taken over where it stands; the others start here.
-      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined }))
+      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, addByAddress: adding || undefined, block: draft ? block : undefined }))
         .then(draw)
         .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
@@ -24367,20 +24513,21 @@ HomeswiftI18n.add("pt", {
 
   /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
   /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
-  async function resume({ session, platform, name }) {
+  async function resume({ session, platform, name, addByAddress = false }) {
     try {
       const plugins = await api("/api/plugins");
       const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
       const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
       const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
-      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+      open({ block, plugin, resume: session, firstTime: isNew, adding: addByAddress === true, after: () => { if (location.pathname === "/setup") app().route(); } });
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
   /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
-  /// lists what the plugin finds, as the Add accessories page does.
-  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
+  /// lists what the plugin finds, as the Add accessories page does; `adding`, Add by address, for a plugin whose
+  /// `addByAddress`.
+  const setUp = ({ block, plugin, device = null, firstTime = false, adding = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, adding, trigger, after });
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.
@@ -28219,6 +28366,10 @@ select option:disabled { color: var(--muted); }
 .setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
 @media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+/* Add by address, under the devices: a device the plugin does not find, named by its address. */
+.setup-add-address { display: flex; padding-top: var(--space-12); }
+/* A field a Setup step may leave empty (a port with its default): said beside its name. */
+.field-optional { margin-left: var(--space-6); font-weight: var(--weight-regular); }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }
 /* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
