@@ -9,7 +9,6 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "required": true,
         "default": "APsystems",
         "description": "The instance's name in the logs"
       },
@@ -94,7 +93,6 @@
   },
   "layout": [
     "name",
-    "ecus",
     "inverters",
     "meter",
     {
@@ -104,7 +102,8 @@
       "expanded": false,
       "items": [
         "pollInterval",
-        "connectRetries"
+        "connectRetries",
+        "ecus"
       ]
     }
   ],

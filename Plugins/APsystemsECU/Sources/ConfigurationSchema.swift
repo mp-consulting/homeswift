@@ -15,7 +15,6 @@ extension APsystemsECUPlugin {
       "name": {
         "title": "Name",
         "type": "string",
-        "required": true,
         "default": "APsystems",
         "description": "The instance's name in the logs"
       },
@@ -100,7 +99,6 @@ extension APsystemsECUPlugin {
   },
   "layout": [
     "name",
-    "ecus",
     "inverters",
     "meter",
     {
@@ -110,7 +108,8 @@ extension APsystemsECUPlugin {
       "expanded": false,
       "items": [
         "pollInterval",
-        "connectRetries"
+        "connectRetries",
+        "ecus"
       ]
     }
   ],
