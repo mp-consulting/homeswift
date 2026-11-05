@@ -119,12 +119,15 @@ import Darwin
         #expect(redactCommandLine(["-i", "http://10.0.0.5/snapshot.cgi?usr=admin&pwd=hunter2&res=1"]) == "-i http://10.0.0.5/snapshot.cgi?usr=admin&pwd=***&res=1")
         // An RTSP path can be the secret (UniFi Protect's stream alias): it goes, the host, port and query stay.
         #expect(redactCommandLine(["-i", "rtsps://192.168.5.119:7441/AbCdEf0123456789?enableSrtp"]) == "-i rtsps://192.168.5.119:7441/<redacted>?enableSrtp")
-        #expect(redactCommandLine(["-i", "RTSP://cam:554/s1/live?token=abc&x=1"]) == "-i RTSP://cam:554/<redacted>?token=***&x=1")
+        #expect(redactCommandLine(["-i", "RTSP://cam:554/s1/live?token=abc&x=1"]) == "-i RTSP://cam:554/<redacted>?token=***&x=***")
         #expect(redactURLPasswords("Input #0, rtsp, from 'rtsps://10.0.0.1:7441/alias?enableSrtp':") == "Input #0, rtsp, from 'rtsps://10.0.0.1:7441/<redacted>?enableSrtp':")
         #expect(redactURLPasswords("rtsp://cam:554") == "rtsp://cam:554")
         #expect(redactURLPasswords("http://cam/snapshot.jpg") == "http://cam/snapshot.jpg")
         // A token in the query, as Google's Nest RTSP streams carry it (the path is masked like every RTSP path).
-        #expect(redactCommandLine(["-i", "rtsps://stream.example/v1/CjZ?auth=STREAM-TOKEN&x=1"]) == "-i rtsps://stream.example/<redacted>?auth=***&x=1")
+        #expect(redactCommandLine(["-i", "rtsps://stream.example/v1/CjZ?auth=STREAM-TOKEN&x=1"]) == "-i rtsps://stream.example/<redacted>?auth=***&x=***")
+        // Every value of an RTSP URL's query, whatever its name (Tuya's cloud streams), and the path.
+        #expect(redactURLPasswords("from 'rtsps://cam-proxy.example.invalid:443/v1/proxy/bf5c4a3b2d1e0f9a8b7c?uuid=ZXhh&ts=1'")
+            == "from 'rtsps://cam-proxy.example.invalid:443/<redacted>?uuid=***&ts=***'")
     }
 
     @Test func logsTheCommandLineWithoutPasswords() async {

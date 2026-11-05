@@ -50,11 +50,18 @@ public func redactURLPasswords(_ text: String) -> String {
     return redactRTSPPaths(result)
 }
 
-/// The path of every `rtsp://` and `rtsps://` URL replaced by `<redacted>`; the scheme, the host and port (and masked
-/// credentials before them) and the query stay.
+/// The path of every `rtsp://` and `rtsps://` URL replaced by `<redacted>`, and every value of its query by `***`: a cloud's
+/// stream URL (Tuya's) carries its credential under a name nobody documents. The scheme, the host and port (and masked
+/// credentials before them) and the query's names stay.
 public func redactRTSPPaths(_ text: String) -> String {
     guard text.range(of: "rtsp", options: .caseInsensitive) != nil else { return text }
-    return text.replacing(#/(?i)\b(rtsps?:\/\/[^\/?#\s'"]+)\/[^?#\s'"]+/#) { $0.output.1 + "/<redacted>" }
+    let paths = text.replacing(#/(?i)\b(rtsps?:\/\/[^\/?#\s'"]+)\/[^?#\s'"]+/#) { $0.output.1 + "/<redacted>" }
+    return paths.replacing(#/(?i)\b(rtsps?:\/\/[^?#\s'"]*)\?([^#\s'"]*)/#) { match in
+        let query = match.output.2.split(separator: "&", omittingEmptySubsequences: false).map { pair in
+            pair.firstIndex(of: "=").map { pair[...$0] + "***" } ?? pair
+        }
+        return match.output.1 + "?" + query.joined(separator: "&")
+    }
 }
 
 /// Matches runs of non-printable characters (Unicode category C) in FFmpeg's standard error, which become line breaks.

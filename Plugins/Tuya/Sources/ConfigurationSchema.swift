@@ -283,6 +283,22 @@ extension TuyaPlugin {
           "light"
         ]
       },
+      "video": {
+        "type": "boolean",
+        "title": "Video",
+        "description": "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "recording": {
+        "type": "boolean",
+        "title": "HomeKit Secure Video",
+        "description": "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default",
+        "x-kinds": [
+          "camera"
+        ]
+      },
       "schema": {
         "type": "array",
         "title": "DP overrides",
@@ -432,6 +448,7 @@ extension TuyaPlugin {
       "Enum": "Énumération",
       "Hidden": "Masqué",
       "Home ID": "Identifiant du domicile",
+      "HomeKit Secure Video": "HomeKit Secure Video",
       "Homes": "Domiciles",
       "ID": "Identifiant",
       "Integer": "Entier",
@@ -453,6 +470,7 @@ extension TuyaPlugin {
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publié seul, hors du pont : ajoutez-le dans l'app Maison comme un accessoire",
       "Raw": "Brut",
       "Read conversion": "Conversion en lecture",
+      "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default": "Enregistre la caméra quand elle détecte un mouvement : chaque enregistrement ouvre un flux du cloud. Désactivé par défaut",
       "Scale": "Échelle",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -465,6 +483,7 @@ extension TuyaPlugin {
       "The Tuya cloud project and its devices": "Le projet cloud Tuya et ses appareils",
       "The app the account belongs to": "L'app du compte",
       "The calling code of the app account's country, such as 1, 33 or 49": "L'indicatif téléphonique du pays du compte de l'app, comme 1, 33 ou 49",
+      "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service": "La vidéo en direct et les instantanés de la caméra sur un accessoire à part, avec son détecteur de mouvement et sa sonnette : ajoutez-le dans l'app Maison comme une caméra. Activé par défaut ; chaque flux et chaque instantané coûte un appel au service IoT Video Live Stream du cloud",
       "The cloud project's Access ID, from the Tuya IoT Platform": "L'Access ID du projet cloud, sur la Tuya IoT Platform",
       "The code Homeswift reads it as": "Le code sous lequel Homeswift le lit",
       "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "L'adresse OpenAPI du centre de données, comme https://openapi.tuyaeu.com. Un projet Smart Home prend celle de son pays s'il est vide",
@@ -479,6 +498,7 @@ extension TuyaPlugin {
       "Unbridged": "Hors du pont",
       "Value": "Valeur",
       "Values": "Valeurs",
+      "Video": "Vidéo",
       "What debug logs: api, or device ids, separated by commas; everything when it is empty": "Ce que le débogage journalise : api, ou des identifiants d'appareils, séparés par des virgules ; tout s'il est vide",
       "Write conversion": "Conversion en écriture"
     },
@@ -508,6 +528,7 @@ extension TuyaPlugin {
       "Enum": "Enumeración",
       "Hidden": "Oculto",
       "Home ID": "Identificador del hogar",
+      "HomeKit Secure Video": "HomeKit Secure Video",
       "Homes": "Hogares",
       "ID": "Identificador",
       "Integer": "Entero",
@@ -529,6 +550,7 @@ extension TuyaPlugin {
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado por separado, fuera del puente: añádelo en la app Casa como un accesorio",
       "Raw": "Sin procesar",
       "Read conversion": "Conversión de lectura",
+      "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default": "Graba la cámara cuando detecta movimiento: cada grabación abre una transmisión desde la nube. Desactivado por defecto",
       "Scale": "Escala",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -541,6 +563,7 @@ extension TuyaPlugin {
       "The Tuya cloud project and its devices": "El proyecto en la nube de Tuya y sus dispositivos",
       "The app the account belongs to": "La app de la cuenta",
       "The calling code of the app account's country, such as 1, 33 or 49": "El prefijo telefónico del país de la cuenta de la app, como 1, 33 o 49",
+      "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service": "El vídeo en directo y las instantáneas de la cámara en un accesorio propio, con su sensor de movimiento y su timbre: añádelo en la app Casa como una cámara. Activado por defecto; cada transmisión e instantánea cuesta una llamada al servicio IoT Video Live Stream de la nube",
       "The cloud project's Access ID, from the Tuya IoT Platform": "El Access ID del proyecto en la nube, de la Tuya IoT Platform",
       "The code Homeswift reads it as": "El código con el que Homeswift lo lee",
       "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "La dirección OpenAPI del centro de datos, como https://openapi.tuyaeu.com. Un proyecto Smart Home usa la de su país si está vacío",
@@ -555,6 +578,7 @@ extension TuyaPlugin {
       "Unbridged": "Fuera del puente",
       "Value": "Valor",
       "Values": "Valores",
+      "Video": "Vídeo",
       "What debug logs: api, or device ids, separated by commas; everything when it is empty": "Lo que registra la depuración: api, o identificadores de dispositivos, separados por comas; todo si está vacío",
       "Write conversion": "Conversión de escritura"
     },
@@ -584,6 +608,7 @@ extension TuyaPlugin {
       "Enum": "Enumeração",
       "Hidden": "Oculto",
       "Home ID": "Identificador da casa",
+      "HomeKit Secure Video": "HomeKit Secure Video",
       "Homes": "Casas",
       "ID": "Identificador",
       "Integer": "Inteiro",
@@ -605,6 +630,7 @@ extension TuyaPlugin {
       "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado à parte, fora da ponte: adicione-o na app Casa como um acessório",
       "Raw": "Bruto",
       "Read conversion": "Conversão de leitura",
+      "Records the camera when it detects motion: each recording opens a stream from the cloud. Off by default": "Grava a câmara quando deteta movimento: cada gravação abre uma transmissão da cloud. Desativado por predefinição",
       "Scale": "Escala",
       "Smart Home": "Smart Home",
       "Smart Life": "Smart Life",
@@ -617,6 +643,7 @@ extension TuyaPlugin {
       "The Tuya cloud project and its devices": "O projeto na nuvem Tuya e os seus dispositivos",
       "The app the account belongs to": "A app da conta",
       "The calling code of the app account's country, such as 1, 33 or 49": "O indicativo telefónico do país da conta da app, como 1, 33 ou 49",
+      "The camera's live video and snapshots on an accessory of its own, with its motion sensor and doorbell: add it in the Home app as a camera. On by default; each stream and snapshot costs a call to the cloud's IoT Video Live Stream service": "O vídeo em direto e as capturas da câmara num acessório próprio, com o seu sensor de movimento e a sua campainha: adicione-o na app Casa como uma câmara. Ativado por predefinição; cada transmissão e captura custa uma chamada ao serviço IoT Video Live Stream da cloud",
       "The cloud project's Access ID, from the Tuya IoT Platform": "O Access ID do projeto na nuvem, da Tuya IoT Platform",
       "The code Homeswift reads it as": "O código com que o Homeswift o lê",
       "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "O endereço OpenAPI do centro de dados, como https://openapi.tuyaeu.com. Um projeto Smart Home usa o do seu país quando está vazio",
@@ -631,6 +658,7 @@ extension TuyaPlugin {
       "Unbridged": "Fora da ponte",
       "Value": "Valor",
       "Values": "Valores",
+      "Video": "Vídeo",
       "What debug logs: api, or device ids, separated by commas; everything when it is empty": "O que a depuração regista: api, ou identificadores de dispositivos, separados por vírgulas; tudo quando está vazio",
       "Write conversion": "Conversão de escrita"
     }

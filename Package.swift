@@ -835,7 +835,7 @@ let package = Package(
         .testTarget(
             name: "TuyaTests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftTuya", "HomeswiftAI",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftTuya", "HomeswiftAI", "HomeswiftFFmpeg",
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "_CryptoExtras", package: "swift-crypto"),
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),

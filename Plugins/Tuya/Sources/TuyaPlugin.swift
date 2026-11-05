@@ -1,14 +1,15 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftFFmpeg
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
 
 /// Tuya and Smart Life devices through the Tuya Cloud OpenAPI: a Smart Home project (the app's account linked to a
-/// cloud project) or a Custom project. Lights, switches, plugs, climate, covers, locks, sensors, cameras' events, IR
-/// remotes and the account's scenes; states come from Tuya's MQTT push, writes from HomeKit go to the cloud, coalesced.
+/// cloud project) or a Custom project. Lights, switches, plugs, climate, covers, locks, sensors, cameras (their events in
+/// the bridge, their video on an accessory of their own), IR remotes and the account's scenes; states come from Tuya's MQTT push, writes from HomeKit go to the cloud, coalesced.
 ///
 /// The configuration is the one of homebridge-tuya-platform, so a Homebridge block works unchanged; the account's
 /// secrets move into the vault. See README.md in this directory, and docs/clean-room/Tuya.md for the specification it
@@ -27,6 +28,12 @@ public actor TuyaPlugin: HomeswiftPlugin {
         var loginBackoff = Backoff(initial: .seconds(30), maximum: .seconds(1800), jitter: .proportional(0.2))
         var pushBackoff = Backoff(initial: .seconds(5), maximum: .seconds(600), jitter: .proportional(0.2))
         var requestBackoff = Backoff(initial: .milliseconds(100), maximum: .seconds(60), jitter: .additive(.milliseconds(100)))
+        /// The cameras' FFmpeg, made when the first camera is published.
+        var ffmpeg: @Sendable (Logger) -> RTSPCameraFFmpeg = { RTSPCameraFFmpeg(name: "Tuya", logger: $0, debug: false) }
+        var ports = RtpPortAllocator()
+        var grabFrame: TuyaCamera.FrameGrabber = TuyaCamera.ffmpegFrame
+        /// The plugin's log instead of the context's (tests read it).
+        var logger: Logger?
     }
 
     public static let platform = "TuyaPlatform"
@@ -38,12 +45,15 @@ public actor TuyaPlugin: HomeswiftPlugin {
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
-    var logger: Logger { context.logger }
+    var logger: Logger { dependencies.logger ?? context.logger }
     private(set) var settings: TuyaSettings?
     private(set) var api: TuyaOpenAPI?
     private var push: TuyaPush?
     /// Each device's accessory, by device id.
     private(set) var runtimes: [String: TuyaRuntime] = [:]
+    /// The cameras' video accessories, by device id.
+    private(set) var cameras: [String: TuyaCamera] = [:]
+    private var ffmpeg: RTSPCameraFFmpeg?
     /// The home ids (Smart Home) or asset ids (Custom) the devices come from.
     private var ownerIDs: Set<String> = []
 
@@ -58,6 +68,8 @@ public actor TuyaPlugin: HomeswiftPlugin {
     }
 
     static func accessoryID(deviceID: String) -> String { "\(platform):\(deviceID)" }
+    /// A camera's video accessory, beside its bridged one.
+    static func cameraID(deviceID: String) -> String { "\(platform):\(deviceID):camera" }
 
     /// The block's options checked, with the vault's secrets.
     func validatedSettings() -> Result<TuyaSettings, TuyaConfigurationError> {
@@ -78,6 +90,8 @@ public actor TuyaPlugin: HomeswiftPlugin {
     public func stop() async {
         tasks.cancelAll()
         await push?.stop()
+        for camera in cameras.values { await camera.shutdown() }
+        cameras = [:]
     }
 
     func makeAPI(_ settings: TuyaSettings) -> TuyaOpenAPI {
@@ -271,6 +285,7 @@ public actor TuyaPlugin: HomeswiftPlugin {
             }
             guard !context.isExcluded(device.id) else { continue }
             if await add(device, among: devices) { keep.insert(Self.accessoryID(deviceID: device.id)) }
+            if cameras[device.id] != nil { keep.insert(Self.cameraID(deviceID: device.id)) }
         }
         await context.removeAccessories(keeping: keep, message: "Removing an accessory no Tuya device has")
     }
@@ -315,7 +330,81 @@ public actor TuyaPlugin: HomeswiftPlugin {
             return false
         }
         runtimes[device.id] = runtime
+        await publishCamera(device, bridged: accessory, api: api)
         return true
+    }
+
+    // MARK: Cameras
+
+    /// Whether a device gets a video accessory: a camera (`sp`) that is not virtual (`vdevo…`, section 2), its `video`
+    /// Accessory Setting on (the default).
+    static func hasVideo(_ device: TuyaDevice) -> Bool {
+        device.category == "sp" && !device.id.hasPrefix("vdevo") && device.override?.video != false
+    }
+
+    /// A camera's video, snapshots, Motion Sensor and Doorbell on an accessory of its own (docs/clean-room/TuyaCamera.md),
+    /// following the bridged accessory's events. A camera published again replaces the one before.
+    private func publishCamera(_ device: TuyaDevice, bridged: Accessory, api: TuyaOpenAPI) async {
+        if let old = cameras.removeValue(forKey: device.id) { await old.shutdown() }
+        guard Self.hasVideo(device), !tasks.isStopped else { return }
+        let id = Self.cameraID(deviceID: device.id)
+        let ffmpeg = sharedFFmpeg()
+        let camera = TuyaCamera(accessoryID: id, device: device, api: api, ffmpeg: ffmpeg, grabFrame: dependencies.grabFrame,
+                                timing: TuyaCamera.Timing(scale: dependencies.timeScale), log: logger)
+        var options = TuyaCamera.options
+        options.debug = settings?.debugDevice(device.id) ?? false
+        let open: RTSPSourceOpener = { [weak camera] _ in
+            guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
+            return try await camera.source()
+        }
+        let streamer = RTSPCameraStreamer(
+            name: device.name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, open: open,
+            snapshot: { [weak camera] _ in
+                guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
+                return try await camera.snapshotImage()
+            }, log: logger, timeScale: dependencies.timeScale, minimumInactivity: TuyaCamera.minimumInactivity)
+        // HomeKit Secure Video only when asked: each recording allocates a stream of its own.
+        let recorder = device.override?.recording == true ? RTSPCameraRecorder(name: device.name, options: options, ffmpeg: ffmpeg, open: open, log: logger) : nil
+        let hasDoorbell = bridged.services.contains { $0.type.uuid == ServiceType.doorbell.uuid }
+        do {
+            let controllerOptions = CameraControllerOptions(
+                delegate: streamer,
+                streamingOptions: CameraStreamingOptions(
+                    supportedCryptoSuites: [.aesCM128HMACSHA1_80],
+                    video: VideoStreamingOptions(
+                        codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]),
+                        resolutions: RTSPCameraStreamer.standardResolutions),
+                    audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: false)),
+                recording: recorder.map {
+                    CameraRecordingSetup(options: RTSPCameraRecorder.options(resolutions: RTSPCameraStreamer.standardResolutions, triggers: hasDoorbell ? [.motion, .doorbell] : [.motion]),
+                                         delegate: $0)
+                },
+                sensors: CameraSensorOptions(motion: .service(camera.motion)))
+            let controller: CameraController = hasDoorbell
+                ? try DoorbellController(controllerOptions, name: device.name, logger: logger)
+                : try CameraController(controllerOptions, logger: logger)
+            await streamer.attach(controller)
+            let accessory = Accessory(
+                id: id, name: device.name, manufacturer: "Tuya Inc.", model: device.productID.isEmpty ? "Tuya" : device.productID,
+                serialNumber: device.uuid.isEmpty ? device.id : device.uuid, category: hasDoorbell ? .videoDoorbell : .ipCamera, services: [camera.motion])
+            accessory.configureController(controller)
+            context.configureController(controller, accessoryID: id)
+            camera.follow(bridged: bridged, doorbell: controller as? DoorbellController)
+            await camera.attach(controller: controller, streamer: streamer, recorder: recorder)
+            try await context.publishExternal(accessory)
+            cameras[device.id] = camera
+            logger.info("\(device.name)'s video is an accessory of its own: add it in the Home app as a camera")
+        } catch {
+            await camera.shutdown()
+            logger.error("Could not publish \(device.name)'s video: \(error)")
+        }
+    }
+
+    private func sharedFFmpeg() -> RTSPCameraFFmpeg {
+        if let ffmpeg { return ffmpeg }
+        let made = dependencies.ffmpeg(logger)
+        ffmpeg = made
+        return made
     }
 
     static func category(_ type: ServiceType?) -> AccessoryCategory {
@@ -371,6 +460,10 @@ public actor TuyaPlugin: HomeswiftPlugin {
             }
             runtimes.removeValue(forKey: deviceID)
             try? await context.remove(id: Self.accessoryID(deviceID: deviceID))
+            if let camera = cameras.removeValue(forKey: deviceID) {
+                await camera.shutdown()
+                try? await context.remove(id: camera.accessoryID)
+            }
             logger.info("Removed the accessory of \(deviceID), deleted from Tuya")
         case "event_notify", "p2pSignal":
             break

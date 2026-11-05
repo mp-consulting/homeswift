@@ -6,7 +6,7 @@ import HomeswiftPlugin
 // app's account name, `homeWhitelist`, `deviceOverrides` for products and `global`, `debug`); the Access Secret and the
 // app's password are the account's credentials, in the vault (TuyaSetup.swift). Each device and scene is a Discovered
 // Device by its Tuya id, whose Plugin Accessory Settings are its override: `category`, `unbridged`, `adaptiveLighting` and
-// `schema`. A Homebridge block's `deviceOverrides` entry for a device (by its id or uuid) moves into `_accessories` under
+// `schema`, and for a camera `video` and `recording`. A Homebridge block's `deviceOverrides` entry for a device (by its id or uuid) moves into `_accessories` under
 // its id; those for a product or `global` stay. A block's `accessKey` and `password` still load, and move into the vault.
 extension TuyaPlugin {
     /// The Device Kind of a device, for the settings its editor shows.
@@ -20,7 +20,8 @@ extension TuyaPlugin {
         case "kt", "ktkzq", "qtwk", "qn", "kj", "xxj", "wk", "wkf", "jsq", "cs", "fs", "fsd", "fskg", "yyj": return "climate"
         case "ckmkzq", "cl", "clkg", "mc": return "cover"
         case "ms", "jtmspro", "mal": return "security"
-        case "sp", "wxml": return "camera"
+        case "sp": return "camera"
+        case "wxml": return "doorbell"
         default: return "sensor"
         }
     }
@@ -52,7 +53,7 @@ extension TuyaPlugin {
     }
 
     /// The keys of an override that are a device's Plugin Accessory Settings.
-    static let overrideKeys = ["category", "unbridged", "adaptiveLighting", "schema"]
+    static let overrideKeys = ["category", "unbridged", "adaptiveLighting", "schema", "video", "recording"]
 
     /// `devices`: the device id of each id or uuid a `deviceOverrides` entry may name.
     static func canonical(_ block: JSONValue, vaultHasKey: Bool, vaultHasPassword: Bool, devices: [String: String]) -> JSONValue {

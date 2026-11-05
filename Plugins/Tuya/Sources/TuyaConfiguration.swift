@@ -66,6 +66,10 @@ public struct TuyaConfiguration: Decodable, Sendable {
         public var unbridged: Bool?
         public var adaptiveLighting: Bool?
         public var schema: [SchemaOverride]?
+        /// A camera's video on an accessory of its own: on unless false (Accessory Settings only).
+        public var video: Bool?
+        /// HomeKit Secure Video on that accessory: off unless true.
+        public var recording: Bool?
     }
 
     /// One element of an override's `schema`: a DP renamed, retyped, converted or hidden.

@@ -49,14 +49,18 @@ public struct RTSPCameraOptions: Sendable, Equatable {
     public var rtspOverTCP: Bool
     /// FFmpeg's verbose log.
     public var debug: Bool
+    /// How long an RTSP input may stay silent before FFmpeg gives up, in microseconds; nil waits for ever. A cloud's URL that
+    /// stops answering would otherwise hold FFmpeg (and the session) open.
+    public var socketTimeout: Int?
 
     public init(encoder: [String] = defaultEncoder, analyzeDuration: Int = 15_000_000, probeSize: Int = 100_000_000, rtspOverTCP: Bool = false,
-                debug: Bool = false) {
+                debug: Bool = false, socketTimeout: Int? = nil) {
         self.encoder = encoder.isEmpty ? Self.defaultEncoder : encoder
         self.analyzeDuration = analyzeDuration
         self.probeSize = probeSize
         self.rtspOverTCP = rtspOverTCP
         self.debug = debug
+        self.socketTimeout = socketTimeout
     }
 
     /// `encoder` is exactly `copy`: no transcoding.
@@ -93,6 +97,26 @@ public final class RTSPCameraFFmpeg: Sendable {
         return codecs.hasEncoder("aac", "aac_at") ? ["-codec:a", "aac_at", "-profile:a", "38", "-aac_at_mode", "cbr"] : nil
     }
 
+    /// The RTSP demuxer's socket timeout option: `-timeout` since FFmpeg 5, `-stimeout` before (where `-timeout` made FFmpeg
+    /// listen for a connection instead).
+    public func rtspTimeoutFlag() async -> String {
+        guard let version = await probe.value?.ffmpegVersion else { return "-timeout" }
+        return RTSPCameraArguments.timeoutFlag(version: version)
+    }
+
+    /// Reading `url`, with the timeout option this FFmpeg takes: what every caller passes to the command lines below.
+    public func input(url: String, options: RTSPCameraOptions) async -> [String] {
+        RTSPCameraArguments.input(url: url, options: options, timeoutFlag: await rtspTimeoutFlag())
+    }
+
+    /// One JPEG frame of `url`, FFmpeg killed after `timeout` milliseconds; nil when it gave none.
+    public func frame(url: String, options: RTSPCameraOptions, timeout: Int = 15_000, logErrors: Bool) async -> Data? {
+        let arguments = RTSPCameraArguments.frame(input: await input(url: url, options: options))
+        guard let result = await FfmpegExec(self.options, commandLineArgs: arguments, logErrors: logErrors).exec(timeout: timeout),
+              result.stdout.starts(with: [0xFF, 0xD8]) else { return nil }
+        return result.stdout
+    }
+
     /// A recording's AAC: AAC-LC from libfdk_aac or FFmpeg's own encoder, AAC-ELD from libfdk_aac only.
     public func recordingAudioEncoder(_ type: AudioRecordingCodecType) async -> [String]? {
         let fdk = await probe.value.map { $0.hasEncoder("aac", "libfdk_aac") } ?? true
@@ -127,11 +151,20 @@ public enum RTSPCameraArguments {
         }
     }
 
-    /// Reading the camera's URL.
-    public static func input(url: String, options: RTSPCameraOptions) -> [String] {
+    /// Reading the camera's URL; `timeoutFlag` is `RTSPCameraFFmpeg.rtspTimeoutFlag()`'s.
+    public static func input(url: String, options: RTSPCameraOptions, timeoutFlag: String = "-timeout") -> [String] {
         var arguments: [String] = []
-        if options.rtspOverTCP, url.lowercased().hasPrefix("rtsp") { arguments += ["-rtsp_transport", "tcp"] }
+        let rtsp = url.lowercased().hasPrefix("rtsp")
+        if options.rtspOverTCP, rtsp { arguments += ["-rtsp_transport", "tcp"] }
+        if let timeout = options.socketTimeout, rtsp { arguments += [timeoutFlag, "\(timeout)"] }
         return arguments + ["-analyzeduration", "\(options.analyzeDuration)", "-probesize", "\(options.probeSize)", "-i", url]
+    }
+
+    /// `-stimeout` for an FFmpeg before 5 (`4.4.2`, `n4.3`), `-timeout` otherwise, an unknown version included.
+    public static func timeoutFlag(version: String) -> String {
+        let digits = (version.hasPrefix("n") ? version.dropFirst() : Substring(version)).prefix { $0.isNumber }
+        guard let major = Int(digits) else { return "-timeout" }
+        return major < 5 ? "-stimeout" : "-timeout"
     }
 
     /// The scaling filter for a requested size; nil when HomeKit asked for none.
@@ -215,6 +248,12 @@ struct RTSPCameraError: Error, CustomStringConvertible {
 /// controller, and a UDP socket on the video return port whose silence (no RTCP for twice the interval, once the first
 /// came) ends a stream nobody watches.
 public actor RTSPCameraStreamer: CameraStreamingDelegate {
+    /// The sizes HomeKit may ask a camera's live stream for, as HAP-NodeJS's examples list them.
+    public static let standardResolutions: [VideoResolution] = [
+        VideoResolution(320, 180, 30), VideoResolution(320, 240, 15), VideoResolution(320, 240, 30), VideoResolution(480, 270, 30),
+        VideoResolution(480, 360, 30), VideoResolution(640, 360, 30), VideoResolution(640, 480, 30), VideoResolution(1280, 720, 30),
+        VideoResolution(1280, 960, 30), VideoResolution(1920, 1080, 30), VideoResolution(1600, 1200, 30),
+    ]
     static let preparedLifetime: Duration = .seconds(60)
     /// How long a stream may go without HomeKit's first RTCP report.
     static let firstReportWait: Duration = .seconds(60)
@@ -227,6 +266,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
     private let snapshot: @Sendable (SnapshotRequest) async throws -> Data
     private let log: Logger
     private let timeScale: Double
+    private let minimumInactivity: Duration
     private weak var controller: CameraController?
 
     private struct Prepared {
@@ -254,9 +294,11 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
     private var starting: Set<String> = []
 
     /// `snapshot` answers HomeKit's snapshots (the plugin decides where they come from); `timeScale` shortens the inactivity
-    /// timeout in tests.
+    /// timeout in tests; `minimumInactivity` is the shortest silence that ends a stream, whatever RTCP interval HomeKit asked
+    /// (a stream whose source costs a cloud call should not end on one lost burst of reports).
     public init(name: String, options: RTSPCameraOptions, ffmpeg: RTSPCameraFFmpeg, ports: RtpPortAllocator, open: @escaping RTSPSourceOpener,
-                snapshot: @escaping @Sendable (SnapshotRequest) async throws -> Data, log: Logger, timeScale: Double = 1) {
+                snapshot: @escaping @Sendable (SnapshotRequest) async throws -> Data, log: Logger, timeScale: Double = 1,
+                minimumInactivity: Duration = .zero) {
         self.name = name
         self.options = options
         self.ffmpeg = ffmpeg
@@ -265,6 +307,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
         self.snapshot = snapshot
         self.log = log
         self.timeScale = timeScale
+        self.minimumInactivity = minimumInactivity
     }
 
     public func attach(_ controller: CameraController) { self.controller = controller }
@@ -329,6 +372,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
             throw HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
         }
         let audio = await ffmpeg.liveAudioEncoder()
+        let input = await ffmpeg.input(url: source.url, options: options)
         // A stop that came while the source opened ends it here.
         guard starting.remove(request.sessionID) != nil else {
             release(entry)
@@ -336,7 +380,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
             return
         }
         if audio == nil { log.warning("\(name): FFmpeg has no AAC-ELD encoder (libfdk_aac, or aac_at on macOS): the stream has no audio.") }
-        let arguments = RTSPCameraArguments.live(input: RTSPCameraArguments.input(url: source.url, options: options), request: request, target: entry.target,
+        let arguments = RTSPCameraArguments.live(input: input, request: request, target: entry.target,
                                                  options: options, audioEncoder: audio)
         nextToken += 1
         let token = nextToken
@@ -356,7 +400,8 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
             }
             sessions[sessionID]?.socket = socket
             let interval = Double(video.rtcpInterval > 0 ? video.rtcpInterval : 0.5)
-            sessions[sessionID]?.watcher = watch(socket, timeout: .milliseconds(Int(interval * 2000 * timeScale)), sessionID: sessionID, token: token)
+            let timeout = max(Duration.milliseconds(Int(interval * 2000)), minimumInactivity) * timeScale
+            sessions[sessionID]?.watcher = watch(socket, timeout: timeout, sessionID: sessionID, token: token)
             try await process.waitForStart()
         } catch {
             log.error("\(name): failed to start the stream: \(error)")
@@ -519,7 +564,8 @@ public final class RTSPCameraRecorder: CameraRecordingDelegate, @unchecked Senda
         let process: FfmpegProcess
         do {
             let audio = await ffmpeg.recordingAudioEncoder(configuration.audioCodec.type)
-            let arguments = try RTSPCameraArguments.recording(input: RTSPCameraArguments.input(url: source.url, options: options), configuration: configuration,
+            let input = await ffmpeg.input(url: source.url, options: options)
+            let arguments = try RTSPCameraArguments.recording(input: input, configuration: configuration,
                                                               audioEncoder: audio)
             process = FfmpegProcess(ffmpeg.options, commandLineArgs: arguments)
         } catch {

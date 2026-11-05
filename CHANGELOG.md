@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Tuya: live video and snapshots for Tuya cameras (`sp`), each on an accessory of its own with a Motion Sensor and
+  Doorbell that follow the bridged ones (which stay where they are); an RTSP URL allocated from the cloud for each
+  stream, snapshots coalesced for 10 seconds, a refused subscription backed off for 5 minutes, offline cameras refused
+  without a call, the URL never logged. The `video` Accessory Setting (on by default) turns it off, `recording` (off by
+  default) adds HomeKit Secure Video. `RTSPCameraOptions.socketTimeout` (FFmpeg's `-timeout`, `-stimeout` before
+  FFmpeg 5, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
+  `RTSPCameraStreamer.standardResolutions` and `minimumInactivity`, and every query value of an RTSP URL masked in FFmpeg's
+  logs.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
