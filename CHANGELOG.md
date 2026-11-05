@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
   spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
   within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
   streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
+- The Renault plugin (platform `Renault`, experimental, a clean-room implementation): Renault, Dacia and Alpine cars from
+  the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
+  and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
+  Setup with the e-mailed two-factor code, within Renault's hourly request quota.
 - The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
   plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
   offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
