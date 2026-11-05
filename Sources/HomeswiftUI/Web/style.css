@@ -3826,6 +3826,10 @@ select option:disabled { color: var(--muted); }
 .setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
 @media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+/* Add by address, under the devices: a device the plugin does not find, named by its address. */
+.setup-add-address { display: flex; padding-top: var(--space-12); }
+/* A field a Setup step may leave empty (a port with its default): said beside its name. */
+.field-optional { margin-left: var(--space-6); font-weight: var(--weight-regular); }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }
 /* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */

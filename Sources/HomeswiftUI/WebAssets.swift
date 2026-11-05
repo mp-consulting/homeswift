@@ -5544,6 +5544,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // Its Add button says it as a sentence does: "Address" in lower case, a name in capitals (ECU, UniFi, TV) kept.
+        const inSentence = (text) => text.replace(/(?<![\p{L}\p{N}])\p{Lu}\p{Ll}*(?![\p{L}\p{N}])/gu, (word) => word.toLowerCase());
         // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
         const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
         const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
@@ -5621,7 +5623,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: inSentence(noun) }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       if (type === "string" && property["x-schema-form"]?.type === "menu" && property["x-schema-form"].source) {
@@ -15357,13 +15359,25 @@ HomeswiftI18n.add("es", {
   "Could not look for its devices: {error}": "No se pudieron buscar sus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Ya está configurado. Vuelve a buscar ahora, o más tarde desde esta página.",
   "Find again": "Buscar de nuevo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
   "Set up again": "Configurar de nuevo",
   "Include": "Incluir",
   "Exclude": "Excluir",
   "Asking the plugin…": "Consultando al plugin…",
   "Account of {name}": "Cuenta de {name}",
   "{name} is set up.": "{name} está configurado.",
+  "Add by address…": "Añadir por dirección…",
+  "Optional": "Opcional",
+  "Add by address": "Añadir por dirección",
+  "No devices found yet: add one by its address.": "Aún no se encontraron dispositivos: añade uno por su dirección.",
+  "The device is added.": "El dispositivo está añadido.",
+  "{name} is added.": "{name} está añadido.",
+  "{platform} did not say which device it reached": "{platform} no indicó qué dispositivo alcanzó",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Introduce la dirección de la luz: su dirección IP o nombre de host, tal como lo muestra tu router o la app Control Center.",
+  "IP address or host name": "Dirección IP o nombre de host",
+  "No light answered at {address}": "Ninguna luz respondió en {address}",
+  "{host} is not an IP address or a host name": "{host} no es una dirección IP ni un nombre de host",
+  "The port must be between 1 and 65535": "El puerto debe estar entre 1 y 65535",
+  "The light at {host} did not give its MAC address": "La luz en {host} no dio su dirección MAC",
   "The account is set up.": "La cuenta está configurada.",
   "Its accessories reach the Home app in a moment.": "Sus accesorios llegan a la app Casa en un momento.",
   "Time is up. Try again when you are ready.": "Se acabó el tiempo. Inténtalo de nuevo cuando estés listo.",
@@ -18183,13 +18197,25 @@ HomeswiftI18n.add("fr", {
   "Could not look for its devices: {error}": "Impossible de rechercher ses appareils : {error}",
   "It is set up. Look again now, or later from this page.": "Il est configuré. Relancez la recherche maintenant, ou plus tard depuis cette page.",
   "Find again": "Chercher à nouveau",
-  "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
   "Set up again": "Configurer à nouveau",
   "Include": "Inclure",
   "Exclude": "Exclure",
   "Asking the plugin…": "Le plugin répond…",
   "Account of {name}": "Compte de {name}",
   "{name} is set up.": "{name} est configuré.",
+  "Add by address…": "Ajouter par adresse…",
+  "Optional": "Facultatif",
+  "Add by address": "Ajouter par adresse",
+  "No devices found yet: add one by its address.": "Aucun appareil trouvé pour l’instant : ajoutez-en un par son adresse.",
+  "The device is added.": "L’appareil est ajouté.",
+  "{name} is added.": "{name} est ajouté.",
+  "{platform} did not say which device it reached": "{platform} n’a pas dit quel appareil il a joint",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Saisissez l’adresse de la lampe : son adresse IP ou son nom d’hôte, tel que votre routeur ou l’app Control Center l’affiche.",
+  "IP address or host name": "Adresse IP ou nom d’hôte",
+  "No light answered at {address}": "Aucune lampe n’a répondu à {address}",
+  "{host} is not an IP address or a host name": "{host} n’est ni une adresse IP ni un nom d’hôte",
+  "The port must be between 1 and 65535": "Le port doit être compris entre 1 et 65535",
+  "The light at {host} did not give its MAC address": "La lampe à {host} n’a pas donné son adresse MAC",
   "The account is set up.": "Le compte est configuré.",
   "Its accessories reach the Home app in a moment.": "Ses accessoires arrivent dans l'app Maison dans un instant.",
   "Time is up. Try again when you are ready.": "Le temps est écoulé. Réessayez quand vous êtes prêt.",
@@ -21009,13 +21035,25 @@ HomeswiftI18n.add("pt", {
   "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
   "Include": "Incluir",
   "Exclude": "Excluir",
   "Asking the plugin…": "A consultar o plugin…",
   "Account of {name}": "Conta de {name}",
   "{name} is set up.": "{name} está configurado.",
+  "Add by address…": "Adicionar por endereço…",
+  "Optional": "Opcional",
+  "Add by address": "Adicionar por endereço",
+  "No devices found yet: add one by its address.": "Ainda não foram encontrados dispositivos: adicione um pelo seu endereço.",
+  "The device is added.": "O dispositivo foi adicionado.",
+  "{name} is added.": "{name} foi adicionado.",
+  "{platform} did not say which device it reached": "{platform} não indicou que dispositivo alcançou",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Introduza o endereço da luz: o seu endereço IP ou nome de anfitrião, tal como o router ou a app Control Center o mostra.",
+  "IP address or host name": "Endereço IP ou nome de anfitrião",
+  "No light answered at {address}": "Nenhuma luz respondeu em {address}",
+  "{host} is not an IP address or a host name": "{host} não é um endereço IP nem um nome de anfitrião",
+  "The port must be between 1 and 65535": "A porta tem de estar entre 1 e 65535",
+  "The light at {host} did not give its MAC address": "A luz em {host} não deu o seu endereço MAC",
   "The account is set up.": "A conta está configurada.",
   "Its accessories reach the Home app in a moment.": "Os seus acessórios chegam à app Casa num instante.",
   "Time is up. Try again when you are ready.": "O tempo acabou. Tente de novo quando estiver pronto.",
@@ -23746,7 +23784,10 @@ HomeswiftI18n.add("pt", {
     const node = el("section", { class: "settings-section" },
       el("div", { class: "settings-section-head with-tools" },
         el("div", {}, el("h3", {}, t("Devices"), " ", count), el("p", { class: "help", text: t("What {plugin} finds, set up or not.", { plugin: block.name }) })), again),
-      list);
+      list,
+      // A device the plugin does not find, added by its address: the Add accessories page's sheet.
+      plugin?.addByAddress ? el("div", { class: "setup-add-address" },
+        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -23759,7 +23800,8 @@ HomeswiftI18n.add("pt", {
         showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("No devices found") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -23974,9 +24016,12 @@ HomeswiftI18n.add("pt", {
     // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
     // work: an optional account left alone needs no one.
     let accountState = "notSetUp", needsAccount = false;
-    // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
+    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
+    const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
+      plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
       action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
@@ -24029,7 +24074,11 @@ HomeswiftI18n.add("pt", {
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
+          : t("No devices found") }));
+        // Under its devices, a way to add one the plugin does not find.
+        if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
+          el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
         list.replaceChildren(...rows);
         const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
@@ -24163,16 +24212,20 @@ HomeswiftI18n.add("pt", {
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? block.name;
+  /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
+  /// whatever else the plugin needs, then ends on the device's settings as any device's does.
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
+    const title = device?.name ?? (adding ? t("Add by address") : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
-    // way to sign in may be the person's choice, asked in the sheet).
-    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
+    // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
+    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
-    const picking = firstTime && !device;
+    const picking = firstTime && !device && !adding;
     const devicesStage = t("Devices");
-    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
+    const stages = [device || adding ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
+    /// What was typed in the last step's fields, secrets left out: a step asked again after an error keeps it.
+    let typed = {};
     /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
     let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
@@ -24201,11 +24254,18 @@ HomeswiftI18n.add("pt", {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
-        const editor = device && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device }) : null;
+        // A device added by address is named once its settings have loaded: the sheet's title and the line say it.
+        const named = el("strong", { text: device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
+          : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
+        const onTitle = (name) => {
+          if (!adding || !name) return;
+          form.querySelector("#setup-title").textContent = name;
+          named.textContent = t("{name} is added.", { name });
+        };
+        const editor = (device || adding) && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device, onTitle }) : null;
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
-            el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
-              : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
+            el("p", {}, named),
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
@@ -24344,6 +24404,9 @@ HomeswiftI18n.add("pt", {
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
           });
+          // Asked again after an error, the field keeps what was typed; else what the plugin knows already.
+          const known = answer.error ? typed[field.key] : undefined;
+          if (field.kind !== "secret") input.value = known ?? field.value ?? "";
           return [field, input];
         });
         const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
@@ -24353,6 +24416,7 @@ HomeswiftI18n.add("pt", {
           const missing = inputs.find(([field, input]) => !field.optional && !input.value.trim());
           if (missing) { missing[1].focus(); return; }
           stop();
+          typed = Object.fromEntries(inputs.filter(([field]) => field.kind !== "secret" && field.kind !== "choice").map(([field, input]) => [field.key, input.value]));
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         const link = /^https?:\/\//i.test(prompt.url ?? "")
@@ -24361,17 +24425,21 @@ HomeswiftI18n.add("pt", {
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
           ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
-            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title" }, t(field.label),
+              field.optional ? el("span", { class: "muted field-optional", text: t("Optional") }) : null), input)),
           left,
           error,
           el("div", { class: "actions" }, cancel, submit));
-        (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
+        // After an error, the first field, its text selected to type it again; else the first one left to fill.
+        const first = answer.error ? inputs.find(([field]) => field.kind !== "choice")?.[1] : null;
+        if (first) { first.focus(); first.select(); }
+        else (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }
 
       const step = (answers) => post(session, { answers });
       // A plugin added from the catalog: its block is saved once its Setup is done.
       // A Setup the Assistant started is taken over where it stands; the others start here.
-      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined }))
+      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, addByAddress: adding || undefined, block: draft ? block : undefined }))
         .then(draw)
         .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
@@ -24391,20 +24459,21 @@ HomeswiftI18n.add("pt", {
 
   /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
   /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
-  async function resume({ session, platform, name }) {
+  async function resume({ session, platform, name, addByAddress = false }) {
     try {
       const plugins = await api("/api/plugins");
       const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
       const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
       const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
-      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+      open({ block, plugin, resume: session, firstTime: isNew, adding: addByAddress === true, after: () => { if (location.pathname === "/setup") app().route(); } });
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
   /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
-  /// lists what the plugin finds, as the Add accessories page does.
-  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
+  /// lists what the plugin finds, as the Add accessories page does; `adding`, Add by address, for a plugin whose
+  /// `addByAddress`.
+  const setUp = ({ block, plugin, device = null, firstTime = false, adding = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, adding, trigger, after });
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.
@@ -28243,6 +28312,10 @@ select option:disabled { color: var(--muted); }
 .setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
 @media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+/* Add by address, under the devices: a device the plugin does not find, named by its address. */
+.setup-add-address { display: flex; padding-top: var(--space-12); }
+/* A field a Setup step may leave empty (a port with its default): said beside its name. */
+.field-optional { margin-left: var(--space-6); font-weight: var(--weight-regular); }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }
 /* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */

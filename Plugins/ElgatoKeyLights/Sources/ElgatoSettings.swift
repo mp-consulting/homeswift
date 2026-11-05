@@ -32,6 +32,20 @@ extension ElgatoKeyLightsPlugin {
             powerOnTemperature: own.powerOnTemperature ?? legacy?.powerOnTemperature)
     }
 
+    /// The lights reached at an address: `addresses`, and each light whose Accessory Settings give a `host` (Add by
+    /// address), keyed by its MAC. A light in both is reached where Add by address last found it, its entry of `addresses`
+    /// left aside.
+    var configuredAddresses: [Configuration.Address] {
+        let added = context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { mac, settings -> Configuration.Address? in
+            guard let address = settings.decode(Configuration.Address.self), case let host = address.host.trimmingCharacters(in: .whitespaces), !host.isEmpty,
+                  let mac = MACAddress.canonical(mac) else { return nil }
+            return Configuration.Address(host: host, port: address.port, mac: mac)
+        }
+        let macs = Set(added.compactMap(\.mac))
+        let listed = (configuration.addresses ?? []).filter { $0.mac.flatMap(MACAddress.canonical).map { !macs.contains($0) } ?? true }
+        return listed + added
+    }
+
     /// Excluded in its Accessory Settings, or `enabled: false` in `devices`.
     func isLeftOut(_ mac: String) -> Bool {
         context.isExcluded(mac) || deviceConfiguration(mac: mac)?.enabled == false
