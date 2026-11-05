@@ -20,6 +20,12 @@ All notable changes to this project are documented here. The format follows
   wireless Reolink Chime; a Recording switch for the device's own recording; motion and AI sensitivity. Privacy and
   Recording are security controls, confirmed by MCP clients. A camera's settings sheet groups its settings (Sensors,
   Lights and switches, Video, Connection).
+- Reolink: battery cameras on their own Wi-Fi, without a Home Hub or NVR (experimental, a clean-room implementation of
+  docs/clean-room/ReolinkBattery.md; TCP only): found at Setup by their Baichuan abilities when the HTTP API does not
+  answer, published from what they said of themselves so they are never woken at launch, live video from the Baichuan
+  media stream remuxed to MPEG-TS for FFmpeg (H.264 and H.265, AAC audio), Baichuan snapshots with a cache that never
+  wakes the camera for the Home app's periodic requests, battery level and charging, and motion and doorbell presses by
+  the camera's webhook; a connection is opened only on demand and closed 5 seconds after its last use.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
