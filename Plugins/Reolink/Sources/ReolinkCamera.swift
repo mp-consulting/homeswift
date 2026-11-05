@@ -304,9 +304,14 @@ final class ReolinkCamera: @unchecked Sendable {
             siren.characteristic(.on).value = .bool(playing)
             scheduleSirenReset(playing)
         }
-        if let ir, let on = new.irOn, previous?.irOn != on { ir.characteristic(.on).value = .bool(on) }
-        if let patrol, let on = new.patrolling, previous?.patrolling != on { patrol.characteristic(.on).value = .bool(on) }
-        if let recordingSwitch, let on = new.recordingOn, previous?.recordingOn != on { recordingSwitch.characteristic(.on).value = .bool(on) }
+        /// A switch's On, when the device reported a new value.
+        func reflect(_ service: Service?, _ key: KeyPath<ReolinkChannelState, Bool?>) {
+            guard let service, let on = new[keyPath: key], previous?[keyPath: key] != on else { return }
+            service.characteristic(.on).value = .bool(on)
+        }
+        reflect(ir, \.irOn)
+        reflect(patrol, \.patrolling)
+        reflect(recordingSwitch, \.recordingOn)
         if let on = new.privacy, previous?.privacy != on {
             privacy?.characteristic(.on).value = .bool(on)
             cameraActive?.value = .int(on ? 0 : 1)

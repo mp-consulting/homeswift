@@ -72,6 +72,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        certificates = context.persistedDictionary("certificates.json", of: String.self, autosave: nil)
     }
 
     // MARK: Ids (6.1)
@@ -94,7 +95,8 @@ public actor ReolinkPlugin: HomeswiftPlugin {
     /// not responding.
     var hostsFile: JSONFile<[String: String]> { context.jsonFile("hosts.json", as: [String: String].self) }
     /// Each host's pinned HTTPS certificate (fingerprints, not secrets).
-    private var certificates: JSONFile<[String: String]> { context.jsonFile("certificates.json", as: [String: String].self) }
+    /// Locked: hosts connect in parallel and each pins from its own TLS handshake.
+    private let certificates: PersistedDictionary<String>
 
     // MARK: The hosts
 
@@ -155,10 +157,9 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         let log = Logger(label: base.label, factory: { _ in ReolinkLogHandler(base: base, prefix: "[\(entry.host)] ") })
         let pins = certificates
         let hostKey = entry.host.lowercased()
-        let trust = HTTPClient.TrustOnFirstUse(pinned: trustingAgain ? nil : pins.load()?[hostKey]) { fingerprint in
-            var all = pins.load() ?? [:]
-            all[hostKey] = fingerprint
-            try? pins.save(all)
+        let trust = HTTPClient.TrustOnFirstUse(pinned: trustingAgain ? nil : pins[hostKey]) { fingerprint in
+            pins[hostKey] = fingerprint
+            try? pins.flush()
         }
         let http = ReolinkHTTPClient(host: entry.host, port: entry.port, useHttps: entry.useHttps, username: entry.username, password: entry.password,
                                      makeSender: dependencies.makeSender, trust: trust, log: log, timing: dependencies.timing, now: dependencies.now)
@@ -225,22 +226,23 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             try? hostsFile.save(known)
         }
         let channels = await host.channels.values.sorted { $0.channel < $1.channel }
+        let deviceIDs = Dictionary(uniqueKeysWithValues: channels.map { ($0.channel, Self.deviceID(hostID: hostID, info: info, channel: $0)) })
+        let canWrite = await host.isAdmin
         // A channel whose camera was swapped (its UID changed) is another device: the old one's accessory goes, and
         // the new one gets its own Device Id rather than the old one's rooms and settings.
         for channel in channels {
-            guard let camera = runtime.cameras[channel.channel],
-                  camera.accessory.id != Self.accessoryID(deviceID: Self.deviceID(hostID: hostID, info: info, channel: channel)) else { continue }
+            guard let camera = runtime.cameras[channel.channel], let deviceID = deviceIDs[channel.channel],
+                  camera.accessory.id != Self.accessoryID(deviceID: deviceID) else { continue }
             await camera.stop()
             runtime.cameras[channel.channel] = nil
         }
         var published = Set(runtime.cameras.values.map(\.accessory.id))
         for channel in channels where runtime.cameras[channel.channel] == nil {
-            let deviceID = Self.deviceID(hostID: hostID, info: info, channel: channel)
-            guard !context.isExcluded(deviceID) else { continue }
+            guard let deviceID = deviceIDs[channel.channel], !context.isExcluded(deviceID) else { continue }
             let options = (runtime.device.cameras[String(channel.channel)] ?? .defaults).with(settings: context.accessorySettings(for: deviceID).plugin)
             var started: ReolinkCamera?
             do {
-                let camera = try makeCamera(deviceID: deviceID, channel: channel, info: info, options: options, host: host, canWrite: await host.isAdmin)
+                let camera = try makeCamera(deviceID: deviceID, channel: channel, info: info, options: options, host: host, canWrite: canWrite)
                 started = camera
                 await camera.start()
                 camera.apply(channel.state)

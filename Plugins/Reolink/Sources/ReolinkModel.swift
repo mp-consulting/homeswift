@@ -24,7 +24,12 @@ struct ReolinkHostInfo: Sendable, Equatable {
     /// Whether `GetChannelstatus` answered.
     var hasChannelStatus = false
 
-    var isMultiChannel: Bool { ["NVR", "WIFI_NVR", "HOMEHUB"].contains(type.uppercased()) }
+    /// The device types with channels of their own (lowercase).
+    static let multiChannelTypes: Set<String> = ["nvr", "wifi_nvr", "homehub"]
+
+    var isMultiChannel: Bool { Self.multiChannelTypes.contains(type.lowercased()) }
+    /// Whether recording settings go by `GetRecV20`/`SetRecV20` (D.3).
+    var usesRecV20: Bool { hostAbility("scheduleVersion") >= 1 }
     var isHub: Bool { type.uppercased() == "HOMEHUB" }
 
     /// The host id of 6.1: the P2P UID when known, else the MAC (lowercase, colon-separated).

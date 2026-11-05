@@ -145,18 +145,25 @@ public final class RTSPRecordingSource: Sendable {
     private func received(_ box: Data, from livestream: FfmpegLivestreamProcess) {
         guard box.count >= BOX_HEADER_SIZE else { return }
         let type = box.readUInt32BE(4)
-        let fragment = state.withLockedValue { state -> Fragment? in
+        let moof = state.withLockedValue { state -> Data? in
             // A livestream replaced or stopped may still deliver a box.
             guard state.livestream === livestream else { return nil }
             if type == BOX_TYPE_MOOF {
                 state.pendingMoof = box
                 return nil
             }
-            guard type == BOX_TYPE_MDAT, var moof = state.pendingMoof else { return nil }
-            state.pendingMoof = nil
-            moof.append(box)
+            guard type == BOX_TYPE_MDAT else { return nil }
+            defer { state.pendingMoof = nil }
+            return state.pendingMoof
+        }
+        guard var data = moof else { return }
+        // The copy and the keyframe test outside the lock recordings also take.
+        let keyframe = isKeyframe(data)
+        data.append(box)
+        let fragment = state.withLockedValue { state -> Fragment? in
+            guard state.livestream === livestream else { return nil }
             let now = ContinuousClock.now
-            let fragment = Fragment(number: state.nextNumber, data: moof, at: now, isKeyframe: isKeyframe(moof))
+            let fragment = Fragment(number: state.nextNumber, data: data, at: now, isKeyframe: keyframe)
             state.nextNumber += 1
             state.fragments.append(fragment)
             if state.fragments.count > 64 { state.fragments.removeFirst(state.fragments.count - 64) }

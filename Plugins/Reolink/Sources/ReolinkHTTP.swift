@@ -242,6 +242,13 @@ actor ReolinkHTTPClient {
         let isSkipped = batch.map { skipped.contains($0.cmd) }
         let runnable = zip(batch, isSkipped).filter { !$0.1 }.map(\.0)
         guard !runnable.isEmpty else { return batch.map { ReolinkReply.skipped($0.cmd) } }
+        /// The items in the order sent, the skipped commands in their places, a command with no item failed.
+        func assemble(_ items: [ReolinkReply]) -> [ReolinkReply] {
+            var byIndex = items.makeIterator()
+            return zip(batch, isSkipped).map { command, isSkipped in
+                isSkipped ? ReolinkReply.skipped(command.cmd) : byIndex.next() ?? ReolinkReply(cmd: command.cmd, code: 1)
+            }
+        }
         var lastError: any Error = ReolinkError.invalidResponse("no answer")
         for attempt in 1...Self.attempts {
             do {
@@ -270,17 +277,9 @@ actor ReolinkHTTPClient {
                         continue
                     }
                     // A command on its own has nothing to split into: it failed.
-                    guard runnable.count > 1 else {
-                        return zip(batch, isSkipped).map { command, isSkipped in
-                            isSkipped ? ReolinkReply.skipped(command.cmd) : ReolinkReply(cmd: command.cmd, code: 1)
-                        }
-                    }
-                    return try await individually(batch)
+                    return runnable.count > 1 ? try await individually(batch) : assemble([])
                 }
-                var byIndex = items.makeIterator()
-                return zip(batch, isSkipped).map { command, isSkipped in
-                    isSkipped ? ReolinkReply.skipped(command.cmd) : byIndex.next() ?? ReolinkReply(cmd: command.cmd, code: 1)
-                }
+                return assemble(items)
             } catch let error as ReolinkError {
                 switch error {
                 case .credentials, .frequentLogins, .maxSessions, .unreachable: throw error
@@ -395,7 +394,7 @@ actor ReolinkHTTPClient {
                 throw Self.loginError(item, setting: &nextLoginAllowed, now: now(), timing: timing)
             }
             token = name
-            // Bounded to a day: the device's number, a huge one included, is logged as an `Int`.
+            // A token is renewed at least daily, whatever lease the device names.
             let lease = min(max(item.value?["Token"]?["leaseTime"]?.doubleValue.flatMap { $0.isFinite ? $0 : nil } ?? 3600, 0), 86_400)
             expiry = now().addingTimeInterval(lease)
             skipped = []
@@ -427,8 +426,7 @@ actor ReolinkHTTPClient {
     /// Logs out the current token (never without one); the answer is ignored.
     private func logout() async {
         guard let token else { return }
-        self.token = nil
-        expiry = .distantPast
+        dropSession()
         _ = try? await send(method: "POST", query: "cmd=Logout&token=\(token)", body: [["cmd": "Logout", "action": 0, "param": [:]]])
     }
 
