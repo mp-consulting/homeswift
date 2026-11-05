@@ -330,25 +330,30 @@ actor BaichuanSession {
     }
 
     /// Sends a request and waits for its reply (the same `cmd_id` and full message id). A status other than 200, 201 or
-    /// 300 throws `status`; a 400 is sent again first when the session `retriesWaking`. `fixedCounter` gives bytes 13 to
-    /// 15 (media messages: the stream code, then a 16-bit number).
+    /// 300 throws `status`, unless `anyStatus` hands the reply back whatever its status (a Talk's 422, ReolinkTalk.md 8);
+    /// a 400 is sent again first when the session `retriesWaking`. `fixedCounter` gives bytes 13 to 15 (media messages:
+    /// the stream code, then a 16-bit number; a Talk's audio, one number for all of it). `binary` follows the extension
+    /// and the body in clear (ReolinkTalk.md 3.2).
     @discardableResult
-    func request(command: UInt32, channel: UInt8, extension ext: String? = nil, body: String?, encryption: BaichuanEncryption,
-                 timeout: Double = requestTimeout, fixedCounter: UInt32? = nil) async throws -> BaichuanMessage {
+    func request(command: UInt32, channel: UInt8, extension ext: String? = nil, body: String?, binary: [UInt8] = [], encryption: BaichuanEncryption,
+                 timeout: Double = requestTimeout, fixedCounter: UInt32? = nil, anyStatus: Bool = false) async throws -> BaichuanMessage {
         var attempt = 0
         while true {
-            do {
-                return try await requestOnce(command: command, channel: channel, extension: ext, body: body, encryption: encryption, timeout: timeout,
-                                             fixedCounter: fixedCounter)
-            } catch BaichuanError.status(400) where retriesWaking && attempt < Self.wakingRetries {
+            let reply = try await requestOnce(command: command, channel: channel, extension: ext, body: body, binary: binary, encryption: encryption,
+                                              timeout: timeout, fixedCounter: fixedCounter)
+            let status = reply.status ?? 200
+            if status == 400, retriesWaking, attempt < Self.wakingRetries {
                 attempt += 1
                 log.debug("Baichuan \(command): the camera is waking up, asking again.")
                 try await Task.sleep(for: timing.seconds(Self.wakingRetryDelay))
+                continue
             }
+            if !anyStatus, ![200, 201, 300].contains(status) { throw BaichuanError.status(status) }
+            return reply
         }
     }
 
-    private func requestOnce(command: UInt32, channel: UInt8, extension ext: String?, body: String?, encryption: BaichuanEncryption,
+    private func requestOnce(command: UInt32, channel: UInt8, extension ext: String?, body: String?, binary: [UInt8], encryption: BaichuanEncryption,
                              timeout: Double, fixedCounter: UInt32?) async throws -> BaichuanMessage {
         guard stream != nil else { throw BaichuanError.closed }
         let counter = fixedCounter ?? nextCounter()
@@ -365,12 +370,10 @@ actor BaichuanSession {
         }
         let extBytes = try encode(ext)
         let bodyBytes = try encode(body)
-        let message = Baichuan.header(command: command, bodyLength: extBytes.count + bodyBytes.count, channel: channel, counter: counter,
-                                      extensionLength: extBytes.count) + extBytes + bodyBytes
+        let message = Baichuan.header(command: command, bodyLength: extBytes.count + bodyBytes.count + binary.count, channel: channel, counter: counter,
+                                      extensionLength: extBytes.count) + extBytes + bodyBytes + binary
         guard message.count <= Baichuan.maximumRequest else { throw BaichuanError.requestTooLarge(message.count) }
-        let reply = try await send(message, key: Key(command: command, channel: channel, counter: counter), timeout: timeout)
-        if let status = reply.status, ![200, 201, 300].contains(status) { throw BaichuanError.status(status) }
-        return reply
+        return try await send(message, key: Key(command: command, channel: channel, counter: counter), timeout: timeout)
     }
 
     private func send(_ bytes: [UInt8], key: Key, timeout: Double) async throws -> BaichuanMessage {
