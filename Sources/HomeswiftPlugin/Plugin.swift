@@ -459,6 +459,8 @@ public final class PluginContext: @unchecked Sendable {
     /// Saves the stores `persistedDictionary` made that are still alive: the runtime runs them when the plugin stops, so
     /// a restart within a store's autosave delay keeps its last change.
     let storeFlushes = NIOLockedValueBox<[(isAlive: @Sendable () -> Bool, flush: @Sendable () -> Void)]>([])
+    /// The Eve energy histories the runtime keeps for its accessories (`attachEnergyHistory`), by accessory id.
+    let energyHistories = NIOLockedValueBox<[String: EveHistory]>([:])
     /// Where the due saves run, one at a time.
     private let cacheQueue = DispatchQueue(label: "homeswift.accessory-cache", qos: .utility)
 
@@ -600,6 +602,7 @@ public final class PluginContext: @unchecked Sendable {
             _ = list.withLockedValue { $0.external.remove(accessory.id) }
         }
         naming.apply(to: accessory)
+        attachEnergyHistory(to: accessory)
         try bridge.server.add(accessory)
         list.withLockedValue { $0.put(accessory) }
         scheduleCacheSave()

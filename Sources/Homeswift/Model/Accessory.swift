@@ -56,8 +56,9 @@ public final class Accessory: @unchecked Sendable {
     /// The first service of the given type, if any.
     public subscript(type: ServiceType) -> Service? { service(type) }
 
-    /// Adds a service the server needs on every accessory (Protocol Information).
-    func append(_ service: Service) {
+    /// Adds a service: one the server needs on every accessory (Protocol Information), or one the runtime gives it (an
+    /// Eve history). Before the accessory goes on a server: iids are given then.
+    public func append(_ service: Service) {
         servicesBox.withLockedValue { $0.append(service) }
         StructureGeneration.bump()
     }

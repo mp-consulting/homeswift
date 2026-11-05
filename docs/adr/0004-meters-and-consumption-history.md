@@ -10,7 +10,7 @@ difference between readings of its counter, Consumption and Returned apart, so a
 counter that goes backwards is a reset. Power is integrated per minute only when there is no counter. The history is
 hourly, kept for years, and keyed by Accessory Id and Meter. Only Forget removes it. A plugin may backfill hours from
 the device or its cloud (`importEnergy` for one Device Id), but an hour the bridge recorded keeps its own figure.
-The Eve history for energy is generated from this store. A Meter's Energy Role (grid, solar, home, battery or none)
+The Eve app's energy history is a view beside it: an accessory that measures power and has no Eve history of its plugin's gets one from the runtime, fed by the same power readings at the ten-minute steps Eve graphs (an hourly store is too coarse for it); a plugin that keeps its own, as Tapo does, keeps it, so its users' graphs carry on. A Meter's Energy Role (grid, solar, home, battery or none)
 is a Core Accessory Setting: its plugin suggests one and a person can change it, because the same clamp can be the
 grid in one home and a heat pump in the next. A Tariff is a dated Bridge Setting, so changing the price starts a new
 Tariff and never reprices the past.

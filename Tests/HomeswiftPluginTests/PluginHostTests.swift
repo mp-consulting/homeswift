@@ -127,6 +127,41 @@ final class TestEnvironment: @unchecked Sendable {
     }
 }
 
+/// The Eve history the runtime gives an accessory that measures power and has none of its plugin's.
+@Suite(.timeLimit(.minutes(1)))
+struct EnergyHistoryTests {
+    @Test func aMeteredAccessoryGetsOneEveHistory() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs", "meters": ["plug-1"], "lamps": ["lamp-1"] }] }"#)
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let plug = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:plug-1" })
+        let histories = EveHistory.histories(of: plug)
+        #expect(histories.count == 1)
+        #expect(plug.services.filter { $0.type.uuid == ServiceType.eveHistory.uuid }.count == 1)
+        // A lamp measures no power: no history.
+        let lamp = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:lamp-1" })
+        #expect(!lamp.services.contains { $0.type.uuid == ServiceType.eveHistory.uuid })
+
+        // Added again, as a reload does: the same history, the same iids.
+        let iid = try #require(plug.services.first { $0.type.uuid == ServiceType.eveHistory.uuid }?.characteristics.first?.iid)
+        let context = try #require(host.context(platform: "Recording", name: "Plugs"))
+        let again = Accessory(id: "Recording:plug-1", name: "plug-1", category: .outlet, services: [
+            Service(.outlet, name: "plug-1", extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(0))], isPrimary: true)])
+        try context.add(again)
+        let replaced = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:plug-1" })
+        #expect(EveHistory.histories(of: replaced).first === histories.first)
+        #expect(replaced.services.first { $0.type.uuid == ServiceType.eveHistory.uuid }?.characteristics.first?.iid == iid)
+
+        // An accessory with an Eve history of its own keeps that one alone.
+        let own = EveHistory(.energy, accessoryName: "Own")
+        let mine = Accessory(id: "Recording:own", name: "Own", category: .outlet, services: [
+            Service(.outlet, name: "Own", extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(0))], isPrimary: true), own.service])
+        try context.add(mine)
+        #expect(EveHistory.histories(of: mine).map { ObjectIdentifier($0) } == [ObjectIdentifier(own)])
+    }
+}
+
 @Suite(.timeLimit(.minutes(1)))
 struct ConfigurationTests {
     /// Energy Roles are live Core Accessory Settings: out of the plugin's JSON, checked, and in its context's settings.
