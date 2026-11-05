@@ -529,8 +529,11 @@ struct HueSyncBoxTests {
         let modes = environment.tls.withLockedValue { $0 }
         #expect(modes.first == .authority(pem: SyncBoxCertificate.rootPEM, serverName: nil))
         #expect(modes.last == .authority(pem: SyncBoxCertificate.rootPEM, serverName: "A1B2C3D4E5F6"))
-        let block = await environment.plugin?.canonicalSettings(["platform": "PhilipsHueSyncBoxPlatform"])
+        let block = await environment.plugin?.canonicalSettings(["platform": "PhilipsHueSyncBoxPlatform", "syncBoxIpAddress": "192.0.2.50"])
         #expect(block?["syncBoxUniqueId"] == "A1B2C3D4E5F6")
+        // A block pointed at another box does not get this one's name.
+        let moved = await environment.plugin?.canonicalSettings(["platform": "PhilipsHueSyncBoxPlatform", "syncBoxIpAddress": "192.0.2.51"])
+        #expect(moved?["syncBoxUniqueId"] == nil)
         await host.stop()
     }
 
@@ -569,6 +572,41 @@ struct HueSyncBoxTests {
         #expect(await environment.plugin?.accountAuthorized() == true)
         #expect(try await environment.plugin?.discover().map(\.deviceID) == ["LightBulbAccessoryA1B2C3D4E5F6"])
         await next.stop()
+    }
+
+    /// The block's box no longer answering at its address: Setup asks for the address, the old one filled in.
+    @Test func setUpAsksAgainWhenTheBlocksBoxIsGone() async throws {
+        environment.box.failing(true)
+        let host = try await environment.start(settings: ["syncBoxIpAddress": "192.0.2.50"])
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected a question"); return }
+        #expect(prompt.fields.map(\.key) == ["address"])
+        #expect(prompt.fields.first?.value == "192.0.2.50")
+        #expect(prompt.text.contains("192.0.2.50"))
+        await host.stop()
+    }
+
+    /// Several boxes found and none chosen: the choice is asked again rather than an address.
+    @Test func setUpAsksToChooseABox() async throws {
+        environment.found.withLockedValue {
+            $0 = [SyncBoxDiscovery.Box(name: "Lounge", uniqueID: "A1", address: "192.0.2.50"), SyncBoxDiscovery.Box(name: "Den", uniqueID: "B2", address: "192.0.2.51")]
+        }
+        let host = try await environment.start(settings: [:])
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected a question"); return }
+        #expect(prompt.fields.map(\.key) == ["box", "address"])
+        await #expect(throws: SetupError("Choose a Sync Box, or enter its address.")) {
+            try await plugin.authorize(SetupRequest(target: .account, answers: ["box": "", "address": ""], state: state))
+        }
+        await host.stop()
+    }
+
+    /// A token the box refuses: the account Needs Authorization until the box takes one again.
+    @Test func aRefusedTokenNeedsSetup() async throws {
+        let host = try await environment.start(settings: ["syncBoxIpAddress": "192.0.2.50", "syncBoxApiAccessToken": "REVOKED"])
+        let context = try #require(host.context(platform: HueSyncBoxPlugin.platform, name: HueSyncBoxPlugin.name))
+        #expect(await eventually { context.accountRefusal != nil })
+        await host.stop()
     }
 
     @Test func setUpAsksForAnAddressWhenNoBoxAnswers() async throws {
