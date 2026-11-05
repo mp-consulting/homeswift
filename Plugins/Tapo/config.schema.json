@@ -20,10 +20,17 @@
         "minimum": 0,
         "description": "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request."
       },
+      "videoProcessor": {
+        "title": "Video Processor",
+        "type": "string",
+        "required": false,
+        "placeholder": "ffmpeg",
+        "description": "The FFmpeg the cameras' streams go through: a path, or ffmpeg on the path."
+      },
       "devices": {
         "title": "Devices",
         "type": "array",
-        "description": "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.",
+        "description": "Add a Tapo plug, bulb or battery camera by its address on the local network. Once saved, its settings are with its accessory.",
         "items": {
           "title": "Device",
           "type": "object",
@@ -76,9 +83,55 @@
                   "enum": [
                     "Colorlight"
                   ]
+                },
+                {
+                  "title": "Battery camera, one lens",
+                  "enum": [
+                    "Camera"
+                  ]
+                },
+                {
+                  "title": "Battery camera, two lenses (C675D)",
+                  "enum": [
+                    "DualLensCamera"
+                  ]
                 }
               ],
               "description": "What the device is."
+            },
+            "resolution": {
+              "title": "Camera Stream",
+              "type": "string",
+              "required": false,
+              "default": "HD",
+              "oneOf": [
+                {
+                  "title": "HD: every lens",
+                  "enum": [
+                    "HD"
+                  ]
+                },
+                {
+                  "title": "VGA: one 1280 × 720 stream (a C675D's tele lens)",
+                  "enum": [
+                    "VGA"
+                  ]
+                }
+              ],
+              "description": "Which of a camera's streams HomeKit gets."
+            },
+            "motion": {
+              "title": "Motion Sensor",
+              "type": "boolean",
+              "required": false,
+              "default": true,
+              "description": "A camera's Motion Sensor, from the detections the camera reports to the TP-Link cloud: it never wakes the camera."
+            },
+            "cloudId": {
+              "title": "Cloud Id",
+              "type": "string",
+              "required": false,
+              "description": "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras)."
             },
             "updateInterval": {
               "title": "Update Interval (in seconds)",
@@ -143,9 +196,52 @@
             "enum": [
               "Colorlight"
             ]
+          },
+          {
+            "title": "Battery camera, one lens",
+            "enum": [
+              "Camera"
+            ]
+          },
+          {
+            "title": "Battery camera, two lenses (C675D)",
+            "enum": [
+              "DualLensCamera"
+            ]
           }
         ],
         "description": "What the device is."
+      },
+      "resolution": {
+        "title": "Camera Stream",
+        "type": "string",
+        "default": "HD",
+        "oneOf": [
+          {
+            "title": "HD: every lens",
+            "enum": [
+              "HD"
+            ]
+          },
+          {
+            "title": "VGA: one 1280 × 720 stream (a C675D's tele lens)",
+            "enum": [
+              "VGA"
+            ]
+          }
+        ],
+        "description": "Which of a camera's streams HomeKit gets."
+      },
+      "motion": {
+        "title": "Motion Sensor",
+        "type": "boolean",
+        "default": true,
+        "description": "A camera's Motion Sensor, from the detections the camera reports to the TP-Link cloud: it never wakes the camera."
+      },
+      "cloudId": {
+        "title": "Cloud Id",
+        "type": "string",
+        "description": "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras)."
       },
       "updateInterval": {
         "title": "Update Interval (in seconds)",
@@ -165,74 +261,110 @@
   },
   "i18n": {
     "fr": {
-      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Ajoutez une prise ou une ampoule Tapo par son adresse sur le réseau local. Une fois enregistrés, ses réglages sont avec son accessoire.",
+      "A camera's Motion Sensor, from the detections the camera reports to the TP-Link cloud: it never wakes the camera.": "Le détecteur de mouvement d'une caméra, d'après les détections qu'elle signale au cloud TP-Link : il ne réveille jamais la caméra.",
+      "Add a Tapo plug, bulb or battery camera by its address on the local network. Once saved, its settings are with its accessory.": "Ajoutez une prise, une ampoule ou une caméra sur batterie Tapo par son adresse sur le réseau local. Une fois enregistrés, ses réglages sont avec son accessoire.",
+      "Battery camera, one lens": "Caméra sur batterie, un objectif",
+      "Battery camera, two lenses (C675D)": "Caméra sur batterie, deux objectifs (C675D)",
+      "Camera Stream": "Flux de la caméra",
+      "Cloud Id": "Identifiant cloud",
       "Colour bulb (L530E)": "Ampoule couleur (L530E)",
       "Device": "Appareil",
       "Devices": "Appareils",
       "Dimmable bulb (L510E)": "Ampoule à intensité variable (L510E)",
+      "HD: every lens": "HD : tous les objectifs",
       "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Le temps qu'un changement venu de HomeKit attend ceux faits en même temps, pour qu'une couleur ou un curseur n'envoie qu'une requête.",
       "How long a request to a device on older firmware waits for its answer.": "Le temps qu'une requête à un appareil au firmware ancien attend sa réponse.",
       "How often the device is asked for its state.": "La fréquence à laquelle l'état de l'appareil est demandé.",
       "IP Address": "Adresse IP",
+      "Motion Sensor": "Détecteur de mouvement",
       "Name": "Nom",
       "Plug (P100, P105)": "Prise (P100, P105)",
       "Plug with energy monitoring (P110)": "Prise avec suivi de la consommation (P110)",
       "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
+      "The FFmpeg the cameras' streams go through: a path, or ffmpeg on the path.": "Le FFmpeg par lequel passent les flux des caméras : un chemin, ou ffmpeg dans le PATH.",
+      "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras).": "L'identifiant de la caméra dans le cloud TP-Link, quand son nom, son modèle ou son adresse MAC ne la trouvent pas (le journal liste les caméras du compte).",
       "The device's IP address or host name on the local network.": "L'adresse IP ou le nom d'hôte de l'appareil sur le réseau local.",
       "The device's IP address or host name on the local network. Changing it keeps the accessory.": "L'adresse IP ou le nom d'hôte de l'appareil sur le réseau local. La changer garde l'accessoire.",
       "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "Le nom dans HomeKit. Avec l'adresse, c'est ce qui identifie l'accessoire : changer l'un ou l'autre crée un nouvel accessoire.",
       "Timeout (in seconds)": "Délai d'attente (en secondes)",
       "Type": "Type",
       "Update Interval (in seconds)": "Intervalle de mise à jour (en secondes)",
+      "VGA: one 1280 × 720 stream (a C675D's tele lens)": "VGA : un flux 1280 × 720 (le téléobjectif d'une C675D)",
+      "Video Processor": "Processeur vidéo",
       "What the device is.": "Le type d'appareil.",
+      "Which of a camera's streams HomeKit gets.": "Le flux de la caméra que reçoit HomeKit.",
       "White bulb (L520E)": "Ampoule blanche (L520E)",
       "Write Grouping (in milliseconds)": "Regroupement des écritures (en millisecondes)"
     },
     "es": {
-      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Añade un enchufe o una bombilla Tapo por su dirección en la red local. Una vez guardado, sus ajustes están con su accesorio.",
+      "A camera's Motion Sensor, from the detections the camera reports to the TP-Link cloud: it never wakes the camera.": "El sensor de movimiento de una cámara, a partir de las detecciones que la cámara comunica a la nube de TP-Link: nunca despierta la cámara.",
+      "Add a Tapo plug, bulb or battery camera by its address on the local network. Once saved, its settings are with its accessory.": "Añade un enchufe, una bombilla o una cámara de batería Tapo por su dirección en la red local. Una vez guardado, sus ajustes están con su accesorio.",
+      "Battery camera, one lens": "Cámara de batería, un objetivo",
+      "Battery camera, two lenses (C675D)": "Cámara de batería, dos objetivos (C675D)",
+      "Camera Stream": "Flujo de la cámara",
+      "Cloud Id": "Id. en la nube",
       "Colour bulb (L530E)": "Bombilla de color (L530E)",
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
       "Dimmable bulb (L510E)": "Bombilla regulable (L510E)",
+      "HD: every lens": "HD: todos los objetivos",
       "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Cuánto espera un cambio desde HomeKit a los que se hacen con él, para que un color o un control deslizante envíe una sola solicitud.",
       "How long a request to a device on older firmware waits for its answer.": "Cuánto espera una solicitud a un dispositivo con firmware antiguo su respuesta.",
       "How often the device is asked for its state.": "Con qué frecuencia se pide al dispositivo su estado.",
       "IP Address": "Dirección IP",
+      "Motion Sensor": "Sensor de movimiento",
       "Name": "Nombre",
       "Plug (P100, P105)": "Enchufe (P100, P105)",
       "Plug with energy monitoring (P110)": "Enchufe con medición de consumo (P110)",
       "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "The FFmpeg the cameras' streams go through: a path, or ffmpeg on the path.": "El FFmpeg por el que pasan los flujos de las cámaras: una ruta, o ffmpeg en el PATH.",
+      "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras).": "El id. de la cámara en la nube de TP-Link, cuando su nombre, su modelo o su dirección MAC no la encuentran (el registro enumera las cámaras de la cuenta).",
       "The device's IP address or host name on the local network.": "La dirección IP o el nombre de host del dispositivo en la red local.",
       "The device's IP address or host name on the local network. Changing it keeps the accessory.": "La dirección IP o el nombre de host del dispositivo en la red local. Cambiarla conserva el accesorio.",
       "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "El nombre en HomeKit. Junto con la dirección, es lo que identifica al accesorio: cambiar cualquiera de los dos crea un accesorio nuevo.",
       "Timeout (in seconds)": "Tiempo de espera (en segundos)",
       "Type": "Tipo",
       "Update Interval (in seconds)": "Intervalo de actualización (en segundos)",
+      "VGA: one 1280 × 720 stream (a C675D's tele lens)": "VGA: un flujo de 1280 × 720 (el teleobjetivo de una C675D)",
+      "Video Processor": "Procesador de vídeo",
       "What the device is.": "Qué es el dispositivo.",
+      "Which of a camera's streams HomeKit gets.": "Qué flujo de la cámara recibe HomeKit.",
       "White bulb (L520E)": "Bombilla blanca (L520E)",
       "Write Grouping (in milliseconds)": "Agrupación de escrituras (en milisegundos)"
     },
     "pt": {
-      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Adicione uma tomada ou lâmpada Tapo pelo seu endereço na rede local. Depois de guardada, as suas definições ficam com o seu acessório.",
+      "A camera's Motion Sensor, from the detections the camera reports to the TP-Link cloud: it never wakes the camera.": "O sensor de movimento de uma câmara, a partir das deteções que a câmara comunica à nuvem da TP-Link: nunca acorda a câmara.",
+      "Add a Tapo plug, bulb or battery camera by its address on the local network. Once saved, its settings are with its accessory.": "Adicione uma tomada, lâmpada ou câmara a bateria Tapo pelo seu endereço na rede local. Depois de guardada, as suas definições ficam com o seu acessório.",
+      "Battery camera, one lens": "Câmara a bateria, uma lente",
+      "Battery camera, two lenses (C675D)": "Câmara a bateria, duas lentes (C675D)",
+      "Camera Stream": "Fluxo da câmara",
+      "Cloud Id": "Id. na nuvem",
       "Colour bulb (L530E)": "Lâmpada de cor (L530E)",
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
       "Dimmable bulb (L510E)": "Lâmpada regulável (L510E)",
+      "HD: every lens": "HD: todas as lentes",
       "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Quanto tempo uma alteração vinda do HomeKit espera pelas feitas com ela, para que uma cor ou um controlo deslizante envie um só pedido.",
       "How long a request to a device on older firmware waits for its answer.": "Quanto tempo um pedido a um dispositivo com firmware antigo espera pela resposta.",
       "How often the device is asked for its state.": "Com que frequência se pede o estado ao dispositivo.",
       "IP Address": "Endereço IP",
+      "Motion Sensor": "Sensor de movimento",
       "Name": "Nome",
       "Plug (P100, P105)": "Tomada (P100, P105)",
       "Plug with energy monitoring (P110)": "Tomada com medição de consumo (P110)",
       "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "The FFmpeg the cameras' streams go through: a path, or ffmpeg on the path.": "O FFmpeg por onde passam os fluxos das câmaras: um caminho, ou ffmpeg no PATH.",
+      "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras).": "O id. da câmara na nuvem da TP-Link, quando o nome, o modelo ou o endereço MAC não a encontram (o registo lista as câmaras da conta).",
       "The device's IP address or host name on the local network.": "O endereço IP ou o nome de anfitrião do dispositivo na rede local.",
       "The device's IP address or host name on the local network. Changing it keeps the accessory.": "O endereço IP ou o nome de anfitrião do dispositivo na rede local. Mudá-lo mantém o acessório.",
       "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "O nome no HomeKit. Com o endereço, é o que identifica o acessório: mudar qualquer um dos dois cria um novo acessório.",
       "Timeout (in seconds)": "Tempo limite (em segundos)",
       "Type": "Tipo",
       "Update Interval (in seconds)": "Intervalo de atualização (em segundos)",
+      "VGA: one 1280 × 720 stream (a C675D's tele lens)": "VGA: um fluxo de 1280 × 720 (a teleobjetiva de uma C675D)",
+      "Video Processor": "Processador de vídeo",
       "What the device is.": "O que é o dispositivo.",
+      "Which of a camera's streams HomeKit gets.": "Que fluxo da câmara o HomeKit recebe.",
       "White bulb (L520E)": "Lâmpada branca (L520E)",
       "Write Grouping (in milliseconds)": "Agrupamento de escritas (em milissegundos)"
     }

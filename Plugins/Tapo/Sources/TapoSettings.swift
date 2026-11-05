@@ -9,9 +9,9 @@ import HomeswiftPlugin
 // Device Id is its host and name run together, as it was, so the accessory keeps its identity when it moves, and a
 // rename afterwards keeps it too.
 extension TapoPlugin {
-    /// A device's kind is its `type`: `plug`, `powerPlug`, `light`, `whiteLight` or `colorLight`.
+    /// A device's kind is its `type`: `plug`, `powerPlug`, `light`, `whiteLight`, `colorLight`, or `camera` for either camera.
     public func deviceKind(of deviceID: String) async -> String? {
-        configuredDevices().first { $0.deviceID == deviceID }.map { TapoKind(type: $0.device.type).rawValue }
+        configuredDevices().first { $0.deviceID == deviceID }.map { TapoCameraKind(type: $0.device.type) != nil ? "camera" : TapoKind(type: $0.device.type).rawValue }
     }
 
     /// The block with each `devices` entry that has a host moved into `_accessories` under its Device Id (its name as
@@ -59,5 +59,5 @@ extension TapoPlugin {
     }
 
     /// A device's keys, in `devices` and in `_accessories`.
-    static let deviceKeys = ["host", "type", "updateInterval", "timeout"]
+    static let deviceKeys = ["host", "type", "updateInterval", "timeout", "resolution", "motion", "cloudId"]
 }

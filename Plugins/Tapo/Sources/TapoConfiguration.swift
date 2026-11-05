@@ -15,6 +15,12 @@ extension TapoPlugin {
             public var updateInterval: TapoNumber?
             /// Seconds before a securePassthrough request gives up; 2 when absent or 0.
             public var timeout: TapoNumber?
+            /// A camera's stream: `HD` (the default; every lens, HEVC) or `VGA` (one 1280 x 720 H.264 stream: a C675D's tele lens).
+            public var resolution: String?
+            /// Whether a camera has a Motion Sensor, from the TP-Link cloud's notifications: on by default.
+            public var motion: Bool?
+            /// The camera's id in the TP-Link cloud, when its name, its model or its MAC do not find it.
+            public var cloudId: String?
         }
 
         /// The Tapo account's email.
@@ -23,6 +29,8 @@ extension TapoPlugin {
         public var devices: [Device]?
         /// Milliseconds; 100 by default.
         public var waitTimeUpdate: TapoNumber?
+        /// The FFmpeg the cameras' streams go through: `ffmpeg` on the path by default.
+        public var videoProcessor: String?
     }
 }
 
