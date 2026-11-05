@@ -241,7 +241,7 @@ final class TestEnvironment: Sendable {
         timing.coalesce = .milliseconds(20)
         timing.slider = .milliseconds(15)
         timing.powerToLevels = .milliseconds(10)
-        timing.settle = .milliseconds(60)
+        timing.settle = .milliseconds(250)
         timing.identifyStep = .milliseconds(5)
         timing.identifyTicks = 4
         timing.scanWindow = .milliseconds(60)
