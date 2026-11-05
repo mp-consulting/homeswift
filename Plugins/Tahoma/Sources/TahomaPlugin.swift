@@ -52,11 +52,28 @@ public actor TahomaPlugin: HomeswiftPlugin {
     private(set) var devices: [OverkizDevice] = []
     /// The listing's devices by deviceURL, for the event path.
     private(set) var deviceIndex: [String: OverkizDevice] = [:]
+    /// The scenarios `exposeScenarios` puts in HomeKit, Excluded ones included: what Setup lists and the settings
+    /// resolve names against.
+    private(set) var listedScenarios: [OverkizScenario] = []
+    /// Those of them with an accessory: neither in `exclude` nor Excluded.
     private(set) var scenarios: [OverkizScenario] = []
     private var refreshWaiter: CheckedContinuation<Void, Never>?
     let localToken: SecretFile<LocalToken>
     /// The account's sign-in pause, kept across the clients `run()` makes one after another.
     let signInLockout = SignInLockout()
+    /// Setup's checks of an account typed in, by service and user: three tries, then the same pauses, so a loop of wrong
+    /// passwords does not get the account banned. Kept by the process: a plugin not added yet is made anew at each step.
+    private static let setupLockouts = NIOLockedValueBox<[String: SignInLockout]>([:])
+
+    static func setupLockout(service: OverkizService, user: String) -> SignInLockout {
+        setupLockouts.withLockedValue { all in
+            let key = "\(service.rawValue)/\(user.lowercased())"
+            if let lockout = all[key] { return lockout }
+            let lockout = SignInLockout(grace: 2)
+            all[key] = lockout
+            return lockout
+        }
+    }
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -286,10 +303,8 @@ public actor TahomaPlugin: HomeswiftPlugin {
     private func buildScenarios(_ listed: [OverkizScenario]) {
         let choice = configuration.exposeScenarios ?? .all(false)
         let exclusions = exclusions
-        scenarios = listed.filter { scenario in
-            !scenario.label.isEmpty && !scenario.label.hasPrefix("internal:") && !exclusions.contains(scenario.label) && choice.exposes(scenario.label)
-                && !context.isExcluded(Self.scenarioDeviceID(oid: scenario.oid))
-        }
+        listedScenarios = listed.filter { !$0.label.isEmpty && !$0.label.hasPrefix("internal:") && choice.exposes($0.label) }
+        scenarios = listedScenarios.filter { !exclusions.contains($0.label) && !context.isExcluded(Self.scenarioDeviceID(oid: $0.oid)) }
         for scenario in scenarios {
             let id = Self.accessoryID(deviceID: Self.scenarioDeviceID(oid: scenario.oid))
             let power = Service(.switch, name: scenario.label, isPrimary: true)
