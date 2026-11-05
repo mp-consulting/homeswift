@@ -38,7 +38,7 @@ public actor TapoPlugin: HomeswiftPlugin {
 
     public static let platform = "TapoP100"
     public static let name = "TP-Link Tapo"
-    public static let icon: String? = "outlet"
+    public static let icon: String? = "logo-tapo"
     public static let summary: String? = "Tapo plugs and bulbs on the local network"
 
     static let defaultUpdateInterval = 10.0
