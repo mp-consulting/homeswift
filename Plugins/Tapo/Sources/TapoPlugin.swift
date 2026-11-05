@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftFFmpeg
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
@@ -23,11 +24,21 @@ public actor TapoPlugin: HomeswiftPlugin {
         var bulbEnergyInterval: Duration = .seconds(600)
         /// How long Setup waits for a device to check the account with.
         var setupTimeout: Duration = .seconds(5)
+        /// How a camera's Streamd connection is opened (TCP; a fake in tests).
+        var connect: StreamdClient.Connect = { host, port, timeout in try await TCPStream.connect(host: host, port: port, timeout: timeout) }
+        var ports = RtpPortAllocator()
+        var cameraTiming = TapoCameraFeed.Timing()
+        /// The TP-Link cloud, for the cameras' motion.
+        var cloudHTTP: any HTTPSending = HTTPClient(tls: .authority(pem: TapoCloud.rootCA, serverName: nil), maximumBodySize: 1024 * 1024)
+        var cloudEntry = TapoCloud.entry
+        var motionTiming = TapoMotionWatcher.Timing()
+        var motionHold: Duration = .seconds(30)
+        var macAddress: @Sendable (String) async -> String? = { await ARPTable.macAddress(for: $0) }
     }
 
     public static let platform = "TapoP100"
     public static let name = "TP-Link Tapo"
-    public static let icon: String? = "outlet"
+    public static let icon: String? = "logo-tapo"
     public static let summary: String? = "Tapo plugs and bulbs on the local network"
 
     static let defaultUpdateInterval = 10.0
@@ -39,12 +50,18 @@ public actor TapoPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private let tasks = TaskBag()
+    let tasks = TaskBag()
     /// The devices, by Device Id.
     private(set) var devices: [String: TapoDevice] = [:]
+    /// The battery cameras, by Device Id.
+    var cameraRuntimes: [String: TapoCameraRuntime] = [:]
+    var ffmpegOptions: FfmpegOptions?
+    /// The account's sign-in to the TP-Link cloud, and the watch of its cameras' notifications.
+    let cloud: TapoCloud
+    let motionWatcher: TapoMotionWatcher
     /// The devices that completed a KLAP handshake, which never fall back to securePassthrough.
     let klapDevices: KLAPDevices
-    private let credentialCache = NIOLockedValueBox<TapoCredentials??>(nil)
+    private let credentialCache: NIOLockedValueBox<TapoCredentials??>
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -56,6 +73,21 @@ public actor TapoPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         klapDevices = KLAPDevices(file: context.jsonFile("klap-devices.json", as: [String].self), logger: context.logger)
+        let cache = NIOLockedValueBox<TapoCredentials??>(nil)
+        credentialCache = cache
+        cloud = Self.makeCloud(context: context, dependencies: dependencies) {
+            Self.cachedCredentials(cache, context: context, configuration: configuration)
+        }
+        motionWatcher = TapoMotionWatcher(cloud: cloud, timing: dependencies.motionTiming, logger: context.logger, macAddress: dependencies.macAddress)
+    }
+
+    /// The cloud's session, kept in the vault.
+    static func makeCloud(context: PluginContext, dependencies: Dependencies, credentials: @escaping @Sendable () -> TapoCredentials?) -> TapoCloud {
+        let file = context.secretFile("cloud-session.json", as: TapoCloud.Session.self)
+        let logger = context.logger
+        return TapoCloud(http: dependencies.cloudHTTP, entry: dependencies.cloudEntry, credentials: credentials, load: { file.load() }, save: { session in
+            do { try file.save(session) } catch { logger.warning("Could not keep the Tapo cloud's session: \(error)") }
+        }, logger: logger)
     }
 
     static func accessoryID(deviceID: String) -> String { "\(platform):\(deviceID)" }
@@ -65,15 +97,19 @@ public actor TapoPlugin: HomeswiftPlugin {
     /// The account: what Setup kept in the vault, else the block's `username` and `password`. The vault is read once a
     /// run: a Setup that changes the account reloads the plugin.
     nonisolated var credentials: TapoCredentials? {
-        credentialCache.withLockedValue { cached in
+        Self.cachedCredentials(credentialCache, context: context, configuration: configuration)
+    }
+
+    static func cachedCredentials(_ cache: NIOLockedValueBox<TapoCredentials??>, context: PluginContext, configuration: Configuration) -> TapoCredentials? {
+        cache.withLockedValue { cached in
             if let cached { return cached }
-            let found = readCredentials()
+            let found = readCredentials(context: context, configuration: configuration)
             cached = .some(found)
             return found
         }
     }
 
-    private nonisolated func readCredentials() -> TapoCredentials? {
+    private static func readCredentials(context: PluginContext, configuration: Configuration) -> TapoCredentials? {
         if let kept = context.credentials(as: TapoCredentials.self), !kept.username.isEmpty, !kept.password.isEmpty { return kept }
         guard let username = configuration.username, !username.isEmpty, let password = configuration.password, !password.isEmpty else { return nil }
         return TapoCredentials(username: username, password: password)
@@ -112,10 +148,19 @@ public actor TapoPlugin: HomeswiftPlugin {
         if credentials == nil, !configured.isEmpty {
             logger.error("No Tapo account: set username and password, or sign in through Add accessories")
         }
+        var kept = Set<String>()
         for (deviceID, device) in configured where !context.isExcluded(deviceID) {
-            try await startDevice(deviceID: deviceID, device: device)
+            if let kind = TapoCameraKind(type: device.type) {
+                kept.formUnion(try await startCamera(deviceID: deviceID, device: device, kind: kind))
+            } else {
+                try await startDevice(deviceID: deviceID, device: device)
+            }
         }
-        let kept = Set(devices.keys.map(Self.accessoryID(deviceID:)))
+        kept.formUnion(devices.keys.map(Self.accessoryID(deviceID:)))
+        if !cameraRuntimes.isEmpty {
+            let watcher = motionWatcher
+            tasks.add { await watcher.run() }
+        }
         _ = await context.removeAccessories(keeping: kept)
     }
 
@@ -123,6 +168,7 @@ public actor TapoPlugin: HomeswiftPlugin {
         tasks.cancelAll()
         for device in devices.values { await device.services?.history?.flush() }
         devices.removeAll()
+        await stopCameras()
     }
 
     private func startDevice(deviceID: String, device: Configuration.Device) async throws {

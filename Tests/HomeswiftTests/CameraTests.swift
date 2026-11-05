@@ -82,6 +82,21 @@ struct CameraTLVTests {
         #expect(!RTPStreamManagement.isIPAddress("camera.local", .ipv4))
     }
 
+    /// The address announced for a stream is the one the system sends from to the controller: on a host with two
+    /// networks the controller may connect through the other one, and drops packets from an address it was not given.
+    @Test func streamsAreAnnouncedFromTheAddressTheySendFrom() {
+        #expect(RTPStreamManagement.sourceAddress(toward: "127.0.0.1", port: 50000, version: .ipv4) == "127.0.0.1")
+        #expect(RTPStreamManagement.sourceAddress(toward: "::1", port: 50000, version: .ipv6) == "::1")
+        #expect(RTPStreamManagement.sourceAddress(toward: "camera.local", port: 50000, version: .ipv4) == nil)
+        #expect(RTPStreamManagement.sourceAddress(toward: "127.0.0.1", port: 50000, version: .ipv6) == nil)
+        // A loopback connection, or an address that is not the host's, is announced as it is.
+        #expect(RTPStreamManagement.announcedAddress(local: "127.0.0.1", target: "127.0.0.1", port: 50000, version: .ipv4) == "127.0.0.1")
+        #expect(RTPStreamManagement.announcedAddress(local: "192.0.2.10", target: "127.0.0.1", port: 50000, version: .ipv4) { ["127.0.0.1"] } == "192.0.2.10")
+        // The host's other address, which the system sends to the controller from, replaces the connection's.
+        #expect(RTPStreamManagement.announcedAddress(local: "192.0.2.10", target: "127.0.0.1", port: 50000, version: .ipv4) { ["192.0.2.10", "127.0.0.1"] }
+            == "127.0.0.1")
+    }
+
     @Test func supportedStreamingConfigurations() throws {
         let rtp = try Self.management(FakeStreamingDelegate())
         #expect(rtp.supportedRTPConfiguration.base64EncodedString() == "AgEA")

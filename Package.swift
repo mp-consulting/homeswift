@@ -315,7 +315,7 @@ let package = Package(
         .target(
             name: "HomeswiftTapo",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI", "HomeswiftFFmpeg",
                 .product(name: "Crypto", package: "swift-crypto"),
                 // AES-CBC and RSA with PKCS#1 v1.5, which the devices' protocols use.
                 .product(name: "_CryptoExtras", package: "swift-crypto"),
@@ -778,7 +778,7 @@ let package = Package(
         .testTarget(
             name: "TapoTests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI", "HomeswiftTapo",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI", "HomeswiftTapo", "HomeswiftFFmpeg",
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "_CryptoExtras", package: "swift-crypto"),
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),

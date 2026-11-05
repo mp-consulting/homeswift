@@ -45,6 +45,12 @@ All notable changes to this project are documented here. The format follows
 - IMOU: two-way audio (experimental, off unless a camera's `twoWayAudio` is `auto` or `on`): the Home app's talk button
   sends to the camera's speaker over Dahua's `postAudio` CGI, or its ONVIF RTSP backchannel where that CGI is missing;
   tested against fake cameras only.
+- Tapo battery cameras (`TapoP100`, `type` `Camera` or `DualLensCamera`): a C675D's wide and tele lenses as two HomeKit
+  cameras, streamed without RTSP through the cameras' Streamd server on port 8800 (signed in with the owner's cloud
+  password, HEVC transcoded to H.264), reached only while someone watches: snapshots are the last live view's, and the
+  stream reconnects quietly after the camera's standby. Each lens has a Motion Sensor fed by the TP-Link cloud's
+  notification inbox, which never wakes the camera (Setup asks for the code the cloud e-mails the first time).
+  Clean-room implementations from docs/clean-room/TapoCamera.md and TapoCloudEvents.md.
 - Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
   **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
   like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and

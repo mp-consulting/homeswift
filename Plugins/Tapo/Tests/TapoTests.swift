@@ -29,14 +29,19 @@ final class TestEnvironment: Sendable {
 
     static var account: [String: Any] { ["username": "user@example.com", "password": "password123"] }
 
-    func start(devices: [[String: Any]], settings: [String: Any] = account, bulbEnergyInterval: Duration = .seconds(600)) async throws -> PluginHost {
+    func start(devices: [[String: Any]], settings: [String: Any] = account, bulbEnergyInterval: Duration = .seconds(600),
+               connect: StreamdClient.Connect? = nil, cloud: FakeTapoCloud = FakeTapoCloud(), macAddress: String? = nil) async throws -> PluginHost {
         var registry = PluginRegistry()
         let network = network
         registry.register(platform: TapoPlugin.platform, name: TapoPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(TapoPlugin.Configuration.self, from: json)
-            let plugin = TapoPlugin(
-                configuration: configuration, context: context,
-                dependencies: .init(http: network, timeScale: 0.002, bulbEnergyInterval: bulbEnergyInterval, setupTimeout: .seconds(1)))
+            var dependencies = TapoPlugin.Dependencies(http: network, timeScale: 0.002, bulbEnergyInterval: bulbEnergyInterval, setupTimeout: .seconds(1))
+            if let connect { dependencies.connect = connect }
+            dependencies.cloudHTTP = cloud
+            dependencies.motionTiming = TapoMotionWatcher.Timing(interval: .milliseconds(20), maximumBackoff: .milliseconds(200))
+            dependencies.motionHold = .milliseconds(300)
+            dependencies.macAddress = { _ in macAddress }
+            let plugin = TapoPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }

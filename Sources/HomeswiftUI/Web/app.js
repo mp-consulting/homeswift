@@ -1929,7 +1929,28 @@
   // /accessories?group=room|plugin&hidden=1&from=<source>: sections per room (once there are rooms) or per plugin; hidden
   // accessories only with hidden=1; only another controller's (Apple Home's, through Wingman) with from=.
   /// The Accessories page's views, as tabs: the wall and the graph.
-  const accessoryTabs = (current) => HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
+  /// Their search and filters are the address's, which a tab carries to the other view.
+  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "hidden"];
+  /// The tabs' row holds `extra` after them (the view's Full screen button), in the same place in both views.
+  const accessoryTabs = (current, ...extra) => {
+    const nav = HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
+    // At the click, before the router follows the link: the filters as they are now (a search typed since included).
+    nav.addEventListener("click", (event) => {
+      const link = event.target.closest("a");
+      if (!link) return;
+      const now = new URLSearchParams(location.search), kept = new URLSearchParams();
+      for (const [key, value] of now) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
+      const url = new URL(link.href);
+      link.href = `${url.pathname}${kept.size ? `?${kept}` : ""}`;
+    }, true);
+    return el("div", { class: "accessories-views" }, nav, ...extra.filter(Boolean));
+  };
+  /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
+  const replaceQuery = (key, value) => {
+    const next = new URLSearchParams(location.search);
+    if (value) next.set(key, value); else next.delete(key);
+    history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
+  };
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
@@ -1948,7 +1969,12 @@
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
     // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
-    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
+    // A server that is one accessory of its own (a camera, a television) is that accessory, filtered by its type, not a bridge.
+    const ownServer = (name) => {
+      const on = all.filter((accessory) => accessory.bridge === name);
+      return on.length === 1 && on[0].name === name;
+    };
+    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))].filter((name) => !ownServer(name));
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
     const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
@@ -2553,7 +2579,8 @@
       }
       none.classList.toggle("hidden", shown > 0);
     }
-    search.addEventListener("input", filter);
+    search.value = params.get("q") ?? "";
+    search.addEventListener("input", () => { filter(); replaceQuery("q", search.value.trim()); });
     const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
     const setGrouping = (value) => { layout.grouping = value; save(); render(); };
     const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
@@ -2593,10 +2620,11 @@
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
-      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
+      ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
+        replaceQuery("q", "");
         if (activeFilters) {
           const next = new URLSearchParams(location.search);
           for (const key of ["from", "hidden", "unavailable", "bridge", "type"]) next.delete(key);
@@ -2659,15 +2687,15 @@
         const now = Math.round(content.scrollLeft / Math.max(1, content.clientWidth));
         if (now !== page) { page = now; mark(); }
       } : null;
-      chrome.replaceChildren(optionsButton,
+      chrome.replaceChildren(exitButton, optionsButton,
         ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
       mark();
       if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
       wake();
       chrome.go = go;
     }
-    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping, the
-    // filters and Leave full screen, opened by the one button left on the wall.
+    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping and
+    // the filters, opened by the options button; Leave full screen is the button beside it.
     const openToolbar = () => openSheet((done) => el("div", { class: "wall-full-panel" },
       el("h2", { id: "wall-full-panel-title", text: t("Accessories") }),
       search,
@@ -2675,12 +2703,15 @@
         el("button", { type: "button", actionIcon: icon, class: layout.grouping === value ? "primary" : "", "aria-pressed": String(layout.grouping === value), text: label,
           onclick: () => { page = 0; setGrouping(value); done(); } }))),
       filters,
+      // Leaving is the button beside this panel's.
       el("div", { class: "actions" },
-        el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setFullScreen(false); } }),
         el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
     "wall-full-panel-title", { returnFocus: optionsButton });
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Accessory options"), "aria-haspopup": "dialog",
       title: t("Accessory options"), onclick: openToolbar }, HomeswiftCommon.icon("sliders"));
+    // Leaving at hand, beside the options.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setFullScreen(false) }, HomeswiftCommon.icon("collapse"));
     // A search from the panel changes which pages there are.
     search.addEventListener("input", () => { if (fullScreen) fullScreenChrome(); });
     // The chrome wakes on a touch, the mouse or a key, and fades after a few quiet seconds.
@@ -2721,8 +2752,8 @@
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null, addButton)),
-      accessoryTabs(""),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
+      accessoryTabs("", accessories.length ? fullScreenButton : null, addButton),
       note,
       accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
         !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
@@ -5122,7 +5153,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
