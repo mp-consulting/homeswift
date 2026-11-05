@@ -80,7 +80,6 @@ HomeswiftI18n.add("pt", {
   "Tapo plugs and bulbs on the local network": "Tomadas e lâmpadas Tapo na rede local",
   "Solar production from an APsystems ECU on the local network": "A produção solar de uma ECU APsystems na rede local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Carregadores Trydan na rede local: carga, corrente, bloqueio e potência",
-  "Solar production from an APsystems ECU on the local network": "A produção solar de uma ECU APsystems na rede local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luzes, sensores, estores, ventoinhas e climatizadores de dispositivos ESPHome",
   "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 e Gen4: relés, estores, botões, luzes e contadores",
