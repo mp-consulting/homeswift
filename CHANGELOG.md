@@ -33,6 +33,13 @@ All notable changes to this project are documented here. The format follows
   anything else it needs, probes the device, and finishes with the Device Id the device answered with. That id keys
   the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
   discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
+- `HomeswiftFFmpeg`: HomeKit's return audio for camera plugins. `RTSPCameraStreamer` takes `ReturnAudioOptions`: a
+  `ReturnAudioReceiver` per live stream decodes the SRTP AAC-ELD HomeKit sends while someone talks into PCM frames,
+  one `Talk` per burst of speech, for the plugin's handler; G.711 A-law and µ-law and IMA ADPCM encoders, and AAC in ADTS
+  through FFmpeg.
+- IMOU: two-way audio (experimental, off unless a camera's `twoWayAudio` is `auto` or `on`): the Home app's talk button
+  sends to the camera's speaker over Dahua's `postAudio` CGI, or its ONVIF RTSP backchannel where that CGI is missing;
+  tested against fake cameras only.
   light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
   V2C Trydan adds a charger, APsystems ECU an ECU, IMOU a local camera (with its safety code) and Reolink a camera, NVR or
   hub (with a local user's login) the same way.
