@@ -64,6 +64,7 @@ HomeswiftI18n.add("pt", {
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luzes, controladores LED e tomadas Wi-Fi Magic Home na rede local",
   "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Carros Renault, Dacia e Alpine: bateria, carregamento, climatização, buzina e luzes",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Colunas Sonos: reprodução, volume e grupos, favoritos como entradas de TV, LED e alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya e Smart Life através da nuvem Tuya",
