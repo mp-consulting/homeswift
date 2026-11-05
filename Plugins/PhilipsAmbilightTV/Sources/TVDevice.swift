@@ -321,9 +321,12 @@ actor TVDevice {
 
     private func startLongPoll() {
         guard notify == nil else { return }
+        // Plain HTTP first for the long-poll: it is the one channel held open all the time, and keeping it
+        // off port 1926 keeps the TV's patched TLS read loop out of the picture. HTTPS remains the
+        // fallback, so sets that serve `notifychange` only over TLS behave as before.
         let notifyClient = JointSpaceClient(
             ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint,
-            transports: transports, logger: logger, gap: JointSpace.gapBetweenRequests * timeScale)
+            transports: transports, logger: logger, gap: JointSpace.gapBetweenRequests * timeScale, preferPlain: true)
         let notify = NotifyChangeClient(client: notifyClient, logger: logger, timeScale: timeScale)
         self.notify = notify
         Task { [weak self] in

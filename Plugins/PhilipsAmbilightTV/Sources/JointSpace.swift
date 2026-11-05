@@ -185,6 +185,11 @@ actor JointSpaceClient {
     private var scheme: String?
     /// True once HTTPS has answered: plain HTTP is never tried after that.
     private var secureAnswered = false
+    /// Tries plain HTTP before HTTPS for this client, HTTPS still the fallback. The `notifychange`
+    /// long-poll uses it: sets that serve `notifychange` on 1925 keep the channel off the TLS connector,
+    /// whose patched SSL read loop can spin forever and wedge the whole API (docs/jointspace-api.md).
+    /// A payload naming resources the plain connector does not serve still returns the ones it does.
+    private let preferPlain: Bool
     private var lastRequestEnded: ContinuousClock.Instant?
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -196,9 +201,10 @@ actor JointSpaceClient {
 
     init(
         ip: String, username: String, password: String, certificateFingerprint: String?, transports: any JointSpaceTransportFactory, logger: Logger,
-        gap: Duration = JointSpace.gapBetweenRequests
+        gap: Duration = JointSpace.gapBetweenRequests, preferPlain: Bool = false
     ) {
         self.gap = gap
+        self.preferPlain = preferPlain
         self.ip = ip
         self.username = username
         self.password = password
@@ -463,6 +469,8 @@ actor JointSpaceClient {
         let schemes: [String]
         if let scheme {
             schemes = [scheme]
+        } else if preferPlain {
+            schemes = ["http", "https"]
         } else if pinnedFingerprint != nil || secureAnswered {
             schemes = ["https"]
         } else {
@@ -483,9 +491,11 @@ actor JointSpaceClient {
                 return response
             } catch let error as JointSpaceError {
                 lastError = error
-                // Only a refused HTTPS port means a set without HTTPS; a TV that is asleep or away stays
-                // out of reach over plain HTTP too, and an answer of any kind ends the probing.
-                if case .connectionRefused = error, candidate == "https" { continue }
+                // Only a refused port means the set does not serve this scheme; a TV that is asleep or away
+                // stays out of reach either way, and an answer of any kind ends the probing. Falling
+                // through to the next candidate covers both orders: HTTPS-then-plain, and the plain-first
+                // order `preferPlain` uses for the long-poll.
+                if case .connectionRefused = error, candidate != schemes.last { continue }
                 break
             }
         }
