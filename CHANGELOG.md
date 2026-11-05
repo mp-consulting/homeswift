@@ -19,9 +19,10 @@ All notable changes to this project are documented here. The format follows
   login with the owner's cloud password, a clean-room implementation of docs/clean-room/TapoPTZ.md), on the web UI's pad
   and as `list_ptz_cameras`, `move_camera` and `go_to_preset`; only while a live view keeps the camera awake, so a move
   never wakes it. Tried on a C675D on firmware 1.1.7.
-- TP-Link Tapo: Add accessories lists the account's cameras from the TP-Link cloud, at the address the ARP table gives
-  their MAC (the local networks resolved once when it lacks one), and sets one up with its address, type and cloud id in
-  one click, or asks the address when the bridge does not see the camera (another subnet); the account's sign-in reaches
+- TP-Link Tapo: Add accessories lists the account's cameras from the TP-Link cloud, each at its address without waking it
+  (the ARP table's entry for its MAC, else the address the cloud's registry keeps, on any subnet, else the local networks
+  resolved once), and sets one up with its address, type and cloud id in one click, asking the address only when nothing
+  placed the camera; the cloud's requests trust TP-Link's newer root (`TP-Link Cloud Root CA`) too; the account's sign-in reaches
   the cloud with or without cameras (its e-mailed code may be left empty without them). `HomeswiftNetwork` gains
   `ARPTable.resolveLocalNetworks(lookingFor:)`, and `HomeswiftPlugin` a shared `withTimeout` (APsystems ECU, Govee,
   Tahoma and Tapo use it).

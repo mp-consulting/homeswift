@@ -35,9 +35,9 @@ extension TapoPlugin {
     }
 
     /// The cameras of the account the cloud lists (docs/clean-room/TapoCloudEvents.md, 4.1) that are none of `configured`:
-    /// by cloud id, by the MAC behind a device's host, or by name. Each at the address the ARP table gives its MAC; when the
-    /// table lacks one, the system resolves every address of the local networks once (`ARPTable.resolveLocalNetworks`) and
-    /// the table is read again. Only with a session the cloud gave already:
+    /// by cloud id, by the MAC behind a device's host, or by name. Each at the address the ARP table gives its MAC, else the
+    /// one the cloud's registry keeps (on any subnet, without waking the camera); when neither places one, the system
+    /// resolves every address of the local networks once (`ARPTable.resolveLocalNetworks`) and the table is read again. Only with a session the cloud gave already:
     /// discovery never signs in, which could e-mail a code or count towards the account's lockout.
     func cloudCameras(besides configured: [(deviceID: String, device: Configuration.Device)]) async -> [DiscoveredDevice] {
         guard credentials != nil, await cloud.isSignedIn else { return [] }
@@ -56,16 +56,43 @@ extension TapoPlugin {
         let cameras = listed.filter { camera in
             !known.contains(camera.deviceID) && !(camera.mac.nonEmpty.map(configuredMACs.contains) ?? false) && !names.contains(camera.alias.lowercased())
         }
-        // The cloud has no camera's address (TapoCloudEvents.md 4.3): the ARP table's entry for its MAC, the local networks
-        // resolved once when the table has none.
-        if cameras.contains(where: { !$0.mac.isEmpty && Self.address(of: $0, in: neighbours) == nil }) {
-            await dependencies.resolveNeighbours(Set(cameras.map(\.mac).compactMap(MACAddress.canonical)))
+        // The address the ARP table gives the camera's MAC; else the one the cloud's registry keeps (TapoCloudEvents.md
+        // 4.4.1), asked for each camera at once, unless the table says another device has it now (a DHCP change since the
+        // camera reported it); else the local networks resolved once, and the table read again.
+        let unplaced = cameras.filter { Self.address(of: $0, in: neighbours) == nil }
+        let logger = logger
+        let reported = await withTaskGroup(of: (String, String?).self) { group in
+            for camera in unplaced {
+                group.addTask {
+                    do {
+                        return (camera.deviceID, try await withTimeout(timeout) { try await cloud.lanAddress(of: camera.deviceID) })
+                    } catch {
+                        logger.info("The Tapo cloud gave no address for \(camera.alias): \(error)")
+                        return (camera.deviceID, nil)
+                    }
+                }
+            }
+            return await group.reduce(into: [String: String]()) { $0[$1.0] = $1.1 }
+        }
+        if unplaced.contains(where: { !$0.mac.isEmpty && Self.address(of: $0, reported: reported[$0.deviceID], in: neighbours) == nil }) {
+            await dependencies.resolveNeighbours(Set(unplaced.map(\.mac).compactMap(MACAddress.canonical)))
             neighbours = await dependencies.neighbours()
         }
-        return cameras.map { camera in
-            DiscoveredDevice(deviceID: camera.deviceID, name: camera.alias.nonEmpty ?? "Tapo \(camera.model)", model: "Tapo \(camera.model)",
-                             address: Self.address(of: camera, in: neighbours), authorization: .accountLogin, kind: "camera")
+        var found: [DiscoveredDevice] = []
+        for camera in cameras {
+            found.append(DiscoveredDevice(deviceID: camera.deviceID, name: camera.alias.nonEmpty ?? "Tapo \(camera.model)", model: "Tapo \(camera.model)",
+                                          address: Self.address(of: camera, reported: reported[camera.deviceID], in: neighbours),
+                                          authorization: .accountLogin, kind: "camera"))
         }
+        return found
+    }
+
+    /// A camera's address: the ARP table's entry for its MAC, else `reported` (the cloud's) unless the table says another
+    /// device has it now (a DHCP change since the camera reported it).
+    static func address(of camera: TapoCloud.Device, reported: String?, in table: [(ip: String, mac: String)]) -> String? {
+        if let entry = address(of: camera, in: table) { return entry }
+        guard let reported, !table.contains(where: { $0.ip == reported }) else { return nil }
+        return reported
     }
 
     /// The address the ARP table gives a camera's MAC.

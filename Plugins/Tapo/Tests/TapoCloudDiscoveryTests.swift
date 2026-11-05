@@ -73,6 +73,34 @@ struct TapoCloudDiscoveryTests {
         await host.stop()
     }
 
+    /// The camera on another subnet: not in the ARP table, its address from the cloud's registry, no sweep.
+    @Test func aCameraOnAnotherSubnetHasTheAddressTheCloudKeeps() async throws {
+        let cloud = FakeTapoCloud()
+        cloud.state.withLockedValue { $0.addresses["CLOUDID0001"] = "192.168.5.185" }
+        let neighbours = FakeNeighbours([("192.168.1.2", "AA:BB:CC:DD:EE:FF")])
+        let (host, plugin) = try await signedIn(neighbours, cloud: cloud)
+        let found = try await plugin.discover()
+        #expect(found.first?.address == "192.168.5.185")
+        #expect(neighbours.resolves == 0)
+        // The NBU app server was asked once, then kept with the session.
+        _ = try await plugin.discover()
+        #expect(cloud.paths.filter { $0 == "/api/v2/common/getAppServiceUrl" }.count == 1)
+        await host.stop()
+    }
+
+    /// The table knows the camera: the cloud is not asked. An address another device has now is not taken.
+    @Test func theTableWinsOverTheCloud() async throws {
+        let cloud = FakeTapoCloud()
+        cloud.state.withLockedValue { $0.addresses["CLOUDID0001"] = "192.168.1.2" }
+        let (host, plugin) = try await signedIn(FakeNeighbours([Self.garden]), cloud: cloud)
+        #expect(try await plugin.discover().first?.address == "192.168.1.40")
+        #expect(cloud.state.withLockedValue { $0.detailRequests } == 0)
+        await host.stop()
+        let stale = try await signedIn(FakeNeighbours([("192.168.1.2", "AA:BB:CC:DD:EE:FF")]), cloud: cloud)
+        #expect(try await stale.1.discover().first?.address == nil)
+        await stale.0.stop()
+    }
+
     @Test func discoveryNeverSignsIn() async throws {
         let cloud = FakeTapoCloud()
         let host = try await environment.start(devices: [], cloud: cloud, neighbours: FakeNeighbours([Self.garden]))

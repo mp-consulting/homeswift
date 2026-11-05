@@ -16,6 +16,8 @@ actor TapoCloud {
         var token: String?
         var refreshToken: String?
         var appServerURL: String?
+        /// The account's NBU app server (4.4.1), which keeps each device's details; asked once.
+        var nbuAppServerURL: String?
     }
 
     /// One notification of the inbox (5.3).
@@ -68,6 +70,27 @@ actor TapoCloud {
         dSAA4fejD/qMQn0=
         -----END CERTIFICATE-----
         """
+    /// TP-Link's newer private root (`CN=TP-Link Cloud Root CA`, ECDSA P-256, valid to 2055, SHA-256 8D:27:22:4D:…:1D:A2:89,
+    /// TapoCloudEvents.md 4.4), which the `*.i.tplinkcloud.com` hosts chain to through `TP-Link Cloud Server CA`: a
+    /// device's NBU app server among them. The cloud's requests trust it and `rootCA`, and nothing else.
+    static let cloudRootCA = """
+        -----BEGIN CERTIFICATE-----
+        MIICKTCCAdCgAwIBAgIUXZHoRKIvheKCxJL4s2rZ/alfEGMwCgYIKoZIzj0EAwMw
+        cjEeMBwGA1UEAwwVVFAtTGluayBDbG91ZCBSb290IENBMR0wGwYDVQQKDBRUUC1M
+        aW5rIFN5c3RlbXMgSW5jLjEPMA0GA1UEBwwGSXJ2aW5lMRMwEQYDVQQIDApDYWxp
+        Zm9ybmlhMQswCQYDVQQGEwJVUzAgFw0yNTAyMjUwMzQ3MTFaGA8yMDU1MDIxODAz
+        NDcxMVowcjEeMBwGA1UEAwwVVFAtTGluayBDbG91ZCBSb290IENBMR0wGwYDVQQK
+        DBRUUC1MaW5rIFN5c3RlbXMgSW5jLjEPMA0GA1UEBwwGSXJ2aW5lMRMwEQYDVQQI
+        DApDYWxpZm9ybmlhMQswCQYDVQQGEwJVUzBZMBMGByqGSM49AgEGCCqGSM49AwEH
+        A0IABAHpyZzXk1E4VWyIB+9VMci2Sw5OdeQ+kyFc2/R/f/OiHt6hk4PfMcCKKgS6
+        hkVVYyVlobJNn052z+s9DJKJgfajQjBAMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0P
+        AQH/BAQDAgGGMB0GA1UdDgQWBBQLV0PTee1jvnJMcUCEtQgJSg/oyTAKBggqhkjO
+        PQQDAwNHADBEAiAURU4PvHXUrVViDF+rCky3RD9BeUpe91kYoNWe0oKVUwIgY0C5
+        MsDHbQrwLHs1I7+f2MvZDGBHhNjnl0n4MF9q0L0=
+        -----END CERTIFICATE-----
+        """
+    /// Both roots, for the cloud's client.
+    static var roots: String { rootCA + "\n" + cloudRootCA }
     /// The detections the inbox is asked for.
     static let detectionTypes = [
         "Motion", "PersonDetected", "PersonEnhanced", "VehicleDetected", "PetDetected", "animalDetected", "tapoCameraLinecrossingDetection",
@@ -257,6 +280,52 @@ actor TapoCloud {
             index += 20
         }
         return devices
+    }
+
+    // MARK: A camera's address
+
+    /// The LAN address the cloud's registry keeps for a camera (4.4.1): `GET {NBU app server}/v1/things/{deviceId}/details`,
+    /// its top-level `ip`, the address the camera reported when it last connected. Read from the cloud only: the camera is
+    /// not reached, so a battery camera sleeps on. nil when the record has no IPv4 address.
+    func lanAddress(of deviceID: String) async throws -> String? {
+        let server = try await nbuAppServer()
+        guard let url = URL(string: "\(server.trimmingSuffix("/"))/v1/things/\(deviceID)/details") else { throw TapoCloudError.invalidResponse("details") }
+        let object: [String: Any]
+        do {
+            object = try await nbuGET(url)
+        } catch TapoCloudError.code(-20651, _, _) {
+            try await renew()
+            object = try await nbuGET(url)
+        }
+        return (object["ip"] as? String).flatMap { IPv4Network.parse($0) != nil ? $0 : nil }
+    }
+
+    /// The account's NBU app server, from the signed `getAppServiceUrl` (4.4.1), kept with the session.
+    private func nbuAppServer() async throws -> String {
+        if let known = session.nbuAppServerURL { return known }
+        let service = "nbu.iot-app-server.app-v2"
+        let result = try await authorized("/api/v2/common/getAppServiceUrl", ["serviceIds": [service]])
+        guard let url = (result["serviceUrls"] as? [String: Any])?[service] as? String, !url.isEmpty else {
+            throw TapoCloudError.invalidResponse("no NBU app server")
+        }
+        session.nbuAppServerURL = url
+        save(session)
+        return url
+    }
+
+    /// A GET with the NBU headers (5.1): a bare JSON answer, its failures HTTP statuses (401 and 403: the token).
+    private func nbuGET(_ url: URL) async throws -> [String: Any] {
+        let terminal = session.terminalUUID
+        let request = HTTPRequest(method: "GET", url: url, headers: [
+            ("Authorization", "ut|\(session.token ?? "")"), ("app-cid", "app:\(Self.appType):\(terminal)"), ("x-app-name", Self.appType),
+            ("x-app-version", Self.appVersion), ("x-term-id", terminal), ("x-ospf", "Android 14"), ("x-net-type", "wifi"), ("x-locale", "en_US"),
+            ("x-strict", "0"), ("Content-Type", "application/json;UTF-8"), ("User-Agent", "\(Self.appType)/\(Self.appVersion)(Homeswift/;Android 14)"),
+        ], body: nil, timeout: .seconds(10))
+        let response = try await http.send(request)
+        if response.status == 401 || response.status == 403 { throw TapoCloudError.code(-20651) }
+        guard (200..<300).contains(response.status) else { throw TapoCloudError.http(response.status) }
+        guard let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] else { throw TapoCloudError.invalidResponse(url.path) }
+        return object
     }
 
     /// Notifications since `since` (Unix seconds), oldest first (5.3). The inbox pages from `indexTime` in milliseconds,

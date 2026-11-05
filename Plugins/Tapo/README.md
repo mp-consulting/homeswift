@@ -84,11 +84,14 @@ the Home app with the bridge's setup code, as other cameras).
   the account by its `cloudId`, its MAC address (when the bridge knows it), its name or its model (the log lists the
   account's cameras when none matches).
 - **Cameras are found through the cloud.** Once the account is signed in, Add accessories lists the account's cameras
-  that the block does not have yet, by their cloud id (their Device Id). The cloud has no camera's address and asking
-  the camera would wake it, so the bridge looks for the camera's MAC in its ARP table; when it is not there, the bridge
-  sends one empty datagram to the discard port of every address of its local networks (of 1024 addresses at most), so
-  the system resolves their MACs, and reads the table again. A camera on another subnet or VLAN than the bridge is
-  never in its ARP table: its Setup asks for the address. **Set up** writes the camera's `host`, `type` (`DualLensCamera`
+  that the block does not have yet, by their cloud id (their Device Id), each at its address, found without waking it:
+  the ARP table's entry for the camera's MAC first; else the address the cloud's registry keeps (the account's NBU app
+  server's device details, [docs/clean-room/TapoCloudEvents.md](../../docs/clean-room/TapoCloudEvents.md) 4.4.1, which
+  works on any subnet or VLAN), unless the table says another device has it now; else the bridge sends one empty
+  datagram to the discard port of every address of its local networks (of 1024 addresses at most), so the system
+  resolves their MACs, and reads the table again. Only when none places it does its Setup ask for the address. The
+  cloud's requests trust TP-Link's two private roots (`tp-link-CA` and `TP-Link Cloud Root CA`) and nothing else.
+  **Set up** writes the camera's `host`, `type` (`DualLensCamera`
   for a C675D, `Camera` otherwise), `cloudId` and name into its Accessory Settings; an address typed in is checked
   against the camera's MAC when the bridge knows the address. A mains-powered Tapo camera is listed too: with RTSP, the
   IP Cameras plugin suits it better.
