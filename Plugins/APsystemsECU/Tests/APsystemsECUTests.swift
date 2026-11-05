@@ -481,6 +481,47 @@ struct APsystemsECUTests {
         #expect(wrong.status == 502)
     }
 
+    @Test func addByAddressAsksTheECUAndKeysItByItsID() async throws {
+        #expect(APsystemsECUPlugin.addsDevicesByAddress)
+        let (host, context) = try await bareContext()
+        defer { Task { await host.stop() } }
+        let plugin = APsystemsECUPlugin(configuration: .init(), context: context, dependencies: .init(exchange: environment.ecu))
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
+        #expect(prompt.fields.map(\.key) == ["host", "port"] && prompt.fields[1].optional)
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": " 192.0.2.10 "])) else {
+            Issue.record("not done"); return
+        }
+        #expect(outcome.deviceID == "215000999901" && outcome.credentials == nil)
+        #expect(outcome.settings == ["host": "192.0.2.10", "port": .null])
+        guard case .done(let other) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.10", "port": "9000"])) else {
+            Issue.record("not done"); return
+        }
+        #expect(other.settings["port"] == 9000)
+        #expect(await environment.ecu.hosts.allSatisfy { $0 == "192.0.2.10" })
+        await #expect(throws: SetupError("The port must be between 1 and 65535")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.10", "port": "0"]))
+        }
+        await environment.ecu.set(reachable: false)
+        await #expect(throws: SetupError("No ECU answered at 192.0.2.60:8899")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.60"]))
+        }
+        guard case .done = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("the account asks nothing"); return }
+    }
+
+    /// An ECU whose Accessory Settings give its host is read there and listed by its id; the same ECU in `ecus` at
+    /// another address is left aside once it answers.
+    @Test func anECUAddedByAddressIsReadAtItsHost() async throws {
+        let host = try await environment.start(settings: [
+            "ecus": [["host": "192.0.2.99"]],
+            "_accessories": ["215000999901": ["host": "192.0.2.20", "port": 9000]],
+        ])
+        #expect(await eventually { host.accessory(ecuID) != nil })
+        #expect(await eventually { await environment.plugin?.order == ["192.0.2.20:9000"] })
+        let found = try await host.discover(platform: APsystemsECUPlugin.platform, name: APsystemsECUPlugin.name)
+        #expect(found.devices.first { $0.deviceID == "215000999901" }.map { $0.isSetUp && $0.address == "192.0.2.20:9000" } == true)
+        await host.stop()
+    }
+
     @Test func theStatusRouteShowsTheLastReading() async throws {
         let host = try await environment.start()
         #expect(await eventually { host.accessory(inverterID) != nil })

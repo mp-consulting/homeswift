@@ -44,13 +44,14 @@ let package = Package(
         .library(name: "HomeswiftSonos", targets: ["HomeswiftSonos"]),
         .library(name: "HomeswiftIPCameras", targets: ["HomeswiftIPCameras"]),
         .library(name: "HomeswiftRing", targets: ["HomeswiftRing"]),
-        .library(name: "HomeswiftAPsystemsECU", targets: ["HomeswiftAPsystemsECU"]),
         .library(name: "HomeswiftHueSyncBox", targets: ["HomeswiftHueSyncBox"]),
-        .library(name: "HomeswiftReolink", targets: ["HomeswiftReolink"]),
-        .library(name: "HomeswiftImou", targets: ["HomeswiftImou"]),
+        .library(name: "HomeswiftTahoma", targets: ["HomeswiftTahoma"]),
+        .library(name: "HomeswiftV2CTrydan", targets: ["HomeswiftV2CTrydan"]),
+        .library(name: "HomeswiftAPsystemsECU", targets: ["HomeswiftAPsystemsECU"]),
         .library(name: "HomeswiftMagicHome", targets: ["HomeswiftMagicHome"]),
         .library(name: "HomeswiftRenault", targets: ["HomeswiftRenault"]),
-        .library(name: "HomeswiftV2CTrydan", targets: ["HomeswiftV2CTrydan"]),
+        .library(name: "HomeswiftImou", targets: ["HomeswiftImou"]),
+        .library(name: "HomeswiftReolink", targets: ["HomeswiftReolink"]),
         .library(name: "HomeswiftTahoma", targets: ["HomeswiftTahoma"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
@@ -463,34 +464,27 @@ let package = Package(
             path: "Plugins/IPCameras/Sources"
         ),
         .target(
-            name: "HomeswiftAPsystemsECU",
-            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
-            path: "Plugins/APsystemsECU/Sources"
-        ),
-        .target(
             name: "HomeswiftHueSyncBox",
             dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
             path: "Plugins/HueSyncBox/Sources"
         ),
         .target(
-            name: "HomeswiftReolink",
+            name: "HomeswiftTahoma",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftFFmpeg",
-                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
-                .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "_CryptoExtras", package: "swift-crypto"),
-                .product(name: "Logging", package: "swift-log"),
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"), .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Plugins/Reolink/Sources"
+            path: "Plugins/Tahoma/Sources"
         ),
         .target(
-            name: "HomeswiftImou",
-            dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftNetwork", "HomeswiftFFmpeg",
-                .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "Logging", package: "swift-log"),
-            ],
-            path: "Plugins/Imou/Sources"
+            name: "HomeswiftV2CTrydan",
+            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
+            path: "Plugins/V2CTrydan/Sources"
+        ),
+        .target(
+            name: "HomeswiftAPsystemsECU",
+            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
+            path: "Plugins/APsystemsECU/Sources"
         ),
         .target(
             name: "HomeswiftMagicHome",
@@ -507,24 +501,31 @@ let package = Package(
             path: "Plugins/Renault/Sources"
         ),
         .target(
-            name: "HomeswiftV2CTrydan",
-            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
-            path: "Plugins/V2CTrydan/Sources"
+            name: "HomeswiftImou",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftNetwork", "HomeswiftFFmpeg",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Imou/Sources"
         ),
         .target(
-            name: "HomeswiftTahoma",
+            name: "HomeswiftReolink",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"), .product(name: "Logging", package: "swift-log"),
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftFFmpeg",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Plugins/Tahoma/Sources"
+            path: "Plugins/Reolink/Sources"
         ),
         // The `homeswift` bridge: reads config.json and runs the plugins compiled in (Plugins.swift lists them).
         // The target is not named "homeswift": that is "Homeswift" on a case-insensitive file system.
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftAPsystemsECU", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftRenault", "HomeswiftMagicHome", "HomeswiftImou", "HomeswiftReolink", "HomeswiftHueSyncBox",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftHueSyncBox", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftAPsystemsECU", "HomeswiftMagicHome", "HomeswiftRenault", "HomeswiftImou", "HomeswiftReolink",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -910,15 +911,6 @@ let package = Package(
             path: "Plugins/IPCameras/Tests"
         ),
         .testTarget(
-            name: "APsystemsECUTests",
-            dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftAPsystemsECU",
-                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
-                .product(name: "Logging", package: "swift-log"),
-            ],
-            path: "Plugins/APsystemsECU/Tests"
-        ),
-        .testTarget(
             name: "HueSyncBoxTests",
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftHueSyncBox",
@@ -928,23 +920,31 @@ let package = Package(
             path: "Plugins/HueSyncBox/Tests"
         ),
         .testTarget(
-            name: "ReolinkTests",
+            name: "TahomaTests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftReolink", "HomeswiftFFmpeg",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftTahoma",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
-                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Plugins/Reolink/Tests"
+            path: "Plugins/Tahoma/Tests"
         ),
         .testTarget(
-            name: "ImouTests",
+            name: "V2CTrydanTests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftImou", "HomeswiftFFmpeg",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftV2CTrydan",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Plugins/Imou/Tests"
+            path: "Plugins/V2CTrydan/Tests"
+        ),
+        .testTarget(
+            name: "APsystemsECUTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftAPsystemsECU",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/APsystemsECU/Tests"
         ),
         .testTarget(
             name: "MagicHomeTests",
@@ -965,22 +965,23 @@ let package = Package(
             path: "Plugins/Renault/Tests"
         ),
         .testTarget(
-            name: "V2CTrydanTests",
+            name: "ImouTests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftV2CTrydan",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftImou", "HomeswiftFFmpeg",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Plugins/V2CTrydan/Tests"
+            path: "Plugins/Imou/Tests"
         ),
         .testTarget(
-            name: "TahomaTests",
+            name: "ReolinkTests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftTahoma",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftReolink", "HomeswiftFFmpeg",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Plugins/Tahoma/Tests"
+            path: "Plugins/Reolink/Tests"
         ),
     ]
 )

@@ -59,7 +59,7 @@ poll that failed records nothing. Each inverter's power, channel powers, voltage
 
 | Option | Default | |
 |---|---|---|
-| `ecus[].host` | | The ECU's IP address or host name. Give it a fixed address on your router, where it often shows as an Espressif device |
+| `ecus[].host` | | The ECU's IP address or host name, for an ECU not added by address. Give it a fixed address on your router, where it often shows as an Espressif device |
 | `ecus[].port` | 8899 | The local protocol's port |
 | `ecus[].name` | | The ECU's name, moved into its Accessory Settings once its id is known |
 | `pollInterval` | 300 | Seconds between polls, 60 to 3600 |
@@ -70,9 +70,12 @@ poll that failed records nothing. Each inverter's power, channel powers, voltage
 There is no Homebridge plugin for the ECU, so the platform name and the options are this plugin's own.
 
 **Setup.** There is nothing to sign in to. The ECU announces nothing on the network, so it is added by address: add the
-plugin from Add accessories, then its address under ECUs in the plugin's settings (the page and the Assistant's
-`probe` check an address first). Add accessories then lists the ECU by its ECU id, which the system query answers, and
-its inverters; each can be Excluded there. An address that does not answer is listed as not responding.
+plugin from Add accessories, then **Add by address…** on its instance (`start_setup` with `addByAddress: true` through
+MCP). It asks for the ECU's address and port (8899 when left empty), sends the system query there, refuses an address
+where no ECU answers ("No ECU answered at 192.0.2.60:8899"), and keeps the address in the ECU's Accessory Settings
+(`host`, and `port` when it is not 8899) under the ECU id it answered. Add accessories then lists the ECU by that id, and
+its inverters; each can be Excluded there. The `ecus` list keeps working beside it (an address of it that does not
+answer is listed as not responding); an ECU in both is read once, at the address Add by address gave.
 
 ## How it talks to the ECU
 

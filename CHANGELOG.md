@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
   the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
   discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
   light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
+  V2C Trydan adds a charger, APsystems ECU an ECU, IMOU a local camera (with its safety code) and Reolink a camera, NVR or
+  hub (with a local user's login) the same way.
 - Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
   a field a step may leave empty says Optional.
 - The APsystems ECU plugin (platform `APsystemsECU`, experimental, a clean-room implementation of the ECU's local
@@ -26,19 +28,17 @@ All notable changes to this project are documented here. The format follows
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
   Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
   name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
-- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
-  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
-  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
-  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
-  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
-  and `HomeswiftNetwork` `ARPTable.entries()`.
-- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
-  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
-  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
-  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
-  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
-  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
-  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
+- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
+  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
+  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
+  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
+  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
+- The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
+  plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
+  offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
+  dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
+  (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
+  repaired.
 - The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
   homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
   the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
@@ -48,17 +48,21 @@ All notable changes to this project are documented here. The format follows
   the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
   and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
   Setup with the e-mailed two-factor code, within Renault's hourly request quota.
-- The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
-  plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
-  offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
-  dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
-  (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
-  repaired.
-- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
-  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
-  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
-  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
-  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
+- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
+  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
+  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
+  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
+  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
+  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
+  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
+- Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
+  a field a step may leave empty says Optional.
+- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
+  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
+  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
+  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
+  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
+  and `HomeswiftNetwork` `ARPTable.entries()`.
 ### Changed
 
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and

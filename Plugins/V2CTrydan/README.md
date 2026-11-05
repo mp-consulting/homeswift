@@ -73,10 +73,12 @@ The charger has no password: anyone on the network can read and drive it, and so
 ## Setup
 
 There is nothing to authorize. The plugin finds no charger by itself (the Trydan announces nothing on the network):
-add one by its address in the settings' Chargers list, or with the instance's Setup through MCP (`start_setup` without
-a device): it asks for the address, reads `/RealTimeData` there once, refuses an address where no Trydan answers, and
-adds it under the `ID` it answered. The Add accessories page then lists every charger configured, set up, with whether it
-answers.
+add one with **Add by address…** on the instance in the Add accessories page (or `start_setup` with `addByAddress: true`
+through MCP). It asks for the address, reads `/RealTimeData` there once, refuses an address where no Trydan answers ("No
+V2C Trydan answered at 192.0.2.50"), and keeps the address in the charger's Accessory Settings (`host`) under the `ID` it
+answered (`HOST-<address>` for a charger that sends none). The Add accessories page then lists every charger, set up,
+with whether it answers. A Homebridge block's `devices` list keeps working, and moves into `_accessories` when the
+bridge writes the block.
 
 ## Clean-room implementation
 
@@ -99,14 +101,12 @@ Choices made where the spec is silent or a device must confirm, each worth check
 1. **Rotation Speed's minimum is 0, not `MinIntensity`.** The spec asks for both a minimum of `MinIntensity` and a write
    of 0 that pauses; HAP refuses a write below the minimum, so the minimum is 0 and 1 up to `MinIntensity` offer the
    minimum. Only `MaxIntensity` changes the props (the accessory is rebuilt, its iids kept).
-2. **Adding by address on the Add accessories page.** Setup has no address field for a plugin without an account: the
-   page adds chargers through the settings' Chargers list; the instance's Setup with an address runs from MCP clients.
-3. **No `ID`.** A charger that sends none is keyed `HOST-<address>`, its `.` and `:` made `-` and everything else but
+2. **No `ID`.** A charger that sends none is keyed `HOST-<address>`, its `.` and `:` made `-` and everything else but
    letters, digits, `-` and `_` taken out (`192.0.2.50` is `HOST-192-0-2-50`): taking the dots out as well, as the spec
    says, would give 192.168.1.23 and 192.168.12.3 one Device Id. A later `ID` is logged once, never re-keyed.
-4. **`LogoLED`** is on or off (V2C's sheet): on sends 1, unless the charger once reported more than 1, then its last level.
+3. **`LogoLED`** is on or off (V2C's sheet): on sends 1, unless the charger once reported more than 1, then its last level.
    `LightLED` is dimmable. Verify on hardware which of the two dims.
-5. **The meter's figures** are shared as `v2c-meter`, so several chargers of one instance on one meter count once; two
+4. **The meter's figures** are shared as `v2c-meter`, so several chargers of one instance on one meter count once; two
    chargers with separate meters, both tagged, would be averaged rather than added.
 6. **Backoff** after three failures is 30 s, 60 s, 120 s, 240 s, then 300 s (`Backoff` doubling); the spec's source goes
    from 120 s to 300 s directly.

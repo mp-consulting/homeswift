@@ -9,6 +9,8 @@ struct ECURuntime: Sendable {
     let port: Int
     let configuredName: String?
     var ecuID: String?
+    /// The ECU id it was added by address under (its Accessory Settings give `host`); nil for an entry of `ecus`.
+    var addedID: String?
     /// The last good system answer, after the filters (5.2).
     var system: ECUProtocol.SystemInfo?
     /// The date (`YYYYMMDD`) of the last real-time data, to tell the ECU's midnight reset from a glitch.
@@ -78,6 +80,13 @@ extension APsystemsECUPlugin {
             let system = try ECUProtocol.parseSystem(systemFrame)
             logger.debug("System answer", metadata: ["ecu": "\(ECUProtocol.masked(system.ecuID))",
                 "hex": "\(ECUProtocol.maskedHex(systemFrame, ecuID: system.ecuID, masked: ECUProtocol.systemMACRange(systemFrame)))"])
+            if ecu.addedID == nil, ecus.contains(where: { $0.key != key && $0.value.addedID == system.ecuID }) {
+                // The same ECU, added by address where it answers now: that one is read, this entry of `ecus` left aside.
+                logger.info("The ECU at \(ecu.host) is added by its address at another one: its entry of ecus is left aside")
+                ecus[key] = nil
+                order.removeAll { $0 == key }
+                return
+            }
             if ecu.ecuID == nil || ecu.ecuID != system.ecuID {
                 logger.info("Found \(ECUProtocol.ecuModel(system.ecuID)) at \(ecu.host): firmware \(system.firmware), \(system.inverters) inverters")
             }

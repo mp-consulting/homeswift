@@ -79,7 +79,23 @@ extension APsystemsECUPlugin {
     }
   },
   "accessorySchema": {
-    "properties": {}
+    "properties": {
+      "host": {
+        "title": "IP address or host name",
+        "type": "string",
+        "description": "Where the ECU answers, for example 192.168.1.60.",
+        "x-kinds": ["ecu"]
+      },
+      "port": {
+        "title": "Port",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+        "placeholder": 8899,
+        "description": "The ECU's local protocol port, 8899 by default.",
+        "x-kinds": ["ecu"]
+      }
+    }
   },
   "layout": [
     "name",
