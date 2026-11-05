@@ -85,9 +85,12 @@ actor RenaultVehicle {
     private let onDrop: @Sendable (String, Endpoint) -> Void
     /// Records a reading for the Status page's history (`range`, `timeToFull`, `power`, `batteryTemperature`).
     private let record: @Sendable (String, Double) -> Void
-    /// The limits last sent (`socMin`, `socTarget`), remembered across restarts, and how to remember new ones.
+    /// The Accessory Settings' limits last sent or already read (`socMin`, `socTarget`; nil where not set), remembered
+    /// across restarts, and how to remember new ones (nil once the settings are cleared).
     private var sentSoc: SocLevels?
-    private let onSocSent: @Sendable (SocLevels) -> Void
+    private let onSocSent: @Sendable (SocLevels?) -> Void
+    /// The settings' limits Renault did not take, or that the request failed for, in memory: not tried again each hour.
+    private var refusedSoc: SocLevels?
 
     private(set) var dropped: Set<Endpoint>
     /// The endpoints that have answered at least once.
@@ -117,7 +120,7 @@ actor RenaultVehicle {
     init(
         info: VehicleInfo, accountID: String, session: RenaultSession, options: Options, dropped: Set<Endpoint>, timing: RenaultTiming,
         logger: Logger, tasks: TaskBag, sentSoc: SocLevels? = nil, record: @escaping @Sendable (String, Double) -> Void = { _, _ in },
-        onSocSent: @escaping @Sendable (SocLevels) -> Void = { _ in }, onDrop: @escaping @Sendable (String, Endpoint) -> Void
+        onSocSent: @escaping @Sendable (SocLevels?) -> Void = { _ in }, onDrop: @escaping @Sendable (String, Endpoint) -> Void
     ) {
         self.info = info
         self.accountID = accountID
@@ -368,7 +371,10 @@ actor RenaultVehicle {
                 if let status = battery.chargeStatusName { set(service.characteristic(RenaultCharacteristic.chargeStatus), .string(status)) }
                 if let timestamp = battery.timestamp { set(service.characteristic(RenaultCharacteristic.batteryUpdated), .string(timestamp)) }
                 if let minutes = battery.timeToFull { set(service.characteristic(RenaultCharacteristic.timeToFull), .int(minutes)) }
-                if let watts = battery.chargingWatts { set(service.characteristic(EveCharacteristic.currentConsumption), .int(watts)) }
+                if let watts = battery.chargingWatts {
+                    // Eve's Current Consumption is a uint16: a DC fast charge above 65.5 kW shows as its top (the history keeps the watts).
+                    set(service.characteristic(EveCharacteristic.currentConsumption), .int(min(watts, Int(UInt16.max))))
+                }
             }
             if let value = battery.temperature, let service = services["BatteryTemperature"] {
                 set(service.characteristic(.currentTemperature), .double(value))
@@ -430,22 +436,42 @@ actor RenaultVehicle {
     /// Sends the limits the Accessory Settings ask for when the car's last read differs, once per change of the settings:
     /// the car keeps answering its old values for a while, and a later change from the MyRenault app wins until the
     /// settings change again. Both are sent together, the one not asked for taken from the last read. One action request.
+    /// A setting the car already reads counts as sent; one Renault does not take, or a request it refuses, is not tried
+    /// again until the settings change or the bridge restarts (a spent quota is tried again the next hour); a cleared
+    /// setting is forgotten, so setting it again sends it.
     func applySocLimits() async {
-        guard options.socMinimum != nil || options.socTarget != nil, let read = soc,
-              let minimum = options.socMinimum ?? read.minimum, let target = options.socTarget ?? read.target else { return }
+        let asked = SocLevels(minimum: options.socMinimum, target: options.socTarget)
+        guard asked.minimum != nil || asked.target != nil else {
+            if sentSoc != nil {
+                sentSoc = nil
+                onSocSent(nil)
+            }
+            return
+        }
+        guard asked != sentSoc, asked != refusedSoc, let read = soc,
+              let minimum = asked.minimum ?? read.minimum, let target = asked.target ?? read.target else { return }
         let wanted = SocLevels(minimum: minimum, target: target)
+        guard read != wanted else {
+            sentSoc = asked
+            onSocSent(asked)
+            return
+        }
         guard SocLevels.isValid(minimum: minimum), SocLevels.isValid(target: target) else {
             logger.warning("The charge limits \(minimum) % and \(target) % of \(logName) are not ones Renault takes (15 to 45 and 55 to 100, in steps of 5)")
+            refusedSoc = asked
             return
         }
-        guard read != wanted, sentSoc != wanted, let (path, _) = resolve(.socLevels) else { return }
+        guard let (path, _) = resolve(.socLevels) else { return }
+        let label = "charge limits"
         do {
-            try await act(path: path, body: ["socMin": .number(Double(minimum)), "socTarget": .number(Double(target))], label: "charge limits")
+            try await send(path: path, body: ["socMin": .number(Double(minimum)), "socTarget": .number(Double(target))], label: label)
         } catch {
+            _ = Self.status(for: error, logger: logger, action: label, vehicle: logName)
+            if case RenaultError.quota = error {} else { refusedSoc = asked }
             return
         }
-        sentSoc = wanted
-        onSocSent(wanted)
+        sentSoc = asked
+        onSocSent(asked)
         // Shown at once (the server answers the old values for a while), as Home Assistant does.
         soc = wanted
         show()
@@ -551,11 +577,16 @@ actor RenaultVehicle {
 
     private func act(path: String, body: JSONValue, label: String) async throws {
         do {
-            _ = try await session.perform(.action) { session in
-                try await session.send(.action, method: "POST", path: path, body: body, label: label)
-            }
+            try await send(path: path, body: body, label: label)
         } catch {
             throw Self.status(for: error, logger: logger, action: label, vehicle: logName)
+        }
+    }
+
+    /// One action request, its error as it came.
+    private func send(path: String, body: JSONValue, label: String) async throws {
+        _ = try await session.perform(.action) { session in
+            try await session.send(.action, method: "POST", path: path, body: body, label: label)
         }
     }
 

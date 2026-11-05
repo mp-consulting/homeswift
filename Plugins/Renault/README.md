@@ -41,9 +41,12 @@ makes: no request is added.
 The car's charge target and minimum state of charge are Accessory Settings of the car: **Charge target** (55 to 100 %,
 in steps of 5) and **Charge minimum** (15 to 45 %, in steps of 5). When one is set and differs from what the car last
 reported, the plugin sends both (`POST …/ev/soc-levels`, the one not set taken from the car) once, one request from the
-hour's action reserve, and shows the new limits at once. It remembers what it sent (`renault-soc.json`), so the car
-answering its old values for a while, or a restart, does not send them again; a later change in the MyRenault app wins
-until the setting changes. The minimum also sets when the battery shows as low.
+hour's action reserve, and shows the new limits at once. It remembers the settings it sent, or found the car already
+had (`renault-soc.json`), so the car answering its old values for a while, or a restart, does not send them again; a
+later change in the MyRenault app, to either limit, wins until the setting changes. Limits Renault does not take, or a
+request it refuses, are logged once and not tried again until the setting changes or the bridge restarts (a spent quota
+is tried the next hour). Clearing both settings forgets them, so setting the same value later sends it again. The
+minimum also sets when the battery shows as low.
 
 ### The Renault 5 E-Tech (`R5E1VE`)
 
