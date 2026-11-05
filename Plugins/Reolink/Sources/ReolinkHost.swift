@@ -353,7 +353,11 @@ actor ReolinkHost {
             if let on = ReolinkRecording.isOn(value, v20: reply.cmd == "GetRecV20", multiChannel: info.isMultiChannel) { channel.state.recordingOn = on }
         case "GetBatteryInfo":
             let battery = value["Battery"]
-            channel.state.batteryPercent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) ?? channel.state.batteryPercent
+            if let percent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) {
+                // A push's low flag holds for the level it came with; a new level decides it again (else it never clears).
+                if percent != channel.state.batteryPercent { channel.state.batteryLow = percent < 20 }
+                channel.state.batteryPercent = percent
+            }
             if let status = battery?["chargeStatus"]?.saturatingIntValue { channel.state.charging = status == 1 }
         default:
             break
