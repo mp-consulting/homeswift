@@ -117,7 +117,7 @@ extension ReolinkPlugin {
         // Asked before the camera is made: only a camera published with two-way audio has a Speaker.
         let talk = options.twoWayAudio ? await host.talkConfig(name: name) : nil
         let talker = talk.map { config in
-            ReolinkTalker(channel: 0, config: config, link: ReolinkTalkLink(withSession: { body in try await host.talking(body) }), name: name, log: log,
+            ReolinkTalker(channel: 0, config: config, link: ReolinkTalkLink(withSession: { body in try await host.talking(body) }, retriesWaking: true), name: name, log: log,
                           timing: dependencies.timing)
         }
         let streamer = ReolinkStreamer(name: name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: log,
@@ -154,7 +154,12 @@ extension ReolinkPlugin {
     func webhook(toward address: String) async -> (url: String, path: String)? {
         let task = webhookServer ?? Task { await self.startWebhookServer() }
         webhookServer = task
-        guard let server = await task.value, let port = server.port, let local = dependencies.localAddress(address) else { return nil }
+        guard let server = await task.value else {
+            // It could not listen (the port taken at launch, say): the next camera's use tries again.
+            if webhookServer == task { webhookServer = nil }
+            return nil
+        }
+        guard let port = server.port, let local = dependencies.localAddress(address) else { return nil }
         return ("http://\(local):\(port)\(server.path)", server.path)
     }
 

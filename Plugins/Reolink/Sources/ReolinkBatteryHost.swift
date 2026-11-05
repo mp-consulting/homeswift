@@ -122,6 +122,8 @@ actor ReolinkBatteryHost {
         idleTask?.cancel()
         motionOff?.cancel()
         fetching?.cancel()
+        // A login under way ends here: one finishing after the stop would keep the camera awake.
+        opening?.cancel()
         if let session {
             self.session = nil
             await session.stop()
@@ -140,9 +142,17 @@ actor ReolinkBatteryHost {
             users -= 1
             scheduleIdleClose()
         }
-        let deadline = ContinuousClock.now + timing.timeout(budget)
+        let deadline = ContinuousClock.now + spacingWait() + timing.timeout(budget)
         let session = try await Self.withDeadline(deadline) { try await self.openSession() }
         return try await Self.withDeadline(deadline) { try await body(session) }
+    }
+
+    /// What a new login still waits for the 15 s spacing (3.3): added to a budget, which is the work's, not the wait's (the
+    /// session closes 5 s after its last use, so a use 5 to 15 s after a login would otherwise spend its budget waiting).
+    private func spacingWait() -> Duration {
+        guard session == nil, opening == nil, let lastLogin else { return .zero }
+        let wait = timing.seconds(Self.loginSpacing) - (ContinuousClock.now - lastLogin)
+        return wait > .zero ? wait : .zero
     }
 
     private func openSession() async throws -> BaichuanSession {
@@ -171,6 +181,10 @@ actor ReolinkBatteryHost {
         } catch {
             connectionFailed(error)
             throw error
+        }
+        guard !stopped, !Task.isCancelled else {
+            await session.stop()
+            throw BaichuanError.closed
         }
         wakeFailures = 0
         self.session = session
@@ -304,7 +318,7 @@ actor ReolinkBatteryHost {
             users -= 1
             scheduleIdleClose()
         }
-        let deadline = ContinuousClock.now + timing.timeout(Self.streamBudget)
+        let deadline = ContinuousClock.now + spacingWait() + timing.timeout(Self.streamBudget)
         let session = try await Self.withDeadline(deadline) { try await self.openSession() }
         try await body(session)
     }
@@ -556,7 +570,7 @@ actor ReolinkBatteryHost {
         users += 1
         idleTask?.cancel()
         let stream: Baichuan.MediaStream = sub ? .sub : .main
-        let deadline = ContinuousClock.now + timing.timeout(Self.streamBudget)
+        let deadline = ContinuousClock.now + spacingWait() + timing.timeout(Self.streamBudget)
         do {
             let session = try await Self.withDeadline(deadline) { try await self.openSession() }
             let (events, input) = AsyncStream.makeStream(of: BaichuanBinaryEvent.self, bufferingPolicy: .bufferingNewest(Self.mediaEvents))
