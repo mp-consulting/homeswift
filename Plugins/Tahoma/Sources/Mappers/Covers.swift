@@ -344,7 +344,7 @@ class VenetianBlindMapper: RollerShutterMapper, @unchecked Sendable {
         service[.targetHorizontalTiltAngle]?.setClamped(value)
         guard await debounced("tilt"), !stateless else { return }
         try await execute(commands(position: target, angle: value)) { [weak self] update in
-            guard let self, update.state == .failed || update.state == .timedOut else { return }
+            guard let self, update.state.isFailure else { return }
             if let current = service[.currentHorizontalTiltAngle]?.value { service[.targetHorizontalTiltAngle]?.value = current }
         }
     }
