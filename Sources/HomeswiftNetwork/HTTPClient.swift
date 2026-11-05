@@ -92,8 +92,9 @@ public enum HTTPClientError: Error, CustomStringConvertible, Equatable, Sendable
 /// minute, and keep-alive would only hold a socket open on a TV that drops it anyway. A request whose connection
 /// the server closes before any of the response arrived goes once more on a new one, when its method is
 /// idempotent or it never went out. The TLS mode decides what the client accepts from a server: the system's
-/// roots (`.system`), any certificate (`.any`, trust on first use), or exactly one (`.pinned`). The last two
-/// record the certificate's fingerprint on the response so the caller can pin it from then on.
+/// roots (`.system`), any certificate (`.any`, trust on first use), exactly one (`.pinned`), or those a maker's own
+/// CA signed (`.authority`). `.any` and `.pinned` record the certificate's fingerprint on the response so the caller
+/// can pin it from then on.
 public final class HTTPClient: HTTPSending, Sendable {
     public enum TLS: Sendable, Equatable {
         /// Verify the server's certificate against the system's trusted roots.
@@ -102,6 +103,10 @@ public final class HTTPClient: HTTPSending, Sendable {
         case any
         /// Accept only the certificate with this SHA-256 fingerprint, in any spelling (`aa:bb:…` or hex).
         case pinned(String)
+        /// Accept only a certificate these PEM roots signed: a maker's own CA, the same in every device (the Hue Sync
+        /// Box's). With `serverName`, the certificate must name it too, and it goes as SNI: a device whose certificate
+        /// names its serial number rather than its address. Without, any certificate the roots signed.
+        case authority(pem: String, serverName: String?)
     }
 
     public let tls: TLS
