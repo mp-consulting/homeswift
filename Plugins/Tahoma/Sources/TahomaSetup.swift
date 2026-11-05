@@ -33,8 +33,11 @@ extension TahomaPlugin {
             discovered.isReachable = device.available
             found.append(discovered)
         }
-        for scenario in scenarios {
-            found.append(DiscoveredDevice(deviceID: Self.scenarioDeviceID(oid: scenario.oid), name: scenario.label, model: "Scenario", isSetUp: true, kind: "scenario"))
+        // Excluded ones too: the bridge marks them, and the person includes them again from there.
+        for scenario in listedScenarios {
+            found.append(DiscoveredDevice(
+                deviceID: Self.scenarioDeviceID(oid: scenario.oid), name: scenario.label, model: "Scenario", isSetUp: true,
+                excludedBySettings: exclusions.contains(scenario.label), kind: "scenario"))
         }
         return found
     }
@@ -64,10 +67,11 @@ extension TahomaPlugin {
             throw SetupError("Give the gateway's PIN (1234-5678-9012) or its IP address.")
         }
         let client: OverkizClient
+        let setupLockout = Self.setupLockout(service: service, user: user)
         if service == .local {
-            client = try await localClient(user: user, token: password, refusesAccount: false)
+            client = try await localClient(user: user, token: password, refusesAccount: false, lockout: setupLockout)
         } else {
-            client = makeClient(.cloud(service, user: user, password: password), http: dependencies.cloudHTTP, refusesAccount: false)
+            client = makeClient(.cloud(service, user: user, password: password), http: dependencies.cloudHTTP, refusesAccount: false, lockout: setupLockout)
         }
         do {
             try await client.signIn()
@@ -76,6 +80,7 @@ extension TahomaPlugin {
                 logger.info("The Overkiz account refused the credentials given through Setup")
                 throw SetupError(service == .local ? "The gateway refused this token." : "The account refused this user and password.")
             }
+            if error.isPause { throw SetupError(error.message) }
             logger.info("Could not check the Overkiz account: \(error)")
             throw SetupError("Could not reach \(service == .local ? "the gateway" : "Overkiz"): \(OverkizClient.redacted(error.message))")
         }

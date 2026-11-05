@@ -70,6 +70,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Setup sheet: a step asked again after an error keeps the choices made too (Tahoma's service), as the server now
+  sends each field's answer back with the error, to MCP clients as well. A first step that fails reaches MCP clients as
+  untrusted data. Looking for devices again after a failure keeps the device's settings at the end. The Add a plugin
+  search ignores accents.
+- Philips Hue Sync Box: Setup asks for the address again, the old one filled in, when the block's box no longer
+  answers there, rather than failing; several boxes found and none chosen asks again. A refused token makes the
+  account Need Authorization; the cached accessories show No Response while the box is down at start; a block pointed
+  at another box no longer takes the previous box's ID.
+- Somfy TaHoma: Excluded scenarios stay on Add accessories, and `exclude` entries naming a scenario move to its
+  Accessory Settings. Setup pauses its sign-ins after three refusals in a row. A `user` and `password` typed into the
+  block are the ones sealed in the vault, not the running ones.
 - Synology: the bridge no longer warns at every start that other accounts can reach its secrets when the only entry
   in its shared folder's ACL is the package's own. DSM shows the package's user the mode `777` on a folder with an ACL;
   the bridge now reads the entries with `synoacltool -get` and names any that gives access to another account or group.

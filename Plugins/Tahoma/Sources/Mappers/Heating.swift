@@ -79,7 +79,7 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
                 guard let self else { return }
                 let on = value.boolValue ?? false
                 try await execute(switchCommands(subtype, on: on)) { [weak self] update in
-                    if update.state == .failed || update.state == .timedOut { self?.switchServices[subtype]?.characteristic(.on).value = .bool(!on) }
+                    if update.state.isFailure { self?.switchServices[subtype]?.characteristic(.on).value = .bool(!on) }
                 }
             }
             switchServices[subtype] = service

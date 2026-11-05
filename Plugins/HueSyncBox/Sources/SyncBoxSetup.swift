@@ -84,9 +84,12 @@ extension HueSyncBoxPlugin {
         try request.requireAccount("The Sync Box's lights and televisions need no setup of their own")
         var boxes = request.state["boxes"]?.objectValue ?? [:]
         var address = request.answer("address") ?? request.answer("box") ?? request.state["address"]?.stringValue
+        // The block's box is tried first; one that no longer answers there is asked for (a new address after a lease).
+        var configured = false
         if address == nil, request.isFirst {
-            if let configured = configuration.syncBoxIpAddress {
-                address = configured
+            if let known = configuration.syncBoxIpAddress {
+                address = known
+                configured = true
             } else {
                 let found = await dependencies.browse(logger).collect(for: dependencies.discoveryWindow)
                 for box in found { boxes[box.address] = box.uniqueID.map(JSONValue.string) ?? .null }
@@ -104,6 +107,8 @@ extension HueSyncBoxPlugin {
         }
         guard let address, SyncBoxClient.baseURL(address) != nil else {
             if let address { throw SetupError("\(address) is not an address") }
+            // Boxes were found, and none was chosen: the same choice again.
+            if !boxes.isEmpty { throw SetupError("Choose a Sync Box, or enter its address.") }
             return .ask(SetupPrompt(
                 message: "No Sync Box answered on the network. Enter its address, from the Hue Sync app's settings.",
                 fields: [SetupField("address", label: "Address")]))
@@ -122,6 +127,11 @@ extension HueSyncBoxPlugin {
         } catch let error as SyncBoxError where error == .buttonNotPressed {
             return .ask(waiting, state: kept)
         } catch {
+            if configured {
+                return .ask(SetupPrompt(
+                    message: "The Sync Box did not answer at {address}. Enter its address, from the Hue Sync app's settings.", values: ["address": address],
+                    fields: [SetupField("address", label: "Address", value: address)]))
+            }
             throw SetupError("The Sync Box at \(address) did not answer: \(error)")
         }
         // The state once, to check the token and learn the box's name for its certificate.
@@ -152,7 +162,9 @@ extension HueSyncBoxPlugin {
     /// and the box's `uniqueId` once a state told it.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         var block = Self.canonical(block)
-        if let learned = learnedUniqueID, block["syncBoxUniqueId"] == nil, var fields = block.objectValue {
+        // Only for the box it was learned from: a block pointed at another box learns that one's.
+        if let learned = learnedUniqueID, block["syncBoxUniqueId"] == nil, var fields = block.objectValue,
+           fields["syncBoxIpAddress"]?.stringValue?.trimmingCharacters(in: .whitespaces) == configuration.syncBoxIpAddress {
             fields["syncBoxUniqueId"] = .string(learned)
             block = .object(fields)
         }
@@ -162,23 +174,18 @@ extension HueSyncBoxPlugin {
     static func canonical(_ block: JSONValue) -> JSONValue {
         guard var fields = block.objectValue else { return block }
         let seed = fields["uuidSeed"]?.stringValue ?? ""
-        var entries = fields["_accessories"]?.objectValue ?? [:]
+        var entries = AccessoryEntries(fields)
         for kind in SyncBoxKind.televisions {
             guard let prefix = kind.optionPrefix else { continue }
             let moves: [(legacy: String, key: String)] = [("\(prefix)Type", "accessoryType"), ("\(prefix)Lightbulb", "lightbulb"), ("\(prefix)ConfiguredName", "name")]
-            let id = kind.deviceID(seed: seed)
-            var entry = entries[id]?.objectValue ?? [:]
             for move in moves {
                 guard let value = fields.removeValue(forKey: move.legacy) else { continue }
                 if case .string(let text) = value, text.trimmingCharacters(in: .whitespaces).isEmpty { continue }
                 // What the Accessory Settings say already stays.
-                if entry[move.key] == nil {
-                    entry[move.key] = move.key == "accessoryType" ? .string(value.stringValue?.lowercased() ?? "tv") : value
-                }
+                entries.setIfAbsent(move.key, move.key == "accessoryType" ? .string(value.stringValue?.lowercased() ?? "tv") : value, on: kind.deviceID(seed: seed))
             }
-            if !entry.isEmpty { entries[id] = .object(entry) }
         }
-        if !entries.isEmpty { fields["_accessories"] = .object(entries) }
+        entries.write(into: &fields)
         return .object(fields)
     }
 }

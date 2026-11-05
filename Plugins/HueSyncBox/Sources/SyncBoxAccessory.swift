@@ -106,7 +106,7 @@ struct SyncBoxAccessory: Sendable {
         television.characteristic(.configuredName).value = .string(name)
         television.characteristic(.sleepDiscoveryMode).value = .int(HAPConstants.SleepDiscoveryMode.alwaysDiscoverable)
         television.characteristic(.active).onWrite(changesOnly: true) { [weak plugin] value in
-            await plugin?.setActive(value.intValue == HAPConstants.Active.active)
+            await plugin?.setOn(value.intValue == HAPConstants.Active.active)
         }
         television.characteristic(.activeIdentifier).onWrite { [weak plugin] value in
             await plugin?.select(value.intValue ?? 0, on: kind)

@@ -80,7 +80,6 @@ final class GateMapper: GarageDoorMapper, @unchecked Sendable {
     /// The Homebridge plugin read a gate's state from `core:OpenClosedPedestrianState` only, so a gate reporting just
     /// `core:OpenClosedState` was stateless there; it is read here too (10.10).
     override class var expectedStates: [String] { ["core:OpenClosedPedestrianState", "core:OpenClosedState"] }
-    override class var category: AccessoryCategory { .garageDoorOpener }
     override class var kind: String { "gate" }
 
     private(set) var pedestrian: Service?
