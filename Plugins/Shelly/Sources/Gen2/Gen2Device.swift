@@ -59,6 +59,10 @@ actor Gen2Device {
     /// Adaptive Lighting of the colour-temperature lights: the services hold them only weakly.
     private var adaptiveLighting: [AdaptiveLightingController] = []
     private(set) var accessories: [Accessory] = []
+    /// The names the Shelly app gave the account's devices in Shelly Cloud (`ShellyCloud.deviceNames`), by cloud id.
+    private(set) var cloudNames: [String: String] = [:]
+
+    func setCloudNames(_ names: [String: String]) { cloudNames = names }
     private let writes: LatestCallGuard
     private var watcher: Task<Void, Never>?
     /// For the records' CSV (`importHistory`), with the device's password when it has one.
@@ -125,6 +129,21 @@ actor Gen2Device {
     /// The name accessories start with: the configured one, the device's own, else the model's.
     var baseName: String {
         options.name ?? config["sys"]?["device"]?["name"]?.stringValue?.trimmedNonEmpty ?? info["name"]?.stringValue?.trimmedNonEmpty ?? modelName
+    }
+
+    /// Whether a person named the device here or on the device: else the Shelly app's names in the cloud count.
+    private var isNamed: Bool {
+        options.name != nil || config["sys"]?["device"]?["name"]?.stringValue?.trimmedNonEmpty != nil || info["name"]?.stringValue?.trimmedNonEmpty != nil
+    }
+
+    /// An accessory's name: the device's name and the item's suffix; for a device named nowhere else, the name the Shelly
+    /// app gave that channel in Shelly Cloud (`<mac>` for channel 0, `<mac>_<n>`), alone.
+    func name(of item: Gen2Layout.Item) -> String {
+        if !isNamed, let mac = cloudID {
+            let channel = item.part.channel ?? 0
+            if let name = cloudNames[channel == 0 ? mac : "\(mac)_\(channel)"] { return name }
+        }
+        return item.suffix.map { "\(baseName) \($0)" } ?? baseName
     }
 
     var layout: Gen2Layout {
@@ -239,7 +258,7 @@ actor Gen2Device {
         let firmware = info["ver"]?.stringValue?.trimmedNonEmpty ?? "1.0.0"
         let serial = info["mac"]?.stringValue?.uppercased() ?? deviceID
         for item in layout.items {
-            let name = item.suffix.map { "\(baseName) \($0)" } ?? baseName
+            let name = name(of: item)
             let id = Self.accessoryID(platform: platform, deviceID: deviceID, item: item.accessoryID)
             guard let (services, category) = makeServices(item.part, name: name, accessoryID: id) else { continue }
             let rpc = rpc, logger = logger

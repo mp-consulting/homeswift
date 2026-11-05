@@ -275,6 +275,32 @@ struct ShellyNGTests {
         await expectEventually { !controller.isAdaptiveLightingActive }
     }
 
+    /// A device named nowhere but in the Shelly app takes the names the app keeps in Shelly Cloud, by channel; one named on
+    /// the device keeps that name.
+    @Test func anUnnamedDeviceTakesItsNameFromShellyCloud() async throws {
+        environment.add(FakeShellyNG(
+            info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM","name":null}"#,
+            status: #"{"em:0":{"id":0,"total_act_power":735.5}}"#, config: #"{"sys":{"device":{"name":null}}}"#))
+        let host = try await environment.start(settings: ["devices": [["id": "shellypro3em-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        await expectEventually { host.accessory("ShellyNG:shellypro3em-aabbccddeeff-em-0") != nil }
+        let meter = try #require(await environment.ng?.devices["shellypro3em-aabbccddeeff"])
+        let unnamed = await meter.makeAccessories(platform: ShellyNGPlugin.platform).map(\.name)
+        #expect(unnamed.count == 1 && unnamed[0].hasSuffix(" Meter 1"))
+        await meter.setCloudNames(["aabbccddeeff": "Smart Meter", "aabbccddeeff_1": "Garage"])
+        #expect(await meter.makeAccessories(platform: ShellyNGPlugin.platform).map(\.name) == ["Smart Meter"])
+    }
+
+    @Test func aDeviceNamedOnItselfKeepsItsName() async throws {
+        environment.add(plus1PM())
+        let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        await expectEventually { host.accessory(switchID) != nil }
+        let device = try #require(await environment.ng?.devices["shellyplus1pm-aabbccddeeff"])
+        await device.setCloudNames(["aabbccddeeff": "Smart Plug"])
+        #expect(await device.makeAccessories(platform: ShellyNGPlugin.platform).map(\.name) == ["Kitchen"])
+    }
+
     @Test func aWholeHomeMeterCountsAsTheGrid() async throws {
         let device = FakeShellyNG(
             info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM"}"#,

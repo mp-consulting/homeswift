@@ -119,6 +119,48 @@ actor ShellyCloud {
         return format
     }
 
+    // MARK: Names
+
+    /// The names the Shelly app gave the account's devices, which it keeps in the cloud alone (a device's own
+    /// `sys.device.name` stays empty): by the cloud's id, a MAC in lowercase for a device or its channel 0, `<mac>_<n>` for
+    /// channel n. Read as the app does when it starts: `POST /interface/device/get_all_lists` (an empty form) with the token,
+    /// whose `data.devices` holds an entry per device and channel with its `name` ("unnamed" when it has none). Empty when
+    /// the cloud refuses or answers another shape.
+    func deviceNames() async -> [String: String] {
+        for attempt in 0..<2 {
+            guard case .success(let session) = await currentSession(),
+                  let url = URL(string: session.server.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/interface/device/get_all_lists")
+            else { return [:] }
+            let request = HTTPRequest(method: "POST", url: url, headers: [("Authorization", "Bearer \(session.token)"), ("Content-Type", "application/x-www-form-urlencoded")],
+                                      body: Data(), timeout: .seconds(15))
+            guard let response = try? await http.send(request) else { return [:] }
+            if response.status == 401 || response.status == 403 {
+                self.session = nil
+                if attempt == 0 { continue }
+                return [:]
+            }
+            guard response.status == 200, let json = try? JSONValue(data: response.body) else {
+                logger.debug("Shelly Cloud's device list answered HTTP \(response.status)")
+                return [:]
+            }
+            return Self.names(json)
+        }
+        return [:]
+    }
+
+    /// The names in a device list: `data.devices`, an object (or a list) of entries with an `id` and a `name`.
+    static func names(_ json: JSONValue) -> [String: String] {
+        let devices = json["data"]?["devices"]
+        let entries = devices?.objectValue.map { Array($0.values) } ?? devices?.arrayValue ?? []
+        var names: [String: String] = [:]
+        for entry in entries {
+            let id = entry["id"]?.stringValue ?? entry["id"]?.number.map { String(Int($0)) }
+            guard let id, let name = entry["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != "unnamed" else { continue }
+            names[id.lowercased()] = name
+        }
+        return names
+    }
+
     // MARK: History
 
     /// One day's hours of a device's channel (`id` its MAC in lowercase, as the cloud names it), midnight to midnight in

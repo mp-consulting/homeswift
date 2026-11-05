@@ -37,7 +37,9 @@ Each family runs only when its block is there: a `ShellyNG` block alone does not
   or relay keeps no records: with the optional Shelly Cloud account (Setup: the Shelly app's email and password, kept in
   the vault), the history the Shelly app shows is imported, a day a request, as the app's web view gets it (its sign-in at
   `api2.shelly.cloud`, then `/v2/statistics/power-consumption` on the account's server), which Shelly does not document
-  and may change.
+  and may change. The same account names the devices named only in the Shelly app, which keeps those names in the
+  cloud (the device's own name stays empty): each channel takes the app's name for it (`/interface/device/get_all_lists`,
+  read once at start), unless the block or the device names it.
   Models the original did not know (Plus Plug S, Gen3, Gen4…) are mapped from
   the components their status lists.
 

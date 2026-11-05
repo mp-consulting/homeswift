@@ -96,4 +96,16 @@ struct ShellyCloudTests {
         guard case .hours(let hours) = await cloud.consumption(id: "x", channel: 0, day: first, days: 7, timeZone: paris) else { Issue.record("no hours"); return }
         #expect(hours.count == 2)
     }
+    /// The names the Shelly app keeps in the cloud: asked with the token, read by device and channel, "unnamed" left out.
+    @Test func theDevicesNamesComeFromTheAppsList() async throws {
+        let http = FakeHTTP()
+        http.answer("/v2/users/auth/login", #"{"accessToken":"\#(token())"}"#)
+        http.answer("/interface/device/get_all_lists", #"{"isok":true,"data":{"devices":{"e4b3233864a8":{"id":"e4b3233864a8","name":"Smart Plug","channel":0,"type":"PlugSG3EF","category":"relay"},"ece334eb13f8_1":{"id":"ece334eb13f8_1","name":"Garage","channel":1},"aabbccddeeff":{"id":"AABBCCDDEEFF","name":"unnamed"}},"rooms":{}}}"#)
+        let cloud = ShellyCloud(credentials: credentials, http: http, logger: Logger(label: "test"))
+        #expect(await cloud.deviceNames() == ["e4b3233864a8": "Smart Plug", "ece334eb13f8_1": "Garage"])
+        let ask = try #require(http.requests.last)
+        #expect(ask.method == "POST" && ask.url.host == "shelly-238-eu.shelly.cloud" && ask.url.path == "/interface/device/get_all_lists")
+        #expect(ask.headers.contains { $0.name == "Authorization" && $0.value == "Bearer \(token())" })
+        #expect(ShellyCloud.names(["isok": false]) == [:])
+    }
 }
