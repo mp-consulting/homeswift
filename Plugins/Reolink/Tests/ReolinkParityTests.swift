@@ -555,4 +555,52 @@ import Testing
         #expect(environment.http.count("GetMdAlarm") == 0)
         #expect(environment.http.count("GetAiAlarm") == 0)
     }
+
+    // MARK: Cost
+
+    /// Every new feature at once: PTZ, a chime, recording, without push (polling).
+    @Test func newFeaturesAddNoRequestPerCycleAndNeverOverlap() async throws {
+        let flag = NIOLockedValueBox(1)
+        var answers = Self.ptzAnswers()
+        for (cmd, answer) in Self.recordingAnswers(scheduleEnable: flag) where cmd.hasSuffix("RecV20") { answers[cmd] = answer }
+        for (cmd, answer) in Self.chimeAnswers() where cmd.contains("DingDong") { answers[cmd] = answer }
+        let base = answers["GetAbility"]
+        answers["GetAbility"] = { param in
+            var reply = base?(param) ?? [:]
+            var ability = reply["value"]?["Ability"]?.objectValue ?? [:]
+            ability["scheduleVersion"] = ["permit": 0, "ver": 1]
+            var channel = ability["abilityChn"]?[0]?.objectValue ?? [:]
+            channel["supportDingDongCtrl"] = ["permit": 0, "ver": 1]
+            ability["abilityChn"] = [.object(channel)]
+            reply = ["cmd": "GetAbility", "code": 0, "value": ["Ability": .object(ability)]]
+            return reply
+        }
+        let environment = ReolinkEnvironment(answers, baichuanFails: true)
+        let host = try await environment.start(Self.block(["presetSwitches": true, "patrolSwitch": true, "recordingSwitch": true, "chimeSwitch": true]))
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        #expect(camera.recordingService != nil && !camera.chimeServices.isEmpty && !camera.ptzServices.presets.isEmpty)
+        let start = environment.http.requestCount
+        let events = environment.http.count("GetEvents")
+        #expect(await eventually { environment.http.count("GetEvents") - events > 20 })
+        let requests = environment.http.requestCount - start
+        let polls = environment.http.count("GetEvents") - events
+        // One POST per cycle still: the recording state rides in the refresh batch, PTZ and chimes are read once at start.
+        #expect(requests <= polls + 2)
+        #expect(environment.http.count("GetRecV20") >= 2)
+        for cmd in ["GetPtzPreset", "GetPtzPatrol", "GetDingDongList"] { #expect(environment.http.count(cmd) == 1) }
+
+        // Writes from everywhere at once: one request in flight at a time.
+        let plugin = try #require(environment.plugin)
+        let recording = try #require(camera.recordingService?.characteristic(.on))
+        let chime = try #require(camera.chimeServices.values.first?.characteristic(.on))
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { try? await recording.write(.bool(false)) }
+            group.addTask { try? await chime.write(.bool(true)) }
+            group.addTask {
+                _ = try? await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "ptz/preset", body: ["camera": .string(Self.cameraID), "preset": 1], user: "admin"))
+            }
+        }
+        #expect(environment.http.state.withLockedValue { $0.overlapped } == false)
+    }
 }
