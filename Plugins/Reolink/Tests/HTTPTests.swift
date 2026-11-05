@@ -53,6 +53,23 @@ import Testing
         #expect(device.logins == 2)
     }
 
+    @Test func aCommandAnsweredWithNothingFailsRatherThanRetryingForever() async throws {
+        var answers = cameraAnswers()
+        answers["GetOdd"] = { _ in ["value": 1] }
+        let device = FakeReolinkHTTP(answers)
+        let replies = try await client(device).execute([ReolinkCommand(cmd: "GetOdd")])
+        #expect(replies.map(\.cmd) == ["GetOdd"])
+        #expect(replies.first?.ok == false)
+        #expect(device.state.withLockedValue { $0.commands.filter { $0 == "GetOdd" }.count } == ReolinkHTTPClient.attempts)
+    }
+
+    @Test func aHugeConfiguredIntervalIsBoundedRatherThanTrapping() {
+        #expect(ReolinkTiming(scale: 1).seconds(1e20) == .seconds(365 * 86_400))
+        #expect(ReolinkTiming(scale: 1).seconds(Double(Int.max)) == .seconds(365 * 86_400))
+        #expect(ReolinkTiming(scale: 1).seconds(-5) == .zero)
+        #expect(ReolinkTiming(scale: 0.5).seconds(2) == .seconds(1))
+    }
+
     @Test func refusedCredentials() async {
         let device = FakeReolinkHTTP(cameraAnswers())
         let http = client(device, password: "wrong")
@@ -253,9 +270,11 @@ import Testing
         #expect(ReolinkStreamURL.rtsp(host: "192.168.1.20", port: 554, username: "admin", password: "p@ss!", channel: 0, sub: false, codec: "h264", reported: nil, rtspVersion: 1)
             == "rtsp://admin:p%40ss%21@192.168.1.20:554/h264Preview_01_main")
         #expect(ReolinkStreamURL.rtmp(host: "192.168.1.20", port: 1935, username: "admin", password: "p@ss!", channel: 0, sub: true)
-            == "rtmp://192.168.1.20:1935/bcs/channel0_sub.bcs?channel=0&stream=1&user=admin&password=p@ss!")
+            == "rtmp://192.168.1.20:1935/bcs/channel0_sub.bcs?channel=0&stream=1&user=admin&password=p%40ss%21")
         #expect(ReolinkStreamURL.flv(https: true, host: "192.168.1.20", apiPort: 443, rtmpPort: 1935, username: "admin", password: "p@ss!", channel: 0, sub: false)
-            == "https://192.168.1.20:443/flv?port=1935&app=bcs&stream=channel0_main.bcs&user=admin&password=p@ss!")
+            == "https://192.168.1.20:443/flv?port=1935&app=bcs&stream=channel0_main.bcs&user=admin&password=p%40ss%21")
+        #expect(ReolinkStreamURL.rtmp(host: "fe80::1", port: 1935, username: "admin", password: "a&b=c#", channel: 1, sub: false)
+            == "rtmp://[fe80::1]:1935/bcs/channel1_main.bcs?channel=1&stream=0&user=admin&password=a%26b%3Dc%23")
         #expect(ReolinkStreamURL.rtsp(host: "192.168.1.20", port: 554, username: "admin", password: "pw", channel: 0, sub: true, codec: "h264",
                                       reported: "rtsp://192.168.1.20:554/Preview_01_sub", rtspVersion: 3) == "rtsp://admin:pw@192.168.1.20:554/Preview_01_sub")
         // A device reporting another host, or credentials of its own, never gets the login sent there.

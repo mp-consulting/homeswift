@@ -8,6 +8,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
+  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
+  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
+  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
+  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer
+  that starts again on its own when its livestream ends) and `HomeswiftNetwork` `ARPTable.entries()`.
+- Reolink: PTZ moves, zoom, presets, patrols and the home position as Assistant and MCP actions, with optional
+  "Go to <preset>" and Patrol switches; privacy mode as a Privacy switch kept in step with HomeKit's Camera Active (no
+  HTTP login while it is on); the floodlight's colour temperature with Adaptive Lighting, and its mode; a switch per
+  wireless Reolink Chime; a Recording switch for the device's own recording; motion and AI sensitivity. Privacy and
+  Recording are security controls, confirmed by MCP clients. A camera's settings sheet groups its settings (Sensors,
+  Lights and switches, Video, Connection).
+- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
+  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
+  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
+  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
+  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
+  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
+  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
 - Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
   **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
   like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
@@ -57,12 +76,7 @@ All notable changes to this project are documented here. The format follows
   streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
 - Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
   a field a step may leave empty says Optional.
-- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
-  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
-  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
-  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
-  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
-  and `HomeswiftNetwork` `ARPTable.entries()`.
+
 ### Changed
 
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and

@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 
 /// One command of a batch (section 4): `{"cmd": …, "action": …, "param": …}`.
 struct ReolinkCommand: Sendable, Equatable {
@@ -26,6 +27,8 @@ struct ReolinkReply: Sendable, Equatable {
     var cmd: String
     var code: Int
     var value: JSONValue?
+    /// The `range` block an `action: 1` read returns beside `value` (limits such as a zoom's).
+    var range: JSONValue?
     var rspCode: Int?
     var detail: String?
 
@@ -33,10 +36,11 @@ struct ReolinkReply: Sendable, Equatable {
     /// A write's success: `code` 0 and `value.rspCode` 200 (3.5).
     var writeOK: Bool { code == 0 && value?["rspCode"]?.saturatingIntValue == 200 }
 
-    init(cmd: String, code: Int, value: JSONValue? = nil, rspCode: Int? = nil, detail: String? = nil) {
+    init(cmd: String, code: Int, value: JSONValue? = nil, range: JSONValue? = nil, rspCode: Int? = nil, detail: String? = nil) {
         self.cmd = cmd
         self.code = code
         self.value = value
+        self.range = range
         self.rspCode = rspCode
         self.detail = detail
     }
@@ -46,6 +50,7 @@ struct ReolinkReply: Sendable, Equatable {
         self.cmd = cmd
         code = json["code"]?.saturatingIntValue ?? 1
         value = json["value"]
+        range = json["range"]
         rspCode = json["error"]?["rspCode"]?.saturatingIntValue
         detail = json["error"]?["detail"]?.stringValue
     }
@@ -69,7 +74,10 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
     case invalidResponse(String)
     case command(String, Int?, String?)
     case unsupported(String)
+    case outOfRange(String)
     case offline
+    /// Privacy mode is on: the camera's HTTP API and streams are off until it ends (addendum C).
+    case privacy
 
     var description: String {
         switch self {
@@ -81,7 +89,9 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
         case .invalidResponse(let reason): "an answer the plugin cannot read (\(reason))"
         case .command(let cmd, let code, let detail): "\(cmd) failed (\(code.map(String.init) ?? "?")\(detail.map { ": \($0)" } ?? ""))"
         case .unsupported(let cmd): "\(cmd) is not supported by the device"
+        case .outOfRange(let reason): reason
         case .offline: "the channel is offline"
+        case .privacy: "privacy mode is on: the camera's video and HTTP API are off until it ends"
         }
     }
 }
@@ -102,6 +112,58 @@ actor SerialGate {
             if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
         }
         return try await body()
+    }
+}
+
+/// Callers waiting for something (a connection, privacy mode ending) until it happens or a timeout passes.
+final class Waiters<Value: Sendable>: Sendable {
+    private struct State {
+        var next = 0
+        var waiting: [Int: CheckedContinuation<Value, Never>] = [:]
+        /// Timeouts that fired before their caller was registered.
+        var expired: Set<Int> = []
+    }
+
+    private let state = NIOLockedValueBox(State())
+
+    /// Waits for `resumeAll`, or `fallback` after `timeout`.
+    func wait(timeout: Duration, fallback: Value) async -> Value {
+        let id = state.withLockedValue { state -> Int in
+            state.next += 1
+            return state.next
+        }
+        let timer = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            self?.expire(id, fallback)
+        }
+        defer { timer.cancel() }
+        return await withCheckedContinuation { continuation in
+            let expired = state.withLockedValue { state -> Bool in
+                if state.expired.remove(id) != nil { return true }
+                state.waiting[id] = continuation
+                return false
+            }
+            if expired { continuation.resume(returning: fallback) }
+        }
+    }
+
+    func resumeAll(_ value: Value) {
+        let waiting = state.withLockedValue { state in
+            defer { state.waiting = [:] }
+            return state.waiting
+        }
+        for continuation in waiting.values { continuation.resume(returning: value) }
+    }
+
+    private func expire(_ id: Int, _ fallback: Value) {
+        let continuation = state.withLockedValue { state -> CheckedContinuation<Value, Never>? in
+            guard let continuation = state.waiting.removeValue(forKey: id) else {
+                state.expired.insert(id)
+                return nil
+            }
+            return continuation
+        }
+        continuation?.resume(returning: fallback)
     }
 }
 
@@ -180,6 +242,13 @@ actor ReolinkHTTPClient {
         let isSkipped = batch.map { skipped.contains($0.cmd) }
         let runnable = zip(batch, isSkipped).filter { !$0.1 }.map(\.0)
         guard !runnable.isEmpty else { return batch.map { ReolinkReply.skipped($0.cmd) } }
+        /// The items in the order sent, the skipped commands in their places, a command with no item failed.
+        func assemble(_ items: [ReolinkReply]) -> [ReolinkReply] {
+            var byIndex = items.makeIterator()
+            return zip(batch, isSkipped).map { command, isSkipped in
+                isSkipped ? ReolinkReply.skipped(command.cmd) : byIndex.next() ?? ReolinkReply(cmd: command.cmd, code: 1)
+            }
+        }
         var lastError: any Error = ReolinkError.invalidResponse("no answer")
         for attempt in 1...Self.attempts {
             do {
@@ -207,12 +276,10 @@ actor ReolinkHTTPClient {
                         try await Task.sleep(for: timing.seconds(5))
                         continue
                     }
-                    return try await individually(batch)
+                    // A command on its own has nothing to split into: it failed.
+                    return runnable.count > 1 ? try await individually(batch) : assemble([])
                 }
-                var byIndex = items.makeIterator()
-                return zip(batch, isSkipped).map { command, isSkipped in
-                    isSkipped ? ReolinkReply.skipped(command.cmd) : byIndex.next() ?? ReolinkReply(cmd: command.cmd, code: 1)
-                }
+                return assemble(items)
             } catch let error as ReolinkError {
                 switch error {
                 case .credentials, .frequentLogins, .maxSessions, .unreachable: throw error
@@ -327,8 +394,9 @@ actor ReolinkHTTPClient {
                 throw Self.loginError(item, setting: &nextLoginAllowed, now: now(), timing: timing)
             }
             token = name
-            let lease = item.value?["Token"]?["leaseTime"]?.doubleValue.flatMap { $0.isFinite ? $0 : nil } ?? 3600
-            expiry = now().addingTimeInterval(max(lease, 0))
+            // A token is renewed at least daily, whatever lease the device names.
+            let lease = min(max(item.value?["Token"]?["leaseTime"]?.doubleValue.flatMap { $0.isFinite ? $0 : nil } ?? 3600, 0), 86_400)
+            expiry = now().addingTimeInterval(lease)
             skipped = []
             log.trace("Reolink login: token for \(Int(lease)) s")
             return
@@ -358,8 +426,7 @@ actor ReolinkHTTPClient {
     /// Logs out the current token (never without one); the answer is ignored.
     private func logout() async {
         guard let token else { return }
-        self.token = nil
-        expiry = .distantPast
+        dropSession()
         _ = try? await send(method: "POST", query: "cmd=Logout&token=\(token)", body: [["cmd": "Logout", "action": 0, "param": [:]]])
     }
 
