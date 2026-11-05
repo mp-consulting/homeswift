@@ -149,8 +149,11 @@ Choices made where the spec leaves the decision open, or where it is silent:
 - Addressable `A1` gets the 9-byte levels frame (flux_led) rather than the Homebridge plugin's 7-byte one. Unverified on
   hardware, as is `41`'s mask.
 - The Homebridge plugin's first-write "probe" frame is not sent (the same end state).
-- Music mode, timers, the clock and the 2.4 GHz remote are not exposed. Multi-channel switches show their first channel
-  only. Effects follow the spec's frames (10.3.8), checked against its rules only: unverified on hardware.
+- Music mode, timers, the clock and the 2.4 GHz remote are not exposed. The spec documents no frame that starts music
+  mode (only the `72` reply carrying its settings, and it puts music out of scope), so there is nothing to send.
+  Multi-channel switches (`95`, `96`, and `19`'s USB) show their first channel only: the spec gives the power frame
+  for the whole device and the power-restore reply per channel, but no frame that switches one channel nor where a
+  channel's state is in the state reply, and a guessed frame could switch the wrong socket. Effects follow the spec's frames (10.3.8), checked against its rules only: unverified on hardware.
 - An RGB/W light (`44`, `54`, `B6`) shows white below `colorWhiteThreshold`, as the Homebridge plugin's RGBW bulb did.
 - A model byte in neither table is left out rather than driven as an RGB light (flux_led's choice).
 - Polling (30 s, 90 s for devices that push), No Response after four unanswered queries, and the 3-second settle are the
