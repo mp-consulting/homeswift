@@ -13,11 +13,10 @@ extension APsystemsECUPlugin {
 (() => {
   "use strict";
   const { $, el, request, poll, fact, tile, renderKeyed } = homeswift;
-  const { t } = HomeswiftI18n;
+  const { t, locale } = HomeswiftI18n;
 
   $("#head-tile").replaceWith(tile("sun", "orange", true));
 
-  const { locale } = HomeswiftI18n;
   const whole = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
   const energy = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
   const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
@@ -64,12 +63,13 @@ extension APsystemsECUPlugin {
       ecu.meterFailing ? t("The ECU-C's meter does not answer: its grid and home power are unknown.") : null,
     ].filter(Boolean).map((text) => el("p", { class: "ecu-problem", text }));
     const inverters = ecu.inverterList ?? [];
+    const [status, label] = answering ? ["on", t("Answering")] : ecu.ecuID ? ["away", t("Not responding")] : ["standby", t("Not reached yet")];
     return el("div", { class: "card ecu" },
       el("div", { class: "ecu-head" },
         tile("sun", answering ? "orange" : "grey"),
         el("div", { class: "who" }, el("strong", { text: name }),
           el("div", { class: "muted", text: [ecu.model, ecu.firmware, ecu.address].filter(Boolean).join(" · ") })),
-        el("span", { class: `pill status ${answering ? "on" : ecu.ecuID ? "away" : "standby"}`, text: answering ? t("Answering") : ecu.ecuID ? t("Not responding") : t("Not reached yet") }),
+        el("span", { class: `pill status ${status}`, text: label }),
         settingsLink(ecu.accessoryID, name)),
       facts, ...problems,
       inverters.length ? el("div", { class: "inverters", role: "list", "aria-label": t("Inverters of {name}", { name }) }, ...inverters.map(inverterRow)) : null);

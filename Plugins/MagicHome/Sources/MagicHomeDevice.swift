@@ -106,8 +106,6 @@ actor MagicHomeDevice {
     private var levelsWaiting = false
     private var sleeper: Task<Void, Never>?
     private var identifying: Task<Void, Never>?
-    /// Counts the flashes, so one cancelled does not clear the handle of the one after it.
-    private var flashes = 0
     /// The profile changed shape (a firmware update, another mode): the plugin builds the accessory again.
     private var onReshape: (@Sendable (MagicHomeProfile) async -> Void)?
     /// The record changed (a new address, a version): the plugin saves it.
@@ -299,16 +297,13 @@ actor MagicHomeDevice {
         if on {
             let bytes = MagicHomeFrame.effect(effect, speed: options.effectSpeed, brightness: Int(light.brightness.rounded()), family: profile.family)
             try await send(poweredFirst([.plain(bytes)], always: !light.isOn), what: "the effect")
-        } else {
-            guard playing == effect.id else { return }
-            try await send(poweredFirst(MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)), what: "the colour")
-        }
-        if on {
             light.isOn = true
             set(services?.on, .bool(true))
             playing = effect.id
             log.info("\(name) plays \(effect.name)")
         } else {
+            guard playing == effect.id else { return }
+            try await send(poweredFirst(MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)), what: "the colour")
             playing = nil
         }
         showPlaying()
@@ -374,15 +369,11 @@ actor MagicHomeDevice {
         case .mirek: "mirek"
         case .on: nil
         }
-        if let slider {
-            // Claimed here, on the device, so the last write to reach it wins (the guard's own call would claim it after a
-            // hop off the actor, where two writes a moment apart can swap); then the wait for a later one.
-            let isLatest = sliders.claim(slider)
-            do { try await Task.sleep(for: options.timing.slider) } catch { return }
-            guard isLatest() else { return }
-        } else {
-            do { try await Task.sleep(for: options.timing.slider) } catch { return }
-        }
+        // Claimed here, on the device, so the last write to reach it wins (the guard's own call would claim it after a hop
+        // off the actor, where two writes a moment apart can swap); then the wait for a later one.
+        let isLatest = slider.map { sliders.claim($0) }
+        do { try await Task.sleep(for: options.timing.slider) } catch { return }
+        guard isLatest?() ?? true else { return }
         guard let batcher else { return }
         try await batcher.set(change)
     }
@@ -453,12 +444,10 @@ actor MagicHomeDevice {
     func identify() {
         log.info("Identifying accessory \(name)")
         guard profile.writer != .powerOnly, identifying == nil else { return }
-        flashes &+= 1
-        let flash = flashes
-        identifying = Task { [weak self] in await self?.flash(flash) }
+        identifying = Task { [weak self] in await self?.flash() }
     }
 
-    private func flash(_ flash: Int) async {
+    private func flash() async {
         let saved = light
         var flashing = light
         flashing.hue = 100
@@ -481,7 +470,8 @@ actor MagicHomeDevice {
             log.debug("\(name) did not take the identify flash: \(error)")
         }
         lastWrite = .now
-        if flashes == flash { identifying = nil }
+        // Whoever cancelled the flash let go of it already, and may have started the next.
+        if !Task.isCancelled { identifying = nil }
         wake()
     }
 }

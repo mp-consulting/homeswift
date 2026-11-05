@@ -52,12 +52,14 @@ struct TrydanShape: Sendable, Equatable {
     var lightLED = false
     var logoLED = false
 
-    init(maxCurrent: Int = 32, lightLED: Bool = false, logoLED: Bool = false) {
-        self.maxCurrent = maxCurrent
-        self.lightLED = lightLED
-        self.logoLED = logoLED
+    /// The shape once `report` is known: LEDs once reported stay.
+    func updated(with report: TrydanReport) -> TrydanShape {
+        TrydanShape(maxCurrent: report.intensityRange.upperBound, lightLED: lightLED || report.lightLED != nil, logoLED: logoLED || report.logoLED != nil)
     }
+}
 
+// Out of the struct's body, so its memberwise initializer stays.
+extension TrydanShape {
     /// The shape an accessory restored from the cache was built with, so a restart does not rebuild it.
     init(cached: Accessory) {
         if let speed = cached.service(.fanv2, subtype: TrydanServices.Subtype.current)?[.rotationSpeed]?.type,
@@ -66,11 +68,6 @@ struct TrydanShape: Sendable, Equatable {
         }
         lightLED = cached.service(.lightbulb, subtype: TrydanServices.Subtype.lightLED) != nil
         logoLED = cached.service(.lightbulb, subtype: TrydanServices.Subtype.logoLED) != nil
-    }
-
-    /// The shape once `report` is known: LEDs once reported stay.
-    func updated(with report: TrydanReport) -> TrydanShape {
-        TrydanShape(maxCurrent: report.intensityRange.upperBound, lightLED: lightLED || report.lightLED != nil, logoLED: logoLED || report.logoLED != nil)
     }
 }
 

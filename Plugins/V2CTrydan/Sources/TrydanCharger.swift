@@ -455,14 +455,12 @@ actor TrydanCharger {
         switch keyword {
         case "Paused", "Locked", "Timer", "Dynamic", "PauseDynamic":
             allowed = (0...1).contains(value) ? nil : "0 or 1"
-        case "Intensity":
+        case "Intensity", "MinIntensity", "MaxIntensity":
             allowed = (6...32).contains(value) ? nil : "6 to 32"
         case "DynamicPowerMode":
             allowed = (0...5).contains(value) ? nil : "0 to 5"
         case "ChargeMode":
             allowed = (0...2).contains(value) ? nil : "0, 1 or 2"
-        case "MinIntensity", "MaxIntensity":
-            allowed = (6...32).contains(value) ? nil : "6 to 32"
         case "VoltageInstallation":
             allowed = (1...500).contains(value) ? nil : "1 to 500"
         case "LightLED", "LogoLED":

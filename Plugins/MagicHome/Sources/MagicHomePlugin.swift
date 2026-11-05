@@ -160,8 +160,8 @@ public actor MagicHomePlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
+        // The polls are among the tasks.
         tasks.cancelAll()
-        for poll in polls.values { poll.cancel() }
         polls.removeAll()
         for device in devices.values { await device.stop() }
         // Let go, not disabled: a running schedule stays saved and resumes at the next start.

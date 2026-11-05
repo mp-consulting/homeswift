@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 
 /// The charger's IEC 61851 state, `ChargeState` (docs/clean-room/V2CTrydan.md, 3.3). `3` is not defined.
@@ -388,7 +389,7 @@ enum TrydanIdentity {
         }
         if let port {
             guard let number = Int(port), (1...65535).contains(number) else { return nil }
-            return number == 80 ? String(name) : "\(name):\(number)"
+            return hostHeader(host: String(name), port: number, defaultPort: 80)
         }
         return String(name)
     }

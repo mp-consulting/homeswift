@@ -69,7 +69,7 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
     private(set) var chargers: [String: TrydanCharger] = [:]
     /// The host key of each Device Id on the bridge, for duplicates.
     private var owners: [String: String] = [:]
-    /// Device Ids whose accessory the bridge refused, said once.
+    /// Device Ids whose accessory the bridge refused: tried again at each poll, logged once until it goes on it.
     private var addFailures: Set<String> = []
     /// The Device Id each charger of `devices` without one answered with, by host key: what `canonicalSettings` writes.
     private(set) var learnedIDs: [String: String] = [:]
@@ -211,7 +211,9 @@ public actor V2CTrydanPlugin: HomeswiftPlugin {
         let name = name ?? cached?.name ?? Self.defaultName
         do {
             let first = !(await charger.isOnBridge)
-            if try await charger.attach(deviceID: deviceID, name: name, settings: settings(for: deviceID), cached: cached), first {
+            let attached = try await charger.attach(deviceID: deviceID, name: name, settings: settings(for: deviceID), cached: cached)
+            if attached { addFailures.remove(deviceID) }
+            if attached, first {
                 let firmware = await charger.report?.firmwareVersion ?? "unknown"
                 logger.info("Added charger", metadata: ["charger": "\(name)", "host": "\(charger.host)", "deviceID": "\(deviceID)", "firmware": "\(firmware)"])
             }

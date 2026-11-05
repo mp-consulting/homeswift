@@ -370,9 +370,10 @@ extension APsystemsECUPlugin {
                 firmwareRevision: ECUProtocol.firmwareRevision(system.firmware), category: .sensor, services: [solar]))
         } catch {
             // Tried again at each poll: said once.
-            if loggedOddities.insert("add \(id)").inserted { logger.error("Could not add the ECU \(ECUProtocol.masked(id)): \(error)") }
+            if refusedAccessories.insert(id).inserted { logger.error("Could not add the ECU \(ECUProtocol.masked(id)): \(error)") }
             return nil
         }
+        refusedAccessories.remove(id)
         solarServices[id] = solar
         return solar
     }
@@ -380,22 +381,22 @@ extension APsystemsECUPlugin {
     private func addInverter(_ record: ECUProtocol.Inverter) -> InverterServices? {
         let power = Service(.lightSensor, name: "Power", optional: [.statusActive], isPrimary: true)
         let temperature = Service(.temperatureSensor, name: "Temperature", optional: [.statusActive])
-        power.characteristic(.statusActive).value = .bool(false)
-        temperature.characteristic(.statusActive).value = .bool(false)
+        let id = Self.accessoryID(deviceID: record.uid)
         // An inverter first seen offline (at night) keeps the temperature the cache has, else 0 °C: never the
         // characteristic's default, its minimum of −270 °C.
-        temperature.characteristic(.currentTemperature).value = .double(Self.initialTemperature(cached: context.accessory(id: Self.accessoryID(deviceID: record.uid))))
+        temperature.characteristic(.currentTemperature).value = .double(Self.initialTemperature(cached: context.accessory(id: id)))
         let services = InverterServices(power: power, temperature: temperature)
         // Its values before it is on the bridge: a controller never reads the defaults.
         Self.show(record, on: services)
         do {
             try context.add(Accessory(
-                id: Self.accessoryID(deviceID: record.uid), name: Self.inverterName(record.uid), manufacturer: "APsystems",
+                id: id, name: Self.inverterName(record.uid), manufacturer: "APsystems",
                 model: ECUProtocol.inverterModel(record.uid), serialNumber: record.uid, category: .sensor, services: [power, temperature]))
         } catch {
-            if loggedOddities.insert("add \(record.uid)").inserted { logger.error("Could not add the inverter \(ECUProtocol.masked(record.uid)): \(error)") }
+            if refusedAccessories.insert(record.uid).inserted { logger.error("Could not add the inverter \(ECUProtocol.masked(record.uid)): \(error)") }
             return nil
         }
+        refusedAccessories.remove(record.uid)
         inverterServices[record.uid] = services
         return services
     }
