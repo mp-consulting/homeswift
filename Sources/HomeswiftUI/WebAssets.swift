@@ -71,19 +71,87 @@ enum WebAssets {
   // ---- Bridge: its block, the network, pairings, caches, schedules -----------------------------------------
 
   async function bridgePage(main) {
-    const [settings, pairings, caches, plugins] = await Promise.all([
-      api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null)]);
+    const [settings, pairings, caches, plugins, tariffs] = await Promise.all([
+      api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null),
+      api("/api/settings/tariffs").catch(() => ({ tariffs: [] }))]);
     const bridge = settings.bridge || {};
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
       app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
       subnav("bridge"),
       bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
+      tariffCard(tariffs),
       networkCard(settings),
       sectionHead(t("HomeKit pairings"), t("Who the Home app knows each server by")),
       el("div", { class: "grid" }, pairings.bridges.map(pairingCard)),
       cachesSection(caches),
       schedulesCard(uiBlock));
+  }
+
+  /// The Tariff: what the home pays per kWh, by period of the day and week, and what a kWh sent back is paid. It edits
+  /// the latest Tariff; saved with another first day, it is a new Tariff from that day and the earlier ones keep their
+  /// prices, so past costs stay right. No restart.
+  function tariffCard({ tariffs = [] }) {
+    const latest = tariffs.at(-1) ?? null;
+    const isoToday = HomeswiftCommon.isoDay(new Date());
+    const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
+    const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
+    const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", autocomplete: "off", spellcheck: false });
+    const exportPrice = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: latest?.exportPrice ?? "", placeholder: t("Not paid") });
+    const rows = el("div", { class: "tariff-periods" });
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const addRow = (period = { from: "00:00", to: "24:00", price: "" }) => {
+      const name = el("input", { type: "text", value: period.name ?? "", placeholder: t("Name, such as Peak"), maxLength: 40, "aria-label": t("Period name") });
+      const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From") });
+      // 24:00 is the end of the day: a time input shows it as 00:00.
+      const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
+      const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
+      const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: t("Price per kWh"), "aria-label": t("Price per kWh"), required: true });
+      const row = el("div", { class: "tariff-period" }, name, from, to, days, price,
+        el("button", { type: "button", class: "icon-button", "aria-label": t("Remove this period"), title: t("Remove this period"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
+      row.read = () => ({ ...(name.value.trim() ? { name: name.value.trim() } : {}), from: from.value || "00:00",
+        // A period ending at midnight ends at 24:00, unless it starts later in the day and runs past midnight.
+        to: (to.value || "00:00") === "00:00" ? "24:00" : to.value,
+        ...(days.value ? { days: days.value.split(",").map(Number) } : {}), price: Number(price.value) });
+      rows.append(row);
+    };
+    for (const period of latest?.periods ?? []) addRow(period);
+    if (!latest) addRow();
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
+    const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
+    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
+    const earlier = tariffs.slice(0, -1).reverse();
+    const startDate = (text) => HomeswiftCommon.parseDay(text);
+    const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
+    return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
+      event.preventDefault();
+      const tariff = { start: start.value, currency: currency.value.trim().toUpperCase(), periods: [...rows.children].map((row) => row.read()),
+        ...(exportPrice.value !== "" ? { exportPrice: Number(exportPrice.value) } : {}) };
+      // The same first day is the same Tariff, changed; another is a new one from that day.
+      const next = [...tariffs.filter((one) => one.start !== tariff.start), tariff].sort((a, b) => a.start.localeCompare(b.start));
+      await busy(save, async () => {
+        await api("/api/settings/tariffs", { method: "PUT", body: { tariffs: next } });
+        tariffs.splice(0, tariffs.length, ...next);
+        message.className = "status-line ok";
+        message.textContent = t("Saved. Costs follow from {date}.", { date: longDay.format(startDate(tariff.start)) });
+      }, (e) => { message.className = "status-line error"; message.textContent = HomeswiftI18n.message(e.message); });
+    } },
+      el("div", { class: "server-head" }, tile("bolt", "yellow"),
+        el("div", { class: "who" }, el("strong", { text: t("Energy tariff") }),
+          el("div", { class: "muted", text: t("What the home pays per kWh, for the costs on the Status page") }))),
+      el("div", { class: "fields" },
+        field(t("Applies from"), start, t("Another day starts a new tariff: the days before it keep their prices.")),
+        field(t("Currency"), currency, t("A currency code, such as EUR, USD or GBP.")),
+        field(t("Export price"), exportPrice, t("What a kWh sent back to the grid is paid, if it is."))),
+      el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
+        el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
+        el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
+          ...[t("Name"), t("From"), t("To"), t("Days"), t("Price per kWh")].map((text) => el("span", { text })), el("span")),
+        rows, el("div", { class: "actions start" }, add)),
+      earlier.length ? el("details", { class: "more" }, el("summary", { text: tn("{n} earlier tariff", "{n} earlier tariffs", earlier.length) }),
+        el("ul", { class: "tariff-earlier" }, earlier.map((one) => el("li", { text: t("From {date}: {count} periods, in {currency}", {
+          date: longDay.format(startDate(one.start)), count: one.periods.length, currency: one.currency }) })))) : null,
+      el("div", { class: "actions" }, save), message);
   }
 
   /// The bridge block of config.json as a form. Saving restarts homeswift: the block is its HomeKit identity.
@@ -1020,7 +1088,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ContactSensorState: t("Contact"), MotionDetected: t("Motion"), ValvePosition: t("Valve position"), WaterAmount: t("Water"),
   };
 
-  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks.
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+
+  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks, and
+  /// first the energy its meters measured (the bridge's own record), by hour over a day and by day beyond.
   function showHistory(accessory) {
     const ranges = [[24, t("24 hours")], [168, t("7 days")], [672, t("4 weeks")]];
     let hours = 24;
@@ -1034,7 +1105,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } })));
     const close = el("button", { actionIcon: "check", type: "button", text: t("Done"), class: "primary" });
     const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
-      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: t("Recorded values, as Eve shows them") })),
+      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }),
+        el("p", { class: "muted", text: accessory.history ? t("Recorded values, as Eve shows them") : t("The energy the bridge measured") })),
         el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
@@ -1042,10 +1114,58 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.body.append(dialog);
     dialog.showModal();
 
+    /// The energy each of its meters measured over the range, as bars: drawn above the line, returned below it.
+    async function consumptionCards(asked) {
+      if (!accessory.consumption) return [];
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      let found;
+      try { found = await api(`/api/metrics/consumption?${new URLSearchParams({ accessory: accessory.id, hours, timeZone })}`); }
+      catch (e) { return [el("p", { class: "error", text: e.message })]; }
+      if (asked !== hours) return [];
+      const hourly = found.step === "hour";
+      const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+      const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+      const dateOf = (text) => HomeswiftCommon.parseDay(text);
+      return found.meters.map((meter) => {
+        const returns = meter.bars.some((bar) => bar.returned > 0);
+        const body = el("div", { class: "chart-body" });
+        const title = meter.label ? t("Consumption · {meter}", { meter: meter.label }) : t("Consumption");
+        const card = el("div", { class: "card chart-card consumption-card" },
+          el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
+            el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
+          el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
+          body,
+          el("div", { class: "muted chart-detail", text: [
+            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
+            returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
+        const bars = meter.bars.map((bar, index) => {
+          const date = dateOf(bar.date);
+          // Every third hour labelled, every day.
+          const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
+          return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
+        });
+        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
+          segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
+            ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
+        return card;
+      });
+    }
+
     async function load() {
       // Ranges chosen quickly one after the other: only the last one's answer is drawn.
       const asked = hours;
       charts.classList.add("loading");
+      const energy = consumptionCards(asked);
+      if (!accessory.history) {
+        const cards = await energy;
+        if (asked !== hours) return;
+        charts.classList.remove("loading");
+        charts.replaceChildren(...cards);
+        note.className = "muted";
+        note.textContent = t("Measured by the hour, kept for years.");
+        return;
+      }
       let found;
       try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?hours=${hours}&points=240`); }
       catch (e) { if (asked === hours) { charts.classList.remove("loading"); note.className = "error"; note.textContent = e.message; } return; }
@@ -1054,7 +1174,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       note.className = "muted";
       note.textContent = found.note != null ? HomeswiftI18n.message(found.note) : t("Ten-minute averages, kept four weeks; each point here averages those in its span.");
       const from = new Date(found.from).getTime(), to = new Date(found.to).getTime();
-      charts.replaceChildren(...found.series.map((series) => {
+      const energyCards = await energy;
+      if (asked !== hours) return;
+      charts.replaceChildren(...energyCards, ...found.series.map((series) => {
         const unit = historyUnits[series.unit] ?? series.unit ?? "";
         const format = (value) => `${Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10}${unit ? ` ${unit}` : ""}`;
         const points = series.points.map(([time, value]) => ({ time: new Date(time).getTime(), value }));
@@ -3475,26 +3597,44 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const importsNode = el("div", { class: "energy-imports", role: "status" });
     const summary = el("div", { class: "energy-totals" });
     let importPoll = null;
-    days.node.insertBefore(el("div", { class: "energy-history-bar" },
+    // The period, for the energy by day and the consumption by device alike.
+    const historyBar = el("div", { class: "energy-history-bar" },
       el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
-      el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+      el("div", { class: "energy-period-nav" }, previous, periodLabel, next));
     days.node.insertBefore(importsNode, days.body);
     days.node.insertBefore(summary, days.body);
     let earliest = null, historyAsked = 0;
+    // What each Meter measured in the period (the bridge's own record of every plug, relay and meter), the most first.
+    const consumers = card(t("Consumption by device"), t("What each meter measured in this period, the most first"), "outlet", "orange");
+    const consumerList = el("ol", { class: "consumers" });
+    const consumersMore = el("button", { type: "button", class: "link consumers-more", hidden: true });
+    consumers.body.append(consumerList, consumersMore);
+    let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
+    consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
     const today = el("div", { class: "energy-today" });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
     const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
+    const rangeBar = el("div", { class: "filter-bar" }, range.control);
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
       today,
-      el("div", { class: "filter-bar" }, range.control),
+      rangeBar,
       el("div", { class: "chart-grid" }, power.node, levels.node),
       pointTable,
-      el("div", { class: "chart-grid energy-days" }, days.node));
+      historyBar,
+      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node));
     let lastReport = null;   // for the table
     let refresh = null;
 
+    /// Shown when a plugin records the home's energy or some meter has a history; the home's charts only for the first.
+    function showSection() {
+      section.hidden = !hasRoles && !hasMeters;
+      for (const node of [today, rangeBar, pointTable, days.node]) node.hidden = !hasRoles;
+      if (!hasRoles) { power.node.hidden = true; levels.node.hidden = true; }
+      // Without the home's energy there is no first day to stop at: the meters' periods go back as far as asked.
+      if (!hasRoles) previous.disabled = false;
+    }
     function keepAddress() {
       const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => !key.startsWith("energy")));
       range.address(query);
@@ -3532,7 +3672,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (signal.aborted) return;
       section.classList.remove("loading");
       // No plugin records energy: the section stays hidden, and looks again with the next refresh.
-      section.hidden = !report.roles.length;
+      hasRoles = report.roles.length > 0;
+      showSection();
       const step = report.step * 1000;
       const shown = roles.filter((role) => report.roles.includes(role.id));
       power.node.hidden = !shown.length;
@@ -3583,7 +3724,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (view === "month") return date.getFullYear() * 12 + date.getMonth() >= now.getFullYear() * 12 + now.getMonth();
       return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }
-    async function loadHistory() {
+    /// The period's history, and its consumption by device; a poll while an import runs (`poll`) leaves the consumption
+    /// until the import is done.
+    async function loadHistory(poll = false) {
       clearTimeout(importPoll);
       const asked = ++historyAsked;
       keepAddress();
@@ -3597,6 +3740,83 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (asked !== historyAsked) return;
       fillHistory(history);
       fillImports(history.imports ?? []);
+      if (!poll || !(history.imports ?? []).some((one) => one.state === "running")) loadConsumers(asked);
+    }
+
+    async function loadConsumers(asked) {
+      let found;
+      try {
+        found = await api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
+      } catch (e) {
+        if (asked === historyAsked) consumers.detail.textContent = e.message;
+        return;
+      }
+      if (asked !== historyAsked) return;
+      hasMeters = found.meters.length > 0;
+      fillConsumers(found);
+      showSection();
+    }
+
+    /// A row per meter: its device (and which of its meters), a bar as long as its share of the most any used, and its
+    /// kWh, with what it returned when it did. A row opens the device's history. The first eight, then the rest asked for.
+    function fillConsumers(found) {
+      lastConsumption = found;
+      const meters = found.meters;
+      consumers.node.hidden = !meters.length;
+      // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
+      // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
+      const homes = meters.filter((one) => one.role === "home");
+      // A grid meter is the whole home only without solar or batteries: with them, it measures what came from the grid.
+      const sourced = meters.some((one) => one.role === "solar" || one.role === "battery");
+      const wholes = homes.length ? homes : sourced ? [] : meters.filter((one) => one.role === "grid");
+      const devices = meters.filter((one) => !one.role);
+      const sources = meters.filter((one) => one.role && !wholes.includes(one));
+      const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
+      const whole = wholes.length ? sum(wholes) : null;
+      // What no device measures: the home less its devices, never below zero.
+      const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
+      const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
+      const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
+      const roleNames = { home: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
+      const row = (one, nested) => {
+        const name = one.label ? `${one.name} · ${one.label}` : one.name;
+        // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
+        const caption = !one.role ? null : wholes.includes(one) ? t("Whole home") : one.role === "grid" ? t("Grid") : roleNames[one.role];
+        // Solar shows what it produced: its Returned, else what it drew for a meter that measures production as use.
+        const solar = one.role === "solar";
+        const figure = solar && one.returned > 0 ? one.returned : one.consumption ?? 0;
+        const returned = !solar && one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
+        // At the grid's price, hour by hour, whatever source covered it.
+        const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
+        const note = [cost, returned].filter(Boolean).join(" · ") || null;
+        return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(figure) }), caption, cost, returned].filter(Boolean).join(", "),
+          onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
+          el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(figure)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(figure) }), note ? el("small", { text: note }) : null)));
+      };
+      const shown = consumersAll ? devices : devices.slice(0, 8);
+      consumerList.replaceChildren(
+        ...wholes.map((one) => row(one, false)),
+        ...shown.map((one) => row(one, wholes.length > 0)),
+        // The rest of the home: no history of its own to open.
+        unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group", "aria-label": t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }) },
+          el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
+          el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
+        ...sources.map((one) => row(one, false)));
+      consumersMore.hidden = devices.length <= 8;
+      consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
+        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
+      // The card's figure and cost: the whole home's when a meter measures it, else the devices' together.
+      const counted = wholes.length ? wholes : devices;
+      consumers.figure.textContent = meters.length ? formatKWh(whole ?? sum(devices)) : "";
+      consumers.figure.title = wholes.length ? t("The whole home") : t("All meters together");
+      const costs = counted.filter((one) => one.cost != null);
+      consumers.detail.textContent = !meters.length ? t("Nothing measured in this period")
+        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -3620,7 +3840,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { text: one.from ? t("History from {name} since {date}, updated {ago}", { name: one.name, date: day(one.from), ago: HomeswiftCommon.ago(one.updated) })
             : t("History from {name}, updated {ago}", { name: one.name, ago: HomeswiftCommon.ago(one.updated) }) }));
       }));
-      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(); }, 3000);
+      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(true); }, 3000);
     }
 
     /// The period's energy as bars, oldest first: above zero where the home's energy came from (solar as it was
@@ -3638,6 +3858,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         has("homeFromGrid") ? { label: t("Home from the grid"), tone: 7, field: "homeFromGrid" } : null,
         has("homeNotSplit") ? { label: t("Home, not split by source"), tone: 8, field: "homeNotSplit" } : null,
         !has("home") && has("solar") ? { label: t("Solar produced"), tone: 4, field: "solar" } : null,
+        // Without the home's use (a grid meter alone), what the grid brought in, above the line.
+        !has("home") && has("gridImport") ? { label: t("Grid import"), tone: 7, field: "gridImport" } : null,
         has("batteryCharge") ? { label: t("Into batteries"), tone: 3, field: "batteryCharge", below: true } : null,
         has("gridExport") ? { label: t("Exported to the grid"), tone: 7, field: "gridExport", below: true } : null,
       ].filter(Boolean);
@@ -3658,7 +3880,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else {
         days.body.replaceChildren();
         days.key = key;
-        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1,
           segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
@@ -3698,6 +3920,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+        // The energy part of the bill: the grid's import at its price, less what the export was paid.
+        history.currency && sum("cost") != null ? total(null, t("Energy cost"), formatMoney(sum("cost"), history.currency), t("Import less export, without fixed charges")) : null,
       ].filter(Boolean);
       summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
         : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
@@ -3764,12 +3988,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const narrowMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "narrow" });
   const monthYear = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
   const rangeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short" });
-  /// A local day as YYYY-MM-DD, and back (null for anything else).
-  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  function parseDay(text) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text ?? "");
-    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
-  }
+  const { isoDay, parseDay } = HomeswiftCommon;
   const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
 
   /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
@@ -3779,14 +3998,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
-  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
-  /// (with `top`) a whole number when it is one.
-  function formatKWh(kWh, top) {
-    const size = Math.abs(kWh);
-    const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
-  }
-
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+  const formatMoney = (amount, currency) => HomeswiftCommon.money(amount, currency);
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
@@ -3849,7 +4062,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// plugin. A separator between groups, none around an empty one.
   function accessoryActions(accessory, arrange = []) {
     const use = [
-      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      accessory.history || accessory.consumption ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
       accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
     ];
@@ -8069,7 +8282,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
   /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
-  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments }) {
+  /// `hourly` says to a screen reader that a bar is an hour, not a day.
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments, hourly = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -8101,7 +8315,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(24, slot * 0.6);
       const x = (index) => pad.left + slot * index + slot / 2;
 
-      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": hourly ? t("{title}, a bar per hour", { title }) : t("{title}, a bar per day", { title }) });
       root.setAttribute("tabindex", "0");
       const ticks = [];
       for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
@@ -10782,6 +10996,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     input.click();
   }
 
+  /// Kilowatt-hours as every page shows energy: under a kWh in Wh (a plug's few hours, not 0.00 kWh); two decimals
+  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`, its highest) is in
+  /// Wh when the axis stays under a kWh, else in kWh, whole when it is.
+  function kWh(value, top) {
+    const size = Math.abs(value);
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
+    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
+  }
+
+  /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
+  /// does not know.
+  function money(amount, currency) {
+    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
+    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
+  }
+
+  /// A local day as YYYY-MM-DD, and back (null for anything else): `parseDay` reads `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm`.
+  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  function parseDay(text) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):\d{2})?$/.exec(text ?? "");
+    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] ?? 0)) : null;
+  }
+
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
@@ -10846,7 +11084,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -15679,6 +15917,69 @@ HomeswiftI18n.add("es", {
   "Optional and not set up. {adds}": "Opcional y sin configurar. {adds}",
   "Its devices work without it.": "Sus dispositivos funcionan sin ella.",
   "Its sign-in is kept in the vault, never in these settings.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes.",
+  "Consumption by device": "Consumo por dispositivo",
+  "What each meter measured in this period, the most first": "Lo que midió cada medidor en este periodo, el mayor primero",
+  "All meters together": "Todos los medidores juntos",
+  "{value} returned": "{value} devueltos",
+  "{name}: {value}": "{name}: {value}",
+  "Show fewer": "Mostrar menos",
+  "Show all {count}": "Mostrar los {count}",
+  "Nothing measured in this period": "Nada medido en este periodo",
+  "The energy the bridge measured": "La energía que midió el puente",
+  "Consumption · {meter}": "Consumo · {meter}",
+  "Consumption": "Consumo",
+  "By hour": "Por hora",
+  "By day": "Por día",
+  "Used in this range": "Consumido en este periodo",
+  "Used": "Consumido",
+  "Returned": "Devuelto",
+  "Measured by the hour, kept for years.": "Medida hora a hora, guardada durante años.",
+  "{title}, a bar per hour": "{title}, una barra por hora",
+  "Solar production": "Producción solar",
+  "The home's use": "El consumo de la casa",
+  "The grid connection": "La conexión a la red",
+  "A battery": "Una batería",
+  "This device alone": "Este dispositivo solo",
+  "A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption.": "Un medidor que mide la red, la solar, la casa o una batería se suma a la energía de la casa en la página Estado; cualquier otro es el consumo de un solo dispositivo.",
+  "{role} (suggested)": "{role} (sugerido)",
+  "Meter: {meter}": "Medidor: {meter}",
+  "What it measures": "Lo que mide",
+  "Counts from now on; the history it measured stays as it was.": "Cuenta desde ahora; el historial ya medido queda como estaba.",
+  "Every day": "Todos los días",
+  "Weekdays": "Entre semana",
+  "Weekends": "Fines de semana",
+  "Not paid": "No pagado",
+  "Name, such as Peak": "Nombre, por ejemplo Punta",
+  "Period name": "Nombre del periodo",
+  "Price per kWh": "Precio por kWh",
+  "Remove this period": "Quitar este periodo",
+  "Add a period": "Añadir un periodo",
+  "Save the tariff": "Guardar la tarifa",
+  "Saved. Costs follow from {date}.": "Guardado. Los costes lo siguen desde el {date}.",
+  "Energy tariff": "Tarifa de energía",
+  "What the home pays per kWh, for the costs on the Status page": "Lo que la casa paga por kWh, para los costes de la página Estado",
+  "Applies from": "Se aplica desde",
+  "Another day starts a new tariff: the days before it keep their prices.": "Otro día empieza una nueva tarifa: los días anteriores conservan sus precios.",
+  "Currency": "Moneda",
+  "A currency code, such as EUR, USD or GBP.": "Un código de moneda, como EUR, USD o GBP.",
+  "Export price": "Precio de exportación",
+  "What a kWh sent back to the grid is paid, if it is.": "Lo que se paga por un kWh devuelto a la red, si se paga.",
+  "Prices": "Precios",
+  "Each part of the week once: a period ending before it starts runs past midnight.": "Cada momento de la semana una sola vez: un periodo que termina antes de empezar pasa de la medianoche.",
+  "{n} earlier tariff": "{n} tarifa anterior",
+  "{n} earlier tariffs": "{n} tarifas anteriores",
+  "From {date}: {count} periods, in {currency}": "Desde el {date}: {count} periodos, en {currency}",
+  "{cost} at the grid's price, hour by hour": "{cost} al precio de la red, hora a hora",
+  "Energy cost": "Coste de la energía",
+  "Import less export, without fixed charges": "Importación menos exportación, sin cargos fijos",
+  "Imports the energy history the Shelly app keeps for plugs and relays, from Shelly Cloud, as the app gets it (Shelly does not document it).": "Importa el historial de energía que la app Shelly guarda para enchufes y relés, desde Shelly Cloud, como la app lo obtiene (Shelly no lo documenta).",
+  "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.": "Inicia sesión con tu cuenta de la app Shelly. Homeswift importa el historial que la app muestra para enchufes y relés, como la app lo obtiene: Shelly no lo documenta y puede dejar de funcionar.",
+  "Shelly Cloud refused this email and password": "Shelly Cloud rechazó este correo y contraseña",
+  "Shelly Cloud refused the email and password": "Shelly Cloud rechazó el correo y la contraseña",
+  "Whole home": "Toda la casa",
+  "Unmetered": "Sin medir",
+  "What no meter measures on its own": "Lo que ningún medidor mide por separado",
+  "The whole home": "Toda la casa",
   "Range (km)": "Autonomía (km)",
   "Time to Full (min)": "Tiempo hasta carga completa (min)",
   "Session Energy (kWh)": "Energía de la sesión (kWh)",
@@ -18580,6 +18881,69 @@ HomeswiftI18n.add("fr", {
   "Optional and not set up. {adds}": "Facultatif, pas encore configuré. {adds}",
   "Its devices work without it.": "Ses appareils fonctionnent sans lui.",
   "Its sign-in is kept in the vault, never in these settings.": "Sa connexion est gardée dans le coffre, jamais dans ces réglages.",
+  "Consumption by device": "Consommation par appareil",
+  "What each meter measured in this period, the most first": "Ce que chaque compteur a mesuré sur la période, le plus gros d'abord",
+  "All meters together": "Tous les compteurs ensemble",
+  "{value} returned": "{value} renvoyés",
+  "{name}: {value}": "{name} : {value}",
+  "Show fewer": "Afficher moins",
+  "Show all {count}": "Afficher les {count}",
+  "Nothing measured in this period": "Rien de mesuré sur cette période",
+  "The energy the bridge measured": "L'énergie mesurée par le pont",
+  "Consumption · {meter}": "Consommation · {meter}",
+  "Consumption": "Consommation",
+  "By hour": "Par heure",
+  "By day": "Par jour",
+  "Used in this range": "Consommé sur cette période",
+  "Used": "Consommé",
+  "Returned": "Renvoyé",
+  "Measured by the hour, kept for years.": "Mesurée heure par heure, conservée des années.",
+  "{title}, a bar per hour": "{title}, une barre par heure",
+  "Solar production": "Production solaire",
+  "The home's use": "La consommation de la maison",
+  "The grid connection": "Le raccordement au réseau",
+  "A battery": "Une batterie",
+  "This device alone": "Cet appareil seul",
+  "A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption.": "Un compteur qui mesure le réseau, le solaire, la maison ou une batterie s'ajoute à l'énergie de la maison sur la page État ; tout autre compteur est la consommation d'un seul appareil.",
+  "{role} (suggested)": "{role} (suggéré)",
+  "Meter: {meter}": "Compteur : {meter}",
+  "What it measures": "Ce qu'il mesure",
+  "Counts from now on; the history it measured stays as it was.": "Compte dès maintenant ; l'historique déjà mesuré reste tel quel.",
+  "Every day": "Tous les jours",
+  "Weekdays": "En semaine",
+  "Weekends": "Le week-end",
+  "Not paid": "Non rémunéré",
+  "Name, such as Peak": "Nom, par exemple Heures pleines",
+  "Period name": "Nom de la période",
+  "Price per kWh": "Prix du kWh",
+  "Remove this period": "Retirer cette période",
+  "Add a period": "Ajouter une période",
+  "Save the tariff": "Enregistrer le tarif",
+  "Saved. Costs follow from {date}.": "Enregistré. Les coûts en tiennent compte à partir du {date}.",
+  "Energy tariff": "Tarif de l'énergie",
+  "What the home pays per kWh, for the costs on the Status page": "Ce que la maison paie le kWh, pour les coûts de la page État",
+  "Applies from": "S'applique à partir du",
+  "Another day starts a new tariff: the days before it keep their prices.": "Un autre jour commence un nouveau tarif : les jours d'avant gardent leurs prix.",
+  "Currency": "Devise",
+  "A currency code, such as EUR, USD or GBP.": "Un code de devise, comme EUR, USD ou GBP.",
+  "Export price": "Prix de revente",
+  "What a kWh sent back to the grid is paid, if it is.": "Ce que rapporte un kWh renvoyé au réseau, s'il est payé.",
+  "Prices": "Prix",
+  "Each part of the week once: a period ending before it starts runs past midnight.": "Chaque moment de la semaine une seule fois : une période qui finit avant de commencer passe minuit.",
+  "{n} earlier tariff": "{n} tarif précédent",
+  "{n} earlier tariffs": "{n} tarifs précédents",
+  "From {date}: {count} periods, in {currency}": "Depuis le {date} : {count} périodes, en {currency}",
+  "{cost} at the grid's price, hour by hour": "{cost} au prix du réseau, heure par heure",
+  "Energy cost": "Coût de l'énergie",
+  "Import less export, without fixed charges": "Achat moins revente, hors abonnement",
+  "Imports the energy history the Shelly app keeps for plugs and relays, from Shelly Cloud, as the app gets it (Shelly does not document it).": "Importe l'historique d'énergie que l'app Shelly garde pour les prises et relais, depuis Shelly Cloud, comme l'app l'obtient (Shelly ne le documente pas).",
+  "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.": "Connectez-vous avec votre compte de l'app Shelly. Homeswift importe l'historique que l'app affiche pour les prises et relais, comme l'app l'obtient : Shelly ne le documente pas, et cela peut cesser de fonctionner.",
+  "Shelly Cloud refused this email and password": "Shelly Cloud a refusé cet e-mail et ce mot de passe",
+  "Shelly Cloud refused the email and password": "Shelly Cloud a refusé l'e-mail et le mot de passe",
+  "Whole home": "Toute la maison",
+  "Unmetered": "Non mesuré",
+  "What no meter measures on its own": "Ce qu'aucun compteur ne mesure à part",
+  "The whole home": "Toute la maison",
   "Range (km)": "Autonomie (km)",
   "Time to Full (min)": "Temps avant charge complète (min)",
   "Session Energy (kWh)": "Énergie de la session (kWh)",
@@ -21481,6 +21845,69 @@ HomeswiftI18n.add("pt", {
   "Optional and not set up. {adds}": "Opcional e não configurada. {adds}",
   "Its devices work without it.": "Os dispositivos funcionam sem ela.",
   "Its sign-in is kept in the vault, never in these settings.": "O início de sessão fica no cofre, nunca nestas definições.",
+  "Consumption by device": "Consumo por dispositivo",
+  "What each meter measured in this period, the most first": "O que cada medidor mediu neste período, o maior primeiro",
+  "All meters together": "Todos os medidores juntos",
+  "{value} returned": "{value} devolvidos",
+  "{name}: {value}": "{name}: {value}",
+  "Show fewer": "Mostrar menos",
+  "Show all {count}": "Mostrar os {count}",
+  "Nothing measured in this period": "Nada medido neste período",
+  "The energy the bridge measured": "A energia que a ponte mediu",
+  "Consumption · {meter}": "Consumo · {meter}",
+  "Consumption": "Consumo",
+  "By hour": "Por hora",
+  "By day": "Por dia",
+  "Used in this range": "Consumido neste período",
+  "Used": "Consumido",
+  "Returned": "Devolvido",
+  "Measured by the hour, kept for years.": "Medida hora a hora, guardada durante anos.",
+  "{title}, a bar per hour": "{title}, uma barra por hora",
+  "Solar production": "Produção solar",
+  "The home's use": "O consumo da casa",
+  "The grid connection": "A ligação à rede",
+  "A battery": "Uma bateria",
+  "This device alone": "Só este dispositivo",
+  "A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption.": "Um medidor que mede a rede, a solar, a casa ou uma bateria soma-se à energia da casa na página Estado; qualquer outro é o consumo de um só dispositivo.",
+  "{role} (suggested)": "{role} (sugerido)",
+  "Meter: {meter}": "Medidor: {meter}",
+  "What it measures": "O que mede",
+  "Counts from now on; the history it measured stays as it was.": "Conta a partir de agora; o histórico já medido fica como estava.",
+  "Every day": "Todos os dias",
+  "Weekdays": "Dias úteis",
+  "Weekends": "Fins de semana",
+  "Not paid": "Não pago",
+  "Name, such as Peak": "Nome, por exemplo Ponta",
+  "Period name": "Nome do período",
+  "Price per kWh": "Preço por kWh",
+  "Remove this period": "Remover este período",
+  "Add a period": "Adicionar um período",
+  "Save the tariff": "Guardar a tarifa",
+  "Saved. Costs follow from {date}.": "Guardado. Os custos seguem-no a partir de {date}.",
+  "Energy tariff": "Tarifa de energia",
+  "What the home pays per kWh, for the costs on the Status page": "O que a casa paga por kWh, para os custos da página Estado",
+  "Applies from": "Aplica-se a partir de",
+  "Another day starts a new tariff: the days before it keep their prices.": "Outro dia inicia uma nova tarifa: os dias anteriores mantêm os seus preços.",
+  "Currency": "Moeda",
+  "A currency code, such as EUR, USD or GBP.": "Um código de moeda, como EUR, USD ou GBP.",
+  "Export price": "Preço de exportação",
+  "What a kWh sent back to the grid is paid, if it is.": "O que é pago por um kWh devolvido à rede, se for pago.",
+  "Prices": "Preços",
+  "Each part of the week once: a period ending before it starts runs past midnight.": "Cada momento da semana uma só vez: um período que termina antes de começar passa da meia-noite.",
+  "{n} earlier tariff": "{n} tarifa anterior",
+  "{n} earlier tariffs": "{n} tarifas anteriores",
+  "From {date}: {count} periods, in {currency}": "Desde {date}: {count} períodos, em {currency}",
+  "{cost} at the grid's price, hour by hour": "{cost} ao preço da rede, hora a hora",
+  "Energy cost": "Custo da energia",
+  "Import less export, without fixed charges": "Importação menos exportação, sem encargos fixos",
+  "Imports the energy history the Shelly app keeps for plugs and relays, from Shelly Cloud, as the app gets it (Shelly does not document it).": "Importa o histórico de energia que a app Shelly guarda para tomadas e relés, a partir do Shelly Cloud, como a app o obtém (a Shelly não o documenta).",
+  "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.": "Inicie sessão com a sua conta da app Shelly. O Homeswift importa o histórico que a app mostra para tomadas e relés, como a app o obtém: a Shelly não o documenta e pode deixar de funcionar.",
+  "Shelly Cloud refused this email and password": "O Shelly Cloud recusou este e-mail e palavra-passe",
+  "Shelly Cloud refused the email and password": "O Shelly Cloud recusou o e-mail e a palavra-passe",
+  "Whole home": "Toda a casa",
+  "Unmetered": "Não medido",
+  "What no meter measures on its own": "O que nenhum medidor mede à parte",
+  "The whole home": "Toda a casa",
   "Range (km)": "Autonomia (km)",
   "Time to Full (min)": "Tempo até carga completa (min)",
   "Session Energy (kWh)": "Energia da sessão (kWh)",
@@ -23770,6 +24197,27 @@ HomeswiftI18n.add("pt", {
           if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
         } });
 
+      // Energy: what each of its meters measures in the home's energy. Applies at once; the plugin keeps running.
+      const roleNames = { solar: t("Solar production"), home: t("The home's use"), grid: t("The grid connection"), battery: t("A battery"), none: t("This device alone") };
+      const energySection = (answer.meters ?? []).length ? section(t("Energy"),
+        t("A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption."),
+        ...answer.meters.map((meter) => {
+          const state = stateNode();
+          const suggested = meter.suggestedRole ?? "none";
+          const chosen = settings.energyRoles?.[meter.key] ?? "";
+          // The suggestion first, as the empty choice: chosen again, the person's role goes and the plugin's stands.
+          const select = el("select", {}, el("option", { value: "", text: t("{role} (suggested)", { role: roleNames[suggested] }), selected: chosen === "" }),
+            ...Object.entries(roleNames).filter(([value]) => value !== suggested).map(([value, text]) => el("option", { value, text, selected: chosen === value })));
+          select.addEventListener("change", async () => {
+            const before = settings.energyRoles?.[meter.key] ?? "";
+            if (!await save({ energyRoles: { [meter.key]: select.value || null } }, state, "energyRoles")) select.value = before;
+          });
+          const title = el("span", { text: meter.label ? t("Meter: {meter}", { meter: meter.label }) : t("What it measures") });
+          const help = el("span", { class: "help", text: t("Counts from now on; the history it measured stays as it was.") });
+          describe(select, title, help, state);
+          return el("label", { class: "field" }, el("span", { class: "field-title" }, title, state), select, help);
+        })) : null;
+
       // Parts: from the discovery, which knows their names; the plugin reloads with each.
       const partsBox = el("div", { class: "settings-parts" });
       const partsSection = section(t("Parts"), t("Switched off, a part is left out while the device stays. A change reloads {plugin}.", { plugin }), partsBox);
@@ -23849,6 +24297,7 @@ HomeswiftI18n.add("pt", {
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        energySection,
         partsSection,
         pluginSection,
         danger,
@@ -25138,6 +25587,28 @@ header nav a svg { display: none; }
 .settings-head .tools { margin-left: auto; }
 .form-card { margin: 0; }
 .form-card > .server-head { margin-bottom: var(--space-14); }
+/* The Tariff's prices: a row per period, its name, times, days and price, with the way to remove it. */
+.tariff-card { margin-top: var(--space-14); }
+.tariff-periods { display: grid; gap: var(--space-8); }
+.tariff-period { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 0.9fr) 36px; gap: var(--space-8); align-items: center; }
+.tariff-period > * { min-width: 0; }
+.tariff-period .icon-button { width: 36px; height: 36px; min-height: 36px; }
+.tariff-period-head { font-size: var(--text-xs); color: var(--muted); }
+/* Dates, times, numbers and text the same height (a date or time field is taller by itself). */
+.tariff-card input, .tariff-card select { box-sizing: border-box; height: 42px; }
+.tariff-card .actions.start { justify-content: flex-start; }
+.tariff-earlier { margin: var(--space-8) 0 0; padding-left: var(--space-18); color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 640px) {
+  /* Three lines a period: its name, then its times, then its days and price. */
+  .tariff-period { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; padding-bottom: var(--space-8); border-bottom: 1px solid var(--line); }
+  .tariff-period > :nth-child(1) { grid-column: 1 / 3; grid-row: 1; }
+  .tariff-period > :nth-child(2) { grid-column: 1; grid-row: 2; }
+  .tariff-period > :nth-child(3) { grid-column: 2; grid-row: 2; }
+  .tariff-period > :nth-child(4) { grid-column: 1; grid-row: 3; }
+  .tariff-period > :nth-child(5) { grid-column: 2; grid-row: 3; }
+  .tariff-period .icon-button { grid-column: 3; grid-row: 1; width: 40px; height: 40px; min-height: 40px; }
+  .tariff-period-head { display: none; }
+}
 .page-note { display: flex; align-items: center; gap: var(--space-14); justify-content: space-between; margin: 0 0 var(--space-14); padding: var(--space-12) var(--space-16) var(--space-12) var(--space-18); }
 .page-note p { margin: 0; font-size: var(--text-md); }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
@@ -26425,7 +26896,51 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .tick.current { fill: var(--text); font-weight: var(--weight-figure); }
 .energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .energy-days .chart-table { margin-top: 0; }
+/* The period over the energy by day and the consumption by device. */
+.energy > .energy-history-bar { margin-top: var(--space-14); }
+/* The consumption by device: a row per meter, its name, a bar of its share of the most any used, and its kWh. The row
+   opens the device's history. */
+.consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) 9.5rem auto; align-items: center; gap: var(--space-12);
+  padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left;
+  cursor: pointer; min-height: 40px; }
+.consumer:hover { background: var(--material-thin); }
+.consumer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Its chart icon last, quiet: the row opens the history. */
+.consumer.action-with-icon::before { order: 4; color: var(--muted); }
+.consumer-name { display: grid; min-width: 0; }
+.consumer-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-name > small { font-size: var(--text-2xs); color: var(--muted); }
+/* A device inside the whole home: its name set in under the home's, with a quiet rule down its left; the bars stay in
+   one column, so the shares read against the home's. */
+.consumer.nested { position: relative; }
+.consumer.nested .consumer-name { padding-left: var(--space-16); }
+.consumer.nested::after { content: ""; position: absolute; left: calc(var(--space-10) + 3px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
+/* What no meter measures: the rest of the home, muted, no history to open. */
+.consumer.rest { cursor: default; color: var(--muted); }
+.consumer.rest:hover { background: none; }
+.consumer.rest .consumer-track i { background: var(--muted); opacity: 0.45; }
+.consumer-spacer { order: 4; width: 16px; }
+.consumer-track { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.consumer-track i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); transition: width var(--normal) var(--ease-out); }
+.consumer-value { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
+.consumer-value b { font-weight: var(--weight-semibold); white-space: nowrap; }
+/* The value column one width on every row, so the bars line up; a long note (a cost and what was returned) wraps. */
+.consumer-value small { font-size: var(--text-2xs); color: var(--muted); text-align: end; }
+.consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
+.consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 640px) {
+  /* The name over its bar, the figure beside them. */
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) 7.5rem auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
+  .consumer-spacer { grid-area: icon; }
+  .consumer-name { grid-area: name; }
+  .consumer-track { grid-area: track; }
+  .consumer-value { grid-area: value; }
+  .consumer.action-with-icon::before { grid-area: icon; }
+}
 .energy-days .chart-table thead th.time { text-align: left; }
+/* The History sheet's note under its charts, apart from them. */
+.admin-dialog .chart-grid + p { margin-top: var(--space-14); }
 .chart-card { margin: 0; display: grid; gap: var(--space-10); align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
 .chart-head .muted { font-size: var(--text-sm); }
@@ -27872,6 +28387,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
+  /* The History sheet's periods and Clear filters on one row: the button round, its icon alone. */
+  .admin-dialog .page-head .tools { flex-wrap: nowrap; }
+  .admin-dialog .page-head .tools .clear-filters { flex: none; width: 40px; height: 40px; min-height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

@@ -64,6 +64,13 @@ extension UIServer {
                 guard let settings = body["settings"]?.objectValue else { return .error(400, "settings are required") }
                 return .json(try await catalog.updateBridgeSettings(settings, dryRun: body["dryRun"]?.boolValue == true))
 
+            // The Tariffs (`bridge.tariffs`): no restart.
+            case (.GET, ["settings", "tariffs"]):
+                return .json(try catalog.tariffsJSON())
+            case (.PUT, ["settings", "tariffs"]):
+                guard let tariffs = body["tariffs"], tariffs.arrayValue != nil else { return .error(400, "tariffs (a list) is required") }
+                return .json(try await catalog.updateTariffs(tariffs, dryRun: body["dryRun"]?.boolValue == true))
+
             // Pairings and accessory caches.
             case (.GET, ["pairings"]):
                 return .json(catalog.pairingJSON())

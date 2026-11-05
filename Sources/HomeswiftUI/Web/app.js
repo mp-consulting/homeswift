@@ -1530,26 +1530,44 @@
     const importsNode = el("div", { class: "energy-imports", role: "status" });
     const summary = el("div", { class: "energy-totals" });
     let importPoll = null;
-    days.node.insertBefore(el("div", { class: "energy-history-bar" },
+    // The period, for the energy by day and the consumption by device alike.
+    const historyBar = el("div", { class: "energy-history-bar" },
       el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
-      el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+      el("div", { class: "energy-period-nav" }, previous, periodLabel, next));
     days.node.insertBefore(importsNode, days.body);
     days.node.insertBefore(summary, days.body);
     let earliest = null, historyAsked = 0;
+    // What each Meter measured in the period (the bridge's own record of every plug, relay and meter), the most first.
+    const consumers = card(t("Consumption by device"), t("What each meter measured in this period, the most first"), "outlet", "orange");
+    const consumerList = el("ol", { class: "consumers" });
+    const consumersMore = el("button", { type: "button", class: "link consumers-more", hidden: true });
+    consumers.body.append(consumerList, consumersMore);
+    let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
+    consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
     const today = el("div", { class: "energy-today" });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
     const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
+    const rangeBar = el("div", { class: "filter-bar" }, range.control);
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
       today,
-      el("div", { class: "filter-bar" }, range.control),
+      rangeBar,
       el("div", { class: "chart-grid" }, power.node, levels.node),
       pointTable,
-      el("div", { class: "chart-grid energy-days" }, days.node));
+      historyBar,
+      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node));
     let lastReport = null;   // for the table
     let refresh = null;
 
+    /// Shown when a plugin records the home's energy or some meter has a history; the home's charts only for the first.
+    function showSection() {
+      section.hidden = !hasRoles && !hasMeters;
+      for (const node of [today, rangeBar, pointTable, days.node]) node.hidden = !hasRoles;
+      if (!hasRoles) { power.node.hidden = true; levels.node.hidden = true; }
+      // Without the home's energy there is no first day to stop at: the meters' periods go back as far as asked.
+      if (!hasRoles) previous.disabled = false;
+    }
     function keepAddress() {
       const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => !key.startsWith("energy")));
       range.address(query);
@@ -1587,7 +1605,8 @@
       if (signal.aborted) return;
       section.classList.remove("loading");
       // No plugin records energy: the section stays hidden, and looks again with the next refresh.
-      section.hidden = !report.roles.length;
+      hasRoles = report.roles.length > 0;
+      showSection();
       const step = report.step * 1000;
       const shown = roles.filter((role) => report.roles.includes(role.id));
       power.node.hidden = !shown.length;
@@ -1638,7 +1657,9 @@
       if (view === "month") return date.getFullYear() * 12 + date.getMonth() >= now.getFullYear() * 12 + now.getMonth();
       return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }
-    async function loadHistory() {
+    /// The period's history, and its consumption by device; a poll while an import runs (`poll`) leaves the consumption
+    /// until the import is done.
+    async function loadHistory(poll = false) {
       clearTimeout(importPoll);
       const asked = ++historyAsked;
       keepAddress();
@@ -1652,6 +1673,83 @@
       if (asked !== historyAsked) return;
       fillHistory(history);
       fillImports(history.imports ?? []);
+      if (!poll || !(history.imports ?? []).some((one) => one.state === "running")) loadConsumers(asked);
+    }
+
+    async function loadConsumers(asked) {
+      let found;
+      try {
+        found = await api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
+      } catch (e) {
+        if (asked === historyAsked) consumers.detail.textContent = e.message;
+        return;
+      }
+      if (asked !== historyAsked) return;
+      hasMeters = found.meters.length > 0;
+      fillConsumers(found);
+      showSection();
+    }
+
+    /// A row per meter: its device (and which of its meters), a bar as long as its share of the most any used, and its
+    /// kWh, with what it returned when it did. A row opens the device's history. The first eight, then the rest asked for.
+    function fillConsumers(found) {
+      lastConsumption = found;
+      const meters = found.meters;
+      consumers.node.hidden = !meters.length;
+      // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
+      // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
+      const homes = meters.filter((one) => one.role === "home");
+      // A grid meter is the whole home only without solar or batteries: with them, it measures what came from the grid.
+      const sourced = meters.some((one) => one.role === "solar" || one.role === "battery");
+      const wholes = homes.length ? homes : sourced ? [] : meters.filter((one) => one.role === "grid");
+      const devices = meters.filter((one) => !one.role);
+      const sources = meters.filter((one) => one.role && !wholes.includes(one));
+      const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
+      const whole = wholes.length ? sum(wholes) : null;
+      // What no device measures: the home less its devices, never below zero.
+      const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
+      const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
+      const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
+      const roleNames = { home: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
+      const row = (one, nested) => {
+        const name = one.label ? `${one.name} · ${one.label}` : one.name;
+        // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
+        const caption = !one.role ? null : wholes.includes(one) ? t("Whole home") : one.role === "grid" ? t("Grid") : roleNames[one.role];
+        // Solar shows what it produced: its Returned, else what it drew for a meter that measures production as use.
+        const solar = one.role === "solar";
+        const figure = solar && one.returned > 0 ? one.returned : one.consumption ?? 0;
+        const returned = !solar && one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
+        // At the grid's price, hour by hour, whatever source covered it.
+        const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
+        const note = [cost, returned].filter(Boolean).join(" · ") || null;
+        return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(figure) }), caption, cost, returned].filter(Boolean).join(", "),
+          onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
+          el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(figure)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(figure) }), note ? el("small", { text: note }) : null)));
+      };
+      const shown = consumersAll ? devices : devices.slice(0, 8);
+      consumerList.replaceChildren(
+        ...wholes.map((one) => row(one, false)),
+        ...shown.map((one) => row(one, wholes.length > 0)),
+        // The rest of the home: no history of its own to open.
+        unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group", "aria-label": t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }) },
+          el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
+          el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
+        ...sources.map((one) => row(one, false)));
+      consumersMore.hidden = devices.length <= 8;
+      consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
+        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
+      // The card's figure and cost: the whole home's when a meter measures it, else the devices' together.
+      const counted = wholes.length ? wholes : devices;
+      consumers.figure.textContent = meters.length ? formatKWh(whole ?? sum(devices)) : "";
+      consumers.figure.title = wholes.length ? t("The whole home") : t("All meters together");
+      const costs = counted.filter((one) => one.cost != null);
+      consumers.detail.textContent = !meters.length ? t("Nothing measured in this period")
+        : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -1675,7 +1773,7 @@
           el("span", { text: one.from ? t("History from {name} since {date}, updated {ago}", { name: one.name, date: day(one.from), ago: HomeswiftCommon.ago(one.updated) })
             : t("History from {name}, updated {ago}", { name: one.name, ago: HomeswiftCommon.ago(one.updated) }) }));
       }));
-      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(); }, 3000);
+      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(true); }, 3000);
     }
 
     /// The period's energy as bars, oldest first: above zero where the home's energy came from (solar as it was
@@ -1693,6 +1791,8 @@
         has("homeFromGrid") ? { label: t("Home from the grid"), tone: 7, field: "homeFromGrid" } : null,
         has("homeNotSplit") ? { label: t("Home, not split by source"), tone: 8, field: "homeNotSplit" } : null,
         !has("home") && has("solar") ? { label: t("Solar produced"), tone: 4, field: "solar" } : null,
+        // Without the home's use (a grid meter alone), what the grid brought in, above the line.
+        !has("home") && has("gridImport") ? { label: t("Grid import"), tone: 7, field: "gridImport" } : null,
         has("batteryCharge") ? { label: t("Into batteries"), tone: 3, field: "batteryCharge", below: true } : null,
         has("gridExport") ? { label: t("Exported to the grid"), tone: 7, field: "gridExport", below: true } : null,
       ].filter(Boolean);
@@ -1713,7 +1813,7 @@
       else {
         days.body.replaceChildren();
         days.key = key;
-        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1,
           segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
@@ -1753,6 +1853,8 @@
         discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+        // The energy part of the bill: the grid's import at its price, less what the export was paid.
+        history.currency && sum("cost") != null ? total(null, t("Energy cost"), formatMoney(sum("cost"), history.currency), t("Import less export, without fixed charges")) : null,
       ].filter(Boolean);
       summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
         : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
@@ -1819,12 +1921,7 @@
   const narrowMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "narrow" });
   const monthYear = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
   const rangeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short" });
-  /// A local day as YYYY-MM-DD, and back (null for anything else).
-  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  function parseDay(text) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text ?? "");
-    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
-  }
+  const { isoDay, parseDay } = HomeswiftCommon;
   const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
 
   /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
@@ -1834,14 +1931,8 @@
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
-  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
-  /// (with `top`) a whole number when it is one.
-  function formatKWh(kWh, top) {
-    const size = Math.abs(kWh);
-    const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
-  }
-
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+  const formatMoney = (amount, currency) => HomeswiftCommon.money(amount, currency);
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
@@ -1904,7 +1995,7 @@
   /// plugin. A separator between groups, none around an empty one.
   function accessoryActions(accessory, arrange = []) {
     const use = [
-      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      accessory.history || accessory.consumption ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
       accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
     ];

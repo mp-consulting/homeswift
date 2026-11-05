@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftAI
 import HomeswiftNetwork
 import HomeswiftPlugin
+import Logging
 import NIOConcurrencyHelpers
 import Testing
 
@@ -275,6 +276,67 @@ struct ShellyNGTests {
         await expectEventually { !controller.isAdaptiveLightingActive }
     }
 
+    /// A device named nowhere but in the Shelly app takes the names the app keeps in Shelly Cloud, by channel; one named on
+    /// the device keeps that name.
+    @Test func anUnnamedDeviceTakesItsNameFromShellyCloud() async throws {
+        environment.add(FakeShellyNG(
+            info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM","name":null}"#,
+            status: #"{"em:0":{"id":0,"total_act_power":735.5}}"#, config: #"{"sys":{"device":{"name":null}}}"#))
+        let host = try await environment.start(settings: ["devices": [["id": "shellypro3em-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        await expectEventually { host.accessory("ShellyNG:shellypro3em-aabbccddeeff-em-0") != nil }
+        let meter = try #require(await environment.ng?.devices["shellypro3em-aabbccddeeff"])
+        let unnamed = await meter.makeAccessories(platform: ShellyNGPlugin.platform).map(\.name)
+        #expect(unnamed.count == 1 && unnamed[0].hasSuffix(" Meter 1"))
+        await meter.setCloudNames(["aabbccddeeff": "Smart Meter", "aabbccddeeff_1": "Garage"])
+        #expect(await meter.makeAccessories(platform: ShellyNGPlugin.platform).map(\.name) == ["Smart Meter"])
+    }
+
+    @Test func aDeviceNamedOnItselfKeepsItsName() async throws {
+        environment.add(plus1PM())
+        let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        await expectEventually { host.accessory(switchID) != nil }
+        let device = try #require(await environment.ng?.devices["shellyplus1pm-aabbccddeeff"])
+        await device.setCloudNames(["aabbccddeeff": "Smart Plug"])
+        #expect(await device.makeAccessories(platform: ShellyNGPlugin.platform).map(\.name) == ["Kitchen"])
+    }
+
+    /// A first import from Shelly Cloud that a restart stopped goes on from where it reached, after the days since, and
+    /// forgets where it stopped once it ends.
+    @Test func aStoppedCloudImportGoesOnFromWhereItReached() async throws {
+        environment.add(plus1PM())
+        let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        await expectEventually { host.accessory(switchID) != nil }
+        let device = try #require(await environment.ng?.devices["shellyplus1pm-aabbccddeeff"])
+        let context = try #require(host.context(platform: ShellyNGPlugin.platform, name: "Shelly"))
+        let file = context.jsonFile("shelly-cloud-history.json", as: [String: Int].self)
+        let now = Date(), day = 86_400.0
+        let key = "shellyplus1pm-aabbccddeeff/switch:0"
+        try file.save([key: Int(now.timeIntervalSince1970 - 2 * day), "\(key)#resume": Int(now.timeIntervalSince1970 - 100 * day)])
+
+        let http = environment.http
+        http.answer("/v2/users/auth/login", #"{"accessToken":"\#(cloudToken())"}"#)
+        http.answer("/v2/statistics/power-consumption", #"{"history":[]}"#)
+        let cloud = ShellyCloud(credentials: ShellyCloudCredentials(email: "me@example.com", password: "pw"), http: http, logger: Logger(label: "test"))
+        await device.importCloudHistory(cloud, id: "aabbccddeeff", delay: .zero, now: now)
+
+        let format = ShellyCloud.formatter(.current)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let asked = http.requests.filter { $0.url.path == "/v2/statistics/power-consumption" }.compactMap { request in
+            URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "date_to" }?.value.flatMap { format.date(from: $0.replacingOccurrences(of: "+", with: " ")) }
+        }
+        // The days since the last import first, then on from a day before where the first import stopped.
+        #expect(asked.first.map { calendar.isDate($0, inSameDayAs: now) } == true)
+        let resumed = now.addingTimeInterval(-101 * day)
+        #expect(asked.contains { calendar.isDate($0, inSameDayAs: resumed) })
+        #expect(!asked.contains { $0 > now.addingTimeInterval(-90 * day) && $0 < now.addingTimeInterval(-5 * day) })
+        let kept = file.load() ?? [:]
+        #expect(kept["\(key)#resume"] == nil && kept[key] != nil)
+    }
+
     @Test func aWholeHomeMeterCountsAsTheGrid() async throws {
         let device = FakeShellyNG(
             info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM"}"#,
@@ -287,6 +349,89 @@ struct ShellyNGTests {
         let meter = try #require(host.accessory(id)?.services.first { $0.type == PowerMeter.service })
         #expect(meter.characteristic(PowerMeter.consumption).value.doubleValue == 735.5)
         #expect(abs((meter.characteristic(PowerMeter.totalConsumption).value.doubleValue ?? 0) - 123.456) <= 0.051)
+
+        // Its Meter is the plugin's, suggested as the grid: exporting, the grid's power goes below zero, which the
+        // characteristic (a consumption, zero or above) cannot show.
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        defer { metrics.stop() }
+        let meterID = MeterID(accessory: id, meter: "\(PowerMeter.service.uuid)/power-meter-0")
+        await expectEventually { metrics.meterDescription(of: meterID)?.suggestedRole == .grid }
+        let series = "plugin:ShellyNG:shellypro3em-aabbccddeeff:em:0:power"
+        device.notify("NotifyStatus", #"{"em:0":{"total_act_power":-480.0}}"#)
+        await expectEventually {
+            metrics.valueHistories(from: Date().addingTimeInterval(-120), to: Date().addingTimeInterval(60), series: [series]).points[series]?.last?.values.low == -480
+        }
+        #expect(metrics.energyTags[series]?.role == .grid)
+        #expect(metrics.meters.meters == [meterID])
+    }
+
+    /// A 3EM's records (its CSV: a row of Wh a minute per phase) come into its Meter added up by hour, what it drew and
+    /// sent back, and as the grid into the Home Energy's long-term history, from the oldest record the device keeps.
+    @Test func anEnergyMetersRecordsAreImported() async throws {
+        let device = FakeShellyNG(
+            info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM"}"#,
+            status: #"{"em:0":{"id":0,"a_voltage":230.1,"total_current":3.2,"total_act_power":735.5},"emdata:0":{"id":0,"total_act":123456.0,"total_act_ret":10.0}}"#)
+        // Two minutes at the end of the hour three hours ago, two at the start of the next.
+        let hour = (Int(Date().timeIntervalSince1970) / 3600 - 3) * 3600
+        device.answer("EMData.GetRecords", #"{"data_blocks":[{"ts":\#(hour - 120),"period":60,"records":4}]}"#)
+        let header = "timestamp,a_total_act_energy,b_total_act_energy,c_total_act_energy,a_total_act_ret_energy,b_total_act_ret_energy,c_total_act_ret_energy,a_max_voltage"
+        let rows = ["\(hour - 120),1,2,3,0,0,0.5,231", "\(hour - 60),1,2,3,0,0,0.5,231", "\(hour),2,2,2,0,0,0,230", "\(hour + 60),2,2,2,0,0,0,230"]
+        environment.http.answer("/emdata/0/data.csv", ([header] + rows).joined(separator: "\n"))
+        environment.add(device)
+        let host = try await environment.start(settings: ["devices": [["id": "shellypro3em-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        defer { metrics.stop() }
+        let id = "ShellyNG:shellypro3em-aabbccddeeff-em-0"
+        let meterID = MeterID(accessory: id, meter: "\(PowerMeter.service.uuid)/power-meter-0")
+        let start = Date(timeIntervalSince1970: TimeInterval(hour - 3600))
+        await expectEventually { metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600)).count == 2 }
+        let hours = metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600))
+        #expect(hours.map(\.consumption) == [12, 12])
+        #expect(hours.map(\.returned) == [1, 0])
+        #expect(hours.allSatisfy { !$0.recorded })
+        // The grid's import and export in the Home Energy's history.
+        let imported = metrics.archive.importedHours(from: start, to: start.addingTimeInterval(3600))
+        #expect(imported.map(\.flows.gridImport) == [12, 12])
+        #expect(imported.map(\.flows.gridExport) == [1, 0])
+        #expect(environment.http.paths.contains { $0.hasPrefix("/emdata/0/data.csv?add_keys=true&ts=") })
+        await expectEventually { host.energyImportProgress.first?.state == .done }
+    }
+
+    /// A device that sums its hours (`EMData.GetNetEnergies`) gives them in pages: each phase's net energy added up, an
+    /// hour above zero drawn and one below sent back; no CSV is asked for.
+    @Test func anEnergyMetersHoursComeSummedByTheDevice() async throws {
+        let device = FakeShellyNG(
+            info: #"{"id":"shellypro3em-aabbccddeeff","mac":"AABBCCDDEEFF","model":"SPEM-003CEBEU","gen":2,"ver":"1.4.0","app":"Pro3EM"}"#,
+            status: #"{"em:0":{"id":0,"a_voltage":230.1,"total_current":3.2,"total_act_power":735.5},"emdata:0":{"id":0,"total_act":123456.0,"total_act_ret":10.0}}"#)
+        let hour = (Int(Date().timeIntervalSince1970) / 3600 - 3) * 3600
+        device.answer("EMData.GetRecords", #"{"data_blocks":[{"ts":\#(hour),"period":60,"records":120}]}"#)
+        device.answer("EMData.GetNetEnergies", #"{"keys":["a_net_act_energy","b_net_act_energy","c_net_act_energy"],"data":[{"ts":\#(hour),"period":3600,"values":[[100,200,300],[0,0,-50]]}]}"#)
+        environment.add(device)
+        let host = try await environment.start(settings: ["devices": [["id": "shellypro3em-aabbccddeeff", "hostname": "10.0.0.9"]]])
+        defer { Task { await host.stop() } }
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        defer { metrics.stop() }
+        let meterID = MeterID(accessory: "ShellyNG:shellypro3em-aabbccddeeff-em-0", meter: "\(PowerMeter.service.uuid)/power-meter-0")
+        let start = Date(timeIntervalSince1970: TimeInterval(hour))
+        await expectEventually { metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600)).count == 2 }
+        let hours = metrics.meters.hours(of: meterID, from: start, to: start.addingTimeInterval(3600))
+        #expect(hours.map(\.consumption) == [600, 0])
+        #expect(hours.map(\.returned) == [0, 50])
+        #expect(device.calls("EMData.GetNetEnergies").first?["params"]?["period"] == 3600)
+        #expect(!environment.http.paths.contains { $0.hasPrefix("/emdata/") })
+    }
+
+    /// The CSV's rows added up by hour, a row with a missing value left out.
+    @Test func recordsAddUpByHour() throws {
+        let csv = Data("timestamp,total_act_energy,total_act_ret_energy\n3600,1.5,0\n3660,2.5,1\n7200,4,\n7260,x,1\n".utf8)
+        let hours = try #require(Gen2Device.hours(csv: csv, drawn: ["total_act_energy"], back: ["total_act_ret_energy"]))
+        #expect(hours[3600]?.drawn == 4 && hours[3600]?.back == 1)
+        #expect(hours[7200]?.drawn == 4 && hours[7200]?.back == 0)
+        #expect(Gen2Device.hours(csv: Data("nothing".utf8), drawn: ["a"], back: []) == nil)
     }
 
     @Test func canonicalSettingsMoveDevicesIntoAccessorySettings() throws {
@@ -325,4 +470,10 @@ final class PressLog: Sendable {
     private let box = NIOLockedValueBox<[HAPValue]>([])
     func add(_ value: HAPValue) { box.withLockedValue { $0.append(value) } }
     var values: [HAPValue] { box.withLockedValue { $0 } }
+}
+
+/// A Shelly Cloud token (a JWT without a signature) naming the account's server, valid for an hour.
+func cloudToken() -> String {
+    let claims = #"{"user_api_url":"https://shelly-1-eu.shelly.cloud","exp":\#(Int(Date().timeIntervalSince1970) + 3600)}"#
+    return "e30." + Data(claims.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") + ".signature"
 }

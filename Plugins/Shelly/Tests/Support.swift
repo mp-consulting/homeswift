@@ -51,6 +51,8 @@ final class FakeShellyNG: Sendable {
         var connections = 0
         var reachable = true
         var nonce = 1_700_000_000
+        /// Answers to other methods, by method.
+        var answers: [String: JSONValue] = [:]
     }
 
     init(info: String, status: String, config: String = "{}", password: String? = nil) {
@@ -63,6 +65,8 @@ final class FakeShellyNG: Sendable {
     var connections: Int { state.withLockedValue { $0.connections } }
     var socket: FakeWebSocket? { state.withLockedValue { $0.sockets.last } }
     func setReachable(_ reachable: Bool) { state.withLockedValue { $0.reachable = reachable } }
+    /// What the device answers to `method` (an RPC the fake does not know otherwise).
+    func answer(_ method: String, _ result: String) { state.withLockedValue { $0.answers[method] = json(result) } }
 
     /// Frames of `method`, in order.
     func calls(_ method: String) -> [JSONValue] { frames.filter { $0["method"]?.stringValue == method } }
@@ -84,9 +88,9 @@ final class FakeShellyNG: Sendable {
     private func answer(_ frame: JSONValue) -> JSONValue {
         let id = frame["id"] ?? .null
         let method = frame["method"]?.stringValue ?? ""
-        let (password, nonce, status, config) = state.withLockedValue { state in
+        let (password, nonce, status, config, answers) = state.withLockedValue { state in
             state.frames.append(frame)
-            return (state.password, state.nonce, state.status, state.config)
+            return (state.password, state.nonce, state.status, state.config, state.answers)
         }
         func reply(_ result: JSONValue) -> JSONValue { ["id": id, "src": .string(self.id), "dst": frame["src"] ?? .null, "result": result] }
         if let password, method != "Shelly.GetDeviceInfo" {
@@ -105,7 +109,7 @@ final class FakeShellyNG: Sendable {
         case "Shelly.GetStatus": return reply(status)
         case "Shelly.GetConfig": return reply(config)
         case "Switch.Set": return reply(["was_on": false])
-        default: return reply(.null)
+        default: return reply(answers[method] ?? .null)
         }
     }
 

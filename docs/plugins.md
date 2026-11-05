@@ -153,6 +153,34 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   context.recordValue(watts, series: "\(id):solar", energy: EnergyTag(role: .solar, device: name))
   context.recordValue(load, series: "\(id):home", energy: EnergyTag(role: .home, device: name, shared: "system"))
   ```
+  A power reading with an `EnergyTag` is better declared as a Meter (below), which keeps its energy for years and lets a
+  person change its Energy Role; `EnergyTag` stays for a battery's level.
+- **Meters** (GLOSSARY.md, "Energy"; docs/adr/0004-meters-and-consumption-history.md). The bridge keeps each Meter's
+  Consumption and Returned by the hour, for years (`MeterArchive`, under `metrics/meters/`), whatever its plugin. Most
+  plugins need do nothing: every service with Eve's Total Consumption (kWh) or Current Consumption (watts) is a Meter on
+  its own, keyed by the service's type and subtype, so it is as stable as its iids. Its energy comes from the counter's
+  gains between readings (a restart loses nothing, a counter that goes back is a reset); power is counted only where
+  there is no counter. An accessory with Current Consumption and no Eve history of its plugin's also gets one from the
+  runtime (`EnergyHistory.swift`, kept under the plugin's files in `eve-energy/`), so the Eve app graphs its power; a
+  plugin that keeps its own `EveHistory` keeps it. A plugin declares a Meter itself only for readings no characteristic
+  carries: `context.meter(_:deviceID:device:suggestedRole:)` (an inverter's solar, a battery system's flows), or
+  `context.meter(of: service, accessoryID:device:suggestedRole:)` to take over a service's Meter before the accessory is
+  added (the power's sign, a counter of Returned energy, phases added up), keeping its key, history and Energy Role.
+  The `PluginMeter` takes `record(watts:)` (in `EnergyRole`'s signs: a solar array's production, a grid's import and
+  a battery's charge above zero), `record(counter:direction:)` (watt-hours, `.consumption` or `.returned`) and
+  `importHours(_:)`: `MeterHourImport`s of a device's or a cloud's past, each replacing what was imported for that hour,
+  while an hour the bridge measured keeps its own figures. `suggestedRole` is the plugin's Energy Role for it (`.grid`,
+  `.solar`, `.home`, `.battery`, nil for a single device's use); a person may change it in the accessory's settings
+  (`energyRoles` in `_accessories`, by the Meter's key: `grid`, `solar`, `home`, `battery` or `none`), live, without
+  reloading the plugin. With a role, its power counts in the Status page's Energy section and its imported hours fill
+  the Home Energy's long-term history where the bridge recorded nothing. Forget removes an accessory's Meters. Shelly's
+  energy meters (imports from the device and from Shelly Cloud) and EcoFlow's flows are examples.
+  ```swift
+  let solar = context.meter("solar", deviceID: serial, device: name, suggestedRole: .solar)
+  solar.record(watts: production)
+  solar.record(counter: producedWh, direction: .returned)
+  solar.importHours(cloudHours.map { MeterHourImport(start: $0.start, returned: $0.wattHours) })
+  ```
 - **Cameras.** `CameraController` (and `DoorbellController`) mirror HAP-NodeJS's: implement
   `CameraStreamingDelegate` (`handleSnapshotRequest`, `prepareStream`, `handleStreamRequest`, async instead of
   callbacks) and, for HomeKit Secure Video, `CameraRecordingDelegate` (`handleRecordingStreamRequest` returns an
@@ -202,6 +230,8 @@ plugins do it for their robots.
 | Accessory cache per platform instance | `~/.homeswift/accessories/<platform>-<name>.json` |
 | Plugin files | `~/.homeswift/plugins/<platform>-<name>/` |
 | Controller states (Adaptive Lighting, cameras) per platform instance | `~/.homeswift/controllers/<platform>-<name>.json` |
+| Each Meter's hourly Consumption and Returned | `~/.homeswift/metrics/meters/<Meter id in base64url>/` (`meter.json`, a file per UTC year: `2026.json`) |
+| The Eve energy histories the runtime keeps | `~/.homeswift/plugins/<platform>-<name>/eve-energy/<accessory id in base64url>.json` |
 
 **config.json** has Homebridge's shape:
 
@@ -376,8 +406,8 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   Authorization is what tells it (a TV's MAC, read once paired). Credentials kept means Authorized: keep none for an
   account or a device that is not, or answer `accountAuthorized()` when the plugin keeps its tokens itself.
 - **Accessory Settings** live in the block's `_accessories`, by Device Id (docs/adr/0001-canonical-accessory-settings.md):
-  the Core ones for every plugin (`name`, `room`, `hidden`, `notInHome`, `excluded`, `parts`; the plugin sees `excluded`
-  and `parts`, the others apply without it), the rest the plugin's own, declared in its schema's `accessorySchema`
+  the Core ones for every plugin (`name`, `room`, `hidden`, `notInHome`, `excluded`, `parts`, `energyRoles`; the plugin
+  sees `excluded` and `parts`, the others apply without it), the rest the plugin's own, declared in its schema's `accessorySchema`
   ([Settings](#settings)) and read with `context.accessorySettings(for:)` and `decode`. An
   Excluded device is never an accessory: the runtime refuses its `add` and takes it off the bridge, and the plugin should
   stop polling it (`context.isExcluded`). A Homebridge-shaped block (a `devices` list, exclude lists) still loads: read

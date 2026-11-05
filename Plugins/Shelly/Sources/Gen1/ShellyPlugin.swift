@@ -280,26 +280,38 @@ public actor ShellyPlugin: HomeswiftPlugin {
             && accessory.id.hasPrefix("\(Self.platform):\(device.model.name) ") {
             try? await context.remove(id: accessory.id)
         }
+        // Before the accessories go on the bridge: the bridge never reads the meter the plugin takes over.
+        await recordEnergy(device, made: made, name: made.first?.accessory.name ?? device.label)
         for item in made {
             if let cached = context.accessory(id: item.accessory.id) { item.accessory.takeValues(from: cached) }
             do { try context.add(item.accessory) } catch { logger.error("Failed to add device \(device.label): \(error)") }
         }
         built[key] = made
-        await recordEnergy(device, name: made.first?.accessory.name ?? device.label)
         return made.count
     }
 
-    /// The EM's and 3EM's power counts as the grid on the Status page's Energy section (a whole home's meter).
-    private func recordEnergy(_ device: Gen1Device, name: String) async {
-        let phases: [String] = switch device.model.id {
-        case "SHEM-3": ["power0", "power1", "power2"]
-        case "SHEM": ["power0"]
+    /// The EM's and 3EM's power meter is the plugin's Meter: its phases added up (the service shows the first alone),
+    /// with the energy each counted and sent back (CoIoT's counters, in Wh), suggested as the grid (a whole home's
+    /// meter); the series keeps the name it had when the plugin recorded the power itself.
+    private func recordEnergy(_ device: Gen1Device, made: [Gen1Builder.Built], name: String) async {
+        let phases: [Int] = switch device.model.id {
+        case "SHEM-3": [0, 1, 2]
+        case "SHEM": [0]
         default: []
         }
-        guard !phases.isEmpty else { return }
-        let context = context, series = "\(device.deviceID):grid", tag = EnergyTag(role: .grid, device: name)
-        await device.observe(Set(phases)) { values in
-            context.recordValue(phases.reduce(0) { $0 + (values[$1]?.number ?? 0) }, series: series, energy: tag)
+        guard !phases.isEmpty,
+              let item = made.first(where: { $0.accessory.services.contains { $0.type.uuid == PowerMeter.service.uuid } }),
+              let service = item.accessory.services.first(where: { $0.type.uuid == PowerMeter.service.uuid }) else { return }
+        let meter = context.meter(of: service, accessoryID: item.accessory.id, device: name, suggestedRole: .grid, series: "\(device.deviceID):grid")
+        let power = phases.map { "power\($0)" }, drawn = phases.map { "energyCounter\($0)" }, back = phases.map { "energyReturned\($0)" }
+        let sum: @Sendable ([String], [String: JSONValue]) -> Double? = { names, values in
+            let known = names.compactMap { values[$0]?.number }
+            return known.count == names.count ? known.reduce(0, +) : nil
+        }
+        await device.observe(Set(power + drawn + back)) { values in
+            if let watts = sum(power, values) { meter.record(watts: watts) }
+            if let wattHours = sum(drawn, values) { meter.record(counter: wattHours) }
+            if let wattHours = sum(back, values) { meter.record(counter: wattHours, direction: .returned) }
         }
     }
 

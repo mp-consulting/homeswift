@@ -27,8 +27,20 @@ Each family runs only when its block is there: a `ShellyNG` block alone does not
   (single, double and long press), the others read-only Switches `<deviceId>-switchN`.
 - Beyond the original: `light:N` (white dimmers) are Lightbulbs with Brightness; `rgb:N` and `rgbw:N` add Hue and
   Saturation; `cct:N` adds Color Temperature and Adaptive Lighting; `em:N`, `em1:N` and `pm1:N` (Pro 3EM, Pro EM, PM
-  Mini) are Power Meters. A whole home's meter (an `em`, or the first `em1`) counts as the grid on the Status page's
-  Energy section; plugs and relays do not. Models the original did not know (Plus Plug S, Gen3, Gen4…) are mapped from
+  Mini) are Power Meters. Every metered component is a Meter whose Consumption the bridge keeps by the hour for years;
+  an `em` or `em1` also keeps what it sent back (Returned), and a whole home's meter (an `em`, or the first `em1`) is
+  suggested as the grid on the Status page's Energy section. Each Meter's Energy Role can be changed in its accessory's
+  settings (a Pro EM's second clamp on the solar, say). The weeks of per-minute records an `em` or `em1` keeps
+  are imported into its Meter by the hour as it connects: summed by the device (`EMData.GetNetEnergies`, net of what
+  was sent back, months in seconds), else a day at a time from its CSV; then on from where the last import stopped.
+  Every metered component (plugs and relays too) records the device's own watt-hours, with what it sent back. A plug
+  or relay keeps no records: with the optional Shelly Cloud account (Setup: the Shelly app's email and password, kept in
+  the vault), the history the Shelly app shows is imported, a day a request, as the app's web view gets it (its sign-in at
+  `api2.shelly.cloud`, then `/v2/statistics/power-consumption` on the account's server), which Shelly does not document
+  and may change. The same account names the devices named only in the Shelly app, which keeps those names in the
+  cloud (the device's own name stays empty): each channel takes the app's name for it (`/interface/device/get_all_lists`,
+  read once at start), unless the block or the device names it.
+  Models the original did not know (Plus Plug S, Gen3, Gen4…) are mapped from
   the components their status lists.
 
 **Gen 1**, as homebridge-shelly has them: relays as switches (or `outlet`, `valve`, `contactSensor`, `motionSensor`,
@@ -36,7 +48,8 @@ Each family runs only when its block is there: a `ShellyNG` block alone does not
 `window`, `door`, `garageDoorOpener`); dimmers and the RGBW2's white channels as Lightbulbs; the Duo with Color
 Temperature and Adaptive Lighting; the Bulbs and the RGBW2 in colour mode with Hue and Saturation (`colorMode` `rgbw` or
 `rgb`); Button1 and i3 as Stateless Programmable Switches; the sensors with their Contact, Motion, Leak, Smoke,
-Temperature, Humidity, Light, Tilt and Battery services. An EM's or 3EM's power counts as the grid on the Energy section.
+Temperature, Humidity, Light, Tilt and Battery services. An EM's or 3EM's power meter is one Meter for the whole device
+(its phases added up, with the energy counted and sent back), suggested as the grid on the Energy section.
 
 Accessory ids keep the Homebridge plugins' seeds, so a device keeps its identity: `ShellyNG:<deviceId>-<accessory>`
 (`ShellyNG:shellyplus1pm-aabbccddeeff-switch`) and `Shelly:<model name> <device id>[ #<index>]`

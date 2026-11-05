@@ -188,11 +188,11 @@ struct EnergyArchiveTests {
 
     @Test func importsMadeBeforeAnyoneFollowsArriveLater() {
         let feed = EnergyImportFeed()
-        feed.publish("Cloud", [EnergyHourImport(start: hour, flows: EnergyFlows(solar: 1))])
+        feed.publish(EnergyImport(source: "Cloud", hours: [EnergyHourImport(start: hour, flows: EnergyFlows(solar: 1))]))
         let seen = NIOLockedValueBox<[String]>([])
-        let observation = feed.add { source, hours in seen.withLockedValue { $0.append("\(source):\(hours.count)") } }
+        let observation = feed.add { imported in seen.withLockedValue { $0.append("\(imported.source):\(imported.hours.count)") } }
         defer { observation.cancel() }
-        feed.publish("Cloud", [])
+        feed.publish(EnergyImport(source: "Cloud", hours: []))
         #expect(seen.withLockedValue { $0 } == ["Cloud:1", "Cloud:0"])
     }
 }

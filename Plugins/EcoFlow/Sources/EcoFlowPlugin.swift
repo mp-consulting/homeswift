@@ -111,7 +111,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// The page's order, each serial number's place, read from `orderFile` once and kept as it is saved.
     private var orderPlaces: [String: Int]?
     /// Each device's `recorded` series, with the name and route they were made for.
-    private var recordedSeries: [String: (name: String, route: EcoFlowModel.Route, keys: [String: (series: RecordedSeries, tag: EnergyTag?)])] = [:]
+    private var recordedSeries: [String: (name: String, route: EcoFlowModel.Route, keys: [String: Recorded])] = [:]
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -333,12 +333,14 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         // The history: each online device's readings, for the Status page's graphs (a minute keeps their range).
         for device in reported where device.online {
             for (key, value) in device.series {
-                let recorded = recorded(device, key)
-                context.recordValue(value, series: recorded.series, energy: recorded.tag)
+                switch recorded(device, key) {
+                // A home system's flow is a Meter, in `EnergyRole`'s signs as EcoFlow reports them.
+                case let .meter(meter): meter.record(watts: value)
+                case let .series(series, tag): context.recordValue(value, series: series, energy: tag)
+                }
             }
-            if device.state.knowsBatteryLevel {
-                let recorded = recorded(device, "level")
-                context.recordValue(Double(device.state.battery.batteryLevel), series: recorded.series, energy: recorded.tag)
+            if device.state.knowsBatteryLevel, case let .series(series, tag) = recorded(device, "level") {
+                context.recordValue(Double(device.state.battery.batteryLevel), series: series, energy: tag)
             }
         }
         for device in reported {
@@ -359,17 +361,31 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         // TODO: once a device is known to be gone, `context.removeAccessories(keeping:)` drops its accessory.
     }
 
-    /// A reading's series, named once, and its energy tag: a refresh records some thirty readings every few seconds.
-    /// A device's are made again when its name or route changes (the tags carry the name).
-    private func recorded(_ device: EcoFlowDevice, _ key: String) -> (series: RecordedSeries, tag: EnergyTag?) {
+    /// Where a reading goes: a Meter (a home system's flow, with its Energy Role) or a plain series (a station's port,
+    /// the battery's level).
+    enum Recorded {
+        case meter(PluginMeter)
+        case series(RecordedSeries, EnergyTag?)
+    }
+
+    /// A reading's Meter or series, made once: a refresh records some thirty readings every few seconds. A device's
+    /// are made again when its name or route changes (the tags carry the name). A Meter keeps the series name the
+    /// reading had before it was one, so the Status page's history carries on.
+    private func recorded(_ device: EcoFlowDevice, _ key: String) -> Recorded {
         if let known = recordedSeries[device.id], known.name == device.name, known.route == device.route, let recorded = known.keys[key] {
             return recorded
         }
         if recordedSeries[device.id]?.name != device.name || recordedSeries[device.id]?.route != device.route {
             recordedSeries[device.id] = (device.name, device.route, [:])
         }
-        let tag = key == "level" ? EnergyTag(role: .batteryLevel, device: device.name) : device.energyTag(key)
-        let recorded = (series: context.series("\(device.id):\(key)"), tag: tag)
+        let recorded: Recorded
+        if key == "level" {
+            recorded = .series(context.series("\(device.id):\(key)"), EnergyTag(role: .batteryLevel, device: device.name))
+        } else if let tag = device.energyTag(key) {
+            recorded = .meter(context.meter(key, deviceID: device.id, device: device.name, suggestedRole: tag.role, shared: tag.shared))
+        } else {
+            recorded = .series(context.series("\(device.id):\(key)"), nil)
+        }
         recordedSeries[device.id]?.keys[key] = recorded
         return recorded
     }

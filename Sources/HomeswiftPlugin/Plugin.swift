@@ -414,6 +414,8 @@ public final class PluginContext: @unchecked Sendable {
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
     private let energyImportSink: @Sendable ([EnergyHourImport]) -> Void
     private let energyProgressSink: @Sendable (EnergyImportProgress) -> Void
+    /// Where the readings of the Meters it declares go (`meter(_:deviceID:device:suggestedRole:)`).
+    let meterSink: @Sendable (MeterReading) -> Void
 
     /// Records a reading for the Status page's history: a minute keeps the count, sum, lowest and highest of each
     /// series. The series is `plugin:<platform>:<series>`, so two plugins cannot collide. Cheap; call it per reading.
@@ -464,6 +466,8 @@ public final class PluginContext: @unchecked Sendable {
     /// Saves the stores `persistedDictionary` made that are still alive: the runtime runs them when the plugin stops, so
     /// a restart within a store's autosave delay keeps its last change.
     let storeFlushes = NIOLockedValueBox<[(isAlive: @Sendable () -> Bool, flush: @Sendable () -> Void)]>([])
+    /// The Eve energy histories the runtime keeps for its accessories (`attachEnergyHistory`), by accessory id.
+    let energyHistories = NIOLockedValueBox<[String: EveHistory]>([:])
     /// Where the due saves run, one at a time.
     private let cacheQueue = DispatchQueue(label: "homeswift.accessory-cache", qos: .utility)
 
@@ -492,9 +496,11 @@ public final class PluginContext: @unchecked Sendable {
         vaultStorage: URL, assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
         recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
         energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
-        energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in }
+        energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in },
+        meterSink: @escaping @Sendable (MeterReading) -> Void = { _ in }
     ) {
         self.energyProgressSink = energyProgressSink
+        self.meterSink = meterSink
         self.recordSink = recordSink
         self.energyImportSink = energyImportSink
         self.assistantBackground = assistantBackground
@@ -603,6 +609,7 @@ public final class PluginContext: @unchecked Sendable {
             _ = list.withLockedValue { $0.external.remove(accessory.id) }
         }
         naming.apply(to: accessory)
+        attachEnergyHistory(to: accessory)
         try bridge.server.add(accessory)
         list.withLockedValue { $0.put(accessory) }
         scheduleCacheSave()
@@ -802,4 +809,33 @@ public final class PluginContext: @unchecked Sendable {
 /// A series of readings with its full name made once (`PluginContext.series(_:)`).
 public struct RecordedSeries: Sendable, Hashable {
     let name: String
+}
+
+/// What a Meter is to the Home Energy: the name the Status page shows it by, its plugin's suggested Energy Role, the
+/// figure several devices report alike (`EnergyTag.shared`), and the series its power is recorded as.
+public struct MeterDescription: Sendable, Equatable {
+    public var device: String
+    public var suggestedRole: EnergyRole?
+    public var shared: String?
+    public var series: String
+
+    public init(device: String, suggestedRole: EnergyRole? = nil, shared: String? = nil, series: String) {
+        self.device = device
+        self.suggestedRole = suggestedRole.flatMap { $0.isPower ? $0 : nil }
+        self.shared = shared
+        self.series = series
+    }
+}
+
+/// A reading of a Meter a plugin declared, on its way to the metrics store.
+public enum MeterReading: Sendable, Equatable {
+    /// A counter, in watt-hours, and when it was read.
+    case counter(MeterID, Double, MeterDirection, Date)
+    /// Power, in watts (above zero drawn, below zero sent back or produced), when it was read, and what the Meter is.
+    case power(MeterID, Double, Date, MeterDescription)
+    /// Hours of the Meter's past from the device or its cloud (`PluginMeter.importHours`), and what the Meter is.
+    case history(MeterID, [MeterHourImport], MeterDescription)
+    /// A plugin takes over a service's Meter (`PluginContext.meter(of:accessoryID:…)`): the bridge stops reading it from
+    /// the service's Total Consumption and Current Consumption.
+    case claim(MeterID)
 }

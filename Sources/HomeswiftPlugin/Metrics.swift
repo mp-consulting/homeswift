@@ -16,7 +16,9 @@ import Darwin
 /// per day under `directory` (`metrics-20261023.jsonl`, the day in UTC, a JSON object per line, owner-only),
 /// which is read back at start; minutes and files older than `days` go. The roles plugins give their readings for
 /// the Energy section (`EnergyTag`) are kept in `energy-tags.json` beside them, and the energy of each hour, for years,
-/// in the archive (`EnergyArchive`, `energy-hours.json`): each closed minute adds to its hour.
+/// in the archive (`EnergyArchive`, `energy-hours.json`): each closed minute adds to its hour. Each Meter's energy by
+/// the hour is in `meters` (`MeterArchive`, under `meters/`), which it records from every accessory's Total Consumption
+/// and Current Consumption (`Metrics+Meters.swift`).
 public final class Metrics: @unchecked Sendable {
     /// The calls of one series in a span: how many, their total and the longest, in milliseconds.
     public struct Durations: Sendable, Equatable {
@@ -123,6 +125,10 @@ public final class Metrics: @unchecked Sendable {
     public let directory: URL?
     /// Each hour's energy, for years: the bridge's own minutes and plugins' imports.
     public let archive: EnergyArchive
+    /// Each Meter's Consumption and Returned by the hour, for years.
+    public let meters: MeterArchive
+    /// What each Meter with power is to the Home Energy, as its last reading said (`MeterDescription`).
+    let meterDescriptions = NIOLockedValueBox<[MeterID: MeterDescription]>([:])
     public let days: Int
     public let interval: Duration
 
@@ -143,7 +149,7 @@ public final class Metrics: @unchecked Sendable {
     }
 
     private let state = NIOLockedValueBox(State())
-    private let queue = DispatchQueue(label: "homeswift.metrics")
+    let queue = DispatchQueue(label: "homeswift.metrics")
     let now: @Sendable () -> Date
     static let tagsName = "energy-tags.json"
 
@@ -164,6 +170,7 @@ public final class Metrics: @unchecked Sendable {
         // The hours the kept minutes cover whole are made again from them: a minute counted before a restart is not
         // counted twice, and one the archive missed (a crash before its write) is back.
         archive = EnergyArchive(url: directory?.appendingPathComponent(EnergyArchive.fileName))
+        meters = MeterArchive(directory: directory?.appendingPathComponent("meters", isDirectory: true), now: now)
         state.withLockedValue { Self.rebuild(archive, from: &$0) }
     }
 
@@ -183,7 +190,8 @@ public final class Metrics: @unchecked Sendable {
         let timings = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
         let readings = host.observeReadings { [weak self] series, value, tag in self?.record(value, series: series, tag: tag) }
         let imports = host.observeEnergyImports { [archive] source, hours in archive.importHours(hours, source: source) }
-        let observation = Observation { timings.cancel(); readings.cancel(); imports.cancel() }
+        let meters = followMeters(of: host)
+        let observation = Observation { timings.cancel(); readings.cancel(); imports.cancel(); meters.cancel() }
         let interval = interval
         // The first sample before returning, so the Status page has memory and CPU from the start.
         sample()
@@ -211,6 +219,8 @@ public final class Metrics: @unchecked Sendable {
         if let closed { persist(closed) }
         queue.sync {}
         archive.flush()
+        meters.advance()
+        meters.flush()
     }
 
     /// The latest sample: memory in bytes, CPU in percent of one core.
@@ -256,6 +266,7 @@ public final class Metrics: @unchecked Sendable {
             return closed
         }
         if let closed { persist(closed) }
+        meters.advance()
     }
 
     /// Records a reading of a value series, into the minute under way. A minute keeps the count, sum, lowest and

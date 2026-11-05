@@ -73,6 +73,8 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
     private let tasks = TaskBag()
     private(set) var browsing = false
     private var stopped = false
+    /// The names the Shelly app gave the devices in Shelly Cloud, read once for every device (empty without an account).
+    private var cloudNames: Task<[String: String], Never>?
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -231,7 +233,11 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
             let status = try await rpc.call("Shelly.GetStatus")
             let config = try await rpc.call("Shelly.GetConfig")
             let device = Gen2Device(deviceID: id, rpc: rpc, info: info, status: status, config: config, options: options, context: context,
-                                    logger: deviceLogger, writeDelay: dependencies.writeDelay)
+                                    logger: deviceLogger, writeDelay: dependencies.writeDelay, http: dependencies.http, password: password)
+            if let cloud {
+                if cloudNames == nil { cloudNames = Task { await cloud.deviceNames() } }
+                await device.setCloudNames(await cloudNames?.value ?? [:])
+            }
             let accessories = Gen2Models.unsupported.contains(model.uppercased()) ? [] : await device.makeAccessories(platform: Self.platform)
             guard !accessories.isEmpty else {
                 ignored.insert(id)
@@ -260,6 +266,7 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
             }
             devices[id] = device
             await device.watch()
+            if let cloud { await device.startCloudImport(cloud, delay: .milliseconds(Int(1100 * dependencies.timeScale))) }
             saveCache(id: id, model: model, host: host)
             let name = await device.baseName
             logger.info("[\(name)] Device added")

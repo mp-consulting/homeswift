@@ -276,6 +276,28 @@ header nav a svg { display: none; }
 .settings-head .tools { margin-left: auto; }
 .form-card { margin: 0; }
 .form-card > .server-head { margin-bottom: var(--space-14); }
+/* The Tariff's prices: a row per period, its name, times, days and price, with the way to remove it. */
+.tariff-card { margin-top: var(--space-14); }
+.tariff-periods { display: grid; gap: var(--space-8); }
+.tariff-period { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 0.9fr) 36px; gap: var(--space-8); align-items: center; }
+.tariff-period > * { min-width: 0; }
+.tariff-period .icon-button { width: 36px; height: 36px; min-height: 36px; }
+.tariff-period-head { font-size: var(--text-xs); color: var(--muted); }
+/* Dates, times, numbers and text the same height (a date or time field is taller by itself). */
+.tariff-card input, .tariff-card select { box-sizing: border-box; height: 42px; }
+.tariff-card .actions.start { justify-content: flex-start; }
+.tariff-earlier { margin: var(--space-8) 0 0; padding-left: var(--space-18); color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 640px) {
+  /* Three lines a period: its name, then its times, then its days and price. */
+  .tariff-period { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; padding-bottom: var(--space-8); border-bottom: 1px solid var(--line); }
+  .tariff-period > :nth-child(1) { grid-column: 1 / 3; grid-row: 1; }
+  .tariff-period > :nth-child(2) { grid-column: 1; grid-row: 2; }
+  .tariff-period > :nth-child(3) { grid-column: 2; grid-row: 2; }
+  .tariff-period > :nth-child(4) { grid-column: 1; grid-row: 3; }
+  .tariff-period > :nth-child(5) { grid-column: 2; grid-row: 3; }
+  .tariff-period .icon-button { grid-column: 3; grid-row: 1; width: 40px; height: 40px; min-height: 40px; }
+  .tariff-period-head { display: none; }
+}
 .page-note { display: flex; align-items: center; gap: var(--space-14); justify-content: space-between; margin: 0 0 var(--space-14); padding: var(--space-12) var(--space-16) var(--space-12) var(--space-18); }
 .page-note p { margin: 0; font-size: var(--text-md); }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
@@ -1563,7 +1585,51 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .tick.current { fill: var(--text); font-weight: var(--weight-figure); }
 .energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .energy-days .chart-table { margin-top: 0; }
+/* The period over the energy by day and the consumption by device. */
+.energy > .energy-history-bar { margin-top: var(--space-14); }
+/* The consumption by device: a row per meter, its name, a bar of its share of the most any used, and its kWh. The row
+   opens the device's history. */
+.consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) 9.5rem auto; align-items: center; gap: var(--space-12);
+  padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left;
+  cursor: pointer; min-height: 40px; }
+.consumer:hover { background: var(--material-thin); }
+.consumer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Its chart icon last, quiet: the row opens the history. */
+.consumer.action-with-icon::before { order: 4; color: var(--muted); }
+.consumer-name { display: grid; min-width: 0; }
+.consumer-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-name > small { font-size: var(--text-2xs); color: var(--muted); }
+/* A device inside the whole home: its name set in under the home's, with a quiet rule down its left; the bars stay in
+   one column, so the shares read against the home's. */
+.consumer.nested { position: relative; }
+.consumer.nested .consumer-name { padding-left: var(--space-16); }
+.consumer.nested::after { content: ""; position: absolute; left: calc(var(--space-10) + 3px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
+/* What no meter measures: the rest of the home, muted, no history to open. */
+.consumer.rest { cursor: default; color: var(--muted); }
+.consumer.rest:hover { background: none; }
+.consumer.rest .consumer-track i { background: var(--muted); opacity: 0.45; }
+.consumer-spacer { order: 4; width: 16px; }
+.consumer-track { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.consumer-track i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); transition: width var(--normal) var(--ease-out); }
+.consumer-value { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
+.consumer-value b { font-weight: var(--weight-semibold); white-space: nowrap; }
+/* The value column one width on every row, so the bars line up; a long note (a cost and what was returned) wraps. */
+.consumer-value small { font-size: var(--text-2xs); color: var(--muted); text-align: end; }
+.consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
+.consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 640px) {
+  /* The name over its bar, the figure beside them. */
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) 7.5rem auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
+  .consumer-spacer { grid-area: icon; }
+  .consumer-name { grid-area: name; }
+  .consumer-track { grid-area: track; }
+  .consumer-value { grid-area: value; }
+  .consumer.action-with-icon::before { grid-area: icon; }
+}
 .energy-days .chart-table thead th.time { text-align: left; }
+/* The History sheet's note under its charts, apart from them. */
+.admin-dialog .chart-grid + p { margin-top: var(--space-14); }
 .chart-card { margin: 0; display: grid; gap: var(--space-10); align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
 .chart-head .muted { font-size: var(--text-sm); }
@@ -3010,6 +3076,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
+  /* The History sheet's periods and Clear filters on one row: the button round, its icon alone. */
+  .admin-dialog .page-head .tools { flex-wrap: nowrap; }
+  .admin-dialog .page-head .tools .clear-filters { flex: none; width: 40px; height: 40px; min-height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%; }
   .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

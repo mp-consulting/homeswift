@@ -36,6 +36,8 @@ extension HomeswiftCatalog {
         "notInHome": ["type": "boolean", "description": "Not in Home: on the bridge and the wall, but left out of Apple Home, which loses its room, scenes and automations"],
         "excluded": ["type": "boolean", "description": "Excluded: its plugin does not make the device into an accessory at all; the plugin reloads"],
         "parts": ["type": "object", "additionalProperties": ["type": "boolean"], "description": "The Parts of the device included (true) or left out (false), by the plugin's part id; the plugin reloads"],
+        "energyRoles": ["type": "object", "additionalProperties": ["type": ["string", "null"], "enum": ["solar", "home", "grid", "battery", "none", .null]],
+                        "description": "The Energy Role of each of its Meters in the Home Energy, by the Meter's key (get_settings' meters): solar, home, grid, battery, or none for a single device's use; null gives back its plugin's suggestion"],
     ]
 
     /// The Device Kinds a field is for (`x-kinds`); nil for every kind.
@@ -113,6 +115,10 @@ extension HomeswiftCatalog {
             case "parts":
                 if value.objectValue?.values.allSatisfy({ $0.boolValue != nil }) != true {
                     problems.append(.init(path: at, message: "must be an object of true or false by part"))
+                }
+            case "energyRoles":
+                if value.objectValue?.values.allSatisfy({ $0.isNull || $0.stringValue.map(AccessorySettings.energyRoleChoices.contains) == true }) != true {
+                    problems.append(.init(path: at, message: "must be an object of solar, home, grid, battery or none by Meter"))
                 }
             default:
                 guard let field = fields[key] else {
@@ -244,6 +250,17 @@ extension HomeswiftCatalog {
         ]
         if let located = target.located { answer["name"] = .string(located.accessory.name) }
         if let source = target.located?.accessory.mirroredFrom { answer["mirroredFrom"] = .string(source) }
+        // Its Meters, for `energyRoles`: each one's key, its own name on a device with several, and its plugin's suggestion.
+        let meters = metrics?.meters.meters(of: target.accessoryID) ?? []
+        // Energy Roles only for an accessory with Meters (one that has a role saved keeps the field, to clear it).
+        if meters.isEmpty, (answer["settings"]?["energyRoles"]).map({ $0.isNull }) ?? true { fields.removeValue(forKey: "energyRoles"); answer["fields"] = .object(fields) }
+        if !meters.isEmpty {
+            answer["meters"] = .array(meters.map { id in
+                var meter: [String: JSONValue] = ["key": .string(id.meter), "suggestedRole": metrics?.meterDescription(of: id)?.suggestedRole.map { .string($0.rawValue) } ?? .null]
+                if meters.count > 1, let located = target.located { meter["label"] = .string(Self.meterLabel(id, of: located.accessory)) }
+                return .object(meter)
+            })
+        }
         return .object(answer)
     }
 
@@ -468,7 +485,7 @@ extension HomeswiftCatalog {
                 } else {
                     entry.removeValue(forKey: key)
                 }
-                if key == "parts", entry["parts"]?.objectValue?.isEmpty == true { entry.removeValue(forKey: "parts") }
+                if key == "parts" || key == "energyRoles", entry[key]?.objectValue?.isEmpty == true { entry.removeValue(forKey: key) }
                 entries[entryKey] = .object(entry)
             }
             entries = entries.filter { $0.value.objectValue?.isEmpty != true }
@@ -669,12 +686,14 @@ extension HomeswiftCatalog {
         }.keys
         let context = host.context(platform: target.platform, name: target.instance)
         let hadCredentials = credentialsGone || context?.haveCredentials([target.deviceKey]).isEmpty == false
+        let hadHistory = metrics?.meters.hasHistory(accessory: target.accessoryID) ?? false
         var answer: [String: JSONValue] = [
             "accessory": .string(target.accessoryID), "platform": .string(target.platform), "instance": .string(target.instance),
             "deviceID": .string(target.deviceKey), "settingsDropped": .array(dropped.map(JSONValue.string)), "credentialsDropped": .bool(hadCredentials),
+            "historyDropped": .bool(hadHistory),
         ]
-        guard dropped.isEmpty == false || hadCredentials || !legacy.isEmpty else {
-            answer["note"] = .string("Nothing to forget: \(target.displayName) has no Authorization or Accessory Settings.")
+        guard dropped.isEmpty == false || hadCredentials || hadHistory || !legacy.isEmpty else {
+            answer["note"] = .string("Nothing to forget: \(target.displayName) has no Authorization, Accessory Settings or energy history.")
             answer["reloaded"] = []
             if dryRun { answer["dryRun"] = true }
             return .object(answer)
@@ -696,6 +715,8 @@ extension HomeswiftCatalog {
             let applied = try await applyConfig(next, dryRun: false, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
             Self.copyApplied(applied, into: &answer)
         }
+        // Its Meters' history goes with it (docs/adr/0004-meters-and-consumption-history.md).
+        if hadHistory { metrics?.meters.forget(accessory: target.accessoryID) }
         // Its plugin reloads without it, even when what it reads did not change (a device with live settings only).
         let restarted = ((answer["reloaded"]?.arrayValue ?? []) + (answer["started"]?.arrayValue ?? [])).contains(.string(target.instance))
         if !restarted {
@@ -749,7 +770,7 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "get_settings", title: "Read settings",
                 description: "The settings of an accessory (accessory: its Accessory Id) or of a plugin instance (plugin), with what each is. "
-                    + "For an accessory: settings, its current Accessory Settings (Core: name, room, hidden, notInHome, excluded, parts; and the plugin's own), "
+                    + "For an accessory: settings, its current Accessory Settings (Core: name, room, hidden, notInHome, excluded, parts, energyRoles; and the plugin's own), meters (each Meter's key, label and suggestedRole, for energyRoles), "
                     + "and fields, each with its JSON schema, core true or false, and default {setting, value} when a Plugin Setting gives it a plugin-wide default "
                     + "that the accessory's own value overrules; kind is its Device Kind, which decides the plugin's fields. "
                     + "For a plugin: settings, its Plugin Settings (secrets as __SECRET_…__ handles), its schema and accessorySchema. Change them with update_settings.",

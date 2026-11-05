@@ -124,4 +124,81 @@ struct MetricsTests {
         metrics.stop()
         await host.stop()
     }
+
+    /// An accessory's Total Consumption is a Meter the bridge records with no code of its plugin's: its counter as it
+    /// stands at start, then each change, by the hour.
+    @Test func recordsMetersFromTotalConsumption() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs", "meters": ["plug-1"] }] }"#)
+        try await host.start()
+        let plug = try #require(host.mainBridge.server.accessories.last)
+        let service = try #require(plug.service(.outlet))
+        let total = try #require(service[EveCharacteristic.totalConsumption])
+        let clock = NIOLockedValueBox(Date())
+        let metrics = Metrics(directory: nil, interval: .seconds(60), now: { clock.withLockedValue { $0 } })
+        metrics.start(following: host)
+        let id = MeterID(accessory: "Recording:plug-1", meter: "\(service.type.uuid)/")
+        #expect(metrics.meters.meters == [id])
+
+        // A quarter of a kWh over the next half hour.
+        let start = clock.withLockedValue { $0 }
+        clock.withLockedValue { $0 = start.addingTimeInterval(1800) }
+        total.value = .double(2.25)
+        let hours = metrics.meters.hours(of: id, from: start.addingTimeInterval(-3600), to: start.addingTimeInterval(3600))
+        #expect(abs(hours.reduce(0) { $0 + ($1.consumption ?? 0) } - 250) < 1e-6)
+        #expect(hours.allSatisfy { $0.recorded })
+        metrics.stop()
+        await host.stop()
+    }
+
+    /// A Meter a plugin declares: its counters reach the Meters, and its power the Home Energy with `EnergyRole`'s
+    /// signs (solar produced is above zero there, Returned on the Meter).
+    @Test func recordsTheMetersAPluginDeclares() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Roof", "solar": 800 }] }"#)
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        try await host.start()
+        let id = MeterID(accessory: "Recording:roof", meter: "solar")
+        #expect(metrics.meters.meters == [id])
+        // Its 800 W of solar, produced: Returned on the Meter, held for an hour.
+        let now = Date()
+        metrics.meters.advance(to: now.addingTimeInterval(3600))
+        let hours = metrics.meters.hours(of: id, from: now.addingTimeInterval(-3600), to: now.addingTimeInterval(7200))
+        #expect(abs(hours.reduce(0) { $0 + ($1.returned ?? 0) } - 800) < 1)
+        #expect(metrics.energyTags["plugin:Recording:roof:solar"] == EnergyTag(role: .solar, device: "Roof"))
+        let solar = metrics.valueMinutes(from: now.addingTimeInterval(-120), to: now.addingTimeInterval(60), series: ["plugin:Recording:roof:solar"])
+        #expect(solar.last?.values["plugin:Recording:roof:solar"]?.average == 800)
+        metrics.stop()
+        await host.stop()
+    }
+
+    /// A Meter's power counts in the Home Energy under the Energy Role a person gave it, live, else its plugin's
+    /// suggestion; a role other than the suggestion is a series of its own, and none counts nothing.
+    @Test func homeEnergyFollowsEachMetersRole() async throws {
+        let environment = TestEnvironment()
+        let outlet = "\(ServiceType.outlet.uuid)/"
+        let config = #"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs", "meters": ["plug-1"], "solarMeter": true, "_accessories": { "plug-1": { "energyRoles": { "OUTLET": "grid" } }, "array": { "energyRoles": { "solar": "none" } } } }] }"#
+            .replacingOccurrences(of: "OUTLET", with: outlet)
+        let host = try environment.host(config)
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        try await host.start()
+        let plugin = try #require(environment.createdPlugins.last)
+        #expect(host.energyRole(of: MeterID(accessory: "Recording:plug-1", meter: outlet)) == .some(.grid))
+        #expect(host.energyRole(of: MeterID(accessory: "Recording:array", meter: "solar")) == .some(nil))
+        #expect(host.energyRole(of: MeterID(accessory: "Recording:plug-9", meter: outlet)) == nil)
+
+        // The plug, a grid meter by its settings: its power is the grid's.
+        let plug = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:plug-1" })
+        plug.service(.outlet)?[EveCharacteristic.currentConsumption]?.value = .int(1200)
+        #expect(metrics.energyTags["meter:Recording:plug-1#\(outlet):grid"] == EnergyTag(role: .grid, device: "plug-1"))
+        // The array, suggested solar but set to none: nothing in the Home Energy, yet still a Meter.
+        await plugin.recordSolar(700)
+        #expect(metrics.meters.meters.contains(MeterID(accessory: "Recording:array", meter: "solar")))
+        #expect(!metrics.energyTags.values.contains { $0.role == .solar })
+        #expect(metrics.meterDescription(of: MeterID(accessory: "Recording:array", meter: "solar"))?.suggestedRole == .solar)
+        metrics.stop()
+        await host.stop()
+    }
 }

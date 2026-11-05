@@ -21,7 +21,7 @@ _Avoid_: Device settings, device options, overrides, feature options
 
 **Core Accessory Settings**:
 The Accessory Settings every accessory has whatever its plugin: its Name, its room, whether it is Excluded, Hidden
-or Not in Home, and which of its Parts are included.
+or Not in Home, which of its Parts are included, and the Energy Role of each of its Meters.
 _Avoid_: Layout, common settings
 
 **Arrangement**:
@@ -138,3 +138,40 @@ _Avoid_: Unpaired, broken, offline
 To drop a device's Authorization and Accessory Settings, so that it is only a Discovered Device again if it is still
 reachable.
 _Avoid_: Remove, delete, unpair, Excluded
+
+## Energy
+
+**Home Energy**:
+Where the home's energy comes from and goes: solar production, the home's use, the grid's import and export, and the
+batteries' charge and discharge.
+_Avoid_: Energy flows, home consumption
+
+**Meter**:
+Something in an accessory that measures energy, such as a plug, one channel of a two-channel relay, or one clamp of
+an energy meter. Phases that add up to one figure are one Meter. Each Meter has its own Consumption and Energy Role.
+_Avoid_: Channel, clamp, power meter, sensor
+
+**Energy Role**:
+What a meter measures in the Home Energy: the grid connection, solar production, the home's use, a battery, or
+none (a single device's use). Its plugin suggests one; a person may change it.
+_Avoid_: Meter type, energy tag, energy kind
+
+**Consumption**:
+The energy one Meter measured being drawn over a span (an hour, a day, a month), in kWh, whether or not it counts in
+the Home Energy.
+_Avoid_: Usage, total consumption, energy counter
+
+**Returned**:
+The energy one Meter measured flowing the other way over a span: a grid connection's export, or what solar produced.
+Only some Meters measure it.
+_Avoid_: Export counter, reverse energy, injection
+
+**Unmetered**:
+The part of the home's use no Meter accounts for: the home's use less the Consumption of every Meter without an
+Energy Role.
+_Avoid_: Other, remainder, unknown
+
+**Tariff**:
+A Bridge Setting: what the home pays per kWh from a start date, by period of the day and week, and optionally what
+it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
+_Avoid_: Price, rate, contract, cost settings

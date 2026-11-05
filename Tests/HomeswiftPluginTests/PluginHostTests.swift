@@ -20,6 +20,12 @@ actor RecordingPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable {
         var name: String?
         var lamps: [String]?
+        /// Outlets with Eve's Total Consumption, at 2 kWh.
+        var meters: [String]?
+        /// A solar array's power, in watts, recorded on a Meter it declares (`roof`).
+        var solar: Double?
+        /// A solar Meter it declares (`array`), whose readings the test makes (`recordSolar`).
+        var solarMeter: Bool?
         /// Televisions to publish on servers of their own.
         var externals: [String]?
         var refuse: Bool?
@@ -34,6 +40,9 @@ actor RecordingPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     private(set) var started = false
+    private var solarMeter: PluginMeter?
+
+    func recordSolar(_ watts: Double) { solarMeter?.record(watts: watts) }
     private(set) var stopped = false
 
     init(configuration: Configuration, context: PluginContext) throws {
@@ -46,6 +55,15 @@ actor RecordingPlugin: HomeswiftPlugin {
         started = true
         for lamp in configuration.lamps ?? [] {
             try addLamp(id: lamp)
+        }
+        if configuration.solarMeter == true { solarMeter = context.meter("solar", deviceID: "array", device: "Array", suggestedRole: .solar) }
+        if let solar = configuration.solar {
+            let roof = context.meter("solar", deviceID: "roof", device: "Roof", suggestedRole: .solar)
+            roof.record(watts: solar)
+        }
+        for meter in configuration.meters ?? [] {
+            let outlet = Service(.outlet, name: meter, extra: [Characteristic(EveCharacteristic.totalConsumption, value: .double(2)), Characteristic(EveCharacteristic.currentConsumption, value: .int(0))], isPrimary: true)
+            try context.add(Accessory(id: "Recording:\(meter)", name: meter, category: .outlet, services: [outlet]))
         }
         for tv in configuration.externals ?? [] {
             try await publishTelevision(id: tv, inputs: ["HDMI 1"])
@@ -109,8 +127,62 @@ final class TestEnvironment: @unchecked Sendable {
     }
 }
 
+/// The Eve history the runtime gives an accessory that measures power and has none of its plugin's.
+@Suite(.timeLimit(.minutes(1)))
+struct EnergyHistoryTests {
+    @Test func aMeteredAccessoryGetsOneEveHistory() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs", "meters": ["plug-1"], "lamps": ["lamp-1"] }] }"#)
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let plug = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:plug-1" })
+        let histories = EveHistory.histories(of: plug)
+        #expect(histories.count == 1)
+        #expect(plug.services.filter { $0.type.uuid == ServiceType.eveHistory.uuid }.count == 1)
+        // A lamp measures no power: no history.
+        let lamp = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:lamp-1" })
+        #expect(!lamp.services.contains { $0.type.uuid == ServiceType.eveHistory.uuid })
+
+        // Added again, as a reload does: the same history, the same iids.
+        let iid = try #require(plug.services.first { $0.type.uuid == ServiceType.eveHistory.uuid }?.characteristics.first?.iid)
+        let context = try #require(host.context(platform: "Recording", name: "Plugs"))
+        let again = Accessory(id: "Recording:plug-1", name: "plug-1", category: .outlet, services: [
+            Service(.outlet, name: "plug-1", extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(0))], isPrimary: true)])
+        try context.add(again)
+        let replaced = try #require(host.mainBridge.server.accessories.first { $0.id == "Recording:plug-1" })
+        #expect(EveHistory.histories(of: replaced).first === histories.first)
+        #expect(replaced.services.first { $0.type.uuid == ServiceType.eveHistory.uuid }?.characteristics.first?.iid == iid)
+
+        // An accessory with an Eve history of its own keeps that one alone.
+        let own = EveHistory(.energy, accessoryName: "Own")
+        let mine = Accessory(id: "Recording:own", name: "Own", category: .outlet, services: [
+            Service(.outlet, name: "Own", extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(0))], isPrimary: true), own.service])
+        try context.add(mine)
+        #expect(EveHistory.histories(of: mine).map { ObjectIdentifier($0) } == [ObjectIdentifier(own)])
+    }
+}
+
 @Suite(.timeLimit(.minutes(1)))
 struct ConfigurationTests {
+    /// Energy Roles are live Core Accessory Settings: out of the plugin's JSON, checked, and in its context's settings.
+    @Test func readsEnergyRolesAsLiveSettings() throws {
+        let configuration = try HomeswiftConfiguration.decode(Data(#"""
+            { "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "_accessories": { "plug": { "energyRoles": { "47/": "grid", "x": "none" }, "brightness": 3 } } }] }
+            """#.utf8))
+        let block = try #require(configuration.platforms.first)
+        #expect(block.energyRoles["plug"]?["47/"] == .some(.grid))
+        #expect(block.energyRoles["plug"]?["x"] == .some(nil))
+        #expect(block.accessorySettings["plug"]?.energyRoles == ["47/": .grid, "x": nil])
+        #expect(!String(decoding: block.json, as: UTF8.self).contains("energyRoles"))
+        let settings = AccessorySettings(json: ["energyRoles": ["a": "solar", "b": "none", "c": "batteryLevel"], "offset": 1])
+        #expect(settings.energyRoles == ["a": .solar, "b": nil])
+        #expect(settings.json["energyRoles"] == ["a": "solar", "b": "none"])
+        #expect(settings.plugin == ["offset": 1])
+        #expect(throws: (any Error).self) {
+            try HomeswiftConfiguration.decode(Data(#"{ "platforms": [{ "platform": "Recording", "_accessories": { "plug": { "energyRoles": { "47/": "sun" } } } }] }"#.utf8))
+        }
+    }
+
     @Test func decodesHomebridgeShapedConfig() throws {
         let configuration = try HomeswiftConfiguration.decode(Data("""
             {

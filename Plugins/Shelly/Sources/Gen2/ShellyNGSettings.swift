@@ -147,9 +147,44 @@ extension ShellyNGPlugin {
         return try? JSONValue(data: response.body)
     }
 
+    // The Shelly Cloud account (an Optional Account, an Account Login): the Shelly app's email and password, which import
+    // the energy history the Shelly app keeps for plugs and relays (`ShellyCloud`, the app's own unofficial sign-in and
+    // endpoint). The devices never need it: they are reached on the LAN.
+    public static let accountAuthorization = AuthorizationMethod.accountLogin
+    public static let accountRequirement = AccountRequirement.optional(
+        adds: "Imports the energy history the Shelly app keeps for plugs and relays, from Shelly Cloud, as the app gets it (Shelly does not document it).")
+
+    public func accountAuthorized() async -> Bool? {
+        context.credentials(as: ShellyCloudCredentials.self) != nil
+    }
+
+    /// The cloud account, from the vault; nil without one.
+    var cloud: ShellyCloud? {
+        context.credentials(as: ShellyCloudCredentials.self).map { ShellyCloud(credentials: $0, http: dependencies.http, logger: logger) }
+    }
+
+    /// The account: the Shelly app's email and password, checked by signing in to Shelly Cloud before they are kept.
+    private func authorizeCloud(_ request: SetupRequest) async throws -> SetupStep {
+        guard let email = request.answer("email"), let password = request.secret("password") else {
+            return .ask(SetupPrompt(
+                message: "Sign in with your Shelly app account. Homeswift imports the history the app shows for plugs and relays, as the app gets it: Shelly does not document this, and it may stop working.",
+                fields: [SetupField("email", label: "Email", value: context.credentials(as: ShellyCloudCredentials.self)?.email),
+                         SetupField("password", label: "Password", kind: .secret)]))
+        }
+        let credentials = ShellyCloudCredentials(email: email, password: password)
+        switch await ShellyCloud(credentials: credentials, http: dependencies.http, logger: logger).signIn() {
+        case .signedIn: break
+        case .refused: throw SetupError("Shelly Cloud refused this email and password")
+        case .failed(let reason): throw SetupError("Cannot sign in to Shelly Cloud: \(reason)")
+        }
+        logger.info("Signed in to Shelly Cloud through Setup")
+        return .done(try SetupOutcome(encoding: credentials))
+    }
+
     /// A device whose authentication is on asks for its password (the user is always `admin`), checked with
-    /// `Shelly.GetStatus` before it is kept in the vault.
+    /// `Shelly.GetStatus` before it is kept in the vault; the account, its cloud key.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
+        guard case .device = request.target else { return try await authorizeCloud(request) }
         let device = try request.device()
         guard device.authorization == .accountLogin else { return .done(SetupOutcome()) }
         guard let password = request.secret("password") else {

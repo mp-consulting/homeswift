@@ -62,19 +62,87 @@
   // ---- Bridge: its block, the network, pairings, caches, schedules -----------------------------------------
 
   async function bridgePage(main) {
-    const [settings, pairings, caches, plugins] = await Promise.all([
-      api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null)]);
+    const [settings, pairings, caches, plugins, tariffs] = await Promise.all([
+      api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null),
+      api("/api/settings/tariffs").catch(() => ({ tariffs: [] }))]);
     const bridge = settings.bridge || {};
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
       app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
       subnav("bridge"),
       bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
+      tariffCard(tariffs),
       networkCard(settings),
       sectionHead(t("HomeKit pairings"), t("Who the Home app knows each server by")),
       el("div", { class: "grid" }, pairings.bridges.map(pairingCard)),
       cachesSection(caches),
       schedulesCard(uiBlock));
+  }
+
+  /// The Tariff: what the home pays per kWh, by period of the day and week, and what a kWh sent back is paid. It edits
+  /// the latest Tariff; saved with another first day, it is a new Tariff from that day and the earlier ones keep their
+  /// prices, so past costs stay right. No restart.
+  function tariffCard({ tariffs = [] }) {
+    const latest = tariffs.at(-1) ?? null;
+    const isoToday = HomeswiftCommon.isoDay(new Date());
+    const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
+    const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
+    const currency = el("input", { type: "text", value: latest?.currency ?? "", placeholder: "EUR", maxLength: 3, pattern: "[A-Za-z]{3}", autocomplete: "off", spellcheck: false });
+    const exportPrice = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: latest?.exportPrice ?? "", placeholder: t("Not paid") });
+    const rows = el("div", { class: "tariff-periods" });
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const addRow = (period = { from: "00:00", to: "24:00", price: "" }) => {
+      const name = el("input", { type: "text", value: period.name ?? "", placeholder: t("Name, such as Peak"), maxLength: 40, "aria-label": t("Period name") });
+      const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From") });
+      // 24:00 is the end of the day: a time input shows it as 00:00.
+      const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
+      const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
+      const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: t("Price per kWh"), "aria-label": t("Price per kWh"), required: true });
+      const row = el("div", { class: "tariff-period" }, name, from, to, days, price,
+        el("button", { type: "button", class: "icon-button", "aria-label": t("Remove this period"), title: t("Remove this period"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
+      row.read = () => ({ ...(name.value.trim() ? { name: name.value.trim() } : {}), from: from.value || "00:00",
+        // A period ending at midnight ends at 24:00, unless it starts later in the day and runs past midnight.
+        to: (to.value || "00:00") === "00:00" ? "24:00" : to.value,
+        ...(days.value ? { days: days.value.split(",").map(Number) } : {}), price: Number(price.value) });
+      rows.append(row);
+    };
+    for (const period of latest?.periods ?? []) addRow(period);
+    if (!latest) addRow();
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
+    const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
+    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
+    const earlier = tariffs.slice(0, -1).reverse();
+    const startDate = (text) => HomeswiftCommon.parseDay(text);
+    const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
+    return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
+      event.preventDefault();
+      const tariff = { start: start.value, currency: currency.value.trim().toUpperCase(), periods: [...rows.children].map((row) => row.read()),
+        ...(exportPrice.value !== "" ? { exportPrice: Number(exportPrice.value) } : {}) };
+      // The same first day is the same Tariff, changed; another is a new one from that day.
+      const next = [...tariffs.filter((one) => one.start !== tariff.start), tariff].sort((a, b) => a.start.localeCompare(b.start));
+      await busy(save, async () => {
+        await api("/api/settings/tariffs", { method: "PUT", body: { tariffs: next } });
+        tariffs.splice(0, tariffs.length, ...next);
+        message.className = "status-line ok";
+        message.textContent = t("Saved. Costs follow from {date}.", { date: longDay.format(startDate(tariff.start)) });
+      }, (e) => { message.className = "status-line error"; message.textContent = HomeswiftI18n.message(e.message); });
+    } },
+      el("div", { class: "server-head" }, tile("bolt", "yellow"),
+        el("div", { class: "who" }, el("strong", { text: t("Energy tariff") }),
+          el("div", { class: "muted", text: t("What the home pays per kWh, for the costs on the Status page") }))),
+      el("div", { class: "fields" },
+        field(t("Applies from"), start, t("Another day starts a new tariff: the days before it keep their prices.")),
+        field(t("Currency"), currency, t("A currency code, such as EUR, USD or GBP.")),
+        field(t("Export price"), exportPrice, t("What a kWh sent back to the grid is paid, if it is."))),
+      el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
+        el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
+        el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
+          ...[t("Name"), t("From"), t("To"), t("Days"), t("Price per kWh")].map((text) => el("span", { text })), el("span")),
+        rows, el("div", { class: "actions start" }, add)),
+      earlier.length ? el("details", { class: "more" }, el("summary", { text: tn("{n} earlier tariff", "{n} earlier tariffs", earlier.length) }),
+        el("ul", { class: "tariff-earlier" }, earlier.map((one) => el("li", { text: t("From {date}: {count} periods, in {currency}", {
+          date: longDay.format(startDate(one.start)), count: one.periods.length, currency: one.currency }) })))) : null,
+      el("div", { class: "actions" }, save), message);
   }
 
   /// The bridge block of config.json as a form. Saving restarts homeswift: the block is its HomeKit identity.
@@ -1011,7 +1079,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ContactSensorState: t("Contact"), MotionDetected: t("Motion"), ValvePosition: t("Valve position"), WaterAmount: t("Water"),
   };
 
-  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks.
+  const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+
+  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks, and
+  /// first the energy its meters measured (the bridge's own record), by hour over a day and by day beyond.
   function showHistory(accessory) {
     const ranges = [[24, t("24 hours")], [168, t("7 days")], [672, t("4 weeks")]];
     let hours = 24;
@@ -1025,7 +1096,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } })));
     const close = el("button", { actionIcon: "check", type: "button", text: t("Done"), class: "primary" });
     const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
-      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: t("Recorded values, as Eve shows them") })),
+      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }),
+        el("p", { class: "muted", text: accessory.history ? t("Recorded values, as Eve shows them") : t("The energy the bridge measured") })),
         el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
@@ -1033,10 +1105,58 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.body.append(dialog);
     dialog.showModal();
 
+    /// The energy each of its meters measured over the range, as bars: drawn above the line, returned below it.
+    async function consumptionCards(asked) {
+      if (!accessory.consumption) return [];
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      let found;
+      try { found = await api(`/api/metrics/consumption?${new URLSearchParams({ accessory: accessory.id, hours, timeZone })}`); }
+      catch (e) { return [el("p", { class: "error", text: e.message })]; }
+      if (asked !== hours) return [];
+      const hourly = found.step === "hour";
+      const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+      const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+      const dateOf = (text) => HomeswiftCommon.parseDay(text);
+      return found.meters.map((meter) => {
+        const returns = meter.bars.some((bar) => bar.returned > 0);
+        const body = el("div", { class: "chart-body" });
+        const title = meter.label ? t("Consumption · {meter}", { meter: meter.label }) : t("Consumption");
+        const card = el("div", { class: "card chart-card consumption-card" },
+          el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
+            el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
+          el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
+          body,
+          el("div", { class: "muted chart-detail", text: [
+            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
+            returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
+        const bars = meter.bars.map((bar, index) => {
+          const date = dateOf(bar.date);
+          // Every third hour labelled, every day.
+          const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
+          return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
+        });
+        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
+          segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
+            ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
+        return card;
+      });
+    }
+
     async function load() {
       // Ranges chosen quickly one after the other: only the last one's answer is drawn.
       const asked = hours;
       charts.classList.add("loading");
+      const energy = consumptionCards(asked);
+      if (!accessory.history) {
+        const cards = await energy;
+        if (asked !== hours) return;
+        charts.classList.remove("loading");
+        charts.replaceChildren(...cards);
+        note.className = "muted";
+        note.textContent = t("Measured by the hour, kept for years.");
+        return;
+      }
       let found;
       try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?hours=${hours}&points=240`); }
       catch (e) { if (asked === hours) { charts.classList.remove("loading"); note.className = "error"; note.textContent = e.message; } return; }
@@ -1045,7 +1165,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       note.className = "muted";
       note.textContent = found.note != null ? HomeswiftI18n.message(found.note) : t("Ten-minute averages, kept four weeks; each point here averages those in its span.");
       const from = new Date(found.from).getTime(), to = new Date(found.to).getTime();
-      charts.replaceChildren(...found.series.map((series) => {
+      const energyCards = await energy;
+      if (asked !== hours) return;
+      charts.replaceChildren(...energyCards, ...found.series.map((series) => {
         const unit = historyUnits[series.unit] ?? series.unit ?? "";
         const format = (value) => `${Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10}${unit ? ` ${unit}` : ""}`;
         const points = series.points.map(([time, value]) => ({ time: new Date(time).getTime(), value }));

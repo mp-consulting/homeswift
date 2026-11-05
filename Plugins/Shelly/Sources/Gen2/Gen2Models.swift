@@ -67,6 +67,14 @@ struct Gen2Layout: Sendable, Equatable {
         case cct(Int)
         /// `em`, `em1` or `pm1`.
         case meter(String, Int)
+
+        /// The channel Shelly Cloud names it by; nil for the I4's buttons, which share an accessory.
+        var channel: Int? {
+            switch self {
+            case .switch(let id), .cover(let id), .inputSwitch(let id), .light(let id), .rgb(let id), .rgbw(let id), .cct(let id), .meter(_, let id): id
+            case .buttons: nil
+            }
+        }
     }
 
     /// An accessory: the id after `<deviceId>-`, the name's suffix, and what it shows.

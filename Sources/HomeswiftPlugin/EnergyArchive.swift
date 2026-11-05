@@ -151,6 +151,98 @@ public struct EnergyPeriod: Sendable, Equatable {
     }
 }
 
+/// A file written a while after a change, once for a burst of changes, on a queue of its own: a save already due
+/// sooner stands. `flush` writes what is due now.
+final class DebouncedSave: Sendable {
+    /// When the pending save runs; nil when nothing is to be written.
+    private let due = NIOLockedValueBox<DispatchTime?>(nil)
+    private let queue: DispatchQueue
+
+    init(label: String) { queue = DispatchQueue(label: label, qos: .utility) }
+
+    func schedule(after delay: DispatchTimeInterval, _ write: @escaping @Sendable () -> Void) {
+        let deadline = DispatchTime.now() + delay
+        let schedule = due.withLockedValue { due -> Bool in
+            if let due, due <= deadline { return false }
+            due = deadline
+            return true
+        }
+        guard schedule else { return }
+        queue.asyncAfter(deadline: deadline) { [self] in run(write) }
+    }
+
+    func flush(_ write: @escaping @Sendable () -> Void) {
+        queue.sync { run(write) }
+    }
+
+    /// Runs `write` when a save is due, once for all the times it was scheduled.
+    private func run(_ write: @Sendable () -> Void) {
+        guard due.withLockedValue({ due in defer { due = nil }; return due != nil }) else { return }
+        write()
+    }
+}
+
+/// The days and months the energy histories are read in.
+public enum EnergyCalendar {
+    /// The span of a history `period` around `date` (YYYY-MM-DD, today without it) in `timeZone`: the 8 days to it
+    /// (`week`), its month, or its year; nil for anything else.
+    public static func span(period: String, date: String?, timeZone: TimeZone, now: Date = Date()) -> (from: Date, to: Date)? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let day: Date
+        if let date {
+            guard let parsed = Self.day(date).flatMap({ calendar.date(from: $0) }) else { return nil }
+            day = parsed
+        } else {
+            day = calendar.startOfDay(for: now)
+        }
+        switch period {
+        case "week": return (calendar.date(byAdding: .day, value: -7, to: day)!, day)
+        case "month":
+            let start = calendar.date(from: calendar.dateComponents([.year, .month], from: day))!
+            return (start, calendar.date(byAdding: DateComponents(month: 1, day: -1), to: start)!)
+        case "year":
+            let start = calendar.date(from: calendar.dateComponents([.year], from: day))!
+            return (start, calendar.date(byAdding: DateComponents(year: 1, day: -1), to: start)!)
+        default: return nil
+        }
+    }
+
+    /// A YYYY-MM-DD as its parts; nil for anything else.
+    public static func day(_ text: String) -> DateComponents? {
+        let parts = text.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, text.count == 10, (1...12).contains(parts[1]), (1...31).contains(parts[2]) else { return nil }
+        return DateComponents(year: parts[0], month: parts[1], day: parts[2])
+    }
+
+    /// The starts of the days (`.day`) or months (`.month`) from the one `from` is in to the one `to` is in, in
+    /// `timeZone`, and the end of the last; nil when there is none.
+    public static func periods(_ unit: Calendar.Component, from: Date, to: Date, timeZone: TimeZone) -> (starts: [Date], end: Date)? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let components: Set<Calendar.Component> = unit == .month ? [.year, .month] : [.year, .month, .day]
+        guard var start = calendar.date(from: calendar.dateComponents(components, from: from)) else { return nil }
+        var starts: [Date] = []
+        while start <= to {
+            starts.append(start)
+            guard let next = calendar.date(byAdding: unit, value: 1, to: start) else { break }
+            start = next
+        }
+        guard let last = starts.last, let end = calendar.date(byAdding: unit, value: 1, to: last) else { return nil }
+        return (starts, end)
+    }
+
+    /// The period an instant within them falls in: the last start at or before it.
+    public static func index(of date: Date, in starts: [Date]) -> Int {
+        var low = 0, high = starts.count - 1
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if starts[middle] <= date { low = middle } else { high = middle - 1 }
+        }
+        return low
+    }
+}
+
 /// The long-term energy history: each hour's watt-hours of every flow, kept for years in `energy-hours.json` under the
 /// metrics directory. Two sources feed it: the bridge's own readings (each closed minute of the series plugins tag,
 /// `Metrics`) and imports (a plugin's cloud history, `PluginContext.importEnergy`), each import source on its own. An
@@ -174,9 +266,7 @@ public final class EnergyArchive: @unchecked Sendable {
 
     public let url: URL?
     private let hours: NIOLockedValueBox<[Int: Hour]>
-    /// When the pending save runs; nil when nothing is to be written.
-    private let saveDue = NIOLockedValueBox<DispatchTime?>(nil)
-    private let queue = DispatchQueue(label: "homeswift.energy-archive", qos: .utility)
+    private let saving = DebouncedSave(label: "homeswift.energy-archive")
     private let saveDelay: DispatchTimeInterval
     /// The delay of a save after a recorded minute only. Years of hours are hundreds of kilobytes: written each minute,
     /// they were the largest part of a busy bridge's work.
@@ -278,27 +368,27 @@ public final class EnergyArchive: @unchecked Sendable {
         }
     }
 
+    /// Each hour from `from` to `to` with anything known, oldest first, as the archive reads it (`merged`).
+    public func hours(from: Date, to: Date) -> [(start: Date, flows: EnergyFlows)] {
+        let first = Self.hourStart(from), last = Int(to.timeIntervalSince1970)
+        guard first <= last else { return [] }
+        return hours.withLockedValue { $0.filter { $0.key >= first && $0.key <= last } }
+            .sorted { $0.key < $1.key }
+            .map { (Date(timeIntervalSince1970: TimeInterval($0.key)), Self.merged($0.value).flows) }
+    }
+
     /// The first hour with anything known.
     public var earliest: Date? { hours.withLockedValue { $0.keys.min() }.map { Date(timeIntervalSince1970: TimeInterval($0)) } }
 
     /// The days (`.day`) or months (`.month`) from the one `from` is in to the one `to` is in, in `timeZone`, oldest
     /// first; each with the hours whose start falls in it.
     public func periods(_ unit: Calendar.Component, from: Date, to: Date, timeZone: TimeZone) -> [EnergyPeriod] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let components: Set<Calendar.Component> = unit == .month ? [.year, .month] : [.year, .month, .day]
-        guard var start = calendar.date(from: calendar.dateComponents(components, from: from)) else { return [] }
-        var periods: [EnergyPeriod] = []
-        while start <= to {
-            periods.append(EnergyPeriod(start: start))
-            guard let next = calendar.date(byAdding: unit, value: 1, to: start) else { break }
-            start = next
-        }
-        guard let first = periods.first?.start, let end = calendar.date(byAdding: unit, value: 1, to: periods.last!.start) else { return periods }
-        let selected = hours.withLockedValue { $0.filter { $0.key >= Int(first.timeIntervalSince1970) && $0.key < Int(end.timeIntervalSince1970) } }
+        guard let span = EnergyCalendar.periods(unit, from: from, to: to, timeZone: timeZone) else { return [] }
+        var periods = span.starts.map(EnergyPeriod.init(start:))
+        let first = Int(span.starts[0].timeIntervalSince1970), end = Int(span.end.timeIntervalSince1970)
+        let selected = hours.withLockedValue { $0.filter { $0.key >= first && $0.key < end } }
         for (key, hour) in selected {
-            let date = Date(timeIntervalSince1970: TimeInterval(key))
-            guard let index = periods.lastIndex(where: { $0.start <= date }) else { continue }
+            let index = EnergyCalendar.index(of: Date(timeIntervalSince1970: TimeInterval(key)), in: span.starts)
             let (flows, recorded) = Self.merged(hour)
             periods[index].add(flows, recorded: recorded)
         }
@@ -310,23 +400,16 @@ public final class EnergyArchive: @unchecked Sendable {
     /// A save after `delay` (`saveDelay` by default), unless one is due sooner.
     private func scheduleSave(after delay: DispatchTimeInterval? = nil) {
         guard url != nil else { return }
-        let deadline = DispatchTime.now() + (delay ?? saveDelay)
-        let schedule = saveDue.withLockedValue { due -> Bool in
-            if let due, due <= deadline { return false }
-            due = deadline
-            return true
-        }
-        guard schedule else { return }
-        queue.asyncAfter(deadline: deadline) { [weak self] in self?.write() }
+        saving.schedule(after: delay ?? saveDelay) { [weak self] in self?.write() }
     }
 
     /// Writes what changed now; the metrics store calls it when it stops.
     public func flush() {
-        queue.sync { write() }
+        saving.flush { [weak self] in self?.write() }
     }
 
     private func write() {
-        guard let url, saveDue.withLockedValue({ due in defer { due = nil }; return due != nil }) else { return }
+        guard let url else { return }
         let snapshot = hours.withLockedValue { $0 }
         try? OwnerOnlyFile.write(Self.encoded(snapshot), to: url)
     }

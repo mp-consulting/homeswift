@@ -200,9 +200,9 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection`, `update_tariffs` (with `dryRun`) |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -226,14 +226,17 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   Accessory Id (`accessory`, `list_accessories`' id or `discover_devices`' `accessoryID` for a device not on the bridge,
   with `plugin.name` when its platform has several blocks) or a plugin instance (`plugin`: `platform` and, when there
   are several, `name`). For an accessory `get_settings` answers `settings`, its current Accessory Settings (Core:
-  `name`, `room`, `hidden`, `notInHome`, `excluded`, `parts`; and the plugin's own), and `fields`, each with its JSON
+  `name`, `room`, `hidden`, `notInHome`, `excluded`, `parts`, `energyRoles`; and the plugin's own), and `fields`, each with its JSON
   schema, `core`, `readOnly` (a mirrored accessory's Name) and `default` `{setting, value}` when a Plugin Setting gives
   it a plugin-wide default; `kind` is its Device Kind, which decides the plugin's fields shown. For a plugin it answers
   its Plugin Settings (secrets as handles and MCP tokens redacted, as `get_config` gives them), its `schema` and `accessorySchema`.
   `update_settings` merges `settings` into them (objects key by key, `null` clears a key) or, with `accessories`,
   settings by Accessory Id in one write; every key must be declared (Core, or the plugin's schema), its value is checked,
-  and the answer gives each accessory's `settings` and the keys `changed`, and what reloaded. Name, room, Hidden and Not
-  in Home apply at once without reloading the plugin; Excluded, Parts, Plugin Accessory Settings and Plugin Settings
+  and the answer gives each accessory's `settings` and the keys `changed`, and what reloaded. For an accessory with
+  Meters, `get_settings` also answers `meters`: each one's `key`, its `label` on a device with several, and its plugin's
+  `suggestedRole`; `energyRoles` gives a Meter's Energy Role by its key (`solar`, `home`, `grid`, `battery`, or `none`
+  for a single device's use; `null` gives back the plugin's suggestion), and counts from then on, the history kept as it
+  was. Name, room, Hidden, Not in Home and Energy Roles apply at once without reloading the plugin; Excluded, Parts, Plugin Accessory Settings and Plugin Settings
   reload it. A mirrored accessory's Name is read-only, and its room always moves on its hub; another accessory moves on
   the hubs that keep rooms when Room Sync is on (`hubMoves`). It is not destructive as a whole: a Name, a room, Hidden,
   an Include and Plugin Accessory Settings apply without asking, while a change that Excludes an accessory, puts it Not
@@ -241,7 +244,8 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   its dry run's changes. `forget_device` (an `accessory`, `plugin.name` when its platform has several blocks) Forgets a
   device: its Authorization (the credentials Setup kept in the vault) and every Accessory Setting of it and of its other
   accessories go, the plugin reloads without it, and it is only a Discovered Device again if the plugin still finds it.
-  It is destructive and has a dry run (`settingsDropped`, `credentialsDropped`); the web UI's `DELETE
+  Its Meters' energy history goes too. It is destructive and has a dry run (`settingsDropped`, `credentialsDropped`,
+  `historyDropped`); the web UI's `DELETE
   /api/settings/accessories/<id>` is the same. Room, Hidden and a display name an older version kept in `accessory-layout.json`, and a block's
   `_hiddenFromHomeKit`, are read until the accessory's next write moves them into its settings.
 - **config.json.** `update_config` and `patch_config` check what they change in a plugin's block
@@ -336,6 +340,21 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   weeks): per characteristic the min and max with when, the time-weighted average, the last value and the
   points averaged down to `maxPoints`, over `hours` (24 by default). Accessories without such a history
   answer with a note.
+- **Consumption** (GLOSSARY.md, "Energy"; docs/adr/0004-meters-and-consumption-history.md). `get_consumption` gives
+  the energy each Meter measured, in kWh, whatever its plugin: its Consumption and Returned over the span, a bar per
+  hour, day or month (each with `hours` known and `recordedHours` the bridge measured itself, imports and estimates
+  aside), and its Energy Role (`role`: a grid or home Meter measures the whole home, devices included; null is one
+  device), the Meters that drew the most first. The span is the last `hours` (hourly bars up to 48, daily beyond) or a
+  `period` around `date` (`week`, the 8 days to it, and `month` by day; `year` by month), days counted in `timeZone`;
+  `accessory` keeps one accessory's Meters. With Tariffs, each Meter and bar has its `cost` in `currency`: its
+  Consumption hour by hour at that hour's grid price. `list_accessories` marks an accessory with Meters
+  `"consumption": true`.
+- **Tariffs.** `get_tariffs` gives config.json's `bridge.tariffs`, oldest first, and `current`, the first day of the
+  one in force now. `update_tariffs` replaces the whole list (`tariffs`): each Tariff has its first day (`start`,
+  YYYY-MM-DD), a `currency` (ISO 4217), `periods` (`from` and `to` as HH:mm, `24:00` for midnight, a `to` before `from`
+  running past midnight; `days` 1 Monday to 7 Sunday, every day without it; `price` per kWh; a `name`) that must cover
+  the week once, and an optional `exportPrice` for a kWh sent back. A new price is a new Tariff from its day, so past
+  costs stay as they were. It needs no restart and has a dry run.
 - **The log.** `search_logs` filters by `since` and `until` (an ISO time, local without a zone, or `30m`,
   `1h`, `2d` back from now; with either, the log archive on disk is searched, else the lines kept in memory),
   minimum `level`, `plugin` (part of a line's label: the plugin instance or bridge) and `pattern` (plain

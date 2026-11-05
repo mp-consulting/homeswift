@@ -244,6 +244,27 @@
           if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
         } });
 
+      // Energy: what each of its meters measures in the home's energy. Applies at once; the plugin keeps running.
+      const roleNames = { solar: t("Solar production"), home: t("The home's use"), grid: t("The grid connection"), battery: t("A battery"), none: t("This device alone") };
+      const energySection = (answer.meters ?? []).length ? section(t("Energy"),
+        t("A meter that measures the grid, solar, the home or a battery adds to the home's energy on the Status page; any other is one device's consumption."),
+        ...answer.meters.map((meter) => {
+          const state = stateNode();
+          const suggested = meter.suggestedRole ?? "none";
+          const chosen = settings.energyRoles?.[meter.key] ?? "";
+          // The suggestion first, as the empty choice: chosen again, the person's role goes and the plugin's stands.
+          const select = el("select", {}, el("option", { value: "", text: t("{role} (suggested)", { role: roleNames[suggested] }), selected: chosen === "" }),
+            ...Object.entries(roleNames).filter(([value]) => value !== suggested).map(([value, text]) => el("option", { value, text, selected: chosen === value })));
+          select.addEventListener("change", async () => {
+            const before = settings.energyRoles?.[meter.key] ?? "";
+            if (!await save({ energyRoles: { [meter.key]: select.value || null } }, state, "energyRoles")) select.value = before;
+          });
+          const title = el("span", { text: meter.label ? t("Meter: {meter}", { meter: meter.label }) : t("What it measures") });
+          const help = el("span", { class: "help", text: t("Counts from now on; the history it measured stays as it was.") });
+          describe(select, title, help, state);
+          return el("label", { class: "field" }, el("span", { class: "field-title" }, title, state), select, help);
+        })) : null;
+
       // Parts: from the discovery, which knows their names; the plugin reloads with each.
       const partsBox = el("div", { class: "settings-parts" });
       const partsSection = section(t("Parts"), t("Switched off, a part is left out while the device stays. A change reloads {plugin}.", { plugin }), partsBox);
@@ -323,6 +344,7 @@
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        energySection,
         partsSection,
         pluginSection,
         danger,
