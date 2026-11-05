@@ -217,6 +217,8 @@ import Testing
         let connects = NIOCounter()
         let session = session(camera, password: "wrong", connects: connects)
         let runner = Task { await session.run() }
+        // The first login, however slow the machine; then a while for any retry that came too soon.
+        #expect(await eventually { connects.value >= 1 })
         try? await Task.sleep(for: .milliseconds(300))
         runner.cancel()
         #expect(await !session.isConnected)

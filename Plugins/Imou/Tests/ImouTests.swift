@@ -67,6 +67,7 @@ struct ImouTests {
     @Test func pollsReadTheSwitchesAndOnlyThem() async throws {
         environment.cloud.addCamera()
         environment.cloud.state.withLockedValue { $0.statuses["TEST000CAM1:0:closeCamera"] = true }
+        let started = ContinuousClock.now
         let host = try await environment.start()
         let accessory = try await garden(host)
         let privacy = try #require(service(accessory, "privacy"))
@@ -78,9 +79,11 @@ struct ImouTests {
         let reads = cloud.calls("getDeviceCameraStatus").count
         #expect(reads >= (polls - 1) * 4 && reads <= (polls + 1) * 4)
         #expect(Set(cloud.calls("getDeviceCameraStatus").compactMap { $0.params["enableType"]?.stringValue }) == ["closeCamera", "whiteLight", "mobileDetect", "motionDetect"])
-        // The listing only at rediscoveries, never once a poll (a loaded machine stretches the test over more of them), and
-        // one token.
-        #expect(cloud.calls("listDeviceDetailsByPage").count < cloud.calls("deviceOnline").count)
+        // The listing only at start and at rediscoveries, never once a poll, and one token. Counted against the time gone
+        // by: a loaded machine stretches a poll's five calls more than a rediscovery's sleep.
+        let rediscovery = Duration.seconds(ImouPlugin.rediscoveryInterval * environment.timeScale)
+        let rediscoveries = Int((ContinuousClock.now - started) / rediscovery)
+        #expect(cloud.calls("listDeviceDetailsByPage").count <= rediscoveries + 1)
         #expect(cloud.tokenFetches == 1)
         await host.stop()
     }
