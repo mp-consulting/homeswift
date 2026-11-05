@@ -803,8 +803,8 @@ public struct RecordedSeries: Sendable, Hashable {
 
 /// A reading of a Meter a plugin declared, on its way to the metrics store.
 public enum MeterReading: Sendable, Equatable {
-    /// A counter, in watt-hours.
-    case counter(MeterID, Double, MeterDirection)
-    /// Power, in watts: above zero drawn, below zero sent back or produced.
-    case power(MeterID, Double)
+    /// A counter, in watt-hours, and when it was read.
+    case counter(MeterID, Double, MeterDirection, Date)
+    /// Power, in watts (above zero drawn, below zero sent back or produced), and when it was read.
+    case power(MeterID, Double, Date)
 }

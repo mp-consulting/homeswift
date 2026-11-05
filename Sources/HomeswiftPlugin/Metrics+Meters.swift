@@ -49,8 +49,9 @@ extension Metrics {
         }
         let declared = host.observeMeterReadings { [meters] reading in
             switch reading {
-            case let .counter(id, wattHours, direction): meters.recordCounter(wattHours, direction: direction, meter: id)
-            case let .power(id, watts): meters.recordPower(watts, meter: id)
+            // When they were read: those a plugin made before the store followed arrive late.
+            case let .counter(id, wattHours, direction, at): meters.recordCounter(wattHours, direction: direction, meter: id, at: at)
+            case let .power(id, watts, at): meters.recordPower(watts, meter: id, at: at)
             }
         }
         scan()

@@ -134,14 +134,17 @@ struct MetricsTests {
         let plug = try #require(host.mainBridge.server.accessories.last)
         let service = try #require(plug.service(.outlet))
         let total = try #require(service[EveCharacteristic.totalConsumption])
-        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        let clock = NIOLockedValueBox(Date())
+        let metrics = Metrics(directory: nil, interval: .seconds(60), now: { clock.withLockedValue { $0 } })
         metrics.start(following: host)
         let id = MeterID(accessory: "Recording:plug-1", meter: "\(service.type.uuid)/")
         #expect(metrics.meters.meters == [id])
 
+        // A quarter of a kWh over the next half hour.
+        let start = clock.withLockedValue { $0 }
+        clock.withLockedValue { $0 = start.addingTimeInterval(1800) }
         total.value = .double(2.25)
-        let now = Date()
-        let hours = metrics.meters.hours(of: id, from: now.addingTimeInterval(-7200), to: now)
+        let hours = metrics.meters.hours(of: id, from: start.addingTimeInterval(-3600), to: start.addingTimeInterval(3600))
         #expect(abs(hours.reduce(0) { $0 + ($1.consumption ?? 0) } - 250) < 1e-6)
         #expect(hours.allSatisfy { $0.recorded })
         metrics.stop()
@@ -149,7 +152,7 @@ struct MetricsTests {
     }
 
     /// A Meter a plugin declares: its counters reach the Meters, and its power the Home Energy with `EnergyRole`'s
-    /// signs (solar produced is above zero there, sent back on the Meter).
+    /// signs (solar produced is above zero there, Returned on the Meter).
     @Test func recordsTheMetersAPluginDeclares() async throws {
         let environment = TestEnvironment()
         let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Roof", "solar": 800 }] }"#)
@@ -158,9 +161,11 @@ struct MetricsTests {
         try await host.start()
         let id = MeterID(accessory: "Recording:roof", meter: "solar")
         #expect(metrics.meters.meters == [id])
+        // Its 800 W of solar, produced: Returned on the Meter, held for an hour.
         let now = Date()
-        let hours = metrics.meters.hours(of: id, from: now.addingTimeInterval(-7200), to: now)
-        #expect(abs(hours.reduce(0) { $0 + ($1.returned ?? 0) } - 500) < 1e-6)
+        metrics.meters.advance(to: now.addingTimeInterval(3600))
+        let hours = metrics.meters.hours(of: id, from: now.addingTimeInterval(-3600), to: now.addingTimeInterval(7200))
+        #expect(abs(hours.reduce(0) { $0 + ($1.returned ?? 0) } - 800) < 1)
         #expect(metrics.energyTags["plugin:Recording:roof:solar"] == EnergyTag(role: .solar, device: "Roof"))
         let solar = metrics.valueMinutes(from: now.addingTimeInterval(-120), to: now.addingTimeInterval(60), series: ["plugin:Recording:roof:solar"])
         #expect(solar.last?.values["plugin:Recording:roof:solar"]?.average == 800)

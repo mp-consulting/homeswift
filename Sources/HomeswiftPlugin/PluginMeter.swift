@@ -19,14 +19,14 @@ public struct PluginMeter: Sendable {
     /// A power reading, in watts.
     public func record(watts: Double) {
         guard watts.isFinite else { return }
-        readings(.power(id, produces ? -watts : watts))
+        readings(.power(id, produces ? -watts : watts, Date()))
         homeEnergy?(watts)
     }
 
     /// A counter's reading, in watt-hours.
     public func record(counter wattHours: Double, direction: MeterDirection = .consumption) {
         guard wattHours.isFinite else { return }
-        readings(.counter(id, wattHours, direction))
+        readings(.counter(id, wattHours, direction, Date()))
     }
 }
 

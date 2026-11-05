@@ -54,8 +54,6 @@ actor RecordingPlugin: HomeswiftPlugin {
         if let solar = configuration.solar {
             let roof = context.meter("solar", deviceID: "roof", device: "Roof", suggestedRole: .solar)
             roof.record(watts: solar)
-            roof.record(counter: 1000, direction: .returned)
-            roof.record(counter: 1500, direction: .returned)
         }
         for meter in configuration.meters ?? [] {
             let outlet = Service(.outlet, name: meter, extra: [Characteristic(EveCharacteristic.totalConsumption, value: .double(2))], isPrimary: true)

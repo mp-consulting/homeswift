@@ -143,4 +143,51 @@ struct MeterArchiveTests {
         #expect(reloaded.meters.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
+
+    /// A plugin's 0 while the device was away, then its real reading: no gain more than `largestPower` could make.
+    @Test func anImplausibleGainIsNotCounted() {
+        let archive = MeterArchive(directory: nil, now: { hour })
+        archive.recordCounter(1_000_000, meter: plug, at: hour)
+        archive.recordCounter(0, meter: plug, at: hour.addingTimeInterval(60))
+        archive.recordCounter(1_000_050, meter: plug, at: hour.addingTimeInterval(70))
+        archive.recordCounter(1_000_080, meter: plug, at: hour.addingTimeInterval(130))
+        #expect(near(archive.hours(of: plug, from: hour, to: hour).first?.consumption, 30))
+    }
+
+    /// A cached counter read at start counts only when it went up, and never as a reset.
+    @Test func aSeedOnlyMovesACounterForward() {
+        let archive = MeterArchive(directory: nil, now: { hour })
+        archive.recordCounter(500, meter: plug, at: hour)
+        archive.seedCounter(200, meter: plug)
+        archive.seedCounter(500, meter: plug)
+        #expect(archive.hours(of: plug, from: hour, to: hour).isEmpty)
+        archive.recordCounter(560, meter: plug, at: hour.addingTimeInterval(600))
+        #expect(near(archive.hours(of: plug, from: hour, to: hour).first?.consumption, 60))
+    }
+
+    /// A device that stops reporting is counted for `longestHold` after its last reading, then no more.
+    @Test func heldPowerStopsAfterTheLongestHold() {
+        let archive = MeterArchive(directory: nil, now: { hour })
+        archive.recordPower(100, meter: plug, at: hour)
+        archive.advance(to: hour.addingTimeInterval(MeterArchive.longestHold + 86_400))
+        let total = archive.hours(of: plug, from: hour, to: hour.addingTimeInterval(2 * 86_400)).reduce(0) { $0 + ($1.consumption ?? 0) }
+        #expect(near(total, 100 * MeterArchive.longestHold / 3600))
+    }
+
+    /// Forgetting one Meter writes what is due for the others: nothing they recorded is lost.
+    @Test func forgetKeepsTheOthersPendingSave() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let other = MeterID(accessory: "Shelly:ddeeff", meter: "switch:0")
+        let archive = MeterArchive(directory: directory, now: { hour })
+        archive.recordCounter(0, meter: plug, at: hour)
+        archive.recordCounter(0, meter: other, at: hour)
+        archive.recordCounter(40, meter: other, at: hour.addingTimeInterval(600))
+        archive.forget(accessory: plug.accessory)
+        archive.flush()
+        let reloaded = MeterArchive(directory: directory, now: { hour })
+        #expect(reloaded.meters == [other])
+        #expect(near(reloaded.hours(of: other, from: hour, to: hour).first?.consumption, 40))
+        #expect(!reloaded.hasHistory(accessory: plug.accessory) && reloaded.hasHistory(accessory: other.accessory))
+    }
 }

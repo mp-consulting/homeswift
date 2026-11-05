@@ -102,8 +102,10 @@ public final class MeterArchive: @unchecked Sendable {
 
     private struct Meter {
         var counters: [MeterDirection: Reading] = [:]
-        /// The power last read, held until the next reading; this run's only.
+        /// The power last read, held until the next reading, and counted up to `at`; this run's only.
         var power: Reading?
+        /// When that power was read.
+        var powerRead: Date?
         /// The years readings reached: the hours by their offset from the year's first, in hours.
         var years: [Int: [Int: Hour]] = [:]
     }
@@ -118,6 +120,12 @@ public final class MeterArchive: @unchecked Sendable {
 
     /// The longest time a counter's gain is spread over; a longer one sets the counter's reading again and is lost.
     public static let longestGap: TimeInterval = 31 * 86_400
+    /// The most power a gain may stand for, in watts (Eve's Current Consumption's bound): a counter that gained more
+    /// over its time (a plugin's 0 while the device was away, then its real reading) sets its reading again instead.
+    public static let largestPower: Double = 100_000
+    /// The longest power is held without a new reading: a device that stops reporting (gone from the network) stops
+    /// being counted then.
+    public static let longestHold: TimeInterval = 6 * 3600
     static let version = 1
 
     public let directory: URL?
@@ -160,7 +168,7 @@ public final class MeterArchive: @unchecked Sendable {
             guard let last = meter.counters[direction], at > last.at else { return }
             let gained = wattHours >= last.value ? wattHours - last.value : wattHours
             let whole = at.timeIntervalSince(last.at)
-            guard gained > 0, whole <= Self.longestGap else { return }
+            guard gained > 0, whole <= Self.longestGap, gained <= Self.largestPower * whole / 3600 else { return }
             // The part before this run started is an estimate, the rest the bridge's own.
             let split = min(max(started, last.at), at)
             for (from, to, estimate) in [(last.at, split, true), (split, at, false)] {
@@ -178,13 +186,16 @@ public final class MeterArchive: @unchecked Sendable {
     }
 
     /// A power reading, in watts: above zero drawn, below zero returned. Counted only for a direction the Meter has
-    /// no counter for.
+    /// no counter for, and for at most `longestHold` after it.
     public func recordPower(_ watts: Double, meter id: MeterID, at: Date? = nil) {
         guard watts.isFinite else { return }
         let at = at ?? now()
         changing(id) { meter, years in
             hold(&meter, to: at, years: &years, id: id)
-            if Self.isNewer(at, than: meter.power) { meter.power = Reading(value: watts, at: at) }
+            if meter.powerRead.map({ at >= $0 }) ?? true {
+                meter.power = Reading(value: watts, at: at)
+                meter.powerRead = at
+            }
         }
     }
 
@@ -235,8 +246,8 @@ public final class MeterArchive: @unchecked Sendable {
             return gone
         }
         guard let directory, !gone.isEmpty else { return }
-        // After any save under way, so it cannot write the folder back.
-        saving.flush {}
+        // What is due for the other Meters, now: a save under way cannot write the folder back after it goes.
+        flush()
         for id in gone { try? FileManager.default.removeItem(at: Self.folder(of: id, in: directory)) }
     }
 
@@ -295,13 +306,16 @@ public final class MeterArchive: @unchecked Sendable {
         reading.map { at >= $0.at } ?? true
     }
 
-    /// The held power from its reading to `date`, for the directions without a counter.
+    /// The held power from where it was counted to `date`, for the directions without a counter, and no further than
+    /// `longestHold` after it was read.
     private func hold(_ meter: inout Meter, to date: Date, years: inout Set<Int>, id: MeterID) {
-        guard let power = meter.power, date > power.at else { return }
-        meter.power = Reading(value: power.value, at: date)
+        guard let power = meter.power, let read = meter.powerRead else { return }
+        let end = min(date, read.addingTimeInterval(Self.longestHold))
+        guard end > power.at else { return }
+        meter.power = Reading(value: power.value, at: end)
         let direction: MeterDirection = power.value >= 0 ? .consumption : .returned
         guard power.value != 0, meter.counters[direction] == nil else { return }
-        spread(abs(power.value) * date.timeIntervalSince(power.at) / 3600, direction, from: power.at, to: date, estimate: false,
+        spread(abs(power.value) * end.timeIntervalSince(power.at) / 3600, direction, from: power.at, to: end, estimate: false,
                into: &meter, years: &years, id: id)
     }
 
