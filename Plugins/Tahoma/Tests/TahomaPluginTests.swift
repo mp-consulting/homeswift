@@ -57,8 +57,9 @@ struct TahomaPluginTests {
     }
 
     @Test func slidersAndDevicesAreCoalesced() async throws {
-        // At a tenth: 50 ms of quiet before a slider's command, 10 ms to gather devices.
-        let environment = TestEnvironment(timeScale: 0.1)
+        // At a half: 250 ms of quiet before a slider's command, 50 ms to gather devices: room enough on a loaded machine
+        // for a 10 ms drag to stay one command and two writes made together to stay one execution.
+        let environment = TestEnvironment(timeScale: 0.5)
         let host = try await environment.start()
         #expect(await eventually { host.accessory(kitchenBlind) != nil })
         let shutterTarget = try #require(host.accessory(shutter)?.service(.windowCovering)?[.targetPosition])
