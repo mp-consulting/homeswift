@@ -237,7 +237,8 @@ struct ImouTests {
         let host = try await environment.start(block)
         let plugin = try #require(environment.plugin)
         #expect(await eventually { await plugin.context.accountRefusal != nil })
-        #expect(environment.cloud.calls.count == 1)
+        // The documented signature, then once with MD5: both refused.
+        #expect(environment.cloud.calls.count == 2)
         await host.stop()
     }
 

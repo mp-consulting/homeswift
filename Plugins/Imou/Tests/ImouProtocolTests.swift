@@ -23,7 +23,7 @@ struct ImouProtocolTests {
     }
 
     @Test func theBodyIsTheSpecsDeviceOnlineRequest() throws {
-        let body = ImouCloud.body(appID: "lcaa11bb22cc33dd44", appSecret: "a1b2c3d4e5f60718293a4b5c6d7e8f90", params: ["deviceId": "8L0DF93PAZ55FD2"],
+        let body = ImouCloud.body(appID: "lcaa11bb22cc33dd44", appSecret: "a1b2c3d4e5f60718293a4b5c6d7e8f90", signing: .md5, params: ["deviceId": "8L0DF93PAZ55FD2"],
                                   token: "At_test", time: 1_700_000_000, nonce: "Xq3vP9-nonce-0001", id: "42")
         let expected = try JSONValue(string: """
             {"system":{"ver":"1.0","sign":"55dfb1b302fa7e16b04c70224fa9f111","appId":"lcaa11bb22cc33dd44","time":1700000000,"nonce":"Xq3vP9-nonce-0001"},

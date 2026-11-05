@@ -731,3 +731,376 @@ Local event part: `--myboundary\r\nContent-Type: text/plain\r\nContent-Length:37
   whole poll interval (5.1), `camera_wait_before_download` option read but discarded (A1 waits 1.5 s regardless),
   waking dormant devices on every poll.
 - **[D] bugs not to copy**: Digest `uri` built from the template with `{codes}`, `Code` ignored, line-based parsing.
+
+# IMOU addendum: PTZ, detections, two-way audio (clean room)
+
+Written by the spec writer as a supplement to `Imou.md`. It contains no source code; method names, keys, codes and
+strings are quoted exactly because they are interfaces. Labels are those of `Imou.md` §0: **[A]** imouapi/imou_life,
+**[O]** Py-Imou-Open-Api/Imou-Home-Assistant, **[D]** homebridge-dahua-alerts (same commits). One new source:
+
+- **[P]** IMOU's public Open Platform documentation at `https://open.imoulife.com/book/…`, read on 2026-11-05. The pages
+  read are under `/book/05-api/90.old/…` (legacy methods; each page is marked "Deprecated" and points to the newer
+  capability API, but is "kept for existing integrations"), `/book/05-api/01.conventions/02.sign.html`,
+  `/book/05-api/05.limit.html`, `/book/05-api/09.push/01.setMessageCallback.html`,
+  `/book/03-guides/05.device-events.html` and `/book/04-capabilities/90.legacy/02.feature-flags.html`. These are
+  documentation pages, not code. No licence is stated on them; facts (interfaces) are taken, no text is copied beyond
+  identifiers.
+- **Recommendation** marks what comes from the spec writer.
+
+## 0. Correction to `Imou.md` §3.2: two signing schemes
+
+[P]'s signature page now defines a different `sign` from the MD5 that [A] and [O] send:
+
+- source string: `time:{time},nonce:{nonce},appSecret:{appSecret}` (unchanged; UTF-8; `time` and `nonce` equal to
+  `system.time` and `system.nonce`);
+- `password` = lowercase hex of SHA-256 of the App Secret's UTF-8 bytes;
+- `sign` = standard Base64 (with `=` padding) of HMAC-SHA256 over the source string, **keyed with the 64-character
+  lowercase hex `password` string's bytes** (not the raw 32-byte digest);
+- `time` is UTC seconds; clock skew must stay within 5 minutes; a nonce must not be reused within 5 minutes (reuse
+  gives `SN1005`). [P]'s sample generates a UUID per request.
+
+[P]'s worked example, which the spec writer reproduced with Python's `hashlib`/`hmac`:
+
+| Input | Value |
+|---|---|
+| time | `1706511734` |
+| nonce | `f5a1ae2d-c09c-4d39-a744-83a5c2c653c2` |
+| appSecret | `test123456789test123456789` |
+| password | `1f2da89b2fab404859f02bcc80e8521bc7a63af3e5b1da5318f7cf7c56836b09` |
+| sign | `xjhCQBoJ9hRDsCjyDcHjtDNzRZ3ZJezcawsfWeiaoxU=` |
+
+Both [A] (2024) and [O] (released 2026-10-21, 1.4.4) still send the MD5 hex form, and [O] is IMOU's own current
+library, so the cloud accepts MD5 today. Recommendation: implement both behind one function; send HMAC-SHA256 by
+default (the documented form); on `SN1001` from `accessToken`, retry once with MD5 and remember which one worked for
+the account (in memory). Both test vectors are in §7.
+
+## 1. PTZ
+
+### 1.1 Cloud: `controlMovePTZ` (move for a duration)
+
+Sources: [A] (`async_api_controlMovePTZ`), [O] (`async_control_device_ptz`, its HA buttons `ptz_up`, `ptz_down`,
+`ptz_left`, `ptz_right` and service `control_move_ptz`), [P].
+
+Gated by ability `PT` or `PTZ` ([O] `BUTTON_TYPE_ABILITY`; [P] "PTZ functions require the device to have a PT or PTZ
+capability"). [A] additionally documents `PT1` (four directions, no zoom) and `PT2` (two directions only), so zoom
+operations must be offered only with `PTZ`, and only left/right with `PT2` (Recommendation from those meanings).
+
+`params` ([P] types; source differences noted):
+
+| Key | Type ([P]) | Required | Meaning |
+|---|---|---|---|
+| `token` | String | yes | access token |
+| `deviceId` | String | yes | serial |
+| `channelId` | String | conditional | channel (`"0"` first); [P]: give `channelId` or `targetDevice` |
+| `targetDevice` | String | conditional | alternative to `channelId` (not used by any source) |
+| `operation` | String | unless speeds given | direction code, below. [A] sends a string (`"2"`); [O] sends a JSON integer (`2`); [P] types it String and its sample sends `"1"` |
+| `duration` | Long | yes ([P] table; applies with `operation`) | milliseconds of movement. [A] sends a string (`"1000"`), [O] an integer; [P] sample `1000` (number) |
+| `horizontalSpeed` | Double | no | [−1, 1]; pan speed, used **with** `verticalSpeed` **instead of** `operation` ("since API 1.0.16", [P]). No source uses it |
+| `verticalSpeed` | Double | no | [−1, 1]; tilt speed |
+
+Operation codes (identical in [A], [O] for the first four, and [P]):
+
+| Code | Meaning | [A] name |
+|---|---|---|
+| `0` | up | `UP` |
+| `1` | down | `DOWN` |
+| `2` | left | `LEFT` |
+| `3` | right | `RIGHT` |
+| `4` | upper left | `UPPER_LEFT` |
+| `5` | bottom left | `BOTTOM_LEFT` |
+| `6` | upper right | `UPPER_RIGHT` |
+| `7` | bottom right | `BOTTOM_RIGHT` |
+| `8` | zoom in | `ZOOM_IN` |
+| `9` | zoom out | `ZOOM_OUT` |
+| `10` | stop | `STOP` |
+
+There is **no speed parameter with `operation`**: speed exists only as the alternative `horizontalSpeed`/`verticalSpeed`
+form. Durations: [A]'s service accepts 100–10000 ms (default 1000); [O]'s service and option accept 100–10000 ms
+(default 500). Response: no `data`; `result.code` `"0"`. Errors listed by [P] for PTZ: `OP1002` missing parameter,
+`OP1003` invalid parameter, `OP1013` total call limit, `OP1014` daily per-interface limit, `DV1007` offline, `DV1009`
+busy, `DV1012` insufficient share permission, `DV1019` capability not supported, `DV1020` channel offline, `DV1026`
+function not supported, `DV1028` not bound or channel missing (plus `SN1001`, `TK1002`, `OP1009`). A shared or
+sub-account token needs permission `Ptz` on resource `cam:<serial>:<channel>`.
+
+Recommendation: send `operation` as a **string** and `duration` as a **number** (matches [P]'s sample); on `OP1003`,
+retry once with `operation` as a number (what [O] sends). Serialise PTZ calls per camera; a new move cancels nothing
+on the device, so send `10` (stop) before changing direction when a previous move is still within its duration.
+
+### 1.2 Cloud: absolute position and reading it
+
+- `controlLocationPTZ` ([A], [P]): `deviceId`, `channelId` (String, required), `h` (Double, [−1, 1], horizontal), `v`
+  (Double, [−1, 1], vertical), `z` (Double, [0, 1]; 0 widest, 1 maximum zoom). No `data`. [A] rejects out-of-range
+  values before sending.
+- `devicePTZInfo` ([A], [P]): `deviceId`, `channelId` → `data.h`, `data.v`, `data.z` as **strings** (`"0.9"`, `"0.2"`,
+  `"0.0"`); [P] gives no ranges for them (presumably those of `controlLocationPTZ`).
+- Presets ([O] select `collection_point`, ability `CollectionPoint`; [P] legacy `getCollection`, `setCollection`,
+  `turnCollection`, `deleteCollection`, `modifyCollection`): [O] calls `getCollection` (`deviceId`, `channelId`) and
+  `turnCollection` (`deviceId`, `channelId`, `name`). The `getCollection` response shape is not documented in this
+  addendum's sources (gap).
+- [P] daily limit: `controlPTZ` 200,000 per day (the only PTZ line in its limits table).
+
+### 1.3 Local Dahua `ptz.cgi`
+
+**Not covered by any source.** [D] uses only `eventManager.cgi`. Recommendation, from Dahua's general HTTP API
+convention and unverified on IMOU firmware: `GET /cgi-bin/ptz.cgi?action=start&channel=<n>&code=<Code>&arg1=0&arg2=<speed 1–8>&arg3=0`
+then `action=stop` with the same `code`, Digest auth as for events, `channel` one-based (cloud `channelId` + 1), codes
+`Up`, `Down`, `Left`, `Right`, `LeftUp`, `RightUp`, `LeftDown`, `RightDown`, `ZoomTele`, `ZoomWide`. The implementer
+must treat this as optional, probe it once, and fall back to the cloud.
+
+### 1.4 HomeKit
+
+HomeKit has no PTZ service (unchanged from `Imou.md` §6.6). Recommendation: no HomeKit service; offer PTZ through the
+plugin's page and MCP tools (directions with a duration, absolute position, presets).
+
+## 2. Detections, lights, siren linkage, night vision, other switches
+
+### 2.1 Reading and setting a switch (common)
+
+- Read: `getDeviceCameraStatus` with `deviceId`, `channelId`, `enableType` → `data.status` `"on"`/`"off"` (String,
+  [P]) and `data.enableType` echoed. [P]: the `enableType` begins with a lowercase letter.
+- Set: `setDeviceCameraStatus` with `deviceId`, `channelId`, `enableType`, `enable` (Boolean). No `data`.
+- **Device-level vs channel-level** ([P], both pages): `channelId` is required for a channel-level switch and **must
+  be omitted** for a device-level one. [A] always sends `"0"`; [O] always sends the channel's id. Recommendation: send
+  `channelId` for channel and "all" scopes, omit it for device scope (table below), and if a device-scope call answers
+  `OP1003`, retry once with `channelId` `"0"`.
+- Gating rule ([P] feature-flags page): a switch is supported when its `enableType` **with the first letter
+  capitalised** appears in the device's ability set (e.g. `closeCamera` ↔ `CloseCamera`). [A]'s rule (compare
+  lowercased, ignoring a trailing `V<digit>` on the ability) is equivalent except it also accepts versioned abilities
+  (`AlarmPIRV2` → `alarmPIR`). [O] has an explicit table (below), which sometimes differs from the capitalisation rule.
+- Errors: `DV1019` capability not supported / `DV1026` function not supported → hide that switch for this device
+  (Recommendation); `DV1020` channel offline; others as in `Imou.md` §3.5. A sub-account token needs permission
+  `Config` on `cam:<serial>:<channel>`.
+- [O] write semantics for switches backed by several enableTypes: write all, fail only if all fail; read: on if any is
+  on, off only if all answered off and none failed (`Imou.md` §4.4).
+
+### 2.2 The switches [O] exposes for PaaS cameras
+
+[O]'s Home Assistant switch keys, their enableTypes and the abilities that gate them ([O] `SWITCH_TYPE_ABILITY`), with
+[P]'s scope:
+
+| [O] key | enableType(s) | Gating abilities ([O]) | [P] scope | Notes |
+|---|---|---|---|---|
+| `motion_detect` | `mobileDetect`, `motionDetect` | `MobileDetect`, `AlarmMD` | channel | [O] **writes** it with `modifyDeviceAlarmStatus` (§2.3), reads both enableTypes |
+| `header_detect` (human detection) | `headerDetect` / `aiHuman` / `smdHuman` | `HeaderDetect` → `headerDetect`; `AiHuman` → `aiHuman`; `SMDH` → `smdHuman` | channel | one per matching ability; [P] would gate `smdHuman` by `SmdHuman`, [O] uses `SMDH` |
+| `alarm_pir` | `alarmPIR` | `AlarmPIRV2`, `AlarmPIRV3` | channel | [A] meanings: V2/V3 have an enable switch; `AlarmPIR`/`AlarmPIRV4` do not |
+| `close_camera` (privacy) | `closeCamera` | `CloseCamera` | channel | §5 |
+| `white_light` (as an HA light, on/off) | `whiteLight` | `WhiteLight`, `ChnWhiteLight` | all | |
+| `linkage_white_light` | `linkageWhiteLight` | `WhiteLight`, `ChnWhiteLight` | channel | [O] gates on the white-light abilities, not on `LinkageWhiteLight`; [A] derives it from `WLM` |
+| `linkage_siren` | `linkageSiren` | `LinkageSiren` | all | siren sounds on alarm |
+| `ab_alarm_sound` | `abAlarmSound` | `AbAlarmSound` | channel | abnormal-sound alarm |
+| `audio_encode_control` | `audioEncodeControl` | `AudioEncodeControl`, `AudioEncodeControlV2` | channel | "Audio recording" in [O]'s English strings; [P] also lists `aecv3` |
+| `frame_reverse` | `frameReverse` | `FrameReverse` | (not in [P]'s table) | image flip |
+| `wide_dynamic` | `wideDynamic` | `WideDynamic` | channel | WDR |
+| `smart_track` | `smartTrack` | `SmartTrack` | all | auto-tracking |
+| `play_sound` | `playSound` | `PlaySound` | device | prompt sounds |
+
+[O] also has HA-only switches with no cloud call (`notify_on_alarm`, `local_event_record`), and IoT-ref switches
+(`light`, `switch`, `pet_detect`, ref-based variants) that are out of scope. [O] does **not** expose `breathingLight`.
+
+### 2.3 Motion detection write: `modifyDeviceAlarmStatus`
+
+[O], [P]: `deviceId`, `channelId` (String, required), `enable` (Boolean). No `data`. [P] adds: for devices whose
+details show an `accessType`, it recommends `setDeviceCameraStatus` for function switches. So the two writes are
+alternatives; [O] uses `modifyDeviceAlarmStatus`, [A] uses `setDeviceCameraStatus` `motionDetect`. Recommendation as in
+`Imou.md` §4.5.
+
+### 2.4 Status light
+
+- enableType `breathingLight` ([A] switch "Status indicator"; [P] scope **device**, so no `channelId`), gated by
+  `BreathingLight`.
+- [P] also documents a dedicated legacy pair: `breathingLightStatus` (`deviceId`) → `data.status` `"on"`/`"off"`, and
+  `modifyBreathingLight` (not read in detail). Recommendation: use the enableType; fall back to `breathingLightStatus`
+  for reading if `getDeviceCameraStatus` answers `DV1019`/`DV1026`.
+- [P] lists `inll` ("indicator light linkage", channel) separately; not used by any source.
+
+### 2.5 Siren on demand and lights
+
+- Siren on demand: `sirenStart`/`sirenStop` ([O]) or enableType `siren` ([A]); gated by `Siren` (`Imou.md` §4.9).
+- Alarm-linked siren: `linkageSiren` (§2.2). Alarm-linked light: `linkageWhiteLight` (§2.2).
+- Other lights in [P]'s table: `infraredLight` (device), `searchLight` (device), `ledsw` (fill light, device). Only
+  [A] offers them (generic switches). No brightness in any source for PaaS cameras.
+
+### 2.6 Night vision mode
+
+Gated by ability `NVM` ([A], [O], [P]).
+
+- Read `getNightVisionMode`: `deviceId`, `channelId` ([P]: optional; the device's default channel when omitted) →
+  `data.mode` (String) and `data.modes` (array of String, the supported ones).
+- Set `setNightVisionMode`: `deviceId`, `channelId` (required), `mode` (String; must be one of the device's `modes`).
+- Values ([P], [O]): `Intelligent` (smart), `FullColor`, `Infrared`, `Off`, `LowLight`, `SmartLowLight`; exact case.
+  [O] presents lowercase options and maps them back (`fullcolor` → `FullColor`, `smartlowlight` → `SmartLowLight`).
+- [O] also knows an IoT variant with a `custom` mode (ref `139700`): out of scope.
+- HomeKit: HAP's `NightVision` characteristic is a boolean on the deprecated Camera Control service. Recommendation:
+  not in HomeKit; a select on the plugin page. If mapped at all, NightVision on = `Intelligent`, off = `Off`.
+
+### 2.7 Other switches, for completeness ([P] feature-flags table; scope device/channel/all)
+
+`localRecord` (channel), `faceCapture` (channel), `speechRecognition` (device), `smartLocate` (all),
+`localAlarmRecord` (channel; depends on motion detection), `regularCruise` (all), `numberStat`, `manNumDec`,
+`autoZoomFocus`, `faceDetect` (channel), `localStorageEnable` (device), `hoveringAlarm` (channel), `beOpenedDoor`
+(device), `rtFaceDetect`, `rtFaceCompa` (channel), `closeDormant` (device), `heatMap` (channel), `tlsEnable` (device),
+`aiHumanCar`, `aiCar` (channel), `openDoorByFace`, `openDoorByTouch` (device), `linkDevAlarm` (channel),
+`linkAccDevAlarm` (device), `smdVehicle` (channel), `instantDisAlarm`, `periodDisAlarm` (device), `ccss` (privacy
+plan, channel). Recommendation: none of these in HomeKit; at most `smdVehicle` and `aiHumanCar` as optional switches
+next to human detection.
+
+### 2.8 HomeKit mapping (Recommendation, extends `Imou.md` §6.4)
+
+| Function | HomeKit |
+|---|---|
+| Motion detection arming (`motion_detect`) | Switch "Motion Detection" |
+| Human detection (`header_detect`) | Switch "Person Detection" (optional) |
+| Status light (`breathingLight`) | CameraOperatingMode `CameraOperatingModeIndicator` when that service exists (HKSV), else optional Switch |
+| White light (`whiteLight`) | Lightbulb, On only |
+| Light on alarm (`linkageWhiteLight`), siren on alarm (`linkageSiren`) | optional Switches, off the default set |
+| Siren on demand | Switch "Siren", 15 s auto-off, security control |
+| Night vision, WDR, flip, smart tracking, sounds | plugin page only |
+
+Poll cost: each switch is one `getDeviceCameraStatus` call per poll (`Imou.md` §7.2); read only those that are exposed.
+
+## 3. Two-way audio
+
+**Not covered by any source.**
+
+- [A] only lists the abilities `AudioTalk`, `AudioTalkV1` ("support voice intercom"), `TalkV2`, `TalkSoundModify`,
+  `TSV1`/`TSV2` (intercom streaming over IMOU's private protocol), `CallByRtsp` (answer/hang up over RTSP); it has no
+  intercom call. [O] has none either (its "audio" switch is `audioEncodeControl`, the microphone recording on/off).
+  [D] has none.
+- [P]'s legacy API list has no talk/intercom method; the only audio methods are `getSoundVolumeSize` /
+  `setSoundVolumeSize` (device volume), and doorbell `doorbellCallAnswer`, `doorbellCallHangUp`,
+  `doorbellCallRefuse` (door-lock section; not read in detail, they control call state, not audio). The cloud's
+  `getStreamUrl` RTSP is receive-only in [O].
+- Not documented anywhere read: Dahua's RTSP backchannel (ONVIF `Require: www.onvif.org/ver20/backchannel`) and
+  `/cgi-bin/audio.cgi?action=postAudio…`. Recommendation: the first version ships **without** two-way audio
+  (HomeKit's microphone button absent: the RTP setup omits return audio). A later version could try the RTSP
+  backchannel on the local stream (G.711A, 8 kHz) when `AudioTalk*` is present, verified on a real camera first.
+
+## 4. SD card, restart, push callback (brief)
+
+### 4.1 SD card
+
+- `deviceSdcardStatus` (`deviceId`) → `data.status` (String): `""` no card, `normal`, `abnormal`, `recovering`
+  (formatting) ([P]); [A] reads capacity only when `normal`.
+- `deviceStorage` (`deviceId`) → `data.totalBytes`, `data.usedBytes` (Long). [P]: may fail with business errors
+  `NO_SD_CARD` (status empty) or `DEVICE_SD_EXCEPTION` (abnormal); [O] treats `DV1049` as no medium and
+  `totalBytes` `0` as unusable. Gated by `LocalStorage`/`LocalStorageEnable` ([O]). Sub-account permission `Format`
+  on `dev:<serial>`. Used % = usedBytes × 100 / totalBytes, integer ([A], [O]).
+- HomeKit: none. Plugin page only.
+
+### 4.2 Restart
+
+`restartDevice` (`deviceId`; device-level only, no `channelId`) → no `data`. Gated by `Reboot` ([O]). Sub-account
+permission `Config` on `dev:<serial>`. Recommendation: plugin page/MCP action, destructive (confirm), never HomeKit.
+
+### 4.3 Push callback
+
+`setMessageCallback` ([P]): `status` (`on`/`off`, required), `callbackUrl` (public **HTTPS** URL; when `on` the
+platform probes it and accepts only an HTTP 2xx, else the call fails with `PARAM_ILLEGAL_VALUE`), `callbackFlag` CSV of
+`alarm`, `deviceStatus`, `numberstat`, `faceAnalysis`, `capabilityEvent` ([O] also sends `iot`, not in [P]'s list),
+`basePush` (`"1"` also push to the IMOU app, `"2"` do not; default `"2"`). No `data`. Limits ([P]): `setMessageCallback`
+10 per day, `getMessageCallback` 10,000 per day. Delivery ([P] guide): `POST` to the URL; answer 2xx (200–399 counts as
+success) or repeated failures make the platform **stop posting**; deduplicate by the message's id; for `alarm` and
+`deviceStatus` the body has `did`, `cid`, `msgType` (string); for `capabilityEvent`, `msgType` is the event id with
+`deviceId` and `outputData`. **No signature or authentication is described.** Other details as in `Imou.md` §5.2.
+
+Other relevant limits ([P], per interface per day): `accessToken` 2,000; `deviceOnline` 100,000; `setDeviceSnap`
+100,000; `bindDeviceLive` 10,000. Exceeding one gives `OP1014`; app-level quotas `OP1011`; total limit `OP1013`.
+Recommendation: cache the token for its `expireTime` (2,000 token calls a day are easy to burn with a refresh loop).
+
+## 5. Privacy kept in step with HomeKit's Camera Active
+
+What to read:
+
+- The state is the **channel-level** enableType `closeCamera`: `getDeviceCameraStatus` with `deviceId`, `channelId`,
+  `enableType` `"closeCamera"` → `data.status`. `"on"` means the camera is **closed** (privacy on, [P]: "privacy
+  mask"; [A] "Close camera"), `"off"` means it is open. Write with `setDeviceCameraStatus` `closeCamera`, `enable`
+  true to close. Gated by `CloseCamera`.
+- [P] lists `ccss` (privacy *plan*, a schedule switch) separately: when `ccss` is on, the camera closes and opens itself
+  on a schedule, so the `closeCamera` value can change without a write. Recommendation: poll `closeCamera` every poll
+  and also on the push types `closeCamera`/`openCamera` (`Imou.md` §5.2), which [O] classifies as non-alarm status
+  messages.
+- [A]'s `deviceBaseDetailList` channel has a `cameraStatus` field (`"off"` in the fixture). Its meaning is not stated;
+  do not use it for privacy (gap).
+
+Mapping (Recommendation):
+
+- HomeKit's `HomeKitCameraActive` (CameraOperatingMode service, present when the camera has HKSV recording) is the
+  inverse: Active (1) = `closeCamera` off; Inactive (0) = `closeCamera` on.
+- A write to `HomeKitCameraActive` writes `closeCamera` (inverted); a write to the "Privacy" switch updates
+  `HomeKitCameraActive`; a poll or push updates both. Write optimistically, revert both on failure.
+- While closed: refuse new streams and recordings, answer snapshots with the last image (or a black frame), keep the
+  motion sensor's `StatusActive` false.
+- Without HKSV there is no CameraOperatingMode service: the "Privacy" switch alone.
+
+## 6. Gaps
+
+- Which signature form the cloud will require in future (§0); speed-form PTZ (`horizontalSpeed`/`verticalSpeed`)
+  untested by any source; the `getCollection` response shape; local `ptz.cgi` and any two-way audio path.
+- Device vs channel scope disagreements between [P] (omit `channelId` for device-level switches) and both libraries
+  (always send it); both libraries work in practice, so sending `"0"` is evidently tolerated by the cloud.
+- [O]'s ability table differs from [P]'s capitalisation rule for `smdHuman` (`SMDH` vs `SmdHuman`) and for
+  `linkageWhiteLight` (white-light abilities vs `LinkageWhiteLight`): accept either ability.
+- The newer capability API ([P]: `device.capability.list`, `device.property.get`/`set`, `device.service.invoke`,
+  `ptz.aim.relative`, `detection.motion.enabled`, `image.night.mode`, `light.indicator.enabled`,
+  `storage.local.capacity`, `device.reboot.execute`) is not used by any library and is not specified here. [P] says the
+  legacy things-model API is not published for overseas integrations, and the legacy methods above remain documented.
+
+## 7. Test vectors
+
+All ids invented. Same App Id and Secret as `Imou.md` §9.1: appId `lcaa11bb22cc33dd44`, appSecret
+`a1b2c3d4e5f60718293a4b5c6d7e8f90`; token `At_test`; serial `TEST000CAM1`. Computed by the spec writer (macOS `md5`
+and Python `hashlib`/`hmac` agree).
+
+### 7.1 Signatures
+
+`password` for this secret (HMAC key, its hex text) =
+`ff25d2389ab7917a77cc0c3546331401054d53cb7b2edeedb7b4e7742bb5286d`.
+
+| time | nonce | MD5 sign ([A], [O]) | HMAC-SHA256 sign ([P]) |
+|---|---|---|---|
+| `1700000000` | `Xq3vP9-nonce-0001` | `55dfb1b302fa7e16b04c70224fa9f111` | `/KGDnPf4k0KNIoUMRkEtRBoKUOkWjrLVE0o0BDIymdQ=` |
+| `1762300000` | `nonce-ptz-0002` | `7a6b5b38ad6ccd64362550b46107e15f` | `a+nlbu3RzTvpjkaZszXXHDT2Oa/PlfD3pVpNGPVMBuk=` |
+| `1762300060` | `nonce-cam-0003` | `702096723e475730eab7927aac7470a4` | `iLddnaTOjE9xcTr72RwfBRJifAscu4yd810ozYxTgjs=` |
+| `1706511734` | `f5a1ae2d-c09c-4d39-a744-83a5c2c653c2` (secret `test123456789test123456789`) | `fd37b62889e4757c58b8f3bf05fb9976` | `xjhCQBoJ9hRDsCjyDcHjtDNzRZ3ZJezcawsfWeiaoxU=` ([P]'s own value) |
+
+Source string for row 2: `time:1762300000,nonce:nonce-ptz-0002,appSecret:a1b2c3d4e5f60718293a4b5c6d7e8f90`.
+
+### 7.2 Request bodies
+
+PTZ left for 500 ms (row 2, HMAC form):
+
+```
+{"id":"ptz-1","system":{"ver":"1.0","appId":"lcaa11bb22cc33dd44","sign":"a+nlbu3RzTvpjkaZszXXHDT2Oa/PlfD3pVpNGPVMBuk=","time":1762300000,"nonce":"nonce-ptz-0002"},
+ "params":{"token":"At_test","deviceId":"TEST000CAM1","channelId":"0","operation":"2","duration":500}}
+```
+
+PTZ stop: same with `"operation":"10"`. PTZ speed form: `"horizontalSpeed":-0.5,"verticalSpeed":0,"duration":500`
+and no `operation`. Absolute: `controlLocationPTZ` params `{"token":"At_test","deviceId":"TEST000CAM1","channelId":"0","h":0.5,"v":-0.25,"z":0}`.
+
+Read privacy (row 3, MD5 form):
+
+```
+{"id":"cam-1","system":{"ver":"1.0","appId":"lcaa11bb22cc33dd44","sign":"702096723e475730eab7927aac7470a4","time":1762300060,"nonce":"nonce-cam-0003"},
+ "params":{"token":"At_test","deviceId":"TEST000CAM1","channelId":"0","enableType":"closeCamera"}}
+```
+→ `{"result":{"code":"0","msg":"The operation was successful.","data":{"enableType":"closeCamera","status":"on"}},"id":"cam-1"}`
+→ Privacy switch On, `HomeKitCameraActive` 0.
+
+Other `params` (signature and envelope as above, each with its own time and nonce):
+
+| Call | `params` (besides `token`) | Expected `data` |
+|---|---|---|
+| set human detection on | `{"deviceId":"TEST000CAM1","channelId":"0","enableType":"headerDetect","enable":true}` | none |
+| set status light off (device scope) | `{"deviceId":"TEST000CAM1","enableType":"breathingLight","enable":false}` | none |
+| linkage siren on | `{"deviceId":"TEST000CAM1","channelId":"0","enableType":"linkageSiren","enable":true}` | none |
+| motion detection off | `modifyDeviceAlarmStatus` `{"deviceId":"TEST000CAM1","channelId":"0","enable":false}` | none |
+| night vision read | `getNightVisionMode` `{"deviceId":"TEST000CAM1","channelId":"0"}` | `{"mode":"Intelligent","modes":["Intelligent","FullColor","Infrared","Off"]}` |
+| night vision set | `setNightVisionMode` `{"deviceId":"TEST000CAM1","channelId":"0","mode":"FullColor"}` | none |
+| SD status | `deviceSdcardStatus` `{"deviceId":"TEST000CAM1"}` | `{"status":""}` → no card; `{"status":"recovering"}` → formatting |
+| storage | `deviceStorage` `{"deviceId":"TEST000CAM1"}` | `{"totalBytes":31254904832,"usedBytes":27553759232}` → 88 % |
+| restart | `restartDevice` `{"deviceId":"TEST000CAM1"}` | none |
+| callback on | `setMessageCallback` `{"status":"on","callbackUrl":"https://bridge.example.net/imou/AbC123","callbackFlag":"alarm,deviceStatus","basePush":"1"}` | none |
+
+Errors to test: `getDeviceCameraStatus` answering `{"result":{"code":"DV1019","msg":"..."}}` hides the switch;
+`controlMovePTZ` answering `OP1003` with a string `operation` is retried once with a number; `OP1014` stops that method
+until the next UTC day (Recommendation) and logs once.

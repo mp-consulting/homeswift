@@ -15,6 +15,12 @@ let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46])
 
 func md5(_ text: String) -> String { Insecure.MD5.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
 
+/// The documented signature (addendum, section 0): Base64 of an HMAC-SHA256 keyed with the hex SHA-256 of the secret.
+func hmacSign(_ text: String, secret: String) -> String {
+    let key = SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
+    return Data(HMAC<SHA256>.authenticationCode(for: Data(text.utf8), using: SymmetricKey(data: Data(key.utf8)))).base64EncodedString()
+}
+
 /// The IMOU Open Platform in memory: it checks each request's signature, answers the methods the plugin calls from what
 /// a test put in it, and counts the calls.
 final class FakeImouCloud: HTTPSending, Sendable {
@@ -40,6 +46,8 @@ final class FakeImouCloud: HTTPSending, Sendable {
         var currentDomain: String?
         var badSignatures = 0
         var setStatusDelay: Duration = .zero
+        /// An account that takes only the MD5 signature, as the libraries send it.
+        var refusesHMAC = false
     }
 
     let state = NIOLockedValueBox(State())
@@ -77,7 +85,8 @@ final class FakeImouCloud: HTTPSending, Sendable {
             // The signature: MD5 of time, nonce and the secret.
             let system = body["system"]
             let time = system?["time"]?.intValue ?? 0, nonce = system?["nonce"]?.stringValue ?? ""
-            guard system?["sign"]?.stringValue == md5("time:\(time),nonce:\(nonce),appSecret:\(Self.appSecret)"), system?["appId"]?.stringValue == Self.appID else {
+            let signed = "time:\(time),nonce:\(nonce),appSecret:\(Self.appSecret)", sign = system?["sign"]?.stringValue
+            guard sign == md5(signed) || !state.refusesHMAC && sign == hmacSign(signed, secret: Self.appSecret), system?["appId"]?.stringValue == Self.appID else {
                 state.badSignatures += 1
                 return Self.error("SN1001", "invalid sign")
             }
