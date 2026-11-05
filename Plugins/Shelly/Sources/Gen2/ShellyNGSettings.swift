@@ -147,9 +147,46 @@ extension ShellyNGPlugin {
         return try? JSONValue(data: response.body)
     }
 
+    // The Shelly Cloud account (an Optional Account, an API Key): its server and authorization cloud key, which import the
+    // energy history the Shelly app keeps for plugs and relays (`ShellyCloud`, an unofficial endpoint). The devices never
+    // need it: they are reached on the LAN.
+    public static let accountAuthorization = AuthorizationMethod.apiKey
+    public static let accountRequirement = AccountRequirement.optional(
+        adds: "Imports the energy history the Shelly app keeps for plugs and relays, from Shelly Cloud, through an endpoint Shelly does not document.")
+
+    public func accountAuthorized() async -> Bool? {
+        context.credentials(as: ShellyCloudCredentials.self) != nil
+    }
+
+    /// The cloud account, from the vault; nil without one.
+    var cloud: ShellyCloud? {
+        context.credentials(as: ShellyCloudCredentials.self).map { ShellyCloud(credentials: $0, http: dependencies.http, logger: logger) }
+    }
+
+    /// The account: its server and key, as the Shelly app shows them, checked by asking the cloud for yesterday's energy of
+    /// a device it should know (a refusal is said; a device it does not know, or an answer of another shape, is not).
+    private func authorizeCloud(_ request: SetupRequest) async throws -> SetupStep {
+        guard let server = request.answer("server"), let key = request.secret("authKey") else {
+            return .ask(SetupPrompt(
+                message: "In the Shelly app, open User settings, then Authorization cloud key: copy the server and the key. Homeswift imports the history the app shows for plugs and relays, through an endpoint Shelly does not document, which may stop working.",
+                fields: [SetupField("server", label: "Server", value: context.credentials(as: ShellyCloudCredentials.self)?.server),
+                         SetupField("authKey", label: "Authorization cloud key", kind: .secret)]))
+        }
+        let credentials = ShellyCloudCredentials(server: server, authKey: key)
+        let cloud = ShellyCloud(credentials: credentials, http: dependencies.http, logger: logger)
+        guard cloud.base != nil else { throw SetupError("That is not a server address") }
+        if let id = devices.values.first?.cloudID,
+           await cloud.consumption(id: id, channel: 0, day: Date().addingTimeInterval(-86_400), timeZone: .current) == .refused {
+            throw SetupError("Shelly Cloud refused this key: copy it again from the Shelly app, with its server")
+        }
+        logger.info("Signed in to Shelly Cloud through Setup")
+        return .done(try SetupOutcome(encoding: credentials))
+    }
+
     /// A device whose authentication is on asks for its password (the user is always `admin`), checked with
-    /// `Shelly.GetStatus` before it is kept in the vault.
+    /// `Shelly.GetStatus` before it is kept in the vault; the account, its cloud key.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
+        guard case .device = request.target else { return try await authorizeCloud(request) }
         let device = try request.device()
         guard device.authorization == .accountLogin else { return .done(SetupOutcome()) }
         guard let password = request.secret("password") else {

@@ -68,6 +68,9 @@ actor Gen2Device {
     /// its Meter, and the record's keys of energy drawn and sent back, added up (a 3EM's three phases).
     private var historyJobs: [HistoryJob] = []
     private var importer: Task<Void, Never>?
+    /// The relays' meters, whose history Shelly Cloud keeps (`importCloudHistory`), by channel.
+    private var cloudJobs: [(channel: Int, meter: PluginMeter)] = []
+    private var cloudImporter: Task<Void, Never>?
     /// The accessory whose services are being made (`makeAccessories`): the one a power meter's Meter belongs to.
     private var building: (id: String, name: String)?
 
@@ -105,6 +108,9 @@ actor Gen2Device {
 
     var host: String { get async { await rpc.host } }
 
+    /// The device as Shelly Cloud names it: its MAC in lowercase.
+    nonisolated var cloudID: String? { info["mac"]?.stringValue?.lowercased() }
+
     /// The name accessories start with: the configured one, the device's own, else the model's.
     var baseName: String {
         options.name ?? config["sys"]?["device"]?["name"]?.stringValue?.trimmedNonEmpty ?? info["name"]?.stringValue?.trimmedNonEmpty ?? modelName
@@ -136,6 +142,7 @@ actor Gen2Device {
     func stop() async {
         watcher?.cancel()
         importer?.cancel()
+        cloudImporter?.cancel()
         await rpc.stop()
     }
 
@@ -328,6 +335,8 @@ actor Gen2Device {
         let takeOver = takeOver ?? building.map { (accessoryID: $0.id, device: $0.name, role: EnergyRole?.none) }
         let returned: (@Sendable ([String: JSONValue]) -> Double?)? = returned ?? (energyKey == nil ? Self.returnedEnergy : nil)
         let owned = takeOver.map { context.meter(of: meter, accessoryID: $0.accessoryID, device: $0.device, suggestedRole: $0.role, series: "\(deviceID):\(key):power") }
+        // A relay keeps no records: Shelly Cloud's are its history, with an account.
+        if let owned, energyKey == nil, key.hasPrefix("switch:") { cloudJobs.append((id, owned)) }
         if let owned, let history { historyJobs.append(HistoryJob(component: history.component, id: id, meter: owned, drawn: history.drawn, back: history.back)) }
         bind(key) { fields in
             let watts = fields[power]?.number ?? 0
@@ -540,6 +549,59 @@ actor Gen2Device {
             save(chunk)
         }
         return true
+    }
+
+    // MARK: Shelly Cloud's history
+
+    /// How far back a first import from the cloud looks; it stops sooner after `cloudEmptyDays` days in a row with nothing.
+    static let cloudDays = 400, cloudEmptyDays = 21
+
+    /// Imports the relays' history from Shelly Cloud (`ShellyCloud`: unofficial), once: a day a request, the newest first,
+    /// one a second (the cloud's limit, `delay`), back to the day the last import reached (`shelly-cloud-history.json`) or,
+    /// the first time, until the cloud has nothing for `cloudEmptyDays` days in a row. A refused key is said on the
+    /// Plugins page (`accountRefused`). Hours the bridge measured keep their own figures.
+    func startCloudImport(_ cloud: ShellyCloud, delay: Duration, now: Date = Date()) {
+        guard !cloudJobs.isEmpty, cloudImporter == nil, let id = cloudID else { return }
+        cloudImporter = Task { [weak self] in await self?.importCloudHistory(cloud, id: id, delay: delay, now: now) }
+    }
+
+    func importCloudHistory(_ cloud: ShellyCloud, id: String, delay: Duration, now: Date) async {
+        let file = context.jsonFile("shelly-cloud-history.json", as: [String: Int].self)
+        var reached = file.load() ?? [:]
+        let day = 86_400.0
+        for job in cloudJobs {
+            let key = "\(deviceID)/switch:\(job.channel)"
+            let stop = reached[key].map { Date(timeIntervalSince1970: TimeInterval($0) - day) } ?? now.addingTimeInterval(-Double(Self.cloudDays) * day)
+            let total = max(1, Int(now.timeIntervalSince(stop) / day) + 1)
+            var empty = 0, newest: Date?
+            var date = now
+            for index in 0..<total {
+                guard !Task.isCancelled else { return }
+                if index > 0 { try? await Task.sleep(for: delay) }
+                context.reportEnergyImport(EnergyImportProgress(state: .running, done: index, total: total))
+                switch await cloud.consumption(id: id, channel: job.channel, day: date, timeZone: .current) {
+                case .refused:
+                    context.accountRefused("Shelly Cloud refused the authorization key: copy it again from the Shelly app")
+                    context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the authorization key"))
+                    return
+                case .nothing:
+                    empty += 1
+                case .hours(let hours):
+                    let known = hours.filter { $0.consumption > 0 || ($0.returned ?? 0) > 0 }
+                    empty = known.isEmpty ? empty + 1 : 0
+                    if !hours.isEmpty {
+                        job.meter.importHours(hours.map { MeterHourImport(start: $0.start, consumption: $0.consumption, returned: $0.returned) })
+                        newest = newest ?? date
+                    }
+                }
+                // A first import ends where the cloud's history does.
+                if reached[key] == nil, empty >= Self.cloudEmptyDays { break }
+                date = date.addingTimeInterval(-day)
+            }
+            reached[key] = Int((newest ?? now).timeIntervalSince1970)
+            try? file.save(reached)
+        }
+        context.reportEnergyImport(EnergyImportProgress(state: .done, through: now))
     }
 
     /// The first record a meter keeps: the earliest of its data blocks.

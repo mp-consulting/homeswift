@@ -260,6 +260,7 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
             }
             devices[id] = device
             await device.watch()
+            if let cloud { await device.startCloudImport(cloud, delay: .milliseconds(Int(1100 * dependencies.timeScale))) }
             saveCache(id: id, model: model, host: host)
             let name = await device.baseName
             logger.info("[\(name)] Device added")

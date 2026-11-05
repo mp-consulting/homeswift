@@ -1609,6 +1609,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .consumer.action-with-icon::before { grid-area: icon; }
 }
 .energy-days .chart-table thead th.time { text-align: left; }
+/* The History sheet's note under its charts, apart from them. */
+.admin-dialog .chart-grid + p { margin-top: var(--space-14); }
 .chart-card { margin: 0; display: grid; gap: var(--space-10); align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
 .chart-head .muted { font-size: var(--text-sm); }

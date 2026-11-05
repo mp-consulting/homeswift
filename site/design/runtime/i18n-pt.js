@@ -2874,4 +2874,10 @@ HomeswiftI18n.add("pt", {
   "{cost} at the grid's price, hour by hour": "{cost} ao preço da rede, hora a hora",
   "Energy cost": "Custo da energia",
   "Import less export, without fixed charges": "Importação menos exportação, sem encargos fixos",
+  "Imports the energy history the Shelly app keeps for plugs and relays, from Shelly Cloud, through an endpoint Shelly does not document.": "Importa o histórico de energia que a app Shelly guarda para tomadas e relés, a partir do Shelly Cloud, por um ponto de acesso que a Shelly não documenta.",
+  "In the Shelly app, open User settings, then Authorization cloud key: copy the server and the key. Homeswift imports the history the app shows for plugs and relays, through an endpoint Shelly does not document, which may stop working.": "Na app Shelly, abra Definições do utilizador e depois Chave de autorização na nuvem: copie o servidor e a chave. O Homeswift importa o histórico que a app mostra para tomadas e relés, por um ponto de acesso que a Shelly não documenta e que pode deixar de funcionar.",
+  "Authorization cloud key": "Chave de autorização na nuvem",
+  "That is not a server address": "Não é um endereço de servidor",
+  "Shelly Cloud refused this key: copy it again from the Shelly app, with its server": "O Shelly Cloud recusou esta chave: copie-a de novo a partir da app Shelly, com o seu servidor",
+  "Shelly Cloud refused the authorization key": "O Shelly Cloud recusou a chave de autorização",
 });
