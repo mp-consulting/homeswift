@@ -123,6 +123,8 @@ public struct HomeswiftCatalog: Sendable {
         /// the legacy values `accessory-layout.json` kept; a display name only the legacy layout has (its Name is the
         /// accessory's own); and whether it is a Quick Control, which the layout keeps (the Arrangement).
         public var layout: AccessoryLayout.Entry?
+        /// The bridge keeps the energy of some Meter of it (docs/adr/0004-meters-and-consumption-history.md).
+        public var metered = false
 
         /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`). An
         /// empty room is the user's "no room", which the suggestion does not override.
@@ -166,10 +168,12 @@ public struct HomeswiftCatalog: Sendable {
         let owners = Owners(host.platforms)
         let layout = home.layout.value.accessories
         let live = LiveSettings(host.configuration)
+        let metered = Set(metrics?.meters.meters.map(\.accessory) ?? [])
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
                 let platform = owners.instance(of: accessory.id, on: bridge)
-                return Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]))
+                return Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]),
+                               metered: metered.contains(accessory.id))
             }
         }
     }
@@ -182,7 +186,7 @@ public struct HomeswiftCatalog: Sendable {
             // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
             let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
             let layout = LiveSettings.entry(for: id, platform: platform, legacy: home.layout.value.accessories[id], in: host.configuration)
-            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout)
+            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.meters(of: id).isEmpty == false)
         }
         return nil
     }
@@ -340,6 +344,8 @@ public struct HomeswiftCatalog: Sendable {
             // The web UI gives a camera a card: live video or snapshots, from /api/cameras/<id>/…
             if accessory.cameraController != nil { json.field("camera", true) }
             json.field("category", .string("\(accessory.category)"))
+            // The bridge keeps its Meters' energy: the web UI's History draws their Consumption.
+            if located.metered { json.field("consumption", true) }
             // The room, name, favourite and hidden flags the web UI's rooms give it (`AccessoryLayout`).
             if let name = layout?.name { json.field("displayName", .string(name)) }
             if let camera = accessory.cameraController,

@@ -437,7 +437,7 @@ public final class UIServer: Sendable {
     static func requiredScope(_ method: HTTPMethod, _ route: [String]) -> Scope {
         switch method {
         case .GET:
-            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["events"], ["assistant"]].contains(route) { return .read }
+            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "consumption"], ["events"], ["assistant"]].contains(route) { return .read }
             if route.count == 3, route[0] == "cameras" { return .read }
             if route.count == 3, route[0] == "accessories", route[2] == "history" { return .read }
             if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
@@ -780,6 +780,16 @@ public final class UIServer: Sendable {
                 let periods = metrics.archive.periods(period == "year" ? .month : .day, from: span.from, to: span.to, timeZone: timeZone)
                 return .json(Self.energyHistoryJSON(periods, period: period, earliest: metrics.archive.earliest, timeZone: timeZone,
                                                     imports: catalog.host.energyImportProgress))
+            case ["metrics", "consumption"]:
+                // Each Meter's Consumption and Returned (`HomeswiftCatalog.consumptionJSON`): `hours` (the last N hours), or
+                // `period` week, month or year around `date`; `accessory` keeps one accessory's Meters.
+                let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
+                do {
+                    return .json(try catalog.consumptionJSON(period: request.query["period"], date: request.query["date"], hours: request.query["hours"].flatMap(Double.init),
+                                                             timeZone: timeZone, accessory: request.query["accessory"]))
+                } catch let error as CatalogError {
+                    return .error(error.notFound ? 404 : 400, error.description)
+                }
             case ["metrics", "energy"]:
                 // The Energy section: the readings plugins tag with a role (`EnergyTag`), from `from` to `to` (the last
                 // hour without them), and the energy of today and the 7 days before, midnight to midnight in `timeZone`
@@ -1419,27 +1429,7 @@ public final class UIServer: Sendable {
     /// The span of a history `period` around `date` (YYYY-MM-DD, today without it) in `timeZone`: the 8 days to it, its
     /// month, or its year; nil for anything else.
     static func energySpan(period: String, date: String?, timeZone: TimeZone, now: Date = Date()) -> (from: Date, to: Date)? {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let day: Date
-        if let date {
-            let parts = date.split(separator: "-").compactMap { Int($0) }
-            guard parts.count == 3, (1...12).contains(parts[1]), (1...31).contains(parts[2]),
-                  let parsed = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return nil }
-            day = parsed
-        } else {
-            day = calendar.startOfDay(for: now)
-        }
-        switch period {
-        case "week": return (calendar.date(byAdding: .day, value: -7, to: day)!, day)
-        case "month":
-            let start = calendar.date(from: calendar.dateComponents([.year, .month], from: day))!
-            return (start, calendar.date(byAdding: DateComponents(month: 1, day: -1), to: start)!)
-        case "year":
-            let start = calendar.date(from: calendar.dateComponents([.year], from: day))!
-            return (start, calendar.date(byAdding: DateComponents(year: 1, day: -1), to: start)!)
-        default: return nil
-        }
+        EnergyCalendar.span(period: period, date: date, timeZone: timeZone, now: now)
     }
 
     /// The history's bars: each day (`date` YYYY-MM-DD) or month (YYYY-MM) with its kWh, null where nothing is known (an

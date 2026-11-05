@@ -229,6 +229,11 @@ public final class MeterArchive: @unchecked Sendable {
         }
     }
 
+    /// The Meters of one accessory, by key.
+    public func meters(of accessory: String) -> [MeterID] {
+        meters.filter { $0.accessory == accessory }
+    }
+
     /// Whether any Meter of an accessory or of the device's other accessories (`<accessory>:<more>`) has a history.
     public func hasHistory(accessory: String) -> Bool {
         state.withLockedValue { $0.meters.keys.contains { Self.belongs($0, to: accessory) } }
@@ -345,7 +350,7 @@ public final class MeterArchive: @unchecked Sendable {
     // MARK: Hours and years
 
     /// Hours since 1970.
-    static func hourIndex(_ date: Date) -> Int { Int((date.timeIntervalSince1970 / 3600).rounded(.down)) }
+    public static func hourIndex(_ date: Date) -> Int { Int((date.timeIntervalSince1970 / 3600).rounded(.down)) }
 
     private static let utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)

@@ -1530,26 +1530,44 @@
     const importsNode = el("div", { class: "energy-imports", role: "status" });
     const summary = el("div", { class: "energy-totals" });
     let importPoll = null;
-    days.node.insertBefore(el("div", { class: "energy-history-bar" },
+    // The period, for the energy by day and the consumption by device alike.
+    const historyBar = el("div", { class: "energy-history-bar" },
       el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
-      el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+      el("div", { class: "energy-period-nav" }, previous, periodLabel, next));
     days.node.insertBefore(importsNode, days.body);
     days.node.insertBefore(summary, days.body);
     let earliest = null, historyAsked = 0;
+    // What each Meter measured in the period (the bridge's own record of every plug, relay and meter), the most first.
+    const consumers = card(t("Consumption by device"), t("What each meter measured in this period, the most first"), "outlet", "orange");
+    const consumerList = el("ol", { class: "consumers" });
+    const consumersMore = el("button", { type: "button", class: "link consumers-more", hidden: true });
+    consumers.body.append(consumerList, consumersMore);
+    let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
+    consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
     const today = el("div", { class: "energy-today" });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
     const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
+    const rangeBar = el("div", { class: "filter-bar" }, range.control);
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
       today,
-      el("div", { class: "filter-bar" }, range.control),
+      rangeBar,
       el("div", { class: "chart-grid" }, power.node, levels.node),
       pointTable,
-      el("div", { class: "chart-grid energy-days" }, days.node));
+      historyBar,
+      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node));
     let lastReport = null;   // for the table
     let refresh = null;
 
+    /// Shown when a plugin records the home's energy or some meter has a history; the home's charts only for the first.
+    function showSection() {
+      section.hidden = !hasRoles && !hasMeters;
+      for (const node of [today, rangeBar, pointTable, days.node]) node.hidden = !hasRoles;
+      if (!hasRoles) { power.node.hidden = true; levels.node.hidden = true; }
+      // Without the home's energy there is no first day to stop at: the meters' periods go back as far as asked.
+      if (!hasRoles) previous.disabled = false;
+    }
     function keepAddress() {
       const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => !key.startsWith("energy")));
       range.address(query);
@@ -1587,7 +1605,8 @@
       if (signal.aborted) return;
       section.classList.remove("loading");
       // No plugin records energy: the section stays hidden, and looks again with the next refresh.
-      section.hidden = !report.roles.length;
+      hasRoles = report.roles.length > 0;
+      showSection();
       const step = report.step * 1000;
       const shown = roles.filter((role) => report.roles.includes(role.id));
       power.node.hidden = !shown.length;
@@ -1652,6 +1671,49 @@
       if (asked !== historyAsked) return;
       fillHistory(history);
       fillImports(history.imports ?? []);
+      loadConsumers(asked);
+    }
+
+    async function loadConsumers(asked) {
+      let found;
+      try {
+        found = await api(`/api/metrics/consumption?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
+      } catch (e) {
+        if (asked === historyAsked) consumers.detail.textContent = e.message;
+        return;
+      }
+      if (asked !== historyAsked) return;
+      hasMeters = found.meters.length > 0;
+      fillConsumers(found);
+      showSection();
+    }
+
+    /// A row per meter: its device (and which of its meters), a bar as long as its share of the most any used, and its
+    /// kWh, with what it returned when it did. A row opens the device's history. The first eight, then the rest asked for.
+    function fillConsumers(found) {
+      lastConsumption = found;
+      consumers.node.hidden = !found.meters.length;
+      const used = found.meters.filter((one) => one.consumption > 0 || one.returned > 0);
+      const most = Math.max(...used.map((one) => Math.max(one.consumption ?? 0, one.returned ?? 0)), 0);
+      const shown = consumersAll ? used : used.slice(0, 8);
+      const total = used.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
+      consumers.figure.textContent = used.length ? formatKWh(total) : "";
+      consumers.figure.title = t("All meters together");
+      consumerList.replaceChildren(...shown.map((one) => {
+        const name = one.label ? `${one.name} · ${one.label}` : one.name;
+        const share = most > 0 ? Math.max((one.consumption ?? 0) / most * 100, one.consumption > 0 ? 1 : 0) : 0;
+        const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
+        return el("li", {}, el("button", { type: "button", class: "consumer", actionIcon: "chart",
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), returned].filter(Boolean).join(", "),
+          onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
+          el("span", { class: "consumer-name", text: name }),
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), returned ? el("small", { text: returned }) : null)));
+      }));
+      consumersMore.hidden = used.length <= 8;
+      consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
+        el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: used.length }) }));
+      consumers.detail.textContent = used.length ? "" : t("Nothing measured in this period");
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -1904,7 +1966,7 @@
   /// plugin. A separator between groups, none around an empty one.
   function accessoryActions(accessory, arrange = []) {
     const use = [
-      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      accessory.history || accessory.consumption ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
       accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
     ];

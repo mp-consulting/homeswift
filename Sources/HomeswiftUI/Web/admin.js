@@ -1011,7 +1011,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ContactSensorState: t("Contact"), MotionDetected: t("Motion"), ValvePosition: t("Valve position"), WaterAmount: t("Water"),
   };
 
-  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks.
+  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there.
+  function formatKWh(kWh) {
+    const size = Math.abs(kWh), digits = kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
+  }
+
+  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks, and
+  /// first the energy its meters measured (the bridge's own record), by hour over a day and by day beyond.
   function showHistory(accessory) {
     const ranges = [[24, t("24 hours")], [168, t("7 days")], [672, t("4 weeks")]];
     let hours = 24;
@@ -1025,7 +1032,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } })));
     const close = el("button", { actionIcon: "check", type: "button", text: t("Done"), class: "primary" });
     const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
-      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: t("Recorded values, as Eve shows them") })),
+      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }),
+        el("p", { class: "muted", text: accessory.history ? t("Recorded values, as Eve shows them") : t("The energy the bridge measured") })),
         el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
@@ -1033,10 +1041,56 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.body.append(dialog);
     dialog.showModal();
 
+    /// The energy each of its meters measured over the range, as bars: drawn above the line, returned below it.
+    async function consumptionCards(asked) {
+      if (!accessory.consumption) return [];
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      let found;
+      try { found = await api(`/api/metrics/consumption?${new URLSearchParams({ accessory: accessory.id, hours, timeZone })}`); }
+      catch (e) { return [el("p", { class: "error", text: e.message })]; }
+      if (asked !== hours) return [];
+      const hourly = found.step === "hour";
+      const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+      const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+      const dateOf = (text) => { const [day, time] = text.split("T"); const [y, m, d] = day.split("-").map(Number); const [h] = (time ?? "0").split(":").map(Number); return new Date(y, m - 1, d, h); };
+      return found.meters.map((meter) => {
+        const returns = meter.bars.some((bar) => bar.returned > 0);
+        const body = el("div", { class: "chart-body" });
+        const title = meter.label ? t("Consumption · {meter}", { meter: meter.label }) : t("Consumption");
+        const card = el("div", { class: "card chart-card consumption-card" },
+          el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
+            el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
+          el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
+          body,
+          returns ? el("div", { class: "muted chart-detail", text: t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) }) : null);
+        const bars = meter.bars.map((bar, index) => {
+          const date = dateOf(bar.date);
+          // Every third hour labelled, every day.
+          const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
+          return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
+        });
+        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: () => 1, bars, hourly,
+          segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
+            ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
+        return card;
+      });
+    }
+
     async function load() {
       // Ranges chosen quickly one after the other: only the last one's answer is drawn.
       const asked = hours;
       charts.classList.add("loading");
+      const energy = consumptionCards(asked);
+      if (!accessory.history) {
+        const cards = await energy;
+        if (asked !== hours) return;
+        charts.classList.remove("loading");
+        charts.replaceChildren(...cards);
+        note.className = "muted";
+        note.textContent = t("Measured by the hour, kept for years.");
+        return;
+      }
       let found;
       try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?hours=${hours}&points=240`); }
       catch (e) { if (asked === hours) { charts.classList.remove("loading"); note.className = "error"; note.textContent = e.message; } return; }
@@ -1045,7 +1099,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       note.className = "muted";
       note.textContent = found.note != null ? HomeswiftI18n.message(found.note) : t("Ten-minute averages, kept four weeks; each point here averages those in its span.");
       const from = new Date(found.from).getTime(), to = new Date(found.to).getTime();
-      charts.replaceChildren(...found.series.map((series) => {
+      const energyCards = await energy;
+      if (asked !== hours) return;
+      charts.replaceChildren(...energyCards, ...found.series.map((series) => {
         const unit = historyUnits[series.unit] ?? series.unit ?? "";
         const format = (value) => `${Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10}${unit ? ` ${unit}` : ""}`;
         const points = series.points.map(([time, value]) => ({ time: new Date(time).getTime(), value }));

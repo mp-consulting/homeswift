@@ -262,7 +262,8 @@
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
   /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
-  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments }) {
+  /// `hourly` says to a screen reader that a bar is an hour, not a day.
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments, hourly = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -294,7 +295,7 @@
       const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(24, slot * 0.6);
       const x = (index) => pad.left + slot * index + slot / 2;
 
-      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": hourly ? t("{title}, a bar per hour", { title }) : t("{title}, a bar per day", { title }) });
       root.setAttribute("tabindex", "0");
       const ticks = [];
       for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);

@@ -1560,6 +1560,34 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .tick.current { fill: var(--text); font-weight: var(--weight-figure); }
 .energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .energy-days .chart-table { margin-top: 0; }
+/* The period over the energy by day and the consumption by device. */
+.energy > .energy-history-bar { margin-top: var(--space-14); }
+/* The consumption by device: a row per meter, its name, a bar of its share of the most any used, and its kWh. The row
+   opens the device's history. */
+.consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.consumer.action-with-icon { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-12);
+  padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: inherit; text-align: left;
+  cursor: pointer; min-height: 40px; }
+.consumer:hover { background: var(--material-thin); }
+.consumer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Its chart icon last, quiet: the row opens the history. */
+.consumer.action-with-icon::before { order: 4; color: var(--muted); }
+.consumer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.consumer-track { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.consumer-track i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); transition: width var(--normal) var(--ease-out); }
+.consumer-value { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
+.consumer-value b { font-weight: var(--weight-semibold); white-space: nowrap; }
+.consumer-value small { font-size: var(--text-2xs); color: var(--muted); white-space: nowrap; }
+.consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
+.consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 640px) {
+  /* The name over its bar, the figure beside them. */
+  .consumer.action-with-icon { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
+  .consumer-name { grid-area: name; }
+  .consumer-track { grid-area: track; }
+  .consumer-value { grid-area: value; }
+  .consumer.action-with-icon::before { grid-area: icon; }
+}
 .energy-days .chart-table thead th.time { text-align: left; }
 .chart-card { margin: 0; display: grid; gap: var(--space-10); align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }

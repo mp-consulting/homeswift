@@ -183,7 +183,33 @@ final class DebouncedSave: Sendable {
 }
 
 /// The days and months the energy histories are read in.
-enum EnergyCalendar {
+public enum EnergyCalendar {
+    /// The span of a history `period` around `date` (YYYY-MM-DD, today without it) in `timeZone`: the 8 days to it
+    /// (`week`), its month, or its year; nil for anything else.
+    public static func span(period: String, date: String?, timeZone: TimeZone, now: Date = Date()) -> (from: Date, to: Date)? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let day: Date
+        if let date {
+            let parts = date.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3, (1...12).contains(parts[1]), (1...31).contains(parts[2]),
+                  let parsed = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return nil }
+            day = parsed
+        } else {
+            day = calendar.startOfDay(for: now)
+        }
+        switch period {
+        case "week": return (calendar.date(byAdding: .day, value: -7, to: day)!, day)
+        case "month":
+            let start = calendar.date(from: calendar.dateComponents([.year, .month], from: day))!
+            return (start, calendar.date(byAdding: DateComponents(month: 1, day: -1), to: start)!)
+        case "year":
+            let start = calendar.date(from: calendar.dateComponents([.year], from: day))!
+            return (start, calendar.date(byAdding: DateComponents(year: 1, day: -1), to: start)!)
+        default: return nil
+        }
+    }
+
     /// The starts of the days (`.day`) or months (`.month`) from the one `from` is in to the one `to` is in, in
     /// `timeZone`, and the end of the last; nil when there is none.
     static func periods(_ unit: Calendar.Component, from: Date, to: Date, timeZone: TimeZone) -> (starts: [Date], end: Date)? {
