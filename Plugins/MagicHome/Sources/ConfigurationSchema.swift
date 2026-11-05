@@ -22,7 +22,7 @@ extension MagicHomePlugin {
         "type": "array",
         "description": "Devices the broadcast does not reach, for example on another network: each address gets the discovery probe directly. Every device the broadcast finds is added without an entry here.",
         "items": {
-          "title": "IP address",
+          "title": "Address",
           "type": "string",
           "description": "Where the device answers, for example 192.168.1.50."
         }
@@ -208,10 +208,7 @@ extension MagicHomePlugin {
       "expandable": true,
       "expanded": false,
       "items": [
-        "whiteEffects.simultaniousDevicesColorWhite",
-        "whiteEffects.colorWhiteThreshold",
-        "whiteEffects.colorWhiteThresholdSimultaniousDevices",
-        "whiteEffects.colorOffThresholdSimultaniousDevices"
+        "whiteEffects"
       ]
     },
     {
@@ -220,8 +217,7 @@ extension MagicHomePlugin {
       "expandable": true,
       "expanded": false,
       "items": [
-        "deviceManagement.blacklistOrWhitelist",
-        "deviceManagement.blacklistedUniqueIDs"
+        "deviceManagement"
       ]
     },
     {
@@ -230,9 +226,7 @@ extension MagicHomePlugin {
       "expandable": true,
       "expanded": false,
       "items": [
-        "pruning.pruneMissingCachedAccessories",
-        "pruning.restartsBeforeMissingAccessoriesPruned",
-        "pruning.pruneAllAccessoriesNextRestart"
+        "pruning"
       ]
     },
     {
@@ -241,16 +235,14 @@ extension MagicHomePlugin {
       "expandable": true,
       "expanded": false,
       "items": [
-        "advancedOptions.periodicDiscovery",
-        "advancedOptions.namesWithMacAddress",
-        "advancedOptions.logLevel",
-        "advancedOptions.additionalSubnets"
+        "advancedOptions"
       ]
     }
   ],
   "i18n": {
     "fr": {
       "12 hexadecimal digits.": "12 chiffres hexadécimaux.",
+      "Address": "Adresse",
       "Advanced": "Avancé",
       "An IPv4 address.": "Une adresse IPv4.",
       "Below this saturation a bulb that shows colour or white shows white.": "En dessous de cette saturation, une ampoule qui affiche la couleur ou le blanc affiche le blanc.",
@@ -270,7 +262,6 @@ extension MagicHomePlugin {
       "Errors": "Erreurs",
       "Finds new devices and those that changed address without a restart.": "Trouve les nouveaux appareils et ceux qui ont changé d'adresse sans redémarrage.",
       "How many restarts a device may go unheard before its accessory is removed.": "Combien de redémarrages un appareil peut rester sans réponse avant que son accessoire soit retiré.",
-      "IP address": "Adresse IP",
       "Information": "Informations",
       "Lets controllers that drive colour and white LEDs together light both for pale colours.": "Permet aux contrôleurs qui pilotent ensemble des LED de couleur et blanches d'allumer les deux pour les couleurs pâles.",
       "Log level": "Niveau du journal",
@@ -304,6 +295,7 @@ extension MagicHomePlugin {
     },
     "es": {
       "12 hexadecimal digits.": "12 dígitos hexadecimales.",
+      "Address": "Dirección",
       "Advanced": "Avanzado",
       "An IPv4 address.": "Una dirección IPv4.",
       "Below this saturation a bulb that shows colour or white shows white.": "Por debajo de esta saturación, una bombilla que muestra color o blanco muestra blanco.",
@@ -323,7 +315,6 @@ extension MagicHomePlugin {
       "Errors": "Errores",
       "Finds new devices and those that changed address without a restart.": "Encuentra los dispositivos nuevos y los que cambiaron de dirección sin reiniciar.",
       "How many restarts a device may go unheard before its accessory is removed.": "Cuántos reinicios puede pasar un dispositivo sin oírse antes de quitar su accesorio.",
-      "IP address": "Dirección IP",
       "Information": "Información",
       "Lets controllers that drive colour and white LEDs together light both for pale colours.": "Permite a los controladores que manejan juntos LED de color y blancos encender ambos para los colores pálidos.",
       "Log level": "Nivel del registro",
@@ -357,6 +348,7 @@ extension MagicHomePlugin {
     },
     "pt": {
       "12 hexadecimal digits.": "12 dígitos hexadecimais.",
+      "Address": "Endereço",
       "Advanced": "Avançado",
       "An IPv4 address.": "Um endereço IPv4.",
       "Below this saturation a bulb that shows colour or white shows white.": "Abaixo desta saturação, uma lâmpada que mostra cor ou branco mostra branco.",
@@ -376,7 +368,6 @@ extension MagicHomePlugin {
       "Errors": "Erros",
       "Finds new devices and those that changed address without a restart.": "Encontra os dispositivos novos e os que mudaram de endereço sem reiniciar.",
       "How many restarts a device may go unheard before its accessory is removed.": "Quantos reinícios um dispositivo pode passar sem ser ouvido antes de o seu acessório ser removido.",
-      "IP address": "Endereço IP",
       "Information": "Informações",
       "Lets controllers that drive colour and white LEDs together light both for pale colours.": "Permite aos controladores que comandam em conjunto LED de cor e brancos acender ambos nas cores pálidas.",
       "Log level": "Nível do registo",
