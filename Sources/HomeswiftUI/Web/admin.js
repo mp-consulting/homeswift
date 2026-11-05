@@ -1137,9 +1137,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function overviewModel(status, plugins, accessories, filter = null, matter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
+    // An accessory on a HomeKit server of its own (a camera, a television) is shown as what it is, with its category's icon.
     const tops = bridges.map((bridge) => ({
-      kind: bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge, count: bridge.accessories ?? 0,
-      sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}) }));
+      kind: bridge.external ? "external" : bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge,
+      count: bridge.accessories ?? 0, sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}),
+      icon: bridge.external ? deviceIcon(accessories.find((accessory) => accessory.name === bridge.name)?.category) : undefined }));
     const topByName = new Map(tops.map((top) => [top.name, top]));
     const entries = plugins?.platforms ?? [];
     const claimed = new Set();
@@ -1395,9 +1397,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     update: [t("Update available"), t("Whether a newer homeswift release is out.")],
   };
   const factRow = (key, value) => { const [label, tip] = factInfo[key]; return [label, value, tip]; };
+  /// What a top node is: built in, a child bridge, an accessory of its own (a camera on its own HomeKit server), or a bridge.
+  function topType(top) {
+    if (top.kind === "system") return t("Built in");
+    if (top.kind === "external") return t("Accessory of its own");
+    return top.kind === "child" ? t("Child bridge") : t("Bridge");
+  }
   function bridgeDetails(top) {
     const bridge = top.raw;
-    const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
+    const type = topType(top);
     return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
@@ -1844,7 +1852,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function overviewTable(model) {
     const rows = model.tops.flatMap((top) => [
       el("tr", { class: "overview-bridge" }, el("th", { scope: "row", text: top.name }),
-        el("td", { text: top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge") }),
+        el("td", { text: topType(top) }),
         el("td", { text: top.kind === "system" ? "" : top.sub }),
         el("td", { text: top.kind === "system" ? "" : top.paired ? t("Paired") : t("Not paired") })),
       ...top.children.map((plugin) => el("tr", { class: "overview-plugin" }, el("th", { scope: "row", text: plugin.name }),
