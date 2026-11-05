@@ -147,4 +147,24 @@ struct MetricsTests {
         metrics.stop()
         await host.stop()
     }
+
+    /// A Meter a plugin declares: its counters reach the Meters, and its power the Home Energy with `EnergyRole`'s
+    /// signs (solar produced is above zero there, sent back on the Meter).
+    @Test func recordsTheMetersAPluginDeclares() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Roof", "solar": 800 }] }"#)
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        try await host.start()
+        let id = MeterID(accessory: "Recording:roof", meter: "solar")
+        #expect(metrics.meters.meters == [id])
+        let now = Date()
+        let hours = metrics.meters.hours(of: id, from: now.addingTimeInterval(-7200), to: now)
+        #expect(abs(hours.reduce(0) { $0 + ($1.returned ?? 0) } - 500) < 1e-6)
+        #expect(metrics.energyTags["plugin:Recording:roof:solar"] == EnergyTag(role: .solar, device: "Roof"))
+        let solar = metrics.valueMinutes(from: now.addingTimeInterval(-120), to: now.addingTimeInterval(60), series: ["plugin:Recording:roof:solar"])
+        #expect(solar.last?.values["plugin:Recording:roof:solar"]?.average == 800)
+        metrics.stop()
+        await host.stop()
+    }
 }

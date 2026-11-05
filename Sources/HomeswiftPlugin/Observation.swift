@@ -108,6 +108,21 @@ final class EnergyImportFeed: Sendable {
     }
 }
 
+/// The readings of the Meters plugins declare (`PluginContext.meter`), to whoever follows them (the metrics store).
+final class MeterFeed: Sendable {
+    private let observers = NIOLockedValueBox<[UUID: @Sendable (MeterReading) -> Void]>([:])
+
+    func publish(_ reading: MeterReading) {
+        for observer in observers.withLockedValue({ $0 }).values { observer(reading) }
+    }
+
+    func add(_ observer: @escaping @Sendable (MeterReading) -> Void) -> Observation {
+        let id = UUID()
+        observers.withLockedValue { $0[id] = observer }
+        return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
+    }
+}
+
 /// The readings plugins record with `PluginContext.recordValue`, to whoever follows them (the metrics store).
 final class ValueFeed: Sendable {
     private let observers = NIOLockedValueBox<[UUID: @Sendable (String, Double, EnergyTag?) -> Void]>([:])

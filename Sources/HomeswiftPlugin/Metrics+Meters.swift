@@ -40,7 +40,13 @@ extension Metrics {
         }
         let changes = host.observeChanges { [weak self] accessory, characteristic, value in self?.recordMeter(accessory, characteristic, value) }
         let structure = host.observeStructure(counters)
+        let declared = host.observeMeterReadings { [meters] reading in
+            switch reading {
+            case let .counter(id, wattHours, direction): meters.recordCounter(wattHours, direction: direction, meter: id)
+            case let .power(id, watts): meters.recordPower(watts, meter: id)
+            }
+        }
         counters()
-        return Observation { changes.cancel(); structure.cancel() }
+        return Observation { changes.cancel(); structure.cancel(); declared.cancel() }
     }
 }

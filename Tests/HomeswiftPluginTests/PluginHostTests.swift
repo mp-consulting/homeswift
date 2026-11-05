@@ -22,6 +22,8 @@ actor RecordingPlugin: HomeswiftPlugin {
         var lamps: [String]?
         /// Outlets with Eve's Total Consumption, at 2 kWh.
         var meters: [String]?
+        /// A solar array's power, in watts, recorded on a Meter it declares (`roof`).
+        var solar: Double?
         /// Televisions to publish on servers of their own.
         var externals: [String]?
         var refuse: Bool?
@@ -48,6 +50,12 @@ actor RecordingPlugin: HomeswiftPlugin {
         started = true
         for lamp in configuration.lamps ?? [] {
             try addLamp(id: lamp)
+        }
+        if let solar = configuration.solar {
+            let roof = context.meter("solar", deviceID: "roof", device: "Roof", suggestedRole: .solar)
+            roof.record(watts: -solar)
+            roof.record(counter: 1000, direction: .returned)
+            roof.record(counter: 1500, direction: .returned)
         }
         for meter in configuration.meters ?? [] {
             let outlet = Service(.outlet, name: meter, extra: [Characteristic(EveCharacteristic.totalConsumption, value: .double(2))], isPrimary: true)

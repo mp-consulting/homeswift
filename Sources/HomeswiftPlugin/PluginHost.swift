@@ -212,6 +212,7 @@ public final class PluginHost: @unchecked Sendable {
     private let timings: TimingFeed
     private let values = ValueFeed()
     private let energyImports = EnergyImportFeed()
+    private let meterReadings = MeterFeed()
     /// Each plugin's latest energy import report, by plugin key.
     private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
     private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)
@@ -413,6 +414,12 @@ public final class PluginHost: @unchecked Sendable {
     /// as its source; imports made before anyone followed come first. The metrics store's archive follows these.
     public func observeEnergyImports(_ observer: @escaping @Sendable (String, [EnergyHourImport]) -> Void) -> Observation {
         energyImports.add(observer)
+    }
+
+    /// Calls `observer` with each reading of a Meter a plugin declared (`PluginContext.meter`), until the observation is
+    /// cancelled. The metrics store's Meters follow these.
+    public func observeMeterReadings(_ observer: @escaping @Sendable (MeterReading) -> Void) -> Observation {
+        meterReadings.add(observer)
     }
 
     /// `observeValues` with the reading's role in the Energy section, when the plugin gave it one.
@@ -667,7 +674,7 @@ public final class PluginHost: @unchecked Sendable {
         if let child = block.childBridge {
             bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
         }
-        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, assistantBackground: entry.assistantBackground)
+        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, meterReadings: meterReadings, assistantBackground: entry.assistantBackground)
         context.publishedAccessories = { [weak self] in self?.bridges.flatMap(\.server.accessories) ?? [] }
         context.logs = options.logs
         context.naming.setNames(block.accessoryNames)
@@ -709,7 +716,7 @@ public final class PluginHost: @unchecked Sendable {
     static func makeContext(
         block: HomeswiftConfiguration.Platform, key: String, bridge: Bridge, storageDirectory: URL, logLevel: Logger.Level,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, values: ValueFeed, energyImports: EnergyImportFeed,
-        energyProgress: NIOLockedValueBox<[String: EnergyImportProgress]>, assistantBackground: String?
+        energyProgress: NIOLockedValueBox<[String: EnergyImportProgress]>, meterReadings: MeterFeed, assistantBackground: String?
     ) -> PluginContext {
         var pluginLogger = Logger(label: block.name)
         pluginLogger.logLevel = logLevel
@@ -720,7 +727,8 @@ public final class PluginHost: @unchecked Sendable {
             vaultStorage: storageDirectory, assistant: assistant, externals: externals, assistantBackground: assistantBackground,
             recordSink: { series, value, tag in values.publish(series, value, tag) },
             energyImportSink: { hours in energyImports.publish(key, hours) },
-            energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } })
+            energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } },
+            meterSink: { reading in meterReadings.publish(reading) })
     }
 
     func launch(_ instance: Instance, as verb: String = "Started") async {

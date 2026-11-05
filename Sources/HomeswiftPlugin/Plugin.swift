@@ -407,6 +407,8 @@ public final class PluginContext: @unchecked Sendable {
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
     private let energyImportSink: @Sendable ([EnergyHourImport]) -> Void
     private let energyProgressSink: @Sendable (EnergyImportProgress) -> Void
+    /// Where the readings of the Meters it declares go (`meter(_:deviceID:device:suggestedRole:)`).
+    let meterSink: @Sendable (MeterReading) -> Void
 
     /// Records a reading for the Status page's history: a minute keeps the count, sum, lowest and highest of each
     /// series. The series is `plugin:<platform>:<series>`, so two plugins cannot collide. Cheap; call it per reading.
@@ -485,9 +487,11 @@ public final class PluginContext: @unchecked Sendable {
         vaultStorage: URL, assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
         recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
         energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
-        energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in }
+        energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in },
+        meterSink: @escaping @Sendable (MeterReading) -> Void = { _ in }
     ) {
         self.energyProgressSink = energyProgressSink
+        self.meterSink = meterSink
         self.recordSink = recordSink
         self.energyImportSink = energyImportSink
         self.assistantBackground = assistantBackground
@@ -795,4 +799,12 @@ public final class PluginContext: @unchecked Sendable {
 /// A series of readings with its full name made once (`PluginContext.series(_:)`).
 public struct RecordedSeries: Sendable, Hashable {
     let name: String
+}
+
+/// A reading of a Meter a plugin declared, on its way to the metrics store.
+public enum MeterReading: Sendable, Equatable {
+    /// A counter, in watt-hours.
+    case counter(MeterID, Double, MeterDirection)
+    /// Power, in watts: above zero drawn, below zero sent back or produced.
+    case power(MeterID, Double)
 }
