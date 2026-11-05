@@ -220,7 +220,10 @@ final class TalkRecorder: Sendable {
         let logs: LogRecorder
     }
 
-    func fixture(idle: Duration = .seconds(1), maximum: Duration = .seconds(600), rate: Int = 16000, volume: Int = 100) async throws -> Fixture {
+    /// `timeScale` shortens the idle, longest-Talk and quick-exit windows; a window a test must act within is kept at a
+    /// second or more, which a loaded runner (every bundle at once) still meets.
+    func fixture(idle: Duration = .seconds(1), maximum: Duration = .seconds(600), rate: Int = 16000, volume: Int = 100,
+                 timeScale: Double = 0.1) async throws -> Fixture {
         let ports = RtpPortAllocator()
         let port = await ports.reserve()
         try #require(port > 0)
@@ -231,7 +234,7 @@ final class TalkRecorder: Sendable {
             stream: .init(sessionID: "session", returnPort: port, ipFamily: .ipv4, controllerAddress: "127.0.0.1", srtp: Data(0..<30), payloadType: 110),
             ports: ports, ffmpeg: RTSPCameraFFmpeg(options: FfmpegOptions(config), codecs: codecs),
             options: ReturnAudioOptions(format: ReturnAudioFormat(sampleRate: rate), idleTimeout: idle, maximumTalk: maximum, handler: talks.handler),
-            name: "Camera", log: logs.logger, volume: volume, timeScale: 0.1, decoder: decoders.factory)
+            name: "Camera", log: logs.logger, volume: volume, timeScale: timeScale, decoder: decoders.factory)
         return Fixture(receiver: receiver, decoders: decoders, talks: talks, port: port, ports: ports, logs: logs)
     }
 
@@ -272,7 +275,8 @@ final class TalkRecorder: Sendable {
     }
 
     @Test func aTalkGetsWholeFramesUntilItGoesIdle() async throws {
-        let f = try await fixture(idle: .seconds(3), volume: 70)
+        // Idle 3 s × 0.5: FFmpeg's audio begins a Talk within 1.5 s of the last packet.
+        let f = try await fixture(idle: .seconds(3), volume: 70, timeScale: 0.5)
         #expect(await f.receiver.start())
         let decoder = try await firstPacket(f)
         #expect(decoder.arguments.contains("libfdk_aac") && decoder.arguments.contains("16000"))
@@ -305,8 +309,8 @@ final class TalkRecorder: Sendable {
     }
 
     @Test func packetsKeepATalkOpenAndAGapEndsIt() async throws {
-        // Idle 5 s × 0.1: packets every 30 ms keep it open, the silence after them ends it.
-        let f = try await fixture(idle: .seconds(5))
+        // Idle 5 s × 0.3: packets every 30 ms keep it open, the silence after them ends it.
+        let f = try await fixture(idle: .seconds(5), timeScale: 0.3)
         #expect(await f.receiver.start())
         let decoder = try await firstPacket(f)
         decoder.emit(Data(repeating: 0x01, count: 640))
@@ -357,7 +361,8 @@ final class TalkRecorder: Sendable {
     }
 
     @Test func aDecoderThatCannotDecodeIsGivenUpOn() async throws {
-        let f = try await fixture(idle: .seconds(60))
+        // Lengthened: each decoder ends well inside the 10 s (2 s × 5) that make an exit quick, however loaded the machine.
+        let f = try await fixture(idle: .seconds(60), timeScale: 5)
         #expect(await f.receiver.start())
         _ = try await firstPacket(f)
         f.decoders.last?.end()

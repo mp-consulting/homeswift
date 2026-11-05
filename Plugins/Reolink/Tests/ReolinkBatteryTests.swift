@@ -204,7 +204,8 @@ import Testing
         let camera = FakeBatteryCamera()
         camera.state.withLockedValue { $0.waking = 2 }
         let host = makeHost(camera)
-        let battery = try await host.use(budget: 10) { session in try await session.battery(channel: 0) }
+        // A budget as wide as `eventually`'s: the retries' waits are scaled, a loaded runner's scheduling is not.
+        let battery = try await host.use(budget: 30) { session in try await session.battery(channel: 0) }
         #expect(battery?.percent == 87)
         #expect(camera.count(253) == 3)
         await host.stop()
@@ -359,12 +360,12 @@ import Testing
             $0.webhookEnabled = true
         }
         let host = makeHost(camera)
-        let outcome = try await host.use(budget: 10) { session in
+        let outcome = try await host.use(budget: 30) { session in
             try await ReolinkBatteryHost.subscribe(session, url: "http://192.168.1.10:1/reolink/x", path: "/reolink/x", takeOver: false)
         }
         #expect(outcome == .taken("192.168.1.5"))
         #expect(camera.count(807) == 0)
-        let taken = try await host.use(budget: 10) { session in
+        let taken = try await host.use(budget: 30) { session in
             try await ReolinkBatteryHost.subscribe(session, url: "http://192.168.1.10:1/reolink/x", path: "/reolink/x", takeOver: true)
         }
         #expect(taken == .subscribed)
