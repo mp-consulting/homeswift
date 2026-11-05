@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 
 /// One command of a batch (section 4): `{"cmd": …, "action": …, "param": …}`.
 struct ReolinkCommand: Sendable, Equatable {
@@ -111,6 +112,58 @@ actor SerialGate {
             if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
         }
         return try await body()
+    }
+}
+
+/// Callers waiting for something (a connection, privacy mode ending) until it happens or a timeout passes.
+final class Waiters<Value: Sendable>: Sendable {
+    private struct State {
+        var next = 0
+        var waiting: [Int: CheckedContinuation<Value, Never>] = [:]
+        /// Timeouts that fired before their caller was registered.
+        var expired: Set<Int> = []
+    }
+
+    private let state = NIOLockedValueBox(State())
+
+    /// Waits for `resumeAll`, or `fallback` after `timeout`.
+    func wait(timeout: Duration, fallback: Value) async -> Value {
+        let id = state.withLockedValue { state -> Int in
+            state.next += 1
+            return state.next
+        }
+        let timer = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            self?.expire(id, fallback)
+        }
+        defer { timer.cancel() }
+        return await withCheckedContinuation { continuation in
+            let expired = state.withLockedValue { state -> Bool in
+                if state.expired.remove(id) != nil { return true }
+                state.waiting[id] = continuation
+                return false
+            }
+            if expired { continuation.resume(returning: fallback) }
+        }
+    }
+
+    func resumeAll(_ value: Value) {
+        let waiting = state.withLockedValue { state in
+            defer { state.waiting = [:] }
+            return state.waiting
+        }
+        for continuation in waiting.values { continuation.resume(returning: value) }
+    }
+
+    private func expire(_ id: Int, _ fallback: Value) {
+        let continuation = state.withLockedValue { state -> CheckedContinuation<Value, Never>? in
+            guard let continuation = state.waiting.removeValue(forKey: id) else {
+                state.expired.insert(id)
+                return nil
+            }
+            return continuation
+        }
+        continuation?.resume(returning: fallback)
     }
 }
 

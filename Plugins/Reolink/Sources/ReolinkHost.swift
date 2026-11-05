@@ -33,8 +33,7 @@ actor ReolinkHost {
     /// `cmd_id` 199's abilities by channel, when Baichuan answered before the channels were read.
     private var baichuanAbilities: [Int: [String: Int]] = [:]
     /// Who waits for privacy mode to end (`waitForPrivacyOff`).
-    private var privacyWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
-    private var nextWaiter = 0
+    private let privacyWaiters = Waiters<Void>()
 
     init(device: ReolinkPlugin.Device, http: ReolinkHTTPClient, connectBaichuan: @escaping BaichuanSession.Connect, log: Logger, timing: ReolinkTiming) {
         self.device = device
@@ -77,7 +76,7 @@ actor ReolinkHost {
                let sleep = deviceInfo.value("sleep") {
                 hasLoginPrivacy = true
                 // The login's `sleep` is as old as the session: asked again.
-                let on = ((try? await session.privacy(channel: 0)) ?? nil) ?? (sleep == "1")
+                let on = (try? await session.privacy(channel: 0)) ?? (sleep == "1")
                 privacyBeforeConnect = on
                 if on { throw ReolinkError.privacy }
             }
@@ -237,7 +236,7 @@ actor ReolinkHost {
         guard let baichuan, await baichuan.isConnected else { return }
         for ch in channels.keys.sorted() {
             let eligible = info.isMultiChannel ? info.ability("remoteAbility", channel: ch) > 0 : hasLoginPrivacy && ch == 0
-            guard eligible, let on = (try? await baichuan.privacy(channel: ch)) ?? nil else { continue }
+            guard eligible, let on = try? await baichuan.privacy(channel: ch) else { continue }
             channels[ch]?.privacy = true
             channels[ch]?.state.privacy = on
         }
@@ -252,17 +251,8 @@ actor ReolinkHost {
     /// Waits until privacy mode is off (a push says so) or `timeout` passes.
     func waitForPrivacyOff(timeout: Duration) async {
         guard isPrivate else { return }
-        nextWaiter += 1
-        let id = nextWaiter
-        let timer = Task { [weak self] in
-            try? await Task.sleep(for: timeout)
-            await self?.resumePrivacyWaiter(id)
-        }
-        defer { timer.cancel() }
-        await withCheckedContinuation { privacyWaiters[id] = $0 }
+        await privacyWaiters.wait(timeout: timeout, fallback: ())
     }
-
-    private func resumePrivacyWaiter(_ id: Int) { privacyWaiters.removeValue(forKey: id)?.resume() }
 
     private func privacyChanged(channel: Int, on: Bool) {
         let multi = info.isMultiChannel
@@ -279,9 +269,7 @@ actor ReolinkHost {
             log.info("Privacy mode is on: the camera's video and HTTP API are off until it ends.")
         } else {
             log.info("Privacy mode is off.")
-            let waiters = privacyWaiters
-            privacyWaiters = [:]
-            for waiter in waiters.values { waiter.resume() }
+            privacyWaiters.resumeAll(())
             if !channels.isEmpty { tasks.add { [weak self] in await self?.refresh() } }
         }
     }
@@ -289,7 +277,7 @@ actor ReolinkHost {
     /// Whether a failed request is privacy mode turning on (a camera on its own whose push did not say so yet).
     private func privacyExplainsFailure() async -> Bool {
         guard !info.isMultiChannel, channels[0]?.privacy == true, let baichuan, await baichuan.isConnected,
-              let on = (try? await baichuan.privacy(channel: 0)) ?? nil, on else { return false }
+              let on = try? await baichuan.privacy(channel: 0), on else { return false }
         privacyChanged(channel: 0, on: true)
         return true
     }
@@ -447,7 +435,7 @@ actor ReolinkHost {
     private func run(_ commands: [ReolinkCommand]) async {
         guard !commands.isEmpty else { return }
         do {
-            let replies = try await http.execute(commands)
+            let replies = try await execute(commands)
             if pollFailing { log.info("The device answers again.") }
             pollFailing = false
             setOnline(true)
@@ -514,12 +502,7 @@ actor ReolinkHost {
         try await write(ReolinkCommand(cmd: "SetWhiteLed", action: nil, param: ["WhiteLed": .object(led)]))
         if let on { channels[channel]?.state.floodlightOn = on }
         if let brightness { channels[channel]?.state.floodlightBrightness = brightness }
-        // The light settles before it is read back.
-        let delay = timing.seconds(3)
-        tasks.add { [weak self] in
-            try? await Task.sleep(for: delay)
-            await self?.reread("GetWhiteLed", channel: channel)
-        }
+        rereadLater("GetWhiteLed", channel: channel)
     }
 
     /// The floodlight's colour temperature, over Baichuan (D.1: 289 read, `newColorTemperature` changed, 290 back), then
@@ -532,11 +515,7 @@ actor ReolinkHost {
         }
         try await baichuan.updateFloodlightTask(channel: channel, changes: ["newColorTemperature": String(value)])
         channels[channel]?.state.floodlightMireds = mireds
-        let delay = timing.seconds(3)
-        tasks.add { [weak self] in
-            try? await Task.sleep(for: delay)
-            await self?.reread("GetWhiteLed", channel: channel)
-        }
+        rereadLater("GetWhiteLed", channel: channel)
     }
 
     /// Recording on the device's storage on or off (D.3): `Rec` read again and sent back whole with the flag changed.
@@ -544,23 +523,20 @@ actor ReolinkHost {
         guard channels[channel]?.recording == true else { throw ReolinkError.unsupported("SetRec") }
         let v20 = info.hostAbility("scheduleVersion") >= 1
         let read = ReolinkRecording.readCommand(v20: v20, channel: channel)
-        guard let reply = try await http.execute([read]).first, reply.ok, let rec = reply.value?["Rec"],
+        guard let reply = try await execute([read]).first, reply.ok, let rec = reply.value?["Rec"],
               let changed = ReolinkRecording.changed(rec, on: on, v20: v20, multiChannel: info.isMultiChannel) else {
             throw ReolinkError.command(read.cmd, nil, "no Rec to change")
         }
         try await write(ReolinkCommand(cmd: v20 ? "SetRecV20" : "SetRec", action: 0, param: ["Rec": changed]))
         channels[channel]?.state.recordingOn = on
-        guard let confirmed = try? await http.execute([read]).first, var state = channels[channel] else { return }
-        apply(confirmed, to: &state)
-        channels[channel] = state
-        publish(channel)
+        await reread(read)
     }
 
     /// Plays a tone on a paired Reolink Chime (`DingDongOpt` option 4).
     func playChime(channel: Int, chime: Int, tone: Int) async throws {
         guard channels[channel]?.chimes.contains(where: { $0.id == chime }) == true else { throw ReolinkError.unsupported("DingDongOpt") }
         try await write(ReolinkCommand(cmd: "DingDongOpt", action: 0, param: ["DingDong": [
-            "channel": .number(Double(channel)), "id": .number(Double(chime)), "option": 4, "musicId": .number(Double(min(9, max(0, tone)))),
+            "channel": .number(Double(channel)), "id": .number(Double(chime)), "option": 4, "musicId": .number(Double(tone)),
         ]]))
     }
 
@@ -579,7 +555,7 @@ actor ReolinkHost {
     }
 
     /// The device's motion sensitivity for a user's (D.4): `sensDef` is 51 − s.
-    static func sensDef(_ sensitivity: Int) -> Int { 51 - min(50, max(1, sensitivity)) }
+    static func sensDef(_ sensitivity: Int) -> Int { 51 - sensitivity }
 
     /// The reads that tell the sensitivities now (one batch), and the writes where they differ.
     private func sensitivityWrites(_ settings: DeviceSettings, channel: ReolinkChannel, name: String) async -> [ReolinkCommand] {
@@ -591,7 +567,7 @@ actor ReolinkHost {
                 reads.append(ReolinkCommand(cmd: "GetAiAlarm", action: 0, param: ["channel": .number(Double(ch)), "ai_type": .string(type)]))
             }
         }
-        guard !reads.isEmpty, let replies = try? await http.execute(reads) else { return [] }
+        guard !reads.isEmpty, let replies = try? await execute(reads) else { return [] }
         var writes: [ReolinkCommand] = []
         for (command, reply) in zip(reads, replies) {
             switch command.cmd {
@@ -605,7 +581,7 @@ actor ReolinkHost {
                     "channel": .number(Double(ch)), "useNewSens": 1, "newSens": ["sensDef": .number(Double(Self.sensDef(wanted)))],
                 ]]))
             default:
-                guard let wanted = settings.aiSensitivity.map({ min(100, max(0, $0)) }), let type = command.param?["ai_type"], reply.ok,
+                guard let wanted = settings.aiSensitivity, let type = command.param?["ai_type"], reply.ok,
                       let current = reply.value?["AiAlarm"]?["sensitivity"]?.saturatingIntValue else { continue }
                 guard current != wanted else { continue }
                 writes.append(ReolinkCommand(cmd: "SetAiAlarm", action: 0, param: ["AiAlarm": [
@@ -629,18 +605,18 @@ actor ReolinkHost {
             }
         }
         guard !writes.isEmpty else { return }
-        do {
-            let replies = try await http.execute(writes)
-            for (command, reply) in zip(writes, replies) where !reply.writeOK {
-                log.warning("\(name): the device refused \(command.cmd) (\(reply.rspCode.map(String.init) ?? "?")).")
-            }
-        } catch {
+        // The floodlight's mode read back in the same batch; sensitivities are not shown in HomeKit.
+        let readBack: [ReolinkCommand] = writes.contains { $0.cmd == "SetWhiteLed" } ? [.channel("GetWhiteLed", ch)] : []
+        let replies: [ReolinkReply]
+        do { replies = try await execute(writes + readBack) } catch {
             log.warning("\(name): could not write the settings: \(error)")
             return
         }
-        // The floodlight's mode read back; sensitivities are not shown in HomeKit.
-        guard writes.contains(where: { $0.cmd == "SetWhiteLed" }), let replies = try? await http.execute([.channel("GetWhiteLed", ch)]), var state = channels[ch] else { return }
-        for reply in replies { apply(reply, to: &state) }
+        for (command, reply) in zip(writes, replies) where !reply.writeOK {
+            log.warning("\(name): the device refused \(command.cmd) (\(reply.rspCode.map(String.init) ?? "?")).")
+        }
+        guard var state = channels[ch] else { return }
+        for reply in replies.dropFirst(writes.count) { apply(reply, to: &state) }
         channels[ch] = state
         publish(ch)
     }
@@ -732,9 +708,14 @@ actor ReolinkHost {
         privacyChanged(channel: channel, on: now)
     }
 
-    private func write(_ command: ReolinkCommand) async throws {
+    /// Every request once connected: none while privacy mode has the HTTP API off (a login would fail).
+    private func execute(_ commands: [ReolinkCommand]) async throws -> [ReolinkReply] {
         guard !isPrivate else { throw ReolinkError.privacy }
-        let replies = try await http.execute([command])
+        return try await http.execute(commands)
+    }
+
+    private func write(_ command: ReolinkCommand) async throws {
+        let replies = try await execute([command])
         guard let reply = replies.first, reply.writeOK else {
             let reply = replies.first
             if reply?.rspCode == -9 || reply?.rspCode == -26 { throw ReolinkError.unsupported(command.cmd) }
@@ -742,11 +723,22 @@ actor ReolinkHost {
         }
     }
 
-    private func reread(_ cmd: String, channel: Int) async {
-        guard let reply = try? await http.execute([.channel(cmd, channel)]).first, var state = channels[channel] else { return }
+    private func reread(_ cmd: String, channel: Int) async { await reread(.channel(cmd, channel)) }
+
+    private func reread(_ command: ReolinkCommand) async {
+        guard let channel = command.param?["channel"]?.saturatingIntValue, let reply = try? await execute([command]).first, var state = channels[channel] else { return }
         apply(reply, to: &state)
         channels[channel] = state
         publish(channel)
+    }
+
+    /// Reads a channel's state again once the device settled (a light, 3 s after a write).
+    private func rereadLater(_ cmd: String, channel: Int) {
+        let delay = timing.seconds(3)
+        tasks.add { [weak self] in
+            try? await Task.sleep(for: delay)
+            await self?.reread(cmd, channel: channel)
+        }
     }
 
     // MARK: Snapshots and streams

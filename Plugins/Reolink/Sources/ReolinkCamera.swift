@@ -201,46 +201,37 @@ final class ReolinkCamera: @unchecked Sendable {
         }
         func momentary(_ service: Service, key: String, _ action: @escaping @Sendable () async throws -> Void) {
             service.characteristic(.on).value = false
-            service.characteristic(.on).onWrite(guarded { [weak self] value in
+            service.characteristic(.on).onWrite(guarded { [weak self, weak service] value in
                 guard value.boolValue == true else { return }
                 try await action()
-                self?.resetMomentary(service, key: key)
+                if let service { self?.resetMomentary(service, key: key) }
             })
         }
         for (id, service) in presets { momentary(service, key: "preset\(id)") { try await writes.goToPreset(id) } }
         for (id, service) in chimes { momentary(service, key: "chime\(id)") { try await writes.chime(id) } }
-        if let privacy {
-            let privacyGuard = LatestCallGuard(delay: timing.seconds(0.3))
-            privacy.characteristic(.on).onWrite(changesOnly: true, guarded { value in
-                guard await privacyGuard() else { return }
-                try await writes.privacy(value.boolValue ?? false)
+        /// A switch whose quick flips send the last only.
+        func toggle(_ service: Service?, _ action: @escaping @Sendable (Bool) async throws -> Void) {
+            guard let service else { return }
+            let latest = LatestCallGuard(delay: timing.seconds(0.3))
+            service.characteristic(.on).onWrite(changesOnly: true, guarded { value in
+                guard await latest() else { return }
+                try await action(value.boolValue ?? false)
             })
         }
+        toggle(privacy, writes.privacy)
+        toggle(recordingSwitch, writes.recording)
+        toggle(patrol, writes.patrol)
         if let cameraActive {
             // The Home app's camera off is privacy mode on. The value shown follows the device (`apply`).
-            cameraActive.observe { [log, name] change in
+            cameraActive.observe { [log, name, weak cameraActive] change in
                 guard change.reason == .write, change.oldValue != change.newValue, let active = change.newValue.intValue else { return }
                 Task {
                     do { try await writes.privacy(active == 0) } catch {
                         log.warning("\(name): the device refused privacy mode: \(error)")
-                        cameraActive.value = change.oldValue
+                        cameraActive?.value = change.oldValue
                     }
                 }
             }
-        }
-        if let recordingSwitch {
-            let recordingGuard = LatestCallGuard(delay: timing.seconds(0.3))
-            recordingSwitch.characteristic(.on).onWrite(changesOnly: true, guarded { value in
-                guard await recordingGuard() else { return }
-                try await writes.recording(value.boolValue ?? false)
-            })
-        }
-        if let patrol {
-            let patrolGuard = LatestCallGuard(delay: timing.seconds(0.3))
-            patrol.characteristic(.on).onWrite(changesOnly: true, guarded { value in
-                guard await patrolGuard() else { return }
-                try await writes.patrol(value.boolValue ?? false)
-            })
         }
     }
 

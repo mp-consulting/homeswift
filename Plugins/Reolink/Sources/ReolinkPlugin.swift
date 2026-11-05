@@ -237,7 +237,9 @@ public actor ReolinkPlugin: HomeswiftPlugin {
                 try await context.publishExternal(camera.accessory)
                 runtime.cameras[channel.channel] = camera
                 published.insert(camera.accessory.id)
-                await host.apply(options.deviceSettings, channel: channel.channel, name: camera.accessory.name)
+                // In the background: the next channel is published without waiting for the device's settings.
+                let settings = options.deviceSettings, ch = channel.channel, name = camera.accessory.name
+                if !settings.isEmpty { tasks.add { await host.apply(settings, channel: ch, name: name) } }
                 if options.siren, !channel.siren { logger.info("[\(address)] \(camera.accessory.name): this camera has no siren.") }
             } catch {
                 logger.error("[\(address)] Could not publish channel \(channel.channel + 1): \(error)")

@@ -116,8 +116,8 @@ extension ReolinkPlugin {
         case "guard":
             switch body["action"]?.stringValue {
             case "goHome": try await host.ptzGuard(channel: channel, goHome: true, saveHere: false, enable: nil, timeout: nil)
-            case "setHome": try await host.ptzGuard(channel: channel, goHome: false, saveHere: true, enable: body["returns"]?.boolValue, timeout: body["timeout"]?.saturatingIntValue)
-            case "configure": try await host.ptzGuard(channel: channel, goHome: false, saveHere: false, enable: body["returns"]?.boolValue, timeout: body["timeout"]?.saturatingIntValue)
+            case let action? where action == "setHome" || action == "configure":
+                try await host.ptzGuard(channel: channel, goHome: false, saveHere: action == "setHome", enable: body["returns"]?.boolValue, timeout: body["timeout"]?.saturatingIntValue)
             default: return .error(400, "action must be goHome, setHome or configure")
             }
             return PluginWebResponse(["ok": true])

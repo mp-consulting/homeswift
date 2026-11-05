@@ -60,8 +60,7 @@ actor BaichuanSession {
     /// The login reply's `DeviceInfo` (5.3.2): the device's type and, on a camera with privacy mode, `sleep`.
     private(set) var deviceInfo: BXElement?
     /// Who waits for the first connection attempt to end (`waitUntilReady`).
-    private var readyWaiters: [Int: CheckedContinuation<Bool, Never>] = [:]
-    private var nextWaiter = 0
+    private let readyWaiters = Waiters<Bool>()
     private var attempted = false
 
     private struct Key: Hashable {
@@ -104,8 +103,7 @@ actor BaichuanSession {
                 try await subscribe()
                 if failing { log.info("Baichuan push connection to the device is back.") }
                 failing = false
-                attempted = true
-                resumeReadyWaiters(true)
+                firstAttemptEnded(true)
                 attempt = 0
                 wasActive = await serve()
             } catch is CancellationError {
@@ -115,8 +113,7 @@ actor BaichuanSession {
                     log.warning("Baichuan push unavailable: \(error). Falling back to polling, retrying in the background.")
                 }
                 failing = true
-                attempted = true
-                resumeReadyWaiters(false)
+                firstAttemptEnded(false)
             }
             close()
             if eventsActive { continuation.yield(.active(false)) }
@@ -146,28 +143,19 @@ actor BaichuanSession {
     func waitUntilReady(timeout: Duration) async -> Bool {
         if isConnected { return true }
         if attempted || stopped { return false }
-        nextWaiter += 1
-        let id = nextWaiter
-        let timer = Task { [weak self] in
-            try? await Task.sleep(for: timeout)
-            await self?.resumeWaiter(id, false)
-        }
-        defer { timer.cancel() }
-        return await withCheckedContinuation { readyWaiters[id] = $0 }
+        return await readyWaiters.wait(timeout: timeout, fallback: false)
     }
 
-    private func resumeWaiter(_ id: Int, _ value: Bool) { readyWaiters.removeValue(forKey: id)?.resume(returning: value) }
-
-    private func resumeReadyWaiters(_ value: Bool) {
-        let waiters = readyWaiters
-        readyWaiters = [:]
-        for waiter in waiters.values { waiter.resume(returning: value) }
+    /// The first attempt ended (or the session stopped): who waits for it hears how.
+    private func firstAttemptEnded(_ ok: Bool) {
+        attempted = true
+        readyWaiters.resumeAll(ok)
     }
 
     /// Logs out (5.3.4) and closes; `run` ends.
     func stop() async {
         stopped = true
-        resumeReadyWaiters(false)
+        readyWaiters.resumeAll(false)
         if stream != nil, aesKey != nil {
             _ = try? await request(command: 2, channel: Baichuan.hostChannel, body: Baichuan.logoutBody, encryption: .aes, timeout: 2)
         }
