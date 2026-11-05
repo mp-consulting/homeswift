@@ -14,6 +14,10 @@ All notable changes to this project are documented here. The format follows
   push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
   local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
   and `HomeswiftNetwork` `ARPTable.entries()`.
+### Changed
+
+- A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
+  shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
 ## [0.20.1] - 2026-11-04
 
