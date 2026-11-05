@@ -1699,7 +1699,9 @@
       // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
       // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
       const homes = meters.filter((one) => one.role === "home");
-      const wholes = homes.length ? homes : meters.filter((one) => one.role === "grid");
+      // A grid meter is the whole home only without solar or batteries: with them, it measures what came from the grid.
+      const sourced = meters.some((one) => one.role === "solar" || one.role === "battery");
+      const wholes = homes.length ? homes : sourced ? [] : meters.filter((one) => one.role === "grid");
       const devices = meters.filter((one) => !one.role);
       const sources = meters.filter((one) => one.role && !wholes.includes(one));
       const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
@@ -1713,16 +1715,19 @@
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
         const caption = !one.role ? null : wholes.includes(one) ? t("Whole home") : one.role === "grid" ? t("Grid") : roleNames[one.role];
-        const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
+        // Solar shows what it produced: its Returned, else what it drew for a meter that measures production as use.
+        const solar = one.role === "solar";
+        const figure = solar && one.returned > 0 ? one.returned : one.consumption ?? 0;
+        const returned = !solar && one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
         // At the grid's price, hour by hour, whatever source covered it.
         const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
         const note = [cost, returned].filter(Boolean).join(" · ") || null;
         return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
-          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), caption, cost, returned].filter(Boolean).join(", "),
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(figure) }), caption, cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
-          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(one.consumption ?? 0)}%` })),
-          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), note ? el("small", { text: note }) : null)));
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(figure)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(figure) }), note ? el("small", { text: note }) : null)));
       };
       const shown = consumersAll ? devices : devices.slice(0, 8);
       consumerList.replaceChildren(

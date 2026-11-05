@@ -192,7 +192,8 @@ if (!up) { await stop(); throw new Error(`the bridge did not start (${binary})`)
 
 // The Energy section's demonstration figures: the page asks /api/metrics/energy and its history, and is answered with a
 // day of fifteen-minute power (solar following the sun, the home's evening peak, the batteries charging on the surplus
-// and covering the evening, the grid the rest), two batteries' charge, and a week of days, all consistent.
+// and covering the evening, the grid the rest), two batteries' charge, a week of days, and each meter's week
+// (/api/metrics/consumption), all consistent.
 const energyDemo = `(() => {
   const solarAt = (t) => { const d = new Date(t), h = d.getHours() + d.getMinutes() / 60; return Math.max(0, Math.sin((h - 6.5) / 13 * Math.PI)) * 2800; };
   const homeAt = (t) => { const d = new Date(t), h = d.getHours() + d.getMinutes() / 60; return 420 + (h >= 18 && h < 22.5 ? 1100 : 0) + (h >= 6.5 && h < 8 ? 700 : 0) + 160 * Math.sin(t / 2.7e6) + (h >= 12 && h < 13 ? 900 : 0); };
@@ -233,12 +234,25 @@ const energyDemo = `(() => {
     }
     return { period: "week", earliest: bars[0].date, imports: [], bars };
   };
+  // Each meter's week, as the Consumption by device card has it: the whole home (a meter of the home's use), the devices measured
+  // on their own inside it, the grid and the solar apart; what the home used is the week's home, so Unmetered is the rest.
+  const consumption = () => {
+    const bars = history().bars, sum = (key) => bars.reduce((total, bar) => total + bar[key], 0), round = (x) => Math.round(x * 100) / 100;
+    const meter = (accessory, name, consumption, role = null, returned = null) => ({ accessory, meter: "main", name, consumption: round(consumption), returned: returned == null ? null : round(returned), role, bars: [] });
+    const home = sum("home");
+    return { step: "day", currency: null, meters: [
+      meter("demo:home", "Main meter", home, "home"), meter("demo:grid", "Grid connection", sum("gridImport"), "grid", sum("gridExport")),
+      meter("demo:solar", "Rooftop solar", 0, "solar", sum("solar")),
+      meter("demo:heat-pump", "Heat pump", home * 0.31), meter("demo:washer", "Washing machine", home * 0.09),
+      meter("demo:fridge", "Kitchen fridge", home * 0.06), meter("demo:desk", "Office desk", home * 0.04)] };
+  };
   const original = window.fetch;
   window.fetch = (input, init) => {
     const url = new URL(String(input), location.href);
     const answer = (body) => Promise.resolve(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
     if (url.pathname === "/api/metrics/energy") return answer(report(Date.parse(url.searchParams.get("from")) || Date.now() - 864e5, Date.parse(url.searchParams.get("to")) || Date.now()));
     if (url.pathname === "/api/metrics/energy/history") return answer(history());
+    if (url.pathname === "/api/metrics/consumption") return answer(consumption());
     return original(input, init);
   };
 })();`;

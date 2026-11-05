@@ -3692,7 +3692,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
       // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
       const homes = meters.filter((one) => one.role === "home");
-      const wholes = homes.length ? homes : meters.filter((one) => one.role === "grid");
+      // A grid meter is the whole home only without solar or batteries: with them, it measures what came from the grid.
+      const sourced = meters.some((one) => one.role === "solar" || one.role === "battery");
+      const wholes = homes.length ? homes : sourced ? [] : meters.filter((one) => one.role === "grid");
       const devices = meters.filter((one) => !one.role);
       const sources = meters.filter((one) => one.role && !wholes.includes(one));
       const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
@@ -3706,16 +3708,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
         const caption = !one.role ? null : wholes.includes(one) ? t("Whole home") : one.role === "grid" ? t("Grid") : roleNames[one.role];
-        const returned = one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
+        // Solar shows what it produced: its Returned, else what it drew for a meter that measures production as use.
+        const solar = one.role === "solar";
+        const figure = solar && one.returned > 0 ? one.returned : one.consumption ?? 0;
+        const returned = !solar && one.returned > 0 ? t("{value} returned", { value: formatKWh(one.returned) }) : null;
         // At the grid's price, hour by hour, whatever source covered it.
         const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
         const note = [cost, returned].filter(Boolean).join(" · ") || null;
         return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
-          "aria-label": [t("{name}: {value}", { name, value: formatKWh(one.consumption ?? 0) }), caption, cost, returned].filter(Boolean).join(", "),
+          "aria-label": [t("{name}: {value}", { name, value: formatKWh(figure) }), caption, cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
-          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(one.consumption ?? 0)}%` })),
-          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(one.consumption ?? 0) }), note ? el("small", { text: note }) : null)));
+          el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(figure)}%` })),
+          el("span", { class: "consumer-value" }, el("b", { text: formatKWh(figure) }), note ? el("small", { text: note }) : null)));
       };
       const shown = consumersAll ? devices : devices.slice(0, 8);
       consumerList.replaceChildren(
@@ -26445,7 +26450,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* The consumption by device: a row per meter, its name, a bar of its share of the most any used, and its kWh. The row
    opens the device's history. */
 .consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-12);
+.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) 9.5rem auto; align-items: center; gap: var(--space-12);
   padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left;
   cursor: pointer; min-height: 40px; }
 .consumer:hover { background: var(--material-thin); }
@@ -26469,12 +26474,13 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-track i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); transition: width var(--normal) var(--ease-out); }
 .consumer-value { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
 .consumer-value b { font-weight: var(--weight-semibold); white-space: nowrap; }
-.consumer-value small { font-size: var(--text-2xs); color: var(--muted); white-space: nowrap; }
+/* The value column one width on every row, so the bars line up; a long note (a cost and what was returned) wraps. */
+.consumer-value small { font-size: var(--text-2xs); color: var(--muted); text-align: end; }
 .consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
 .consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 640px) {
   /* The name over its bar, the figure beside them. */
-  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) 7.5rem auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
   .consumer-spacer { grid-area: icon; }
   .consumer-name { grid-area: name; }
   .consumer-track { grid-area: track; }

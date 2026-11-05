@@ -1587,7 +1587,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* The consumption by device: a row per meter, its name, a bar of its share of the most any used, and its kWh. The row
    opens the device's history. */
 .consumers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-12);
+.consumer.action-with-icon, .consumer.rest { width: 100%; display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) 9.5rem auto; align-items: center; gap: var(--space-12);
   padding: var(--space-8) var(--space-10); border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: inherit; font: inherit; text-align: left;
   cursor: pointer; min-height: 40px; }
 .consumer:hover { background: var(--material-thin); }
@@ -1611,12 +1611,13 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-track i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); transition: width var(--normal) var(--ease-out); }
 .consumer-value { display: grid; justify-items: end; font-variant-numeric: tabular-nums; }
 .consumer-value b { font-weight: var(--weight-semibold); white-space: nowrap; }
-.consumer-value small { font-size: var(--text-2xs); color: var(--muted); white-space: nowrap; }
+/* The value column one width on every row, so the bars line up; a long note (a cost and what was returned) wraps. */
+.consumer-value small { font-size: var(--text-2xs); color: var(--muted); text-align: end; }
 .consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
 .consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 640px) {
   /* The name over its bar, the figure beside them. */
-  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) 7.5rem auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
   .consumer-spacer { grid-area: icon; }
   .consumer-name { grid-area: name; }
   .consumer-track { grid-area: track; }
