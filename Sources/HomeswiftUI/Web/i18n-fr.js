@@ -65,6 +65,7 @@ HomeswiftI18n.add("fr", {
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, caméras, sonnettes, carillons et Smart Lighting de Ring",
   "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Caméras et sonnettes IMOU sur le réseau local, avec le mode confidentialité et la sirène du cloud IMOU",
+  "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Lampes, contrôleurs LED et prises Wi-Fi Magic Home sur le réseau local",
   "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Voitures Renault, Dacia et Alpine : batterie, recharge, climatisation, klaxon et feux",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Enceintes Sonos : lecture, volume et groupes, favoris en entrées TV, voyants et alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Appareils Tuya et Smart Life via le cloud Tuya",
