@@ -312,7 +312,9 @@ struct SyncBoxClientTests {
     }
 
     @Test func retriesTransportFailuresButNotAnswers() async throws {
-        let timing = SyncBoxClient.Timing(attempt: .milliseconds(100), budget: .seconds(2), retryDelays: [.milliseconds(1), .milliseconds(2), .milliseconds(4)], lockWait: .seconds(1))
+        // A budget no machine runs out of: the fakes fail at once, and what this proves is which failures are retried and
+        // how often (the budget has its own test).
+        let timing = SyncBoxClient.Timing(attempt: .milliseconds(100), budget: .seconds(50), retryDelays: [.milliseconds(1), .milliseconds(2), .milliseconds(4)], lockWait: .seconds(1))
         let flaky = Flaky([.failure(.timeout), .failure(.connectionClosed), .success(HTTPResponse(status: 200, body: Data(vectorState.utf8)))])
         let client = try #require(SyncBoxClient(address: "192.0.2.50", token: "t", transport: flaky, timing: timing, logger: testLogger))
         #expect(try await client.state().name == "Lounge Sync Box")
@@ -328,6 +330,15 @@ struct SyncBoxClientTests {
         let gone = try #require(SyncBoxClient(address: "192.0.2.50", token: "t", transport: down, timing: timing, logger: testLogger))
         await #expect(throws: HTTPClientError.timeout) { try await gone.state() }
         #expect(down.count.withLockedValue { $0 } == 4)
+    }
+
+    /// No retry that would start past the budget.
+    @Test func retriesWithinTheBudget() async throws {
+        let timing = SyncBoxClient.Timing(attempt: .milliseconds(100), budget: .milliseconds(50), retryDelays: [.seconds(10)], lockWait: .seconds(1))
+        let down = Flaky([])
+        let client = try #require(SyncBoxClient(address: "192.0.2.50", token: "t", transport: down, timing: timing, logger: testLogger))
+        await #expect(throws: HTTPClientError.timeout) { try await client.state() }
+        #expect(down.count.withLockedValue { $0 } == 1)
     }
 
     @Test func buildsTheBaseURL() {
