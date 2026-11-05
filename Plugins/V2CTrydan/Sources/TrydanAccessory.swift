@@ -17,12 +17,31 @@ struct ChargerSettings: Decodable, Sendable, Equatable {
     var exposeLeds: Bool?
     var houseEnergyRole: HouseRole?
     var solarEnergy: Bool?
+    var exposeModes: Bool?
+    /// The wiring (`ChargeMode`): `monophasic`, `threephase` or `mixed`; nil leaves the charger's.
+    var chargeMode: String?
+    /// Installation limits (3.4): the lowest and highest current offered, 6 to 32 A, and the installation's voltage, 1 to
+    /// 500 V; nil leaves the charger's.
+    var minIntensity: Int?
+    var maxIntensity: Int?
+    var voltageInstallation: Int?
 
     var showsCurrent: Bool { exposeCurrent ?? true }
     var showsLock: Bool { exposeLock ?? true }
     var showsSensors: Bool { exposeSensors ?? true }
     var showsDynamic: Bool { exposeDynamic ?? false }
     var showsLeds: Bool { exposeLeds ?? false }
+    var showsModes: Bool { exposeModes ?? false }
+
+    /// The installation keywords these settings ask the charger for, with their values.
+    var installation: [(keyword: String, value: Int)] {
+        var writes: [(keyword: String, value: Int)] = []
+        if let wiring = chargeMode.flatMap(ChargeWiring.init(rawValue:)) { writes.append(("ChargeMode", wiring.value)) }
+        if let minIntensity { writes.append(("MinIntensity", minIntensity)) }
+        if let maxIntensity { writes.append(("MaxIntensity", maxIntensity)) }
+        if let voltageInstallation { writes.append(("VoltageInstallation", voltageInstallation)) }
+        return writes
+    }
 }
 
 /// What an accessory's services depend on besides the settings: the installation's maximum current (the Rotation
@@ -33,12 +52,14 @@ struct TrydanShape: Sendable, Equatable {
     var lightLED = false
     var logoLED = false
 
-    init(maxCurrent: Int = 32, lightLED: Bool = false, logoLED: Bool = false) {
-        self.maxCurrent = maxCurrent
-        self.lightLED = lightLED
-        self.logoLED = logoLED
+    /// The shape once `report` is known: LEDs once reported stay.
+    func updated(with report: TrydanReport) -> TrydanShape {
+        TrydanShape(maxCurrent: report.intensityRange.upperBound, lightLED: lightLED || report.lightLED != nil, logoLED: logoLED || report.logoLED != nil)
     }
+}
 
+// Out of the struct's body, so its memberwise initializer stays.
+extension TrydanShape {
     /// The shape an accessory restored from the cache was built with, so a restart does not rebuild it.
     init(cached: Accessory) {
         if let speed = cached.service(.fanv2, subtype: TrydanServices.Subtype.current)?[.rotationSpeed]?.type,
@@ -47,11 +68,6 @@ struct TrydanShape: Sendable, Equatable {
         }
         lightLED = cached.service(.lightbulb, subtype: TrydanServices.Subtype.lightLED) != nil
         logoLED = cached.service(.lightbulb, subtype: TrydanServices.Subtype.logoLED) != nil
-    }
-
-    /// The shape once `report` is known: LEDs once reported stay.
-    func updated(with report: TrydanReport) -> TrydanShape {
-        TrydanShape(maxCurrent: report.intensityRange.upperBound, lightLED: lightLED || report.lightLED != nil, logoLED: logoLED || report.logoLED != nil)
     }
 }
 
@@ -68,6 +84,8 @@ enum TrydanCommand: Sendable, Equatable {
     case lightLED(on: Bool)
     case lightLEDBrightness(Int)
     case logoLED(on: Bool)
+    /// A mode switch: On sets `DynamicPowerMode`.
+    case mode(DynamicPowerMode, on: Bool)
 }
 
 /// A charger's accessory and the services the plugin sets (docs/clean-room/V2CTrydan.md, 4.2). The subtypes stay as
@@ -83,6 +101,7 @@ struct TrydanServices: Sendable {
         static let pauseDynamic = "pauseDynamic"
         static let lightLED = "lightLED"
         static let logoLED = "logoLED"
+        static func mode(_ mode: DynamicPowerMode) -> String { "mode.\(mode.name)" }
     }
 
     let accessory: Accessory
@@ -95,6 +114,8 @@ struct TrydanServices: Sendable {
     let pauseDynamic: Service?
     let lightLED: Service?
     let logoLED: Service?
+    /// The mode switches, by `DynamicPowerMode`.
+    let modes: [DynamicPowerMode: Service]
     let shape: TrydanShape
 
     static let manufacturer = "V2C"
@@ -109,6 +130,7 @@ struct TrydanServices: Sendable {
             extra: [
                 Characteristic(EveCharacteristic.currentConsumption, value: .int(0)), Characteristic(EveCharacteristic.totalConsumption, value: .double(0)),
                 Characteristic(EveCharacteristic.voltage, value: .double(0)), Characteristic(EveCharacteristic.electricCurrent, value: .double(0)),
+                Characteristic(TrydanCharacteristic.sessionEnergy, value: .double(0)),
             ],
             isPrimary: true)
         var services = [outlet]
@@ -162,6 +184,16 @@ struct TrydanServices: Sendable {
             logoLED = service
             services.append(service)
         }
+        var modes: [DynamicPowerMode: Service] = [:]
+        if settings.showsModes {
+            // One switch per mode, as a radio: the charger is in one mode at a time.
+            for mode in DynamicPowerMode.switchable {
+                let service = Service(.switch, name: mode.switchName, subtype: Subtype.mode(mode), optional: [.configuredName])
+                service.characteristic(.on).onWrite { value in try await write(.mode(mode, on: value.boolValue ?? false)) }
+                modes[mode] = service
+                services.append(service)
+            }
+        }
         outlet.characteristic(.on).onWrite { value in try await write(.allowCharging(value.boolValue ?? false)) }
         let accessory = Accessory(
             id: id, name: name, manufacturer: manufacturer, model: model, serialNumber: deviceID,
@@ -169,16 +201,18 @@ struct TrydanServices: Sendable {
         if let cached { accessory.takeValues(from: cached) }
         return TrydanServices(
             accessory: accessory, outlet: outlet, fan: fan, lock: lock, plug: plug, timer: timer, dynamic: dynamic, pauseDynamic: pauseDynamic,
-            lightLED: lightLED, logoLED: logoLED, shape: shape)
+            lightLED: lightLED, logoLED: logoLED, modes: modes, shape: shape)
     }
 
     /// Sets every characteristic from a report; HomeKit hears of those that changed.
-    func show(_ report: TrydanReport) {
+    func show(_ report: TrydanReport, lifetimeEnergy: Double? = nil) {
         let allowed = report.paused == 0
         outlet.characteristic(.on).value = .bool(allowed)
         outlet.characteristic(.outletInUse).value = .bool(report.isCharging)
         outlet.characteristic(EveCharacteristic.currentConsumption).value = .int(Int(saturating: report.chargePower.rounded(), in: 0...100_000) ?? 0)
-        outlet.characteristic(EveCharacteristic.totalConsumption).value = .double(max(0, (report.chargeEnergy * 100).rounded() / 100))
+        // Eve's Total Consumption only grows: the lifetime total, the session's energy beside it.
+        if let lifetimeEnergy { outlet.characteristic(EveCharacteristic.totalConsumption).value = .double(max(0, (lifetimeEnergy * 100).rounded() / 100)) }
+        outlet.characteristic(TrydanCharacteristic.sessionEnergy).value = .double(max(0, (report.chargeEnergy * 100).rounded() / 100))
         if let voltage = report.voltage { outlet.characteristic(EveCharacteristic.voltage).value = .double(voltage.rounded()) }
         if let current = report.current { outlet.characteristic(EveCharacteristic.electricCurrent).value = .double((current * 10).rounded() / 10) }
         if let fan {
@@ -203,6 +237,7 @@ struct TrydanServices: Sendable {
             if level > 0 { lightLED.characteristic(.brightness).value = .int(min(level, 100)) }
         }
         if let logoLED, let level = report.logoLED { logoLED.characteristic(.on).value = .bool(level > 0) }
+        for (mode, service) in modes { service.characteristic(.on).value = .bool(report.dynamicPowerMode == mode.rawValue) }
         if let firmware = report.firmwareVersion {
             accessory.information.characteristic(.firmwareRevision).value = .string(TrydanIdentity.firmwareRevision(firmware))
         }

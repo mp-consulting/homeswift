@@ -108,6 +108,9 @@ struct HueSensorDevice: Sendable, Equatable {
     struct Battery: Sendable, Equatable { var id: String; var level: Int?; var low: Bool }
     /// A button, by its `control_id` (1 to 4 on a dimmer switch), and its last report: an event and when it came.
     struct Button: Sendable, Equatable { var id: String; var controlID: Int; var event: String?; var updated: String? }
+    /// A Tap dial's ring (`relative_rotary`) and its last report: `start` when a turn begins, `repeat` while it goes on,
+    /// its direction, and when it came.
+    struct Rotary: Sendable, Equatable { var id: String; var action: String?; var clockwise: Bool?; var updated: String? }
 
     var id: String
     var name: String
@@ -120,6 +123,7 @@ struct HueSensorDevice: Sendable, Equatable {
     var contact: Contact?
     var battery: Battery?
     var buttons: [Button] = []
+    var rotary: Rotary?
     var reachable = true
     /// Its Zigbee MAC; nil without one.
     var serialNumber: String?
@@ -127,9 +131,9 @@ struct HueSensorDevice: Sendable, Equatable {
     var roomID: String?
     var room: String?
 
-    var hasSensorOrButton: Bool { motion != nil || temperature != nil || lightLevel != nil || contact != nil || !buttons.isEmpty }
+    var hasSensorOrButton: Bool { motion != nil || temperature != nil || lightLevel != nil || contact != nil || !buttons.isEmpty || rotary != nil }
     /// The ids of its services' resources.
-    var serviceIDs: [String] { [motion?.id, temperature?.id, lightLevel?.id, contact?.id, battery?.id].compactMap { $0 } + buttons.map(\.id) }
+    var serviceIDs: [String] { [motion?.id, temperature?.id, lightLevel?.id, contact?.id, battery?.id, rotary?.id].compactMap { $0 } + buttons.map(\.id) }
 
     /// Hue's light level, 10,000 × log₁₀(lux) + 1, in lux, within HomeKit's range; 0 is darkness, not 1 lux.
     static func lux(lightLevel: Double) -> Double {
@@ -207,6 +211,16 @@ struct HueSensorDevice: Sendable, Equatable {
             } else if let control = resource["metadata"]?["control_id"]?.intValue {
                 buttons.append(Button(id: rid, controlID: control, event: event, updated: report?["updated"]?.stringValue))
             }
+        case "relative_rotary":
+            // `rotary_report` is the current shape, `last_event` the older one.
+            let ring = resource["relative_rotary"]
+            let report = ring?["rotary_report"] ?? ring?["last_event"]
+            var rotary = self.rotary ?? Rotary(id: rid)
+            if let action = report?["action"]?.stringValue { rotary.action = action }
+            if let direction = report?["rotation"]?["direction"]?.stringValue { rotary.clockwise = direction == "clock_wise" }
+            // `last_event` has no time: a report of that shape leaves none.
+            if report != nil { rotary.updated = report?["updated"]?.stringValue }
+            self.rotary = rotary
         default:
             break
         }

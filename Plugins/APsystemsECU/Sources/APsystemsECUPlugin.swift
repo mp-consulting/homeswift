@@ -80,6 +80,8 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
     var waiting: [String: [CheckedContinuation<Void, Never>]] = [:]
     /// Type codes and models already logged as unknown, logged once.
     var loggedOddities: Set<String> = []
+    /// The ECUs and inverters (by id) the bridge refused: tried again at each poll, logged once until one goes on it.
+    var refusedAccessories: Set<String> = []
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())

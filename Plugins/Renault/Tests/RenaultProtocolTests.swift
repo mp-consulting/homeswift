@@ -108,9 +108,9 @@ struct RenaultProtocolTests {
         #expect(r5.displayName == "AA-00-AA")
         #expect(r5.modelName == "Renault 5")
         #expect(r5.manufacturer == "Renault")
-        #expect(RenaultVehicle.parts(for: r5, dropped: []) == [.climate, .charging, .pluggedIn, .horn, .lights, .interiorTemperature, .exteriorTemperature])
+        #expect(RenaultVehicle.parts(for: r5, dropped: []) == [.climate, .charging, .pluggedIn, .horn, .lights, .interiorTemperature, .exteriorTemperature, .batteryTemperature])
         #expect(!VehiclePart.horn.includedByDefault)
-        #expect(RenaultVehicle.parts(for: r5, dropped: [.hvacStatus]) == [.charging, .pluggedIn, .horn, .lights])
+        #expect(RenaultVehicle.parts(for: r5, dropped: [.hvacStatus]) == [.charging, .pluggedIn, .horn, .lights, .batteryTemperature])
     }
 
     @Test func chargingStatusesAndThePlug() {

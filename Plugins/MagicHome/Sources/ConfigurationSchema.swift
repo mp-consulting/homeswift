@@ -17,6 +17,20 @@ extension MagicHomePlugin {
         "default": "Magic Home",
         "description": "The name of this plugin's instance in the logs."
       },
+      "effects": {
+        "title": "Effects",
+        "type": "boolean",
+        "default": false,
+        "description": "A switch for each built-in effect (colour loop, strobes, gradual changes…) on the colour lights that play them: on plays it, off puts the colour back. Off by default, so accessories stay as they were."
+      },
+      "effectSpeed": {
+        "title": "Effect speed",
+        "type": "integer",
+        "default": 50,
+        "minimum": 0,
+        "maximum": 100,
+        "description": "How fast the effects play, from 0 (slowest) to 100 (fastest)."
+      },
       "addresses": {
         "title": "Devices by address",
         "type": "array",
@@ -197,11 +211,35 @@ extension MagicHomePlugin {
     }
   },
   "accessorySchema": {
-    "properties": {}
+    "properties": {
+      "effects": {
+        "title": "Effects",
+        "type": "boolean",
+        "description": "A switch for each built-in effect this light plays. Empty takes the plugin's setting.",
+        "x-kinds": ["light"],
+        "x-default": "effects"
+      },
+      "effectSpeed": {
+        "title": "Effect speed",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "How fast this light's effects play, from 0 (slowest) to 100 (fastest). Empty takes the plugin's setting.",
+        "x-kinds": ["light"],
+        "x-default": "effectSpeed"
+      }
+    }
   },
   "layout": [
     "name",
     "addresses",
+    {
+      "type": "fieldset",
+      "title": "Effects",
+      "expandable": true,
+      "expanded": false,
+      "items": ["effects", "effectSpeed"]
+    },
     {
       "type": "fieldset",
       "title": "White and colour",
@@ -291,7 +329,13 @@ extension MagicHomePlugin {
       "Whether the MAC addresses below are left out or the only ones added.": "Si les adresses MAC ci-dessous sont laissées de côté ou les seules ajoutées.",
       "White and colour": "Blanc et couleur",
       "White below (saturation %)": "Blanc en dessous de (saturation %)",
-      "White only below (saturation %)": "Blanc seul en dessous de (saturation %)"
+      "White only below (saturation %)": "Blanc seul en dessous de (saturation %)",
+      "Effects": "Effets",
+      "Effect speed": "Vitesse des effets",
+      "A switch for each built-in effect (colour loop, strobes, gradual changes…) on the colour lights that play them: on plays it, off puts the colour back. Off by default, so accessories stay as they were.": "Un interrupteur par effet intégré (boucle de couleurs, stroboscopes, fondus…) sur les lumières de couleur qui les jouent : allumé, il le joue ; éteint, il remet la couleur. Désactivé par défaut, pour que les accessoires restent tels quels.",
+      "How fast the effects play, from 0 (slowest) to 100 (fastest).": "La vitesse des effets, de 0 (le plus lent) à 100 (le plus rapide).",
+      "A switch for each built-in effect this light plays. Empty takes the plugin's setting.": "Un interrupteur par effet intégré que joue cette lumière. Vide reprend le réglage du plugin.",
+      "How fast this light's effects play, from 0 (slowest) to 100 (fastest). Empty takes the plugin's setting.": "La vitesse des effets de cette lumière, de 0 (le plus lent) à 100 (le plus rapide). Vide reprend le réglage du plugin."
     },
     "es": {
       "12 hexadecimal digits.": "12 dígitos hexadecimales.",
@@ -344,7 +388,13 @@ extension MagicHomePlugin {
       "Whether the MAC addresses below are left out or the only ones added.": "Si las direcciones MAC de abajo se dejan fuera o son las únicas que se añaden.",
       "White and colour": "Blanco y color",
       "White below (saturation %)": "Blanco por debajo de (saturación %)",
-      "White only below (saturation %)": "Solo blanco por debajo de (saturación %)"
+      "White only below (saturation %)": "Solo blanco por debajo de (saturación %)",
+      "Effects": "Efectos",
+      "Effect speed": "Velocidad de los efectos",
+      "A switch for each built-in effect (colour loop, strobes, gradual changes…) on the colour lights that play them: on plays it, off puts the colour back. Off by default, so accessories stay as they were.": "Un interruptor por efecto integrado (bucle de colores, estroboscopios, cambios graduales…) en las luces de color que los reproducen: encendido lo reproduce, apagado devuelve el color. Desactivado por defecto, para que los accesorios sigan igual.",
+      "How fast the effects play, from 0 (slowest) to 100 (fastest).": "La velocidad de los efectos, de 0 (la más lenta) a 100 (la más rápida).",
+      "A switch for each built-in effect this light plays. Empty takes the plugin's setting.": "Un interruptor por efecto integrado que reproduce esta luz. Vacío toma el ajuste del plugin.",
+      "How fast this light's effects play, from 0 (slowest) to 100 (fastest). Empty takes the plugin's setting.": "La velocidad de los efectos de esta luz, de 0 (la más lenta) a 100 (la más rápida). Vacío toma el ajuste del plugin."
     },
     "pt": {
       "12 hexadecimal digits.": "12 dígitos hexadecimais.",
@@ -397,7 +447,13 @@ extension MagicHomePlugin {
       "Whether the MAC addresses below are left out or the only ones added.": "Se os endereços MAC abaixo são deixados de fora ou os únicos adicionados.",
       "White and colour": "Branco e cor",
       "White below (saturation %)": "Branco abaixo de (saturação %)",
-      "White only below (saturation %)": "Só branco abaixo de (saturação %)"
+      "White only below (saturation %)": "Só branco abaixo de (saturação %)",
+      "Effects": "Efeitos",
+      "Effect speed": "Velocidade dos efeitos",
+      "A switch for each built-in effect (colour loop, strobes, gradual changes…) on the colour lights that play them: on plays it, off puts the colour back. Off by default, so accessories stay as they were.": "Um interruptor por efeito integrado (ciclo de cores, estroboscópios, mudanças graduais…) nas luzes de cor que os reproduzem: ligado reproduz o efeito, desligado repõe a cor. Desativado por predefinição, para que os acessórios fiquem como estavam.",
+      "How fast the effects play, from 0 (slowest) to 100 (fastest).": "A velocidade dos efeitos, de 0 (a mais lenta) a 100 (a mais rápida).",
+      "A switch for each built-in effect this light plays. Empty takes the plugin's setting.": "Um interruptor por efeito integrado que esta luz reproduz. Vazio usa a definição do plugin.",
+      "How fast this light's effects play, from 0 (slowest) to 100 (fastest). Empty takes the plugin's setting.": "A velocidade dos efeitos desta luz, de 0 (a mais lenta) a 100 (a mais rápida). Vazio usa a definição do plugin."
     }
   }
 }

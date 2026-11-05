@@ -338,3 +338,34 @@ enum IPv4NetworkFixture {
     static let loopback = IPv4Network(address: IPv4Network.parse("127.0.0.1")!, netmask: 0xFF00_0000)
 }
 
+/// The built-in patterns (10.3.8).
+@Suite struct MagicHomeEffectTests {
+    static func profile(_ model: UInt8, version: UInt8 = 1, mode: UInt8 = 0) -> MagicHomeProfile {
+        MagicHomeProfile.make(model: model, version: version, modeByte: mode)!
+    }
+
+
+    @Test func effectSpeedsAreDelays() {
+        #expect(MagicHomeEffect.delay(speed: 100) == 1)
+        #expect(MagicHomeEffect.delay(speed: 0) == 31)
+        #expect(MagicHomeEffect.delay(speed: 50) == 16)
+        #expect(MagicHomeEffect.delay(speed: 150) == 1)
+    }
+
+    @Test func effectFramesFollowTheFamily() throws {
+        let loop = try #require(MagicHomeEffect.all.first)
+        #expect(hex(MagicHomeFrame.effect(loop, speed: 50, brightness: 80, family: .nineByte)) == "61 25 10 0F A5")
+        #expect(hex(MagicHomeFrame.effect(loop, speed: 50, brightness: 100, family: .nineByteDimmableEffects)) == "38 25 10 64 D1")
+    }
+
+    @Test func onlyColourLightsOfAnEffectFamilyPlayThem() {
+        // A 9-byte controller: the 20 patterns, not the dimmable-effects ones.
+        #expect(Self.profile(0x25, version: 5, mode: 0x07).effects.count == 20)
+        #expect(Self.profile(0x35, version: 9).effects.count == 23)
+        #expect(Self.profile(0x97).effects.isEmpty, "a socket")
+        #expect(Self.profile(0x09, version: 5).effects.isEmpty, "a CCT light")
+        #expect(Self.profile(0x21, version: 2).effects.isEmpty, "a dimmer")
+        #expect(Self.profile(0xA2).effects.isEmpty, "an addressable strip: its patterns have no names")
+        #expect(Set(MagicHomeEffect.all.map(\.subtype)).count == MagicHomeEffect.all.count)
+    }
+}

@@ -13,6 +13,7 @@ enum VehiclePart: String, CaseIterable, Sendable {
     case lights = "Lights"
     case interiorTemperature = "InteriorTemperature"
     case exteriorTemperature = "ExteriorTemperature"
+    case batteryTemperature = "BatteryTemperature"
     case doors = "Doors"
 
     var name: String {
@@ -24,6 +25,7 @@ enum VehiclePart: String, CaseIterable, Sendable {
         case .lights: "Lights"
         case .interiorTemperature: "Interior temperature"
         case .exteriorTemperature: "Exterior temperature"
+        case .batteryTemperature: "Battery temperature"
         case .doors: "Doors"
         }
     }
@@ -43,7 +45,7 @@ enum VehiclePart: String, CaseIterable, Sendable {
         case .pluggedIn: "power"
         case .horn: "bell"
         case .lights: "bulb"
-        case .interiorTemperature, .exteriorTemperature: "thermo"
+        case .interiorTemperature, .exteriorTemperature, .batteryTemperature: "thermo"
         case .doors: "door"
         }
     }
@@ -67,6 +69,9 @@ actor RenaultVehicle {
     struct Options: Sendable {
         var climateTemperature: Double = 21
         var parts: [String: Bool] = [:]
+        /// The state-of-charge limits the Accessory Settings ask for (`socMin`, `socTarget`), nil to leave the car's.
+        var socMinimum: Int?
+        var socTarget: Int?
     }
 
     let info: VehicleInfo
@@ -78,6 +83,14 @@ actor RenaultVehicle {
     private let tasks: TaskBag
     /// Called when an endpoint is dropped, to remember it (6.3).
     private let onDrop: @Sendable (String, Endpoint) -> Void
+    /// Records a reading for the Status page's history (`range`, `timeToFull`, `power`, `batteryTemperature`).
+    private let record: @Sendable (String, Double) -> Void
+    /// The Accessory Settings' limits last sent or already read (`socMin`, `socTarget`; nil where not set), remembered
+    /// across restarts, and how to remember new ones (nil once the settings are cleared).
+    private var sentSoc: SocLevels?
+    private let onSocSent: @Sendable (SocLevels?) -> Void
+    /// The settings' limits Renault did not take, or that the request failed for, in memory: not tried again each hour.
+    private var refusedSoc: SocLevels?
 
     private(set) var dropped: Set<Endpoint>
     /// The endpoints that have answered at least once.
@@ -87,8 +100,8 @@ actor RenaultVehicle {
     private(set) var hvac: HvacStatus?
     private(set) var soc: SocLevels?
     private(set) var lock: LockStatus?
-    private var seenInterior = false
-    private var seenExterior = false
+    /// The temperature parts a value has been seen for: their sensors show only then (5.2).
+    private var seenTemperatures: Set<VehiclePart> = []
     /// The programs' activation flags before a charge start turned them off (4.6), in memory.
     private(set) var programsBeforeChargeStart: [Bool]?
     /// Since when reads fail with no read succeeding in between; a read skipped for the quota or a dropped endpoint is
@@ -105,7 +118,8 @@ actor RenaultVehicle {
 
     init(
         info: VehicleInfo, accountID: String, session: RenaultSession, options: Options, dropped: Set<Endpoint>, timing: RenaultTiming,
-        logger: Logger, tasks: TaskBag, onDrop: @escaping @Sendable (String, Endpoint) -> Void
+        logger: Logger, tasks: TaskBag, sentSoc: SocLevels? = nil, record: @escaping @Sendable (String, Double) -> Void = { _, _ in },
+        onSocSent: @escaping @Sendable (SocLevels?) -> Void = { _ in }, onDrop: @escaping @Sendable (String, Endpoint) -> Void
     ) {
         self.info = info
         self.accountID = accountID
@@ -116,6 +130,9 @@ actor RenaultVehicle {
         self.logger = logger
         self.tasks = tasks
         self.onDrop = onDrop
+        self.record = record
+        self.sentSoc = sentSoc
+        self.onSocSent = onSocSent
     }
 
     var logName: String { maskedVIN(info.vin) }
@@ -152,6 +169,7 @@ actor RenaultVehicle {
             case .horn: has(.hornStart)
             case .lights: has(.lightsStart)
             case .interiorTemperature, .exteriorTemperature: has(.hvacStatus)
+            case .batteryTemperature: info.usesElectricity && has(.batteryStatus)
             case .doors: has(.lockStatus)
             }
         }
@@ -159,11 +177,16 @@ actor RenaultVehicle {
 
     func isIncluded(_ part: VehiclePart) -> Bool { options.parts[part.rawValue] ?? part.includedByDefault }
 
+    /// The parts this car has and the Accessory Settings include.
+    private func includedParts() -> Set<VehiclePart> { Set(availableParts().filter(isIncluded)) }
+
+    /// An electric car whose battery is read: it gets the Battery service, read each round.
+    private var hasBattery: Bool { info.usesElectricity && has(.batteryStatus) }
+
     /// The endpoints read each round (6.1): only those something in HomeKit shows.
     func roundEndpoints() -> [Endpoint] {
-        let parts = Set(availableParts().filter(isIncluded))
-        var endpoints: [Endpoint] = []
-        if info.usesElectricity, has(.batteryStatus) { endpoints.append(.batteryStatus) }
+        let parts = includedParts()
+        var endpoints: [Endpoint] = hasBattery ? [.batteryStatus] : []
         if has(.hvacStatus), !parts.isDisjoint(with: [.climate, .interiorTemperature, .exteriorTemperature]) { endpoints.append(.hvacStatus) }
         if parts.contains(.doors) { endpoints.append(.lockStatus) }
         return endpoints
@@ -220,12 +243,14 @@ actor RenaultVehicle {
                 logger.warning("Unknown charging status \(value) for \(logName)")
             }
             battery = status
+            if status.temperature != nil { seenTemperatures.insert(.batteryTemperature) }
             if let charging = status.isCharging { settle(&pendingCharging, read: charging) }
+            recordReadings(status)
         case .hvacStatus:
             let status = HvacStatus(attributes: attributes)
             hvac = status
-            if status.internalTemperature != nil { seenInterior = true }
-            if status.externalTemperature != nil { seenExterior = true }
+            if status.internalTemperature != nil { seenTemperatures.insert(.interiorTemperature) }
+            if status.externalTemperature != nil { seenTemperatures.insert(.exteriorTemperature) }
             if let on = status.isOn { settle(&pendingClimate, read: on) }
         case .socLevels:
             soc = SocLevels(attributes: attributes)
@@ -255,13 +280,10 @@ actor RenaultVehicle {
 
     /// The services this car gets now: a temperature sensor only once a value has been seen (5.2).
     func serviceKeys() -> Set<String> {
-        let parts = Set(availableParts().filter(isIncluded))
-        var keys: Set<String> = []
-        if info.usesElectricity, has(.batteryStatus) { keys.insert("Battery") }
-        for part in parts {
+        var keys: Set<String> = hasBattery ? ["Battery"] : []
+        for part in includedParts() {
             switch part {
-            case .interiorTemperature: if seenInterior { keys.insert(part.rawValue) }
-            case .exteriorTemperature: if seenExterior { keys.insert(part.rawValue) }
+            case .interiorTemperature, .exteriorTemperature, .batteryTemperature: if seenTemperatures.contains(part) { keys.insert(part.rawValue) }
             default: keys.insert(part.rawValue)
             }
         }
@@ -275,7 +297,13 @@ actor RenaultVehicle {
         let name = info.displayName
         var built: [String: Service] = [:]
         if keys.contains("Battery") {
-            built["Battery"] = Service(.battery, name: name, optional: [.batteryLevel, .chargingState], isPrimary: true)
+            built["Battery"] = Service(
+                .battery, name: name,
+                optional: [
+                    .batteryLevel, .chargingState, RenaultCharacteristic.range, RenaultCharacteristic.timeToFull, EveCharacteristic.currentConsumption,
+                    RenaultCharacteristic.availableEnergy, RenaultCharacteristic.chargeStatus, RenaultCharacteristic.batteryUpdated,
+                ],
+                isPrimary: true)
         }
         if keys.contains(VehiclePart.climate.rawValue) {
             let climate = Service(.switch, name: "\(name) Climate", subtype: "Climate", optional: [.configuredName], isPrimary: built.isEmpty)
@@ -295,7 +323,7 @@ actor RenaultVehicle {
             let service = Service(.switch, name: "\(name) \(part.name)", subtype: part.rawValue, optional: [.configuredName])
             let on = service.characteristic(.on)
             if part == .horn { on.securityControl() }
-            on.onWrite { [weak self] value in try await self?.flash(endpoint, value: value.boolValue ?? false) }
+            on.onWrite { [weak self] value in try await self?.flash(part, endpoint: endpoint, value: value.boolValue ?? false) }
             built[part.rawValue] = service
         }
         if keys.contains(VehiclePart.interiorTemperature.rawValue) {
@@ -304,12 +332,15 @@ actor RenaultVehicle {
         if keys.contains(VehiclePart.exteriorTemperature.rawValue) {
             built["ExteriorTemperature"] = Service(.temperatureSensor, name: "\(name) Exterior", subtype: "ExteriorTemperature", optional: [.configuredName])
         }
+        if keys.contains(VehiclePart.batteryTemperature.rawValue) {
+            built["BatteryTemperature"] = Service(.temperatureSensor, name: "\(name) Battery Temperature", subtype: "BatteryTemperature", optional: [.configuredName])
+        }
         if keys.contains(VehiclePart.doors.rawValue) {
             for opening in LockStatus.openingNames {
                 built["Door.\(opening)"] = Service(.contactSensor, name: "\(name) \(Self.openingName(opening))", subtype: "Door.\(opening)", optional: [.configuredName])
             }
         }
-        let order = ["Battery", "Climate", "Charging", "PluggedIn", "Horn", "Lights", "InteriorTemperature", "ExteriorTemperature"]
+        let order = ["Battery", "Climate", "Charging", "PluggedIn", "Horn", "Lights", "InteriorTemperature", "ExteriorTemperature", "BatteryTemperature"]
             + LockStatus.openingNames.map { "Door.\($0)" }
         let accessory = Accessory(
             id: id, name: name, manufacturer: info.manufacturer, model: info.modelName ?? info.modelCode ?? "Renault",
@@ -335,6 +366,18 @@ actor RenaultVehicle {
                     set(service.characteristic(.statusLowBattery), .int(level < threshold ? 1 : 0))
                 }
                 if let charging = battery.isCharging { set(service.characteristic(.chargingState), .int(charging ? 1 : 0)) }
+                if let range = battery.autonomy { set(service.characteristic(RenaultCharacteristic.range), .int(range)) }
+                if let energy = battery.availableEnergy { set(service.characteristic(RenaultCharacteristic.availableEnergy), .double(energy)) }
+                if let status = battery.chargeStatusName { set(service.characteristic(RenaultCharacteristic.chargeStatus), .string(status)) }
+                if let timestamp = battery.timestamp { set(service.characteristic(RenaultCharacteristic.batteryUpdated), .string(timestamp)) }
+                if let minutes = battery.timeToFull { set(service.characteristic(RenaultCharacteristic.timeToFull), .int(minutes)) }
+                if let watts = battery.chargingWatts {
+                    // Eve's Current Consumption is a uint16: a DC fast charge above 65.5 kW shows as its top (the history keeps the watts).
+                    set(service.characteristic(EveCharacteristic.currentConsumption), .int(min(watts, Int(UInt16.max))))
+                }
+            }
+            if let value = battery.temperature, let service = services["BatteryTemperature"] {
+                set(service.characteristic(.currentTemperature), .double(value))
             }
             if let service = services["PluggedIn"] {
                 if let plugged = battery.isPluggedIn {
@@ -364,6 +407,17 @@ actor RenaultVehicle {
         }
     }
 
+    /// The battery's readings for the Status page's history, those the car reported.
+    private func recordReadings(_ status: BatteryStatus) {
+        if let range = status.autonomy { record("range", Double(range)) }
+        if let minutes = status.timeToFull { record("timeToFull", Double(minutes)) }
+        if let watts = status.chargingWatts { record("power", Double(watts)) }
+        if let temperature = status.temperature { record("batteryTemperature", temperature) }
+        if let energy = status.availableEnergy { record("availableEnergy", energy) }
+        if let level = status.level { record("level", Double(level)) }
+        if let code = status.chargingStatus { record("chargingStatus", code) }
+    }
+
     private func set(_ characteristic: Characteristic, _ value: HAPValue) {
         if characteristic.value != value { characteristic.value = value }
     }
@@ -375,6 +429,54 @@ actor RenaultVehicle {
             accessory.isUnavailable = unavailable
             if unavailable { logger.warning("\(logName) has not answered for a while: shown as not responding") }
         }
+    }
+
+    // MARK: State-of-charge limits (4.4)
+
+    /// Sends the limits the Accessory Settings ask for when the car's last read differs, once per change of the settings:
+    /// the car keeps answering its old values for a while, and a later change from the MyRenault app wins until the
+    /// settings change again. Both are sent together, the one not asked for taken from the last read. One action request.
+    /// A setting the car already reads counts as sent; one Renault does not take, or a request it refuses, is not tried
+    /// again until the settings change or the bridge restarts (a spent quota is tried again the next hour); a cleared
+    /// setting is forgotten, so setting it again sends it.
+    func applySocLimits() async {
+        let asked = SocLevels(minimum: options.socMinimum, target: options.socTarget)
+        guard asked.minimum != nil || asked.target != nil else {
+            if sentSoc != nil { remember(nil) }
+            return
+        }
+        guard asked != sentSoc, asked != refusedSoc, let read = soc,
+              let minimum = asked.minimum ?? read.minimum, let target = asked.target ?? read.target else { return }
+        let wanted = SocLevels(minimum: minimum, target: target)
+        guard read != wanted else {
+            remember(asked)
+            return
+        }
+        guard SocLevels.isValid(minimum: minimum), SocLevels.isValid(target: target) else {
+            logger.warning("The charge limits \(minimum) % and \(target) % of \(logName) are not ones Renault takes (15 to 45 and 55 to 100, in steps of 5)")
+            refusedSoc = asked
+            return
+        }
+        guard let (path, _) = resolve(.socLevels) else { return }
+        let label = "charge limits"
+        do {
+            try await send(path: path, body: ["socMin": .number(Double(minimum)), "socTarget": .number(Double(target))], label: label)
+        } catch {
+            Self.logFailure(error, logger: logger, action: label, vehicle: logName)
+            if case RenaultError.quota = error {} else { refusedSoc = asked }
+            return
+        }
+        remember(asked)
+        // Shown at once (the server answers the old values for a while), as Home Assistant does.
+        soc = wanted
+        show()
+        logger.info("Set the charge limits of \(logName) to \(minimum) % and \(target) %")
+    }
+
+    /// The settings' limits as sent, in memory and in `renault-soc.json`.
+    private func remember(_ sent: SocLevels?) {
+        sentSoc = sent
+        onSocSent(sent)
     }
 
     // MARK: Actions (4.4 to 4.6)
@@ -464,35 +566,44 @@ actor RenaultVehicle {
     }
 
     /// Horn or lights: the action, then the switch turns itself off.
-    func flash(_ endpoint: Endpoint, value: Bool) async throws {
+    func flash(_ part: VehiclePart, endpoint: Endpoint, value: Bool) async throws {
         guard value else { return }
         guard let (path, _) = resolve(endpoint) else { throw HAPStatusError(.notAllowedInCurrentState) }
-        let target = endpoint == .hornStart ? "horn" : "lights"
+        let target = part.rawValue.lowercased()
         try await act(path: path, body: ["data": ["type": "HornLights", "attributes": ["action": "start", "target": .string(target)]]], label: target)
         logger.info("Sent \(target) to \(logName)")
-        let key = endpoint == .hornStart ? "Horn" : "Lights"
-        _ = services[key]?.characteristic(.on).revert(to: .bool(false), after: timing.momentary)
+        _ = services[part.rawValue]?.characteristic(.on).revert(to: .bool(false), after: timing.momentary)
     }
 
     private func act(path: String, body: JSONValue, label: String) async throws {
         do {
-            _ = try await session.perform(.action) { session in
-                try await session.send(.action, method: "POST", path: path, body: body, label: label)
-            }
+            try await send(path: path, body: body, label: label)
         } catch {
             throw Self.status(for: error, logger: logger, action: label, vehicle: logName)
         }
     }
 
+    /// One action request, its error as it came.
+    private func send(path: String, body: JSONValue, label: String) async throws {
+        _ = try await session.perform(.action) { session in
+            try await session.send(.action, method: "POST", path: path, body: body, label: label)
+        }
+    }
+
     /// An action's failure as HomeKit hears it, logged.
     static func status(for error: any Error, logger: Logger, action: String, vehicle: String) -> HAPStatusError {
+        logFailure(error, logger: logger, action: action, vehicle: vehicle)
+        return HAPStatusError(.serviceCommunicationFailure)
+    }
+
+    /// An action's failure, logged.
+    static func logFailure(_ error: any Error, logger: Logger, action: String, vehicle: String) {
         switch error {
         case RenaultError.quota:
             logger.warning("Renault's hourly quota is spent: the \(action) for \(vehicle) was not sent")
         default:
             logger.warning("The \(action) for \(vehicle) failed: \(error)")
         }
-        return HAPStatusError(.serviceCommunicationFailure)
     }
 
     /// Reads the endpoint again after the action, at 6.1's delays, inside the budget (a read that does not fit is skipped).

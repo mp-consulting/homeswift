@@ -7,12 +7,13 @@ accessory per car, `Renault:<VIN>`, named after its registration plate:
 
 | Service | What it does |
 |---|---|
-| **Battery** (primary, electric cars) | Battery Level, Charging State, Status Low Battery (below the car's minimum state of charge, else 20 %) |
+| **Battery** (primary, electric cars) | Battery Level, Charging State, Status Low Battery (below the car's minimum state of charge, else 20 %); the range, the time to a full charge and the charge power (see below) |
 | **Climate** switch | On starts the climate at `climateTemperature`; Off stops it (`stop` or `cancel`, as the model wants) |
 | **Charging** switch | On starts charging (refused while the car is unplugged); Off stops it on cars that can be told to |
 | **Plugged In** contact sensor | Contact detected while the cable is in; Status Fault when the car reports a plug error |
 | **Horn** and **Lights** switches | Sound the horn or flash the lights, then turn themselves off. The horn is off unless you include it |
 | **Interior** and **Exterior** temperature sensors | Once the car has reported one |
+| **Battery** temperature sensor | Once the car has reported its battery's temperature (older cars; not the Renault 5) |
 | **Doors** contact sensors | Driver, passenger, rear doors and hatch, on cars that report them (not the Renault 5) |
 
 Each is a Part of the car (its Accessory Settings), offered only when the car's model has the endpoint behind it. The
@@ -20,6 +21,32 @@ per-model table (`Sources/ModelEndpoints.swift`) says which; a model not in it t
 endpoint whose first read says the car does not have it (`err.tech.501`, `err.func.wired.forbidden`, `notFound`, `403`,
 `400001`, HTTP 404) is dropped, remembered in `renault-endpoints.json` for a week (or until the model changes) so a
 restart does not spend the quota finding it again.
+
+### Range, time to full and charge power
+
+HomeKit has no characteristic for a car's range, so the plugin adds its own to the Battery service, as other plugins
+add Eve's: **Range (km)** (`batteryAutonomy`), **Time to Full (min)** (`chargingRemainingTime`, 0 unless the car
+charges) and Eve's **Current Consumption** for the charge power in watts (`chargingInstantaneousPower`, 0 unless the car
+charges), with the rest of the battery's report: **Available Energy (kWh)** (`batteryAvailableEnergy`, older cars),
+**Charge Status** (`chargingStatus` in words: "waiting for a planned charge", "charge ended", "V2L connected"…) and
+**Battery Updated** (when the car last reported, as it says it). The plug's state is the Plugged In sensor, a plug error
+its Status Fault. The Home app does not show them; the web UI's accessory details and the Eve app do. The readings are
+also recorded for the Status page's history (`<VIN>:range`, `timeToFull`, `power`, `batteryTemperature`,
+`availableEnergy`, `level`, and `chargingStatus` as its code), the battery temperature where the car reports it. The charge power is not tagged for the Energy section: a car charging at home is part of the
+home's use, which the home's meter counts already. They all come from the battery-status read each round already
+makes: no request is added.
+
+### Charge limits
+
+The car's charge target and minimum state of charge are Accessory Settings of the car: **Charge target** (55 to 100 %,
+in steps of 5) and **Charge minimum** (15 to 45 %, in steps of 5). When one is set and differs from what the car last
+reported, the plugin sends both (`POST …/ev/soc-levels`, the one not set taken from the car) once, one request from the
+hour's action reserve, and shows the new limits at once. It remembers the settings it sent, or found the car already
+had (`renault-soc.json`), so the car answering its old values for a while, or a restart, does not send them again; a
+later change in the MyRenault app, to either limit, wins until the setting changes. Limits Renault does not take, or a
+request it refuses, are logged once and not tried again until the setting changes or the bridge restarts (a spent quota
+is tried the next hour). Clearing both settings forgets them, so setting the same value later sends it again. The
+minimum also sets when the battery shows as low.
 
 ### The Renault 5 E-Tech (`R5E1VE`)
 
@@ -92,13 +119,13 @@ VINs are logged as their first 3 and last 4 characters. The plugin does not read
 
 Choices made where the specification is silent or leaves a choice:
 
-- **Location, mileage and the other readings HomeKit cannot show** (range, remaining time, power, charge mode, tyres)
-  are not read: they would spend the quota on data nothing shows (and coordinates are personal data). So
-  `refreshLocation` (spec 2) is not offered. A plugin page could show them later.
+- **The location is left out**: HomeKit has no place for a position, and coordinates are personal data, so the
+  plugin neither reads `location` nor offers `refreshLocation` (spec 2). Mileage (`cockpit`) is not read either: one
+  more endpoint each round for a figure HomeKit cannot show. The charge mode and tyres are not on the R5.
 - **The action reserve** (6 requests an hour) is Homeswift's: Home Assistant's formula is kept, applied to the budget
   left after it, so a switch is not refused because polls took the hour.
-- **State-of-charge limits** are read hourly (they set the low battery level) and not written: HomeKit has no fitting
-  characteristic and the plugin has no page yet.
+- **State-of-charge limits** are read hourly (they set the low battery level) and written from the Accessory Settings,
+  not from HomeKit: it has no fitting characteristic, and a Lightbulb's brightness would be a misuse (5.2).
 - **Other models of the table** are given in the specification as differences from the R5's row; the keys it does not
   mention are taken as the R5's. Thermal cars are not in the table: their endpoints are defaults, dropped at the first
   read when the car refuses them.
@@ -113,9 +140,10 @@ Choices made where the specification is silent or leaves a choice:
 Tests with a fake MyRenault cloud only (`Tests/`): the specification's vectors (locales, JWT expiry, Gigya and
 Kamereon errors, the R5's endpoint table, poll intervals, lock-status aliases), Setup with the e-mailed code (a wrong
 code, the remembered device on the second login), the R5's charge start and missing stop, climate with its optimistic
-state, horn, a dropped endpoint, a re-minted JWT, a dead login token replaced with the password, a refusal that stops
+state, horn, the battery's readings on the accessory and the Status page, the charge target sent once (not again after a
+restart, nor for a value Renault refuses), a dropped endpoint, a re-minted JWT, a dead login token replaced with the password, a refusal that stops
 every request, the quota cool-down, and three scaled hours of polling with actions that never exceed the hourly budget
-nor send two requests at once. To be checked on a real Renault 5 by its owner.
+nor send two requests at once, a charge target and a charging car's readings included. To be checked on a real Renault 5 by its owner.
 
 ## Clean-room implementation
 
