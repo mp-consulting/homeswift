@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
   the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
   families (the B0 wrapper, the 25-byte bulbs, addressable strips, tunable whites) as flux_led documents them; polled
   with No Response after repeated failures, pushes read on a kept connection, Adaptive Lighting on tunable whites.
+### Changed
+
+- A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
+  shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
 ## [0.20.1] - 2026-11-04
 
