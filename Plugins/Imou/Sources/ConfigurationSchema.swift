@@ -328,6 +328,102 @@ extension ImouPlugin {
           "camera"
         ],
         "x-default": "encoder"
+      },
+      "twoWayAudio": {
+        "title": "Two-Way Audio",
+        "type": "string",
+        "description": "Experimental: talk through the camera's speaker from the Home app, over the local network. Automatic asks the camera whether it has a speaker. Not yet tried on an IMOU camera.",
+        "default": "off",
+        "oneOf": [
+          {
+            "title": "Off",
+            "enum": [
+              "off"
+            ]
+          },
+          {
+            "title": "Automatic",
+            "enum": [
+              "auto"
+            ]
+          },
+          {
+            "title": "On",
+            "enum": [
+              "on"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "talkCodec": {
+        "title": "Talk Codec",
+        "type": "string",
+        "description": "The audio the camera's speaker is sent: G.711 A-law suits most cameras.",
+        "default": "G.711A",
+        "oneOf": [
+          {
+            "title": "G.711 A-law",
+            "enum": [
+              "G.711A"
+            ]
+          },
+          {
+            "title": "G.711 µ-law",
+            "enum": [
+              "G.711Mu"
+            ]
+          },
+          {
+            "title": "AAC",
+            "enum": [
+              "AAC"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "talkMethod": {
+        "title": "Talk Method",
+        "type": "string",
+        "description": "How the audio reaches the camera: its HTTP interface, its RTSP stream's backchannel, or the first that works.",
+        "default": "auto",
+        "oneOf": [
+          {
+            "title": "Automatic",
+            "enum": [
+              "auto"
+            ]
+          },
+          {
+            "title": "HTTP",
+            "enum": [
+              "http"
+            ]
+          },
+          {
+            "title": "RTSP Backchannel",
+            "enum": [
+              "rtsp"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "talkZeroTimestamps": {
+        "title": "Zero Timestamps",
+        "type": "boolean",
+        "description": "Sends the backchannel's audio without timestamps, for a camera that plays nothing otherwise.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
       }
     }
   },
@@ -436,7 +532,23 @@ extension ImouPlugin {
       "Wake-up Wait (in seconds)": "Attente du réveil (en secondes)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Où votre application de développeur IMOU a été créée : elle doit correspondre à la région du portail.",
       "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire. Ajouter par adresse, dans Ajouter des accessoires, fait les deux en une fois."
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire. Ajouter par adresse, dans Ajouter des accessoires, fait les deux en une fois.",
+      "AAC": "AAC",
+      "Automatic": "Automatique",
+      "Experimental: talk through the camera's speaker from the Home app, over the local network. Automatic asks the camera whether it has a speaker. Not yet tried on an IMOU camera.": "Expérimental : parler dans le haut-parleur de la caméra depuis l'app Maison, sur le réseau local. Automatique demande à la caméra si elle a un haut-parleur. Pas encore essayé sur une caméra IMOU.",
+      "G.711 A-law": "G.711 loi A",
+      "G.711 µ-law": "G.711 loi µ",
+      "HTTP": "HTTP",
+      "How the audio reaches the camera: its HTTP interface, its RTSP stream's backchannel, or the first that works.": "Comment l'audio parvient à la caméra : son interface HTTP, le canal de retour de son flux RTSP, ou le premier qui fonctionne.",
+      "Off": "Désactivé",
+      "On": "Activé",
+      "RTSP Backchannel": "Canal de retour RTSP",
+      "Sends the backchannel's audio without timestamps, for a camera that plays nothing otherwise.": "Envoie l'audio du canal de retour sans horodatage, pour une caméra qui sinon ne joue rien.",
+      "Talk Codec": "Codec de l'interphone",
+      "Talk Method": "Méthode de l'interphone",
+      "The audio the camera's speaker is sent: G.711 A-law suits most cameras.": "L'audio envoyé au haut-parleur de la caméra : le G.711 loi A convient à la plupart des caméras.",
+      "Two-Way Audio": "Audio bidirectionnel",
+      "Zero Timestamps": "Horodatages à zéro"
     },
     "es": {
       "A light for the camera's spotlight, through the cloud.": "Una luz para el foco de la cámara, a través de la nube.",
@@ -510,7 +622,23 @@ extension ImouPlugin {
       "Wake-up Wait (in seconds)": "Espera del despertar (en segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Dónde se creó su aplicación de desarrollador IMOU: debe coincidir con la región del portal.",
       "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio. Añadir por dirección, en Añadir accesorios, hace ambas cosas de una vez."
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio. Añadir por dirección, en Añadir accesorios, hace ambas cosas de una vez.",
+      "AAC": "AAC",
+      "Automatic": "Automático",
+      "Experimental: talk through the camera's speaker from the Home app, over the local network. Automatic asks the camera whether it has a speaker. Not yet tried on an IMOU camera.": "Experimental: habla por el altavoz de la cámara desde la app Casa, en la red local. Automático pregunta a la cámara si tiene altavoz. Aún no se ha probado en una cámara IMOU.",
+      "G.711 A-law": "G.711 ley A",
+      "G.711 µ-law": "G.711 ley µ",
+      "HTTP": "HTTP",
+      "How the audio reaches the camera: its HTTP interface, its RTSP stream's backchannel, or the first that works.": "Cómo llega el audio a la cámara: su interfaz HTTP, el canal de retorno de su flujo RTSP o el primero que funcione.",
+      "Off": "Desactivado",
+      "On": "Activado",
+      "RTSP Backchannel": "Canal de retorno RTSP",
+      "Sends the backchannel's audio without timestamps, for a camera that plays nothing otherwise.": "Envía el audio del canal de retorno sin marcas de tiempo, para una cámara que de otro modo no reproduce nada.",
+      "Talk Codec": "Códec del intercomunicador",
+      "Talk Method": "Método del intercomunicador",
+      "The audio the camera's speaker is sent: G.711 A-law suits most cameras.": "El audio que se envía al altavoz de la cámara: G.711 ley A sirve para la mayoría de las cámaras.",
+      "Two-Way Audio": "Audio bidireccional",
+      "Zero Timestamps": "Marcas de tiempo a cero"
     },
     "pt": {
       "A light for the camera's spotlight, through the cloud.": "Uma luz para o projetor da câmara, através da nuvem.",
@@ -584,7 +712,23 @@ extension ImouPlugin {
       "Wake-up Wait (in seconds)": "Espera do despertar (em segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Onde a sua aplicação de programador IMOU foi criada: tem de corresponder à região do portal.",
       "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório. Adicionar por endereço, em Adicionar acessórios, faz as duas coisas de uma só vez."
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório. Adicionar por endereço, em Adicionar acessórios, faz as duas coisas de uma só vez.",
+      "AAC": "AAC",
+      "Automatic": "Automático",
+      "Experimental: talk through the camera's speaker from the Home app, over the local network. Automatic asks the camera whether it has a speaker. Not yet tried on an IMOU camera.": "Experimental: fale pelo altifalante da câmara a partir da app Casa, na rede local. Automático pergunta à câmara se tem altifalante. Ainda não experimentado numa câmara IMOU.",
+      "G.711 A-law": "G.711 lei A",
+      "G.711 µ-law": "G.711 lei µ",
+      "HTTP": "HTTP",
+      "How the audio reaches the camera: its HTTP interface, its RTSP stream's backchannel, or the first that works.": "Como o áudio chega à câmara: a sua interface HTTP, o canal de retorno do seu fluxo RTSP, ou o primeiro que funcionar.",
+      "Off": "Desligado",
+      "On": "Ligado",
+      "RTSP Backchannel": "Canal de retorno RTSP",
+      "Sends the backchannel's audio without timestamps, for a camera that plays nothing otherwise.": "Envia o áudio do canal de retorno sem marcas de tempo, para uma câmara que de outro modo não reproduz nada.",
+      "Talk Codec": "Codec do intercomunicador",
+      "Talk Method": "Método do intercomunicador",
+      "The audio the camera's speaker is sent: G.711 A-law suits most cameras.": "O áudio enviado para o altifalante da câmara: o G.711 lei A serve para a maioria das câmaras.",
+      "Two-Way Audio": "Áudio bidirecional",
+      "Zero Timestamps": "Marcas de tempo a zero"
     }
   }
 }

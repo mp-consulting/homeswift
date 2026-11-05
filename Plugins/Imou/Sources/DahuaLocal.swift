@@ -36,7 +36,12 @@ actor DahuaClient {
     nonisolated let port: Int
     private let transport: any DahuaTransport
     private var digest: DigestAuthentication
+    /// When the camera's challenge was last taken: `postAudio` signs with one under five minutes old (ImouTalk.md, 3.2).
+    private var challengeAt: ContinuousClock.Instant?
     private let base: URL
+    /// For the RTSP backchannel's own Digest (ImouTalk.md, 4.2).
+    nonisolated let username: String
+    private let password: String
 
     init?(host: String, port: Int, username: String, password: String, transport: any DahuaTransport) {
         let trimmed = host.trimmingCharacters(in: .whitespaces)
@@ -45,8 +50,16 @@ actor DahuaClient {
         self.port = port
         self.base = base
         self.transport = transport
+        self.username = username
+        self.password = password
         digest = DigestAuthentication(username: username, password: password)
     }
+
+    /// A Digest for the camera's RTSP server, which challenges on its own.
+    func rtspDigest() -> DigestAuthentication { DigestAuthentication(username: username, password: password) }
+
+    /// `Basic` credentials, for an RTSP server of old firmware that asks for them.
+    func basicAuthorization() -> String { "Basic " + Data("\(username):\(password)".utf8).base64EncodedString() }
 
     /// A request for `target` (a path and query, sent as written): the URL says only where to connect.
     private func request(_ target: String, timeout: Duration) -> HomeswiftNetwork.HTTPRequest {
@@ -79,6 +92,7 @@ actor DahuaClient {
         var response = try await attempt()
         if status(response) == 401 {
             guard let header = challenge(response), digest.accept(challenge: header) else { throw DahuaError.wrongPassword }
+            challengeAt = .now
             response = try await attempt()
             if status(response) == 401 {
                 digest.clear()
@@ -124,6 +138,46 @@ actor DahuaClient {
     /// A serial of 1 to 64 ASCII letters and digits.
     private static func validSerial(_ serial: String) -> String? {
         !serial.isEmpty && serial.count <= 64 && serial.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) ? serial : nil
+    }
+
+    /// `devAudioOutput.cgi?action=getCollect` (ImouTalk.md, section 2): the number of audio outputs, 0 for a camera without a
+    /// speaker; nil when the camera does not say (old firmware: 404, 501, 400 or a body of `Error`).
+    func audioOutputs() async -> Int? {
+        do {
+            let response = try await get(Self.audioOutputTarget, timeout: .seconds(5))
+            return Self.audioOutputs(String(decoding: response.body.prefix(1024), as: UTF8.self))
+        } catch {
+            return nil
+        }
+    }
+
+    static let audioOutputTarget = "/cgi-bin/devAudioOutput.cgi?action=getCollect"
+
+    /// The integer of a `result=` line; nil for anything else.
+    static func audioOutputs(_ text: String) -> Int? {
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "result" else { continue }
+            return Int(parts[1].trimmingCharacters(in: .whitespaces)).map { max($0, 0) }
+        }
+        return nil
+    }
+
+    /// The `Authorization` of a `POST` to `uri`, which cannot be sent twice with its body: signed with a challenge under five
+    /// minutes old, a fresh one asked with a cheap GET first (ImouTalk.md, 3.2). nil when the camera gave none.
+    func postAuthorization(uri: String, maximumAge: Duration = .seconds(300)) async -> String? {
+        if !digest.hasChallenge || challengeAt.map({ ContinuousClock.now - $0 > maximumAge }) ?? true {
+            digest.clear()
+            _ = try? await get(Self.audioOutputTarget, timeout: .seconds(5))
+        }
+        return digest.authorization(method: "POST", uri: uri)
+    }
+
+    /// The challenge of a 401 to a `POST`: kept for the one retry.
+    func accept(challenge header: String) -> Bool {
+        guard digest.accept(challenge: header) else { return false }
+        challengeAt = .now
+        return true
     }
 
     /// The realm of the camera's challenge, asked without credentials; nil when it gives none.

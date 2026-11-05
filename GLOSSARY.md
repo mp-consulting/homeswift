@@ -72,6 +72,15 @@ _Avoid_: Excluded, hidden from HomeKit
 An accessory that is published to HomeKit but left off the web UI's wall.
 _Avoid_: Excluded, invisible
 
+**Return Audio**:
+The audio HomeKit sends back to a camera while someone talks in the Home app, for the camera's speaker.
+_Avoid_: Talkback, backchannel (a camera's own way in for it)
+
+**Talk**:
+One continuous period of Return Audio on a live stream, from its first packet to a silence; a plugin sends each to
+its camera's speaker.
+_Avoid_: Intercom session, talk session
+
 ## Setup
 
 **Setup**:

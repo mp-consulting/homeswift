@@ -201,6 +201,8 @@ final class FakeCamera: DahuaTransport, Sendable {
         var reachable = true
         var snapshots = true
         var streamOpens = 0
+        /// The body of `devAudioOutput.cgi?action=getCollect`; nil answers 404.
+        var audioOutput: String?
     }
 
     let state = NIOLockedValueBox(State())
@@ -254,6 +256,10 @@ final class FakeCamera: DahuaTransport, Sendable {
         guard reachable else { throw HTTPClientError.cannotConnect(host: "camera", port: 80, code: 61, reason: "refused") }
         guard authorized(request) else { return HomeswiftNetwork.HTTPResponse(status: 401, headers: [("WWW-Authenticate", challenge)]) }
         if target.hasPrefix("/cgi-bin/magicBox.cgi?action=getSerialNo") { return HomeswiftNetwork.HTTPResponse(status: 200, body: Data("sn=\(serial)\r\n".utf8)) }
+        if target.hasPrefix("/cgi-bin/devAudioOutput.cgi") {
+            guard let body = state.withLockedValue({ $0.audioOutput }) else { return HomeswiftNetwork.HTTPResponse(status: 404) }
+            return HomeswiftNetwork.HTTPResponse(status: 200, body: Data(body.utf8))
+        }
         if target.hasPrefix("/cgi-bin/snapshot.cgi") { return snapshots ? HomeswiftNetwork.HTTPResponse(status: 200, body: jpeg) : HomeswiftNetwork.HTTPResponse(status: 500) }
         return HomeswiftNetwork.HTTPResponse(status: 404)
     }
