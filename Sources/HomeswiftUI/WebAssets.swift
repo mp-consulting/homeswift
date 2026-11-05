@@ -28584,9 +28584,11 @@ select option:disabled { color: var(--muted); }
 .size-large .battery-graphic .bat-bolt { --bolt: 26px; }
 .size-xlarge .battery-graphic .bat-bolt { --bolt: 32px; }
 .battery-graphic.charging .bat-bolt { display: block; animation: bat-bolt 1.8s ease-in-out infinite; }
-.battery-graphic.charging .bat-bar.live { animation: bat-flicker 1.1s steps(1, end) infinite; }
-@keyframes bat-flicker { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
-@keyframes bat-bolt { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.05); } }
+/* Charging breathes rather than blinks: a hard on and off reads as a fault, and a wall is looked at all day, so the bolt
+   pulses its opacity only, without the scale that pulled the eye. */
+.battery-graphic.charging .bat-bar.live { animation: bat-breathe 1.6s ease-in-out infinite alternate; }
+@keyframes bat-breathe { from { opacity: 1; } to { opacity: 0.35; } }
+@keyframes bat-bolt { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .battery-graphic.charging .bat-bar.live, .battery-graphic.charging .bat-bolt { animation: none; }
 }
