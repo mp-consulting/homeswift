@@ -2700,6 +2700,7 @@ HomeswiftI18n.add("pt", {
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicie sessão com a sua conta Tapo e ative a compatibilidade com serviços de terceiros na app Tapo.",
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Introduza o endereço do V2C Trydan: o seu endereço IP ou nome de anfitrião na rede local, no seu router ou na app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Não é um endereço: introduza um endereço IP ou um nome de anfitrião, como 192.168.1.50",
+  "No V2C Trydan answered at {address}": "Nenhum V2C Trydan respondeu em {address}",
   "A Tapo device refused this email and password.": "Um dispositivo Tapo recusou este e-mail e esta palavra-passe.",
   "Email": "E-mail",
   "Code": "Código",

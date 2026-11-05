@@ -504,24 +504,32 @@ struct V2CTrydanPluginTests {
         await host.stop()
     }
 
-    @Test func setupAddsAChargerByAddress() async throws {
+    @Test func addByAddressReadsTheChargerAndKeysItByItsID() async throws {
+        #expect(V2CTrydanPlugin.addsDevicesByAddress)
         let environment = TestEnvironment()
         let host = try await environment.start(settings: [:])
         let plugin = try #require(environment.plugin)
-        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("no prompt"); return }
+        guard case .done = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("the account asks nothing"); return }
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
         #expect(prompt.fields.map(\.key) == ["host"])
-        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["host": "192.0.2.50"])) else {
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": " 192.0.2.50 "])) else {
             Issue.record("not done"); return
         }
-        #expect(outcome.credentials == nil, "nothing to keep")
-        #expect(outcome.settings["devices"] == [["host": "192.0.2.50", "id": "TRY4F2A"]])
-        let canonical = V2CTrydanPlugin.canonical(["platform": "V2CTrydan", "devices": outcome.settings["devices"]!])
-        #expect(canonical["_accessories"]?["TRY4F2A"]?["host"] == "192.0.2.50")
-        #expect(canonical["devices"] == nil)
+        #expect(outcome.deviceID == "TRY4F2A" && outcome.credentials == nil, "the charger's ID, nothing to keep")
+        #expect(outcome.settings == ["host": "192.0.2.50"])
 
-        environment.charger.set("<html>nope</html>")
+        environment.charger.set(Vectors.idle)
+        guard case .done(let unnamed) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.51"])) else {
+            Issue.record("not done"); return
+        }
+        #expect(unnamed.deviceID == "HOST-192-0-2-51", "a charger without ID is keyed by its address")
+
+        await #expect(throws: SetupError("That is not an address: type an IP address or a host name, such as 192.168.1.50")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "not an address!"]))
+        }
+        environment.charger.fail(true)
         await #expect(throws: SetupError("No V2C Trydan answered at 192.0.2.60")) {
-            try await plugin.authorize(SetupRequest(target: .account, answers: ["host": "192.0.2.60"]))
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.60"]))
         }
         await host.stop()
     }
