@@ -154,6 +154,9 @@ final class ReolinkCamera: @unchecked Sendable {
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
         cameraActive = info.privacy ? accessory.service(.cameraOperatingMode)?.characteristic(.homeKitCameraActive) : nil
+        // It drives privacy mode too: a security control as the Privacy switch is, so no surface of the bridge writes it
+        // unconfirmed.
+        cameraActive?.securityControl()
         for service in sensors { service.characteristic(.motionDetected).value = false }
 
         // Writes (7.2): the value is kept optimistically, put back when the device refuses.

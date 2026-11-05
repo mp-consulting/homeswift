@@ -219,6 +219,7 @@ import Testing
         let active = try #require(camera.privacyControls.cameraActive)
         // It blinds the camera: MCP clients confirm before they change it.
         #expect(privacy.isSecurityControl)
+        #expect(active.isSecurityControl)
         #expect(privacy.value == false)
         #expect(active.value.intValue == 1)
 

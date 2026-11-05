@@ -37,7 +37,7 @@ A detection stays on at least two seconds after the device clears it, so short e
 is a plain switch, not a security control, and neither is PTZ: they are loud or move a view, but they do not stop the
 camera from seeing. **Privacy and Recording are security controls** (`securityControl()`): privacy mode turns the
 camera's video and detections off, and recording off stops the device keeping footage, so either can blind a camera
-someone relies on; MCP clients change them only through `set_security_accessory`, after the user confirms, and the web
+someone relies on; Camera Active, which drives privacy mode too, is marked the same way. MCP clients change them only through `set_security_accessory`, after the user confirms, and the web
 UI asks first. Every feature is gated by the device's abilities: a camera without one gets nothing new. Accessory Information: Manufacturer Reolink, the channel's model, the host's
 serial (an NVR channel's UID), the firmware as digits and dots (`v3.1.0.2368_23062508` is `3.1.0.2368`).
 
