@@ -26,6 +26,11 @@ All notable changes to this project are documented here. The format follows
   media stream remuxed to MPEG-TS for FFmpeg (H.264 and H.265, AAC audio), Baichuan snapshots with a cache that never
   wakes the camera for the Home app's periodic requests, battery level and charging, and motion and doorbell presses by
   the camera's webhook; a connection is opened only on demand and closed 5 seconds after its last use.
+- Reolink: two-way audio over Baichuan (experimental, off unless a channel's `twoWayAudio` is on; a clean-room
+  implementation of docs/clean-room/ReolinkTalk.md): a camera, an NVR or Home Hub channel or a battery camera whose talk
+  ability says it can gets a Speaker, and the Home app's talk button reaches its speaker as IMA ADPCM, started with
+  `TalkConfig` and stopped once the audio has played; a battery camera stays awake only while a Talk runs. Tested
+  against fake devices only.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
@@ -33,12 +38,6 @@ All notable changes to this project are documented here. The format follows
   spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
   within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
   streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
-- Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
-  **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
-  like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
-  anything else it needs, probes the device, and finishes with the Device Id the device answered with. That id keys
-  the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
-  discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
 - `HomeswiftFFmpeg`: HomeKit's return audio for camera plugins. `RTSPCameraStreamer` takes `ReturnAudioOptions`: a
   `ReturnAudioReceiver` per live stream decodes the SRTP AAC-ELD HomeKit sends while someone talks into PCM frames,
   one `Talk` per burst of speech, for the plugin's handler; G.711 A-law and µ-law and IMA ADPCM encoders, and AAC in ADTS
@@ -46,6 +45,12 @@ All notable changes to this project are documented here. The format follows
 - IMOU: two-way audio (experimental, off unless a camera's `twoWayAudio` is `auto` or `on`): the Home app's talk button
   sends to the camera's speaker over Dahua's `postAudio` CGI, or its ONVIF RTSP backchannel where that CGI is missing;
   tested against fake cameras only.
+- Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
+  **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
+  like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
+  anything else it needs, probes the device, and finishes with the Device Id the device answered with. That id keys
+  the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
+  discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
   light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
   V2C Trydan adds a charger, APsystems ECU an ECU, IMOU a local camera (with its safety code) and Reolink a camera, NVR or
   hub (with a local user's login) the same way.
