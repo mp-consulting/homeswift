@@ -280,7 +280,9 @@ actor MagicHomeDevice {
             light.saturation = saturation
             set(services?.saturation, .double(saturation))
         }
-        if let mireds = reading.mireds {
+        // An off light under Adaptive Lighting keeps the white Adaptive Lighting chose (sent with the power-on), not the
+        // one the device last showed.
+        if let mireds = reading.mireds, reading.on || adaptiveLighting?.isAdaptiveLightingActive != true {
             light.mireds = mireds
             set(services?.colorTemperature, .int(mireds))
         }
