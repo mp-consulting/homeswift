@@ -8,7 +8,6 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "required": true,
         "default": "V2C Trydan",
         "description": "Plugin name as shown in the logs"
       },
@@ -125,6 +124,20 @@
       }
     }
   },
+  "layout": [
+    "name",
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "pollingInterval",
+        "timeout",
+        "devices"
+      ]
+    }
+  ],
   "i18n": {
     "fr": {
       "A contact sensor that shows when a car is plugged in, and the charger's faults.": "Un capteur de contact qui indique quand une voiture est branchée, et les défauts du chargeur.",
@@ -132,6 +145,7 @@
       "A lock that disables the charger.": "Un verrou qui désactive le chargeur.",
       "Add a V2C Trydan by its address on the local network. Once it answers and the settings are saved, its address is with its accessory.": "Ajoutez un V2C Trydan par son adresse sur le réseau local. Une fois qu’il a répondu et les réglages enregistrés, son adresse est avec son accessoire.",
       "Address": "Adresse",
+      "Advanced": "Avancé",
       "Car connected": "Voiture branchée",
       "Charge current": "Courant de charge",
       "Charger": "Chargeur",
@@ -163,6 +177,7 @@
       "A lock that disables the charger.": "Un cerrojo que desactiva el cargador.",
       "Add a V2C Trydan by its address on the local network. Once it answers and the settings are saved, its address is with its accessory.": "Añada un V2C Trydan por su dirección en la red local. Cuando responda y se guarden los ajustes, su dirección estará con su accesorio.",
       "Address": "Dirección",
+      "Advanced": "Avanzado",
       "Car connected": "Coche conectado",
       "Charge current": "Corriente de carga",
       "Charger": "Cargador",
@@ -194,6 +209,7 @@
       "A lock that disables the charger.": "Uma fechadura que desativa o carregador.",
       "Add a V2C Trydan by its address on the local network. Once it answers and the settings are saved, its address is with its accessory.": "Adicione um V2C Trydan pelo seu endereço na rede local. Depois de responder e de as definições serem guardadas, o endereço fica com o seu acessório.",
       "Address": "Endereço",
+      "Advanced": "Avançado",
       "Car connected": "Carro ligado",
       "Charge current": "Corrente de carga",
       "Charger": "Carregador",
