@@ -57,26 +57,19 @@ struct TahomaPluginTests {
     }
 
     @Test func slidersAndDevicesAreCoalesced() async throws {
-        // At a half: 250 ms of quiet before a slider's command, 50 ms to gather devices: room enough on a loaded machine
-        // for a 10 ms drag to stay one command and two writes made together to stay one execution.
-        let environment = TestEnvironment(timeScale: 0.5)
+        // At full scale: 500 ms of quiet before a slider's command, 100 ms to gather devices: room enough on a loaded
+        // machine for a 10 ms drag to stay one command and two writes made together to stay one execution.
+        let environment = TestEnvironment(timeScale: 1)
         let host = try await environment.start()
         #expect(await eventually { host.accessory(kitchenBlind) != nil })
         let shutterTarget = try #require(host.accessory(shutter)?.service(.windowCovering)?[.targetPosition])
         let blindTarget = try #require(host.accessory(kitchenBlind)?.service(.windowCovering)?[.targetPosition])
         // A drag: many writes, one command.
-        await withTaskGroup(of: Void.self) { group in
-            for value in [10, 20, 30, 40, 55] {
-                group.addTask { try? await shutterTarget.writeFromHomeKit(.int(value)) }
-                try? await Task.sleep(for: .milliseconds(2))
-            }
-        }
+        await writeInOrder([10, 20, 30, 40, 55].map { (shutterTarget, .int($0)) }, spacing: .milliseconds(2))
         #expect(environment.server.applies.count == 1)
         #expect(environment.server.applies.first?.body?["actions"]?[0]?["commands"]?[0]?["parameters"] == [45])
         // Two devices together: one execution.
-        async let first: Void = shutterTarget.writeFromHomeKit(100)
-        async let second: Void = blindTarget.writeFromHomeKit(100)
-        _ = try await (first, second)
+        await writeInOrder([(shutterTarget, 100), (blindTarget, 100)], spacing: .zero)
         let scene = try #require(environment.server.applies.last?.body)
         #expect(scene["label"] == "Execute scene (2 devices) - HomeKit")
         #expect(scene["actions"]?.arrayValue?.count == 2)
