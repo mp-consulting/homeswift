@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-05
+
 ### Added
 
 - The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
@@ -113,17 +115,6 @@ All notable changes to this project are documented here. The format follows
   the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
   and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
   Setup with the e-mailed two-factor code, within Renault's hourly request quota.
-- The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
-  plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
-  offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
-  dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
-  (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
-  repaired.
-- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
-  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
-  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
-  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
-  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
 - Meters (GLOSSARY.md, "Energy"; docs/adr/0004-meters-and-consumption-history.md): the bridge keeps each Meter's
   Consumption and Returned by the hour, for years (`MeterArchive`, under `metrics/meters/`), whatever its plugin. Every
   service with Total Consumption or Current Consumption is a Meter on its own, counted from the device's counter so a
@@ -1953,7 +1944,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.20.1...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/mp-consulting/homeswift/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/mp-consulting/homeswift/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/mp-consulting/homeswift/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/mp-consulting/homeswift/compare/v0.18.1...v0.19.0
