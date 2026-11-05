@@ -1,0 +1,207 @@
+import Foundation
+import Homeswift
+import HomeswiftFFmpeg
+import HomeswiftNetwork
+import HomeswiftPlugin
+import Logging
+import NIOConcurrencyHelpers
+
+/// A Tapo battery camera's kind, from its `type`: `Camera` (one lens) or `DualLensCamera` (a C675D: wide and tele).
+enum TapoCameraKind: String, Sendable, Equatable {
+    case single = "camera"
+    case dualLens = "duallenscamera"
+
+    init?(type: String?) {
+        guard let type = type?.trimmingCharacters(in: .whitespaces).lowercased() else { return nil }
+        self.init(rawValue: type)
+    }
+
+    var model: String {
+        switch self {
+        case .single: "Tapo Camera"
+        case .dualLens: "Tapo C675D"
+        }
+    }
+}
+
+/// One lens of a camera, as an accessory of its own.
+struct TapoLens: Sendable, Equatable {
+    /// The lens's video stream in the feed's MPEG-TS.
+    var videoIndex: Int
+    /// The accessory id's suffix (none for the first lens) and the name's.
+    var suffix: String?
+
+    /// The lenses a camera shows at `resolution` (docs/clean-room/TapoCamera.md, 7): both of a C675D in HD (the first
+    /// video stream the wide lens, the second the tele lens); in VGA one stream, the tele lens's.
+    static func lenses(kind: TapoCameraKind, resolution: Streamd.Resolution) -> [TapoLens] {
+        switch (kind, resolution) {
+        case (.dualLens, .hd): [TapoLens(videoIndex: 0, suffix: nil), TapoLens(videoIndex: 1, suffix: "Tele")]
+        default: [TapoLens(videoIndex: 0, suffix: nil)]
+        }
+    }
+}
+
+/// One lens as an external camera accessory: live video, the last snapshot, and a Motion Sensor fed by the TP-Link
+/// cloud's notifications (nothing local reports motion without keeping the camera awake, TapoCamera.md 12.3); no
+/// HomeKit Secure Video, which would open the camera's stream on every detection.
+final class TapoCamera: Sendable {
+    /// The sizes HomeKit may ask for.
+    static let resolutions: [VideoResolution] = [
+        VideoResolution(320, 180, 15), VideoResolution(320, 240, 15), VideoResolution(480, 270, 15), VideoResolution(480, 360, 15),
+        VideoResolution(640, 360, 15), VideoResolution(640, 480, 15), VideoResolution(1280, 720, 15), VideoResolution(1280, 960, 15),
+        VideoResolution(1920, 1080, 15),
+    ]
+
+    let accessory: Accessory
+    let controller: CameraController
+    let streamer: TapoCameraStreamer
+    let motion: Service?
+    private let hold: Duration
+    private let reset = NIOLockedValueBox<Task<Void, Never>?>(nil)
+
+    init(id: String, name: String, model: String, serial: String, streamer: TapoCameraStreamer, motion hasMotion: Bool, hold: Duration, log: Logger) throws {
+        self.streamer = streamer
+        self.hold = hold
+        let motion = hasMotion ? Service(.motionSensor, name: "\(name) Motion", subtype: "motion") : nil
+        self.motion = motion
+        let streaming = CameraStreamingOptions(
+            supportedCryptoSuites: [.aesCM128HMACSHA1_80],
+            video: VideoStreamingOptions(codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]),
+                                         resolutions: Self.resolutions),
+            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: false))
+        controller = try CameraController(
+            CameraControllerOptions(cameraStreamCount: 2, delegate: streamer, streamingOptions: streaming, sensors: motion.map { CameraSensorOptions(motion: .service($0)) }),
+            logger: log)
+        accessory = Accessory(
+            id: id, name: name, manufacturer: "TP-Link", model: model, serialNumber: serial, category: .ipCamera, services: [motion].compactMap { $0 },
+            onIdentify: { [log] in log.info("\(name): identify requested.") })
+        accessory.configureController(controller)
+        motion?.characteristic(.motionDetected).value = false
+    }
+
+    /// Accessory Information from the camera the TP-Link cloud knows (its device list, which never reaches the camera):
+    /// the MAC as the serial number, with `-<lens>` on a camera of several lenses (they are one device), its model and
+    /// its firmware. Display only: HomeKit pairs with the accessory's own identity, which stays.
+    func identify(as device: TapoCloud.Device, lens: String?) {
+        if !device.mac.isEmpty {
+            accessory.information.characteristic(.serialNumber).value = .string(device.mac + (lens.map { "-\($0.lowercased())" } ?? ""))
+        }
+        if !device.model.isEmpty { accessory.information.characteristic(.model).value = .string(device.model) }
+        if !device.firmware.isEmpty { accessory.information.characteristic(.firmwareRevision).value = .string(device.firmware) }
+    }
+
+    /// A detection: Motion Detected for `hold`, longer if another one comes.
+    func motionDetected() {
+        guard let motion else { return }
+        motion.characteristic(.motionDetected).value = true
+        let hold = hold
+        let task = Task {
+            try? await Task.sleep(for: hold)
+            guard !Task.isCancelled else { return }
+            motion.characteristic(.motionDetected).value = false
+        }
+        reset.withLockedValue { previous in
+            previous?.cancel()
+            previous = task
+        }
+    }
+
+    func start() async { await streamer.attach(controller) }
+
+    func stop() async {
+        reset.withLockedValue { $0?.cancel() }
+        await streamer.stopAll()
+        controller.destroy()
+    }
+}
+
+/// A camera's feed and its lenses' accessories.
+struct TapoCameraRuntime: Sendable {
+    var feed: TapoCameraFeed
+    var cameras: [TapoCamera]
+}
+
+extension TapoPlugin {
+    /// FFmpeg, set up once its codecs are known: the options choose the hardware encoder from them, and HEVC from two
+    /// 4K lenses is too much for a software one.
+    func cameraFFmpeg() async -> FfmpegOptions {
+        if let ffmpegOptions { return ffmpegOptions }
+        let codecs = FfmpegCodecs(ffmpegExec: configuration.videoProcessor?.trimmingCharacters(in: .whitespaces).nonEmpty ?? "ffmpeg", log: logger)
+        _ = await codecs.probe()
+        if let ffmpegOptions { return ffmpegOptions }
+        let options = FfmpegOptions(FfmpegOptionsConfig(codecSupport: codecs, hardwareDecoding: false, hardwareTranscoding: true, log: logger, name: { "Tapo" }))
+        ffmpegOptions = options
+        return options
+    }
+
+    /// The accessory id of a lens: the device's for the first, with `:<suffix>` for the others.
+    static func lensAccessoryID(deviceID: String, lens: TapoLens) -> String {
+        accessoryID(deviceID: deviceID) + (lens.suffix.map { ":\($0.lowercased())" } ?? "")
+    }
+
+    /// Publishes a camera's lenses; the camera itself is reached only when one of them is watched.
+    func startCamera(deviceID: String, device: Configuration.Device, kind: TapoCameraKind) async throws -> [String] {
+        guard let host = device.trimmedHost else { return [] }
+        let name = context.accessorySettings(for: deviceID).name ?? device.trimmedName ?? host
+        let resolution = Streamd.Resolution(rawValue: device.resolution?.trimmingCharacters(in: .whitespaces).uppercased() ?? "") ?? .hd
+        let ffmpeg = await cameraFFmpeg()
+        let lenses = TapoLens.lenses(kind: kind, resolution: resolution)
+        var stores: [TapoSnapshotStore] = []
+        for lens in lenses {
+            let file = context.storageDirectory.appendingPathComponent("tapo-snapshots/\(Self.fileName(Self.lensAccessoryID(deviceID: deviceID, lens: lens))).jpg")
+            stores.append(TapoSnapshotStore(file: file))
+        }
+        let client = StreamdClient(
+            host: host, password: { [weak self] in self?.credentials?.password }, connect: dependencies.connect,
+            handshakeTimeout: scaled(20), silenceTimeout: scaled(10), logger: logger)
+        let snapshotTargets = zip(lenses, stores).map { ($0.videoIndex, $1) }
+        let log = logger
+        let feed = TapoCameraFeed(name: name, client: client, resolution: resolution, timing: dependencies.cameraTiming, logger: logger) { sample in
+            for (index, store) in snapshotTargets {
+                if let image = await TapoCameraStreamer.snapshot(from: sample, videoIndex: index, ffmpeg: ffmpeg) {
+                    store.update(image)
+                } else {
+                    log.debug("\(name): no snapshot from the live view's sample (lens \(index)).")
+                }
+            }
+        }
+        var cameras: [TapoCamera] = []
+        for (lens, store) in zip(lenses, stores) {
+            let id = Self.lensAccessoryID(deviceID: deviceID, lens: lens)
+            let lensName = lens.suffix.map { "\(name) \($0)" } ?? name
+            let streamer = TapoCameraStreamer(
+                name: lensName, videoIndex: lens.videoIndex, feed: feed, snapshots: store, ffmpeg: ffmpeg, ports: dependencies.ports, inputFps: 15, log: logger)
+            let camera = try TapoCamera(id: id, name: lensName, model: kind.model, serial: id, streamer: streamer, motion: device.motion ?? true,
+                                        hold: dependencies.motionHold, log: logger)
+            await camera.start()
+            try await context.publishExternal(camera.accessory)
+            cameras.append(camera)
+        }
+        cameraRuntimes[deviceID] = TapoCameraRuntime(feed: feed, cameras: cameras)
+        if device.motion ?? true {
+            // Each lens's serial: the MAC, with `-wide` or `-tele` when the camera has several.
+            let labels = lenses.map { lens in lenses.count > 1 ? lens.suffix ?? "Wide" : nil }
+            await motionWatcher.add(TapoMotionWatcher.Camera(
+                name: name, cloudID: device.cloudId?.trimmingCharacters(in: .whitespaces).nonEmpty, host: host, model: kind == .dualLens ? "C675D" : nil,
+                onMotion: { [cameras] _ in
+                    for camera in cameras { camera.motionDetected() }
+                },
+                onMatched: { [cameras] found in
+                    for (camera, label) in zip(cameras, labels) { camera.identify(as: found, lens: label) }
+                }))
+        }
+        return cameras.map(\.accessory.id)
+    }
+
+    func stopCameras() async {
+        for runtime in cameraRuntimes.values {
+            await runtime.feed.stop()
+            for camera in runtime.cameras { await camera.stop() }
+        }
+        cameraRuntimes.removeAll()
+    }
+}
+
+extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
+}
