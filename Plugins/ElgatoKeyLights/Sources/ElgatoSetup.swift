@@ -26,7 +26,7 @@ extension ElgatoKeyLightsPlugin {
         }
         async let probed = isBrowsing ? [] : probeAddresses()
         let announced = isBrowsing ? Array(announced.values) : await browseOnce()
-        for address in configuration.addresses ?? [] {
+        for address in configuredAddresses {
             let host = address.host.trimmingCharacters(in: .whitespaces)
             if let mac = address.mac.flatMap(MACAddress.canonical) ?? learnedMACs[Self.addressKey(host: host, port: address.port)] {
                 found(mac, name: mac, model: nil, address: host)
@@ -43,6 +43,39 @@ extension ElgatoKeyLightsPlugin {
             found(mac, name: snapshot.name, model: snapshot.model, address: snapshot.host)
         }
         return lights.values.sorted { ($0.name, $0.deviceID) < ($1.name, $1.deviceID) }
+    }
+
+    /// A light Bonjour does not reach can be added by its address (Add by address): the light's host and port go in its
+    /// Accessory Settings (`host`, `port`), under the MAC it answers with.
+    public static let addsDevicesByAddress = true
+
+    /// Add by address: asks for the light's host (and a port, 9123 by default), asks the light there who it is, and
+    /// keeps where it answers in its Accessory Settings, by its MAC. A light found by Bonjour needs nothing.
+    public func authorize(_ request: SetupRequest) async throws -> SetupStep {
+        guard request.isNewDevice else { return .done(SetupOutcome()) }
+        guard let host = request.answer("host") else {
+            return .ask(SetupPrompt(message: "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.", fields: [
+                SetupField("host", label: "IP address or host name"),
+                SetupField("port", label: "Port", optional: true),
+            ]))
+        }
+        guard KeyLightClient.isValidHost(host) else { throw SetupError("\(host) is not an IP address or a host name") }
+        let port = try request.answer("port").map { text in
+            guard let port = Int(text), KeyLightClient.isValidPort(port) else { throw SetupError("The port must be between 1 and 65535") }
+            return port
+        } ?? KeyLightClient.defaultPort
+        let mac: String?
+        do {
+            mac = try await identify(host: host, port: port).mac
+        } catch {
+            throw SetupError("No light answered at \(host):\(port)")
+        }
+        guard let mac else { throw SetupError("The light at \(host) did not give its MAC address") }
+        var settings: [String: JSONValue] = ["host": .string(host)]
+        // The default port is left out; a port no longer given is taken out.
+        settings["port"] = port == KeyLightClient.defaultPort ? .null : .number(Double(port))
+        context.logger.info("Added the light at \(host):\(port) by its address", metadata: ["light": "\(mac)"])
+        return .done(SetupOutcome(settings: settings, deviceID: mac))
     }
 
     /// The lights of `addresses` without a MAC, asked who they are at once, for an instance that is not running.

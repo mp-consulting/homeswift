@@ -45,7 +45,7 @@ actor PairablePlugin: HomeswiftPlugin {
             guard !request.isFirst else { return .ask(SetupPrompt(message: "Enter the PIN", fields: [SetupField("pin", label: "PIN", kind: .code)])) }
             guard request.answer("pin") == "1234" else { throw SetupError("Wrong PIN") }
             return .done(SetupOutcome(credentials: ["password": "tv-pass"], settings: ["ip": "10.0.0.2"]))
-        case .device:
+        case .device, .newDevice:
             // The button counts as pressed on the second try; what counts it is in the state, not the plugin.
             let tries = request.state["tries"]?.intValue ?? 0
             guard tries >= 1 else { return .ask(SetupPrompt(message: "Press the button", waitSeconds: 30, retryAfter: 1), state: ["tries": .number(Double(tries + 1))]) }
@@ -294,5 +294,124 @@ struct AccountStateTests {
         accessories[0].isUnavailable = false
         #expect(await instance("Hooks")?["noneResponding"] == false)
         await setup.host.stop()
+    }
+}
+
+/// A plugin whose devices cannot be found, added by their address (Add by address): a charger that answers at
+/// `192.0.2.10`, behind a password, its port kept in its Accessory Settings unless it is the default. Its account is
+/// optional, as IMOU's: both Setups are offered.
+actor AddressablePlugin: HomeswiftPlugin {
+    struct Configuration: Decodable, Sendable {}
+    static let platform = "Addressable"
+    static let accountAuthorization = AuthorizationMethod.accountLogin
+    static let accountRequirement = AccountRequirement.optional(adds: "Protects the webhooks with a password.")
+    static let addsDevicesByAddress = true
+
+    let context: PluginContext
+    init(configuration: Configuration, context: PluginContext) { self.context = context }
+
+    func start() async throws {
+        for (deviceID, settings) in context.allAccessorySettings where settings.plugin["host"] != nil && !context.isExcluded(deviceID) {
+            try context.add(Accessory(id: context.accessoryID(of: deviceID), name: "Charger", category: .outlet, services: [Service(.outlet, name: "Charger", isPrimary: true)]))
+        }
+    }
+
+    func discover() async throws -> [DiscoveredDevice] {
+        context.allAccessorySettings.compactMap { deviceID, settings in
+            settings.plugin["host"]?.stringValue.map { DiscoveredDevice(deviceID: deviceID, name: "Charger", address: $0, isSetUp: true) }
+        }
+    }
+
+    func authorize(_ request: SetupRequest) async throws -> SetupStep {
+        switch request.target {
+        case .account, .device:
+            return .done(SetupOutcome())
+        case .newDevice:
+            // Two steps: the address, then the charger's password, the host kept in the state between them.
+            if let host = request.state["host"]?.stringValue {
+                guard request.secret("password") == "charger-pass" else { throw SetupError("Wrong password") }
+                return .done(SetupOutcome(credentials: ["password": "charger-pass"], settings: ["host": .string(host), "port": .null], deviceID: "EV-0001"))
+            }
+            guard let host = request.answer("host") else {
+                return .ask(SetupPrompt(message: "Enter the charger's address", fields: [SetupField("host", label: "Host"), SetupField("port", label: "Port", optional: true)]))
+            }
+            guard host == "192.0.2.10" else { throw SetupError("Nothing answered at \(host)") }
+            // A plugin that forgets to say which device it reached.
+            if request.answer("port") == "1" { return .done(SetupOutcome()) }
+            return .ask(SetupPrompt(message: "Enter the charger's password", fields: [SetupField("password", label: "Password", kind: .secret)]), state: ["host": .string(host)])
+        }
+    }
+}
+
+/// Add by address: a device the plugin cannot find, named by its address, probed, and added like a discovered one.
+@Suite(.timeLimit(.minutes(1)))
+struct AddByAddressTests {
+    let setup: SetupTests
+
+    init() throws {
+        setup = try SetupTests(
+            config: #"{ "bridge": { "name": "Test", "port": 0 }, "platforms": [ { "platform": "Addressable", "name": "Chargers", "_accessories": { "EV-0001": { "excluded": true, "port": 8080 } } }, { "platform": "Pairable", "name": "Pairable" } ] }"#,
+            plugins: [AddressablePlugin.self, PairablePlugin.self])
+    }
+
+    func block() throws -> JSONValue? { try setup.catalog.readConfig()["platforms"]?.arrayValue?.first { $0["platform"] == "Addressable" } }
+
+    @Test func aDeviceAddedByAddressIsProbedKeptAndPublished() async throws {
+        try await setup.host.start()
+        defer { Task { await setup.host.stop() } }
+        let found = try await setup.catalog.discoverDevices(platform: "Addressable", name: "Chargers")
+        #expect(found["addByAddress"] == true)
+        let plugin = await setup.catalog.pluginsJSON()["plugins"]?.arrayValue?.first { $0["platform"] == "Addressable" }
+        #expect(plugin?["addByAddress"] == true)
+
+        let first = try await setup.catalog.startSetup(platform: "Addressable", name: "Chargers", deviceID: nil, addByAddress: true)
+        #expect(first["status"] == "asking" && first["addByAddress"] == true && first["deviceID"] == nil)
+        #expect(first["prompt"]?["fields"]?[0]?["key"] == "host")
+        let session = try #require(first["session"]?.stringValue)
+        let nothing = try await setup.catalog.continueSetup(session, answers: ["host": "192.0.2.50"])
+        #expect(nothing["error"] == "Nothing answered at 192.0.2.50" && nothing["session"]?.stringValue == session)
+        let password = try await setup.catalog.continueSetup(session, answers: ["host": "192.0.2.10"])
+        #expect(password["prompt"]?["fields"]?[0]?["kind"] == "secret" && HomeswiftCatalog.needsThePage(password))
+        let done = try await setup.catalog.continueSetup(session, answers: ["password": "charger-pass"])
+        #expect(done["status"] == "done" && done["deviceID"] == "EV-0001" && done["accessoryID"] == "Addressable:EV-0001")
+
+        // Its host in its Accessory Settings, Excluded no more and its old port gone; its password in the vault only.
+        #expect(try block()?["_accessories"]?["EV-0001"] == ["host": "192.0.2.10"])
+        #expect(try block()?.text().contains("charger-pass") == false)
+        #expect(setup.host.context(platform: "Addressable", name: "Chargers")?.credentials(for: "EV-0001")?["password"] == "charger-pass")
+        #expect(await eventually { Set(setup.host.platforms.flatMap(\.accessoryIDs)).contains("Addressable:EV-0001") })
+        let listed = try await setup.catalog.discoverDevices(platform: "Addressable", name: "Chargers")["devices"]?.arrayValue?.first
+        #expect(listed?["deviceID"] == "EV-0001" && listed?["status"] == "setUp" && listed?["address"] == "192.0.2.10")
+    }
+
+    @Test func addByAddressIsRefusedWhereItDoesNotApply() async throws {
+        try await setup.host.start()
+        defer { Task { await setup.host.stop() } }
+        // A plugin that finds its devices itself, and a device asked for twice over.
+        await #expect(throws: CatalogError.self) { try await setup.catalog.startSetup(platform: "Pairable", name: nil, deviceID: nil, addByAddress: true) }
+        #expect(try await setup.catalog.discoverDevices(platform: "Pairable", name: nil)["addByAddress"] == false)
+        await #expect(throws: CatalogError.self) { try await setup.catalog.startSetup(platform: "Addressable", name: "Chargers", deviceID: "EV-0001", addByAddress: true) }
+        // Done without saying which device it reached: nothing is written, and the person is asked again.
+        let first = try await setup.catalog.startSetup(platform: "Addressable", name: "Chargers", deviceID: nil, addByAddress: true)
+        let session = try #require(first["session"]?.stringValue)
+        let unnamed = try await setup.catalog.continueSetup(session, answers: ["host": "192.0.2.10", "port": "1"])
+        #expect(unnamed["status"] == "asking" && unnamed["error"]?.stringValue?.contains("did not say which device") == true)
+        #expect(try block()?["_accessories"]?["EV-0001"] == ["excluded": true, "port": 8080])
+    }
+
+    /// The MCP tool takes `addByAddress`; a secret it asks for is a vault reference from a client, as in any Setup.
+    @Test func startSetupTakesAddByAddressOverMCP() async throws {
+        try await setup.host.start()
+        defer { Task { await setup.host.stop() } }
+        try setup.catalog.vault.set("charger", VaultEntry(kind: .login, fields: ["password": "charger-pass"]))
+        let client = DirectClient(server: MCPServer(options: .init(version: "test"), tools: setup.catalog.tools))
+        try await client.initialize()
+        // Not a boolean: refused, never taken for the account's Setup.
+        #expect(try await client.tool("start_setup", ["platform": "Addressable", "name": "Chargers", "addByAddress": "true"])["isError"] == true)
+        let first = try await client.tool("start_setup", ["platform": "Addressable", "name": "Chargers", "addByAddress": true])["structuredContent"]
+        let session = try #require(first?["session"]?.stringValue)
+        _ = try await client.tool("continue_setup", ["session": .string(session), "answers": ["host": "192.0.2.10"]])
+        let done = try await client.tool("continue_setup", ["session": .string(session), "answers": ["password": "vault:charger"]])["structuredContent"]
+        #expect(done?["status"] == "done" && done?["accessoryID"] == "Addressable:EV-0001")
     }
 }

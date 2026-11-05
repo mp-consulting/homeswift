@@ -10,8 +10,9 @@ import HomeswiftPlugin
 // Device Code) for the local path, or with nothing for the cloud alone. A camera the cloud does not list is one of the
 // block's `devices` by address: its Setup asks the safety code and reads the serial from the camera
 // (`magicBox.cgi?action=getSerialNo`, else its Digest realm `Login to <serial>`), which becomes its Device Id, so the same
-// camera keeps its accessory when the cloud lists it later. The App Secret and the safety codes go in the vault; the
-// address and options in the camera's Accessory Settings.
+// camera keeps its accessory when the cloud lists it later. A camera neither lists is added by address (GLOSSARY.md, "Add
+// by address"): its address, then its safety code, read the same way. The App Secret and the safety codes go in the vault;
+// the address and options in the camera's Accessory Settings.
 extension ImouPlugin {
     public static let accountAuthorization = AuthorizationMethod.apiKey
     public static let accountRequirement = AccountRequirement.optional(adds: "Lists the cameras of your IMOU account, and adds privacy mode, the siren and the spotlight.")
@@ -58,9 +59,51 @@ extension ImouPlugin {
         return found
     }
 
+    /// A camera on the LAN alone that neither the account nor `devices` lists is added by its address (Add by address).
+    public static let addsDevicesByAddress = true
+
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard case .device(let device) = request.target else { return try await authorizeAccount(request) }
-        return try await authorizeCamera(device, request)
+        switch request.target {
+        case .account: return try await authorizeAccount(request)
+        case .device(let device): return try await authorizeCamera(device, request)
+        case .newDevice: return try await authorizeNewCamera(request)
+        }
+    }
+
+    /// Add by address: the camera's address, checked for an answer, then its safety code, checked as a camera's by
+    /// address is; its serial is its Device Id, its safety code its credentials.
+    private func authorizeNewCamera(_ request: SetupRequest) async throws -> SetupStep {
+        let port = CameraSettings(fields: [:], password: nil, defaults: configuration).httpPort
+        guard let host = request.state["host"]?.stringValue ?? request.answer("host") else {
+            return .ask(SetupPrompt(
+                message: "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.",
+                fields: [SetupField("host", label: "Address")]))
+        }
+        let codePrompt = SetupPrompt(
+            message: "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).",
+            fields: [SetupField("password", label: "Safety code", kind: .secret), SetupField("username", label: "User name", optional: true, value: "admin")])
+        guard request.state["host"] == nil else {
+            guard let password = request.secret("password") else { return .ask(codePrompt, state: ["host": .string(host)]) }
+            let username = request.answer("username") ?? "admin"
+            guard let client = DahuaClient(host: host, port: port, username: username, password: password, transport: dependencies.local) else {
+                throw SetupError("That is not an address.")
+            }
+            guard let serial = try await readSerial(client, host: host) else { throw SetupError("The camera at \(host) did not give its serial number.") }
+            logger.info("Added the camera \(serial) at \(host) by its address")
+            return .done(try SetupOutcome(encoding: ImouCameraCredentials(password: password),
+                                          settings: ["host": .string(host), "username": .string(username)], deviceID: serial))
+        }
+        // Asked without credentials, a camera answers with its challenge: something is there before the code is asked.
+        guard let client = DahuaClient(host: host, port: port, username: "admin", password: "", transport: dependencies.local) else {
+            throw SetupError("That is not an address.")
+        }
+        do {
+            _ = try await client.realm()
+        } catch {
+            logger.info("No camera answered at \(host): \(error)")
+            throw SetupError("No camera answered at \(host)")
+        }
+        return .ask(codePrompt, state: ["host": .string(host)])
     }
 
     /// The developer app's App Id, App Secret and region, checked by fetching a token.
@@ -119,21 +162,7 @@ extension ImouPlugin {
         guard let client = DahuaClient(host: host, port: port, username: username, password: password, transport: dependencies.local) else {
             throw SetupError("That is not an address.")
         }
-        var serial: String?
-        do {
-            serial = try await client.serialNumber()
-        } catch DahuaError.wrongPassword {
-            throw SetupError("The camera at \(host) refused this safety code.")
-        } catch let error as DahuaError {
-            logger.info("The camera at \(host) gave no serial number (\(error)): reading its realm")
-            if case .unsupported = error {
-                // Nothing checked the safety code yet: a snapshot asks for it.
-                do { _ = try await client.snapshot(channel: 1) } catch DahuaError.wrongPassword { throw SetupError("The camera at \(host) refused this safety code.") } catch {}
-            }
-            serial = try? await client.realm().flatMap(DahuaClient.serial(realm:))
-        } catch {
-            throw SetupError("Cannot reach the camera at \(host): is it on, and on this network? (\(error))")
-        }
+        let serial = try await readSerial(client, host: host)
         if byAddress {
             guard let serial else { throw SetupError("The camera at \(host) did not give its serial number.") }
             logger.info("Set up the camera \(serial) at \(host)")
@@ -146,6 +175,25 @@ extension ImouPlugin {
         }
         logger.info("Set up \(device.deviceID) on the local network at \(host)")
         return .done(try SetupOutcome(encoding: ImouCameraCredentials(password: password), settings: ["host": .string(host), "username": .string(username)]))
+    }
+
+    /// The camera's serial, checking its safety code: `getSerialNo`, else its Digest realm (a snapshot checks the code of
+    /// a camera without `getSerialNo`); nil when it gives none. Throws `SetupError` for a refused code or no answer.
+    private func readSerial(_ client: DahuaClient, host: String) async throws -> String? {
+        do {
+            return try await client.serialNumber()
+        } catch DahuaError.wrongPassword {
+            throw SetupError("The camera at \(host) refused this safety code.")
+        } catch let error as DahuaError {
+            logger.info("The camera at \(host) gave no serial number (\(error)): reading its realm")
+            if case .unsupported = error {
+                // Nothing checked the safety code yet: a snapshot asks for it.
+                do { _ = try await client.snapshot(channel: 1) } catch DahuaError.wrongPassword { throw SetupError("The camera at \(host) refused this safety code.") } catch {}
+            }
+            return try? await client.realm().flatMap(DahuaClient.serial(realm:))
+        } catch {
+            throw SetupError("Cannot reach the camera at \(host): is it on, and on this network? (\(error))")
+        }
     }
 
     // MARK: Settings

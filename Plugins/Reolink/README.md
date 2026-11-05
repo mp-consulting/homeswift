@@ -58,10 +58,11 @@ recordings start before the motion; without it a recording starts when the event
 ## Configuration
 
 Add devices on **Add accessories**: the plugin lists the Reolink devices of the network it can see (their MAC starts
-with `EC:71:DB` and they answer on TCP 9000) and "A Reolink device by its address" for any other; Setup asks for the
-address when needed, the user name and the password of a local user, signs in, reads `GetDevInfo` and
-`GetChannelstatus`, and keeps the login in the vault and the address in the device's Accessory Settings. A block
-written by hand works too:
+with `EC:71:DB` and they answer on TCP 9000), and **Add by address…** adds any other (on another subnet, say). Setup
+asks for the address when needed, the user name (`admin` unless you change it) and the password of a local user, signs
+in, reads `GetDevInfo` and `GetChannelstatus`, and keeps the device under its host id (its P2P UID, else its MAC;
+"Identity" above): the login in the vault and the address in its Accessory Settings. A block written by hand works
+too:
 
 ```json
 {

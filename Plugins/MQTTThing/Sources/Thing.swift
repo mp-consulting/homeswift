@@ -29,8 +29,14 @@ enum Kind {
 /// of its state is the actor's; characteristic handlers and broker messages come in through it.
 actor Thing {
     struct Dependencies: Sendable {
-        /// Scales every delay (`turnOffAfterms`, confirmation, debounce, coalescing): tests run them faster.
+        /// Scales every delay (`turnOffAfterms`, confirmation, debounce): tests run them faster.
         var timeScale: Double = 1
+        /// How long a light gathers HomeKit's writes of one change (On, Brightness, Hue and Saturation, one after the
+        /// other) into one publish. Not scaled: a window shorter than a busy machine's pause between two writes
+        /// splits them.
+        var coalescing: Duration = .milliseconds(20)
+        /// How long a JSON codec gathers properties into one message after the last change; not scaled either.
+        var codecDelay: Duration = JSONCodecSettings.delay
         var now: @Sendable () -> Date = { Date() }
         var hostName: String = ProcessInfo.processInfo.hostName
     }

@@ -152,6 +152,12 @@ public protocol HomeswiftPlugin: Sendable {
     /// should and its settings say what setting it up brings.
     static var accountRequirement: AccountRequirement { get }
 
+    /// Whether a person can add a device the plugin does not find by itself, by its address (GLOSSARY.md, "Add by
+    /// address"): the Add accessories page offers "Add by address…" on the instance, and `start_setup` takes
+    /// `addByAddress`. Its Setup is `authorize` with `SetupRequest.Target.newDevice`, with or without an account.
+    /// Defaults to false.
+    static var addsDevicesByAddress: Bool { get }
+
     /// The devices the plugin can find now, set up or not (GLOSSARY.md, "Discovered Device"): on the network, in the
     /// account, at the addresses its settings name. It may run on an instance that was not started, created only to set
     /// up; it should answer within a few seconds. Defaults to none.
@@ -213,6 +219,7 @@ extension HomeswiftPlugin {
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
     public static var accountAuthorization: AuthorizationMethod { .none }
     public static var accountRequirement: AccountRequirement { .required }
+    public static var addsDevicesByAddress: Bool { false }
     public func discover() async throws -> [DiscoveredDevice] { [] }
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
     public func accountAuthorized() async -> Bool? { nil }

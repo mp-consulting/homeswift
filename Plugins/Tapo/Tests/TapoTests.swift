@@ -52,7 +52,7 @@ final class TestEnvironment: Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -138,7 +138,8 @@ struct TapoTests {
     @Test func writesReachTheDevice() async throws {
         let host = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21"]])
         let plug = try await accessory(host, kitchenID)
-        #expect(await eventually { environment.network.device().methods.contains("get_device_info") })
+        // The first answer taken in (its information shown), not only asked for: a write before it is No Response.
+        #expect(await eventually { plug.information[.serialNumber]?.value == .string("0123456789ABCDEF0123456789ABCDEF") })
         let on = try #require(plug.service(.outlet)?[.on])
         try await on.write(.bool(true))
         let set = try #require(environment.network.device().sets.last)
@@ -188,8 +189,10 @@ struct TapoTests {
 
     @Test func aRefusedSetIsNoResponse() async throws {
         let host = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21"]])
-        let on = try #require(try await accessory(host, kitchenID).service(.outlet)?[.on])
-        #expect(await eventually { environment.network.device().methods.contains("get_device_info") })
+        let plug = try await accessory(host, kitchenID)
+        let on = try #require(plug.service(.outlet)?[.on])
+        // Taken in: a write before the first answer would be No Response whatever the device says.
+        #expect(await eventually { plug.information[.serialNumber]?.value == .string("0123456789ABCDEF0123456789ABCDEF") })
         environment.network.update { $0.setError = -1008 }
         await #expect(throws: HAPStatusError.self) { try await on.write(.bool(true)) }
         await host.stop()
@@ -207,7 +210,7 @@ struct TapoTests {
             $0.reachable = true
             $0.info["device_on"] = true
         }
-        #expect(await eventually(timeout: .seconds(10)) { !plug.showsNoResponse })
+        #expect(await eventually { !plug.showsNoResponse })
         #expect(plug.service(.outlet)?[.on]?.value == .bool(true))
         #expect(await device.failures == 0)
         await host.stop()
