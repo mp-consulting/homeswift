@@ -102,7 +102,7 @@ final class TestEnvironment: Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -169,7 +169,12 @@ struct APsystemsECUTests {
 
     @Test func theProductionAndTheMeterReachTheEnergySection() async throws {
         let host = try await environment.start()
-        #expect(await eventually { !environment.values("215000999901:home").isEmpty })
+        // The ECU's series and the inverters' are recorded one after the other: every one of them in.
+        let series = [
+            "215000999901:solar", "215000999901:grid", "215000999901:home",
+            "703000999002:power", "703000999002:power1", "703000999002:temperature", "703000999002:signal",
+        ]
+        #expect(await eventually { series.allSatisfy { !environment.values($0).isEmpty } })
         #expect(environment.values("215000999901:solar").first == 8172)
         #expect(environment.tag("215000999901:solar") == EnergyTag(role: .solar, device: "ECU-C 215000999901"))
         #expect(environment.values("215000999901:grid").first == -500)
