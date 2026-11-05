@@ -168,6 +168,11 @@ struct RenaultTests {
         #expect(await eventually { environment.values("timeToFull").last == 145 })
         #expect(await eventually { environment.values("power").last == 27000 })
         #expect(await eventually { environment.values("batteryTemperature").last == 20 })
+        // The rest of the battery's report: the energy left, what the charge is doing, the level and status codes.
+        #expect(battery[RenaultCharacteristic.availableEnergy]?.value == .double(31))
+        #expect(battery[RenaultCharacteristic.chargeStatus]?.value == .string("charge in progress"))
+        #expect(await eventually { environment.values("availableEnergy").last == 31 })
+        #expect(await eventually { environment.values("level").last == 60 && environment.values("chargingStatus").last == 1 })
 
         // Not charging: no time to full and no power, whatever estimate the car kept.
         environment.cloud.answer("/kca/car-adapter/v2/cars/\(Fixtures.vin)/battery-status", 200, Fixtures.battery)
@@ -175,6 +180,8 @@ struct RenaultTests {
         #expect(battery[RenaultCharacteristic.range]?.value == 261)
         #expect(battery[RenaultCharacteristic.timeToFull]?.value == 0)
         #expect(battery[EveCharacteristic.currentConsumption]?.value == 0)
+        #expect(battery[RenaultCharacteristic.chargeStatus]?.value == .string("not in charge"))
+        #expect(battery[RenaultCharacteristic.batteryUpdated]?.value == .string("2026-05-01T06:07:54Z"))
         await host.stop()
         // Only the endpoints the plugin read before: the battery, the climate and the hourly limits.
         let reads = Set(environment.cloud.kamereon.filter { $0.method == "GET" && ($0.path.contains("/cars/") || $0.path.contains("/vehicles/VF1")) }.map(\.path))
@@ -191,7 +198,8 @@ struct RenaultTests {
         let path = "/kcm/v1/vehicles/\(Fixtures.vin)/ev/soc-levels"
         #expect(await eventually { environment.cloud.kamereon(path, method: "POST").count == 1 })
         #expect(environment.cloud.kamereon(path, method: "POST").first?.body == ["socMin": 20, "socTarget": 90])
-        #expect(await environment.plugin?.vehicles[Fixtures.vin]?.soc == SocLevels(minimum: 20, target: 90))
+        // Shown once the answer is in, a moment after the fake saw the request.
+        #expect(await eventually { await environment.plugin?.vehicles[Fixtures.vin]?.soc == SocLevels(minimum: 20, target: 90) })
         // The next hourly read still says 80: nothing more is sent.
         await environment.plugin?.vehicles[Fixtures.vin]?.read(.socLevels, .poll)
         await environment.plugin?.vehicles[Fixtures.vin]?.applySocLimits()

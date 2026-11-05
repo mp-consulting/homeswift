@@ -296,7 +296,10 @@ actor RenaultVehicle {
         if keys.contains("Battery") {
             built["Battery"] = Service(
                 .battery, name: name,
-                optional: [.batteryLevel, .chargingState, RenaultCharacteristic.range, RenaultCharacteristic.timeToFull, EveCharacteristic.currentConsumption],
+                optional: [
+                    .batteryLevel, .chargingState, RenaultCharacteristic.range, RenaultCharacteristic.timeToFull, EveCharacteristic.currentConsumption,
+                    RenaultCharacteristic.availableEnergy, RenaultCharacteristic.chargeStatus, RenaultCharacteristic.batteryUpdated,
+                ],
                 isPrimary: true)
         }
         if keys.contains(VehiclePart.climate.rawValue) {
@@ -361,6 +364,9 @@ actor RenaultVehicle {
                 }
                 if let charging = battery.isCharging { set(service.characteristic(.chargingState), .int(charging ? 1 : 0)) }
                 if let range = battery.autonomy { set(service.characteristic(RenaultCharacteristic.range), .int(range)) }
+                if let energy = battery.availableEnergy { set(service.characteristic(RenaultCharacteristic.availableEnergy), .double(energy)) }
+                if let status = battery.chargeStatusName { set(service.characteristic(RenaultCharacteristic.chargeStatus), .string(status)) }
+                if let timestamp = battery.timestamp { set(service.characteristic(RenaultCharacteristic.batteryUpdated), .string(timestamp)) }
                 // The car keeps its last estimate after a charge: 0 unless it charges.
                 if let charging = battery.isCharging {
                     set(service.characteristic(RenaultCharacteristic.timeToFull), .int(charging ? battery.remainingMinutes ?? 0 : 0))
@@ -406,6 +412,9 @@ actor RenaultVehicle {
             record("power", Double(charging ? status.watts ?? 0 : 0))
         }
         if let temperature = status.temperature { record("batteryTemperature", temperature) }
+        if let energy = status.availableEnergy { record("availableEnergy", energy) }
+        if let level = status.level { record("level", Double(level)) }
+        if let code = status.chargingStatus { record("chargingStatus", code) }
     }
 
     private func set(_ characteristic: Characteristic, _ value: HAPValue) {

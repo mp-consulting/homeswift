@@ -15558,6 +15558,9 @@ HomeswiftI18n.add("es", {
   "Range (km)": "Autonomía (km)",
   "Time to Full (min)": "Tiempo hasta carga completa (min)",
   "Session Energy (kWh)": "Energía de la sesión (kWh)",
+  "Available Energy (kWh)": "Energía disponible (kWh)",
+  "Charge Status": "Estado de la carga",
+  "Battery Updated": "Batería actualizada",
 });
 
 """#),
@@ -18416,6 +18419,9 @@ HomeswiftI18n.add("fr", {
   "Range (km)": "Autonomie (km)",
   "Time to Full (min)": "Temps avant charge complète (min)",
   "Session Energy (kWh)": "Énergie de la session (kWh)",
+  "Available Energy (kWh)": "Énergie disponible (kWh)",
+  "Charge Status": "État de la charge",
+  "Battery Updated": "Batterie mise à jour",
 });
 
 """#),
@@ -21274,6 +21280,9 @@ HomeswiftI18n.add("pt", {
   "Range (km)": "Autonomia (km)",
   "Time to Full (min)": "Tempo até carga completa (min)",
   "Session Energy (kWh)": "Energia da sessão (kWh)",
+  "Available Energy (kWh)": "Energia disponível (kWh)",
+  "Charge Status": "Estado da carga",
+  "Battery Updated": "Bateria atualizada",
 });
 
 """#),

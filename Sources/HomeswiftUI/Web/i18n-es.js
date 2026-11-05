@@ -2852,4 +2852,7 @@ HomeswiftI18n.add("es", {
   "Range (km)": "Autonomía (km)",
   "Time to Full (min)": "Tiempo hasta carga completa (min)",
   "Session Energy (kWh)": "Energía de la sesión (kWh)",
+  "Available Energy (kWh)": "Energía disponible (kWh)",
+  "Charge Status": "Estado de la carga",
+  "Battery Updated": "Batería actualizada",
 });

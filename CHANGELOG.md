@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Renault: the rest of the battery's report on the car's Battery service and in the history (available energy, the
+  charge status in words, when the car last reported, the level and status codes); the location stays out.
 - APsystems ECU: each phase of an ECU-C's CT clamps (production, grid and home on A, B and C) as its own series in the
   Status page's history.
 - V2C Trydan: the current's limits and the installation's voltage as Accessory Settings sent once per change, and the

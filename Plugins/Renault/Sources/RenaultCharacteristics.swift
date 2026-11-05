@@ -15,4 +15,14 @@ enum RenaultCharacteristic {
     static let timeToFull = CharacteristicType(
         name: "Time to Full (min)", uuid: HAPUUID("E4668EF1-CDD6-43FE-AA6A-221A2B81F5F0"), format: .uint16, permissions: readEvents,
         minValue: 0, maxValue: 10_000, minStep: 1)
+    /// kWh left in the battery (`batteryAvailableEnergy`, older cars; 0 there means unknown).
+    static let availableEnergy = CharacteristicType(
+        name: "Available Energy (kWh)", uuid: HAPUUID("221F20E7-C05E-46E1-881F-0A3BF5345B04"), format: .float, permissions: readEvents,
+        minValue: 0, maxValue: 500, minStep: 0.1)
+    /// What the charge is doing, in words (`chargingStatus`, 4.3: "waiting for a planned charge", "charge ended"…).
+    static let chargeStatus = CharacteristicType(
+        name: "Charge Status", uuid: HAPUUID("45BCE881-3AD8-4B18-A480-FE49C16C8176"), format: .string, permissions: readEvents)
+    /// When the car last reported its battery (`timestamp`, ISO 8601).
+    static let batteryUpdated = CharacteristicType(
+        name: "Battery Updated", uuid: HAPUUID("ED895794-A9A2-4C1C-9286-FD65A0F663DE"), format: .string, permissions: readEvents)
 }

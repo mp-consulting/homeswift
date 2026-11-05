@@ -27,9 +27,12 @@ restart does not spend the quota finding it again.
 HomeKit has no characteristic for a car's range, so the plugin adds its own to the Battery service, as other plugins
 add Eve's: **Range (km)** (`batteryAutonomy`), **Time to Full (min)** (`chargingRemainingTime`, 0 unless the car
 charges) and Eve's **Current Consumption** for the charge power in watts (`chargingInstantaneousPower`, 0 unless the car
-charges). The Home app does not show them; the web UI's accessory details and the Eve app do. Each is also recorded for
-the Status page's history (`<VIN>:range`, `timeToFull`, `power`, `batteryTemperature`), with the battery temperature
-where the car reports it. The charge power is not tagged for the Energy section: a car charging at home is part of the
+charges), with the rest of the battery's report: **Available Energy (kWh)** (`batteryAvailableEnergy`, older cars),
+**Charge Status** (`chargingStatus` in words: "waiting for a planned charge", "charge ended", "V2L connected"…) and
+**Battery Updated** (when the car last reported, as it says it). The plug's state is the Plugged In sensor, a plug error
+its Status Fault. The Home app does not show them; the web UI's accessory details and the Eve app do. The readings are
+also recorded for the Status page's history (`<VIN>:range`, `timeToFull`, `power`, `batteryTemperature`,
+`availableEnergy`, `level`, and `chargingStatus` as its code), the battery temperature where the car reports it. The charge power is not tagged for the Energy section: a car charging at home is part of the
 home's use, which the home's meter counts already. They all come from the battery-status read each round already
 makes: no request is added.
 
@@ -113,8 +116,9 @@ VINs are logged as their first 3 and last 4 characters. The plugin does not read
 
 Choices made where the specification is silent or leaves a choice:
 
-- **Location, mileage and the other readings HomeKit cannot show** (charge mode, tyres) are not read: they would spend
-  the quota on data nothing shows (and coordinates are personal data). So `refreshLocation` (spec 2) is not offered.
+- **The location is left out**: HomeKit has no place for a position, and coordinates are personal data, so the
+  plugin neither reads `location` nor offers `refreshLocation` (spec 2). Mileage (`cockpit`) is not read either: one
+  more endpoint each round for a figure HomeKit cannot show. The charge mode and tyres are not on the R5.
 - **The action reserve** (6 requests an hour) is Homeswift's: Home Assistant's formula is kept, applied to the budget
   left after it, so a switch is not refused because polls took the hour.
 - **State-of-charge limits** are read hourly (they set the low battery level) and written from the Accessory Settings,

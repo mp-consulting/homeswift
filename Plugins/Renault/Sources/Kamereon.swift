@@ -157,12 +157,18 @@ struct BatteryStatus: Sendable, Equatable {
     var remainingMinutes: Int?
     /// °C, older cars only.
     var temperature: Double?
+    /// kWh, older cars only; nil for their 0, which means unknown.
+    var availableEnergy: Double?
+    /// When the car last reported, as it says it (ISO 8601).
+    var timestamp: String?
 
     init(attributes json: JSONValue, reportsWatts: Bool = false) {
         level = json["batteryLevel"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
         autonomy = json["batteryAutonomy"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...2000) }
         remainingMinutes = json["chargingRemainingTime"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...10_000) }
         temperature = json["batteryTemperature"]?.doubleValue?.finite.flatMap(HvacStatus.plausible)
+        availableEnergy = json["batteryAvailableEnergy"]?.doubleValue?.finite.flatMap { (0.1...500).contains($0) ? $0 : nil }
+        timestamp = json["timestamp"]?.stringValue.map { String($0.prefix(64)) }
         plugStatus = json["plugStatus"]?.saturatingIntValue
         chargingStatus = ChargingStatus.normalised(json["chargingStatus"]?.doubleValue)
         powerKW = json["chargingInstantaneousPower"]?.doubleValue?.finite.map { reportsWatts ? $0 / 1000 : $0 }
@@ -192,6 +198,11 @@ struct BatteryStatus: Sendable, Equatable {
     }
 
     var isUnplugged: Bool { plugStatus == 0 }
+
+    /// `chargingStatus` in words; nil when the car did not say, the value itself for one 4.3 does not list.
+    var chargeStatusName: String? {
+        chargingStatus.map { ChargingStatus.names[$0] ?? String(format: "%.1f", $0) }
+    }
 
     /// The charging power in whole watts.
     var watts: Int? { powerKW.flatMap { Int(saturating: $0 * 1000, in: 0...100_000) } }
