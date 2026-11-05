@@ -39,7 +39,8 @@ struct PluginTests {
         #expect(fan[.active]?.value == 0)
         #expect(fan[.statusFault]?.value == 0)
         let battery = try #require(accessory.service(.battery))
-        #expect(battery[.batteryLevel]?.value == 100)
+        // The home data's level, unless the robot's first answer on the LAN (90, below) has already come.
+        #expect([100, 90].contains(battery[.batteryLevel]?.value.intValue))
         #expect(battery[.chargingState]?.value == 1)
         let wash = try #require(accessory.service(.switch, subtype: "dock-wash"))
         #expect(wash[.name]?.value == "Start Mop Washing")
@@ -57,10 +58,16 @@ struct PluginTests {
         await expectEventually { environment.mqtt.subscriptions["rr/m/o/u_example/bb7e313c/#"] != nil }
 
         // The first poll reaches the robot on the LAN: its status, and the consumables as Filter Maintenance.
-        await expectEventually { accessory.service(.filterMaintenance, subtype: "filter") != nil || environment.accessory(host)?.service(.filterMaintenance, subtype: "filter") != nil }
+        // The consumables add their services (a new accessory), then their levels show on it, one after the other.
+        await expectEventually {
+            let current = environment.accessory(host)
+            return current?.service(.filterMaintenance, subtype: "filter")?[.filterLifeLevel]?.value.doubleValue == 5
+                && current?.service(.filterMaintenance, subtype: "main-brush")?[.filterLifeLevel]?.value.doubleValue == 70
+                && current?.service(.filterMaintenance, subtype: "side-brush")?[.filterLifeLevel]?.value.doubleValue == 50
+                && current?.service(.battery)?[.batteryLevel]?.value == 90
+        }
         let current = try #require(environment.accessory(host))
         let filter = try #require(current.service(.filterMaintenance, subtype: "filter"))
-        #expect(filter[.filterLifeLevel]?.value.doubleValue == 5)
         #expect(filter[.filterChangeIndication]?.value == 1)
         #expect(current.service(.filterMaintenance, subtype: "main-brush")?[.filterLifeLevel]?.value.doubleValue == 70)
         #expect(current.service(.filterMaintenance, subtype: "side-brush")?[.filterChangeIndication]?.value == 0)

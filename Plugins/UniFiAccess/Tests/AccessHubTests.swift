@@ -563,6 +563,9 @@ struct AccessHubTests {
     @Test func devicesThatLeaveAreRemovedAfterTheDelay() async throws {
         let host = try await environment.start(devices: [uah(), ugt()], options: ["Enable.Controller.DelayDeviceRemoval.2"])
         defer { Task { await host.stop() } }
+        // The start's passes first (its own, then its bootstrap's event): a late one would queue the hub, and the
+        // next remove it before the look below.
+        #expect(await eventually { await self.environment.controllerActor()?.syncs ?? 0 >= 2 })
         environment.controller.setDevices([ugt()])
         _ = await environment.controllerActor()?.api.getBootstrap()
         #expect(await eventually { self.environment.log.contains("Delaying device removal for at least 2 seconds.") })
@@ -578,15 +581,24 @@ struct AccessHubTests {
     @Test func devicesThatComeBackStay() async throws {
         let host = try await environment.start(devices: [uah(), ugt()], options: ["Enable.Controller.DelayDeviceRemoval.2"])
         defer { Task { await host.stop() } }
+        let controller = try #require(await environment.controllerActor())
+        // Each bootstrap's pass is waited for: one still to come (the start's own bootstrap has one, after the start's
+        // pass) would see the hub gone once the 2 seconds (60 ms) are over, and remove it.
+        func bootstrap() async {
+            let passes = await controller.syncs
+            _ = await controller.api.getBootstrap()
+            #expect(await eventually { await controller.syncs > passes })
+        }
+        #expect(await eventually { await controller.syncs >= 2 })
         environment.controller.setDevices([ugt()])
-        _ = await environment.controllerActor()?.api.getBootstrap()
-        #expect(await eventually { self.environment.log.contains("Delaying device removal for at least 2 seconds.") })
+        await bootstrap()
+        #expect(environment.log.contains("Delaying device removal for at least 2 seconds."))
+        // Gone longer than the delay, back before a pass removed it.
         try await Task.sleep(for: .milliseconds(100))
         environment.controller.setDevices([uah(), ugt()])
-        _ = await environment.controllerActor()?.api.getBootstrap()
-        try await Task.sleep(for: .milliseconds(300))
-        _ = await environment.controllerActor()?.api.getBootstrap()
-        try await Task.sleep(for: .milliseconds(300))
+        await bootstrap()
+        try await Task.sleep(for: .milliseconds(100))
+        await bootstrap()
         #expect(accessory(host, hubID) != nil)
         #expect(!environment.log.contains("Removing UA Hub from HomeKit."))
     }
