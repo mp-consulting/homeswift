@@ -162,6 +162,8 @@ actor ReolinkTalker {
     private var framesPerMessage = 1
     private var current: Task<Void, Never>?
     private(set) var isTalking = false
+    /// Who waits for the Talk under way to end (a siren, `waitUntilIdle`).
+    private let idleWaiters = Waiters<Bool>()
     /// The Talks begun so far, and the blocks taken from the queue (tests).
     private(set) var talks = 0
     private(set) var blocksTaken = 0
@@ -197,18 +199,17 @@ actor ReolinkTalker {
 
     /// Waits until no Talk runs: true then, false after `timeout` (a siren waits for the Talk to end, 7).
     func waitUntilIdle(timeout: Duration) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while isTalking {
-            guard ContinuousClock.now < deadline else { return false }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return true
+        guard isTalking else { return true }
+        return await idleWaiters.wait(timeout: timeout, fallback: false)
     }
 
     private func run(_ talk: Talk) async {
         isTalking = true
         talks += 1
-        defer { isTalking = false }
+        defer {
+            isTalking = false
+            idleWaiters.resumeAll(true)
+        }
         do {
             try await link.withSession { session in try await self.talk(talk, on: session) }
         } catch BaichuanError.closed {
