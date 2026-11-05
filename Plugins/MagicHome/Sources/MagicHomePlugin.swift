@@ -52,6 +52,10 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         public var advancedOptions: AdvancedOptions?
         /// Devices by address, for those the broadcast does not reach: each gets the probe directly.
         public var addresses: [String]?
+        /// A switch per built-in pattern on the lights that play them; off by default, so accessories stay as they were.
+        public var effects: Bool?
+        /// The patterns' speed, 0 (slowest) to 100 (fastest); 50 by default.
+        public var effectSpeed: Int?
     }
 
     /// What the plugin uses to reach devices; tests swap them for fakes.
@@ -355,7 +359,7 @@ public actor MagicHomePlugin: HomeswiftPlugin {
     private func add(id: String, record: MagicHomeRecord, profile: MagicHomeProfile, state: MagicHomeState?, firstPoll: Duration?) async -> Bool {
         let device = MagicHomeDevice(
             id: id, record: record, profile: profile, transport: dependencies.transport,
-            options: MagicHomeDevice.Options(effects: effects, timing: dependencies.timing), log: log)
+            options: MagicHomeDevice.Options(effects: effects, timing: dependencies.timing, effectSpeed: effectSpeed(id)), log: log)
         await device.observe(
             reshape: { [weak self] _ in await self?.rebuild(id) },
             record: { [weak self] record in await self?.update(id, record) })
@@ -371,7 +375,7 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         let id = MagicHomeAccessory.accessoryID(device.id)
         let profile = await device.profile
         let name = context.accessory(id: id)?.name ?? profile.defaultName(mac: device.id, withMAC: configuration.advancedOptions?.namesWithMacAddress == true)
-        let built = await MagicHomeAccessory.make(device: device, name: name)
+        let built = await MagicHomeAccessory.make(device: device, name: name, effects: showsEffects(device.id))
         if let cached = context.accessory(id: id) { built.accessory.takeValues(from: cached) }
         var lighting: AdaptiveLightingController?
         if profile.hasBrightness, profile.hasTemperature {
@@ -394,6 +398,17 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         guard let device = devices[id] else { return }
         log.info("\(id) changed: its accessory is built again")
         await build(device, state: nil)
+    }
+
+    /// Whether the device gets its effect switches: its Accessory Settings' `effects`, else the plugin's.
+    func showsEffects(_ id: String) -> Bool {
+        context.accessorySettings(for: id).plugin["effects"]?.boolValue ?? configuration.effects ?? false
+    }
+
+    /// The patterns' speed for the device: its Accessory Settings' `effectSpeed`, else the plugin's, else 50.
+    func effectSpeed(_ id: String) -> Int {
+        let speed = context.accessorySettings(for: id).plugin["effectSpeed"]?.saturatingIntValue ?? configuration.effectSpeed ?? 50
+        return min(max(speed, 0), 100)
     }
 
     private func update(_ id: String, _ record: MagicHomeRecord) {

@@ -8,7 +8,8 @@ import HomeswiftPlugin
 enum MagicHomeAccessory {
     static func accessoryID(_ deviceID: String) -> String { "\(MagicHomePlugin.platform):\(deviceID)" }
 
-    static func make(device: MagicHomeDevice, name: String) async -> (accessory: Accessory, services: MagicHomeServices) {
+    /// With `effects`, a switch per built-in pattern the light plays (subtype `effect:<id>`), as Philips Hue's effects.
+    static func make(device: MagicHomeDevice, name: String, effects: Bool = false) async -> (accessory: Accessory, services: MagicHomeServices) {
         let profile = await device.profile
         let record = await device.record
         let id = accessoryID(device.id)
@@ -25,13 +26,24 @@ enum MagicHomeAccessory {
             }
             service = Service(.lightbulb, name: name, optional: optional, isPrimary: true)
         }
+        var effectSwitches: [(MagicHomeEffect, Service)] = []
+        if effects {
+            for effect in profile.effects {
+                effectSwitches.append((effect, Service(.switch, name: effect.name, subtype: effect.subtype, optional: [.configuredName])))
+            }
+        }
         let accessory = Accessory(
             id: id, name: name, manufacturer: "MagicHome", model: record.module.isEmpty ? profile.description : record.module, serialNumber: device.id,
-            category: profile.isSwitch ? .switch : .lightbulb, services: [service],
+            category: profile.isSwitch ? .switch : .lightbulb, services: [service] + effectSwitches.map(\.1),
             onIdentify: { await device.identify() })
-        let services = MagicHomeServices(
+        var services = MagicHomeServices(
             accessory: accessory, primary: service, on: service.characteristic(.on), brightness: service[.brightness], hue: service[.hue],
             saturation: service[.saturation], colorTemperature: service[.colorTemperature])
+        for (effect, effectService) in effectSwitches {
+            let on = effectService.characteristic(.on)
+            on.onWrite { value in try await device.playEffect(effect, on: value.boolValue ?? false) }
+            services.effects[effect.id] = on
+        }
         attachHandlers(device: device, services: services)
         return (accessory, services)
     }

@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Magic Home: the built-in effects as switches on the colour lights that play them, behind `effects` (off by default)
+  with an `effectSpeed`, also per light in its Accessory Settings.
 - V2C Trydan: the dynamic power modes as a set of switches (`exposeModes`), the wiring (`ChargeMode`) as an Accessory
   Setting sent once per change, and a lifetime energy total made of the sessions' energy, kept across restarts, as
   Eve's Total Consumption and on the Status page (the session's energy beside it).

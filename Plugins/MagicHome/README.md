@@ -48,6 +48,14 @@ the original LEDENET protocol (`01` to `03`), are left out with a line in the lo
 - **Adaptive Lighting** on every light with Color Temperature. A colour, or a white other than its own, reported by the
   device (set in the Magic Home app or with a remote) turns it off.
 - **Identify** flashes the light and puts it back as it was; a socket is not toggled.
+- **Effects** (`effects`, off by default so accessories stay as they were): a switch per built-in pattern on the colour
+  lights whose family plays them (the 8-, 9- and 25-byte families: colour loop, gradual changes, cross-fades, strobes,
+  seven-colour jump, and on the dimmable-effects controllers RGB cross-fade, RGB cycle and seven-colour cycle), as
+  Philips Hue's effects are. On plays the pattern at `effectSpeed` (0 to 100, sent as the delay 31 to 1), turning the
+  light on first; Off on the pattern playing puts the light's colour back; a colour or brightness from HomeKit ends it.
+  The switches follow what the device reports it plays (state byte 3), a pattern started in the Magic Home app included.
+  CCT lights, dimmers, sockets and addressable strips get none (their patterns are numbered without names). A light's
+  Accessory Settings may turn its own on or off and set its own speed.
 
 ### From Homebridge
 
@@ -89,6 +97,8 @@ Every option is optional; an absent one takes the default below (the Homebridge 
 | Option | Default | |
 |---|---|---|
 | `addresses` | | Devices by address, for those the broadcast does not reach: each gets the discovery probe directly (new here) |
+| `effects` | false | A switch per built-in pattern on the lights that play them (new here; also an Accessory Setting of each light) |
+| `effectSpeed` | 50 | The patterns' speed, 0 (slowest) to 100 (fastest) (new here; also an Accessory Setting) |
 | `whiteEffects.simultaniousDevicesColorWhite` | true | Controllers that drive colour and white together mix both for pale colours |
 | `whiteEffects.colorWhiteThreshold` | 10 | Below this saturation a colour-or-white bulb shows white |
 | `whiteEffects.colorWhiteThresholdSimultaniousDevices` | 50 | Below this saturation a colour-and-white controller mixes in white |
@@ -139,8 +149,8 @@ Choices made where the spec leaves the decision open, or where it is silent:
 - Addressable `A1` gets the 9-byte levels frame (flux_led) rather than the Homebridge plugin's 7-byte one. Unverified on
   hardware, as is `41`'s mask.
 - The Homebridge plugin's first-write "probe" frame is not sent (the same end state).
-- Effects, music mode, timers, the clock and the 2.4 GHz remote are not exposed (their frames are implemented and tested,
-  not sent). Multi-channel switches show their first channel only.
+- Music mode, timers, the clock and the 2.4 GHz remote are not exposed. Multi-channel switches show their first channel
+  only. Effects follow the spec's frames (10.3.8), checked against its rules only: unverified on hardware.
 - An RGB/W light (`44`, `54`, `B6`) shows white below `colorWhiteThreshold`, as the Homebridge plugin's RGBW bulb did.
 - A model byte in neither table is left out rather than driven as an RGB light (flux_led's choice).
 - Polling (30 s, 90 s for devices that push), No Response after four unanswered queries, and the 3-second settle are the
@@ -156,7 +166,8 @@ the power-first write sequence, coalesced writes and slider drags, a count of th
 on the device, No Response and recovery, Adaptive Lighting kept by its own white and turned off by a colour set
 elsewhere, a wrapped device's kept connection and pushes, a device that moves, the lists and Excluded, an unknown
 model not asked again, Adaptive Lighting's white held for the power-on, a whitelist removing cached accessories,
-known devices at launch, pruning, Identify, Setup and the canonical settings.
+known devices at launch, pruning, Identify, Setup and the canonical settings, and the effects: their speeds and frames
+per family, which lights play them, off by default, a pattern played, followed from the device and ended.
 
 ## Clean-room implementation
 

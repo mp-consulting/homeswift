@@ -68,6 +68,8 @@ struct MagicHomeServices: @unchecked Sendable {
     var hue: Characteristic?
     var saturation: Characteristic?
     var colorTemperature: Characteristic?
+    /// The effect switches (`effects` on), by pattern id.
+    var effects: [UInt8: Characteristic] = [:]
 }
 
 /// One device: its connection, its light as last known, HomeKit's writes (gathered, the sliders' last only) and the
@@ -76,6 +78,8 @@ actor MagicHomeDevice {
     struct Options: Sendable {
         var effects = MagicHomeWhiteEffects()
         var timing = MagicHomeTiming()
+        /// The built-in patterns' speed, 0 to 100 (`effectSpeed`).
+        var effectSpeed = 50
     }
 
     /// The Device Id, the MAC.
@@ -87,6 +91,8 @@ actor MagicHomeDevice {
     private(set) var profile: MagicHomeProfile
     private(set) var light = MagicHomeLight()
     private(set) var isReachable = true
+    /// The built-in pattern playing, as the device reports it (state byte 3) or as it was last sent.
+    private(set) var playing: UInt8?
     private var services: MagicHomeServices?
     private var adaptiveLighting: AdaptiveLightingController?
     private var batcher: LightChangeBatcher?
@@ -131,7 +137,10 @@ actor MagicHomeDevice {
         if batcher == nil {
             batcher = LightChangeBatcher(window: options.timing.coalesce) { [weak self] changes in try await self?.flush(changes) }
         }
-        if let state { show(MagicHomeReading.of(state, profile: profile, effects: options.effects)) }
+        if let state {
+            show(MagicHomeReading.of(state, profile: profile, effects: options.effects))
+            showEffect(state)
+        }
         await connection.setPush { [weak self] message in await self?.pushed(message) }
     }
 
@@ -261,6 +270,62 @@ actor MagicHomeDevice {
         guard !isSettling else { return }
         lastUpdate = .now
         show(MagicHomeReading.of(state, profile: profile, effects: options.effects))
+        showEffect(state)
+    }
+
+    /// The effect switches from state byte 3: the one of the pattern playing on, while the light is on.
+    private func showEffect(_ state: MagicHomeState) {
+        let known = profile.effects.contains { $0.id == state.pattern }
+        playing = state.isOn && known ? state.pattern : nil
+        showPlaying()
+    }
+
+    private func showPlaying() {
+        for (id, characteristic) in services?.effects ?? [:] { set(characteristic, .bool(id == playing)) }
+    }
+
+    // MARK: Effects
+
+    /// An effect switch: On plays the pattern at `effectSpeed` (the light turned on first when it is off), Off on the
+    /// pattern playing puts the light's colour back, which ends it.
+    func playEffect(_ effect: MagicHomeEffect, on: Bool) async throws {
+        guard profile.effects.contains(effect) else { throw HAPStatusError(.notAllowedInCurrentState) }
+        identifying?.cancel()
+        identifying = nil
+        var frames: [MagicHomeOutgoing]
+        if on {
+            let bytes = MagicHomeFrame.effect(effect, speed: options.effectSpeed, brightness: Int(light.brightness.rounded()), family: profile.family)
+            frames = [MagicHomeOutgoing(bytes: bytes, wrapVersion: nil, delay: .zero)]
+            if !light.isOn || profile.needsPowerOnFirst(module: record.module) {
+                frames[0].delay = options.timing.powerToLevels
+                frames.insert(power(true), at: 0)
+            }
+        } else {
+            guard playing == effect.id else { return }
+            frames = MagicHomeLevels.frames(for: light, profile: profile, effects: options.effects)
+            if profile.needsPowerOnFirst(module: record.module), !frames.isEmpty {
+                frames[0].delay = max(frames[0].delay, options.timing.powerToLevels)
+                frames.insert(power(true), at: 0)
+            }
+        }
+        lastWrite = .now
+        log.trace("\(name): sending \(frames.map { $0.bytes.map { String(format: "%02X", $0) }.joined(separator: " ") })")
+        do {
+            try await connection.send(frames)
+        } catch {
+            log.debug("\(name) did not take the effect: \(error)")
+            throw HAPStatusError(.serviceCommunicationFailure)
+        }
+        if on {
+            light.isOn = true
+            set(services?.on, .bool(true))
+            playing = effect.id
+            log.info("\(name) plays \(effect.name)")
+        } else {
+            playing = nil
+        }
+        showPlaying()
+        wake()
     }
 
     /// The device's report: Adaptive Lighting turned off by a colour or a white set elsewhere, then each value that
@@ -354,6 +419,11 @@ actor MagicHomeDevice {
         // A command of HomeKit's ends the flash (which then leaves the light as it is).
         identifying?.cancel()
         identifying = nil
+        // Levels end a pattern; the power alone does not.
+        if levelsChanged, light.isOn, playing != nil {
+            playing = nil
+            showPlaying()
+        }
         var frames: [MagicHomeOutgoing]
         if !levelsChanged || !light.isOn || profile.writer == .powerOnly {
             frames = [power(light.isOn)]
