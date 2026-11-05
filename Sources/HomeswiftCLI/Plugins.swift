@@ -29,6 +29,7 @@ import HomeswiftTapo
 import HomeswiftTuya
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
+import HomeswiftV2CTrydan
 import HomeswiftWingman
 import HomeswiftZigbee2MQTT
 
@@ -71,6 +72,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
     registry.register(HueSyncBoxPlugin.self)
+    registry.register(V2CTrydanPlugin.self)
     registry.register(TahomaPlugin.self)
     return registry
 }
