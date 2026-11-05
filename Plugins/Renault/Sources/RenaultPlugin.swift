@@ -74,6 +74,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         sentSoc = context.persistedDictionary("renault-soc.json", of: SocLevels.self)
+        droppedStore = context.persistedDictionary("renault-endpoints.json", of: DroppedEndpoints.self)
     }
 
     static func accessoryID(vin: String) -> String { "\(platform):\(vin)" }
@@ -162,7 +163,10 @@ public actor RenaultPlugin: HomeswiftPlugin {
 
     /// Every car of the last list, excluded ones included: the one in memory, else the file.
     var knownVehicles: [VehicleInfo] {
-        savedList ?? context.jsonFile(Self.vehiclesFile, as: [VehicleInfo].self).load() ?? []
+        if let savedList { return savedList }
+        let loaded = context.jsonFile(Self.vehiclesFile, as: [VehicleInfo].self).load()
+        savedList = loaded
+        return loaded ?? []
     }
 
     static let vehiclesFile = "renault-vehicles.json"
@@ -206,26 +210,24 @@ public actor RenaultPlugin: HomeswiftPlugin {
             if !ModelEndpoints.isKnown(info.modelCode) {
                 logger.warning("The model \(info.modelCode ?? "?") is not documented: using the default endpoints (hacf-fr/renault-api#1747)")
             }
-            let store = droppedStore, lock = dropLock, sentSoc = sentSoc, context = context, vin = info.vin
+            let store = droppedStore, sentSoc = sentSoc, context = context, vin = info.vin
             let settings = context.accessorySettings(for: info.vin)
             var options = RenaultVehicle.Options(climateTemperature: configuration.climateTemperature ?? 21, parts: settings.parts)
             options.socMinimum = settings.plugin["socMin"]?.saturatingIntValue
             options.socTarget = settings.plugin["socTarget"]?.saturatingIntValue
             let vehicle = RenaultVehicle(
                 info: info, accountID: accountID, session: session, options: options,
-                dropped: Self.dropped(in: store.load() ?? [:], for: info, forgetAfter: dependencies.timing.forgetDropped),
+                dropped: Self.dropped(in: store.values, for: info, forgetAfter: dependencies.timing.forgetDropped),
                 timing: dependencies.timing, logger: logger, tasks: tasks,
                 sentSoc: sentSoc[vin],
                 record: { key, value in context.recordValue(value, series: "\(vin):\(key)") },
                 onSocSent: { sent in sentSoc[vin] = sent }
             ) { vin, endpoint in
-                lock.lock()
-                defer { lock.unlock() }
-                var all = store.load() ?? [:]
-                var entry = all[vin].flatMap { $0.model == info.modelCode ? $0 : nil } ?? DroppedEndpoints(model: info.modelCode, endpoints: [:])
-                entry.endpoints[endpoint.rawValue] = Date()
-                all[vin] = entry
-                try? store.save(all)
+                store.update(vin) { entry in
+                    var kept = entry.flatMap { $0.model == info.modelCode ? $0 : nil } ?? DroppedEndpoints(model: info.modelCode, endpoints: [:])
+                    kept.endpoints[endpoint.rawValue] = Date()
+                    entry = kept
+                }
             }
             vehicles[info.vin] = vehicle
             logger.info("Found \(info.modelName ?? info.modelCode ?? "a vehicle") \(maskedVIN(info.vin))")
@@ -341,7 +343,7 @@ public actor RenaultPlugin: HomeswiftPlugin {
 
     // MARK: Dropped endpoints, remembered (6.3)
 
-    struct DroppedEndpoints: Codable, Sendable {
+    struct DroppedEndpoints: Codable, Sendable, Equatable {
         var model: String?
         var endpoints: [String: Date]
     }
@@ -350,12 +352,8 @@ public actor RenaultPlugin: HomeswiftPlugin {
     /// Accessory Settings.
     nonisolated let sentSoc: PersistedDictionary<SocLevels>
 
-    /// Vehicles drop endpoints from their own actors: one read-modify-write of the file at a time.
-    nonisolated let dropLock = NSLock()
-
-    nonisolated var droppedStore: JSONFile<[String: DroppedEndpoints]> {
-        context.jsonFile("renault-endpoints.json", as: [String: DroppedEndpoints].self)
-    }
+    /// The endpoints each car did not have, by VIN (`renault-endpoints.json`): vehicles drop them from their own actors.
+    nonisolated let droppedStore: PersistedDictionary<DroppedEndpoints>
 
     /// What this car did not have, forgotten when its model changed or after `forgetAfter`.
     static func dropped(in all: [String: DroppedEndpoints], for info: VehicleInfo, forgetAfter: Duration, now: Date = Date()) -> Set<Endpoint> {

@@ -100,9 +100,8 @@ actor RenaultVehicle {
     private(set) var hvac: HvacStatus?
     private(set) var soc: SocLevels?
     private(set) var lock: LockStatus?
-    private var seenInterior = false
-    private var seenExterior = false
-    private var seenBatteryTemperature = false
+    /// The temperature parts a value has been seen for: their sensors show only then (5.2).
+    private var seenTemperatures: Set<VehiclePart> = []
     /// The programs' activation flags before a charge start turned them off (4.6), in memory.
     private(set) var programsBeforeChargeStart: [Bool]?
     /// Since when reads fail with no read succeeding in between; a read skipped for the quota or a dropped endpoint is
@@ -178,11 +177,16 @@ actor RenaultVehicle {
 
     func isIncluded(_ part: VehiclePart) -> Bool { options.parts[part.rawValue] ?? part.includedByDefault }
 
+    /// The parts this car has and the Accessory Settings include.
+    private func includedParts() -> Set<VehiclePart> { Set(availableParts().filter(isIncluded)) }
+
+    /// An electric car whose battery is read: it gets the Battery service, read each round.
+    private var hasBattery: Bool { info.usesElectricity && has(.batteryStatus) }
+
     /// The endpoints read each round (6.1): only those something in HomeKit shows.
     func roundEndpoints() -> [Endpoint] {
-        let parts = Set(availableParts().filter(isIncluded))
-        var endpoints: [Endpoint] = []
-        if info.usesElectricity, has(.batteryStatus) { endpoints.append(.batteryStatus) }
+        let parts = includedParts()
+        var endpoints: [Endpoint] = hasBattery ? [.batteryStatus] : []
         if has(.hvacStatus), !parts.isDisjoint(with: [.climate, .interiorTemperature, .exteriorTemperature]) { endpoints.append(.hvacStatus) }
         if parts.contains(.doors) { endpoints.append(.lockStatus) }
         return endpoints
@@ -239,14 +243,14 @@ actor RenaultVehicle {
                 logger.warning("Unknown charging status \(value) for \(logName)")
             }
             battery = status
-            if status.temperature != nil { seenBatteryTemperature = true }
+            if status.temperature != nil { seenTemperatures.insert(.batteryTemperature) }
             if let charging = status.isCharging { settle(&pendingCharging, read: charging) }
             recordReadings(status)
         case .hvacStatus:
             let status = HvacStatus(attributes: attributes)
             hvac = status
-            if status.internalTemperature != nil { seenInterior = true }
-            if status.externalTemperature != nil { seenExterior = true }
+            if status.internalTemperature != nil { seenTemperatures.insert(.interiorTemperature) }
+            if status.externalTemperature != nil { seenTemperatures.insert(.exteriorTemperature) }
             if let on = status.isOn { settle(&pendingClimate, read: on) }
         case .socLevels:
             soc = SocLevels(attributes: attributes)
@@ -276,14 +280,10 @@ actor RenaultVehicle {
 
     /// The services this car gets now: a temperature sensor only once a value has been seen (5.2).
     func serviceKeys() -> Set<String> {
-        let parts = Set(availableParts().filter(isIncluded))
-        var keys: Set<String> = []
-        if info.usesElectricity, has(.batteryStatus) { keys.insert("Battery") }
-        for part in parts {
+        var keys: Set<String> = hasBattery ? ["Battery"] : []
+        for part in includedParts() {
             switch part {
-            case .interiorTemperature: if seenInterior { keys.insert(part.rawValue) }
-            case .exteriorTemperature: if seenExterior { keys.insert(part.rawValue) }
-            case .batteryTemperature: if seenBatteryTemperature { keys.insert(part.rawValue) }
+            case .interiorTemperature, .exteriorTemperature, .batteryTemperature: if seenTemperatures.contains(part) { keys.insert(part.rawValue) }
             default: keys.insert(part.rawValue)
             }
         }
@@ -323,7 +323,7 @@ actor RenaultVehicle {
             let service = Service(.switch, name: "\(name) \(part.name)", subtype: part.rawValue, optional: [.configuredName])
             let on = service.characteristic(.on)
             if part == .horn { on.securityControl() }
-            on.onWrite { [weak self] value in try await self?.flash(endpoint, value: value.boolValue ?? false) }
+            on.onWrite { [weak self] value in try await self?.flash(part, endpoint: endpoint, value: value.boolValue ?? false) }
             built[part.rawValue] = service
         }
         if keys.contains(VehiclePart.interiorTemperature.rawValue) {
@@ -442,18 +442,14 @@ actor RenaultVehicle {
     func applySocLimits() async {
         let asked = SocLevels(minimum: options.socMinimum, target: options.socTarget)
         guard asked.minimum != nil || asked.target != nil else {
-            if sentSoc != nil {
-                sentSoc = nil
-                onSocSent(nil)
-            }
+            if sentSoc != nil { remember(nil) }
             return
         }
         guard asked != sentSoc, asked != refusedSoc, let read = soc,
               let minimum = asked.minimum ?? read.minimum, let target = asked.target ?? read.target else { return }
         let wanted = SocLevels(minimum: minimum, target: target)
         guard read != wanted else {
-            sentSoc = asked
-            onSocSent(asked)
+            remember(asked)
             return
         }
         guard SocLevels.isValid(minimum: minimum), SocLevels.isValid(target: target) else {
@@ -466,16 +462,21 @@ actor RenaultVehicle {
         do {
             try await send(path: path, body: ["socMin": .number(Double(minimum)), "socTarget": .number(Double(target))], label: label)
         } catch {
-            _ = Self.status(for: error, logger: logger, action: label, vehicle: logName)
+            Self.logFailure(error, logger: logger, action: label, vehicle: logName)
             if case RenaultError.quota = error {} else { refusedSoc = asked }
             return
         }
-        sentSoc = asked
-        onSocSent(asked)
+        remember(asked)
         // Shown at once (the server answers the old values for a while), as Home Assistant does.
         soc = wanted
         show()
         logger.info("Set the charge limits of \(logName) to \(minimum) % and \(target) %")
+    }
+
+    /// The settings' limits as sent, in memory and in `renault-soc.json`.
+    private func remember(_ sent: SocLevels?) {
+        sentSoc = sent
+        onSocSent(sent)
     }
 
     // MARK: Actions (4.4 to 4.6)
@@ -565,14 +566,13 @@ actor RenaultVehicle {
     }
 
     /// Horn or lights: the action, then the switch turns itself off.
-    func flash(_ endpoint: Endpoint, value: Bool) async throws {
+    func flash(_ part: VehiclePart, endpoint: Endpoint, value: Bool) async throws {
         guard value else { return }
         guard let (path, _) = resolve(endpoint) else { throw HAPStatusError(.notAllowedInCurrentState) }
-        let target = endpoint == .hornStart ? "horn" : "lights"
+        let target = part.rawValue.lowercased()
         try await act(path: path, body: ["data": ["type": "HornLights", "attributes": ["action": "start", "target": .string(target)]]], label: target)
         logger.info("Sent \(target) to \(logName)")
-        let key = endpoint == .hornStart ? "Horn" : "Lights"
-        _ = services[key]?.characteristic(.on).revert(to: .bool(false), after: timing.momentary)
+        _ = services[part.rawValue]?.characteristic(.on).revert(to: .bool(false), after: timing.momentary)
     }
 
     private func act(path: String, body: JSONValue, label: String) async throws {
@@ -592,13 +592,18 @@ actor RenaultVehicle {
 
     /// An action's failure as HomeKit hears it, logged.
     static func status(for error: any Error, logger: Logger, action: String, vehicle: String) -> HAPStatusError {
+        logFailure(error, logger: logger, action: action, vehicle: vehicle)
+        return HAPStatusError(.serviceCommunicationFailure)
+    }
+
+    /// An action's failure, logged.
+    static func logFailure(_ error: any Error, logger: Logger, action: String, vehicle: String) {
         switch error {
         case RenaultError.quota:
             logger.warning("Renault's hourly quota is spent: the \(action) for \(vehicle) was not sent")
         default:
             logger.warning("The \(action) for \(vehicle) failed: \(error)")
         }
-        return HAPStatusError(.serviceCommunicationFailure)
     }
 
     /// Reads the endpoint again after the action, at 6.1's delays, inside the budget (a read that does not fit is skipped).

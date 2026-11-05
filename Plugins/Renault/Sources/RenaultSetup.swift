@@ -14,7 +14,7 @@ extension RenaultPlugin {
     public func accountAuthorized() async -> Bool? { storedCredentials() != nil }
 
     public func discover() async throws -> [DiscoveredDevice] {
-        let dropped = droppedStore.load() ?? [:]
+        let dropped = droppedStore.values
         let wanted = wantedVINs
         return knownVehicles.sorted { $0.vin < $1.vin }.map { info in
             let parts = context.accessorySettings(for: info.vin).parts

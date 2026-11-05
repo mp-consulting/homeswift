@@ -163,9 +163,9 @@ struct BatteryStatus: Sendable, Equatable {
     var timestamp: String?
 
     init(attributes json: JSONValue, reportsWatts: Bool = false) {
-        level = json["batteryLevel"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
-        autonomy = json["batteryAutonomy"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...2000) }
-        remainingMinutes = json["chargingRemainingTime"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...10_000) }
+        level = json["batteryLevel"]?.saturatingIntValue(in: 0...100)
+        autonomy = json["batteryAutonomy"]?.saturatingIntValue(in: 0...2000)
+        remainingMinutes = json["chargingRemainingTime"]?.saturatingIntValue(in: 0...10_000)
         temperature = json["batteryTemperature"]?.doubleValue?.finite.flatMap(HvacStatus.plausible)
         availableEnergy = json["batteryAvailableEnergy"]?.doubleValue?.finite.flatMap { (0.1...500).contains($0) ? $0 : nil }
         timestamp = json["timestamp"]?.stringValue.map { String($0.prefix(64)) }
@@ -240,8 +240,8 @@ struct SocLevels: Sendable, Equatable, Codable {
     }
 
     init(attributes json: JSONValue) {
-        minimum = json["socMin"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
-        target = json["socTarget"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
+        minimum = json["socMin"]?.saturatingIntValue(in: 0...100)
+        target = json["socTarget"]?.saturatingIntValue(in: 0...100)
     }
 
     init(minimum: Int?, target: Int?) {
