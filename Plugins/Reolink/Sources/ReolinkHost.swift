@@ -32,6 +32,8 @@ actor ReolinkHost {
     private var privacyBeforeConnect: Bool?
     /// `cmd_id` 199's abilities by channel, when Baichuan answered before the channels were read.
     private var baichuanAbilities: [Int: [String: Int]] = [:]
+    /// Each channel's talk ability once asked (ReolinkTalk.md 2): kept for the host's life.
+    private var talkAbilities: [Int: ReolinkTalkAbility] = [:]
     /// Who waits for privacy mode to end (`waitForPrivacyOff`).
     private let privacyWaiters = Waiters<Void>()
 
@@ -226,6 +228,43 @@ actor ReolinkHost {
             for await event in session.events { await self?.handle(event) }
         }
         return session
+    }
+
+    /// A channel's talk format (ReolinkTalk.md 2), asked once when its abilities say it may talk; nil without one. Talk
+    /// goes over the Baichuan session: none without push (`pushEvents`).
+    func talkConfig(channel ch: Int, name: String) async -> ReolinkTalkConfig? {
+        if let known = talkAbilities[ch] { return known.config }
+        guard ReolinkTalkAbility.permitted(httpTalk: info.ability("talk", channel: ch), baichuan: baichuanAbilities, channel: ch, multiChannel: info.isMultiChannel) else {
+            log.info("\(name): the device reports no talk ability: no two-way audio.")
+            talkAbilities[ch] = .unsupported("no talk ability")
+            return nil
+        }
+        guard let baichuan, await baichuan.isConnected else {
+            log.info("\(name): two-way audio goes over the Baichuan connection, which is \(device.pushEvents ? "not up" : "off (pushEvents)"): no two-way audio for now.")
+            return nil
+        }
+        let ability: ReolinkTalkAbility
+        do {
+            ability = try await baichuan.talkAbility(channel: ch)
+        } catch {
+            log.info("\(name): could not ask the talk ability (\(error)): no two-way audio for now.")
+            return nil
+        }
+        talkAbilities[ch] = ability
+        switch ability {
+        case .supported(let config): log.info("\(name): two-way audio (Experimental): \(config.summary).")
+        case .unsupported(let reason): log.info("\(name): no two-way audio: \(reason).")
+        }
+        return ability.config
+    }
+
+    /// A Talk's way to the session: the host's Baichuan connection while it is up.
+    func talkLink(channel ch: Int) -> ReolinkTalkLink {
+        let battery = channels[ch]?.battery ?? false
+        return ReolinkTalkLink(withSession: { [weak self] body in
+            guard let session = await self?.baichuan, await session.isOpen else { throw BaichuanError.closed }
+            try await body(session)
+        }, retriesWaking: battery)
     }
 
     /// Privacy mode of each channel that may have it (a camera whose login reply had `sleep`; an NVR's channel with

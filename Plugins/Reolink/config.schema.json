@@ -250,6 +250,12 @@
                     "description": "The camera's sound in live streams.",
                     "default": false
                   },
+                  "twoWayAudio": {
+                    "title": "Two-way audio",
+                    "type": "boolean",
+                    "description": "Experimental: talk through the camera's speaker from the Home app, where the camera says it can. Not yet tried on a Reolink device.",
+                    "default": false
+                  },
                   "recording": {
                     "title": "HomeKit Secure Video",
                     "type": "boolean",
@@ -588,6 +594,15 @@
           "camera"
         ]
       },
+      "twoWayAudio": {
+        "title": "Two-way audio",
+        "type": "boolean",
+        "description": "Experimental: talk through the camera's speaker from the Home app, where the camera says it can. Not yet tried on a Reolink device.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
       "recording": {
         "title": "HomeKit Secure Video",
         "type": "boolean",
@@ -916,6 +931,7 @@
       "items": [
         "stream",
         "audio",
+        "twoWayAudio",
         "recording",
         "prebuffer",
         "maxStreams",
@@ -1072,7 +1088,9 @@
       "Motion duration (seconds)": "Durée du mouvement (secondes)",
       "How long a battery camera's motion stays on: it never says that motion stopped.": "Combien de temps le mouvement d'une caméra sur batterie reste actif : elle ne dit jamais qu'il a cessé.",
       "Battery cameras' event port": "Port des événements des caméras sur batterie",
-      "The port battery cameras post their events to. Empty: one chosen once and kept.": "Le port où les caméras sur batterie envoient leurs événements. Vide : un port choisi une fois et conservé."
+      "The port battery cameras post their events to. Empty: one chosen once and kept.": "Le port où les caméras sur batterie envoient leurs événements. Vide : un port choisi une fois et conservé.",
+      "Two-way audio": "Audio bidirectionnel",
+      "Experimental: talk through the camera's speaker from the Home app, where the camera says it can. Not yet tried on a Reolink device.": "Expérimental : parler dans le haut-parleur de la caméra depuis l'app Maison, là où la caméra dit le pouvoir. Pas encore essayé sur un appareil Reolink."
     },
     "es": {
       "A channel number, from 0.": "Un número de canal, desde 0.",
@@ -1201,7 +1219,9 @@
       "Motion duration (seconds)": "Duración del movimiento (segundos)",
       "How long a battery camera's motion stays on: it never says that motion stopped.": "Cuánto tiempo sigue activo el movimiento de una cámara de batería: nunca dice que ha terminado.",
       "Battery cameras' event port": "Puerto de eventos de las cámaras de batería",
-      "The port battery cameras post their events to. Empty: one chosen once and kept.": "El puerto al que las cámaras de batería envían sus eventos. Vacío: uno elegido una vez y conservado."
+      "The port battery cameras post their events to. Empty: one chosen once and kept.": "El puerto al que las cámaras de batería envían sus eventos. Vacío: uno elegido una vez y conservado.",
+      "Two-way audio": "Audio bidireccional",
+      "Experimental: talk through the camera's speaker from the Home app, where the camera says it can. Not yet tried on a Reolink device.": "Experimental: hablar por el altavoz de la cámara desde la app Casa, donde la cámara dice que puede. Aún no probado en un dispositivo Reolink."
     },
     "pt": {
       "A channel number, from 0.": "Um número de canal, a partir de 0.",
@@ -1330,7 +1350,9 @@
       "Motion duration (seconds)": "Duração do movimento (segundos)",
       "How long a battery camera's motion stays on: it never says that motion stopped.": "Quanto tempo o movimento de uma câmara de bateria fica ativo: nunca diz que terminou.",
       "Battery cameras' event port": "Porta de eventos das câmaras de bateria",
-      "The port battery cameras post their events to. Empty: one chosen once and kept.": "A porta para onde as câmaras de bateria enviam os eventos. Vazio: uma escolhida uma vez e mantida."
+      "The port battery cameras post their events to. Empty: one chosen once and kept.": "A porta para onde as câmaras de bateria enviam os eventos. Vazio: uma escolhida uma vez e mantida.",
+      "Two-way audio": "Áudio bidirecional",
+      "Experimental: talk through the camera's speaker from the Home app, where the camera says it can. Not yet tried on a Reolink device.": "Experimental: falar pelo altifalante da câmara a partir da app Casa, onde a câmara diz que pode. Ainda não experimentado num dispositivo Reolink."
     }
   }
 }

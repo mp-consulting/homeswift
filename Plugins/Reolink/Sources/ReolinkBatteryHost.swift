@@ -17,6 +17,9 @@ actor ReolinkBatteryHost {
         var battery: ReolinkBatteryReport?
         /// Whether the firmware has the webhook (`cmd_id` 806 answered); nil until asked.
         var webhookSupported: Bool?
+        /// The talk ability once asked (ReolinkTalk.md 2): its format, nil when the camera cannot talk.
+        var talkAsked: Bool?
+        var talk: ReolinkTalkConfig?
     }
 
     /// How a webhook check ended (6.1).
@@ -245,6 +248,50 @@ actor ReolinkBatteryHost {
             once.withLockedValue { value in value?.resume(throwing: CancellationError()); value = nil }
             work.withLockedValue { $0 }?.cancel()
         }
+    }
+
+    // MARK: Talk (ReolinkTalk.md)
+
+    /// The camera's talk format: the record's once asked, else asked now (it wakes the camera, once) and kept. Nil when it
+    /// cannot talk, or did not answer (asked again at the next start).
+    func talkConfig(name: String) async -> ReolinkTalkConfig? {
+        if record.talkAsked == true { return record.talk }
+        let ability: ReolinkTalkAbility
+        do {
+            ability = try await use(budget: Self.snapshotBudget) { session -> ReolinkTalkAbility in
+                let abilities = try await session.abilities()
+                guard ReolinkTalkAbility.permitted(httpTalk: 0, baichuan: abilities, channel: 0, multiChannel: false) else {
+                    return .unsupported("the camera reports no talk ability")
+                }
+                return try await session.talkAbility(channel: 0)
+            }
+        } catch {
+            log.info("\(name): could not ask the talk ability (\(error)): no two-way audio until the next start.")
+            return nil
+        }
+        switch ability {
+        case .supported(let config): log.info("\(name): two-way audio (Experimental): \(config.summary).")
+        case .unsupported(let reason): log.info("\(name): no two-way audio: \(reason).")
+        }
+        record.talkAsked = true
+        record.talk = ability.config
+        saveRecord(record)
+        return ability.config
+    }
+
+    /// Runs a Talk's `body` on a session, opened if none is: the camera is kept awake while it runs, and the session closes
+    /// 5 s after it, as after any use.
+    func talking(_ body: @escaping @Sendable (BaichuanSession) async throws -> Void) async throws {
+        guard !stopped else { throw BaichuanError.closed }
+        users += 1
+        idleTask?.cancel()
+        defer {
+            users -= 1
+            scheduleIdleClose()
+        }
+        let deadline = ContinuousClock.now + timing.timeout(Self.streamBudget)
+        let session = try await Self.withDeadline(deadline) { try await self.openSession() }
+        try await body(session)
     }
 
     // MARK: Events (6.2, 6.3)

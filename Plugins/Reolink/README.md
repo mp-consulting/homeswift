@@ -20,6 +20,7 @@ Each published channel is an external camera accessory (category IP Camera, or V
 | Service (subtype) | When | HomeKit |
 |---|---|---|
 | Camera | always | Live video and snapshots; HomeKit Secure Video with `recording` |
+| Speaker (two-way audio) | `twoWayAudio: true` and the channel's talk ability says it can (Experimental) | The Home app's talk button plays through the camera's speaker, over Baichuan |
 | Doorbell (`doorbell`, primary) | the model says Doorbell, or the device reports a visitor button | A press on each rising edge of the visitor event, at most once per `ringThrottleSeconds` |
 | Motion Sensor (`motion`) | the channel reports motion | Motion Detected; it also triggers HomeKit Secure Video |
 | Motion Sensors (`person`, `vehicle`, `pet`, `face`, `package`) | each AI type the camera supports (pet also needs `supportAiAnimal`) | Motion Detected for that type |
@@ -54,6 +55,30 @@ device's `Snap` command (the sub stream for small sizes), cached 10 seconds, wit
 **HomeKit Secure Video.** With `recording`, a motion event records the main stream transcoded to what HomeKit chose
 (`RTSPRecordingSource` in HomeswiftFFmpeg). With `prebuffer` one stream stays open and keeps the last four seconds, so
 recordings start before the motion; without it a recording starts when the event is seen.
+
+## Two-way audio (Experimental)
+
+With `twoWayAudio: true` in a channel's options (off by default), the Home app's talk button reaches the camera's
+speaker over the Baichuan session ([spec](../../docs/clean-room/ReolinkTalk.md)), for a camera or doorbell, a channel
+of an NVR or Home Hub, and a battery camera on its own. Tried against fake devices only.
+
+- **Only where the device says so.** At start, a channel whose abilities allow talk (HTTP `talk`, Baichuan
+  `ipcAudioTalk` for the channel, or a camera's own `audioTalk`) is asked its talk ability (`cmd_id` 10): two-way
+  audio needs `mixAudioStream`, or `followVideoStream` with full duplex, and mono 16-bit ADPCM at 8 or 16 kHz. Only
+  then is the camera published with two-way audio (a Speaker); otherwise the log says why, once. Talk goes over the
+  push session, so a device with `pushEvents: false` has none. A battery camera is asked once (that wakes it) and the
+  answer is kept in `battery-cameras.json`.
+- **A Talk** is one burst of speech (HomeswiftFFmpeg's return audio: FFmpeg decodes HomeKit's AAC-ELD into PCM at the
+  camera's rate). It starts with `TalkConfig` (`cmd_id` 201: a 422, a Talk left open, is stopped with 11 and asked once
+  more; a 400 of a battery channel behind a hub waking is asked again 1.5 s later, up to 3 times); its audio is IMA
+  ADPCM, one block of 1025 samples (64 ms at 16 kHz) per `cmd_id` 202, all on one message number, each sent once the
+  previous one is answered; the stop (`cmd_id` 11) waits until the audio sent has played, plus 100 ms. A camera slower
+  than the audio drops the oldest blocks beyond three. A refused or unanswered block ends the Talk; after a refusal the
+  next Talks send four blocks per message, as Reolink's own app does. One Talk at a time per channel.
+- **Volume:** HomeKit's Speaker volume scales the samples (never above 100 %); the camera's own talk volume
+  (`talkAndReplyVolume`, set in the Reolink app) is left alone. A siren switched on during a Talk waits for it to end
+  (up to 10 s, then it is refused).
+- **Battery cameras** stay awake while a Talk runs, and are let sleep 5 s after it, as after any use.
 
 ## Battery cameras on their own (Experimental)
 
@@ -133,7 +158,8 @@ too:
 A channel's options (also its Accessory Settings): `name`, `motionSensor` (true), `aiSensors` (every supported type),
 `doorbell` (auto), `floodlight` (true), `siren` (false), `irLights` (false), `stream` (`auto`, `main`, `sub`), `audio`
 (false), `recording` (false), `prebuffer` (false), `maxStreams` (2), `vcodec` (`libx264` or `copy`), `encoderOptions`,
-`debug`, `ringThrottleSeconds` (3), and for a battery camera on its own `motionTimeout` (30 s).
+`debug`, `ringThrottleSeconds` (3), `twoWayAudio` (false, Experimental: "Two-way audio" above), and for a battery camera
+on its own `motionTimeout` (30 s).
 
 New in the Accessory Settings: `presetSwitches` (false), `patrolSwitch` (false), `privacySwitch` (true), `recordingSwitch`
 (false), `chimeSwitch` (false) and `chimeTone` (`citybird`, `originaltune`, `pianokey`, `loop`, `attraction`, `hophop`,
@@ -239,8 +265,16 @@ Choices made where the spec is silent or leaves it open:
 - **While push is active** the full refresh leaves the event commands out and a poll answered late is not applied, so
   an older poll never undoes a newer push.
 - The spec's AES vector says its plaintext is 48 bytes; the text and the ciphertext it gives are 47, and they match.
-- **Two-way audio** is not supported: none of the sources describes how to send talk audio (Home Assistant relies on an
-  RTSP backchannel whose details they do not give, and FFmpeg cannot send one).
+- **Two-way audio** (Experimental) has been tried against fake devices only. Its open points, as the spec leaves them:
+  - **The talk messages' `ch_id`.** Whether a camera takes 201, 202 and 11 with channel + 1 in header byte 12 (as every
+    other channel command, and `cmd_id` 10) or the bare channel is not known. The plugin sends channel + 1 first; a
+    TalkConfig refused with any status but 422 is asked once more with the bare channel, which is then kept for the
+    channel's Talks; refused both ways, the Talk ends and the next one starts again from channel + 1.
+  - **Full-AES sessions** (battery cameras): the audio's binary is sent in clear, as in AES sessions; whether such a
+    camera wants it encrypted with an `encryptLen` is not known.
+  - Whether an NVR or a hub relays a Talk to its channel's camera, formats other than ADPCM, a siren or chime during a
+    Talk, and whether the camera checks the frame's block-size field are not known. The RTSP backchannel (PCMA on some
+    models) is not used: battery cameras have none.
 - **Baichuan over UDP** (P2P, port 2015) stays out: that transport is about as large as the whole plugin again; such
   cameras are supported behind a Home Hub or NVR.
 - **The hardwired chime** of a doorbell (Baichuan 483) is left out: reading its state makes the chime rattle.
@@ -279,6 +313,12 @@ webhook bodies of 12.3, a snapshot in parts on another message number (12.4), th
 a `periodic` request never waking it, the retry on 400, a live stream (byte 13, the stop's bytes 12 to 15, a snapshot
 then a logout 5 s after), Setup by address, a UDP-only camera refused, another receiver's webhook kept, and the
 accessory published from what Setup kept without a connection, its motion and doorbell from the webhook.
+Two-way audio (`ReolinkTalkTests`, the fake devices answering 10, 201, 202 and 11): ReolinkTalk.md 9.1's headers, the
+394- and 131-byte bodies, the media frames of 9.3, the ability fixture of 9.4 and its variants; a second of talk as 16
+messages of 528 bytes on one message number, the volume, a 422 stopped first, the bare channel after a refusal, a waking
+hub channel, a refused block and the four-frame fallback, an unanswered one, a dropped session (no stop), Talks in turn;
+the Speaker only with the option and the ability, for a camera, an NVR channel and a battery camera kept awake while
+it talks.
 
 ## Clean-room implementation
 

@@ -35,6 +35,8 @@ final class FakeBatteryCamera: @unchecked Sendable {
         /// What a media start sends, in binary messages of these sizes.
         var media: [UInt8] = []
         var mediaChunk = 700
+        /// Whether it has a speaker: `audioTalk` in its abilities, a talk ability, and the talk's messages answered.
+        var talks = false
     }
 
     static let uid = "95270000AAAAAAAA"
@@ -146,7 +148,7 @@ final class FakeBatteryCamera: @unchecked Sendable {
         case 114:
             return xml(head + "<Uid version=\"1.1\">\n<uid>\(Self.uid)</uid>\n</Uid>\n</body>\n")
         case 199:
-            return xml(head + "<AbilityInfo version=\"1.1\">\n<netPort>\(current.netPort)</netPort>\n<system>\n<item>\n<chnID>0</chnID>\n<battery>1</battery>\n</item>\n</system>\n</AbilityInfo>\n</body>\n")
+            return xml(head + "<AbilityInfo version=\"1.1\">\n<netPort>\(current.netPort)</netPort>\n<system>\n<item>\n<chnID>0</chnID>\n<battery>1</battery>\n\(current.talks ? "<audioTalk>1</audioTalk>\n" : "")</item>\n</system>\n</AbilityInfo>\n</body>\n")
         case 253:
             return xml(head + "<BatteryInfo version=\"1.1\">\n<channelId>0</channelId>\n<chargeStatus>none</chargeStatus>\n<batteryPercent>\(current.battery)</batteryPercent>\n<lowPower>0</lowPower>\n</BatteryInfo>\n</body>\n")
         case 806:
@@ -182,6 +184,10 @@ final class FakeBatteryCamera: @unchecked Sendable {
             return replies
         case 4:
             return xml("")
+        case 10 where current.talks:
+            return xml(head + "<TalkAbility version=\"1.1\">\n<duplexList><duplex>FDX</duplex></duplexList>\n<audioStreamModeList><audioStreamMode>followVideoStream</audioStreamMode></audioStreamModeList>\n<audioConfigList><audioConfig><priority>0</priority><audioType>adpcm</audioType><sampleRate>16000</sampleRate>\n<samplePrecision>16</samplePrecision><lengthPerEncoder>1024</lengthPerEncoder><soundTrack>mono</soundTrack></audioConfig></audioConfigList>\n</TalkAbility>\n</body>\n")
+        case 201 where current.talks, 202 where current.talks, 11 where current.talks:
+            return [Self.message(command: command, channel: channel, counter: counter, status: 200, body: [])]
         default:
             return [Self.message(command: command, channel: channel, counter: counter, status: 400, body: [])]
         }

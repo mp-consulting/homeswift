@@ -113,15 +113,23 @@ extension ReolinkPlugin {
             snapshot: { _ in throw ReolinkError.unsupported("Snap") }, stream: { _ in nil }, asleep: { true },
             media: { sub, audio in try await host.liveFeed(sub: sub, audio: audio) },
             snapshotRequest: { request in try await host.snapshot(for: request) })
-        let streamer = ReolinkStreamer(name: options.name ?? channel.name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: log,
-                                       timing: dependencies.timing)
+        let name = options.name ?? channel.name
+        // Asked before the camera is made: only a camera published with two-way audio has a Speaker.
+        let talk = options.twoWayAudio ? await host.talkConfig(name: name) : nil
+        let talker = talk.map { config in
+            ReolinkTalker(channel: 0, config: config, link: ReolinkTalkLink(withSession: { body in try await host.talking(body) }), name: name, log: log,
+                          timing: dependencies.timing)
+        }
+        let streamer = ReolinkStreamer(name: name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: log,
+                                       timing: dependencies.timing, returnAudio: talker?.returnAudioOptions, codecs: ffmpegCodecs,
+                                       returnAudioDecoder: dependencies.returnAudioDecoder)
         let refused: @Sendable () throws -> Void = { throw ReolinkError.unsupported("this control") }
         let writes = ReolinkCamera.Writes(
             floodlight: { _, _ in try refused() }, siren: { _ in try refused() }, ir: { _ in try refused() }, goToPreset: { _ in try refused() },
             privacy: { _ in try refused() }, floodlightColour: { _ in try refused() }, chime: { _ in try refused() }, recording: { _ in try refused() },
             patrol: { _ in try refused() })
         let camera = try ReolinkCamera(id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: false,
-                                       streamer: streamer, recorder: nil, writes: writes, log: log, timing: dependencies.timing)
+                                       streamer: streamer, recorder: nil, writes: writes, log: log, timing: dependencies.timing, talker: talker)
         await camera.start()
         await host.setListener { state in camera.apply(state) }
         // Events find the camera from the moment it is in HomeKit.

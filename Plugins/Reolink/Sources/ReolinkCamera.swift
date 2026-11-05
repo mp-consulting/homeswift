@@ -25,6 +25,8 @@ final class ReolinkCamera: @unchecked Sendable {
     let controller: CameraController
     let streamer: ReolinkStreamer
     let recorder: ReolinkRecorder?
+    /// Two-way talk, when the camera was published with it (ReolinkTalk.md).
+    let talker: ReolinkTalker?
     let channel: Int
     private let name: String
     private let log: Logger
@@ -76,7 +78,8 @@ final class ReolinkCamera: @unchecked Sendable {
 
     /// The services a channel gets, from what it supports and its options.
     init(id: String, channel info: ReolinkChannel, host: ReolinkHostInfo, options: ReolinkPlugin.CameraOptions, canWrite: Bool,
-         streamer: ReolinkStreamer, recorder: ReolinkRecorder?, writes: Writes, log: Logger, timing: ReolinkTiming) throws {
+         streamer: ReolinkStreamer, recorder: ReolinkRecorder?, writes: Writes, log: Logger, timing: ReolinkTiming, talker: ReolinkTalker? = nil) throws {
+        self.talker = talker
         let name = options.name ?? info.name
         self.name = name
         self.channel = info.channel
@@ -137,7 +140,7 @@ final class ReolinkCamera: @unchecked Sendable {
             supportedCryptoSuites: [.aesCM128HMACSHA1_80],
             video: VideoStreamingOptions(codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]),
                                          resolutions: Self.resolutions(upTo: info.main)),
-            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: false))
+            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: talker != nil))
         let controllerOptions = CameraControllerOptions(
             cameraStreamCount: options.maxStreams, delegate: streamer, streamingOptions: streaming,
             recording: recorder.map { CameraRecordingSetup(options: ReolinkRecorder.options(resolutions: Self.resolutions(upTo: info.main)), delegate: $0) },

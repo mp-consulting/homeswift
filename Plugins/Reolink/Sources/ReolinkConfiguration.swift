@@ -116,9 +116,12 @@ extension ReolinkPlugin {
         public var floodlightMode: String?
         /// How long a battery camera's motion stays on (it sends no "motion stopped"), in seconds.
         public var motionTimeout: Int
+        /// Two-way talk over Baichuan (ReolinkTalk.md), Experimental: off unless asked for, and then only where the
+        /// channel's talk ability says it can.
+        public var twoWayAudio: Bool
 
         static let settingKeys = ["motionSensor", "aiSensors", "doorbell", "floodlight", "siren", "irLights", "stream", "audio", "recording", "prebuffer",
-                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch", "floodlightMode", "chimeSwitch", "chimeTone", "recordingSwitch", "motionSensitivity", "aiSensitivity", "motionTimeout"]
+                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch", "floodlightMode", "chimeSwitch", "chimeTone", "recordingSwitch", "motionSensitivity", "aiSensitivity", "motionTimeout", "twoWayAudio"]
 
         init(json: JSONValue) {
             name = json["name"]?.stringValue?.nonEmptyText
@@ -148,6 +151,7 @@ extension ReolinkPlugin {
             chimeTone = json["chimeTone"]?.stringValue.flatMap { ReolinkChime.tones.firstIndex(of: $0) } ?? 0
             floodlightMode = json["floodlightMode"]?.stringValue.flatMap { ReolinkFloodlight.modeNumber($0) == nil ? nil : $0 }
             motionTimeout = min(3600, max(5, json["motionTimeout"].lenientInt ?? 30))
+            twoWayAudio = json["twoWayAudio"]?.boolValue ?? false
         }
 
         /// The options with Accessory Settings on top.
@@ -164,7 +168,7 @@ extension ReolinkPlugin {
                                                "presetSwitches": .bool(presetSwitches), "patrolSwitch": .bool(patrolSwitch),
                                                "privacySwitch": .bool(privacySwitch),
                                                "chimeSwitch": .bool(chimeSwitch), "recordingSwitch": .bool(recordingSwitch), "chimeTone": .string(ReolinkChime.tones[chimeTone]),
-                                               "motionTimeout": .number(Double(motionTimeout))]
+                                               "motionTimeout": .number(Double(motionTimeout)), "twoWayAudio": .bool(twoWayAudio)]
             if let name { fields["name"] = .string(name) }
             if let motionSensor { fields["motionSensor"] = .bool(motionSensor) }
             if let aiSensors { fields["aiSensors"] = .array(aiSensors.map(JSONValue.string)) }
