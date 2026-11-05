@@ -95,6 +95,17 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
             ecus[entry.key] = ECURuntime(host: entry.host, port: entry.port, configuredName: entry.name)
             order.append(entry.key)
         }
+        // The ECUs added by address: their Accessory Settings give where they answer. One at an address of `ecus` too is
+        // read once, under its ECU id.
+        for added in Self.addedECUs(context) {
+            if var listed = ecus[added.key] {
+                listed.addedID = added.ecuID
+                ecus[added.key] = listed
+                continue
+            }
+            ecus[added.key] = ECURuntime(host: added.host, port: added.port, configuredName: nil, addedID: added.ecuID)
+            order.append(added.key)
+        }
         self.ecus = ecus
         self.order = order
     }
@@ -108,6 +119,16 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
             let port = port(entry.port)
             let name = entry.name?.trimmingCharacters(in: .whitespaces)
             return (Self.key(host: host, port: port), host, port, name?.isEmpty == false ? name : nil)
+        }
+    }
+
+    /// The ECUs whose Accessory Settings give a `host` (Add by address), Excluded ones left out, by ECU id.
+    static func addedECUs(_ context: PluginContext) -> [(key: String, host: String, port: Int, ecuID: String)] {
+        context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { ecuID, settings in
+            guard !settings.excluded, let entry = settings.decode(Configuration.ECU.self),
+                  let host = entry.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return nil }
+            let port = port(entry.port)
+            return (Self.key(host: host, port: port), host, port, ecuID)
         }
     }
 
@@ -140,7 +161,7 @@ public actor APsystemsECUPlugin: HomeswiftPlugin {
     public func start() async throws {
         // Not configured: nothing runs.
         guard !order.isEmpty else {
-            logger.info("No ECU configured: add its address in the plugin's settings (ecus)")
+            logger.info("No ECU configured: add one by its address in the Add accessories page")
             return
         }
         tasks.add { [weak self] in await self?.run() }

@@ -2701,6 +2701,8 @@ HomeswiftI18n.add("es", {
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Escribe la dirección del V2C Trydan: su dirección IP o nombre de host en la red local, en tu router o en la app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "No es una dirección: escribe una dirección IP o un nombre de host, como 192.168.1.50",
   "No V2C Trydan answered at {address}": "Ningún V2C Trydan respondió en {address}",
+  "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Escribe la dirección del ECU: su dirección IP o nombre de host, en tu router, donde suele aparecer como un dispositivo Espressif.",
+  "No ECU answered at {address}": "Ningún ECU respondió en {address}",
   "A Tapo device refused this email and password.": "Un dispositivo Tapo rechazó este correo y esta contraseña.",
   "Email": "Correo electrónico",
   "Code": "Código",

@@ -2,10 +2,11 @@ import Foundation
 import Homeswift
 import HomeswiftPlugin
 
-// Setup (GLOSSARY.md, "Setup"): nothing to sign in to. An ECU is a device found at an address of `ecus` (the ECU has no
-// Bonjour announcement), confirmed by the system query, whose answer gives its Device Id, the ECU id; each inverter it
-// reports is a device too (Device Id its UID), which can be Excluded. The page and the Assistant check an address before
-// it goes in `ecus` (`probe`).
+// Setup (GLOSSARY.md, "Setup"): nothing to sign in to. An ECU is a device reached at an address (the ECU has no Bonjour
+// announcement): one added by address (GLOSSARY.md, "Add by address"), its `host` and `port` in its Accessory Settings,
+// or one of `ecus`. The system query confirms it, and its answer gives its Device Id, the ECU id; each inverter it
+// reports is a device too (Device Id its UID), which can be Excluded. The page and the Assistant check an address
+// (`probe`).
 extension APsystemsECUPlugin {
     /// How long Setup's check of an address may take, retries included.
     static let probeTimeout: Duration = .seconds(6)
@@ -16,7 +17,7 @@ extension APsystemsECUPlugin {
         var devices: [DiscoveredDevice] = []
         for key in order {
             guard let ecu = ecus[key] else { continue }
-            var id = ecu.ecuID
+            var id = ecu.ecuID ?? ecu.addedID
             var reachable = ecu.failures == 0
             if id == nil {
                 id = try? await probe(host: ecu.host, port: ecu.port).ecuID
@@ -52,6 +53,38 @@ extension APsystemsECUPlugin {
             }
         }
         return try ECUProtocol.parseSystem(try ECUProtocol.validate(frame, expecting: .system))
+    }
+
+    /// An ECU is added by its address (Add by address).
+    public static let addsDevicesByAddress = true
+
+    /// Add by address: asks for the ECU's host (and a port, 8899 by default), asks the ECU there who it is with the
+    /// system query, and keeps where it answers in its Accessory Settings, under its ECU id.
+    public func authorize(_ request: SetupRequest) async throws -> SetupStep {
+        guard request.isNewDevice else { return .done(SetupOutcome()) }
+        guard let host = request.answer("host") else {
+            return .ask(SetupPrompt(
+                message: "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.",
+                fields: [SetupField("host", label: "IP address or host name"), SetupField("port", label: "Port", optional: true)]))
+        }
+        guard host.count <= 253, !host.contains(where: { $0.isWhitespace || $0 == "/" }) else {
+            throw SetupError("\(host) is not an IP address or a host name")
+        }
+        let port = try request.answer("port").map { text in
+            guard let port = Int(text), (1...65535).contains(port) else { throw SetupError("The port must be between 1 and 65535") }
+            return port
+        } ?? ECUProtocol.port
+        let system: ECUProtocol.SystemInfo
+        do {
+            system = try await probe(host: host, port: port)
+        } catch {
+            logger.info("No ECU answered at \(host):\(port): \(error)")
+            throw SetupError("No ECU answered at \(host):\(port)")
+        }
+        logger.info("Added \(ECUProtocol.ecuModel(system.ecuID)) at \(host):\(port) by its address")
+        // The default port is left out; a port no longer given is taken out.
+        return .done(SetupOutcome(
+            settings: ["host": .string(host), "port": port == ECUProtocol.port ? .null : .number(Double(port))], deviceID: system.ecuID))
     }
 
     // MARK: The page and the Assistant
@@ -132,8 +165,7 @@ extension APsystemsECUPlugin {
         AssistantAction(
             name: "probe", title: "Check an address",
             description: "Asks the ECU at an address for its system info (TCP port 8899): its ECU id, model, firmware and inverter count. "
-                + "To add it, append {\"host\": <address>} to the Plugin Setting ecus with update_settings (plugin {\"platform\": \"APsystemsECU\"}, "
-                + "settings {\"ecus\": [entries]}, which replaces the whole list: read it with get_settings first and keep its entries).",
+                + "To add it, use Setup's Add by address (start_setup with addByAddress: true), which keeps the address in the ECU's accessory settings.",
             path: "probe", access: .configure,
             inputSchema: [
                 "type": "object", "required": ["host"],
