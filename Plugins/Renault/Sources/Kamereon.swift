@@ -153,10 +153,16 @@ struct BatteryStatus: Sendable, Equatable {
     var chargingStatus: Double?
     /// Kilowatts (watts on a ZOE phase 1, converted).
     var powerKW: Double?
+    /// Minutes to a full charge, as the car estimates them.
+    var remainingMinutes: Int?
+    /// °C, older cars only.
+    var temperature: Double?
 
     init(attributes json: JSONValue, reportsWatts: Bool = false) {
         level = json["batteryLevel"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
-        autonomy = json["batteryAutonomy"]?.saturatingIntValue
+        autonomy = json["batteryAutonomy"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...2000) }
+        remainingMinutes = json["chargingRemainingTime"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...10_000) }
+        temperature = json["batteryTemperature"]?.doubleValue?.finite.flatMap(HvacStatus.plausible)
         plugStatus = json["plugStatus"]?.saturatingIntValue
         chargingStatus = ChargingStatus.normalised(json["chargingStatus"]?.doubleValue)
         powerKW = json["chargingInstantaneousPower"]?.doubleValue?.finite.map { reportsWatts ? $0 / 1000 : $0 }
@@ -186,6 +192,9 @@ struct BatteryStatus: Sendable, Equatable {
     }
 
     var isUnplugged: Bool { plugStatus == 0 }
+
+    /// The charging power in whole watts.
+    var watts: Int? { powerKW.flatMap { Int(saturating: $0 * 1000, in: 0...100_000) } }
 }
 
 struct HvacStatus: Sendable, Equatable {
@@ -207,10 +216,24 @@ struct HvacStatus: Sendable, Equatable {
 
 struct SocLevels: Sendable, Equatable {
     var minimum: Int?
+    var target: Int?
 
     init(attributes json: JSONValue) {
         minimum = json["socMin"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
+        target = json["socTarget"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
     }
+
+    init(minimum: Int?, target: Int?) {
+        self.minimum = minimum
+        self.target = target
+    }
+
+    /// The limits the API takes (4.4): the minimum 15 to 45 and the target 55 to 100, in steps of 5.
+    static let minimumRange = 15...45
+    static let targetRange = 55...100
+
+    static func isValid(minimum: Int) -> Bool { minimumRange.contains(minimum) && minimum % 5 == 0 }
+    static func isValid(target: Int) -> Bool { targetRange.contains(target) && target % 5 == 0 }
 }
 
 struct LockStatus: Sendable, Equatable {

@@ -89,7 +89,26 @@ extension RenaultPlugin {
     }
   },
   "accessorySchema": {
-    "properties": {}
+    "properties": {
+      "socTarget": {
+        "title": "Charge target (%)",
+        "type": "integer",
+        "minimum": 55,
+        "maximum": 100,
+        "multipleOf": 5,
+        "description": "The state of charge the car stops charging at, 55 to 100 % in steps of 5. Sent to the car once when it changes; empty leaves the car's.",
+        "x-kinds": ["vehicle"]
+      },
+      "socMin": {
+        "title": "Charge minimum (%)",
+        "type": "integer",
+        "minimum": 15,
+        "maximum": 45,
+        "multipleOf": 5,
+        "description": "The state of charge the car charges to at once when plugged in, 15 to 45 % in steps of 5; below it the battery shows as low. Sent with the target; empty leaves the car's.",
+        "x-kinds": ["vehicle"]
+      }
+    }
   },
   "layout": [
     "name",
@@ -151,7 +170,11 @@ extension RenaultPlugin {
       "Renault allows about 60 requests an hour per account, the MyRenault app's included. The poll interval is computed from it.": "Renault autorise environ 60 requêtes par heure et par compte, celles de l'app MyRenault comprises. L'intervalle de lecture en est calculé.",
       "Poll interval (seconds)": "Intervalle de lecture (secondes)",
       "Seconds between reads of the cars. Empty: computed from the requests per hour; a shorter one is raised to it.": "Secondes entre deux lectures des voitures. Vide : calculé d'après les requêtes par heure ; un intervalle plus court y est relevé.",
-      "Advanced": "Avancé"
+      "Advanced": "Avancé",
+      "Charge target (%)": "Objectif de charge (%)",
+      "The state of charge the car stops charging at, 55 to 100 % in steps of 5. Sent to the car once when it changes; empty leaves the car's.": "L'état de charge auquel la voiture arrête de charger, de 55 à 100 % par pas de 5. Envoyé une fois à la voiture quand il change ; vide garde celui de la voiture.",
+      "Charge minimum (%)": "Charge minimale (%)",
+      "The state of charge the car charges to at once when plugged in, 15 to 45 % in steps of 5; below it the battery shows as low. Sent with the target; empty leaves the car's.": "L'état de charge jusqu'auquel la voiture charge dès qu'elle est branchée, de 15 à 45 % par pas de 5 ; en dessous, la batterie apparaît faible. Envoyé avec l'objectif ; vide garde celui de la voiture."
     },
     "es": {
       "Name": "Nombre",
@@ -200,7 +223,11 @@ extension RenaultPlugin {
       "Renault allows about 60 requests an hour per account, the MyRenault app's included. The poll interval is computed from it.": "Renault permite unas 60 solicitudes por hora y cuenta, incluidas las de la app MyRenault. El intervalo de lectura se calcula a partir de ellas.",
       "Poll interval (seconds)": "Intervalo de lectura (segundos)",
       "Seconds between reads of the cars. Empty: computed from the requests per hour; a shorter one is raised to it.": "Segundos entre lecturas de los coches. Vacío: se calcula a partir de las solicitudes por hora; uno más corto se eleva a ese valor.",
-      "Advanced": "Avanzado"
+      "Advanced": "Avanzado",
+      "Charge target (%)": "Objetivo de carga (%)",
+      "The state of charge the car stops charging at, 55 to 100 % in steps of 5. Sent to the car once when it changes; empty leaves the car's.": "El estado de carga en el que el coche deja de cargar, de 55 a 100 % en pasos de 5. Se envía una vez al coche cuando cambia; vacío deja el del coche.",
+      "Charge minimum (%)": "Carga mínima (%)",
+      "The state of charge the car charges to at once when plugged in, 15 to 45 % in steps of 5; below it the battery shows as low. Sent with the target; empty leaves the car's.": "El estado de carga hasta el que el coche carga en cuanto se enchufa, de 15 a 45 % en pasos de 5; por debajo, la batería aparece baja. Se envía con el objetivo; vacío deja el del coche."
     },
     "pt": {
       "Name": "Nome",
@@ -249,7 +276,11 @@ extension RenaultPlugin {
       "Renault allows about 60 requests an hour per account, the MyRenault app's included. The poll interval is computed from it.": "A Renault permite cerca de 60 pedidos por hora e por conta, incluindo os da app MyRenault. O intervalo de leitura é calculado a partir deles.",
       "Poll interval (seconds)": "Intervalo de leitura (segundos)",
       "Seconds between reads of the cars. Empty: computed from the requests per hour; a shorter one is raised to it.": "Segundos entre leituras dos carros. Vazio: calculado a partir dos pedidos por hora; um mais curto é elevado a esse valor.",
-      "Advanced": "Avançado"
+      "Advanced": "Avançado",
+      "Charge target (%)": "Objetivo de carga (%)",
+      "The state of charge the car stops charging at, 55 to 100 % in steps of 5. Sent to the car once when it changes; empty leaves the car's.": "O estado de carga em que o carro deixa de carregar, de 55 a 100 % em passos de 5. Enviado uma vez ao carro quando muda; vazio mantém o do carro.",
+      "Charge minimum (%)": "Carga mínima (%)",
+      "The state of charge the car charges to at once when plugged in, 15 to 45 % in steps of 5; below it the battery shows as low. Sent with the target; empty leaves the car's.": "O estado de carga até ao qual o carro carrega logo que é ligado, de 15 a 45 % em passos de 5; abaixo dele, a bateria aparece fraca. Enviado com o objetivo; vazio mantém o do carro."
     }
   }
 }

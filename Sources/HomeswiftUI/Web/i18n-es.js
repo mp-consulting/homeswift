@@ -2849,4 +2849,6 @@ HomeswiftI18n.add("es", {
   "Optional and not set up. {adds}": "Opcional y sin configurar. {adds}",
   "Its devices work without it.": "Sus dispositivos funcionan sin ella.",
   "Its sign-in is kept in the vault, never in these settings.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes.",
+  "Range (km)": "Autonomía (km)",
+  "Time to Full (min)": "Tiempo hasta carga completa (min)",
 });

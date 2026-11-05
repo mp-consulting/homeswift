@@ -13,6 +13,7 @@ enum VehiclePart: String, CaseIterable, Sendable {
     case lights = "Lights"
     case interiorTemperature = "InteriorTemperature"
     case exteriorTemperature = "ExteriorTemperature"
+    case batteryTemperature = "BatteryTemperature"
     case doors = "Doors"
 
     var name: String {
@@ -24,6 +25,7 @@ enum VehiclePart: String, CaseIterable, Sendable {
         case .lights: "Lights"
         case .interiorTemperature: "Interior temperature"
         case .exteriorTemperature: "Exterior temperature"
+        case .batteryTemperature: "Battery temperature"
         case .doors: "Doors"
         }
     }
@@ -43,7 +45,7 @@ enum VehiclePart: String, CaseIterable, Sendable {
         case .pluggedIn: "power"
         case .horn: "bell"
         case .lights: "bulb"
-        case .interiorTemperature, .exteriorTemperature: "thermo"
+        case .interiorTemperature, .exteriorTemperature, .batteryTemperature: "thermo"
         case .doors: "door"
         }
     }
@@ -67,6 +69,9 @@ actor RenaultVehicle {
     struct Options: Sendable {
         var climateTemperature: Double = 21
         var parts: [String: Bool] = [:]
+        /// The state-of-charge limits the Accessory Settings ask for (`socMin`, `socTarget`), nil to leave the car's.
+        var socMinimum: Int?
+        var socTarget: Int?
     }
 
     let info: VehicleInfo
@@ -78,6 +83,11 @@ actor RenaultVehicle {
     private let tasks: TaskBag
     /// Called when an endpoint is dropped, to remember it (6.3).
     private let onDrop: @Sendable (String, Endpoint) -> Void
+    /// Records a reading for the Status page's history (`range`, `timeToFull`, `power`, `batteryTemperature`).
+    private let record: @Sendable (String, Double) -> Void
+    /// The limits last sent (`socMin`, `socTarget`), remembered across restarts, and how to remember new ones.
+    private var sentSoc: SocLevels?
+    private let onSocSent: @Sendable (SocLevels) -> Void
 
     private(set) var dropped: Set<Endpoint>
     /// The endpoints that have answered at least once.
@@ -89,6 +99,7 @@ actor RenaultVehicle {
     private(set) var lock: LockStatus?
     private var seenInterior = false
     private var seenExterior = false
+    private var seenBatteryTemperature = false
     /// The programs' activation flags before a charge start turned them off (4.6), in memory.
     private(set) var programsBeforeChargeStart: [Bool]?
     /// Since when reads fail with no read succeeding in between; a read skipped for the quota or a dropped endpoint is
@@ -105,7 +116,8 @@ actor RenaultVehicle {
 
     init(
         info: VehicleInfo, accountID: String, session: RenaultSession, options: Options, dropped: Set<Endpoint>, timing: RenaultTiming,
-        logger: Logger, tasks: TaskBag, onDrop: @escaping @Sendable (String, Endpoint) -> Void
+        logger: Logger, tasks: TaskBag, sentSoc: SocLevels? = nil, record: @escaping @Sendable (String, Double) -> Void = { _, _ in },
+        onSocSent: @escaping @Sendable (SocLevels) -> Void = { _ in }, onDrop: @escaping @Sendable (String, Endpoint) -> Void
     ) {
         self.info = info
         self.accountID = accountID
@@ -116,6 +128,9 @@ actor RenaultVehicle {
         self.logger = logger
         self.tasks = tasks
         self.onDrop = onDrop
+        self.record = record
+        self.sentSoc = sentSoc
+        self.onSocSent = onSocSent
     }
 
     var logName: String { maskedVIN(info.vin) }
@@ -152,6 +167,7 @@ actor RenaultVehicle {
             case .horn: has(.hornStart)
             case .lights: has(.lightsStart)
             case .interiorTemperature, .exteriorTemperature: has(.hvacStatus)
+            case .batteryTemperature: info.usesElectricity && has(.batteryStatus)
             case .doors: has(.lockStatus)
             }
         }
@@ -220,7 +236,9 @@ actor RenaultVehicle {
                 logger.warning("Unknown charging status \(value) for \(logName)")
             }
             battery = status
+            if status.temperature != nil { seenBatteryTemperature = true }
             if let charging = status.isCharging { settle(&pendingCharging, read: charging) }
+            recordReadings(status)
         case .hvacStatus:
             let status = HvacStatus(attributes: attributes)
             hvac = status
@@ -262,6 +280,7 @@ actor RenaultVehicle {
             switch part {
             case .interiorTemperature: if seenInterior { keys.insert(part.rawValue) }
             case .exteriorTemperature: if seenExterior { keys.insert(part.rawValue) }
+            case .batteryTemperature: if seenBatteryTemperature { keys.insert(part.rawValue) }
             default: keys.insert(part.rawValue)
             }
         }
@@ -275,7 +294,10 @@ actor RenaultVehicle {
         let name = info.displayName
         var built: [String: Service] = [:]
         if keys.contains("Battery") {
-            built["Battery"] = Service(.battery, name: name, optional: [.batteryLevel, .chargingState], isPrimary: true)
+            built["Battery"] = Service(
+                .battery, name: name,
+                optional: [.batteryLevel, .chargingState, RenaultCharacteristic.range, RenaultCharacteristic.timeToFull, EveCharacteristic.currentConsumption],
+                isPrimary: true)
         }
         if keys.contains(VehiclePart.climate.rawValue) {
             let climate = Service(.switch, name: "\(name) Climate", subtype: "Climate", optional: [.configuredName], isPrimary: built.isEmpty)
@@ -304,12 +326,15 @@ actor RenaultVehicle {
         if keys.contains(VehiclePart.exteriorTemperature.rawValue) {
             built["ExteriorTemperature"] = Service(.temperatureSensor, name: "\(name) Exterior", subtype: "ExteriorTemperature", optional: [.configuredName])
         }
+        if keys.contains(VehiclePart.batteryTemperature.rawValue) {
+            built["BatteryTemperature"] = Service(.temperatureSensor, name: "\(name) Battery", subtype: "BatteryTemperature", optional: [.configuredName])
+        }
         if keys.contains(VehiclePart.doors.rawValue) {
             for opening in LockStatus.openingNames {
                 built["Door.\(opening)"] = Service(.contactSensor, name: "\(name) \(Self.openingName(opening))", subtype: "Door.\(opening)", optional: [.configuredName])
             }
         }
-        let order = ["Battery", "Climate", "Charging", "PluggedIn", "Horn", "Lights", "InteriorTemperature", "ExteriorTemperature"]
+        let order = ["Battery", "Climate", "Charging", "PluggedIn", "Horn", "Lights", "InteriorTemperature", "ExteriorTemperature", "BatteryTemperature"]
             + LockStatus.openingNames.map { "Door.\($0)" }
         let accessory = Accessory(
             id: id, name: name, manufacturer: info.manufacturer, model: info.modelName ?? info.modelCode ?? "Renault",
@@ -335,6 +360,15 @@ actor RenaultVehicle {
                     set(service.characteristic(.statusLowBattery), .int(level < threshold ? 1 : 0))
                 }
                 if let charging = battery.isCharging { set(service.characteristic(.chargingState), .int(charging ? 1 : 0)) }
+                if let range = battery.autonomy { set(service.characteristic(RenaultCharacteristic.range), .int(range)) }
+                // The car keeps its last estimate after a charge: 0 unless it charges.
+                if let charging = battery.isCharging {
+                    set(service.characteristic(RenaultCharacteristic.timeToFull), .int(charging ? battery.remainingMinutes ?? 0 : 0))
+                    set(service.characteristic(EveCharacteristic.currentConsumption), .int(charging ? battery.watts ?? 0 : 0))
+                }
+            }
+            if let value = battery.temperature, let service = services["BatteryTemperature"] {
+                set(service.characteristic(.currentTemperature), .double(value))
             }
             if let service = services["PluggedIn"] {
                 if let plugged = battery.isPluggedIn {
@@ -364,6 +398,16 @@ actor RenaultVehicle {
         }
     }
 
+    /// The battery's readings for the Status page's history, those the car reported.
+    private func recordReadings(_ status: BatteryStatus) {
+        if let range = status.autonomy { record("range", Double(range)) }
+        if let charging = status.isCharging {
+            record("timeToFull", Double(charging ? status.remainingMinutes ?? 0 : 0))
+            record("power", Double(charging ? status.watts ?? 0 : 0))
+        }
+        if let temperature = status.temperature { record("batteryTemperature", temperature) }
+    }
+
     private func set(_ characteristic: Characteristic, _ value: HAPValue) {
         if characteristic.value != value { characteristic.value = value }
     }
@@ -375,6 +419,33 @@ actor RenaultVehicle {
             accessory.isUnavailable = unavailable
             if unavailable { logger.warning("\(logName) has not answered for a while: shown as not responding") }
         }
+    }
+
+    // MARK: State-of-charge limits (4.4)
+
+    /// Sends the limits the Accessory Settings ask for when the car's last read differs, once per change of the settings:
+    /// the car keeps answering its old values for a while, and a later change from the MyRenault app wins until the
+    /// settings change again. Both are sent together, the one not asked for taken from the last read. One action request.
+    func applySocLimits() async {
+        guard options.socMinimum != nil || options.socTarget != nil, let read = soc,
+              let minimum = options.socMinimum ?? read.minimum, let target = options.socTarget ?? read.target else { return }
+        let wanted = SocLevels(minimum: minimum, target: target)
+        guard SocLevels.isValid(minimum: minimum), SocLevels.isValid(target: target) else {
+            logger.warning("The charge limits \(minimum) % and \(target) % of \(logName) are not ones Renault takes (15 to 45 and 55 to 100, in steps of 5)")
+            return
+        }
+        guard read != wanted, sentSoc != wanted, let (path, _) = resolve(.socLevels) else { return }
+        do {
+            try await act(path: path, body: ["socMin": .number(Double(minimum)), "socTarget": .number(Double(target))], label: "charge limits")
+        } catch {
+            return
+        }
+        sentSoc = wanted
+        onSocSent(wanted)
+        // Shown at once (the server answers the old values for a while), as Home Assistant does.
+        soc = wanted
+        show()
+        logger.info("Set the charge limits of \(logName) to \(minimum) % and \(target) %")
     }
 
     // MARK: Actions (4.4 to 4.6)

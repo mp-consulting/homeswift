@@ -147,6 +147,81 @@ struct RenaultTests {
         await host.stop()
     }
 
+    /// Range, time to full, charge power and battery temperature come from the battery-status read each round already:
+    /// on the Battery service, a battery temperature sensor once seen, and the Status page's series; no other endpoint.
+    @Test func batteryReadingsReachTheAccessoryAndTheStatusPage() async throws {
+        let environment = TestEnvironment()
+        environment.cloud.answer("/kca/car-adapter/v2/cars/\(Fixtures.vin)/battery-status", 200, Fixtures.batteryChargingSample)
+        let host = try await environment.start()
+        let id = accessoryID
+        #expect(await eventually {
+            host.mainBridge.server.accessories.first { $0.id == id }?.services.contains { $0.subtype == "BatteryTemperature" } == true
+        })
+        let accessory = try #require(host.mainBridge.server.accessories.first { $0.id == id })
+        let battery = try #require(accessory.service(.battery))
+        #expect(await eventually { battery[RenaultCharacteristic.range]?.value == 141 })
+        #expect(battery[RenaultCharacteristic.timeToFull]?.value == 145)
+        // The R5 reports kilowatts: 27 kW.
+        #expect(battery[EveCharacteristic.currentConsumption]?.value == 27000)
+        #expect(accessory.services.first { $0.subtype == "BatteryTemperature" }?.characteristic(.currentTemperature).value == 20.0)
+        #expect(await eventually { environment.values("range").last == 141 })
+        #expect(await eventually { environment.values("timeToFull").last == 145 })
+        #expect(await eventually { environment.values("power").last == 27000 })
+        #expect(await eventually { environment.values("batteryTemperature").last == 20 })
+
+        // Not charging: no time to full and no power, whatever estimate the car kept.
+        environment.cloud.answer("/kca/car-adapter/v2/cars/\(Fixtures.vin)/battery-status", 200, Fixtures.battery)
+        await environment.plugin?.vehicles[Fixtures.vin]?.read(.batteryStatus, .poll)
+        #expect(battery[RenaultCharacteristic.range]?.value == 261)
+        #expect(battery[RenaultCharacteristic.timeToFull]?.value == 0)
+        #expect(battery[EveCharacteristic.currentConsumption]?.value == 0)
+        await host.stop()
+        // Only the endpoints the plugin read before: the battery, the climate and the hourly limits.
+        let reads = Set(environment.cloud.kamereon.filter { $0.method == "GET" && ($0.path.contains("/cars/") || $0.path.contains("/vehicles/VF1")) }.map(\.path))
+        #expect(reads.allSatisfy { $0.hasSuffix("battery-status") || $0.hasSuffix("hvac-status") || $0.hasSuffix("soc-levels") }, "\(reads)")
+    }
+
+    /// The charge target of the Accessory Settings goes to the car once, with the minimum it last read, as 4.4's plain
+    /// body; the car answering its old values for a while, or a restart, does not send it again.
+    @Test func theChargeTargetIsSentOnce() async throws {
+        let environment = TestEnvironment()
+        var settings = TestEnvironment.signedIn
+        settings["_accessories"] = [Fixtures.vin: ["socTarget": 90]]
+        var host = try await environment.start(settings: settings)
+        let path = "/kcm/v1/vehicles/\(Fixtures.vin)/ev/soc-levels"
+        #expect(await eventually { environment.cloud.kamereon(path, method: "POST").count == 1 })
+        #expect(environment.cloud.kamereon(path, method: "POST").first?.body == ["socMin": 20, "socTarget": 90])
+        #expect(await environment.plugin?.vehicles[Fixtures.vin]?.soc == SocLevels(minimum: 20, target: 90))
+        // The next hourly read still says 80: nothing more is sent.
+        await environment.plugin?.vehicles[Fixtures.vin]?.read(.socLevels, .poll)
+        await environment.plugin?.vehicles[Fixtures.vin]?.applySocLimits()
+        await host.stop()
+
+        host = try await environment.start(settings: settings)
+        _ = try #require(await accessory(host))
+        #expect(await eventually { environment.cloud.kamereon(path).count >= 3 })
+        await environment.plugin?.vehicles[Fixtures.vin]?.applySocLimits()
+        #expect(environment.cloud.kamereon(path, method: "POST").count == 1)
+        await host.stop()
+
+        // A value Renault does not take is not sent.
+        settings["_accessories"] = [Fixtures.vin: ["socTarget": 82]]
+        host = try await environment.start(settings: settings)
+        _ = try #require(await accessory(host))
+        await environment.plugin?.vehicles[Fixtures.vin]?.applySocLimits()
+        #expect(environment.cloud.kamereon(path, method: "POST").count == 1)
+        await host.stop()
+    }
+
+    @Test func socLimitsFollowTheSteps() {
+        #expect(SocLevels.isValid(target: 85))
+        #expect(!SocLevels.isValid(target: 82))
+        #expect(!SocLevels.isValid(target: 50))
+        #expect(SocLevels.isValid(minimum: 20))
+        #expect(!SocLevels.isValid(minimum: 10))
+        #expect(SocLevels(attributes: try! JSONValue(string: Fixtures.soc)) == SocLevels(minimum: 20, target: 80))
+    }
+
     @Test func hornAndLightsTurnThemselvesOff() async throws {
         let environment = TestEnvironment()
         var settings = TestEnvironment.signedIn
@@ -267,6 +342,9 @@ struct RenaultTests {
         let environment = TestEnvironment(timing: testTiming(hour: hour))
         var settings = TestEnvironment.signedIn
         settings["maxCallsPerHour"] = 20
+        // A charge target to send, and the readings of a charging car: within the same budget.
+        settings["_accessories"] = [Fixtures.vin: ["socTarget": 90]]
+        environment.cloud.answer("/kca/car-adapter/v2/cars/\(Fixtures.vin)/battery-status", 200, Fixtures.batteryChargingSample)
         let host = try await environment.start(settings: settings)
         let accessory = try #require(await accessory(host))
         let climate = try #require(accessory.services.first { $0.subtype == "Climate" }?.characteristic(.on))
@@ -288,6 +366,8 @@ struct RenaultTests {
             #expect(inWindow <= 20, "\(inWindow) requests in an hour")
         }
         #expect(environment.cloud.state.withLockedValue { $0.maxInFlight } == 1)
+        #expect(environment.cloud.kamereon("/kcm/v1/vehicles/\(Fixtures.vin)/ev/soc-levels", method: "POST").count == 1)
+        #expect(!environment.values("range").isEmpty)
         // The poll interval follows the formula: two pollers (battery, climate), the list and the limits hourly.
         let interval = try #require(await environment.plugin?.currentInterval)
         #expect(interval == RenaultPlugin.pollInterval(pollers: 2, hourly: 2, budget: 20 - RequestBudget.actionReserve, hour: hour))

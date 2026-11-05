@@ -45,6 +45,9 @@ enum Fixtures {
         """#
     static let batteryPluggedIdle = #"{"data":{"id":"VF1TEST0000000001","attributes":{"batteryLevel":73,"plugStatus":1,"chargingStatus":0.0}}}"#
     static let batteryCharging = #"{"data":{"id":"VF1TEST0000000001","attributes":{"batteryLevel":74,"plugStatus":1,"chargingStatus":1.0}}}"#
+    /// 8.6's charging sample (the older car's shape), with its range, time to full, power and battery temperature.
+    static let batteryChargingSample = #"{"data":{"id":"VF1TEST0000000001","attributes":{"batteryLevel":60,"batteryTemperature":20,"batteryAutonomy":141,"batteryAvailableEnergy":31,"plugStatus":1,"chargingStatus":1.0,"chargingRemainingTime":145,"chargingInstantaneousPower":27.0}}}"#
+    static let socAnswer = #"{"commandId":"commandId-1234","type":"SOC_SYNCH","status":"CREATED"}"#
     static let hvac = #"{"data":{"id":"VF1TEST0000000001","attributes":{"internalTemperature":15.0,"hvacStatus":"off","socThreshold":15.0,"lastUpdateTime":"2025-03-24T18:57:22Z"}}}"#
     static let hvacOn = #"{"data":{"id":"VF1TEST0000000001","attributes":{"internalTemperature":19.5,"hvacStatus":"on"}}}"#
     static let soc = #"{"lastEnergyUpdateTimestamp":"2025-04-18T06:51:09Z","socMin":20,"socTarget":80}"#
@@ -115,6 +118,7 @@ final class FakeRenault: HTTPSending, Sendable {
                 "POST /kca/car-adapter/v1/cars/\(Fixtures.vin)/actions/hvac-start": (200, Fixtures.echo),
                 "POST /kca/car-adapter/v1/cars/\(Fixtures.vin)/actions/horn-lights": (200, Fixtures.echo),
                 "POST /kcm/v1/vehicles/\(Fixtures.vin)/ev/settings": (200, #"{"chargeModeRq":"ALWAYS","programs":[]}"#),
+                "POST /kcm/v1/vehicles/\(Fixtures.vin)/ev/soc-levels": (200, Fixtures.socAnswer),
             ]
         }
     }
@@ -234,6 +238,11 @@ final class TestEnvironment: Sendable {
     let cloud = FakeRenault()
     let timing: RenaultTiming
     private let plugins = NIOLockedValueBox<[RenaultPlugin]>([])
+    /// The readings the plugin recorded for the Status page, by series, in order.
+    let values = NIOLockedValueBox<[String: [Double]]>([:])
+    private let observations = NIOLockedValueBox<[Observation]>([])
+
+    func values(_ series: String) -> [Double] { values.withLockedValue { $0["plugin:Renault:\(Fixtures.vin):\(series)"] ?? [] } }
 
     init(timing: RenaultTiming = testTiming()) { self.timing = timing }
 
@@ -258,6 +267,9 @@ final class TestEnvironment: Sendable {
         let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
         let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         let host = try PluginHost(configuration: configuration, registry: registry(), storageDirectory: directory, options: options)
+        let values = values
+        let observation = host.observeValues { series, value in values.withLockedValue { $0[series, default: []].append(value) } }
+        observations.withLockedValue { $0.append(observation) }
         try await host.start()
         return host
     }

@@ -15555,6 +15555,8 @@ HomeswiftI18n.add("es", {
   "Optional and not set up. {adds}": "Opcional y sin configurar. {adds}",
   "Its devices work without it.": "Sus dispositivos funcionan sin ella.",
   "Its sign-in is kept in the vault, never in these settings.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes.",
+  "Range (km)": "Autonomía (km)",
+  "Time to Full (min)": "Tiempo hasta carga completa (min)",
 });
 
 """#),
@@ -18410,6 +18412,8 @@ HomeswiftI18n.add("fr", {
   "Optional and not set up. {adds}": "Facultatif, pas encore configuré. {adds}",
   "Its devices work without it.": "Ses appareils fonctionnent sans lui.",
   "Its sign-in is kept in the vault, never in these settings.": "Sa connexion est gardée dans le coffre, jamais dans ces réglages.",
+  "Range (km)": "Autonomie (km)",
+  "Time to Full (min)": "Temps avant charge complète (min)",
 });
 
 """#),
@@ -21265,6 +21269,8 @@ HomeswiftI18n.add("pt", {
   "Optional and not set up. {adds}": "Opcional e não configurada. {adds}",
   "Its devices work without it.": "Os dispositivos funcionam sem ela.",
   "Its sign-in is kept in the vault, never in these settings.": "O início de sessão fica no cofre, nunca nestas definições.",
+  "Range (km)": "Autonomia (km)",
+  "Time to Full (min)": "Tempo até carga completa (min)",
 });
 
 """#),

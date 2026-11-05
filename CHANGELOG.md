@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Renault: the range, the time to a full charge and the charge power on the car's Battery service (the plugin's own
+  characteristics and Eve's Current Consumption), a battery temperature sensor where the car reports it, the four on
+  the Status page's history, and the charge target and minimum as Accessory Settings sent to the car once per change;
+  all from reads the plugin made already, within Renault's hourly quota.
 - The Philips Hue Sync Box plugin (platform `PhilipsHueSyncBoxPlatform`, a clean-room implementation compatible with
   homebridge-philips-hue-sync-box's configuration): a Lightbulb or Switch that starts and stops syncing, a power switch,
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
