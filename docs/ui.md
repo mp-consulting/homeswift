@@ -405,7 +405,8 @@ Response says **Not responding**. Sorted by **Needs attention first**, they come
     secret kept in the vault, is left alone); the plugin reloads once, its accessories kept.
   - **Devices**: every Discovered Device of the instance, as Setup's discovery finds them, with where each stands: one set
     up opens its accessory's Settings sheet, an Excluded one has **Include**, one that Needs Authorization has **Set
-    up**. **Find again** asks the plugin again. `?accessory=<Accessory Id>` opens that accessory's sheet over the
+    up**. **Find again** asks the plugin again. A plugin that adds a device by address has **Add by address…** under
+    its devices, the Add accessories page's sheet. `?accessory=<Accessory Id>` opens that accessory's sheet over the
     page (a plugin page's link to one of its devices, or to a scene through `scenePictures`' `settings` option), and the
     address loses it once the sheet closes.
   - What the form does not show is in config.json: the page links to its editor (Settings › Config), the one place to

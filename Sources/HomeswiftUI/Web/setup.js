@@ -622,8 +622,9 @@
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
   /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
-  /// lists what the plugin finds, as the Add accessories page does.
-  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
+  /// lists what the plugin finds, as the Add accessories page does; `adding`, Add by address, for a plugin whose
+  /// `addByAddress`.
+  const setUp = ({ block, plugin, device = null, firstTime = false, adding = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, adding, trigger, after });
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.

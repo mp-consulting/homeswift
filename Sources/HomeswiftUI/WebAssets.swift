@@ -5544,6 +5544,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // Its Add button says it as a sentence does: "Address" in lower case, a name in capitals (ECU, UniFi, TV) kept.
+        const inSentence = (text) => text.replace(/(?<![\p{L}\p{N}])\p{Lu}\p{Ll}*(?![\p{L}\p{N}])/gu, (word) => word.toLowerCase());
         // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
         const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
         const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
@@ -5621,7 +5623,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: inSentence(noun) }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       if (type === "string" && property["x-schema-form"]?.type === "menu" && property["x-schema-form"].source) {
@@ -23836,7 +23838,10 @@ HomeswiftI18n.add("pt", {
     const node = el("section", { class: "settings-section" },
       el("div", { class: "settings-section-head with-tools" },
         el("div", {}, el("h3", {}, t("Devices"), " ", count), el("p", { class: "help", text: t("What {plugin} finds, set up or not.", { plugin: block.name }) })), again),
-      list);
+      list,
+      // A device the plugin does not find, added by its address: the Add accessories page's sheet.
+      plugin?.addByAddress ? el("div", { class: "setup-add-address" },
+        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -23849,7 +23854,8 @@ HomeswiftI18n.add("pt", {
         showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("This plugin finds no devices by itself: its settings name them.") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -24519,8 +24525,9 @@ HomeswiftI18n.add("pt", {
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
   /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
-  /// lists what the plugin finds, as the Add accessories page does.
-  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
+  /// lists what the plugin finds, as the Add accessories page does; `adding`, Add by address, for a plugin whose
+  /// `addByAddress`.
+  const setUp = ({ block, plugin, device = null, firstTime = false, adding = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, adding, trigger, after });
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.
