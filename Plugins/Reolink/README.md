@@ -24,7 +24,7 @@ Each published channel is an external camera accessory (category IP Camera, or V
 | Motion Sensor (`motion`) | the channel reports motion | Motion Detected; it also triggers HomeKit Secure Video |
 | Motion Sensors (`person`, `vehicle`, `pet`, `face`, `package`) | each AI type the camera supports (pet also needs `supportAiAnimal`) | Motion Detected for that type |
 | Lightbulb (`floodlight`) | the camera has a floodlight or spotlight | On, Brightness 1 to 100; Color Temperature (3000 to 6000 K) and Adaptive Lighting where Baichuan's `ledCtrl` has the colour bit |
-| Switch (`siren`) | `siren: true` and the camera has one | A manual siren; the switch turns itself off after a minute |
+| Switch (`siren`) | `siren: true` and the camera has one | A manual siren; the switch turns itself off after a minute. A security control: MCP clients confirm before they change it |
 | Switch (`ir`, "Infrared") | `irLights: true` and the camera has IR lights | On is `Auto`, off is `Off` |
 | Battery (`battery`) | a battery camera behind a hub or NVR | Level, Charging, Low below 20 % |
 | Switch (`privacy`, "Privacy") | the camera has privacy mode (`privacySwitch`, on by default) | Privacy mode on or off; kept in step with HomeKit's Camera Active (with `recording`): privacy on is Camera Active off, and the other way round |

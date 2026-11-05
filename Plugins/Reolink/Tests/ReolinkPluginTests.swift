@@ -267,6 +267,7 @@ final class ReolinkEnvironment: Sendable {
         #expect(await eventually { await environment.plugin?.camera(host: "192.168.1.20", channel: 0) != nil })
         let camera = try #require(await environment.plugin?.camera(host: "192.168.1.20", channel: 0))
         let siren = try #require(camera.services.siren)
+        #expect(siren.characteristic(.on).isSecurityControl)
         try await siren.characteristic(.on).writeHandler(for: .bool(true))?(.bool(true))
         #expect(environment.camera?.sirenBodies.first?.contains("<onOff>1</onOff>") == true)
         siren.characteristic(.on).value = true

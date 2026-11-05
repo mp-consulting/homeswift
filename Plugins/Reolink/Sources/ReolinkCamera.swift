@@ -102,7 +102,9 @@ final class ReolinkCamera: @unchecked Sendable {
                       optional: [.brightness] + (info.floodlightColour ? [.colorTemperature.with(minValue: Double(ReolinkFloodlight.miredRange.lowerBound), maxValue: Double(ReolinkFloodlight.miredRange.upperBound))] : []))
             : nil
         self.floodlight = floodlight
+        // A siren sounds through the house: a security control, as IMOU's is, so MCP clients confirm before they change it.
         let siren = options.siren && info.siren ? Service(.switch, name: "\(name) Siren", subtype: "siren") : nil
+        siren?.characteristic(.on).securityControl()
         self.siren = siren
         let ir = options.irLights && info.irLights ? Service(.switch, name: "\(name) Infrared", subtype: "ir") : nil
         self.ir = ir
