@@ -25,7 +25,7 @@ extension ReolinkPlugin {
         "placeholder": "ffmpeg"
       },
       "webhookPort": {
-        "title": "Battery cameras' event port",
+        "title": "Event port for battery cameras",
         "type": "integer",
         "description": "Battery cameras on their own sleep between uses, so they post their motion and doorbell presses to the bridge on this port: the cameras must be able to reach it (open it in a firewall). Empty: a port chosen once and kept.",
         "minimum": 1,
@@ -130,7 +130,7 @@ extension ReolinkPlugin {
               "minimum": 1
             },
             "batteryCamera": {
-              "title": "Battery camera on its own",
+              "title": "Battery camera without a hub",
               "type": "boolean",
               "description": "Experimental: a battery camera on its own Wi-Fi, without a Home Hub or NVR. It is reached over Reolink's own protocol (TCP 9000) only when HomeKit asks for video or a snapshot, so it can sleep. Setup turns this on when it finds one."
             },
@@ -457,7 +457,7 @@ extension ReolinkPlugin {
         ]
       },
       "batteryCamera": {
-        "title": "Battery camera on its own",
+        "title": "Battery camera without a hub",
         "type": "boolean",
         "description": "Experimental: a battery camera on its own Wi-Fi, without a Home Hub or NVR. It is reached over Reolink's own protocol (TCP 9000) only when HomeKit asks for video or a snapshot, so it can sleep. Setup turns this on when it finds one.",
         "x-kinds": [
@@ -1087,13 +1087,13 @@ extension ReolinkPlugin {
       "Lights and switches": "Lumières et interrupteurs",
       "Video": "Vidéo",
       "Connection": "Connexion",
-      "Battery camera on its own": "Caméra sur batterie autonome",
+      "Battery camera without a hub": "Caméra sur batterie sans hub",
       "Experimental: a battery camera on its own Wi-Fi, without a Home Hub or NVR. It is reached over Reolink's own protocol (TCP 9000) only when HomeKit asks for video or a snapshot, so it can sleep. Setup turns this on when it finds one.": "Expérimental : une caméra sur batterie sur son propre Wi-Fi, sans Home Hub ni NVR. Elle est jointe par le protocole de Reolink (TCP 9000) seulement quand HomeKit demande la vidéo ou une image, pour qu'elle puisse dormir. La configuration l'active quand elle en trouve une.",
       "Take over event push": "Reprendre l'envoi des événements",
       "A battery camera sends its events to one receiver only. On: the bridge takes the place of another receiver (Home Assistant's, say). Off: the other receiver keeps it, and the camera's motion and doorbell presses do not reach HomeKit.": "Une caméra sur batterie n'envoie ses événements qu'à un seul destinataire. Activé : le pont prend la place d'un autre destinataire (Home Assistant, par exemple). Désactivé : l'autre destinataire le garde, et les mouvements et appuis de sonnette de la caméra n'arrivent pas à HomeKit.",
       "Motion duration (seconds)": "Durée du mouvement (secondes)",
       "How long a battery camera's motion stays on: it never says that motion stopped.": "Combien de temps le mouvement d'une caméra sur batterie reste actif : elle ne dit jamais qu'il a cessé.",
-      "Battery cameras' event port": "Port des événements des caméras sur batterie",
+      "Event port for battery cameras": "Port des événements des caméras sur batterie",
       "Battery cameras on their own sleep between uses, so they post their motion and doorbell presses to the bridge on this port: the cameras must be able to reach it (open it in a firewall). Empty: a port chosen once and kept.": "Les caméras sur batterie autonomes dorment entre deux utilisations : elles envoient donc leurs mouvements et leurs appuis de sonnette au pont sur ce port, que les caméras doivent pouvoir joindre (ouvrez-le dans un pare-feu). Vide : un port choisi une fois et conservé.",
       "Two-way audio": "Audio bidirectionnel",
       "Experimental: talk through the camera's speaker from the Home app. Only where the camera says it can, and with Push events on. Not yet tried on a Reolink device.": "Expérimental : parler dans le haut-parleur de la caméra depuis l'app Maison. Seulement là où la caméra dit le pouvoir, et avec Événements poussés activé. Pas encore essayé sur un appareil Reolink."
@@ -1218,13 +1218,13 @@ extension ReolinkPlugin {
       "Lights and switches": "Luces e interruptores",
       "Video": "Vídeo",
       "Connection": "Conexión",
-      "Battery camera on its own": "Cámara de batería independiente",
+      "Battery camera without a hub": "Cámara de batería sin hub",
       "Experimental: a battery camera on its own Wi-Fi, without a Home Hub or NVR. It is reached over Reolink's own protocol (TCP 9000) only when HomeKit asks for video or a snapshot, so it can sleep. Setup turns this on when it finds one.": "Experimental: una cámara de batería en su propia Wi-Fi, sin Home Hub ni NVR. Se le llega por el protocolo propio de Reolink (TCP 9000) solo cuando HomeKit pide vídeo o una imagen, para que pueda dormir. La configuración lo activa cuando encuentra una.",
       "Take over event push": "Tomar el envío de eventos",
       "A battery camera sends its events to one receiver only. On: the bridge takes the place of another receiver (Home Assistant's, say). Off: the other receiver keeps it, and the camera's motion and doorbell presses do not reach HomeKit.": "Una cámara de batería envía sus eventos a un solo destinatario. Activado: el puente ocupa el lugar de otro destinatario (Home Assistant, por ejemplo). Desactivado: el otro destinatario lo conserva, y los movimientos y pulsaciones del timbre de la cámara no llegan a HomeKit.",
       "Motion duration (seconds)": "Duración del movimiento (segundos)",
       "How long a battery camera's motion stays on: it never says that motion stopped.": "Cuánto tiempo sigue activo el movimiento de una cámara de batería: nunca dice que ha terminado.",
-      "Battery cameras' event port": "Puerto de eventos de las cámaras de batería",
+      "Event port for battery cameras": "Puerto de eventos de las cámaras de batería",
       "Battery cameras on their own sleep between uses, so they post their motion and doorbell presses to the bridge on this port: the cameras must be able to reach it (open it in a firewall). Empty: a port chosen once and kept.": "Las cámaras de batería independientes duermen entre usos, así que envían sus movimientos y pulsaciones del timbre al puente en este puerto: las cámaras deben poder alcanzarlo (ábralo en un cortafuegos). Vacío: un puerto elegido una vez y conservado.",
       "Two-way audio": "Audio bidireccional",
       "Experimental: talk through the camera's speaker from the Home app. Only where the camera says it can, and with Push events on. Not yet tried on a Reolink device.": "Experimental: hablar por el altavoz de la cámara desde la app Casa. Solo donde la cámara dice que puede, y con Eventos enviados activado. Aún no probado en un dispositivo Reolink."
@@ -1349,13 +1349,13 @@ extension ReolinkPlugin {
       "Lights and switches": "Luzes e interruptores",
       "Video": "Vídeo",
       "Connection": "Ligação",
-      "Battery camera on its own": "Câmara de bateria autónoma",
+      "Battery camera without a hub": "Câmara de bateria sem hub",
       "Experimental: a battery camera on its own Wi-Fi, without a Home Hub or NVR. It is reached over Reolink's own protocol (TCP 9000) only when HomeKit asks for video or a snapshot, so it can sleep. Setup turns this on when it finds one.": "Experimental: uma câmara de bateria na sua própria Wi-Fi, sem Home Hub nem NVR. É contactada pelo protocolo da Reolink (TCP 9000) só quando o HomeKit pede vídeo ou uma imagem, para poder dormir. A configuração ativa-o quando encontra uma.",
       "Take over event push": "Assumir o envio de eventos",
       "A battery camera sends its events to one receiver only. On: the bridge takes the place of another receiver (Home Assistant's, say). Off: the other receiver keeps it, and the camera's motion and doorbell presses do not reach HomeKit.": "Uma câmara de bateria envia os eventos a um só destinatário. Ligado: a ponte ocupa o lugar de outro destinatário (o Home Assistant, por exemplo). Desligado: o outro destinatário mantém-no, e os movimentos e toques da campainha da câmara não chegam ao HomeKit.",
       "Motion duration (seconds)": "Duração do movimento (segundos)",
       "How long a battery camera's motion stays on: it never says that motion stopped.": "Quanto tempo o movimento de uma câmara de bateria fica ativo: nunca diz que terminou.",
-      "Battery cameras' event port": "Porta de eventos das câmaras de bateria",
+      "Event port for battery cameras": "Porta de eventos das câmaras de bateria",
       "Battery cameras on their own sleep between uses, so they post their motion and doorbell presses to the bridge on this port: the cameras must be able to reach it (open it in a firewall). Empty: a port chosen once and kept.": "As câmaras de bateria autónomas dormem entre utilizações, por isso enviam os movimentos e os toques da campainha para a ponte nesta porta: as câmaras têm de a conseguir alcançar (abra-a numa firewall). Vazio: uma porta escolhida uma vez e mantida.",
       "Two-way audio": "Áudio bidirecional",
       "Experimental: talk through the camera's speaker from the Home app. Only where the camera says it can, and with Push events on. Not yet tried on a Reolink device.": "Experimental: falar pelo altifalante da câmara a partir da app Casa. Só onde a câmara diz que pode, e com Eventos enviados ligado. Ainda não experimentado num dispositivo Reolink."
