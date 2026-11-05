@@ -104,7 +104,7 @@ extension Thing {
         var message = codecPending[topic] ?? codecRetained[topic] ?? OrderedJSON(codec.fixedByTopic[topic] ?? codec.fixed ?? .object([:]))
         message.set(path, to: value)
         codecPending[topic] = message
-        after("codec-\(topic)", JSONCodecSettings.delay, scaled: false) {
+        after("codec-\(topic)", dependencies.codecDelay, scaled: false) {
             guard let pending = self.codecPending.removeValue(forKey: topic) else { return }
             if codec.retain { self.codecRetained[topic] = pending }
             if codec.diag { self.logger.info("json codec: encode \(topic) = \(pending.text())") }
