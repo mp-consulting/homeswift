@@ -78,6 +78,7 @@ HomeswiftI18n.add("es", {
   "Devices that speak MQTT, described topic by topic": "Dispositivos que hablan MQTT, descritos tema por tema",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Persianas, calefacción y sensores Somfy TaHoma, Connexoon y Cozytouch",
   "Tapo plugs and bulbs on the local network": "Enchufes y bombillas Tapo en la red local",
+  "Solar production from an APsystems ECU on the local network": "La producción solar de una ECU APsystems en la red local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Cargadores Trydan en la red local: carga, corriente, bloqueo y potencia",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luces, sensores, persianas, ventiladores y climatizadores de dispositivos ESPHome",

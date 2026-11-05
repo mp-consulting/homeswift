@@ -1,3 +1,5 @@
+import HomeswiftAPsystemsECU
+import HomeswiftIPCameras
 import HomeswiftDaikinCloud
 import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
@@ -11,7 +13,6 @@ import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftHueSyncBox
-import HomeswiftIPCameras
 import HomeswiftImou
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
@@ -75,6 +76,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(TapoPlugin.self)
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
+    registry.register(APsystemsECUPlugin.self)
     registry.register(HueSyncBoxPlugin.self)
     registry.register(ReolinkPlugin.self)
     registry.register(ImouPlugin.self)
