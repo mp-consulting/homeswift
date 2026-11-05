@@ -18,7 +18,7 @@ All notable changes to this project are documented here. The format follows
 - TP-Link Tapo: pan and tilt of a C675D's tele lens through the camera's control API (HTTPS on 443, the encrypt_type 3
   login with the owner's cloud password, a clean-room implementation of docs/clean-room/TapoPTZ.md), on the web UI's pad
   and as `list_ptz_cameras`, `move_camera` and `go_to_preset`; only while a live view keeps the camera awake, so a move
-  never wakes it. Experimental, not yet tried on a real camera.
+  never wakes it. Tried on a C675D on firmware 1.1.7.
 - TP-Link Tapo: Add accessories lists the account's cameras from the TP-Link cloud, at the address the ARP table gives
   their MAC (the local networks resolved once when it lacks one), and sets one up with its address, type and cloud id in
   one click, or asks the address when the bridge does not see the camera (another subnet); the account's sign-in reaches

@@ -190,7 +190,7 @@ pinned on first use in `control-certificates.json`, signed in as `admin` with th
   supported yet (the log says so). A wrong password or a lockout stops the attempts for a minute, or as long as the
   camera says; a new certificate (after a firmware update) is trusted again once the camera's proof passes.
 - At most one motor request a second; the end of the range answers "cannot turn further that way".
-- **Untested on a real camera** so far: please report how yours moves.
+- Tried on a C675D (firmware 1.1.7): it pans, tilts and goes to its presets. Please report how other models move.
 
 ## Not done
 
