@@ -81,7 +81,8 @@ extension ImouPlugin {
     public struct CameraSettings: Sendable, Equatable {
         static let keys: Set<String> = [
             "host", "rtspPort", "httpPort", "username", "localEvents", "motionTimeout", "privacySwitch", "lightSwitch", "sirenSwitch", "motionDetectSwitch",
-            "recording", "encoder",
+            "recording", "encoder", "personDetectSwitch", "statusLightSwitch", "linkageSirenSwitch", "linkageLightSwitch", "nightVisionSwitch", "presetSwitches",
+            "twoWayAudio", "talkCodec", "talkMethod", "talkZeroTimestamps",
         ]
 
         var host: String?
@@ -97,22 +98,48 @@ extension ImouPlugin {
         var motionDetectSwitch = true
         var recording = true
         var encoder: String?
+        /// The addendum's switches (section 2): off unless asked for, since each read costs calls of the day's budget.
+        var personDetectSwitch = false
+        var statusLightSwitch = false
+        var linkageSirenSwitch = false
+        var linkageLightSwitch = false
+        var nightVisionSwitch = false
+        /// A "Go to <preset>" switch per PTZ preset.
+        var presetSwitches = false
+        /// Two-way talk (ImouTalk.md): experimental, off unless asked for; `auto` asks the camera whether it has a speaker.
+        var twoWayAudio = TalkMode.off
+        var talkCodec = TalkCodec.g711A
+        var talkMethod = TalkMethod.auto
+        var talkZeroTimestamps = false
 
         init(fields: [String: JSONValue], password: String?, defaults: Configuration) {
             let json = JSONValue.object(fields)
             host = json["host"].text
-            rtspPort = json["rtspPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? 554
-            httpPort = json["httpPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? 80
-            username = json["username"].text ?? "admin"
+            rtspPort = json["rtspPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? rtspPort
+            httpPort = json["httpPort"].lenientInt.flatMap { (1...65535).contains($0) ? $0 : nil } ?? httpPort
+            username = json["username"].text ?? username
             self.password = password
-            localEvents = json["localEvents"]?.boolValue ?? true
-            motionTimeout = min(max(json["motionTimeout"].lenientInt ?? defaults.motionTimeout ?? 15, 1), 3600)
-            privacySwitch = json["privacySwitch"]?.boolValue ?? true
-            lightSwitch = json["lightSwitch"]?.boolValue ?? true
-            sirenSwitch = json["sirenSwitch"]?.boolValue ?? true
-            motionDetectSwitch = json["motionDetectSwitch"]?.boolValue ?? true
-            recording = json["recording"]?.boolValue ?? true
+            localEvents = json["localEvents"]?.boolValue ?? localEvents
+            motionTimeout = min(max(json["motionTimeout"].lenientInt ?? defaults.motionTimeout ?? motionTimeout, 1), 3600)
+            privacySwitch = json["privacySwitch"]?.boolValue ?? privacySwitch
+            lightSwitch = json["lightSwitch"]?.boolValue ?? lightSwitch
+            sirenSwitch = json["sirenSwitch"]?.boolValue ?? sirenSwitch
+            motionDetectSwitch = json["motionDetectSwitch"]?.boolValue ?? motionDetectSwitch
+            recording = json["recording"]?.boolValue ?? recording
             encoder = json["encoder"].text ?? defaults.encoder
+            personDetectSwitch = json["personDetectSwitch"]?.boolValue ?? personDetectSwitch
+            statusLightSwitch = json["statusLightSwitch"]?.boolValue ?? statusLightSwitch
+            linkageSirenSwitch = json["linkageSirenSwitch"]?.boolValue ?? linkageSirenSwitch
+            linkageLightSwitch = json["linkageLightSwitch"]?.boolValue ?? linkageLightSwitch
+            nightVisionSwitch = json["nightVisionSwitch"]?.boolValue ?? nightVisionSwitch
+            presetSwitches = json["presetSwitches"]?.boolValue ?? presetSwitches
+            // A boolean turns it on or off, as the spec's "twoWayAudio boolean" reads.
+            if let flag = json["twoWayAudio"]?.boolValue { twoWayAudio = flag ? .on : .off } else {
+                twoWayAudio = json["twoWayAudio"].text.flatMap { TalkMode(rawValue: $0.lowercased()) } ?? twoWayAudio
+            }
+            talkCodec = json["talkCodec"].text.flatMap { text in [TalkCodec.g711A, .g711Mu, .aac].first { $0.rawValue.lowercased() == text.lowercased() } } ?? talkCodec
+            talkMethod = json["talkMethod"].text.flatMap { TalkMethod(rawValue: $0.lowercased()) } ?? talkMethod
+            talkZeroTimestamps = json["talkZeroTimestamps"]?.boolValue ?? talkZeroTimestamps
         }
 
         /// Video and snapshots can go local: an address and a password.

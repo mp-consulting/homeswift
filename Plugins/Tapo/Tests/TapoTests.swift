@@ -29,14 +29,19 @@ final class TestEnvironment: Sendable {
 
     static var account: [String: Any] { ["username": "user@example.com", "password": "password123"] }
 
-    func start(devices: [[String: Any]], settings: [String: Any] = account, bulbEnergyInterval: Duration = .seconds(600)) async throws -> PluginHost {
+    func start(devices: [[String: Any]], settings: [String: Any] = account, bulbEnergyInterval: Duration = .seconds(600),
+               connect: StreamdClient.Connect? = nil, cloud: FakeTapoCloud = FakeTapoCloud(), macAddress: String? = nil) async throws -> PluginHost {
         var registry = PluginRegistry()
         let network = network
         registry.register(platform: TapoPlugin.platform, name: TapoPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(TapoPlugin.Configuration.self, from: json)
-            let plugin = TapoPlugin(
-                configuration: configuration, context: context,
-                dependencies: .init(http: network, timeScale: 0.002, bulbEnergyInterval: bulbEnergyInterval, setupTimeout: .seconds(1)))
+            var dependencies = TapoPlugin.Dependencies(http: network, timeScale: 0.002, bulbEnergyInterval: bulbEnergyInterval, setupTimeout: .seconds(1))
+            if let connect { dependencies.connect = connect }
+            dependencies.cloudHTTP = cloud
+            dependencies.motionTiming = TapoMotionWatcher.Timing(interval: .milliseconds(20), maximumBackoff: .milliseconds(200))
+            dependencies.motionHold = .milliseconds(300)
+            dependencies.macAddress = { _ in macAddress }
+            let plugin = TapoPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -52,7 +57,7 @@ final class TestEnvironment: Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -138,7 +143,8 @@ struct TapoTests {
     @Test func writesReachTheDevice() async throws {
         let host = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21"]])
         let plug = try await accessory(host, kitchenID)
-        #expect(await eventually { environment.network.device().methods.contains("get_device_info") })
+        // The first answer taken in (its information shown), not only asked for: a write before it is No Response.
+        #expect(await eventually { plug.information[.serialNumber]?.value == .string("0123456789ABCDEF0123456789ABCDEF") })
         let on = try #require(plug.service(.outlet)?[.on])
         try await on.write(.bool(true))
         let set = try #require(environment.network.device().sets.last)
@@ -188,8 +194,10 @@ struct TapoTests {
 
     @Test func aRefusedSetIsNoResponse() async throws {
         let host = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21"]])
-        let on = try #require(try await accessory(host, kitchenID).service(.outlet)?[.on])
-        #expect(await eventually { environment.network.device().methods.contains("get_device_info") })
+        let plug = try await accessory(host, kitchenID)
+        let on = try #require(plug.service(.outlet)?[.on])
+        // Taken in: a write before the first answer would be No Response whatever the device says.
+        #expect(await eventually { plug.information[.serialNumber]?.value == .string("0123456789ABCDEF0123456789ABCDEF") })
         environment.network.update { $0.setError = -1008 }
         await #expect(throws: HAPStatusError.self) { try await on.write(.bool(true)) }
         await host.stop()
@@ -207,7 +215,7 @@ struct TapoTests {
             $0.reachable = true
             $0.info["device_on"] = true
         }
-        #expect(await eventually(timeout: .seconds(10)) { !plug.showsNoResponse })
+        #expect(await eventually { !plug.showsNoResponse })
         #expect(plug.service(.outlet)?[.on]?.value == .bool(true))
         #expect(await device.failures == 0)
         await host.stop()

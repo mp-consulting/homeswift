@@ -31,6 +31,7 @@ actor TrydanCharger {
     let timing: TrydanTiming
     let logger: Logger
     let context: PluginContext
+    let memories: PersistedDictionary<ChargerMemory>
     let tasks: TaskBag
     /// The Device Id the accessory is under, once known (the configuration's, or the first report's).
     private(set) var deviceID: String?
@@ -49,8 +50,12 @@ actor TrydanCharger {
     private var rereadWanted = false
     /// Writes the charger took, so a read sent before one is not shown over it.
     private var writes = 0
-    /// When the Light LED's brightness was last written, so an On of the same request does not override it.
-    private var lastBrightnessWrite: ContinuousClock.Instant?
+    /// When HomeKit last asked for a Light LED brightness, and last turned it off: an On of the same request as a
+    /// brightness does not override it.
+    private var lastBrightnessAsked: ContinuousClock.Instant?
+    private var lastLightOff: ContinuousClock.Instant?
+    /// Writes waiting `coalescing` for a later one of the same slider.
+    private(set) var waitingWrites = 0
     private var warnedStates: Set<Int> = []
     private var repairedFirmware: Set<String> = []
     private var identityNoted = false
@@ -61,10 +66,17 @@ actor TrydanCharger {
     private var lastLogoLevel = 100
     private let coalesce: LatestCallGuard
     private var series: [String: RecordedSeries] = [:]
+    /// The lifetime energy and the installation settings sent, from `charger-<Device Id>.json`; loaded once the Device Id
+    /// is known.
+    private(set) var memory: ChargerMemory?
+    /// An installation write in flight, and when a failed one may be tried again, by keyword.
+    private var installing = false
+    private var installRetry: [String: ContinuousClock.Instant] = [:]
+    private var warnedLimits = false
 
     init(
         host: String, deviceID: String?, name: String, settings: ChargerSettings, transport: any HTTPSending, interval: Duration, timeout: Duration,
-        timing: TrydanTiming, context: PluginContext, tasks: TaskBag
+        timing: TrydanTiming, context: PluginContext, memories: PersistedDictionary<ChargerMemory>, tasks: TaskBag
     ) {
         self.host = host
         self.deviceID = deviceID
@@ -74,6 +86,7 @@ actor TrydanCharger {
         self.timing = timing
         self.logger = context.logger
         self.context = context
+        self.memories = memories
         self.tasks = tasks
         client = TrydanClient(host: host, transport: transport, timeout: timeout, logger: context.logger)
         coalesce = LatestCallGuard(delay: timing.coalescing)
@@ -179,8 +192,95 @@ actor TrydanCharger {
             lastLogoLevel = min(level, 100)
         }
         noteIdentity(report)
-        services?.show(report)
-        record(report)
+        let lifetime = accumulate(report)
+        services?.show(report, lifetimeEnergy: lifetime)
+        record(report, lifetimeEnergy: lifetime)
+        if !installing, !installationWrites(report).isEmpty {
+            installing = true
+            tasks.add { [weak self] in await self?.applyInstallation() }
+        }
+    }
+
+    // MARK: What is kept across restarts
+
+    /// The memory of the charger's Device Id, read once.
+    private func loadedMemory() -> ChargerMemory? {
+        guard let deviceID else { return nil }
+        if let memory { return memory }
+        let loaded = memories[deviceID] ?? ChargerMemory()
+        memory = loaded
+        return loaded
+    }
+
+    private func save(_ updated: ChargerMemory) {
+        guard let deviceID, updated != memory else { return }
+        memory = updated
+        memories[deviceID] = updated
+    }
+
+    /// The session's energy added to the lifetime total, kept; nil before the Device Id is known.
+    private func accumulate(_ report: TrydanReport) -> Double? {
+        guard var updated = loadedMemory() else { return nil }
+        updated.energy.add(sessionEnergy: report.chargeEnergy)
+        save(updated)
+        return updated.energy.total
+    }
+
+    // MARK: Installation settings
+
+    /// The installation keywords the Accessory Settings ask for that the charger does not report and were not sent
+    /// already (a value is sent once per change of the settings) nor failed a moment ago.
+    func installationWrites(_ report: TrydanReport) -> [(keyword: String, value: Int)] {
+        guard let memory = loadedMemory() else { return [] }
+        let now = ContinuousClock.now
+        let writes = settings.installation.filter { write in
+            guard memory.sent[write.keyword] != write.value, installRetry[write.keyword].map({ now >= $0 }) ?? true else { return false }
+            guard (try? validate(write.keyword, write.value)) != nil else { return false }
+            guard let current = Self.reported(write.keyword, in: report) else { return false }
+            return current != write.value
+        }
+        // The minimum never above the maximum (3.4), counting the one not asked for as the charger reports it; a
+        // minimum raised past the maximum goes after the maximum.
+        let minimum = settings.minIntensity ?? report.minIntensity, maximum = settings.maxIntensity ?? report.maxIntensity
+        guard minimum <= maximum else {
+            if !warnedLimits {
+                warnedLimits = true
+                logger.warning("The current limits of \(name) are not sent: the minimum \(minimum) A is above the maximum \(maximum) A")
+            }
+            return writes.filter { $0.keyword != "MinIntensity" && $0.keyword != "MaxIntensity" }
+        }
+        guard minimum > report.maxIntensity else { return writes }
+        return writes.filter { $0.keyword == "MaxIntensity" } + writes.filter { $0.keyword != "MaxIntensity" }
+    }
+
+    /// The value of an installation keyword the report holds; nil when the charger has not reported it.
+    static func reported(_ keyword: String, in report: TrydanReport) -> Int? {
+        switch keyword {
+        case "ChargeMode": report.chargeMode
+        case "MinIntensity": report.minIntensity
+        case "MaxIntensity": report.maxIntensity
+        case "VoltageInstallation": report.voltageInstallation
+        default: nil
+        }
+    }
+
+    /// Sends what `installationWrites` lists, one at a time, remembering each value the charger took.
+    func applyInstallation() async {
+        defer { installing = false }
+        guard let report else { return }
+        for write in installationWrites(report) {
+            do {
+                try await set(write.keyword, write.value)
+                installRetry[write.keyword] = nil
+                if var updated = memory {
+                    updated.sent[write.keyword] = write.value
+                    save(updated)
+                }
+                logger.info("Set \(write.keyword) of \(name) to \(write.value), as its settings ask")
+            } catch {
+                installRetry[write.keyword] = .now + timing.fallbackRetry
+            }
+        }
     }
 
     private func failed(_ error: any Error) {
@@ -210,9 +310,8 @@ actor TrydanCharger {
     func nextDelay() -> Duration {
         if let retryAfter { return retryAfter }
         guard failures >= 3 else { return interval }
-        // 30 s, 60 s, 120 s, then the maximum (5.3).
-        let attempt = failures - 3
-        return max(interval, attempt >= 3 ? timing.backoff.maximum : timing.backoff.delay(attempt: attempt))
+        // 30 s, 60 s, 120 s, 240 s, then the maximum (5.3).
+        return max(interval, timing.backoff.delay(attempt: failures - 3))
     }
 
     // MARK: Energy
@@ -236,9 +335,20 @@ actor TrydanCharger {
     /// Several chargers of one installation read the same meter: its figures count once.
     static let meterShared = "v2c-meter"
 
-    private func record(_ report: TrydanReport) {
+    private func record(_ report: TrydanReport, lifetimeEnergy: Double?) {
         guard let deviceID else { return }
-        for reading in Self.energyReadings(report, settings: settings, device: name) {
+        var readings = Self.energyReadings(report, settings: settings, device: name)
+        // kWh, untagged: the charge power is already in the history.
+        readings.append(("session", report.chargeEnergy, nil))
+        if let lifetimeEnergy { readings.append(("energy", lifetimeEnergy, nil)) }
+        // The diagnostics HomeKit has no place for: the session's seconds, the meter's code (3.5), the Wi-Fi signal,
+        // and the current and voltage of each phase measured.
+        readings.append(("chargeTime", Double(report.chargeTime), nil))
+        readings.append(("meterError", Double(report.slaveError), nil))
+        if let signal = report.signalStatus { readings.append(("signal", Double(signal), nil)) }
+        for (index, current) in report.intensityMeasures.enumerated() { readings.append(("currentL\(index + 1)", current, nil)) }
+        for (index, voltage) in report.voltageMeasures.enumerated() { readings.append(("voltageL\(index + 1)", voltage, nil)) }
+        for reading in readings {
             guard let watts = reading.watts.finite else { continue }
             let recorded: RecordedSeries
             if let known = series[reading.key] {
@@ -269,7 +379,8 @@ actor TrydanCharger {
             guard let self else { throw HAPStatusError(.serviceCommunicationFailure) }
             try await self.perform(command)
         }
-        if let report { built.show(report) }
+        // The first reports came before the Device Id was known: counted now (counting one twice adds nothing).
+        if let report { built.show(report, lifetimeEnergy: accumulate(report)) }
         built.accessory.isUnavailable = !isReachable
         try context.add(built.accessory)
         services = built
@@ -297,7 +408,7 @@ actor TrydanCharger {
                 return
             }
             // A drag of the slider: only its last value goes.
-            guard await coalesce("intensity") else { return }
+            guard await isLatest("intensity") else { return }
             let range = report?.intensityRange ?? 6...32
             let value = Int(saturating: amperes.rounded(), in: range) ?? range.lowerBound
             try await set("Intensity", value)
@@ -312,22 +423,29 @@ actor TrydanCharger {
         case .lightLED(let on):
             guard on else {
                 _ = coalesce.claim("lightLED")
+                lastLightOff = .now
                 try await set("LightLED", 0)
                 return
             }
             // HomeKit sends On with a Brightness in one request, in no set order: a brightness wins.
             let asked = ContinuousClock.now
             try? await Task.sleep(for: timing.coalescing)
-            // A brightness of the same request may have started before this On, or finished just before it ran.
-            if let lastBrightnessWrite, lastBrightnessWrite >= asked - timing.coalescing * 2 { return }
+            // A brightness asked just before this On or while it waited, and not turned off since, is of the same request.
+            if let brightness = lastBrightnessAsked, brightness >= asked - timing.coalescing, lastLightOff.map({ $0 < brightness }) ?? true { return }
             try await set("LightLED", lastLightLevel)
         case .lightLEDBrightness(let level):
-            lastBrightnessWrite = .now
-            defer { lastBrightnessWrite = .now }
-            guard await coalesce("lightLED") else { return }
+            lastBrightnessAsked = .now
+            guard await isLatest("lightLED") else { return }
             try await set("LightLED", min(max(level, 0), 100))
         case .logoLED(let on):
             try await set("LogoLED", on ? (logoDimmable ? lastLogoLevel : 1) : 0)
+        case .mode(let mode, let on):
+            guard on else {
+                // A radio: the mode in force cannot be turned off, only another one on.
+                if report?.dynamicPowerMode == mode.rawValue { _ = services?.modes[mode]?.characteristic(.on).revert(to: .bool(true), after: .milliseconds(100)) }
+                return
+            }
+            try await set("DynamicPowerMode", mode.rawValue)
         }
     }
 
@@ -337,16 +455,30 @@ actor TrydanCharger {
         switch keyword {
         case "Paused", "Locked", "Timer", "Dynamic", "PauseDynamic":
             allowed = (0...1).contains(value) ? nil : "0 or 1"
-        case "Intensity":
+        case "Intensity", "MinIntensity", "MaxIntensity":
             allowed = (6...32).contains(value) ? nil : "6 to 32"
         case "DynamicPowerMode":
             allowed = (0...5).contains(value) ? nil : "0 to 5"
+        case "ChargeMode":
+            allowed = (0...2).contains(value) ? nil : "0, 1 or 2"
+        case "VoltageInstallation":
+            allowed = (1...500).contains(value) ? nil : "1 to 500"
         case "LightLED", "LogoLED":
             allowed = (0...100).contains(value) ? nil : "0 to 100"
         default:
             allowed = "a keyword the plugin writes"
         }
         if let allowed { throw .outOfRange(keyword: keyword, value: value, allowed: allowed) }
+    }
+
+    /// Waits `coalescing`, then says whether no later write for `key` came meanwhile. Claimed here, on the charger, so the
+    /// last write to reach it wins (the guard's own call claims it after a hop off the actor, where two can swap).
+    private func isLatest(_ key: String) async -> Bool {
+        let isLatest = coalesce.claim(key)
+        waitingWrites += 1
+        defer { waitingWrites -= 1 }
+        do { try await Task.sleep(for: timing.coalescing) } catch { return false }
+        return isLatest()
     }
 
     /// Validates and sends one keyword; on `OK`, shows it at once and reads the charger again now and after `settle`.
@@ -367,7 +499,7 @@ actor TrydanCharger {
         if var report {
             Self.apply(keyword, value, to: &report)
             self.report = report
-            services?.show(report)
+            services?.show(report, lifetimeEnergy: memory?.energy.total)
         }
         let settle = timing.settle
         tasks.add { [weak self] in
@@ -387,6 +519,10 @@ actor TrydanCharger {
         case "PauseDynamic": report.pauseDynamic = value
         case "Intensity": report.intensity = value
         case "DynamicPowerMode": report.dynamicPowerMode = value
+        case "ChargeMode": report.chargeMode = value
+        case "MinIntensity": report.minIntensity = value
+        case "MaxIntensity": report.maxIntensity = value
+        case "VoltageInstallation": report.voltageInstallation = value
         case "LightLED": report.lightLED = value
         case "LogoLED": report.logoLED = value
         default: break
@@ -407,12 +543,16 @@ actor TrydanCharger {
             fields["locked"] = .bool(report.locked == 1)
             fields["chargePower"] = .number(report.chargePower)
             fields["sessionEnergy"] = .number(report.chargeEnergy)
+            if let total = memory?.energy.total { fields["lifetimeEnergy"] = .number((total * 100).rounded() / 100) }
             fields["intensity"] = .number(Double(report.intensity))
             fields["minIntensity"] = .number(Double(report.minIntensity))
             fields["maxIntensity"] = .number(Double(report.maxIntensity))
             fields["housePower"] = .number(report.housePower)
             fields["solarPower"] = .number(report.fvPower)
             fields["meterStatus"] = .string(SlaveError.name(report.slaveError))
+            fields["chargeTime"] = .number(Double(report.chargeTime))
+            if let signal = report.signalStatus { fields["signal"] = .number(Double(signal)) }
+            if let voltage = report.voltageInstallation { fields["installationVoltage"] = .number(Double(voltage)) }
             fields["dynamicPowerMode"] = .string(DynamicPowerMode(rawValue: report.dynamicPowerMode)?.name ?? "\(report.dynamicPowerMode)")
             if let firmware = report.firmwareVersion { fields["firmware"] = .string(firmware) }
         }

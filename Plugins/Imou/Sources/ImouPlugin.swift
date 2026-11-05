@@ -27,6 +27,12 @@ public actor ImouPlugin: HomeswiftPlugin {
         var ports = RtpPortAllocator()
         /// A local event stream that sends nothing (not even its heartbeat) this long is dead (section 5.3).
         var eventSilence: Duration = .seconds(30)
+        /// The plugin's log, the context's when nil: tests read what it says.
+        var logger: Logger?
+        /// Two-way talk's raw connections to a camera (ImouTalk.md, sections 3 and 4).
+        var talkConnect: TalkConnector = { host, port, timeout in try await TCPStream.connect(host: host, port: port, timeout: timeout) }
+        /// Replaces FFmpeg's decoding of HomeKit's return audio (tests).
+        var returnAudioDecoder: ReturnAudioDecoderFactory?
     }
 
     public static let platform = "Imou"
@@ -41,13 +47,11 @@ public actor ImouPlugin: HomeswiftPlugin {
     static let rediscoveryInterval: Double = 600
     /// The cloud's alarms, when they stand in for a camera's local events and no interval is set.
     static let defaultAlarmPollInterval = 60
+    /// A device's SD card is read on a poll at most this often (addendum, section 4.1).
+    static let storageInterval: Double = 3600
 
     /// The sizes HomeKit may ask for.
-    static let resolutions: [VideoResolution] = [
-        VideoResolution(320, 180, 30), VideoResolution(320, 240, 15), VideoResolution(320, 240, 30), VideoResolution(480, 270, 30),
-        VideoResolution(480, 360, 30), VideoResolution(640, 360, 30), VideoResolution(640, 480, 30), VideoResolution(1280, 720, 30),
-        VideoResolution(1280, 960, 30), VideoResolution(1920, 1080, 30), VideoResolution(1600, 1200, 30),
-    ]
+    static let resolutions = RTSPCameraStreamer.standardResolutions
 
     let configuration: Configuration
     let context: PluginContext
@@ -58,11 +62,23 @@ public actor ImouPlugin: HomeswiftPlugin {
     /// The cloud's camera devices, by Device Id, from its last listing.
     private(set) var cloudDevices: [String: ImouDevice] = [:]
     private var queues: [String: SerialQueue] = [:]
+    /// Whether each camera talks, as last detected (ImouTalk.md, section 2), by what it was asked with.
+    private var talkDetected: [String: Bool] = [:]
     private var eventStreams: [String: Task<Void, Never>] = [:]
     private var ffmpeg: RTSPCameraFFmpeg?
     private(set) var cloud: ImouCloud?
     private var cloudOutage = false
-    var logger: Logger { context.logger }
+    /// The error each device's `deviceOnline` last answered, so a lasting one is logged once.
+    private var deviceProblems: [String: String] = [:]
+    /// enableTypes each accessory's camera lacks (`DV1019`), kept in `unsupported.json`: their switches are left out.
+    private lazy var unsupported = context.persistedDictionary("unsupported.json", of: [String].self)
+    /// Each device's SD card, when it was last read.
+    private(set) var storage: [String: (value: ImouStorage, at: ContinuousClock.Instant)] = [:]
+    private var polls = 0
+    /// The quota governor: the switches beyond the first ones are read every this many polls, so the day's calls stay
+    /// under `ImouUsage.warnAbove`.
+    private(set) var extrasEvery = 1
+    var logger: Logger { dependencies.logger ?? context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -147,7 +163,7 @@ public actor ImouPlugin: HomeswiftPlugin {
             await camera.noteSilentSensor()
         }
         guard self.cloud != nil else { return }
-        estimateCalls()
+        await estimateCalls()
         tasks.add { [weak self] in await self?.pollLoop() }
         tasks.add { [weak self] in await self?.alarmLoop() }
         tasks.add { [weak self] in await self?.rediscoveryLoop() }
@@ -208,11 +224,18 @@ public actor ImouPlugin: HomeswiftPlugin {
         }
         var keep = Set(localCameras().map { Self.accessoryID(deviceID: $0.deviceID, channel: "0") })
         for device in listed.values { for channel in device.cameraChannels { keep.insert(Self.accessoryID(deviceID: device.deviceID, channel: channel.id)) } }
-        for (id, camera) in cameras where !keep.contains(id) {
+        // A camera gone, and one the cloud no longer lists that is set up on the LAN: published again without the cloud.
+        var republished: [String: Bool?] = [:]
+        for (id, camera) in cameras where !keep.contains(id) || (camera.cloud != nil && listed[camera.deviceID] == nil) {
+            if keep.contains(id) { republished[id] = .some(await camera.localEventsUp) }
             await camera.shutdown()
             cameras.removeValue(forKey: id)
         }
         await context.removeAccessories(keeping: keep)
+        if !republished.isEmpty {
+            await publishLocalCameras()
+            for case let (id, up?) in republished { await cameras[id]?.localEvents(up: up) }
+        }
     }
 
     private func queue(for deviceID: String) -> SerialQueue {
@@ -244,17 +267,25 @@ public actor ImouPlugin: HomeswiftPlugin {
         let features = ImouFeatures(abilities: device.abilities(of: channel))
         let name = channel.id == "0" || device.isIPC ? device.name : channel.name
         let id = Self.accessoryID(deviceID: device.deviceID, channel: channel.id)
+        let cameraCloud = cloudDevices[device.deviceID] != nil ? cloud : nil
+        // HomeKit Secure Video from the local stream only (section 6.2).
+        let records = settings.isLocal && settings.recording
+        var presets: [String] = []
+        if let cameraCloud, settings.presetSwitches, features.presets {
+            do { presets = try await cameraCloud.presets(device.deviceID, channel: channel.id) } catch { logger.warning("\(name): no presets from the cloud: \(error)") }
+        }
         let local = settings.isLocal ? settings.host.flatMap {
             DahuaClient(host: $0, port: settings.httpPort, username: settings.username, password: settings.password ?? "", transport: dependencies.local)
         } : nil
         let ffmpeg = sharedFFmpeg()
+        let talk = await talk(for: device, channel: channel, settings: settings, local: local, ffmpeg: ffmpeg, name: name)
         let camera = ImouCamera(
             accessoryID: id, deviceID: device.deviceID, channel: channel, name: name, features: features, settings: settings,
-            multiChannel: !device.isIPC, cloud: cloudDevices[device.deviceID] != nil ? cloud : nil, local: local, queue: queue(for: device.deviceID),
+            multiChannel: !device.isIPC, cloud: cameraCloud, local: local, queue: queue(for: device.deviceID),
             download: dependencies.download, ffmpeg: ffmpeg, streamID: configuration.streamID,
             timing: ImouCamera.Timing(scale: dependencies.timeScale, snapshotWait: configuration.snapshotWaitSeconds, wakeWait: configuration.wakeWaitSeconds,
                                       dormantRetryWait: Double(configuration.dormantRetrySeconds)),
-            log: logger)
+            log: logger, unsupported: Set(unsupported[id] ?? []), recording: records, presets: presets)
         let options = RTSPCameraOptions(encoder: (settings.encoder ?? "").split(whereSeparator: \.isWhitespace).map(String.init), rtspOverTCP: true)
         let open: RTSPSourceOpener = { [weak camera] purpose in
             guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
@@ -265,9 +296,10 @@ public actor ImouPlugin: HomeswiftPlugin {
             snapshot: { [weak camera] _ in
                 guard let camera else { throw HAPStatusError(.serviceCommunicationFailure) }
                 return try await camera.snapshotImage()
-            }, log: logger, timeScale: dependencies.timeScale)
-        // HomeKit Secure Video from the local stream only (section 6.2).
-        let recorder = settings.isLocal && settings.recording ? RTSPCameraRecorder(name: name, options: options, ffmpeg: ffmpeg, open: open, log: logger) : nil
+            }, log: logger, timeScale: dependencies.timeScale,
+            returnAudio: talk.map { talk in ReturnAudioOptions(format: talk.settings.codec.format) { await talk.handle($0) } },
+            returnAudioDecoder: dependencies.returnAudioDecoder)
+        let recorder = records ? RTSPCameraRecorder(name: name, options: options, ffmpeg: ffmpeg, open: open, log: logger) : nil
         do {
             let controllerOptions = CameraControllerOptions(
                 cameraStreamCount: 2, delegate: streamer,
@@ -275,7 +307,7 @@ public actor ImouPlugin: HomeswiftPlugin {
                     supportedCryptoSuites: [.aesCM128HMACSHA1_80],
                     video: VideoStreamingOptions(
                         codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]), resolutions: Self.resolutions),
-                    audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: false)),
+                    audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, samplerate: [.khz16])], twoWayAudio: talk != nil)),
                 recording: recorder.map {
                     CameraRecordingSetup(options: RTSPCameraRecorder.options(resolutions: Self.resolutions, triggers: features.doorbell ? [.motion, .doorbell] : [.motion]),
                                          delegate: $0)
@@ -285,11 +317,15 @@ public actor ImouPlugin: HomeswiftPlugin {
                 ? try DoorbellController(controllerOptions, name: name, logger: logger)
                 : try CameraController(controllerOptions, logger: logger)
             await streamer.attach(controller)
+            if let operatingMode = controller.services.first(where: { $0.type.uuid == ServiceType.cameraOperatingMode.uuid }) {
+                await camera.attach(operatingMode: operatingMode)
+            }
             let services = camera.services
             let accessory = Accessory(
                 id: id, name: name, manufacturer: "Imou", model: device.model, serialNumber: device.deviceID,
                 firmwareRevision: Self.firmwareRevision(device.firmware), category: features.doorbell ? .videoDoorbell : .ipCamera,
-                services: [services.motion, services.privacy, services.motionDetection, services.siren, services.light, services.battery].compactMap { $0 })
+                services: [services.motion, services.privacy, services.motionDetection, services.siren, services.light, services.battery, services.nightVision]
+                    .compactMap { $0 } + services.toggles.map(\.service) + services.presets.map(\.service))
             camera.bindWrites()
             accessory.configureController(controller)
             context.configureController(controller, accessoryID: id)
@@ -302,9 +338,40 @@ public actor ImouPlugin: HomeswiftPlugin {
         }
     }
 
+    // MARK: Two-way talk
+
+    /// The camera's talk (ImouTalk.md, sections 2 and 6), when its `twoWayAudio` setting allows it, it is reached on the LAN
+    /// and it has a speaker (`on` takes that for granted): `devAudioOutput` says so, or, when it cannot, a backchannel track
+    /// in its stream. Asked before the camera is published, since only a camera published with two-way audio has a Speaker.
+    private func talk(for device: ImouDevice, channel: ImouChannel, settings: CameraSettings, local: DahuaClient?, ffmpeg: RTSPCameraFFmpeg,
+                      name: String) async -> ImouTalk? {
+        guard settings.twoWayAudio != .off, let local, let host = settings.host else { return nil }
+        let talk = ImouTalk(
+            settings: .init(host: host, httpPort: settings.httpPort, rtspPort: settings.rtspPort, channel: channel.localChannel, codec: settings.talkCodec,
+                            method: settings.talkMethod, zeroTimestamps: settings.talkZeroTimestamps),
+            client: local, connect: dependencies.talkConnect, ffmpeg: ffmpeg, name: name, log: logger, scale: dependencies.timeScale)
+        guard settings.twoWayAudio == .auto else { return talk }
+        let key = "\(device.deviceID)|\(channel.id)|\(host)|\(settings.httpPort)|\(settings.rtspPort)|\(settings.talkMethod.rawValue)"
+        if let known = talkDetected[key] { return known ? talk : nil }
+        var speaker: Bool?
+        if settings.talkMethod != .rtsp, let outputs = await local.audioOutputs() { speaker = outputs > 0 }
+        if speaker == nil, settings.talkMethod != .http { speaker = await talk.probeBackchannel() }
+        // A camera that could not be asked is asked again with the next publication (the next restart).
+        guard let speaker else {
+            logger.info("\(name): could not tell whether the camera has a speaker: no two-way audio for now")
+            return nil
+        }
+        talkDetected[key] = speaker
+        if !speaker { logger.info("\(name): camera has no speaker") }
+        return speaker ? talk : nil
+    }
+
     /// The leading numbers of a firmware version, as HomeKit takes them (`2.840.0000000.12.R` is `2.840.0`).
     static func firmwareRevision(_ text: String?) -> String {
-        let numbers = (text ?? "").split(separator: ".").prefix(3).map { part in Int(part.prefix(9)).map(String.init) ?? "0" }
+        // `V2.1` is 2.1: a part's letters before its digits are left out.
+        let numbers = (text ?? "").split(separator: ".").prefix(3).map { part in
+            Int(part.drop { !$0.isNumber }.prefix { $0.isASCII && $0.isNumber }.prefix(9)).map(String.init) ?? "0"
+        }
         guard let first = numbers.first, first != "0" || numbers.count > 1 else { return "1.0.0" }
         return (numbers + Array(repeating: "0", count: max(0, 3 - numbers.count))).joined(separator: ".")
     }
@@ -327,7 +394,7 @@ public actor ImouPlugin: HomeswiftPlugin {
             eventStreams[key] = nil
         }
         for (key, entry) in byHost where eventStreams[key] == nil {
-            let codes = ImouEvents.localCodes + (entry.doorbell ? ImouEvents.localDoorbellCodes.sorted() : [])
+            let codes = ImouEvents.localCodes + (entry.doorbell ? ImouEvents.localDoorbellCodes : [])
             let silence = dependencies.eventSilence
             let scale = dependencies.timeScale
             let logger = logger
@@ -444,26 +511,40 @@ public actor ImouPlugin: HomeswiftPlugin {
 
     func poll() async {
         guard let cloud else { return }
+        // The quota governor: the extra switches on one poll in `extrasEvery`, and none once the day's calls slow polling.
+        let extras = polls % extrasEvery == 0
+        polls += 1
         for (deviceID, cameras) in camerasByDevice().sorted(by: { $0.key < $1.key }) where !context.isExcluded(deviceID) {
             do {
                 let state = try await cloud.online(deviceID, polling: true)
+                let spare = await !cloud.isOverBudget()
                 // The battery is the device's: read once for all its channels.
                 var battery: Int?
                 if state.device == .online, cameras.contains(where: { $0.services.battery != nil }) { battery = try? await cloud.batteryLevel(deviceID) }
                 for camera in cameras {
                     let channel = state.channels.isEmpty ? state.device : state.channels[camera.channel.id] ?? .offline
-                    await camera.refresh(channel, battery: battery)
+                    await camera.refresh(channel, battery: battery, extras: extras && spare)
+                    await keepUnsupported(of: camera)
                 }
+                if state.device == .online, spare, cameras.contains(where: { $0.features.storage }), storageDue(deviceID) { await readStorage(deviceID, cloud: cloud) }
                 if cloudOutage { logger.info("The IMOU cloud answers again") }
                 cloudOutage = false
+                deviceProblems[deviceID] = nil
             } catch ImouError.overBudget {
                 return
             } catch let error as ImouError where error.isAuthRefused {
                 context.accountRefused("the IMOU cloud refused the App Id and App Secret (\(error))")
+                // As at the start: no more calls with refused credentials until it is set up again.
+                self.cloud = nil
                 return
-            } catch let error as ImouError where error.code == "OP1009" || error.code == "FL1001" {
-                for camera in cameras { await camera.refresh(.offline) }
-                logger.warning("\(deviceID): \(error)")
+            } catch let error as ImouError where error.code == "OP1014" {
+                // `deviceOnline` is spent for the day (logged by the cloud client): the next devices would answer the same.
+                return
+            } catch let error as ImouError where error.code != nil {
+                // This device's answer (offline, unbound, shared without permission…): the others are still polled.
+                if error.code == "OP1009" || error.code == "FL1001" { for camera in cameras { await camera.refresh(.offline) } }
+                if deviceProblems.updateValue("\(error)", forKey: deviceID) != "\(error)" { logger.warning("\(deviceID): \(error)") }
+                continue
             } catch {
                 if !cloudOutage { logger.warning("Cannot reach the IMOU cloud: \(error)") }
                 cloudOutage = true
@@ -501,26 +582,67 @@ public actor ImouPlugin: HomeswiftPlugin {
             if let devices = try? await cloud.listDevices(), !Task.isCancelled {
                 await sync(devices)
                 startEventStreams()
+                await estimateCalls(quiet: true)
             }
         }
     }
 
-    /// What the polls will cost a day, warned of above 15,000 (section 7.2).
-    private func estimateCalls() {
-        var perPoll = 0
-        for device in cloudDevices.values {
-            perPoll += 1
-            for channel in device.cameraChannels {
-                let features = ImouFeatures(abilities: device.abilities(of: channel))
-                perPoll += (features.privacy ? 1 : 0) + (features.whiteLight ? 1 : 0) + (features.motionDetectSwitch ? 2 : 0)
-            }
-            if device.cameraChannels.contains(where: { ImouFeatures(abilities: device.abilities(of: $0)).battery }) { perPoll += 1 }
+    private func storageDue(_ deviceID: String) -> Bool {
+        storage[deviceID].map { ContinuousClock.now - $0.at >= scaled(Self.storageInterval) } ?? true
+    }
+
+    /// The SD card's state (addendum, section 4.1), its use recorded for the Status page.
+    private func readStorage(_ deviceID: String, cloud: ImouCloud) async {
+        do {
+            let value = try await cloud.storage(deviceID)
+            storage[deviceID] = (value, .now)
+            if let used = value.usedPercent { context.recordValue(Double(used), series: "sdcard:\(deviceID)") }
+        } catch let error as ImouError where ["DV1049", "NO_SD_CARD"].contains(error.code ?? "") {
+            storage[deviceID] = (ImouStorage(status: "none"), .now)
+        } catch let error as ImouError where error.code == "DEVICE_SD_EXCEPTION" {
+            storage[deviceID] = (ImouStorage(status: "abnormal"), .now)
+        } catch {
+            // Tried again in an hour, not every poll.
+            storage[deviceID] = (storage[deviceID]?.value ?? ImouStorage(status: "unknown"), .now)
+            logger.debug("\(deviceID): no SD card status from the cloud: \(error)")
         }
-        var daily = perPoll * 86_400 / configuration.pollSeconds
+    }
+
+    /// Keeps the enableTypes a camera found missing, so its next start leaves their switches out.
+    private func keepUnsupported(of camera: ImouCamera) async {
+        let found = await camera.takeUnsupported()
+        guard !found.isEmpty else { return }
+        _ = unsupported.update(camera.accessoryID) { $0 = Set(($0 ?? []) + found).sorted() }
+    }
+
+    /// What the polls will cost a day, warned of above 15,000 (section 7.2), and the quota governor's spacing of the extra
+    /// switches: read on every poll while the day stays under 15,000, else on one poll in `extrasEvery`.
+    func estimateCalls(quiet: Bool = false) async {
+        var base = 0, extras = 0, storageDevices = 0
+        for cameras in camerasByDevice().values {
+            base += 1 + (cameras.contains { $0.services.battery != nil } ? 1 : 0)
+            for camera in cameras {
+                let reads = await camera.pollReads()
+                base += reads.base
+                extras += reads.extras
+            }
+            if cameras.contains(where: { $0.features.storage }) { storageDevices += 1 }
+        }
+        let polls = 86_400 / configuration.pollSeconds
+        var daily = base * polls + 144 + storageDevices * 2 * 24
         if let interval = configuration.alarmPollInterval, interval > 0 { daily += cameras.count * 86_400 / max(interval, 30) }
-        daily += 144
+        let room = ImouUsage.warnAbove - daily
+        if extras == 0 || extras * polls <= room {
+            extrasEvery = 1
+        } else {
+            // Within the room left, else once an hour.
+            extrasEvery = room > 0 ? (extras * polls + room - 1) / room : max(1, polls / 24)
+        }
+        daily += extras * polls / extrasEvery
         if daily > ImouUsage.warnAbove {
             logger.warning("These cameras and intervals cost about \(daily) IMOU cloud calls a day; the account's limit is 20,000: raise pollingInterval")
+        } else if extrasEvery > 1, !quiet {
+            logger.info("About \(daily) IMOU cloud calls a day: the extra switches are read on one poll in \(extrasEvery), to stay under 15,000")
         } else {
             logger.debug("About \(daily) IMOU cloud calls a day")
         }

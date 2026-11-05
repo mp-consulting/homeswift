@@ -153,10 +153,22 @@ struct BatteryStatus: Sendable, Equatable {
     var chargingStatus: Double?
     /// Kilowatts (watts on a ZOE phase 1, converted).
     var powerKW: Double?
+    /// Minutes to a full charge, as the car estimates them.
+    var remainingMinutes: Int?
+    /// °C, older cars only.
+    var temperature: Double?
+    /// kWh, older cars only; nil for their 0, which means unknown.
+    var availableEnergy: Double?
+    /// When the car last reported, as it says it (ISO 8601).
+    var timestamp: String?
 
     init(attributes json: JSONValue, reportsWatts: Bool = false) {
-        level = json["batteryLevel"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
-        autonomy = json["batteryAutonomy"]?.saturatingIntValue
+        level = json["batteryLevel"]?.saturatingIntValue(in: 0...100)
+        autonomy = json["batteryAutonomy"]?.saturatingIntValue(in: 0...2000)
+        remainingMinutes = json["chargingRemainingTime"]?.saturatingIntValue(in: 0...10_000)
+        temperature = json["batteryTemperature"]?.doubleValue?.finite.flatMap(HvacStatus.plausible)
+        availableEnergy = json["batteryAvailableEnergy"]?.doubleValue?.finite.flatMap { (0.1...500).contains($0) ? $0 : nil }
+        timestamp = json["timestamp"]?.stringValue.map { String($0.prefix(64)) }
         plugStatus = json["plugStatus"]?.saturatingIntValue
         chargingStatus = ChargingStatus.normalised(json["chargingStatus"]?.doubleValue)
         powerKW = json["chargingInstantaneousPower"]?.doubleValue?.finite.map { reportsWatts ? $0 / 1000 : $0 }
@@ -186,6 +198,19 @@ struct BatteryStatus: Sendable, Equatable {
     }
 
     var isUnplugged: Bool { plugStatus == 0 }
+
+    /// `chargingStatus` in words; nil when the car did not say, the value itself for one 4.3 does not list.
+    var chargeStatusName: String? {
+        chargingStatus.map { ChargingStatus.names[$0] ?? String(format: "%.1f", $0) }
+    }
+
+    /// The charging power in whole watts.
+    var watts: Int? { powerKW.flatMap { Int(saturating: $0 * 1000, in: 0...100_000) } }
+
+    /// Minutes to full and watts while the car charges, 0 when it does not (it keeps its last estimate after a
+    /// charge); nil when it does not say whether it charges.
+    var timeToFull: Int? { isCharging.map { $0 ? remainingMinutes ?? 0 : 0 } }
+    var chargingWatts: Int? { isCharging.map { $0 ? watts ?? 0 : 0 } }
 }
 
 struct HvacStatus: Sendable, Equatable {
@@ -205,12 +230,32 @@ struct HvacStatus: Sendable, Equatable {
     static func plausible(_ value: Double) -> Double? { (-60...100).contains(value) ? value : nil }
 }
 
-struct SocLevels: Sendable, Equatable {
+struct SocLevels: Sendable, Equatable, Codable {
     var minimum: Int?
+    var target: Int?
+
+    /// The API's names, which `renault-soc.json` keeps too.
+    enum CodingKeys: String, CodingKey {
+        case minimum = "socMin", target = "socTarget"
+    }
 
     init(attributes json: JSONValue) {
-        minimum = json["socMin"]?.doubleValue.flatMap { Int(saturating: $0, in: 0...100) }
+        minimum = json["socMin"]?.saturatingIntValue(in: 0...100)
+        target = json["socTarget"]?.saturatingIntValue(in: 0...100)
     }
+
+    init(minimum: Int?, target: Int?) {
+        self.minimum = minimum
+        self.target = target
+    }
+
+    /// The limits the API takes (4.4): the minimum 15 to 45 and the target 55 to 100, in steps of 5.
+    static let minimumRange = 15...45
+    static let targetRange = 55...100
+
+    static func isValid(minimum: Int) -> Bool { isStep(minimum, in: minimumRange) }
+    static func isValid(target: Int) -> Bool { isStep(target, in: targetRange) }
+    private static func isStep(_ value: Int, in range: ClosedRange<Int>) -> Bool { range.contains(value) && value % 5 == 0 }
 }
 
 struct LockStatus: Sendable, Equatable {

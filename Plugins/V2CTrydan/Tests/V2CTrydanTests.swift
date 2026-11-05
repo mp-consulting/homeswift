@@ -104,6 +104,7 @@ final class TestEnvironment: Sendable {
     let charger: FakeCharger
     let timing: TrydanTiming
     private let plugins = NIOLockedValueBox<[V2CTrydanPlugin]>([])
+    private let observations = NIOLockedValueBox<[Observation]>([])
 
     init(_ charger: FakeCharger = FakeCharger(Vectors.charging), timing: TrydanTiming = fastTiming) {
         self.charger = charger
@@ -123,11 +124,13 @@ final class TestEnvironment: Sendable {
         return registry
     }
 
-    func start(settings: [String: Any] = ["devices": [["host": "192.0.2.50"]]]) async throws -> PluginHost {
+    /// `observing` sees each reading recorded for the Status page from the first.
+    func start(settings: [String: Any] = ["devices": [["host": "192.0.2.50"]]], observing: (@Sendable (String, Double) -> Void)? = nil) async throws -> PluginHost {
         let block = try HomeswiftConfiguration.Platform(platform: V2CTrydanPlugin.platform, name: V2CTrydanPlugin.name, settings: settings)
         let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
         let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         let host = try PluginHost(configuration: configuration, registry: registry(), storageDirectory: directory, options: options)
+        if let observing { observations.withLockedValue { $0.append(host.observeValues(observing)) } }
         try await host.start()
         return host
     }
@@ -284,7 +287,7 @@ struct V2CTrydanPluginTests {
         #expect(outlet[.on]?.value == .bool(true))
         #expect(outlet[.outletInUse]?.value == .bool(true))
         #expect(outlet[EveCharacteristic.currentConsumption]?.value == .int(1500))
-        #expect(outlet[EveCharacteristic.totalConsumption]?.value == .double(1.8))
+        #expect(await eventually { outlet[EveCharacteristic.totalConsumption]?.value == .double(1.8) })
         #expect(outlet[EveCharacteristic.voltage]?.value == .double(230))
         #expect(outlet[EveCharacteristic.electricCurrent]?.value == .double(6.5))
         let fan = try #require(accessory.service(.fanv2, subtype: "current"))
@@ -404,7 +407,8 @@ struct V2CTrydanPluginTests {
         let speed = try #require(accessory.service(.fanv2)?[.rotationSpeed])
         let handler = try #require(speed.writeHandler(for: .double(10)))
         async let dragged: Void = { try? await handler(.double(10)) }()
-        try await Task.sleep(for: .milliseconds(50))
+        let charger = try #require(await environment.plugin?.charger(deviceID: "TRY4F2A"))
+        #expect(await eventually { await charger.waitingWrites == 1 })
         try await handler(.double(0))
         await dragged
         #expect(environment.charger.writes == ["/write/Paused=1"], "the 10 still waiting is dropped")
@@ -508,24 +512,32 @@ struct V2CTrydanPluginTests {
         await host.stop()
     }
 
-    @Test func setupAddsAChargerByAddress() async throws {
+    @Test func addByAddressReadsTheChargerAndKeysItByItsID() async throws {
+        #expect(V2CTrydanPlugin.addsDevicesByAddress)
         let environment = TestEnvironment()
         let host = try await environment.start(settings: [:])
         let plugin = try #require(environment.plugin)
-        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("no prompt"); return }
+        guard case .done = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("the account asks nothing"); return }
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
         #expect(prompt.fields.map(\.key) == ["host"])
-        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["host": "192.0.2.50"])) else {
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": " 192.0.2.50 "])) else {
             Issue.record("not done"); return
         }
-        #expect(outcome.credentials == nil, "nothing to keep")
-        #expect(outcome.settings["devices"] == [["host": "192.0.2.50", "id": "TRY4F2A"]])
-        let canonical = V2CTrydanPlugin.canonical(["platform": "V2CTrydan", "devices": outcome.settings["devices"]!])
-        #expect(canonical["_accessories"]?["TRY4F2A"]?["host"] == "192.0.2.50")
-        #expect(canonical["devices"] == nil)
+        #expect(outcome.deviceID == "TRY4F2A" && outcome.credentials == nil, "the charger's ID, nothing to keep")
+        #expect(outcome.settings == ["host": "192.0.2.50"])
 
-        environment.charger.set("<html>nope</html>")
+        environment.charger.set(Vectors.idle)
+        guard case .done(let unnamed) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.51"])) else {
+            Issue.record("not done"); return
+        }
+        #expect(unnamed.deviceID == "HOST-192-0-2-51", "a charger without ID is keyed by its address")
+
+        await #expect(throws: SetupError("That is not an address: type an IP address or a host name, such as 192.168.1.50")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "not an address!"]))
+        }
+        environment.charger.fail(true)
         await #expect(throws: SetupError("No V2C Trydan answered at 192.0.2.60")) {
-            try await plugin.authorize(SetupRequest(target: .account, answers: ["host": "192.0.2.60"]))
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.60"]))
         }
         await host.stop()
     }
@@ -564,6 +576,135 @@ struct V2CTrydanPluginTests {
         #expect(environment.charger.writes == ["/write/DynamicPowerMode=3"])
         let probe = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "probe", query: ["host": "192.0.2.50"], body: .null, user: "test"))
         #expect(probe.json["charger"]?["deviceID"] == "TRY4F2A")
+        await host.stop()
+    }
+
+    /// The charger's current accessory's outlet and mode switches, looked up each time: it is built again once the LEDs
+    /// are reported.
+    static func outlet(_ host: PluginHost) -> Service? {
+        host.mainBridge.server.accessories.first { $0.id == V2CTrydanPlugin.accessoryID(deviceID: "TRY4F2A") }?.service(.outlet)
+    }
+
+    static func mode(_ host: PluginHost, _ name: String) -> Characteristic? {
+        host.mainBridge.server.accessories.first { $0.id == V2CTrydanPlugin.accessoryID(deviceID: "TRY4F2A") }?.service(.switch, subtype: "mode.\(name)")?[.on]
+    }
+
+    /// The lifetime total grows by what each session adds, a new session counted from 0, and survives a restart.
+    @Test func theLifetimeEnergyGrowsAndSurvivesARestart() async throws {
+        var energy = LifetimeEnergy()
+        for reading in [1.0, 1.5, 1.5, 0.2, 0.7, -1, .nan] { energy.add(sessionEnergy: reading) }
+        #expect(abs(energy.total - 2.2) < 1e-9)
+        #expect(energy.session == 0.7)
+
+        let environment = TestEnvironment()
+        var host = try await environment.start()
+        // Looked up each time: the accessory is built again once the charger's LEDs are reported.
+        let counted = await eventually { [host] in Self.outlet(host)?[EveCharacteristic.totalConsumption]?.value == .double(1.8) }
+        #expect(counted)
+        environment.charger.set(Vectors.charging.replacingOccurrences(of: #""ChargeEnergy":1.80"#, with: #""ChargeEnergy":2.30"#))
+        let grown = await eventually { [host] in Self.outlet(host)?[EveCharacteristic.totalConsumption]?.value == .double(2.3) }
+        #expect(grown)
+        let session = await eventually { [host] in Self.outlet(host)?[TrydanCharacteristic.sessionEnergy]?.value == .double(2.3) }
+        #expect(session)
+        await host.stop()
+
+        // Restarted during a new session: the total goes on from what was kept.
+        environment.charger.set(Vectors.charging.replacingOccurrences(of: #""ChargeEnergy":1.80"#, with: #""ChargeEnergy":0.50"#))
+        host = try await environment.start()
+        let kept = await eventually { [host] in Self.outlet(host)?[EveCharacteristic.totalConsumption]?.value == .double(2.8) }
+        #expect(kept)
+        let newSession = await eventually { [host] in Self.outlet(host)?[TrydanCharacteristic.sessionEnergy]?.value == .double(0.5) }
+        #expect(newSession)
+        let snapshot = await environment.plugin?.charger(deviceID: "TRY4F2A")?.snapshot()
+        #expect(snapshot?["lifetimeEnergy"] == 2.8)
+        await host.stop()
+    }
+
+    /// The mode switches are a radio: On sets `DynamicPowerMode`, the mode in force cannot be turned off.
+    @Test func theModeSwitchesSetTheDynamicPowerMode() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start(settings: [
+            "devices": [["host": "192.0.2.50", "id": "TRY4F2A"]], "_accessories": ["TRY4F2A": ["exposeModes": true]],
+        ])
+        let mode: @Sendable (String) -> Characteristic? = { name in Self.mode(host, name) }
+        // Built again once the first read reports the LEDs: the switches are looked up each time.
+        #expect(await eventually { mode("solar-min")?.value == .bool(true) && environment.charger.count("/RealTimeData") >= 2 })
+        #expect(mode("solar-only")?.value == .bool(false))
+        #expect(mode("timed-off") == nil, "the deprecated mode is not offered")
+
+        try await #require(mode("solar-only")).write(.bool(true))
+        #expect(environment.charger.writes == ["/write/DynamicPowerMode=3"])
+        #expect(await eventually { mode("solar-only")?.value == .bool(true) && mode("solar-min")?.value == .bool(false) })
+
+        // Off on the mode in force: nothing is sent, the switch comes back on.
+        try await #require(mode("solar-only")).write(.bool(false))
+        #expect(await eventually { mode("solar-only")?.value == .bool(true) })
+        #expect(environment.charger.writes == ["/write/DynamicPowerMode=3"])
+        await host.stop()
+    }
+
+    /// The wiring of the Accessory Settings goes to the charger once, not again after a restart, nor when it is changed
+    /// back on the charger.
+    @Test func theWiringIsSentOncePerChange() async throws {
+        let environment = TestEnvironment()
+        let settings: [String: Any] = ["devices": [["host": "192.0.2.50", "id": "TRY4F2A"]], "_accessories": ["TRY4F2A": ["chargeMode": "mixed"]]]
+        var host = try await environment.start(settings: settings)
+        _ = try #require(await accessory(host, accessoryID))
+        #expect(await eventually { environment.charger.writes == ["/write/ChargeMode=2"] })
+        let reads = environment.charger.count("/RealTimeData")
+        #expect(await eventually { environment.charger.count("/RealTimeData") >= reads + 3 })
+        await host.stop()
+
+        environment.charger.set(Vectors.charging)
+        host = try await environment.start(settings: settings)
+        _ = try #require(await accessory(host, accessoryID))
+        let again = environment.charger.count("/RealTimeData")
+        #expect(await eventually { environment.charger.count("/RealTimeData") >= again + 3 })
+        #expect(environment.charger.writes == ["/write/ChargeMode=2"])
+        await host.stop()
+    }
+
+    /// The current limits and the voltage of the Accessory Settings go to the charger once, in an order that keeps the
+    /// minimum at or below the maximum; values out of range, or a minimum above the maximum, are not sent.
+    @Test func theInstallationLimitsAreSentOnce() async throws {
+        let environment = TestEnvironment()
+        // The charger offers 6 to 16 A; the settings ask for 20 to 25 A at 400 V: the maximum goes first.
+        var settings: [String: Any] = [
+            "devices": [["host": "192.0.2.50", "id": "TRY4F2A"]],
+            "_accessories": ["TRY4F2A": ["minIntensity": 20, "maxIntensity": 25, "voltageInstallation": 400]],
+        ]
+        var host = try await environment.start(settings: settings)
+        #expect(await eventually { environment.charger.writes.count == 3 })
+        #expect(environment.charger.writes == ["/write/MaxIntensity=25", "/write/MinIntensity=20", "/write/VoltageInstallation=400"])
+        await host.stop()
+
+        // Out of range, or the minimum above the maximum: nothing.
+        for limits in [["maxIntensity": 40], ["voltageInstallation": 0], ["minIntensity": 30, "maxIntensity": 20]] {
+            settings["_accessories"] = ["TRY4F2A": limits]
+            environment.charger.set(Vectors.charging)
+            let sent = environment.charger.writes.count
+            host = try await environment.start(settings: settings)
+            let reads = environment.charger.count("/RealTimeData")
+            #expect(await eventually { environment.charger.count("/RealTimeData") >= reads + 3 })
+            #expect(environment.charger.writes.count == sent, "\(limits)")
+            await host.stop()
+        }
+    }
+
+    /// The session's time, the meter's code, the signal and each phase measured reach the Status page's history.
+    @Test func theDiagnosticsAreRecorded() async throws {
+        let body = Vectors.charging.replacingOccurrences(of: #""SignalStatus":3}"#, with: #""SignalStatus":3,"IntensityMeasure_L1y":6.5,"VoltageMeasure_L1":231}"#)
+        let environment = TestEnvironment(FakeCharger(body))
+        let values = NIOLockedValueBox<[String: Double]>([:])
+        let host = try await environment.start(observing: { series, value in values.withLockedValue { $0[series] = value } })
+        let prefix = "plugin:V2CTrydan:TRY4F2A:"
+        #expect(await eventually { values.withLockedValue { $0[prefix + "signal"] } == 3 })
+        #expect(values.withLockedValue { $0[prefix + "chargeTime"] } == 4355)
+        #expect(values.withLockedValue { $0[prefix + "meterError"] } == 4)
+        #expect(values.withLockedValue { $0[prefix + "currentL1"] } == 6.5)
+        #expect(values.withLockedValue { $0[prefix + "voltageL1"] } == 231)
+        let snapshot = await environment.plugin?.charger(deviceID: "TRY4F2A")?.snapshot()
+        #expect(snapshot?["chargeTime"] == 4355 && snapshot?["signal"] == 3 && snapshot?["installationVoltage"] == 230)
         await host.stop()
     }
 

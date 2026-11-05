@@ -219,18 +219,14 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             guard let host = request.query["host"]?.trimmingCharacters(in: .whitespaces), KeyLightClient.isValidHost(host) else { return .error(400, "a host name or IP address is required") }
             let port = request.query["port"].flatMap(Int.init) ?? KeyLightClient.defaultPort
             guard KeyLightClient.isValidPort(port) else { return .error(400, "the port must be between 1 and 65535") }
-            let client = KeyLightClient(host: host, port: port, transport: dependencies.transport)
             let started = ContinuousClock.now
-            let info: KeyLightInfo
+            let info: KeyLightInfo, mac: String?
             do {
-                info = try await client.info()
+                (info, mac) = try await identify(host: host, port: port)
             } catch {
                 return .error(502, "No light answered at \(host):\(port): \(error)")
             }
             let elapsed = ContinuousClock.now - started
-            // Older firmware leaves the MAC out of its answer; the ARP table has it, the light having just answered.
-            var mac = info.macAddress.map(Self.canonicalMAC)
-            if mac == nil { mac = await ARPTable.macAddress(for: host).map(Self.canonicalMAC) }
             var light: [String: JSONValue] = [
                 "host": .string(host), "port": .number(Double(port)), "milliseconds": .number((elapsed / .milliseconds(1)).rounded()),
                 "name": .string(info.displayName?.nonEmpty ?? info.productName ?? "Key Light"), "model": .string(info.productName ?? "Key Light"),
@@ -258,7 +254,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     /// Lights from config.json work without Bonjour, e.g. in containers without multicast.
     private func registerConfiguredDevices() {
-        for address in configuration.addresses ?? [] {
+        for address in configuredAddresses {
             let host = address.host.trimmingCharacters(in: .whitespaces)
             let port = address.port ?? KeyLightClient.defaultPort
             guard KeyLightClient.isValidHost(host), KeyLightClient.isValidPort(port) else {
@@ -300,7 +296,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     /// The address config.json gives a light, for the ones registered from it.
     private func configuredLight(mac: String) -> DiscoveredLight? {
-        for address in configuration.addresses ?? [] {
+        for address in configuredAddresses {
             let host = address.host.trimmingCharacters(in: .whitespaces)
             let known = address.mac.flatMap(MACAddress.canonical) ?? learnedMACs[Self.addressKey(host: host, port: address.port)]
             if known == mac { return Self.addressedLight(host: host, port: address.port ?? KeyLightClient.defaultPort, mac: mac, name: attempts[mac]?.name ?? mac) }
@@ -313,18 +309,23 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         DiscoveredLight(name: name, mac: mac, host: host, port: port, addresses: HostResolution.isIPv4(host) ? [host] : [])
     }
 
+    /// Asks the light at an address who it is: what it says, and its MAC (`macAddress`; older firmware leaves it out, and
+    /// the ARP table has it, the light having just answered).
+    func identify(host: String, port: Int) async throws -> (info: KeyLightInfo, mac: String?) {
+        let info = try await KeyLightClient(host: host, port: port, transport: dependencies.transport).info()
+        if let mac = info.macAddress.flatMap(MACAddress.canonical) { return (info, mac) }
+        return (info, await ARPTable.macAddress(for: host).flatMap(MACAddress.canonical))
+    }
+
     /// Asks a light of `addresses` without a MAC who it is (`macAddress`, else the ARP table), then connects to it.
     private func learn(host: String, port: Int) async {
-        let client = KeyLightClient(host: host, port: port, transport: dependencies.transport)
-        let info: KeyLightInfo
+        let info: KeyLightInfo, mac: String?
         do {
-            info = try await client.info()
+            (info, mac) = try await identify(host: host, port: port)
         } catch {
             logger.error("Could not reach the light at \(host):\(port), skipping: \(error)")
             return
         }
-        var mac = info.macAddress.flatMap(MACAddress.canonical)
-        if mac == nil { mac = await ARPTable.macAddress(for: host).flatMap(MACAddress.canonical) }
         guard let mac, !Task.isCancelled else {
             if !Task.isCancelled { logger.warning("The light at \(host):\(port) did not give its MAC address; add it to its entry in addresses") }
             return

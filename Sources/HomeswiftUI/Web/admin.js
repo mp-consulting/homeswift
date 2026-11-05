@@ -1259,10 +1259,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function overviewModel(status, plugins, accessories, filter = null, matter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
+    // An accessory on a HomeKit server of its own (a camera, a television) is shown as what it is, with its category's icon.
     const tops = bridges.map((bridge) => ({
-      kind: bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge, count: bridge.accessories ?? 0,
-      sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}) }));
+      kind: bridge.external ? "external" : bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge,
+      count: bridge.accessories ?? 0, sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}),
+      accessory: bridge.external ? accessories.find((accessory) => accessory.name === bridge.name) : undefined,
+      icon: bridge.external ? deviceIcon(accessories.find((accessory) => accessory.name === bridge.name)?.category) : undefined }));
     const topByName = new Map(tops.map((top) => [top.name, top]));
+    // The HomeKit servers of an accessory of its own (a camera), by name: the plugin that publishes it shows it, with the
+    // server's pairing, port and Device ID on its card.
+    const externals = new Map(bridges.filter((bridge) => bridge.external).map((bridge) => [bridge.name, bridge]));
+    const shown = new Set();
     const entries = plugins?.platforms ?? [];
     const claimed = new Set();
     let pluginCount = 0, pausedCount = 0, colorIndex = 0;
@@ -1292,6 +1299,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const key = `${block.platform}|${bridgeName}`;
       let leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
       claimed.add(key);
+      // Its accessories of their own, under the first of its blocks.
+      if (!claimed.has(`${block.platform}|external`)) {
+        claimed.add(`${block.platform}|external`);
+        for (const accessory of accessories) {
+          const server = externals.get(accessory.bridge);
+          if (accessory.platform !== block.platform || !server) continue;
+          shown.add(server.name);
+          leaves.push({ ...accessory, server });
+        }
+      }
       if (filter) {
         leaves = leaves.filter(filter.keeps);
         if (!leaves.length) continue;
@@ -1301,8 +1318,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pausedCount += paused ? 1 : 0;
       parent.children.push(branchOf({ name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, color }, leaves));
     }
+    // A server whose accessory hangs from its plugin is not a node of its own.
+    tops.splice(0, tops.length, ...tops.filter((top) => top.kind !== "external" || !shown.has(top.name)));
     for (const top of tops) top.color = "var(--muted)";
-    if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
+    // A filter keeps the nodes with something it matches: a bridge's plugins, or the accessory of its own no plugin shows.
+    if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length || (top.accessory && filter.keeps(top.accessory))));
     // A plugin's accessories grouped by device type: one group per run of the same category (the leaves are sorted by it).
     const groupsOf = (plugin) => {
       const groups = [];
@@ -1461,14 +1481,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       document.documentElement.classList.add("wall-full", "graph-full");
       app().show(main, card);
     } else {
-      app().show(main, app().pageHead(t("Accessories"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")), tabs, card);
+      // The wall's head, word for word: the same title, line and toolbar place, so nothing moves between the two views.
+      const { status, accessories } = model.source;
+      const shown = accessories.filter((accessory) => !accessory.hidden);
+      const servers = new Set(shown.map((accessory) => accessory.bridge)).size || (status.bridges ?? []).length;
+      const line = !shown.length ? ""
+        : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: shown.length })
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: shown.length, servers });
+      // Full screen and Add accessories after the tabs, as on the wall.
+      if (card.fullScreenButton) tabs.append(card.fullScreenButton);
+      if (app().isAdmin() && accessories.length) tabs.append(el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus",
+        "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }));
+      app().show(main, app().pageHead(t("Accessories"), line, card.toolbar), tabs, card);
     }
   }
   /// In or out of the graph's full screen: the browser's too, where it can.
   function setGraphFullScreen(on) {
     if (on) document.documentElement.requestFullscreen?.().catch(() => {});
     else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    app().navigate(`/accessories/graph${on ? "?full=1" : ""}`, { replace: true });
+    // The search and filters stay.
+    const next = new URLSearchParams(location.search);
+    if (on) next.set("full", "1"); else next.delete("full");
+    app().navigate(`/accessories/graph${next.size ? `?${next}` : ""}`, { replace: true });
   }
 
   /// What a detail card shows: a name and icon (or the app's icon), a status, facts, and readings; an accessory's
@@ -1488,6 +1522,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return { name: accessory.name, icon: accessoryIcon(accessory), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts, actions,
       media: camera ? () => HomeswiftWidgets.cameraView(accessory) : () => el("div", { class: "detail-widget" }, HomeswiftWidgets.card(accessory, { size: "large" })),
       sections: HomeswiftWidgets.valueSections(accessory) };
+  }
+  /// An accessory's card; one on a HomeKit server of its own (a camera) adds that server's pairing, port and Device ID.
+  function leafDetails(accessory) {
+    const details = accessoryDetails(accessory), server = accessory.server;
+    if (!server) return details;
+    return { ...details, warn: server.paired === false || details.warn,
+      status: server.paired ? t("Paired · {count}", { count: server.controllers ?? 0 }) : t("Not paired"),
+      facts: [...details.facts, factRow("bridgeType", t("Accessory of its own")), factRow("port", server.port), factRow("deviceId", server.deviceId)] };
   }
   /// A card's fact: its label, its value, and a tooltip saying what it is.
   const factInfo = {
@@ -1517,9 +1559,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     update: [t("Update available"), t("Whether a newer homeswift release is out.")],
   };
   const factRow = (key, value) => { const [label, tip] = factInfo[key]; return [label, value, tip]; };
+  /// What a top node is: built in, a child bridge, an accessory of its own (a camera on its own HomeKit server), or a bridge.
+  function topType(top) {
+    if (top.kind === "system") return t("Built in");
+    if (top.kind === "external") return t("Accessory of its own");
+    return top.kind === "child" ? t("Child bridge") : t("Bridge");
+  }
   function bridgeDetails(top) {
     const bridge = top.raw;
-    const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
+    // An accessory of its own is that accessory (a camera's live picture first), with its HomeKit server's pairing,
+    // port and Device ID.
+    if (top.kind === "external" && top.accessory) return leafDetails({ ...top.accessory, server: bridge });
+    const type = topType(top);
     return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
@@ -1544,7 +1595,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
   const accessoryItems = (leaves) => leaves.map((one) => ({ icon: accessoryIcon(one), name: one.name, status: deviceStatus(one),
-    warn: Boolean(one.unavailable), details: () => accessoryDetails(one) }));
+    warn: Boolean(one.unavailable), details: () => leafDetails(one) }));
   /// A detail card's content: the head with the icon (a back button when `back` is given) and close, then its facts,
   /// its readings and its accessories, each of which `open` shows in the card's place.
   function detailNodes(data, close, { back = null, open = null } = {}) {
@@ -1782,10 +1833,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
     const { status, plugins, accessories: all, matter } = model.source;
-    const chosen = { from: null, bridges: new Set(), categories: new Set(), unavailable: false };
-    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
+    // Kept in the address with the wall's names (q, from, bridge, type, unavailable): a tab carries them to the wall and back.
+    const params = new URLSearchParams(location.search);
+    const chosen = { from: params.get("from"), bridges: new Set(params.getAll("bridge")), categories: new Set(params.getAll("type")),
+      unavailable: params.get("unavailable") === "1" };
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories"),
+      value: params.get("q") ?? "" });
+    const remember = () => {
+      const next = new URLSearchParams(location.search);
+      for (const key of ["q", "from", "bridge", "type", "unavailable"]) next.delete(key);
+      if (search.value.trim()) next.set("q", search.value.trim());
+      if (chosen.from) next.set("from", chosen.from);
+      for (const name of chosen.bridges) next.append("bridge", name);
+      for (const category of chosen.categories) next.append("type", category);
+      if (chosen.unavailable) next.set("unavailable", "1");
+      history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
+    };
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
-    const count = el("span", { class: "overview-count muted", role: "status" });
     const empty = el("div", { class: "overview-empty", hidden: true }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("search")),
       el("p", { class: "muted", text: t("No accessories match the current search.") }));
     frame.append(empty);
@@ -1798,6 +1862,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
+      remember();
       const filter = filterOf();
       const next = overviewModel(status, plugins, all, filter, matter);
       closeDetail();
@@ -1811,11 +1876,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       Object.assign(zoom, home());
       apply();
       svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-      // Each accessory once: the Matter block's branches show again accessories a plugin has.
-      const shown = new Set(next.tops.flatMap((top) => top.children.flatMap((plugin) => plugin.leaves.map((leaf) => leaf.id)))).size;
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
-      count.textContent = filter ? tn("{n} accessory", "{n} accessories", shown, {}) : "";
       filters.classList.toggle("on", active() > 0);
       filters.replaceChildren(...[HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
       search.dispatchEvent(new Event("change")); // the Clear filters button's state
@@ -1826,7 +1888,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A menu choice: a toggle in `set`, with what it would leave.
     const choice = (set, value, label, icon) => ({ label, icon, count: matching({ [set]: new Set(chosen[set]).add(value) }), checked: chosen[set].has(value),
       checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
-    const bridgeNames = (status.bridges ?? []).map((bridge) => bridge.name);
+    // A server that is one accessory of its own (a camera) is that accessory, under its plugin: filtered by its type, as on the wall.
+    const bridgeNames = (status.bridges ?? []).filter((bridge) => !bridge.external).map((bridge) => bridge.name);
     const categories = [...new Set(all.map((one) => one.category))].sort((a, b) => categoryName(a).localeCompare(categoryName(b), locale));
     // The controllers some accessories mirror (Apple Home, through Wingman), as on the wall.
     const sources = [...new Set(all.map((one) => one.mirroredFrom).filter(Boolean))];
@@ -1837,13 +1900,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
         onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
-      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
+      ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: clear.disabled, onSelect: () => clear.click() },
     ]));
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setGraphFullScreen(true) }, HomeswiftCommon.icon("expand"));
-    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear, full ? null : fullScreenButton);
+    // Full screen goes beside the Wall and Graph tabs (`card.fullScreenButton`), as on the wall.
+    // The search and Filters alone, as on the wall: Clear filters is in the Filters menu (and full screen's panel).
+    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters);
     redraw();
 
     const controls = el("div", { class: "overview-zoom" },
@@ -1858,23 +1923,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Full screen: the graph and its zoom alone, the search and the filters in a panel from the one button left, and
     // that button and the zoom faded while nothing happens, as on the wall.
     const chrome = full ? graphFullScreenChrome(frame, search, filters, clear) : null;
-    return el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
+    // The search and filters go in the page's head, where the wall has its own (`card.toolbar`), so switching views
+    // leaves them in place; full screen keeps them in the card, for its panel.
+    const card = el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
       chrome,
       el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: t("Graph of the bridges, plugins and accessories") }),
         el("div", { class: "muted", text: t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.") }))),
-      toolbar, frame, controls, legend,
+      full ? toolbar : null, frame, controls, legend,
       el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), table));
+    card.toolbar = toolbar;
+    card.fullScreenButton = full ? null : fullScreenButton;
+    return card;
   }
 
-  /// The full-screen graph's chrome: the button that opens a panel with the search, the filters and Leave full screen;
+  /// The full-screen graph's chrome: Leave full screen, and the button that opens a panel with the search and the filters;
   /// Escape (or the browser's own) leaves; a touch, the mouse or a key wakes the chrome, which fades a few seconds later.
   function graphFullScreenChrome(frame, search, filters, clear) {
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Graph options"), "aria-haspopup": "dialog",
       title: t("Graph options"), onclick: () => app().openSheet((done) => el("div", { class: "wall-full-panel" },
         el("h2", { id: "graph-full-panel-title", text: t("Graph") }),
         search, el("div", { class: "actions graph-full-filters" }, filters, clear),
+        // Leaving is the button beside this panel's.
         el("div", { class: "actions" },
-          el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setGraphFullScreen(false); } }),
           el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
       "graph-full-panel-title", { returnFocus: optionsButton }) }, HomeswiftCommon.icon("sliders"));
     let sleepTimer = null;
@@ -1902,7 +1972,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     addEventListener("pointerdown", onPointer, { passive: true });
     if (document.fullscreenElement) document.addEventListener("fullscreenchange", onFullScreen);
     wake();
-    return el("div", { class: "wall-full-chrome" }, optionsButton);
+    // Leaving at hand, beside the options, as on the wall.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setGraphFullScreen(false) }, HomeswiftCommon.icon("collapse"));
+    return el("div", { class: "wall-full-chrome" }, exitButton, optionsButton);
   }
 
   /// The radial graph: homeswift at the origin, each bridge an icon on the first ring, each plugin one on the second, each
@@ -1949,8 +2022,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             card: () => groupDetails(group), zoom: { radius: (rings.group + rings.leaf) / 2, k: 2.8 } }));
           for (const accessory of group.leaves) {
             edges.push(link(group, accessory, "leaf", branch.color));
-            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: accessoryIcon(accessory),
-              tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => accessoryDetails(accessory) }));
+            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}${accessory.server?.paired === false ? " unpaired" : ""}`,
+              radius: disc.radius, icon: accessoryIcon(accessory),
+              tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => leafDetails(accessory) }));
           }
         }
       }
@@ -1966,7 +2040,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function overviewTable(model) {
     const rows = model.tops.flatMap((top) => [
       el("tr", { class: "overview-bridge" }, el("th", { scope: "row", text: top.name }),
-        el("td", { text: top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge") }),
+        el("td", { text: topType(top) }),
         el("td", { text: top.kind === "system" ? "" : top.sub }),
         el("td", { text: top.kind === "system" ? "" : top.paired ? t("Paired") : t("Not paired") })),
       ...top.children.map((plugin) => el("tr", { class: "overview-plugin" }, el("th", { scope: "row", text: plugin.name }),

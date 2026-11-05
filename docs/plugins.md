@@ -422,6 +422,38 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
 - **A device the network does not show** (Bonjour blocked, another subnet): an entry with only its address in the
   block's own list (a TV's `ip`, a Wingman's `host`) is a device `discover()` lists by that address, and its Setup
   keeps it under the Device Id the Authorization reads.
+- **Add by address** (GLOSSARY.md): a plugin whose devices are reached by address and cannot be found (an EV charger,
+  a solar gateway, a camera on another subnet) sets `static let addsDevicesByAddress = true`. The Add accessories page
+  then offers **Add by address…** on its instance, and `start_setup` takes `addByAddress: true`; with or without an
+  account (a plugin with an optional account offers both). Its Setup is `authorize` with `request.target == .newDevice`
+  (`request.isNewDevice`): the first step asks for the address and whatever else the device needs, a later one may ask
+  for more (a password, a camera's safety code) with `state`, as any Setup's. The plugin probes the device and answers
+  `.done` with `SetupOutcome.deviceID` (required: the Device Id the device answered with), `settings` (its Accessory
+  Settings, by that Device Id: where it answers, declared in `accessorySchema` so its settings sheet can change it; a
+  `null` takes a key out) and `credentials` (to the vault, under that Device Id), or throws `SetupError` for what
+  did not work ("No light answered at 192.0.2.50:9123"), which the sheet shows and asks again. A device added this way is
+  included (an Excluded one is no longer), and the plugin reloads and reaches it from `context.allAccessorySettings`;
+  `discover()` lists it, set up, like a discovered one. The plugin's own Homebridge-shaped address list (Elgato's
+  `addresses`) keeps working beside it. `Plugins/ElgatoKeyLights/Sources/ElgatoSetup.swift` is the example:
+
+  ```swift
+  public static let addsDevicesByAddress = true
+
+  public func authorize(_ request: SetupRequest) async throws -> SetupStep {
+      guard request.isNewDevice else { return .done(SetupOutcome()) }
+      guard let host = request.answer("host") else {
+          return .ask(SetupPrompt(message: "Enter the address of the light: …", fields: [
+              SetupField("host", label: "IP address or host name"), SetupField("port", label: "Port", optional: true),
+          ]))
+      }
+      guard let info = try? await KeyLightClient(host: host, port: port, transport: transport).info(),
+            let mac = info.macAddress.flatMap(MACAddress.canonical) else { throw SetupError("No light answered at \(host):\(port)") }
+      return .done(SetupOutcome(settings: ["host": .string(host)], deviceID: mac))
+  }
+  ```
+
+  Its prompt and errors are English, with their French, Spanish and Portuguese in the web UI's catalogs, as every
+  prompt's (an error with a value is a `{placeholder}` key there: `"No light answered at {address}"`).
 - **Its page** leads to Setup (`homeswift.setupCard`, docs/ui.md) rather than signing in or pairing itself.
 
 ### Settings

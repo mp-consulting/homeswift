@@ -40,10 +40,11 @@ public enum Redaction {
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin, an IMOU camera's safetyCode.
     /// The key rule as a pattern: the server sends it to the page, so the page never keeps its own copy.
     public static let secretKeyPattern = #"pass$|pass(word|wd|phrase|code)|^pwd$|^pw$|secret|token|api[-_]?key|private[-_]?key|encryption[-_]?key|credential|^pin$|authorization|^auth$|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$|safety[-_]?code"#
-    public static let notSecretKeyPattern = #"^(max|min|context|input|output|total|daily|monthly)\w*tokens$|(high|low|touch)pass$"#
+    public static let notSecretKeyPattern = #"^(max|min|context|input|output|total|daily|monthly)\w*tokens$|(high|low|touch)pass$|^token[-_]?type$"#
     private static let secretKey = try! NSRegularExpression(pattern: secretKeyPattern, options: [.caseInsensitive])
     /// Keys that look secret but are not: token counts (maxOutputTokens, contextTokens, a budget's dailyTokens), an audio
-    /// filter's high and low pass, UniFi's TouchPass reader option.
+    /// filter's high and low pass, UniFi's TouchPass reader option, and OAuth's `token_type` (`Bearer`): remembered as a
+    /// secret, it would mask the word `Bearer` in every log line from then on.
     private static let notSecretKey = try! NSRegularExpression(pattern: notSecretKeyPattern, options: [.caseInsensitive])
     /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret (including HomeKit's
     /// pin and setup code).

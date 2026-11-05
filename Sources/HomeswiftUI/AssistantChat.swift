@@ -188,6 +188,8 @@ final class ChatConversation: Sendable {
             var card: [String: JSONValue] = ["kind": "setup", "session": .string(session), "platform": answer["platform"] ?? .null, "name": answer["name"] ?? .null,
                                              "message": answer["prompt"]?["message"] ?? .null, "values": answer["prompt"]?["values"] ?? .null]
             if let deviceID = answer["deviceID"] { card["deviceID"] = deviceID }
+            // Add by address: the sheet draws it as one, not as the account's Setup.
+            if answer["addByAddress"] == true { card["addByAddress"] = true }
             self?.showSetup(.object(card))
         })
         state.withLockedValue { $0.tools = tools }

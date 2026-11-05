@@ -24,6 +24,18 @@ actor ReolinkHost {
     private var online = true
     private var pollFailing = false
     private let tasks = TaskBag()
+    /// The port the Baichuan session was opened on.
+    private var baichuanPort: Int?
+    /// A camera on its own whose login reply has `sleep`: it has privacy mode (addendum C).
+    private var hasLoginPrivacy = false
+    /// Privacy mode of a camera on its own before its channels are read (its first channel, by push or at login).
+    private var privacyBeforeConnect: Bool?
+    /// `cmd_id` 199's abilities by channel, when Baichuan answered before the channels were read.
+    private var baichuanAbilities: [Int: [String: Int]] = [:]
+    /// Each channel's talk ability once asked (ReolinkTalk.md 2): kept for the host's life.
+    private var talkAbilities: [Int: ReolinkTalkAbility] = [:]
+    /// Who waits for privacy mode to end (`waitForPrivacyOff`).
+    private let privacyWaiters = Waiters<Void>()
 
     init(device: ReolinkPlugin.Device, http: ReolinkHTTPClient, connectBaichuan: @escaping BaichuanSession.Connect, log: Logger, timing: ReolinkTiming) {
         self.device = device
@@ -57,8 +69,20 @@ actor ReolinkHost {
             + [ReolinkCommand(cmd: "GetAbility", param: ["User": ["userName": .string(username)]])]
     }
 
-    /// Logs in and reads the host and its channels.
+    /// Logs in and reads the host and its channels. With push, the Baichuan session comes first: a camera in privacy
+    /// mode refuses HTTP logins, so it is asked over Baichuan before one is tried (addendum C), and `privacy` is thrown
+    /// rather than a login error.
     func connect() async throws {
+        if let session = startBaichuan(port: device.baichuanPort ?? 9000), await session.waitUntilReady(timeout: timing.timeout(10)) {
+            if let deviceInfo = await session.deviceInfo, !ReolinkHostInfo.multiChannelTypes.contains(deviceInfo.value("type")?.lowercased() ?? ""),
+               let sleep = deviceInfo.value("sleep") {
+                hasLoginPrivacy = true
+                // The login's `sleep` is as old as the session: asked again.
+                let on = (try? await session.privacy(channel: 0)) ?? (sleep == "1")
+                privacyBeforeConnect = on
+                if on { throw ReolinkError.privacy }
+            }
+        }
         let commands = Self.hostCommands(username: device.username)
         let replies = try await http.execute(commands)
         var info = ReolinkHostInfo()
@@ -68,7 +92,9 @@ actor ReolinkHost {
         guard !info.serial.isEmpty || info.hostID != nil else { throw ReolinkError.invalidResponse("GetDevInfo gave no serial") }
         if info.isAdmin == false { log.warning("The user \(device.username) is not an administrator: floodlights, sirens and IR lights stay read-only.") }
         self.info = info
+        if let baichuan, await baichuan.isConnected, let abilities = try? await baichuan.abilities() { baichuanAbilities = abilities }
         channels = try await readWantedChannels()
+        await readPrivacy()
         setOnline(true)
         log.info("Connected to \(info.model.isEmpty ? "the Reolink device" : info.model) (firmware \(info.firmware), \(channels.count) channel\(channels.count == 1 ? "" : "s")).")
     }
@@ -76,7 +102,7 @@ actor ReolinkHost {
     private func readChannels(_ statuses: [ReolinkChannelStatus]) async throws -> [Int: ReolinkChannel] {
         var commands: [ReolinkCommand] = []
         var ranges: [(status: ReolinkChannelStatus, range: Range<Int>, battery: Bool)] = []
-        let v20 = info.hostAbility("scheduleVersion") >= 1
+        let v20 = info.usesRecV20
         for status in statuses {
             let ch = status.channel
             let battery = info.ability("battery", channel: ch) > 0
@@ -90,6 +116,10 @@ actor ReolinkHost {
             commands.append(.channel("GetIrLights", ch))
             if v20 { commands.append(.channel("GetAudioAlarmV20", ch)) } else if !battery { commands.append(.channel("GetAudioAlarm", ch)) }
             if battery { commands.append(.channel("GetBatteryInfo", ch)) }
+            commands += Self.ptzCommands(info: info, channel: ch, battery: battery)
+            commands.append(ReolinkRecording.readCommand(v20: v20, channel: ch))
+            // A battery doorbell on a hub is left out, as reolink-aio does.
+            if info.ability("supportDingDongCtrl", channel: ch) > 0, !(battery && info.isHub) { commands.append(.channel("GetDingDongList", ch)) }
             ranges.append((status, start..<commands.count, battery))
         }
         let replies = try await http.execute(commands)
@@ -140,14 +170,153 @@ actor ReolinkHost {
         if model.contains("Doorbell") || info.ability("supportDoorbellLight", channel: ch) > 0 { channel.doorbell = true }
         if items["GetWhiteLed"]?.ok == true, info.ability("floodLight", channel: ch) > 0 || info.ability("supportFLswitch", channel: ch) > 0 {
             channel.floodlight = true
+            let ledCtrl = baichuanAbilities[ch]?["ledCtrl"]
+            channel.floodlightColour = (ledCtrl ?? 0) & (1 << 17) != 0
+            channel.floodlightModes = ReolinkFloodlight.offeredModes(
+                ledCtrl: ledCtrl, flSchedule: info.ability("supportFLSchedule", channel: ch) > 0, flKeepOn: info.ability("supportFLKeepOn", channel: ch) > 0,
+                autoBrightness: info.ability("supportLightAutoBrightness", channel: ch) > 0)
         }
         if info.ability("ledControl", channel: ch) > 0, items["GetIrLights"]?.ok == true { channel.irLights = true }
         let audio = items["GetAudioAlarmV20"] ?? items["GetAudioAlarm"]
         if audio?.ok == true, info.ability("alarmAudio", channel: ch) > 0 || info.ability("supportAudioAlarm", channel: ch) > 0 || info.hostAbility("alarmAudio") > 0 {
             channel.siren = true
         }
+        channel.ptz = Self.ptz(info: info, channel: ch, items: items)
+        if let list = items["GetDingDongList"], list.ok { channel.chimes = ReolinkChime.paired(list.value) }
+        let rec = items["GetRecV20"] ?? items["GetRec"]
+        if let rec, rec.ok, ReolinkRecording.isOn(rec.value, v20: rec.cmd == "GetRecV20", multiChannel: info.isMultiChannel) != nil { channel.recording = true }
         for reply in items.values { apply(reply, to: &channel) }
         return channel
+    }
+
+    /// The PTZ reads of a channel's start-up batch (addendum B): presets, patrols and the guard for a camera that pans,
+    /// the zoom's range for one that zooms. A battery camera is not woken for the guard or the zoom.
+    static func ptzCommands(info: ReolinkHostInfo, channel ch: Int, battery: Bool) -> [ReolinkCommand] {
+        guard let ptz = ReolinkPTZ.capabilities(ptzType: info.ability("ptzType", channel: ch), speedAbility: nil) else { return [] }
+        var commands: [ReolinkCommand] = []
+        if ptz.pan {
+            if info.ability("ptzPreset", channel: ch) > 0 { commands.append(.channel("GetPtzPreset", ch)) }
+            commands.append(.channel("GetPtzPatrol", ch))
+            if !battery { commands.append(.channel("GetPtzGuard", ch)) }
+        }
+        if ptz.zoom, !battery { commands.append(ReolinkCommand(cmd: "GetZoomFocus", action: 1, param: ["channel": .number(Double(ch))])) }
+        return commands
+    }
+
+    static func ptz(info: ReolinkHostInfo, channel ch: Int, items: [String: ReolinkReply]) -> ReolinkPTZ? {
+        guard var ptz = ReolinkPTZ.capabilities(ptzType: info.ability("ptzType", channel: ch), speedAbility: info.reportedAbility("supportPtzSpeed", channel: ch))
+        else { return nil }
+        if let reply = items["GetPtzPreset"], reply.ok { ptz.presets = ReolinkPTZ.entries(reply.value?["PtzPreset"], fallback: "Preset") }
+        if let reply = items["GetPtzPatrol"], reply.ok { ptz.patrols = ReolinkPTZ.entries(reply.value?["PtzPatrol"], fallback: "patrol") }
+        ptz.hasGuard = items["GetPtzGuard"]?.ok == true
+        if let reply = items["GetZoomFocus"], reply.ok {
+            ptz.zoomRange = ReolinkPTZ.range(reply.range?["ZoomFocus"]?["zoom"]?["pos"])
+            ptz.focusRange = ReolinkPTZ.range(reply.range?["ZoomFocus"]?["focus"]?["pos"])
+        }
+        return ptz
+    }
+
+    /// The Baichuan session, made once (`pushEvents`), its events handled from then on.
+    private func startBaichuan(port: Int) -> BaichuanSession? {
+        guard device.pushEvents else { return nil }
+        if let baichuan { return baichuan }
+        let session = BaichuanSession(host: device.host, port: port, username: device.username, password: device.password, connect: connectBaichuan, log: log, timing: timing)
+        baichuan = session
+        baichuanPort = port
+        tasks.add { await session.run() }
+        tasks.add { [weak self] in
+            for await event in session.events { await self?.handle(event) }
+        }
+        return session
+    }
+
+    /// A channel's talk format (ReolinkTalk.md 2), asked once when its abilities say it may talk; nil without one. Talk
+    /// goes over the Baichuan session: none without push (`pushEvents`).
+    func talkConfig(channel ch: Int, name: String) async -> ReolinkTalkConfig? {
+        if let known = talkAbilities[ch] { return known.config }
+        guard ReolinkTalkAbility.permitted(httpTalk: info.ability("talk", channel: ch), baichuan: baichuanAbilities, channel: ch, multiChannel: info.isMultiChannel) else {
+            log.info("\(name): the device reports no talk ability: no two-way audio.")
+            talkAbilities[ch] = .unsupported("no talk ability")
+            return nil
+        }
+        guard let baichuan, await baichuan.isConnected else {
+            log.info("\(name): two-way audio goes over the Baichuan connection, which is \(device.pushEvents ? "not up" : "off (pushEvents)"): no two-way audio for now.")
+            return nil
+        }
+        let ability: ReolinkTalkAbility
+        do {
+            ability = try await baichuan.talkAbility(channel: ch)
+        } catch {
+            log.info("\(name): could not ask the talk ability (\(error)): no two-way audio for now.")
+            return nil
+        }
+        talkAbilities[ch] = ability
+        switch ability {
+        case .supported(let config): log.info("\(name): two-way audio (Experimental): \(config.summary).")
+        case .unsupported(let reason): log.info("\(name): no two-way audio: \(reason).")
+        }
+        return ability.config
+    }
+
+    /// A Talk's way to the session: the host's Baichuan connection while it is up.
+    func talkLink(channel ch: Int) -> ReolinkTalkLink {
+        let battery = channels[ch]?.battery ?? false
+        return ReolinkTalkLink(withSession: { [weak self] body in
+            guard let session = await self?.baichuan, await session.isOpen else { throw BaichuanError.closed }
+            try await body(session)
+        }, retriesWaking: battery)
+    }
+
+    /// Privacy mode of each channel that may have it (a camera whose login reply had `sleep`; an NVR's channel with
+    /// `remoteAbility`): a 574 reply with `sleep` says it has it.
+    private func readPrivacy() async {
+        guard let baichuan, await baichuan.isConnected else { return }
+        for ch in channels.keys.sorted() {
+            let eligible = info.isMultiChannel ? info.ability("remoteAbility", channel: ch) > 0 : hasLoginPrivacy && ch == 0
+            guard eligible, let on = try? await baichuan.privacy(channel: ch) else { continue }
+            channels[ch]?.privacy = true
+            channels[ch]?.state.privacy = on
+        }
+    }
+
+    /// Whether a camera on its own is in privacy mode: its HTTP API is off, so nothing is asked of it.
+    var isPrivate: Bool {
+        guard !info.isMultiChannel else { return false }
+        return channels.isEmpty ? privacyBeforeConnect == true : channels[0]?.state.privacy == true
+    }
+
+    /// Waits until privacy mode is off (a push says so) or `timeout` passes.
+    func waitForPrivacyOff(timeout: Duration) async {
+        guard isPrivate else { return }
+        await privacyWaiters.wait(timeout: timeout, fallback: ())
+    }
+
+    private func privacyChanged(channel: Int, on: Bool) {
+        let multi = info.isMultiChannel
+        if channels.isEmpty {
+            guard channel == 0 else { return }
+            privacyBeforeConnect = on
+        } else {
+            guard channels[channel] != nil, channels[channel]?.state.privacy != on else { return }
+            channels[channel]?.state.privacy = on
+            publish(channel)
+        }
+        guard !multi, channel == 0 else { return }
+        if on {
+            log.info("Privacy mode is on: the camera's video and HTTP API are off until it ends.")
+        } else {
+            log.info("Privacy mode is off.")
+            privacyWaiters.resumeAll(())
+            if !channels.isEmpty { tasks.add { [weak self] in await self?.refresh() } }
+        }
+    }
+
+    /// Whether a failed request is privacy mode turning on (a camera on its own whose push did not say so yet).
+    private func privacyExplainsFailure() async -> Bool {
+        guard !info.isMultiChannel, channels[0]?.privacy == true, let baichuan, await baichuan.isConnected,
+              let on = try? await baichuan.privacy(channel: 0), on else { return false }
+        privacyChanged(channel: 0, on: true)
+        return true
     }
 
     // MARK: State
@@ -174,11 +343,21 @@ actor ReolinkHost {
             let led = value["WhiteLed"]
             if let state = led?["state"]?.saturatingIntValue { channel.state.floodlightOn = state == 1 }
             if let bright = led?["bright"]?.saturatingIntValue(in: 0...100) { channel.state.floodlightBrightness = bright }
+            if let mode = led?["mode"]?.saturatingIntValue(in: 0...255) { channel.state.floodlightMode = mode }
+            if channel.floodlightColour, let value = led?["ColorTemp"]?.saturatingIntValue(in: 0...100) {
+                channel.state.floodlightMireds = ReolinkFloodlight.mireds(kelvin: ReolinkFloodlight.kelvin(value))
+            }
         case "GetIrLights":
             if let state = value["IrLights"]?["state"]?.stringValue { channel.state.irOn = state != "Off" }
+        case "GetRecV20", "GetRec":
+            if let on = ReolinkRecording.isOn(value, v20: reply.cmd == "GetRecV20", multiChannel: info.isMultiChannel) { channel.state.recordingOn = on }
         case "GetBatteryInfo":
             let battery = value["Battery"]
-            channel.state.batteryPercent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) ?? channel.state.batteryPercent
+            if let percent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) {
+                // A push's low flag holds for the level it came with; a new level decides it again (else it never clears).
+                if percent != channel.state.batteryPercent { channel.state.batteryLow = percent < 20 }
+                channel.state.batteryPercent = percent
+            }
             if let status = battery?["chargeStatus"]?.saturatingIntValue { channel.state.charging = status == 1 }
         default:
             break
@@ -202,15 +381,12 @@ actor ReolinkHost {
     // MARK: Running (7.1)
 
     /// Starts push, motion polling while push is not active, and the full refresh.
-    func run() {
-        if device.pushEvents {
-            let session = BaichuanSession(host: device.host, port: device.baichuanPort ?? info.mediaPort ?? 9000, username: device.username,
-                                          password: device.password, connect: connectBaichuan, log: log, timing: timing)
-            baichuan = session
-            tasks.add { await session.run() }
-            tasks.add { [weak self] in
-                for await event in session.events { await self?.handle(event) }
-            }
+    func run() async {
+        // `GetNetPort` may name another Baichuan port than the one tried before it was known.
+        if device.pushEvents, device.baichuanPort == nil, let media = info.mediaPort, media != baichuanPort, let session = baichuan, await !session.isConnected {
+            await session.stop()
+            baichuan = nil
+            _ = startBaichuan(port: media)
         }
         let motionInterval = timing.seconds(Double(device.motionPollInterval))
         tasks.add { [weak self] in
@@ -260,24 +436,33 @@ actor ReolinkHost {
             channels[ch]?.state.floodlightOn = on
         case .siren(let ch, let playing):
             channels[ch]?.state.sirenPlaying = playing
+        case .privacy(let ch, let on):
+            privacyChanged(channel: ch, on: on)
+            return
         case .dayNight:
             return
+        case .battery(let ch, let report):
+            guard channels[ch] != nil else { return }
+            if let percent = report.percent { channels[ch]?.state.batteryPercent = percent }
+            channels[ch]?.state.charging = report.charging
+            channels[ch]?.state.batteryLow = report.isLow
         }
         switch push {
-        case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _): publish(ch)
-        case .dayNight: break
+        case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _), .battery(let ch, _): publish(ch)
+        case .dayNight, .privacy: break
         }
     }
 
     /// The motion batch of 5.5, only while push is not active.
     func pollMotionIfNeeded() async {
-        guard !pushActive, !channels.isEmpty else { return }
+        guard !pushActive, !channels.isEmpty, !isPrivate else { return }
         await run(channels.values.sorted(by: { $0.channel < $1.channel }).flatMap(Self.eventCommands(for:)))
     }
 
     /// The full refresh of 4.3: non-waking commands for battery channels, the channel list of an NVR or hub.
     func refresh() async {
-        let v20 = info.hostAbility("scheduleVersion") >= 1
+        guard !isPrivate else { return }
+        let v20 = info.usesRecV20
         var commands: [ReolinkCommand] = []
         // While push is active it is the events' source: a poll's answer could come after a newer push.
         for channel in channels.values.sorted(by: { $0.channel < $1.channel }) {
@@ -287,6 +472,7 @@ actor ReolinkHost {
             if channel.floodlight, !channel.battery { commands.append(.channel("GetWhiteLed", ch)) }
             if channel.battery { commands.append(.channel("GetBatteryInfo", ch)) }
             if channel.siren, v20 || !channel.battery { commands.append(.channel(v20 ? "GetAudioAlarmV20" : "GetAudioAlarm", ch)) }
+            if channel.recording { commands.append(ReolinkRecording.readCommand(v20: v20, channel: ch)) }
         }
         if info.isMultiChannel { commands.append(ReolinkCommand(cmd: "GetChannelstatus", action: 0, param: [:])) }
         await run(commands)
@@ -295,12 +481,14 @@ actor ReolinkHost {
     private func run(_ commands: [ReolinkCommand]) async {
         guard !commands.isEmpty else { return }
         do {
-            let replies = try await http.execute(commands)
+            let replies = try await execute(commands)
             if pollFailing { log.info("The device answers again.") }
             pollFailing = false
             setOnline(true)
             apply(replies, commands: commands)
         } catch {
+            // Privacy mode turns the HTTP API off: not an outage, and no login is tried until it ends.
+            if await privacyExplainsFailure() { return }
             if !pollFailing { log.error("Could not refresh the device: \(error)") } else { log.debug("Could not refresh the device: \(error)") }
             pollFailing = true
             setOnline(false)
@@ -349,8 +537,13 @@ actor ReolinkHost {
 
     // MARK: Writes (4.4, 7.2)
 
-    func setFloodlight(channel: Int, on: Bool?, brightness: Int?) async throws {
+    /// A write to a channel known to be offline fails at once rather than waiting for the device.
+    private func requireOnline(_ channel: Int) throws {
         guard channels[channel]?.state.online != false else { throw ReolinkError.offline }
+    }
+
+    func setFloodlight(channel: Int, on: Bool?, brightness: Int?) async throws {
+        try requireOnline(channel)
         var led: [String: JSONValue] = ["channel": .number(Double(channel))]
         if let on { led["state"] = .number(on ? 1 : 0) }
         if let brightness {
@@ -360,16 +553,127 @@ actor ReolinkHost {
         try await write(ReolinkCommand(cmd: "SetWhiteLed", action: nil, param: ["WhiteLed": .object(led)]))
         if let on { channels[channel]?.state.floodlightOn = on }
         if let brightness { channels[channel]?.state.floodlightBrightness = brightness }
-        // The light settles before it is read back.
-        let delay = timing.seconds(3)
-        tasks.add { [weak self] in
-            try? await Task.sleep(for: delay)
-            await self?.reread("GetWhiteLed", channel: channel)
+        rereadLater("GetWhiteLed", channel: channel)
+    }
+
+    /// The floodlight's colour temperature, over Baichuan (D.1: 289 read, `newColorTemperature` changed, 290 back), then
+    /// read back over HTTP as a brightness is.
+    func setFloodlightColour(channel: Int, mireds: Int) async throws {
+        guard channels[channel]?.floodlightColour == true else { throw ReolinkError.unsupported("colour temperature") }
+        guard let baichuan, await baichuan.isConnected else { throw ReolinkError.unsupported("colour temperature without the Baichuan connection") }
+        guard let value = ReolinkFloodlight.value(kelvin: ReolinkFloodlight.kelvin(mireds: mireds)) else {
+            throw ReolinkError.outOfRange("\(mireds) mireds is outside 3000 to 6000 K")
         }
+        try await baichuan.updateFloodlightTask(channel: channel, changes: ["newColorTemperature": String(value)])
+        channels[channel]?.state.floodlightMireds = mireds
+        rereadLater("GetWhiteLed", channel: channel)
+    }
+
+    /// Recording on the device's storage on or off (D.3): `Rec` read again and sent back whole with the flag changed.
+    func setRecording(channel: Int, on: Bool) async throws {
+        guard channels[channel]?.recording == true else { throw ReolinkError.unsupported("SetRec") }
+        let v20 = info.usesRecV20
+        let read = ReolinkRecording.readCommand(v20: v20, channel: channel)
+        guard let reply = try await execute([read]).first, reply.ok, let rec = reply.value?["Rec"],
+              let changed = ReolinkRecording.changed(rec, on: on, v20: v20, multiChannel: info.isMultiChannel) else {
+            throw ReolinkError.command(read.cmd, nil, "no Rec to change")
+        }
+        try await write(ReolinkCommand(cmd: v20 ? "SetRecV20" : "SetRec", action: 0, param: ["Rec": changed]))
+        channels[channel]?.state.recordingOn = on
+        await reread(read)
+    }
+
+    /// Plays a tone on a paired Reolink Chime (`DingDongOpt` option 4).
+    func playChime(channel: Int, chime: Int, tone: Int) async throws {
+        guard channels[channel]?.chimes.contains(where: { $0.id == chime }) == true else { throw ReolinkError.unsupported("DingDongOpt") }
+        try await write(ReolinkCommand(cmd: "DingDongOpt", action: 0, param: ["DingDong": [
+            "channel": .number(Double(channel)), "id": .number(Double(chime)), "option": 4, "musicId": .number(Double(tone)),
+        ]]))
+    }
+
+    // MARK: Accessory Settings the device keeps
+
+    /// What a channel's Accessory Settings ask of the device itself: written once at start, in one batch, only where the
+    /// device differs.
+    struct DeviceSettings: Sendable, Equatable {
+        var floodlightMode: String?
+        /// Motion sensitivity, 1 (least) to 50 (most); the device's own scale is the other way round (D.4).
+        var motionSensitivity: Int?
+        /// AI detections' sensitivity, 0 to 100, for every type the camera detects.
+        var aiSensitivity: Int?
+
+        var isEmpty: Bool { floodlightMode == nil && motionSensitivity == nil && aiSensitivity == nil }
+    }
+
+    /// The device's motion sensitivity for a user's (D.4): `sensDef` is 51 − s.
+    static func sensDef(_ sensitivity: Int) -> Int { 51 - sensitivity }
+
+    /// The reads that tell the sensitivities now (one batch), and the writes where they differ.
+    private func sensitivityWrites(_ settings: DeviceSettings, channel: ReolinkChannel, name: String) async -> [ReolinkCommand] {
+        let ch = channel.channel
+        var reads: [ReolinkCommand] = []
+        if settings.motionSensitivity != nil, channel.motion { reads.append(.channel("GetMdAlarm", ch)) }
+        if settings.aiSensitivity != nil {
+            for type in channel.aiTypes.sorted() {
+                reads.append(ReolinkCommand(cmd: "GetAiAlarm", action: 0, param: ["channel": .number(Double(ch)), "ai_type": .string(type)]))
+            }
+        }
+        guard !reads.isEmpty, let replies = try? await execute(reads) else { return [] }
+        var writes: [ReolinkCommand] = []
+        for (command, reply) in zip(reads, replies) {
+            switch command.cmd {
+            case "GetMdAlarm":
+                guard let wanted = settings.motionSensitivity, reply.ok, let current = reply.value?["MdAlarm"]?["newSens"]?["sensDef"]?.saturatingIntValue else {
+                    log.warning("\(name): the camera has no motion sensitivity the plugin can set (GetMdAlarm without newSens).")
+                    continue
+                }
+                guard current != Self.sensDef(wanted) else { continue }
+                writes.append(ReolinkCommand(cmd: "SetMdAlarm", action: 0, param: ["MdAlarm": [
+                    "channel": .number(Double(ch)), "useNewSens": 1, "newSens": ["sensDef": .number(Double(Self.sensDef(wanted)))],
+                ]]))
+            default:
+                guard let wanted = settings.aiSensitivity, let type = command.param?["ai_type"], reply.ok,
+                      let current = reply.value?["AiAlarm"]?["sensitivity"]?.saturatingIntValue else { continue }
+                guard current != wanted else { continue }
+                writes.append(ReolinkCommand(cmd: "SetAiAlarm", action: 0, param: ["AiAlarm": [
+                    "channel": .number(Double(ch)), "ai_type": type, "sensitivity": .number(Double(wanted)),
+                ]]))
+            }
+        }
+        return writes
+    }
+
+    func apply(_ settings: DeviceSettings, channel ch: Int, name: String) async {
+        guard !settings.isEmpty, let channel = channels[ch], !isPrivate else { return }
+        var writes = await sensitivityWrites(settings, channel: channel, name: name)
+        if let mode = settings.floodlightMode, channel.floodlight {
+            if let number = ReolinkFloodlight.modeNumber(mode), channel.floodlightModes.contains(mode) {
+                if channel.state.floodlightMode != number {
+                    writes.append(ReolinkCommand(cmd: "SetWhiteLed", action: 0, param: ["WhiteLed": ["channel": .number(Double(ch)), "mode": .number(Double(number))]]))
+                }
+            } else {
+                log.warning("\(name): the floodlight has no mode \(mode); it offers \(channel.floodlightModes.joined(separator: ", ")).")
+            }
+        }
+        guard !writes.isEmpty else { return }
+        // The floodlight's mode read back in the same batch; sensitivities are not shown in HomeKit.
+        let readBack: [ReolinkCommand] = writes.contains { $0.cmd == "SetWhiteLed" } ? [.channel("GetWhiteLed", ch)] : []
+        let replies: [ReolinkReply]
+        do { replies = try await execute(writes + readBack) } catch {
+            log.warning("\(name): could not write the settings: \(error)")
+            return
+        }
+        for (command, reply) in zip(writes, replies) where !reply.writeOK {
+            log.warning("\(name): the device refused \(command.cmd) (\(reply.rspCode.map(String.init) ?? "?")).")
+        }
+        guard var state = channels[ch] else { return }
+        for reply in replies.dropFirst(writes.count) { apply(reply, to: &state) }
+        channels[ch] = state
+        publish(ch)
     }
 
     func setIRLights(channel: Int, on: Bool) async throws {
-        guard channels[channel]?.state.online != false else { throw ReolinkError.offline }
+        try requireOnline(channel)
         try await write(ReolinkCommand(cmd: "SetIrLights", action: 0, param: ["IrLights": ["channel": .number(Double(channel)), "state": .string(on ? "Auto" : "Off")]]))
         channels[channel]?.state.irOn = on
         await reread("GetIrLights", channel: channel)
@@ -377,7 +681,7 @@ actor ReolinkHost {
 
     /// The manual siren (4.4, 5.4.3): over Baichuan when its session is up, HTTP `AudioAlarmPlay` otherwise.
     func setSiren(channel: Int, on: Bool) async throws {
-        guard channels[channel]?.state.online != false else { throw ReolinkError.offline }
+        try requireOnline(channel)
         if let baichuan, await baichuan.isConnected {
             do {
                 try await baichuan.siren(channel: channel, mode: .manual(on))
@@ -391,8 +695,78 @@ actor ReolinkHost {
         channels[channel]?.state.sirenPlaying = on
     }
 
+    // MARK: PTZ (addendum B)
+
+    /// A `PtzCtrl` command: a move until `Stop`, `ToPos` a preset, `StartPatrol`/`StopPatrol`. `speed` goes only to a
+    /// camera that takes it.
+    func ptzControl(channel: Int, op: String, id: Int? = nil, speed: Int? = nil) async throws {
+        guard let ptz = channels[channel]?.ptz else { throw ReolinkError.unsupported("PtzCtrl") }
+        try requireOnline(channel)
+        var param: [String: JSONValue] = ["channel": .number(Double(channel)), "op": .string(op)]
+        if let id { param["id"] = .number(Double(id)) }
+        if let speed, ptz.speed { param["speed"] = .number(Double(min(64, max(1, speed)))) }
+        try await write(ReolinkCommand(cmd: "PtzCtrl", action: 0, param: .object(param)))
+    }
+
+    /// Absolute zoom and focus (B.5), refused outside the ranges `GetZoomFocus` gave.
+    func setZoomFocus(channel: Int, zoom: Int?, focus: Int?) async throws {
+        guard let ptz = channels[channel]?.ptz, ptz.zoom else { throw ReolinkError.unsupported("StartZoomFocus") }
+        var commands: [ReolinkCommand] = []
+        for (op, value, range) in [("ZoomPos", zoom, ptz.zoomRange), ("FocusPos", focus, ptz.focusRange)] {
+            guard let value else { continue }
+            guard let range else { throw ReolinkError.unsupported(op) }
+            guard range.contains(value) else { throw ReolinkError.outOfRange("\(op) \(value) is outside \(range.lowerBound)...\(range.upperBound)") }
+            commands.append(ReolinkCommand(cmd: "StartZoomFocus", action: 0, param: ["ZoomFocus": ["channel": .number(Double(channel)), "op": .string(op), "pos": .number(Double(value))]]))
+        }
+        for command in commands { try await write(command) }
+    }
+
+    /// The guard (B.6): `toPos` goes to the home position, `setPos` saves the current one; `enable` and `timeout` (seconds
+    /// idle) change the return, sent with `setPos`.
+    func ptzGuard(channel: Int, goHome: Bool, saveHere: Bool, enable: Bool?, timeout: Int?) async throws {
+        guard channels[channel]?.ptz?.hasGuard == true else { throw ReolinkError.unsupported("SetPtzGuard") }
+        var fields: [String: JSONValue] = ["channel": .number(Double(channel)), "cmdStr": .string(goHome ? "toPos" : "setPos")]
+        if !goHome {
+            if saveHere { fields["bSaveCurrentPos"] = 1 }
+            if let enable { fields["benable"] = .number(enable ? 1 : 0) }
+            if let timeout { fields["timeout"] = .number(Double(max(1, timeout))) }
+        }
+        try await write(ReolinkCommand(cmd: "SetPtzGuard", action: 0, param: ["PtzGuard": .object(fields)]))
+    }
+
+    /// Starts or stops the first enabled patrol (as reolink-aio), and asks whether it runs a second later (Baichuan 64).
+    func setPatrol(channel: Int, on: Bool) async throws {
+        guard let patrol = channels[channel]?.ptz?.patrols.first else { throw ReolinkError.unsupported("patrol") }
+        try await ptzControl(channel: channel, op: on ? "StartPatrol" : "StopPatrol", id: patrol.id)
+        channels[channel]?.state.patrolling = on
+        let delay = timing.seconds(1)
+        tasks.add { [weak self] in
+            try? await Task.sleep(for: delay)
+            await self?.readPatrol(channel)
+        }
+    }
+
+    private func readPatrol(_ channel: Int) async {
+        guard let baichuan, await baichuan.isConnected, let running = try? await baichuan.patrolRunning(channel: channel) else { return }
+        channels[channel]?.state.patrolling = running
+        publish(channel)
+    }
+
+    /// Privacy mode (addendum C, Baichuan 575), read back.
+    func setPrivacy(channel: Int, on: Bool) async throws {
+        guard let baichuan, await baichuan.isConnected else { throw ReolinkError.unsupported("privacy mode without the Baichuan connection") }
+        let now = try await baichuan.setPrivacy(channel: channel, on: on) ?? on
+        privacyChanged(channel: channel, on: now)
+    }
+
+    /// Every request once connected: none while privacy mode has the HTTP API off (a login would fail).
+    private func execute(_ commands: [ReolinkCommand]) async throws -> [ReolinkReply] {
+        guard !isPrivate else { throw ReolinkError.privacy }
+        return try await http.execute(commands)
+    }
+
     private func write(_ command: ReolinkCommand) async throws {
-        let replies = try await http.execute([command])
+        let replies = try await execute([command])
         guard let reply = replies.first, reply.writeOK else {
             let reply = replies.first
             if reply?.rspCode == -9 || reply?.rspCode == -26 { throw ReolinkError.unsupported(command.cmd) }
@@ -400,23 +774,35 @@ actor ReolinkHost {
         }
     }
 
-    private func reread(_ cmd: String, channel: Int) async {
-        guard let reply = try? await http.execute([.channel(cmd, channel)]).first, var state = channels[channel] else { return }
+    private func reread(_ cmd: String, channel: Int) async { await reread(.channel(cmd, channel)) }
+
+    private func reread(_ command: ReolinkCommand) async {
+        guard let channel = command.param?["channel"]?.saturatingIntValue, let reply = try? await execute([command]).first, var state = channels[channel] else { return }
         apply(reply, to: &state)
         channels[channel] = state
         publish(channel)
     }
 
+    /// Reads a channel's state again once the device settled (a light, 3 s after a write).
+    private func rereadLater(_ cmd: String, channel: Int) {
+        let delay = timing.seconds(3)
+        tasks.add { [weak self] in
+            try? await Task.sleep(for: delay)
+            await self?.reread(cmd, channel: channel)
+        }
+    }
+
     // MARK: Snapshots and streams
 
     func snapshot(channel: Int, sub: Bool) async throws -> Data {
+        guard channels[channel]?.state.privacy != true else { throw ReolinkError.privacy }
         let stream = channels[channel]?.sub
         return try await http.snapshot(channel: channel, sub: sub, width: sub ? stream?.width : nil, height: sub ? stream?.height : nil)
     }
 
     /// The URL FFmpeg reads a channel's stream from (4.6), by `streamProtocol` unless `protocol` says.
     func streamURL(channel: Int, sub: Bool, protocol name: String? = nil) async -> String? {
-        guard let info = channels[channel] else { return nil }
+        guard let info = channels[channel], info.state.privacy != true else { return nil }
         let stream = sub ? info.sub : info.main
         switch name ?? device.streamProtocol {
         case "rtmp":

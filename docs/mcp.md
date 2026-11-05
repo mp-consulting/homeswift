@@ -261,7 +261,11 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   whether the account is set up. `start_setup` (a `deviceID`, or none for the account) answers the first prompt: a
   message for the person, the fields to answer, a page to open or a wait; `continue_setup` answers it, and
   `cancel_setup` ends it. `start_setup` for a platform with no block of that name adds the plugin once its account's
-  Setup is done. A secret field takes only a `vault:` reference: the person adds the entry on the Vault page, or finishes
+  Setup is done. A plugin whose devices cannot be found (`addByAddress: true` in `discover_devices` and `list_plugins`)
+  also takes one by its address: `start_setup` with `addByAddress: true` (Add by address, not with a `deviceID`) asks
+  for its host and whatever else it needs, and done gives the `deviceID` and `accessoryID` the device answered with; a
+  device that does not answer is an `error`, asked again. Like every Setup it is `admin` and not destructive: it adds a
+  device, it changes no other. A secret field takes only a `vault:` reference: the person adds the entry on the Vault page, or finishes
   in the web UI. What a device or a plugin says is wrapped in `<untrusted-data>`. `update_settings` with a device's
   `accessoryID` excludes it or includes it again (`excluded`) and includes or leaves out one of its parts (`parts`, by the
   part's id: a gate's side door, a door sensor, a camera's occupancy sensor).

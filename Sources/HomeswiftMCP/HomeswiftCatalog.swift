@@ -606,6 +606,7 @@ public struct HomeswiftCatalog: Sendable {
                     "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
                     "accountAuthorization": .string(entry.accountAuthorization.rawValue),
                     "accountRequired": .bool(entry.accountRequirement.isRequired), "accountAdds": entry.accountRequirement.adds.map(JSONValue.string) ?? .null,
+                    "addByAddress": .bool(entry.addsDevicesByAddress),
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
             } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
@@ -1071,7 +1072,7 @@ public struct HomeswiftCatalog: Sendable {
                 name: "list_plugins", title: "List plugins",
                 description: "The platform instances running, on which bridge and with how many accessories, and the platforms in config.json that no plugin provides. "
                     + "An instance's accountState is none (no account), setUp, notSetUp or refused (the account refused its credentials); needsAuthorization (never while paused) says its account "
-                    + "must be set up (again) with start_setup before its devices work (a plugin's accountRequired false: its devices work without it, accountAdds says what it adds); "
+                    + "must be set up (again) with start_setup before its devices work (a plugin's accountRequired false: its devices work without it, accountAdds says what it adds; addByAddress, that start_setup can add one of its devices by address); "
                     + "noneResponding, that every one of its accessories shows No Response.",
                 outputSchema: Output.plugins, scope: .read, idempotent: true
             ) { _ in .json(await catalog.pluginsJSON()) },

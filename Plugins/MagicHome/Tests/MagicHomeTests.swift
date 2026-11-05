@@ -63,6 +63,8 @@ struct MagicHomeTests {
         // window that gathers them into one frame is wider here than the suite's 20 ms.
         var timing = TestEnvironment.timing
         timing.coalesce = .milliseconds(250)
+        // The kept connection outlives that window, or it closes while the writes gather and a poll opens another.
+        timing.connection.idle = .seconds(5)
         let host = try await environment.start(timing: timing)
         #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
         let light = try #require(host.accessory(Fixtures.stripMAC)?.service(.lightbulb))
@@ -218,6 +220,60 @@ struct MagicHomeTests {
         // The version from AT+LVER names it in Setup before any TCP connection.
         let found = try await environment.plugin?.discover() ?? []
         #expect(found.first { $0.deviceID == Fixtures.cctMAC }?.model == "High Voltage Bulb CCT")
+        await host.stop()
+    }
+
+    /// Effects are off by default: the accessory is the light alone, as before.
+    @Test func effectsAreOffByDefault() async throws {
+        environment.lan.put(Fixtures.strip, at: Self.stripHost)
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
+        #expect(host.accessory(Fixtures.stripMAC)?.services.filter { $0.type == .switch }.isEmpty == true)
+        await host.stop()
+    }
+
+    /// An effect switch plays the pattern at the speed (the power first on a family that needs it), shows what the
+    /// device reports, and Off puts the colour back.
+    @Test func anEffectSwitchPlaysThePattern() async throws {
+        environment.lan.put(Fixtures.strip, at: Self.stripHost)
+        let host = try await environment.start(settings: ["effects": true, "effectSpeed": 50])
+        #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
+        let accessory = try #require(host.accessory(Fixtures.stripMAC))
+        let switches = accessory.services.filter { $0.type == .switch }
+        #expect(switches.count == 20)
+        let loop = try #require(accessory.service(.switch, subtype: "effect:25"))
+        #expect(loop[.name]?.value == .string("Colour Loop"))
+        #expect(loop[.on]?.value == .bool(false))
+
+        try await write(loop[.on], .bool(true))
+        #expect(environment.lan.commands(to: Self.stripHost).map(hex) == ["71 23 0F A3", "61 25 10 0F A5"])
+        #expect(await eventually { environment.lan.device(at: Self.stripHost)?.state.pattern == 0x25 })
+        // The next poll shows what the device plays.
+        let queries = environment.lan.queries(to: Self.stripHost)
+        #expect(await eventually { environment.lan.queries(to: Self.stripHost) > queries })
+        #expect(loop[.on]?.value == .bool(true))
+
+        // Another pattern started elsewhere: the switches follow the device.
+        environment.lan.update(at: Self.stripHost) { $0.pattern = 0x30 }
+        #expect(await eventually { accessory.service(.switch, subtype: "effect:30")?[.on]?.value == .bool(true) && loop[.on]?.value == .bool(false) })
+
+        // Off on the pattern playing: the light's colour again.
+        let strobe = accessory.service(.switch, subtype: "effect:30")?[.on]
+        let sent = environment.lan.commands(to: Self.stripHost).count
+        try await write(strobe, .bool(false))
+        #expect(environment.lan.commands(to: Self.stripHost).dropFirst(sent).map(hex) == ["71 23 0F A3", "31 FF 00 00 00 00 FF 0F 3E"])
+        #expect(strobe?.value == .bool(false))
+        await host.stop()
+    }
+
+    /// A light's own Accessory Settings turn its effects on with their speed when the plugin's are off.
+    @Test func aLightsSettingsTakeItsEffects() async throws {
+        environment.lan.put(Fixtures.strip, at: Self.stripHost)
+        let host = try await environment.start(settings: ["_accessories": [Fixtures.stripMAC: ["effects": true, "effectSpeed": 100]]])
+        #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
+        let jump = try #require(host.accessory(Fixtures.stripMAC)?.service(.switch, subtype: "effect:38"))
+        try await write(jump[.on], .bool(true))
+        #expect(environment.lan.commands(to: Self.stripHost).last.map(hex) == "61 38 01 0F A9")
         await host.stop()
     }
 

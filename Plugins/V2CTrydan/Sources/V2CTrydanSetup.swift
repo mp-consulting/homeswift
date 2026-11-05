@@ -7,8 +7,8 @@ import Logging
 // Setup (GLOSSARY.md, "Setup"; docs/clean-room/V2CTrydan.md, 2): a charger is a device whose Device Id is its `ID`
 // (`V2CTrydan:<ID>`), of the Device Kind `charger`, reached at the address its Accessory Settings (`host`) or `devices`
 // give, and asking nothing: the charger has no authentication, so there is no account and nothing goes in the vault.
-// A new charger is added by address: the instance's Setup (no device) asks for its host, reads `/RealTimeData` there
-// once and keeps the address under the `ID` it answered.
+// A new charger is added by address (GLOSSARY.md, "Add by address"): Setup asks for its host, reads `/RealTimeData`
+// there once and keeps the address in its Accessory Settings under the `ID` it answered.
 extension V2CTrydanPlugin {
     public func deviceKind(of deviceID: String) async -> String? { Self.chargerKind }
 
@@ -59,12 +59,15 @@ extension V2CTrydanPlugin {
 
     static let addPrompt = SetupPrompt(
         message: "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.",
-        fields: [SetupField("host", label: "Address")])
+        fields: [SetupField("host", label: "IP address or host name")])
 
-    /// A charger asks nothing. The instance's Setup adds one by address: asks for its host, reads it once, and adds it to
-    /// `devices` with the Device Id it answered (`canonicalSettings` moves it into its Accessory Settings).
+    /// A charger the plugin cannot find is added by its address (Add by address).
+    public static let addsDevicesByAddress = true
+
+    /// A charger asks nothing. Add by address asks for its host, reads it once, and keeps the host in its Accessory
+    /// Settings under the Device Id it answered with (its `ID`, else one made of the host).
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { return .done(SetupOutcome()) }
+        guard request.isNewDevice else { return .done(SetupOutcome()) }
         guard let typed = request.answer("host") else { return .ask(Self.addPrompt) }
         guard let host = TrydanIdentity.normalizedHost(typed) else {
             throw SetupError("That is not an address: type an IP address or a host name, such as 192.168.1.50")
@@ -77,12 +80,8 @@ extension V2CTrydanPlugin {
             throw SetupError("No V2C Trydan answered at \(host)")
         }
         let deviceID = report.deviceID(host: host)
-        var devices = (configuration.devices ?? []).filter { device in
-            device.id.flatMap(TrydanIdentity.deviceID) != deviceID && Self.hostKey(device.host ?? "") != Self.hostKey(host)
-        }
-        devices.append(Configuration.Device(host: host, id: deviceID))
-        logger.info("Found a V2C Trydan through Setup", metadata: ["host": "\(host)", "deviceID": "\(deviceID)"])
-        return .done(SetupOutcome(settings: ["devices": try JSONValue(encoding: devices)]))
+        logger.info("Added a V2C Trydan by its address", metadata: ["host": "\(host)", "deviceID": "\(deviceID)"])
+        return .done(SetupOutcome(settings: ["host": .string(host)], deviceID: deviceID))
     }
 
     // MARK: Settings

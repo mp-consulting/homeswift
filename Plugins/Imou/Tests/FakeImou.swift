@@ -15,6 +15,12 @@ let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46])
 
 func md5(_ text: String) -> String { Insecure.MD5.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
 
+/// The documented signature (addendum, section 0): Base64 of an HMAC-SHA256 keyed with the hex SHA-256 of the secret.
+func hmacSign(_ text: String, secret: String) -> String {
+    let key = SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
+    return Data(HMAC<SHA256>.authenticationCode(for: Data(text.utf8), using: SymmetricKey(data: Data(key.utf8)))).base64EncodedString()
+}
+
 /// The IMOU Open Platform in memory: it checks each request's signature, answers the methods the plugin calls from what
 /// a test put in it, and counts the calls.
 final class FakeImouCloud: HTTPSending, Sendable {
@@ -39,7 +45,19 @@ final class FakeImouCloud: HTTPSending, Sendable {
         var errors: [String: [String]] = [:]
         var currentDomain: String?
         var badSignatures = 0
-        var setStatusDelay: Duration = .zero
+        /// `setDeviceCameraStatus` waits while this is set.
+        var holdSetStatus = false
+        /// An account that takes only the MD5 signature, as the libraries send it.
+        var refusesHMAC = false
+        /// enableTypes and methods the camera lacks: `DV1019`.
+        var unsupported: Set<String> = []
+        /// enableTypes whose reads fail (the channel offline, `DV1020`).
+        var failing: Set<String> = []
+        var nightVision: (mode: String, modes: [String]) = ("Intelligent", ["Intelligent", "FullColor", "Infrared", "Off"])
+        /// `controlMovePTZ` answers `OP1003` to an `operation` sent as a string, as a cloud might.
+        var ptzWantsNumbers = false
+        var presets: [String] = []
+        var sdStatus = "normal"
     }
 
     let state = NIOLockedValueBox(State())
@@ -70,27 +88,35 @@ final class FakeImouCloud: HTTPSending, Sendable {
         let method = request.url.lastPathComponent
         let body = try JSONValue(data: request.body ?? Data())
         let params = body["params"] ?? [:]
-        let delay = state.withLockedValue { $0.setStatusDelay }
-        if method == "setDeviceCameraStatus", delay > .zero { try await Task.sleep(for: delay) }
+        if method == "setDeviceCameraStatus" {
+            while state.withLockedValue({ $0.holdSetStatus }) { try await Task.sleep(for: .milliseconds(5)) }
+        }
         let answer: JSONValue = state.withLockedValue { state in
             state.calls.append(Call(url: request.url, method: method, params: params, body: body))
             // The signature: MD5 of time, nonce and the secret.
             let system = body["system"]
             let time = system?["time"]?.intValue ?? 0, nonce = system?["nonce"]?.stringValue ?? ""
-            guard system?["sign"]?.stringValue == md5("time:\(time),nonce:\(nonce),appSecret:\(Self.appSecret)"), system?["appId"]?.stringValue == Self.appID else {
+            let signed = "time:\(time),nonce:\(nonce),appSecret:\(Self.appSecret)", sign = system?["sign"]?.stringValue
+            guard sign == md5(signed) || !state.refusesHMAC && sign == hmacSign(signed, secret: Self.appSecret), system?["appId"]?.stringValue == Self.appID else {
                 state.badSignatures += 1
                 return Self.error("SN1001", "invalid sign")
             }
-            if var queued = state.errors[method], !queued.isEmpty {
-                let code = queued.removeFirst()
-                state.errors[method] = queued
-                return Self.error(code, "failed")
+            // Errors by method, or by method and device (`deviceOnline:TEST000CAM1`).
+            for key in ["\(method):\(params["deviceId"]?.stringValue ?? "")", method] {
+                if var queued = state.errors[key], !queued.isEmpty {
+                    let code = queued.removeFirst()
+                    state.errors[key] = queued
+                    return Self.error(code, "failed")
+                }
             }
             if method != "accessToken" {
                 guard let token = params["token"]?.stringValue, token == "At_\(state.tokens)" else { return Self.error("TK1002", "Token expired or does not exist, please get token again.") }
             }
             let device = params["deviceId"]?.stringValue ?? ""
-            let channel = params["channelId"]?.stringValue ?? "0"
+            // A device-level switch has no channel.
+            let channel = params["channelId"]?.stringValue ?? "device"
+            if state.unsupported.contains(method) || state.unsupported.contains(params["enableType"]?.stringValue ?? "-") { return Self.error("DV1019", "not supported") }
+            if method == "getDeviceCameraStatus", state.failing.contains(params["enableType"]?.stringValue ?? "-") { return Self.error("DV1020", "channel offline") }
             switch method {
             case "accessToken":
                 state.tokens += 1
@@ -121,6 +147,24 @@ final class FakeImouCloud: HTTPSending, Sendable {
                 return Self.ok(["url": "https://oss.example.com/snap.jpg?Expires=1&OSSAccessKeyId=KEYID&Signature=SIGNATURE"])
             case "getStreamUrl":
                 return Self.ok(["url": "rtsp://proxy.example.com:8554/live/secretpath"])
+            case "breathingLightStatus":
+                return Self.ok(["status": .string(state.statuses["\(device):device:breathingLight"] == true ? "on" : "off")])
+            case "getNightVisionMode":
+                return Self.ok(["mode": .string(state.nightVision.mode), "modes": .array(state.nightVision.modes.map(JSONValue.string))])
+            case "setNightVisionMode":
+                state.nightVision.mode = params["mode"]?.stringValue ?? ""
+                return Self.ok([:])
+            case "controlMovePTZ":
+                if state.ptzWantsNumbers, params["operation"]?.stringValue != nil { return Self.error("OP1003", "invalid parameter") }
+                return Self.ok([:])
+            case "controlLocationPTZ", "turnCollection", "restartDevice":
+                return Self.ok([:])
+            case "getCollection":
+                return Self.ok(["collections": .array(state.presets.map { ["name": .string($0)] })])
+            case "deviceSdcardStatus":
+                return Self.ok(["status": .string(state.sdStatus)])
+            case "deviceStorage":
+                return Self.ok(["totalBytes": 31_254_904_832, "usedBytes": 27_553_759_232])
             case "getDevicePowerInfo":
                 return Self.ok(["electricitys": [["type": "battery", "electric": "89", "litElec": "77"]]])
             default:
@@ -157,6 +201,8 @@ final class FakeCamera: DahuaTransport, Sendable {
         var reachable = true
         var snapshots = true
         var streamOpens = 0
+        /// The body of `devAudioOutput.cgi?action=getCollect`; nil answers 404.
+        var audioOutput: String?
     }
 
     let state = NIOLockedValueBox(State())
@@ -210,6 +256,10 @@ final class FakeCamera: DahuaTransport, Sendable {
         guard reachable else { throw HTTPClientError.cannotConnect(host: "camera", port: 80, code: 61, reason: "refused") }
         guard authorized(request) else { return HomeswiftNetwork.HTTPResponse(status: 401, headers: [("WWW-Authenticate", challenge)]) }
         if target.hasPrefix("/cgi-bin/magicBox.cgi?action=getSerialNo") { return HomeswiftNetwork.HTTPResponse(status: 200, body: Data("sn=\(serial)\r\n".utf8)) }
+        if target.hasPrefix("/cgi-bin/devAudioOutput.cgi") {
+            guard let body = state.withLockedValue({ $0.audioOutput }) else { return HomeswiftNetwork.HTTPResponse(status: 404) }
+            return HomeswiftNetwork.HTTPResponse(status: 200, body: Data(body.utf8))
+        }
         if target.hasPrefix("/cgi-bin/snapshot.cgi") { return snapshots ? HomeswiftNetwork.HTTPResponse(status: 200, body: jpeg) : HomeswiftNetwork.HTTPResponse(status: 500) }
         return HomeswiftNetwork.HTTPResponse(status: 404)
     }
@@ -283,12 +333,18 @@ final class TestEnvironment: Sendable {
     func start(_ settings: [String: Any] = account) async throws -> PluginHost {
         var registry = PluginRegistry()
         let (cloud, camera, download, timeScale, log) = (cloud, camera, download, timeScale, log)
+        // The plugin's own lines, which the host's logger does not carry: the never-logged checks read them.
+        let pluginLogger: Logger = {
+            var logger = Logger(label: "homeswift.Imou") { _ in log }
+            logger.logLevel = .trace
+            return logger
+        }()
         registry.register(platform: ImouPlugin.platform, name: ImouPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(ImouPlugin.Configuration.self, from: json)
             let plugin = ImouPlugin(
                 configuration: configuration, context: context,
                 dependencies: .init(cloudTransport: cloud, download: download, local: camera, timeScale: timeScale, ffmpeg: { _, logger in testFFmpeg(logger) },
-                                    eventSilence: .seconds(5)))
+                                    eventSilence: .seconds(5), logger: pluginLogger))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }

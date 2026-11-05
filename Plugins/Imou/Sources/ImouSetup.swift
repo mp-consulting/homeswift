@@ -10,8 +10,9 @@ import HomeswiftPlugin
 // Device Code) for the local path, or with nothing for the cloud alone. A camera the cloud does not list is one of the
 // block's `devices` by address: its Setup asks the safety code and reads the serial from the camera
 // (`magicBox.cgi?action=getSerialNo`, else its Digest realm `Login to <serial>`), which becomes its Device Id, so the same
-// camera keeps its accessory when the cloud lists it later. The App Secret and the safety codes go in the vault; the
-// address and options in the camera's Accessory Settings.
+// camera keeps its accessory when the cloud lists it later. A camera neither lists is added by address (GLOSSARY.md, "Add
+// by address"): its address, then its safety code, read the same way. The App Secret and the safety codes go in the vault;
+// the address and options in the camera's Accessory Settings.
 extension ImouPlugin {
     public static let accountAuthorization = AuthorizationMethod.apiKey
     public static let accountRequirement = AccountRequirement.optional(adds: "Lists the cameras of your IMOU account, and adds privacy mode, the siren and the spotlight.")
@@ -58,9 +59,47 @@ extension ImouPlugin {
         return found
     }
 
+    /// A camera on the LAN alone that neither the account nor `devices` lists is added by its address (Add by address).
+    public static let addsDevicesByAddress = true
+
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard case .device(let device) = request.target else { return try await authorizeAccount(request) }
-        return try await authorizeCamera(device, request)
+        switch request.target {
+        case .account: return try await authorizeAccount(request)
+        case .device(let device): return try await authorizeCamera(device, request)
+        case .newDevice: return try await authorizeNewCamera(request)
+        }
+    }
+
+    /// Add by address: the camera's address, checked for an answer, then its safety code, checked as a camera's by
+    /// address is; its serial is its Device Id, its safety code its credentials.
+    private func authorizeNewCamera(_ request: SetupRequest) async throws -> SetupStep {
+        let port = CameraSettings(fields: [:], password: nil, defaults: configuration).httpPort
+        guard let host = request.state["host"]?.stringValue ?? request.answer("host") else {
+            return .ask(SetupPrompt(
+                message: "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.",
+                fields: [SetupField("host", label: "Address")]))
+        }
+        let codePrompt = SetupPrompt(
+            message: Self.safetyCodeMessage,
+            fields: [SetupField("password", label: "Safety code", kind: .secret), SetupField("username", label: "User name", optional: true, value: "admin")])
+        guard request.state["host"] == nil else {
+            guard let password = request.secret("password") else { return .ask(codePrompt, state: ["host": .string(host)]) }
+            let username = request.answer("username") ?? "admin"
+            let client = try dahuaClient(host: host, port: port, username: username, password: password)
+            guard let serial = try await readSerial(client, host: host) else { throw SetupError("The camera at \(host) did not give its serial number.") }
+            logger.info("Added the camera \(serial) at \(host) by its address")
+            return .done(try SetupOutcome(encoding: ImouCameraCredentials(password: password),
+                                          settings: ["host": .string(host), "username": .string(username)], deviceID: serial))
+        }
+        // Asked without credentials, a camera answers with its challenge: something is there before the code is asked.
+        let client = try dahuaClient(host: host, port: port, username: "admin", password: "")
+        do {
+            _ = try await client.realm()
+        } catch {
+            logger.info("No camera answered at \(host): \(error)")
+            throw SetupError("No camera answered at \(host): check the address, and that the camera is on and on this network.")
+        }
+        return .ask(codePrompt, state: ["host": .string(host)])
     }
 
     /// The developer app's App Id, App Secret and region, checked by fetching a token.
@@ -101,7 +140,7 @@ extension ImouPlugin {
             : cameraSettings(deviceID: device.deviceID)
         let prompt = SetupPrompt(
             message: byAddress
-                ? "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life)."
+                ? Self.safetyCodeMessage
                 : "Enter the camera's address on your network and its safety code, printed on its label, for local video and events. Leave them empty to use the IMOU cloud alone.",
             fields: [
                 SetupField("host", label: "Address", optional: !byAddress, value: device.address ?? current?.host),
@@ -116,24 +155,8 @@ extension ImouPlugin {
         guard let password = request.secret("password") else { throw SetupError("Enter the camera's safety code.") }
         let username = request.answer("username") ?? "admin"
         let port = current?.httpPort ?? 80
-        guard let client = DahuaClient(host: host, port: port, username: username, password: password, transport: dependencies.local) else {
-            throw SetupError("That is not an address.")
-        }
-        var serial: String?
-        do {
-            serial = try await client.serialNumber()
-        } catch DahuaError.wrongPassword {
-            throw SetupError("The camera at \(host) refused this safety code.")
-        } catch let error as DahuaError {
-            logger.info("The camera at \(host) gave no serial number (\(error)): reading its realm")
-            if case .unsupported = error {
-                // Nothing checked the safety code yet: a snapshot asks for it.
-                do { _ = try await client.snapshot(channel: 1) } catch DahuaError.wrongPassword { throw SetupError("The camera at \(host) refused this safety code.") } catch {}
-            }
-            serial = try? await client.realm().flatMap(DahuaClient.serial(realm:))
-        } catch {
-            throw SetupError("Cannot reach the camera at \(host): is it on, and on this network? (\(error))")
-        }
+        let client = try dahuaClient(host: host, port: port, username: username, password: password)
+        let serial = try await readSerial(client, host: host)
         if byAddress {
             guard let serial else { throw SetupError("The camera at \(host) did not give its serial number.") }
             logger.info("Set up the camera \(serial) at \(host)")
@@ -148,24 +171,73 @@ extension ImouPlugin {
         return .done(try SetupOutcome(encoding: ImouCameraCredentials(password: password), settings: ["host": .string(host), "username": .string(username)]))
     }
 
+    static let safetyCodeMessage = "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life)."
+
+    /// The CGI client of the camera at `host`.
+    private func dahuaClient(host: String, port: Int, username: String, password: String) throws -> DahuaClient {
+        guard let client = DahuaClient(host: host, port: port, username: username, password: password, transport: dependencies.local) else {
+            throw SetupError("That is not an address.")
+        }
+        return client
+    }
+
+    /// The camera's serial, checking its safety code: `getSerialNo`, else its Digest realm (a snapshot checks the code of
+    /// a camera without `getSerialNo`); nil when it gives none. Throws `SetupError` for a refused code or no answer.
+    private func readSerial(_ client: DahuaClient, host: String) async throws -> String? {
+        do {
+            return try await client.serialNumber()
+        } catch DahuaError.wrongPassword {
+            throw Self.refused(host)
+        } catch let error as DahuaError {
+            logger.info("The camera at \(host) gave no serial number (\(error)): reading its realm")
+            // Nothing checked the safety code yet: a snapshot asks for it.
+            do { _ = try await client.snapshot(channel: 1) } catch DahuaError.wrongPassword { throw Self.refused(host) } catch {}
+            return try? await client.realm().flatMap(DahuaClient.serial(realm:))
+        } catch {
+            throw SetupError("Cannot reach the camera at \(host): is it on, and on this network? (\(error))")
+        }
+    }
+
+    private static func refused(_ host: String) -> SetupError { SetupError("The camera at \(host) refused this safety code.") }
+
     // MARK: Settings
 
     /// The block in its canonical shape (`canonical`): its App Secret and its cameras' safety codes kept in the vault once
-    /// it is written (`whenSettingsWritten`), where the vault has none.
+    /// it is written (`whenSettingsWritten`). A value written in the block (a new one, or a changed one) is the one kept;
+    /// one the block only names (a `vault:` reference, a sealed copy) comes resolved from the running configuration. A
+    /// secret with nowhere to go yet stays in the block.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        let setUpHosts = Set(context.allAccessorySettings.compactMap { $0.value.plugin["host"]?.stringValue })
-        let (canonical, moved) = Self.canonical(block, setUpHosts: setUpHosts)
         let context = context
-        let secret = block["appSecret"] != nil && context.credentials(as: ImouAccountCredentials.self) == nil ? configuration.appSecret : nil
-        // The block may name a secret (a `vault:` reference, a sealed copy): the running configuration has it resolved.
-        var passwords: [String: String] = [:]
-        for deviceID in moved {
-            guard context.credentials(for: deviceID, as: ImouCameraCredentials.self)?.password == nil,
-                  let password = configuration.devices.first(where: { $0.deviceID == deviceID })?.password else { continue }
-            passwords[deviceID] = password
+        let setUpHosts = Set(context.allAccessorySettings.compactMap { $0.value.plugin["host"]?.stringValue })
+        let storedSecret = context.credentials(as: ImouAccountCredentials.self)?.appSecret
+        var secret: String?
+        if block["appSecret"] != nil {
+            if let written = Self.writtenSecret(block["appSecret"]), written != storedSecret {
+                secret = written
+            } else if storedSecret == nil {
+                secret = configuration.appSecret
+            }
         }
+        var passwords: [String: String] = [:]
+        var unsaved: Set<String> = []
+        for item in block["devices"]?.arrayValue ?? [] {
+            let entry = Device(json: item)
+            guard let deviceID = entry.deviceID, entry.password != nil else { continue }
+            let stored = context.credentials(for: deviceID, as: ImouCameraCredentials.self)?.password
+            if let written = Self.writtenSecret(item["password"]) ?? Self.writtenSecret(item["safetyCode"]), written != stored {
+                passwords[deviceID] = written
+            } else if stored == nil {
+                if let resolved = configuration.devices.first(where: { $0.deviceID == deviceID })?.password {
+                    passwords[deviceID] = resolved
+                } else {
+                    unsaved.insert(deviceID)
+                }
+            }
+        }
+        let keepSecret = block["appSecret"] != nil && secret == nil && storedSecret == nil
+        let (canonical, _) = Self.canonical(block, setUpHosts: setUpHosts, keepingSecret: keepSecret, keepingEntries: unsaved)
         if secret != nil || !passwords.isEmpty {
-            let passwords = passwords
+            let passwords = passwords, secret = secret
             await context.whenSettingsWritten {
                 if let secret { try context.saveCredentials(ImouAccountCredentials(appSecret: secret)) }
                 for (deviceID, password) in passwords.sorted(by: { $0.key < $1.key }) {
@@ -176,19 +248,29 @@ extension ImouPlugin {
         return canonical
     }
 
+    /// A secret written out in the block: not a reference to one, nor a sealed copy.
+    static func writtenSecret(_ value: JSONValue?) -> String? {
+        guard let text = value.text, SecretReference(text) == nil, !SecretBox.isSealed(text) else { return nil }
+        return text
+    }
+
     /// The block without `appSecret`, each `devices` entry with a Device Id moved into `_accessories` (its name as the Name,
     /// its options as they are, what the entry there has winning) without its safety code, and each entry by address whose
-    /// camera Setup set up dropped. Answers the Device Ids moved.
-    static func canonical(_ block: JSONValue, setUpHosts: Set<String>) -> (block: JSONValue, moved: [String]) {
+    /// camera Setup set up dropped. Answers the Device Ids moved. `keepingSecret` and `keepingEntries` (by Device Id) leave
+    /// the App Secret and those entries as they are: their secret has nowhere else to go yet.
+    static func canonical(_ block: JSONValue, setUpHosts: Set<String>, keepingSecret: Bool = false,
+                          keepingEntries: Set<String> = []) -> (block: JSONValue, moved: [String]) {
         guard var fields = block.objectValue else { return (block, []) }
-        fields.removeValue(forKey: "appSecret")
+        if !keepingSecret { fields.removeValue(forKey: "appSecret") }
         var moved: [String] = []
         if let list = fields["devices"]?.arrayValue {
             var entries = AccessoryEntries(fields)
             var left: [JSONValue] = []
             for item in list {
                 let entry = Device(json: item)
-                if let deviceID = entry.deviceID {
+                if let deviceID = entry.deviceID, keepingEntries.contains(deviceID) {
+                    left.append(item)
+                } else if let deviceID = entry.deviceID {
                     if let name = entry.name { entries.setIfAbsent("name", .string(name), on: deviceID) }
                     if let host = entry.host { entries.setIfAbsent("host", .string(host), on: deviceID) }
                     for (key, value) in entry.options.sorted(by: { $0.key < $1.key }) where !value.isNull { entries.setIfAbsent(key, value, on: deviceID) }

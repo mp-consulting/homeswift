@@ -67,6 +67,7 @@ struct ImouTests {
     @Test func pollsReadTheSwitchesAndOnlyThem() async throws {
         environment.cloud.addCamera()
         environment.cloud.state.withLockedValue { $0.statuses["TEST000CAM1:0:closeCamera"] = true }
+        let started = ContinuousClock.now
         let host = try await environment.start()
         let accessory = try await garden(host)
         let privacy = try #require(service(accessory, "privacy"))
@@ -78,9 +79,11 @@ struct ImouTests {
         let reads = cloud.calls("getDeviceCameraStatus").count
         #expect(reads >= (polls - 1) * 4 && reads <= (polls + 1) * 4)
         #expect(Set(cloud.calls("getDeviceCameraStatus").compactMap { $0.params["enableType"]?.stringValue }) == ["closeCamera", "whiteLight", "mobileDetect", "motionDetect"])
-        // The listing only at rediscoveries, never once a poll (a loaded machine stretches the test over more of them), and
-        // one token.
-        #expect(cloud.calls("listDeviceDetailsByPage").count < cloud.calls("deviceOnline").count)
+        // The listing only at start and at rediscoveries, never once a poll, and one token. Counted against the time gone
+        // by: a loaded machine stretches a poll's five calls more than a rediscovery's sleep.
+        let rediscovery = Duration.seconds(ImouPlugin.rediscoveryInterval * environment.timeScale)
+        let rediscoveries = Int((ContinuousClock.now - started) / rediscovery)
+        #expect(cloud.calls("listDeviceDetailsByPage").count <= rediscoveries + 1)
         #expect(cloud.tokenFetches == 1)
         await host.stop()
     }
@@ -213,6 +216,8 @@ struct ImouTests {
         #expect(environment.download.urls.withLockedValue { $0 }.count == 1)
         await host.stop()
         let lines = environment.log.lines.withLockedValue { $0 }.joined(separator: "\n")
+        // The plugin's own lines are there to check.
+        #expect(lines.contains("Added Garden"))
         for secret in [FakeImouCloud.appSecret, "At_1", "SIGNATURE", "KEYID", "L2A3B4C5"] { #expect(!lines.contains(secret)) }
         for call in environment.cloud.calls { if let sign = call.body["system"]?["sign"]?.stringValue { #expect(!lines.contains(sign)) } }
     }
@@ -237,7 +242,8 @@ struct ImouTests {
         let host = try await environment.start(block)
         let plugin = try #require(environment.plugin)
         #expect(await eventually { await plugin.context.accountRefusal != nil })
-        #expect(environment.cloud.calls.count == 1)
+        // The documented signature, then once with MD5: both refused.
+        #expect(environment.cloud.calls.count == 2)
         await host.stop()
     }
 
@@ -311,6 +317,34 @@ struct ImouTests {
         await again.stop()
     }
 
+    @Test func addByAddressChecksTheAddressThenTheCodeAndKeysTheCameraByItsSerial() async throws {
+        #expect(ImouPlugin.addsDevicesByAddress)
+        let host = try await environment.start([:])
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let first, let none) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
+        #expect(first.fields.map(\.key) == ["host"] && none.isNull)
+        guard case .ask(let second, let state) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": " 192.0.2.20 "])) else {
+            Issue.record("no code asked"); return
+        }
+        #expect(second.fields.map(\.key) == ["password", "username"] && second.fields[0].kind == .secret)
+        #expect(state == ["host": "192.0.2.20"])
+        await #expect(throws: SetupError("The camera at 192.0.2.20 refused this safety code.")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["password": "WRONG"], state: state))
+        }
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["password": "L2A3B4C5"], state: state)) else {
+            Issue.record("expected done"); return
+        }
+        #expect(outcome.deviceID == "TEST000CAM1")
+        #expect(outcome.credentials?["password"]?.stringValue == "L2A3B4C5")
+        #expect(outcome.settings == ["host": "192.0.2.20", "username": "admin"])
+
+        environment.camera.state.withLockedValue { $0.reachable = false }
+        await #expect(throws: SetupError("No camera answered at 192.0.2.60: check the address, and that the camera is on and on this network.")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.60"]))
+        }
+        await host.stop()
+    }
+
     @Test func aCloudCameraMustBeTheCameraAtItsAddress() async throws {
         environment.cloud.addCamera("OTHER0000001", name: "Drive")
         let host = try await environment.start()
@@ -341,6 +375,43 @@ struct ImouTests {
         #expect(canonical["appSecret"] == nil)
         #expect(canonical["_accessories"]?["CAM1"] == ["name": "Garden", "host": "192.0.2.20", "motionTimeout": 30])
         #expect(canonical["devices"] == [["host": "192.0.2.22"]])
+    }
+
+    @Test func oneDevicesErrorLeavesTheOthersPolled() async throws {
+        environment.cloud.addCamera()
+        environment.cloud.addCamera("TEST000CAM2", name: "Drive")
+        environment.cloud.state.withLockedValue {
+            $0.errors["deviceOnline:TEST000CAM1"] = Array(repeating: "DV1003", count: 1000)
+            $0.statuses["TEST000CAM2:0:closeCamera"] = true
+        }
+        let host = try await environment.start()
+        let cloud = environment.cloud
+        #expect(await eventually { cloud.calls("deviceOnline").filter { $0.params["deviceId"] == "TEST000CAM1" }.count >= 3 })
+        let environment = environment
+        #expect(await eventually { environment.accessory(host, "Imou:TEST000CAM2:0") != nil })
+        let drive = try #require(environment.accessory(host, "Imou:TEST000CAM2:0"))
+        #expect(await eventually { service(drive, "privacy")?.characteristic(.on).value == true })
+        let lines = environment.log.lines.withLockedValue { $0 }
+        #expect(!lines.contains { $0.contains("Cannot reach the IMOU cloud") })
+        // Logged once, not every poll.
+        #expect(lines.filter { $0.contains("TEST000CAM1: DV1003") }.count == 1)
+        await host.stop()
+    }
+
+    @Test func aSecretWrittenInTheBlockIsKeptUntilItHasSomewhereToGo() async throws {
+        let host = try await environment.start(["appId": FakeImouCloud.appID])
+        let plugin = try #require(environment.plugin)
+        // Named, and nothing resolved it: it stays.
+        let named = await plugin.canonicalSettings(["appId": .string(FakeImouCloud.appID), "appSecret": "vault:imou"])
+        #expect(named["appSecret"] == "vault:imou")
+        // Written out: it goes to the vault, so it leaves the block.
+        let written = await plugin.canonicalSettings(["appId": .string(FakeImouCloud.appID), "appSecret": "fresh"])
+        #expect(written["appSecret"] == nil)
+        // A camera's safety code likewise: its entry stays as it is.
+        let entry: JSONValue = ["deviceId": "CAM9", "host": "192.0.2.90", "password": "vault:cam9"]
+        let devices = await plugin.canonicalSettings(["devices": [entry]])
+        #expect(devices["devices"] == [entry] && devices["_accessories"]?["CAM9"] == nil)
+        await host.stop()
     }
 
     static var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent() }

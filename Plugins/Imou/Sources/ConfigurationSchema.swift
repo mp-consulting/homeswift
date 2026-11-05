@@ -138,7 +138,7 @@ extension ImouPlugin {
       "devices": {
         "title": "Cameras by Address",
         "type": "array",
-        "description": "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.",
+        "description": "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.",
         "items": {
           "title": "Camera",
           "type": "object",
@@ -257,6 +257,60 @@ extension ImouPlugin {
           "camera"
         ]
       },
+      "personDetectSwitch": {
+        "title": "Person Detection Switch",
+        "type": "boolean",
+        "description": "A switch for the camera's human detection, through the cloud. Each switch costs calls of the account's 20,000 a day.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "statusLightSwitch": {
+        "title": "Status Light Switch",
+        "type": "boolean",
+        "description": "A switch for the camera's status light, through the cloud; with HomeKit Secure Video, the camera's status indicator in the Home app.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "linkageSirenSwitch": {
+        "title": "Siren on Alarm Switch",
+        "type": "boolean",
+        "description": "A switch that has the siren sound when the camera raises an alarm, through the cloud.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "linkageLightSwitch": {
+        "title": "Light on Alarm Switch",
+        "type": "boolean",
+        "description": "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "nightVisionSwitch": {
+        "title": "Night Vision Switch",
+        "type": "boolean",
+        "description": "A switch for night vision, through the cloud: on is the camera's smart mode, off turns it off.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "presetSwitches": {
+        "title": "Preset Switches",
+        "type": "boolean",
+        "description": "A switch per pan and tilt preset that turns the camera to it, through the cloud.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
+      },
       "recording": {
         "title": "HomeKit Secure Video",
         "type": "boolean",
@@ -274,6 +328,102 @@ extension ImouPlugin {
           "camera"
         ],
         "x-default": "encoder"
+      },
+      "twoWayAudio": {
+        "title": "Two-Way Audio",
+        "type": "string",
+        "description": "Experimental: talk through the camera's speaker from the Home app, over the local network: the camera needs its local address and safety code. Automatic asks the camera whether it has a speaker; On takes it that it does. Not yet tried on an IMOU camera.",
+        "default": "off",
+        "oneOf": [
+          {
+            "title": "Off",
+            "enum": [
+              "off"
+            ]
+          },
+          {
+            "title": "Automatic",
+            "enum": [
+              "auto"
+            ]
+          },
+          {
+            "title": "On",
+            "enum": [
+              "on"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "talkCodec": {
+        "title": "Talk Codec",
+        "type": "string",
+        "description": "For two-way audio: the audio the camera's speaker is sent. G.711 A-law suits most cameras.",
+        "default": "G.711A",
+        "oneOf": [
+          {
+            "title": "G.711 A-law",
+            "enum": [
+              "G.711A"
+            ]
+          },
+          {
+            "title": "G.711 µ-law",
+            "enum": [
+              "G.711Mu"
+            ]
+          },
+          {
+            "title": "AAC",
+            "enum": [
+              "AAC"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "talkMethod": {
+        "title": "Talk Method",
+        "type": "string",
+        "description": "For two-way audio: how the audio reaches the camera. Its HTTP interface, its RTSP stream's backchannel, or Automatic, the first that works.",
+        "default": "auto",
+        "oneOf": [
+          {
+            "title": "Automatic",
+            "enum": [
+              "auto"
+            ]
+          },
+          {
+            "title": "HTTP",
+            "enum": [
+              "http"
+            ]
+          },
+          {
+            "title": "RTSP Backchannel",
+            "enum": [
+              "rtsp"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "talkZeroTimestamps": {
+        "title": "Zero Timestamps",
+        "type": "boolean",
+        "description": "For two-way audio over the RTSP backchannel: sends its audio without timestamps, for a camera that plays nothing otherwise.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
       }
     }
   },
@@ -312,11 +462,16 @@ extension ImouPlugin {
   "i18n": {
     "fr": {
       "A light for the camera's spotlight, through the cloud.": "Une lumière pour le projecteur de la caméra, par le cloud.",
+      "A switch for night vision, through the cloud: on is the camera's smart mode, off turns it off.": "Un interrupteur pour la vision nocturne, par le cloud : activé, c'est le mode intelligent de la caméra ; désactivé, elle est coupée.",
+      "A switch for the camera's human detection, through the cloud. Each switch costs calls of the account's 20,000 a day.": "Un interrupteur pour la détection de personnes de la caméra, par le cloud. Chaque interrupteur coûte des appels sur les 20 000 par jour du compte.",
       "A switch for the camera's own motion detection, through the cloud.": "Un interrupteur pour la détection de mouvement de la caméra, par le cloud.",
+      "A switch for the camera's status light, through the cloud; with HomeKit Secure Video, the camera's status indicator in the Home app.": "Un interrupteur pour le voyant d'état de la caméra, par le cloud ; avec HomeKit Secure Video, le voyant d'état de la caméra dans l'app Maison.",
+      "A switch per pan and tilt preset that turns the camera to it, through the cloud.": "Un interrupteur par préréglage d'orientation, qui tourne la caméra vers lui, par le cloud.",
       "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Un interrupteur qui ferme la caméra (le mode confidentialité d'IMOU), par le cloud.",
+      "A switch that has the siren sound when the camera raises an alarm, through the cloud.": "Un interrupteur qui fait sonner la sirène quand la caméra déclenche une alarme, par le cloud.",
+      "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Un interrupteur qui allume le projecteur quand la caméra déclenche une alarme, par le cloud.",
       "A switch that sounds the camera's siren, through the cloud.": "Un interrupteur qui fait sonner la sirène de la caméra, par le cloud.",
       "API Address": "Adresse de l'API",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire.",
       "Address": "Adresse",
       "Advanced": "Avancé",
       "App Id": "App Id",
@@ -340,22 +495,28 @@ extension ImouPlugin {
       "How often the cloud is asked for the cameras' switches, from 30 to 900. Each poll costs calls of the account's 20,000 a day.": "Fréquence à laquelle le cloud est interrogé sur les interrupteurs des caméras, de 30 à 900. Chaque interrogation coûte des appels sur les 20 000 par jour du compte.",
       "How often the cloud's alarms stand in for motion events. Empty: every 60 seconds, only for a camera whose local event stream is down. 0: never. 30 or more: that often, also for cameras without a local address.": "Fréquence à laquelle les alarmes du cloud remplacent les événements de mouvement. Vide : toutes les 60 secondes, seulement pour une caméra dont le flux d'événements local est coupé. 0 : jamais. 30 ou plus : à cette fréquence, aussi pour les caméras sans adresse locale.",
       "Lets HomeKit record the camera's local stream.": "Permet à HomeKit d'enregistrer le flux local de la caméra.",
+      "Light on Alarm Switch": "Interrupteur de lumière sur alarme",
       "Local Events": "Événements locaux",
       "Motion Detection Switch": "Interrupteur Détection de mouvement",
       "Motion Duration (in seconds)": "Durée d'un mouvement (en secondes)",
       "Motion and doorbell presses from the camera's own event stream.": "Les mouvements et les appuis sur la sonnette depuis le flux d'événements de la caméra.",
       "Name": "Nom",
+      "Night Vision Switch": "Interrupteur de vision nocturne",
       "North America (Oregon)": "Amérique du Nord (Oregon)",
       "Overrides the region's host: a host name or a whole base address such as https://openapi.easy4ip.com/openapi.": "Remplace l'hôte de la région : un nom d'hôte ou une adresse de base complète comme https://openapi.easy4ip.com/openapi.",
+      "Person Detection Switch": "Interrupteur de détection de personnes",
       "Plugin name as shown in the logs": "Nom du plugin dans le journal",
       "Polling Interval (in seconds)": "Intervalle d'interrogation (en secondes)",
+      "Preset Switches": "Interrupteurs de préréglages",
       "Privacy Switch": "Interrupteur Confidentialité",
       "RTSP Port": "Port RTSP",
       "Region": "Région",
       "SD (sub stream)": "SD (flux secondaire)",
       "Siren Switch": "Interrupteur Sirène",
+      "Siren on Alarm Switch": "Interrupteur de sirène sur alarme",
       "Sleeping Camera Retry (in seconds)": "Nouvel essai d'une caméra endormie (en secondes)",
       "Spotlight": "Projecteur",
+      "Status Light Switch": "Interrupteur du voyant d'état",
       "The App Id of your app on the IMOU Open Platform (open.imoulife.com, My App, App Information). Setup asks for it with its App Secret, which goes in the vault.": "L'App Id de votre application sur l'IMOU Open Platform (open.imoulife.com, My App, App Information). Le Setup le demande avec son App Secret, qui va dans le coffre.",
       "The FFmpeg to run for video: a path, or a name on the PATH.": "Le FFmpeg à lancer pour la vidéo : un chemin, ou un nom dans le PATH.",
       "The camera's IP address or host name on the local network.": "L'adresse IP ou le nom d'hôte de la caméra sur le réseau local.",
@@ -370,15 +531,37 @@ extension ImouPlugin {
       "Video Encoder": "Encodeur vidéo",
       "Wake-up Wait (in seconds)": "Attente du réveil (en secondes)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Où votre application de développeur IMOU a été créée : elle doit correspondre à la région du portail.",
-      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire. Ajouter par adresse, dans Ajouter des accessoires, fait les deux en une fois.",
+      "AAC": "AAC",
+      "Automatic": "Automatique",
+      "Experimental: talk through the camera's speaker from the Home app, over the local network: the camera needs its local address and safety code. Automatic asks the camera whether it has a speaker; On takes it that it does. Not yet tried on an IMOU camera.": "Expérimental : parler dans le haut-parleur de la caméra depuis l'app Maison, sur le réseau local : la caméra a besoin de son adresse locale et de son code de sécurité. Automatique demande à la caméra si elle a un haut-parleur ; Activé le tient pour acquis. Pas encore essayé sur une caméra IMOU.",
+      "G.711 A-law": "G.711 loi A",
+      "G.711 µ-law": "G.711 loi µ",
+      "HTTP": "HTTP",
+      "For two-way audio: how the audio reaches the camera. Its HTTP interface, its RTSP stream's backchannel, or Automatic, the first that works.": "Pour l'audio bidirectionnel : comment l'audio parvient à la caméra. Son interface HTTP, le canal de retour de son flux RTSP, ou Automatique, le premier qui fonctionne.",
+      "Off": "Désactivé",
+      "On": "Activé",
+      "RTSP Backchannel": "Canal de retour RTSP",
+      "For two-way audio over the RTSP backchannel: sends its audio without timestamps, for a camera that plays nothing otherwise.": "Pour l'audio bidirectionnel par le canal de retour RTSP : envoie son audio sans horodatage, pour une caméra qui sinon ne joue rien.",
+      "Talk Codec": "Codec de l'interphone",
+      "Talk Method": "Méthode de l'interphone",
+      "For two-way audio: the audio the camera's speaker is sent. G.711 A-law suits most cameras.": "Pour l'audio bidirectionnel : l'audio envoyé au haut-parleur de la caméra. Le G.711 loi A convient à la plupart des caméras.",
+      "Two-Way Audio": "Audio bidirectionnel",
+      "Zero Timestamps": "Horodatages à zéro"
     },
     "es": {
       "A light for the camera's spotlight, through the cloud.": "Una luz para el foco de la cámara, a través de la nube.",
+      "A switch for night vision, through the cloud: on is the camera's smart mode, off turns it off.": "Un interruptor para la visión nocturna, a través de la nube: encendido es el modo inteligente de la cámara; apagado la desactiva.",
+      "A switch for the camera's human detection, through the cloud. Each switch costs calls of the account's 20,000 a day.": "Un interruptor para la detección de personas de la cámara, a través de la nube. Cada interruptor cuesta llamadas de las 20 000 diarias de la cuenta.",
       "A switch for the camera's own motion detection, through the cloud.": "Un interruptor para la detección de movimiento de la cámara, a través de la nube.",
+      "A switch for the camera's status light, through the cloud; with HomeKit Secure Video, the camera's status indicator in the Home app.": "Un interruptor para la luz de estado de la cámara, a través de la nube; con HomeKit Secure Video, el indicador de estado de la cámara en la app Casa.",
+      "A switch per pan and tilt preset that turns the camera to it, through the cloud.": "Un interruptor por cada posición predefinida de giro e inclinación, que orienta la cámara hacia ella, a través de la nube.",
       "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Un interruptor que cierra la cámara (el modo de privacidad de IMOU), a través de la nube.",
+      "A switch that has the siren sound when the camera raises an alarm, through the cloud.": "Un interruptor que hace sonar la sirena cuando la cámara da una alarma, a través de la nube.",
+      "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Un interruptor que enciende el foco cuando la cámara da una alarma, a través de la nube.",
       "A switch that sounds the camera's siren, through the cloud.": "Un interruptor que hace sonar la sirena de la cámara, a través de la nube.",
       "API Address": "Dirección de la API",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio.",
       "Address": "Dirección",
       "Advanced": "Avanzado",
       "App Id": "App Id",
@@ -402,22 +585,28 @@ extension ImouPlugin {
       "How often the cloud is asked for the cameras' switches, from 30 to 900. Each poll costs calls of the account's 20,000 a day.": "Con qué frecuencia se consulta a la nube por los interruptores de las cámaras, de 30 a 900. Cada consulta gasta llamadas de las 20 000 diarias de la cuenta.",
       "How often the cloud's alarms stand in for motion events. Empty: every 60 seconds, only for a camera whose local event stream is down. 0: never. 30 or more: that often, also for cameras without a local address.": "Con qué frecuencia las alarmas de la nube sustituyen a los eventos de movimiento. Vacío: cada 60 segundos, solo para una cámara cuyo flujo de eventos local está caído. 0: nunca. 30 o más: con esa frecuencia, también para cámaras sin dirección local.",
       "Lets HomeKit record the camera's local stream.": "Permite que HomeKit grabe el flujo local de la cámara.",
+      "Light on Alarm Switch": "Interruptor de luz con alarma",
       "Local Events": "Eventos locales",
       "Motion Detection Switch": "Interruptor de detección de movimiento",
       "Motion Duration (in seconds)": "Duración del movimiento (en segundos)",
       "Motion and doorbell presses from the camera's own event stream.": "Los movimientos y las pulsaciones del timbre desde el flujo de eventos de la propia cámara.",
       "Name": "Nombre",
+      "Night Vision Switch": "Interruptor de visión nocturna",
       "North America (Oregon)": "Norteamérica (Oregón)",
       "Overrides the region's host: a host name or a whole base address such as https://openapi.easy4ip.com/openapi.": "Sustituye el host de la región: un nombre de host o una dirección base completa como https://openapi.easy4ip.com/openapi.",
+      "Person Detection Switch": "Interruptor de detección de personas",
       "Plugin name as shown in the logs": "Nombre del plugin en el registro",
       "Polling Interval (in seconds)": "Intervalo de sondeo (en segundos)",
+      "Preset Switches": "Interruptores de posiciones predefinidas",
       "Privacy Switch": "Interruptor de privacidad",
       "RTSP Port": "Puerto RTSP",
       "Region": "Región",
       "SD (sub stream)": "SD (flujo secundario)",
       "Siren Switch": "Interruptor de sirena",
+      "Siren on Alarm Switch": "Interruptor de sirena con alarma",
       "Sleeping Camera Retry (in seconds)": "Reintento de una cámara dormida (en segundos)",
       "Spotlight": "Foco",
+      "Status Light Switch": "Interruptor de la luz de estado",
       "The App Id of your app on the IMOU Open Platform (open.imoulife.com, My App, App Information). Setup asks for it with its App Secret, which goes in the vault.": "El App Id de su aplicación en IMOU Open Platform (open.imoulife.com, My App, App Information). La configuración lo pide con su App Secret, que va a la bóveda.",
       "The FFmpeg to run for video: a path, or a name on the PATH.": "El FFmpeg que se ejecuta para el vídeo: una ruta, o un nombre en el PATH.",
       "The camera's IP address or host name on the local network.": "La dirección IP o el nombre de host de la cámara en la red local.",
@@ -432,15 +621,37 @@ extension ImouPlugin {
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera del despertar (en segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Dónde se creó su aplicación de desarrollador IMOU: debe coincidir con la región del portal.",
-      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio. Añadir por dirección, en Añadir accesorios, hace ambas cosas de una vez.",
+      "AAC": "AAC",
+      "Automatic": "Automático",
+      "Experimental: talk through the camera's speaker from the Home app, over the local network: the camera needs its local address and safety code. Automatic asks the camera whether it has a speaker; On takes it that it does. Not yet tried on an IMOU camera.": "Experimental: habla por el altavoz de la cámara desde la app Casa, en la red local: la cámara necesita su dirección local y su código de seguridad. Automático pregunta a la cámara si tiene altavoz; Activado lo da por hecho. Aún no se ha probado en una cámara IMOU.",
+      "G.711 A-law": "G.711 ley A",
+      "G.711 µ-law": "G.711 ley µ",
+      "HTTP": "HTTP",
+      "For two-way audio: how the audio reaches the camera. Its HTTP interface, its RTSP stream's backchannel, or Automatic, the first that works.": "Para el audio bidireccional: cómo llega el audio a la cámara. Su interfaz HTTP, el canal de retorno de su flujo RTSP o Automático, el primero que funcione.",
+      "Off": "Desactivado",
+      "On": "Activado",
+      "RTSP Backchannel": "Canal de retorno RTSP",
+      "For two-way audio over the RTSP backchannel: sends its audio without timestamps, for a camera that plays nothing otherwise.": "Para el audio bidireccional por el canal de retorno RTSP: envía su audio sin marcas de tiempo, para una cámara que de otro modo no reproduce nada.",
+      "Talk Codec": "Códec del intercomunicador",
+      "Talk Method": "Método del intercomunicador",
+      "For two-way audio: the audio the camera's speaker is sent. G.711 A-law suits most cameras.": "Para el audio bidireccional: el audio que se envía al altavoz de la cámara. G.711 ley A sirve para la mayoría de las cámaras.",
+      "Two-Way Audio": "Audio bidireccional",
+      "Zero Timestamps": "Marcas de tiempo a cero"
     },
     "pt": {
       "A light for the camera's spotlight, through the cloud.": "Uma luz para o projetor da câmara, através da nuvem.",
+      "A switch for night vision, through the cloud: on is the camera's smart mode, off turns it off.": "Um interruptor para a visão noturna, através da nuvem: ligado é o modo inteligente da câmara; desligado desativa-a.",
+      "A switch for the camera's human detection, through the cloud. Each switch costs calls of the account's 20,000 a day.": "Um interruptor para a deteção de pessoas da câmara, através da nuvem. Cada interruptor custa chamadas das 20 000 diárias da conta.",
       "A switch for the camera's own motion detection, through the cloud.": "Um interruptor para a deteção de movimento da câmara, através da nuvem.",
+      "A switch for the camera's status light, through the cloud; with HomeKit Secure Video, the camera's status indicator in the Home app.": "Um interruptor para a luz de estado da câmara, através da nuvem; com HomeKit Secure Video, o indicador de estado da câmara na app Casa.",
+      "A switch per pan and tilt preset that turns the camera to it, through the cloud.": "Um interruptor por cada posição predefinida de rotação e inclinação, que orienta a câmara para ela, através da nuvem.",
       "A switch that closes the camera (IMOU's privacy mode), through the cloud.": "Um interruptor que fecha a câmara (o modo de privacidade da IMOU), através da nuvem.",
+      "A switch that has the siren sound when the camera raises an alarm, through the cloud.": "Um interruptor que faz soar a sirene quando a câmara dá um alarme, através da nuvem.",
+      "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Um interruptor que acende o projetor quando a câmara dá um alarme, através da nuvem.",
       "A switch that sounds the camera's siren, through the cloud.": "Um interruptor que faz soar a sirene da câmara, através da nuvem.",
       "API Address": "Endereço da API",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório.",
       "Address": "Endereço",
       "Advanced": "Avançado",
       "App Id": "App Id",
@@ -464,22 +675,28 @@ extension ImouPlugin {
       "How often the cloud is asked for the cameras' switches, from 30 to 900. Each poll costs calls of the account's 20,000 a day.": "Com que frequência a nuvem é consultada sobre os interruptores das câmaras, de 30 a 900. Cada consulta gasta chamadas das 20 000 diárias da conta.",
       "How often the cloud's alarms stand in for motion events. Empty: every 60 seconds, only for a camera whose local event stream is down. 0: never. 30 or more: that often, also for cameras without a local address.": "Com que frequência os alarmes da nuvem substituem os eventos de movimento. Vazio: a cada 60 segundos, só para uma câmara cujo fluxo de eventos local está em baixo. 0: nunca. 30 ou mais: com essa frequência, também para câmaras sem endereço local.",
       "Lets HomeKit record the camera's local stream.": "Permite que o HomeKit grave o fluxo local da câmara.",
+      "Light on Alarm Switch": "Interruptor de luz com alarme",
       "Local Events": "Eventos locais",
       "Motion Detection Switch": "Interruptor de deteção de movimento",
       "Motion Duration (in seconds)": "Duração do movimento (em segundos)",
       "Motion and doorbell presses from the camera's own event stream.": "Os movimentos e os toques da campainha a partir do fluxo de eventos da própria câmara.",
       "Name": "Nome",
+      "Night Vision Switch": "Interruptor de visão noturna",
       "North America (Oregon)": "América do Norte (Oregon)",
       "Overrides the region's host: a host name or a whole base address such as https://openapi.easy4ip.com/openapi.": "Substitui o anfitrião da região: um nome de anfitrião ou um endereço base completo como https://openapi.easy4ip.com/openapi.",
+      "Person Detection Switch": "Interruptor de deteção de pessoas",
       "Plugin name as shown in the logs": "Nome do plugin no registo",
       "Polling Interval (in seconds)": "Intervalo de consulta (em segundos)",
+      "Preset Switches": "Interruptores de posições predefinidas",
       "Privacy Switch": "Interruptor de privacidade",
       "RTSP Port": "Porta RTSP",
       "Region": "Região",
       "SD (sub stream)": "SD (fluxo secundário)",
       "Siren Switch": "Interruptor da sirene",
+      "Siren on Alarm Switch": "Interruptor de sirene com alarme",
       "Sleeping Camera Retry (in seconds)": "Nova tentativa de uma câmara adormecida (em segundos)",
       "Spotlight": "Projetor",
+      "Status Light Switch": "Interruptor da luz de estado",
       "The App Id of your app on the IMOU Open Platform (open.imoulife.com, My App, App Information). Setup asks for it with its App Secret, which goes in the vault.": "O App Id da sua aplicação na IMOU Open Platform (open.imoulife.com, My App, App Information). A configuração pede-o com o seu App Secret, que vai para o cofre.",
       "The FFmpeg to run for video: a path, or a name on the PATH.": "O FFmpeg a executar para o vídeo: um caminho, ou um nome no PATH.",
       "The camera's IP address or host name on the local network.": "O endereço IP ou o nome de anfitrião da câmara na rede local.",
@@ -494,7 +711,24 @@ extension ImouPlugin {
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera do despertar (em segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Onde a sua aplicação de programador IMOU foi criada: tem de corresponder à região do portal.",
-      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório. Adicionar por endereço, em Adicionar acessórios, faz as duas coisas de uma só vez.",
+      "AAC": "AAC",
+      "Automatic": "Automático",
+      "Experimental: talk through the camera's speaker from the Home app, over the local network: the camera needs its local address and safety code. Automatic asks the camera whether it has a speaker; On takes it that it does. Not yet tried on an IMOU camera.": "Experimental: fale pelo altifalante da câmara a partir da app Casa, na rede local: a câmara precisa do endereço local e do código de segurança. Automático pergunta à câmara se tem altifalante; Ligado dá-o como certo. Ainda não experimentado numa câmara IMOU.",
+      "G.711 A-law": "G.711 lei A",
+      "G.711 µ-law": "G.711 lei µ",
+      "HTTP": "HTTP",
+      "For two-way audio: how the audio reaches the camera. Its HTTP interface, its RTSP stream's backchannel, or Automatic, the first that works.": "Para o áudio bidirecional: como o áudio chega à câmara. A sua interface HTTP, o canal de retorno do seu fluxo RTSP, ou Automático, o primeiro que funcionar.",
+      "Off": "Desligado",
+      "On": "Ligado",
+      "RTSP Backchannel": "Canal de retorno RTSP",
+      "For two-way audio over the RTSP backchannel: sends its audio without timestamps, for a camera that plays nothing otherwise.": "Para o áudio bidirecional pelo canal de retorno RTSP: envia o seu áudio sem marcas de tempo, para uma câmara que de outro modo não reproduz nada.",
+      "Talk Codec": "Codec do intercomunicador",
+      "Talk Method": "Método do intercomunicador",
+      "For two-way audio: the audio the camera's speaker is sent. G.711 A-law suits most cameras.": "Para o áudio bidirecional: o áudio enviado para o altifalante da câmara. O G.711 lei A serve para a maioria das câmaras.",
+      "Two-Way Audio": "Áudio bidirecional",
+      "Zero Timestamps": "Marcas de tempo a zero"
     }
   }
 }

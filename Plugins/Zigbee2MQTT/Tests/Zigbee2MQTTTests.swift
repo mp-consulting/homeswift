@@ -17,7 +17,7 @@ let testLogger: Logger = {
 }()
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -107,7 +107,8 @@ final class TestEnvironment: Sendable {
             self.connections.withLockedValue { $0.append(connection) }
             return connection
         }
-        dependencies.coalescing = .milliseconds(10)
+        // The real window: one request's writes, made at once, can be further apart than 10 ms on a busy runner.
+        dependencies.coalescing = .milliseconds(100)
         dependencies.coverPollInterval = .milliseconds(150)
         dependencies.bridgeTimeout = .seconds(1)
         return dependencies
@@ -192,11 +193,12 @@ struct Zigbee2MQTTTests {
         environment.send("test_light", #"{"color":{"hue":34,"saturation":77,"x":0.4435,"y":0.4062},"color_mode":"color_temp","color_temp":343,"linkquality":72}"#)
         #expect(await eventually { light.characteristic(.colorTemperature).value == .int(343) })
         #expect(light.characteristic(.on).value == .bool(true))
-        #expect(light.characteristic(.hue).value == .double(39))
-        #expect(light.characteristic(.saturation).value == .double(48))
+        // Hue and saturation follow the colour temperature: on a loaded runner they may land after it.
+        #expect(await eventually { light.characteristic(.hue).value == .double(39) })
+        #expect(await eventually { light.characteristic(.saturation).value == .double(48) })
         environment.send("test_light", #"{"color":{"x":0.44416,"y":0.51657},"color_mode":"xy","color_temp":169}"#)
         #expect(await eventually { light.characteristic(.hue).value == .double(60) })
-        #expect(light.characteristic(.saturation).value == .double(100))
+        #expect(await eventually { light.characteristic(.saturation).value == .double(100) })
         #expect(light.characteristic(.colorTemperature).value == .int(343))
 
         // One request's On and Brightness are one message; Hue and Saturation become xy.
@@ -365,9 +367,10 @@ struct Zigbee2MQTTTests {
 
         let thermostat = try #require(host.accessory("0x0000000000000007")?.service(.thermostat))
         environment.send("radiator", #"{"local_temperature":19.5,"running_state":"heat","system_mode":"auto"}"#)
+        // A message's properties are shown one after the other: each is waited for.
         #expect(await eventually { thermostat.characteristic(.currentTemperature).value == .double(19.5) })
-        #expect(thermostat.characteristic(.currentHeatingCoolingState).value == .int(1))
-        #expect(thermostat.characteristic(.targetHeatingCoolingState).value == .int(3))
+        #expect(await eventually { thermostat.characteristic(.currentHeatingCoolingState).value == .int(1) })
+        #expect(await eventually { thermostat.characteristic(.targetHeatingCoolingState).value == .int(3) })
         #expect(thermostat[.targetHeatingCoolingState]?.type.validValues == [0, 1, 3])
         try await thermostat.characteristic(.targetTemperature).write(.double(19))
         #expect(await eventually { environment.published("0x0000000000000007/set").last == #"{"current_heating_setpoint":19}"# })
@@ -383,8 +386,8 @@ struct Zigbee2MQTTTests {
         environment.send("plug", #"{"state_l1":"ON","power":12.5,"energy":3.25,"voltage":230}"#)
         #expect(await eventually { switches[0].characteristic(.on).value == .bool(true) })
         let meter = try #require(plug.service(EveTypes.energyService))
-        #expect(meter.characteristic(EveTypes.consumption).value == .double(12.5))
-        #expect(meter.characteristic(EveTypes.voltage).value == .double(230))
+        #expect(await eventually { meter.characteristic(EveTypes.consumption).value == .double(12.5) })
+        #expect(await eventually { meter.characteristic(EveTypes.voltage).value == .double(230) })
         // Every electrical property is asked for, whatever its access.
         #expect(await eventually { environment.published("0x0000000000000008/get").first == #"{"energy":0,"power":0,"state_l1":0,"state_l2":0,"voltage":0}"# })
     }

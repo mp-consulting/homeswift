@@ -9,7 +9,7 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "description": "Plugin name as shown in the logs",
+        "description": "This block's name, shown in the logs and in the web UI.",
         "default": "TaHoma"
       },
       "service": {
@@ -452,7 +452,7 @@
       "Options for every device of a uiClass, a widget or a protocol. A device's own options are in its accessory's settings.": "Options pour tous les appareils d'une uiClass, d'un widget ou d'un protocole. Les options propres à un appareil sont dans les réglages de son accessoire.",
       "Override (hours)": "Dérogation (heures)",
       "Pedestrian opening (seconds)": "Ouverture piéton (secondes)",
-      "Plugin name as shown in the logs": "Nom du plugin tel qu'il apparaît dans les journaux",
+      "This block's name, shown in the logs and in the web UI.": "Le nom de ce bloc, affiché dans les journaux et l'interface web.",
       "Position after a move": "Position après un mouvement",
       "Prefer the local API": "Préférer l'API locale",
       "Proxy": "Proxy",
@@ -522,7 +522,7 @@
       "Options for every device of a uiClass, a widget or a protocol. A device's own options are in its accessory's settings.": "Opciones para todos los dispositivos de una uiClass, un widget o un protocolo. Las opciones propias de un dispositivo están en los ajustes de su accesorio.",
       "Override (hours)": "Derogación (horas)",
       "Pedestrian opening (seconds)": "Apertura peatonal (segundos)",
-      "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "This block's name, shown in the logs and in the web UI.": "El nombre de este bloque, que se muestra en los registros y en la interfaz web.",
       "Position after a move": "Posición tras un movimiento",
       "Prefer the local API": "Preferir la API local",
       "Proxy": "Proxy",
@@ -592,7 +592,7 @@
       "Options for every device of a uiClass, a widget or a protocol. A device's own options are in its accessory's settings.": "Opções para todos os dispositivos de uma uiClass, um widget ou um protocolo. As opções próprias de um dispositivo estão nas definições do seu acessório.",
       "Override (hours)": "Derrogação (horas)",
       "Pedestrian opening (seconds)": "Abertura pedonal (segundos)",
-      "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "This block's name, shown in the logs and in the web UI.": "O nome deste bloco, mostrado nos registos e na interface web.",
       "Position after a move": "Posição após um movimento",
       "Prefer the local API": "Preferir a API local",
       "Proxy": "Proxy",

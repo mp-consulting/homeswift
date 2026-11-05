@@ -23,6 +23,12 @@ public struct SetupSession: Sendable {
         if case .device(let device) = target { return device.deviceID }
         return nil
     }
+
+    /// The Device Id what a finished step gives goes under: none for the account, the one the outcome names, else the
+    /// discovered device's. Add by address has none until the plugin names it.
+    func deviceID(of outcome: SetupOutcome) -> String? {
+        target == .account ? nil : outcome.deviceID ?? deviceID
+    }
 }
 
 /// The Setup Sessions of a bridge, shared by the web UI and the MCP sessions, and the devices each instance's last
@@ -78,6 +84,7 @@ extension HomeswiftCatalog {
             "accountSetUp": .bool(found.accountState == .none || found.accountState == .setUp),
             "accountState": .string(found.accountState.rawValue), "accountRequired": .bool(requirement.isRequired),
             "accountAdds": requirement.adds.map(JSONValue.string) ?? .null, "needsAuthorization": .bool(found.accountState.needsAuthorization(requirement)),
+            "addByAddress": .bool(entry?.addsDevicesByAddress ?? false),
             "devices": .array(found.devices.map { device in
                 let accessoryID = "\(platform):\(device.deviceID)"
                 var json: [String: JSONValue] = [
@@ -96,14 +103,20 @@ extension HomeswiftCatalog {
         ]
     }
 
-    /// Starts the Setup of the instance's account (no `deviceID`) or of one of the devices its last discovery found, and
-    /// runs its first step. `block` is the block of an instance not saved yet, which the Setup adds when done.
-    public func startSetup(platform: String, name: String?, deviceID: String?, block: JSONValue? = nil) async throws -> JSONValue {
+    /// Starts the Setup of the instance's account (no `deviceID`), of one of the devices its last discovery found, or Add
+    /// by address (`addByAddress`, a device the person names, for a plugin whose `addsDevicesByAddress`), and runs its
+    /// first step. `block` is the block of an instance not saved yet, which the Setup adds when done.
+    public func startSetup(platform: String, name: String?, deviceID: String?, addByAddress: Bool = false, block: JSONValue? = nil) async throws -> JSONValue {
         let name = name ?? platform
         guard let entry = host.registry.entry(for: platform) else { throw CatalogError("No plugin for platform \(platform)") }
         let target: SetupRequest.Target
         let method: AuthorizationMethod
-        if let deviceID {
+        if addByAddress {
+            guard deviceID == nil else { throw CatalogError("Pass a deviceID or addByAddress, not both") }
+            guard entry.addsDevicesByAddress else { throw CatalogError("\(entry.name) cannot add a device by its address: discover_devices lists those it finds") }
+            target = .newDevice
+            method = .none
+        } else if let deviceID {
             var device = setupSessions.device(deviceID, of: "\(platform)/\(name)")
             if device == nil {
                 let found = try await host.discover(platform: platform, name: name, block: block).devices
@@ -128,23 +141,26 @@ extension HomeswiftCatalog {
     public func continueSetup(_ id: String, answers: [String: JSONValue], by writer: ConfigWriter = .person) async throws -> JSONValue {
         guard let session = setupSessions.session(id) else { throw CatalogError("No Setup in progress with id \(id): it ended or expired, start it again") }
         var texts: [String: String] = [:]
+        // What was answered, secrets left out: a step asked again shows it, to correct rather than type again.
+        let answered = answers.compactMapValues { $0.stringValue }
+        let asking = { (error: String) in self.asking(session, error: error, answers: answered) }
         for field in session.prompt.fields {
             guard let value = answers[field.key], let text = value.stringValue ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
-                guard field.optional || session.prompt.waitSeconds != nil else { return asking(session, error: "\(field.label) is missing") }
+                guard field.optional || session.prompt.waitSeconds != nil else { return asking("\(field.label) is missing") }
                 continue
             }
             if field.kind == .secret, let reference = SecretReference(text) {
                 // A client names the bridge's own secrets only: env: and file: read what is on its machine.
                 if writer == .client, !reference.isVault {
-                    return asking(session, error: "\(field.label): only a vault: reference is accepted here")
+                    return asking("\(field.label): only a vault: reference is accepted here")
                 }
                 do {
                     texts[field.key] = try SecretResolver(storage: storageDirectory).resolve(reference)
                 } catch {
-                    return asking(session, error: "\(field.label): \(reference) does not resolve")
+                    return asking("\(field.label): \(reference) does not resolve")
                 }
             } else if field.kind == .secret, writer == .client {
-                return asking(session, error: "\(field.label) is a secret: pass a vault: reference (the person adds the entry on the Vault page), or finish this step in the web UI")
+                return asking("\(field.label) is a secret: pass a vault: reference (the person adds the entry on the Vault page), or finish this step in the web UI")
             } else {
                 texts[field.key] = text
             }
@@ -184,20 +200,23 @@ extension HomeswiftCatalog {
     /// Runs one step of the plugin's Authorization: a prompt keeps the session, done saves what it gave and ends it.
     private func step(_ session: SetupSession, answers: [String: String], first: Bool) async throws -> JSONValue {
         let request = SetupRequest(target: session.target, answers: answers, state: session.state)
-        let deviceID = session.deviceID
         let step: SetupStep
         do {
             step = try await host.withSetupPlugin(platform: session.platform, name: session.name, block: session.draft) { plugin, context in
                 let step = try await plugin.authorize(request)
-                if case .done(let outcome) = step, let credentials = outcome.credentials {
-                    try context.saveCredentials(credentials, for: deviceID == nil ? nil : outcome.deviceID ?? deviceID)
+                if case .done(let outcome) = step {
+                    // Add by address ends on the device the plugin reached: without it, nothing is saved.
+                    if session.target == .newDevice, outcome.deviceID?.isEmpty != false {
+                        throw SetupError("\(session.platform) did not say which device it reached")
+                    }
+                    if let credentials = outcome.credentials { try context.saveCredentials(credentials, for: session.deviceID(of: outcome)) }
                 }
                 return step
             }
         } catch {
-            let message = error is SetupError ? "\(error)" : Redaction.redactText("\(error)")
-            if first { throw CatalogError(message) }
-            return asking(session, error: message)
+            // The plugin's own words go as they are (start_setup wraps them as untrusted data), anything else masked.
+            if first { throw error is SetupError ? error : CatalogError(Redaction.redactText("\(error)")) }
+            return asking(session, error: error is SetupError ? "\(error)" : Redaction.redactText("\(error)"), answers: answers)
         }
         switch step {
         case .ask(let prompt, let state):
@@ -213,27 +232,29 @@ extension HomeswiftCatalog {
     }
 
     /// Writes what a finished Setup brings (the draft block, the account's settings, the device's Accessory Settings)
-    /// and starts the plugin afresh when the write did not, so it uses the credentials now in the vault.
+    /// and starts the plugin afresh when the write did not, so it uses the credentials now in the vault. A device added
+    /// by address is included: named by the person, it is no longer Excluded.
     private func finish(_ session: SetupSession, outcome: SetupOutcome) async throws -> JSONValue {
-        let deviceID = session.deviceID.map { outcome.deviceID ?? $0 }
+        let deviceID = session.deviceID(of: outcome)
+        let adding = session.target == .newDevice
         var applied: JSONValue?
-        if session.draft != nil || !outcome.settings.isEmpty {
+        if session.draft != nil || !outcome.settings.isEmpty || adding {
             applied = try await editBlock(platform: session.platform, name: session.name, dryRun: false, checkSchemas: false, canonical: true) { block in
                 for (key, value) in session.draft?.objectValue ?? [:] where key != "_accessories" { block[key] = value }
                 if let deviceID {
                     Self.editAccessorySettings(&block, deviceID: deviceID) { settings in
-                        settings = AccessorySettings(json: .object((settings.json.objectValue ?? [:]).merging(outcome.settings) { $1 }))
+                        // A null setting goes, as an account's does: a port back to its default.
+                        settings = AccessorySettings(json: Self.merged(settings.json, outcome.settings) { _ in })
+                        if adding { settings.excluded = false }
                     }
                 } else {
                     // A null setting goes: what the Setup moved into the vault leaves the block.
-                    for (key, value) in outcome.settings {
-                        if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
-                    }
+                    block = Self.merged(.object(block), outcome.settings) { _ in }.objectValue ?? block
                 }
             }
         }
         // An account set up again is no longer refused, whether the plugin keeps its credentials or the vault does.
-        if session.deviceID == nil { host.context(platform: session.platform, name: session.name)?.accountAccepted() }
+        if session.target == .account { host.context(platform: session.platform, name: session.name)?.accountAccepted() }
         let names = ((applied?["reloaded"]?.arrayValue ?? []) + (applied?["started"]?.arrayValue ?? [])).compactMap(\.stringValue)
         if !names.contains(session.name) { await host.relaunch(platform: session.platform, name: session.name) }
         logger.info("Setup done", metadata: ["platform": "\(session.platform)", "name": "\(session.name)", "device": "\(deviceID ?? "account")"])
@@ -245,13 +266,20 @@ extension HomeswiftCatalog {
         return .object(answer)
     }
 
-    private func asking(_ session: SetupSession, error: String?) -> JSONValue {
+    /// The session's prompt, with `error` when the last answer did not work; its fields then show what was `answers`ed,
+    /// secrets left out, for the person or the client to correct.
+    private func asking(_ session: SetupSession, error: String?, answers: [String: String] = [:]) -> JSONValue {
+        var prompt = session.prompt
+        for index in prompt.fields.indices where prompt.fields[index].kind != .secret {
+            if let answer = answers[prompt.fields[index].key] { prompt.fields[index].value = answer }
+        }
         var answer: [String: JSONValue] = [
             "status": "asking", "session": .string(session.id), "platform": .string(session.platform), "name": .string(session.name),
-            "method": .string(session.method.rawValue), "prompt": (try? JSONValue(encoding: session.prompt)) ?? .null,
+            "method": .string(session.method.rawValue), "prompt": (try? JSONValue(encoding: prompt)) ?? .null,
             "message": .string(session.prompt.text),
         ]
         if let deviceID = session.deviceID { answer["deviceID"] = .string(deviceID) }
+        if session.target == .newDevice { answer["addByAddress"] = true }
         if let error { answer["error"] = .string(error) }
         return .object(answer)
     }
@@ -277,7 +305,8 @@ extension HomeswiftCatalog {
                     + "(excludedBySettings: by the plugin's own settings, which get_plugin_config_schema describes; exclude or include one with update_settings, "
                     + "its accessoryID and excluded, and leave out one of its parts with parts). kind is its Device Kind, which decides its Plugin Accessory Settings. "
                     + "accountAuthorization says what the plugin's account needs (start_setup without a deviceID); accountState where it stands (none, setUp, notSetUp, refused); "
-                    + "needsAuthorization that it must be set up (again) before the devices work; accountRequired false that the devices work without it, accountAdds what it adds.",
+                    + "needsAuthorization that it must be set up (again) before the devices work; accountRequired false that the devices work without it, accountAdds what it adds. "
+                    + "addByAddress true: the plugin also takes a device it cannot find, by its address (start_setup with addByAddress).",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance)],
                 scope: .admin, readOnly: true
             ) { call in
@@ -285,11 +314,16 @@ extension HomeswiftCatalog {
             },
             MCPTool(
                 name: "start_setup", title: "Set up a device",
-                description: "Starts the Setup of a device discover_devices found (deviceID), or of the plugin's account (no deviceID), and answers its first "
+                description: "Starts the Setup of a device discover_devices found (deviceID), of the plugin's account (no deviceID), or of a device the "
+                    + "plugin cannot find, added by its address (addByAddress true, for a plugin whose discover_devices says addByAddress: the first prompt asks "
+                    + "for its host and what else it needs; done gives its deviceID and accessoryID), and answers its first "
                     + "prompt: a message for the person, the fields to answer with continue_setup, a page to open (browserRedirect) or a wait (buttonPress: "
                     + "tell the person to press the button, then call continue_setup every retryAfter seconds). status done means it is set up. A plugin not "
-                    + "added yet (list_plugins: a platform with no block of that name) is added when its account's Setup is done.",
-                inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance.merging(["deviceID": ["type": "string"]]) { $1 })],
+                    + "added yet (list_plugins: a platform with no block of that name) is added when its account's Setup, or its first device added by address, is done.",
+                inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance.merging([
+                    "deviceID": ["type": "string", "description": "A device discover_devices found; none for the account"],
+                    "addByAddress": ["type": "boolean", "description": "Add a device the plugin cannot find, by its address (not with deviceID)"],
+                ]) { $1 })],
                 scope: .admin
             ) { call in
                 let platform = try call.string("platform")
@@ -298,7 +332,14 @@ extension HomeswiftCatalog {
                 let name = call.optionalString("name") ?? (blocks.contains { $0["platform"]?.stringValue == platform } ? nil : catalog.host.registry.entry(for: platform)?.name)
                 let exists = blocks.contains { $0["platform"]?.stringValue == platform && ($0["name"]?.stringValue ?? platform) == (name ?? platform) }
                 let draft: JSONValue? = exists ? nil : ["platform": .string(platform), "name": .string(name ?? platform)]
-                return Self.untrusted(try await catalog.startSetup(platform: platform, name: name, deviceID: call.optionalString("deviceID"), block: draft))
+                // A value that is not a boolean is refused rather than taken for the account's Setup.
+                if let value = call.arguments["addByAddress"], value.boolValue == nil, !value.isNull { throw CatalogError("addByAddress must be true or false") }
+                do {
+                    return Self.untrusted(try await catalog.startSetup(platform: platform, name: name, deviceID: call.optionalString("deviceID"), addByAddress: call.bool("addByAddress"), block: draft))
+                } catch let error as SetupError {
+                    // The plugin's words, which a device may choose: untrusted data, as its prompts are.
+                    throw CatalogError("The Setup did not start", detail: error.description)
+                }
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",

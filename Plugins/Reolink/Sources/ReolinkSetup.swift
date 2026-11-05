@@ -8,11 +8,11 @@ import NIOConcurrencyHelpers
 // channels are devices of their own (`<host id>:<channel UID>`) that come with it and need nothing more. The login goes
 // in the vault under the host's Device Id and its address in its Accessory Settings (`host`), as UniFi Protect's
 // controllers. Hosts the network shows are those of the ARP table with Reolink's MAC prefix that accept Baichuan's port;
-// any other is added by its address.
+// any other is added by its address (Add by address).
 extension ReolinkPlugin {
     /// Reolink's MAC prefix (Home Assistant's manifest).
     static let macPrefix = "EC:71:DB"
-    /// The entry that adds a host by its address.
+    /// The prefix of a host's Device Id before it is reached: its address.
     static let byAddressID = "address:"
 
     public func discover() async throws -> [DiscoveredDevice] {
@@ -22,6 +22,12 @@ extension ReolinkPlugin {
         for entry in hostEntries() {
             let address = entry.host.lowercased()
             addresses.insert(address)
+            if let battery = batteryRuntimes[entry.host] {
+                let identity = await battery.host.record.identity
+                found.append(DiscoveredDevice(deviceID: identity.uid, name: battery.camera.accessory.name, model: identity.model.nonEmptyText ?? "Reolink",
+                                              address: entry.host, authorization: .accountLogin, isSetUp: true, excludedBySettings: false, kind: Self.cameraKind))
+                continue
+            }
             if let runtime = runtimes[entry.host], let info = runtime.info, let hostID = runtime.hostID {
                 found += devices(of: info, hostID: hostID, address: entry.host, channels: await runtime.host.channels)
                 continue
@@ -38,8 +44,6 @@ extension ReolinkPlugin {
             found.append(DiscoveredDevice(deviceID: "\(Self.byAddressID)\(ip)", name: "Reolink device at \(ip)", model: "Reolink", address: ip,
                                           authorization: .accountLogin, isSetUp: false, excludedBySettings: false, kind: Self.cameraKind))
         }
-        found.append(DiscoveredDevice(deviceID: Self.byAddressID, name: "A Reolink device by its address", model: "Reolink", authorization: .accountLogin,
-                                      isSetUp: false, excludedBySettings: false, kind: Self.cameraKind))
         return found
     }
 
@@ -92,20 +96,26 @@ extension ReolinkPlugin {
         return Self.cameraKind
     }
 
-    /// A host: its address (when the device has none), then the user name and password of a local user, checked with a
-    /// login, `GetDevInfo` and `GetChannelstatus` before they are kept. Its host id is its Device Id.
+    /// A host the network does not show (another subnet, another MAC prefix) is added by its address.
+    public static let addsDevicesByAddress = true
+
+    /// A host: its address (when the device has none, as one added by its address), then the user name and password of a
+    /// local user, checked with a login, `GetDevInfo` and `GetChannelstatus` before they are kept. Its host id is its
+    /// Device Id.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        let device = try request.device()
-        guard device.authorization == .accountLogin else { return .done(SetupOutcome()) }
-        let address = device.address?.nonEmptyText ?? request.answer("host")?.trimmingCharacters(in: .whitespaces).nonEmptyText
+        let device = request.isNewDevice ? nil : try request.device()
+        if let device, device.authorization != .accountLogin { return .done(SetupOutcome()) }
+        let address = device?.address?.nonEmptyText ?? request.answer("host")?.trimmingCharacters(in: .whitespaces).nonEmptyText
             ?? request.state["host"]?.stringValue
         guard let address, let password = request.secret("password") else {
             var fields: [SetupField] = []
-            if device.address == nil { fields.append(SetupField("host", label: "Address", value: request.state["host"]?.stringValue)) }
+            if device?.address == nil { fields.append(SetupField("host", label: "Address", value: address)) }
             fields += [SetupField("username", label: "User name", value: request.answer("username") ?? "admin"),
                        SetupField("password", label: "Password", kind: .secret)]
             return .ask(SetupPrompt(
-                message: "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).", fields: fields),
+                message: device == nil
+                    ? "Enter the Reolink device's address, from your router or the Reolink app, and a local user's name and password (an administrator, for floodlights, sirens and IR lights)."
+                    : "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).", fields: fields),
                 state: address.map { ["host": .string($0)] } ?? .null)
         }
         let username = request.answer("username")?.nonEmptyText ?? "admin"
@@ -121,7 +131,10 @@ extension ReolinkPlugin {
             throw SetupError("The device refused the user name or password (\(detail))")
         } catch {
             await host.stop()
-            throw SetupError("Could not read the device at \(address): \(error)")
+            // No HTTP API: a standalone battery camera answers over Baichuan only (ReolinkBattery.md 2.1).
+            if let outcome = try await authorizeBattery(address: address, username: username, password: password) { return .done(outcome) }
+            logger.info("No Reolink device answered at \(address): \(error)")
+            throw SetupError("No Reolink device answered at \(address). A battery camera on its own may be asleep: wake it (press its button, or move in front of it) and try again.")
         }
         let info = await host.info
         let channels = await host.channels.count

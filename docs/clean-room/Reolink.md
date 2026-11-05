@@ -824,3 +824,333 @@ RTSP `rtsp://admin:p%40ss%21@192.168.1.20:554/h264Preview_01_main`; RTMP
 - **ColorTemp**, spotlight modes and schedules, smart AI zones, chimes, PTZ, two-way audio: deliberately not exposed.
 - reolink-aio's automatic opening of disabled ports through Baichuan (`cmd_id` 36/37) is deliberately not reproduced.
 - Not verified on a real device by the spec writer; everything comes from the sources' code and Reolink's guide.
+
+# Reolink addendum: two-way audio, PTZ, privacy and more (clean room)
+
+Written by the spec writer as an addendum to `Reolink.md`, from the same sources and commits (reolink-aio 0.22.0 at
+`2da8b6bd…`, Reolink "Camera HTTP API User Guide" v7 2022-9, Home Assistant core `components/reolink` at `c0d99009…`).
+It contains **no source code**; interface strings (command names, JSON keys, Baichuan `cmd_id`s, XML element names and
+request templates) are quoted exactly. Framing, encryption and the channel extension are those of `Reolink.md` 5.1–5.3.
+"reolink-aio" below means observed behaviour; **Recommendation** marks the spec writer's proposals; **Not in the
+sources** marks facts asked for that none of the three sources contains.
+
+## A. Two-way audio (talk)
+
+### A.1 What the sources implement
+
+- **reolink-aio does not send talk audio.** It only *detects* the capability. There is no Baichuan talk-start,
+  talk-stop or talk-data message in it, no audio encoder, and no uplink frame layout.
+- **Home Assistant** marks a camera entity as two-way-audio capable when the stream protocol is `rtsp` **and**
+  reolink-aio reports `two_way_audio` for the channel. HA itself sends no audio; the audio path is the RTSP stream's
+  backchannel, driven by HA's WebRTC/go2rtc stack, outside these sources. So the transport the sources rely on is an
+  **RTSP backchannel**, but its details (SDP `sendonly` track, codec, the `Require:` header) are **not in the sources**.
+- Reolink's HTTP guide lists a host ability `talk` (`{"permit": 4, "ver": 1}` in its `GetAbility` example; "Talk 0: not
+  support, 1: support") but documents no talk command.
+
+### A.2 Capability detection (reolink-aio, exact)
+
+Ask the talk ability for a channel when any of these holds:
+- HTTP ability `abilityChn[ch].talk.ver > 0`, or
+- Baichuan ability `ipcAudioTalk > 0` for that channel, or
+- not an NVR and Baichuan host ability `audioTalk > 0`.
+
+Baichuan abilities come from `cmd_id` **199** (host, `ch_id` 250, no body). Its reply is XML whose root holds support
+lists; each list has `item` elements with a `chnID` (0-based channel) and optional `subItem` (with their own `chnID`,
+lens sub-channels); every other child element of a list, item or subItem is an ability whose integer text is its
+version (e.g. `<audioTalk>1</audioTalk>`). Absent = 0. (The same reply's host element `netPort` also tells whether an
+HTTP API exists: `netPort & 0x3F <= 1` means no HTTP API; bit `0x40` means "Baichuan V3 over UDP-TCP".)
+
+Then send `cmd_id` **10** ("TalkAbility") on the channel: channel extension, `ch_id` = channel + 1, no body. The reply
+XML is searched for every `audioStreamMode` element and one `duplex` element:
+- any `audioStreamMode` with text `mixAudioStream` → two-way audio supported;
+- any `audioStreamMode` with text `followVideoStream` **and** `duplex` text `FDX` → supported;
+- otherwise not supported.
+
+The reply also describes the talk audio configuration (format, sample rate, block size), but reolink-aio reads only
+the two elements above; the other element names are **not in the sources**.
+
+### A.3 Audio format
+
+**Not in the sources** for the uplink. For the downlink (camera → client, in Baichuan media streams, reolink-aio's media
+decoder) only this is known: an audio frame starts with the 4 ASCII bytes `01wb` (ADPCM) or `05wb` (AAC), followed by a
+uint16 little-endian frame length at offset 4, two bytes not used by the decoder (offset 6–7), the frame data from
+offset 8, then padding to a multiple of 8 bytes. reolink-aio passes AAC frames on and does not decode ADPCM; the ADPCM
+block layout, sample rate and frame size are not described. G.711 does not appear in any source.
+
+### A.4 Start/stop, models
+
+Start/stop: through the RTSP backchannel session (open when talking starts, close when it ends); no Reolink-specific
+command appears in the sources. Models: whichever reports the capability in A.2; HA's docs and code name no model list.
+The sources also say nothing about whether a talk session stops when the camera's own siren plays.
+
+**Recommendation:** treat two-way audio as unsupported in the first version, or prototype it with an RTSP backchannel
+against a real doorbell and record the SDP first (FFmpeg cannot send an RTSP backchannel; that would need an RTSP
+client in the plugin). The `talkAndReplyVolume` field of `GetAudioCfg`/`SetAudioCfg` (`value.AudioCfg`) is the
+speaker volume used for talk and quick replies.
+
+## B. PTZ
+
+### B.1 Ability detection (reolink-aio)
+
+`ptzType` = `abilityChn[ch].ptzType.ver` (0 = no PTZ). By its value:
+
+| `ptzType` | Capabilities |
+|---|---|
+| 1, 2, 5 | zoom (`zoom_basic`); absolute zoom and focus when `GetZoomFocus` returns ranges; `supportPtz3DLocation.ver > 0` → 3D (area) zoom |
+| 2, 3, 5, 6 | tilt |
+| 2, 3, 5, 6, 7 | pan and tilt; presets when `ptzPreset.ver > 0`; calibration when `supportPtzCalibration` or `supportPtzCheck` `.ver > 0`; guard (home position) when `GetPtzGuard` exists |
+| 2, 3 | speed when `supportPtzSpeed.ver > 0` (an absent key counts as supported) |
+
+Digital zoom only: `supportDigitalZoom.ver > 0` with a zoom range from `GetZoomFocus`. Presets usable when
+`GetPtzPreset` lists at least one enabled preset; patrol when `GetPtzPatrol` lists at least one enabled patrol. Auto
+focus control when `disableAutoFocus.ver > 0` and `GetAutoFocus` answered.
+
+### B.2 Moving
+
+```json
+[{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "Left", "speed": 32}}]
+[{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "Stop"}}]
+```
+
+`op` values used by reolink-aio: `Stop`, `Left`, `Right`, `Up`, `Down`, `LeftUp`, `LeftDown`, `RightUp`, `RightDown`,
+`ZoomInc`, `ZoomDec`, `Auto`, `StartPatrol`, `StopPatrol`, `ToPos`. The guide adds `IrisDec`, `IrisInc`, `FocusDec`,
+`FocusInc` (and describes `ZoomDec` as zoom in and `ZoomInc` as zoom out — reolink-aio names them the other way round:
+`ZoomInc` = zoom in; trust reolink-aio and check on a device). Movement continues until `Stop`. `speed` is sent only when
+given and only on speed-capable models; the guide's example uses 32; reolink-aio's 3D-zoom speed range is 1–64. Unused
+fields may be sent as 0 (guide). Success: `value.rspCode == 200`.
+
+### B.3 Presets
+
+Read: `[{"cmd": "GetPtzPreset", "action": 0, "param": {"channel": 0}}]` → `value.PtzPreset` is an array of
+`{"channel", "enable" (0/1), "id" (1–64), "name"}`; only `enable == 1` entries are presets (map name → id).
+
+Go to: `[{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "ToPos", "id": 3, "speed": 32}}]` (`speed`
+optional).
+
+Set (guide only; reolink-aio does not use it):
+
+```json
+[{"cmd": "SetPtzPreset", "action": 0, "param": {"PtzPreset": {"channel": 0, "enable": 1, "id": 3, "name": "Gate"}}}]
+```
+
+`id` 1–64, `name` 1–31 characters; without `enable` only the name changes. Whether `enable: 1` stores the camera's
+*current* position is not stated by the guide (it is the usual behaviour; check on a device).
+
+### B.4 Patrol
+
+Read: `[{"cmd": "GetPtzPatrol", "action": 0, "param": {"channel": 0}}]` → `value.PtzPatrol` array; entries with
+`enable == 1`, `id`, optional `name` (reolink-aio names unnamed ones `patrol <id>`). Start/stop:
+`{"channel": 0, "op": "StartPatrol", "id": <patrol id>}` / `"op": "StopPatrol"` in `PtzCtrl` (reolink-aio uses the first
+enabled patrol). Whether a patrol is running: Baichuan `cmd_id` 64 on the channel (channel extension, no body);
+running when any `cruising` element in the reply has text `1`. reolink-aio re-reads it 1 s after Start/StopPatrol. Define (guide):
+
+```json
+[{"cmd": "SetPtzPatrol", "action": 0, "param": {"PtzPatrol": {"channel": 0, "enable": 1, "id": 1, "running": 0, "name": "Round",
+  "preset": [{"id": 1, "dwellTime": 3, "speed": 10}, {"id": 2, "dwellTime": 4, "speed": 20}]}}}]
+```
+
+Up to 16 presets per patrol.
+
+### B.5 Zoom and focus (absolute)
+
+Read: `[{"cmd": "GetZoomFocus", "action": 1, "param": {"channel": 0}}]` → `value.ZoomFocus.zoom.pos`,
+`value.ZoomFocus.focus.pos`; with `action: 1`, `range.ZoomFocus.zoom.pos.min/max` and `range.ZoomFocus.focus.pos.min/max`
+(reolink-aio's docstrings give zoom 0..33, focus 0..223 as typical).
+
+Write: `[{"cmd": "StartZoomFocus", "action": 0, "param": {"ZoomFocus": {"channel": 0, "op": "ZoomPos", "pos": 6}}}]`;
+`"op": "FocusPos"` for focus. Reject values outside the range. Re-read after 3 s.
+
+Auto focus: `[{"cmd": "SetAutoFocus", "action": 0, "param": {"AutoFocus": {"disable": 0, "channel": 0}}}]` (`disable`
+1 = auto focus off); read `GetAutoFocus` → `value.AutoFocus.disable`.
+
+### B.6 Guard (return to a home position)
+
+Write: `[{"cmd": "SetPtzGuard", "action": 0, "param": {"PtzGuard": {"channel": 0, "cmdStr": "setPos", "bSaveCurrentPos": 1}}}]`
+saves the current position as home; `"cmdStr": "toPos"` goes there; `"benable": 0|1` enables returning after
+`"timeout": <seconds>` idle (both optional, sent with `cmdStr` `setPos` when only changing them). Read: `GetPtzGuard` →
+`value.PtzGuard` (`benable`, `timeout`). Current pan/tilt: `GetPtzCurPos` → `value.PtzCurPos` `Ppos`, `Tpos`.
+
+### B.7 HomeKit (Recommendation)
+
+HomeKit has no PTZ service. Options: presets as a set of switches (momentary, on → `ToPos`, then off), patrol as one
+switch, guard "go home" as a momentary switch. Do not expose continuous moves.
+
+## C. Privacy mode
+
+Privacy mode ("sleep") turns the camera's streams and HTTP API off; the Baichuan connection stays up. While it is on,
+HTTP logins fail; reolink-aio checks privacy mode over Baichuan before an HTTP login and reports "privacy mode on"
+instead of a login error, and keeps the last host data.
+
+- **Read**: Baichuan `cmd_id` **574**, channel extension, `ch_id` = channel + 1, no body. Reply XML has a `sleep`
+  element, `1` = privacy on. The channel is taken from the reply's `ch_id` (low byte of the full message id, minus 1).
+- **Write**: `cmd_id` **575**, channel extension, `ch_id` = channel + 1, body:
+
+```
+<?xml version="1.0" encoding="UTF-8" ?>
+<body>
+<sleepState version="1.1">
+<operate>2</operate>
+<sleep>{0|1}</sleep>
+</sleepState>
+</body>
+```
+
+  then read with 574 again.
+- **Push**: `cmd_id` **623**: one or more `status` elements (or the root itself) with `channelId` (absent = 0) and
+  `sleep` (0/1).
+- The Baichuan login reply's `DeviceInfo/sleep` also gives it for a standalone camera (`Reolink.md` 5.3.2).
+- Capability: present once a 574 reply parsed. reolink-aio asks 574 on NVR channels only when
+  `remoteAbility.ver > 0` for the channel (HTTP ability), and on a camera when the login reply had `sleep`.
+- No HTTP command exists for it in the sources.
+
+Different feature, same name in HA: **privacy mask** (black zones) — `GetMask` → `value.Mask` (`enable`, `area` list),
+`SetMask` `{"Mask": {"channel": 0, "enable": 0|1, …}}`; supported when `abilityChn[ch].mask.ver > 0` and `area` is
+non-empty.
+
+**Recommendation:** HomeKit cameras have their own on/off ("Camera Active" in the camera's operating mode); map it to
+privacy mode only if the device supports it, otherwise expose a switch.
+
+## D. Lights, chimes, recording, zones
+
+### D.1 Floodlight colour temperature and modes
+
+- HTTP `GetWhiteLed` may return `ColorTemp` 0–100 (0 = 6000 K, 100 = 3000 K: K = 6000 − 30 × value). reolink-aio
+  never writes colour temperature over HTTP.
+- Write over Baichuan (reolink-aio): read `cmd_id` **289** on the channel (reply has a `FloodlightTask` element), change
+  its children, send the whole reply body back with `cmd_id` **290**. Children: `brightness_cur` (0–100),
+  `newColorTemperature` (0–100 as above; Kelvin outside 3000–6000 rejected), `alarmMode` and `enable` (the mode, Baichuan
+  numbering), `alarmLightEnabledSL` (event lighting 0/1), `alarmLightModeSL`, `brightnessAlarmSL`, `duration` (event
+  on-time, seconds), `flickerDurationSL`. 289 replies also carry `channel` (0-based, not `channelId`). Capabilities
+  come from the Baichuan ability `ledCtrl` (cmd 199) of the channel: bit 17 (`131072`) colour temperature, bits 1 and 2
+  both set floodlight, bit 12 (`4096`) IR brightness, bit 19 (`524288`) floodlight event settings, bit 0 status LED.
+- Manual on/off over Baichuan: `cmd_id` **288** with `<FloodlightManual version="1.1"><channelId>N</channelId><status>0|1</status><duration>180</duration></FloodlightManual>` in a `body`.
+- Mode numbers: HTTP `mode` 0 off, 1 auto, 2 on at night, 3 schedule, 4 auto-adaptive, 5 adaptive; Baichuan
+  `alarmMode` 0 off, 1 auto, 2 on at night, 3 schedule, 4 schedule-plus, 5 auto-adaptive, 6 adaptive, 7 auto (PIR).
+  Which modes a model offers comes from Baichuan ability `ledCtrl` bits (bit 8 schedule-plus; bit 6 *clear* → auto;
+  bit 5 or HTTP `supportFLSchedule` → schedule; bit 4 or `supportFLKeepOn` → on at night; bit 14 or
+  `supportLightAutoBrightness` → adaptive, plus auto-adaptive when bit 6 clear or bit 13 set; bit 22 → auto PIR).
+- IR lights have no colour. IR brightness exists on some models over Baichuan `cmd_id` 208 (read) / 209 (write);
+  reolink-aio's element name for it is not needed for on/off (`SetIrLights`, main spec 4.4).
+
+### D.2 Chimes
+
+Reolink Chime (wireless, paired to a doorbell or hub), HTTP:
+- Supported when `abilityChn[ch].supportDingDongCtrl.ver > 0` and `GetDingDongList` answered (not for battery doorbells
+  on a hub, where reolink-aio skips it).
+- List: `[{"cmd": "GetDingDongList", "action": 0, "param": {"channel": 0}}]` → `value.DingDongList.pairedlist[]` with
+  `deviceId`, `deviceName`, `netState` (connection state).
+- Options read: `{"cmd": "DingDongOpt", "action": 0, "param": {"DingDong": {"channel": 0, "option": 2, "id": <deviceId>}}}`
+  → `value.DingDong` `name`, `volLevel` (0–4), `ledState` (0/1).
+- Options write: `"option": 3` with `"name"`, `"volLevel"`, `"ledState"`.
+- Play a tone: `"option": 4, "musicId": <tone>` — tones 0 citybird, 1 originaltune, 2 pianokey, 3 loop, 4 attraction,
+  5 hophop, 6 goodday, 7 operetta, 8 moonlight, 9 waybackhome.
+- Remove pairing: `"option": 1`.
+- Per-event tones (`GetDingDongCfg`/`SetDingDongCfg`, `ringId`, `type` → `{"<event>": {"switch", "musicId"}}`) are sent
+  over Baichuan by reolink-aio (`cmd_id` 486/487); not needed for control.
+
+Hardwired chime of a doorbell (mechanical or digital, wired to the doorbell), Baichuan `cmd_id` **483** with
+`<dingdongCtrl version="1.1"><opt>machineStateGet</opt></dingdongCtrl>` (read) or `<opt>machineStateSet</opt><type>T</type><bopen>0|1</bopen><bsave>1</bsave><time>N</time>` (write), each inside `body`; `type` is `none`, `machine`,
+`negativeWave` or `positiveWave`. reolink-aio warns that 483 makes the chime rattle and reads it only once.
+
+### D.3 Recording on/off
+
+- Read: `GetRecV20` (when `Ability.scheduleVersion.ver >= 1`) or `GetRec`, `{"channel": n}`, `action` 1 →
+  `value.Rec`. On: V20 `scheduleEnable == 1`; old `schedule.enable == 1`. V20's host-wide `enable` is the master switch.
+- Write: re-read, then send the whole `Rec` object back with the flag changed:
+  `[{"cmd": "SetRecV20", "action": 0, "param": {"Rec": {…, "scheduleEnable": 0}}}]` or
+  `[{"cmd": "SetRec", "action": 0, "param": {"Rec": {…, "schedule": {…, "enable": 0}}}}]`. Host-wide V20:
+  `{"Rec": {"enable": 0|1}}`.
+- Manual recording: `[{"cmd": "SetManualRec", "action": 0, "param": {"Rec": {"channel": 0, "enable": 1, "duration": 600}}}]`.
+
+### D.4 Detection zones and sensitivity
+
+- Motion zone and sensitivity: `GetMdAlarm` → `value.MdAlarm`; `SetMdAlarm` with `{"MdAlarm": {"channel", "scope":
+  {"cols": 120, "rows": 67, "table": "<cols×rows characters of 0/1>"}, "useNewSens": 1, "newSens": {"sensDef": n, …}}}`
+  (guide). reolink-aio writes sensitivity only: `{"MdAlarm": {"channel": 0, "useNewSens": 1, "newSens": {"sensDef": 51 − s}}}`
+  with user sensitivity `s` 1–50 (the device's scale is inverted). Older firmware: `GetAlarm`/`SetAlarm` with
+  `{"Alarm": {"channel", "type": "md", "sens": [ … "sensitivity" … ]}}`.
+- AI zone and sensitivity: `GetAiAlarm` `{"channel": 0, "ai_type": "people"}` → `value.AiAlarm`; `SetAiAlarm` with
+  `{"channel": 0, "AiAlarm": {"ai_type", "sensitivity" (0–100), "stay_time" (0–8 s), "width": 80, "height": 60,
+  "scope": {"area": "<width×height 0/1 characters>"}, "min_target_height", "max_target_height", "min_target_width",
+  "max_target_width" (0.0–1.0)}}` (guide; reolink-aio sends `{"AiAlarm": {"channel", "ai_type", "sensitivity"}}` or
+  `"stay_time"` inside `AiAlarm`). Also `SetAlarmArea` `{"channel", "ai_type", "width", "height", "area"}` (guide).
+  The cell order of `table`/`area` (row-major or not) is not stated by the guide. Newer "YOLO" models are configured over
+  Baichuan `cmd_id` 628/629 instead (reolink-aio), not specified here.
+
+**Recommendation:** none of D.2–D.4 maps to HomeKit services; expose recording on/off as an optional switch at most, and
+leave zones to the Reolink app.
+
+## E. Standalone battery cameras (Baichuan over UDP)
+
+- **Implemented in reolink-aio: yes.** `baichuan/udp_protocol.py` (653 lines) plus helpers in `baichuan/util.py`
+  (the UDP XOR key of eight 32-bit words, a CRC-32 (poly `0xEDB88320`, init 0), and an LCG keystream for "V3"), XML
+  templates in `xmls.py`, and a fragmentation test.
+- Shape: UDP to port **2015** on the camera; three packet kinds by magic — `3acf872a` connection/discovery (XML `P2P`
+  messages `C2D_S` to learn the port, `C2D_C` with the camera **UID**, a random client id and MTU, `C2D_DISC` to
+  disconnect), `10cf872a` data (Baichuan messages fragmented into sequenced packets), `20cf872a` acknowledgements with
+  retransmission timers; heartbeat `cmd_id` 234 to answer; connection dropped when the camera sleeps. A newer "V3"
+  variant (`udp_tcp`) is signalled by ability `netPort` bit `0x40`. The camera UID is required (from the Reolink app or a
+  label). On top of it the same Baichuan commands run, but these cameras have **no HTTP API, no RTSP**: video would need
+  Baichuan media streams decoded by the plugin (reolink-aio has a 377-line media decoder that remuxes to MPEG-TS/fMP4).
+- Size estimate: transport ≈ 700–900 lines of logic (reliable UDP with acks, reordering, fragmentation, two key
+  schemes), plus media-stream decoding and a Baichuan-only command set (snapshot `cmd_id` 109, states) — comparable to
+  the whole TCP + HTTP plugin again, and testable only with captured traffic or a device.
+- HA's integration supports them only through this path; reolink-aio's own error message advises a Home Hub or NVR.
+
+**Recommendation for the coordinator:** leave standalone battery cameras out; support them behind a Home Hub/NVR.
+
+## F. Test vectors (invented ids)
+
+Baichuan headers (`Reolink.md` 5.1; counter values arbitrary; extension = channel extension, 104 bytes; bodies are the
+templates above with a leading newline; lengths are plaintext lengths, which AES-CFB keeps):
+
+| Message | Bytes |
+|---|---|
+| abilities `cmd_id` 199, host (counter 6) | `f0 de bc 0a c7 00 00 00 00 00 00 00 fa 06 00 00 00 00 14 64 00 00 00 00` |
+| privacy read 574, channel 2 (counter 7) | `f0 de bc 0a 3e 02 00 00 68 00 00 00 03 07 00 00 00 00 14 64 68 00 00 00` |
+| privacy write 575 on, channel 2 (counter 8, body 134 bytes) | `f0 de bc 0a 3f 02 00 00 ee 00 00 00 03 08 00 00 00 00 14 64 68 00 00 00` |
+| talk ability 10, channel 2 (counter 9) | `f0 de bc 0a 0a 00 00 00 68 00 00 00 03 09 00 00 00 00 14 64 68 00 00 00` |
+
+Talk ability replies: `<body><TalkAbility version="1.1"><duplex>FDX</duplex><audioStreamModeList><audioStreamMode>followVideoStream</audioStreamMode></audioStreamModeList></TalkAbility></body>`
+→ supported; same with `<duplex>HDX</duplex>` → not supported; any `audioStreamMode` `mixAudioStream` → supported
+(element names other than `duplex` and `audioStreamMode` are invented for the fixture).
+
+Privacy replies: `<body><sleepState version="1.1"><sleep>1</sleep></sleepState></body>` on full message id
+`0x00000803` (`ch_id` 3) → channel 2 privacy on. Push 623: `<body><status><channelId>1</channelId><sleep>0</sleep></status></body>`.
+
+JSON:
+
+```json
+[{"cmd": "GetPtzPreset", "code": 0, "value": {"PtzPreset": [
+  {"channel": 0, "enable": 1, "id": 1, "name": "Gate"}, {"channel": 0, "enable": 0, "id": 2, "name": ""},
+  {"channel": 0, "enable": 1, "id": 5, "name": "Drive"}]}}]
+```
+→ presets `{"Gate": 1, "Drive": 5}`.
+
+```json
+[{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "ToPos", "id": 5}}]
+[{"cmd": "PtzCtrl", "action": 0, "param": {"channel": 0, "op": "StartPatrol", "id": 1}}]
+[{"cmd": "GetZoomFocus", "code": 0, "value": {"ZoomFocus": {"channel": 0, "focus": {"pos": 23}, "zoom": {"pos": 0}}},
+  "range": {"ZoomFocus": {"focus": {"pos": {"min": 0, "max": 223}}, "zoom": {"pos": {"min": 0, "max": 33}}}}}]
+[{"cmd": "StartZoomFocus", "action": 0, "param": {"ZoomFocus": {"channel": 0, "op": "ZoomPos", "pos": 34}}}]
+```
+→ the last must be rejected locally (34 > 33).
+
+```json
+[{"cmd": "GetDingDongList", "code": 0, "value": {"DingDongList": {"pairedlist": [{"deviceId": 7, "deviceName": "Hall", "netState": 1}]}}}]
+[{"cmd": "DingDongOpt", "action": 0, "param": {"DingDong": {"channel": 1, "id": 7, "option": 4, "musicId": 3}}}]
+[{"cmd": "SetRecV20", "action": 0, "param": {"Rec": {"channel": 0, "scheduleEnable": 0}}}]
+[{"cmd": "SetMdAlarm", "action": 0, "param": {"MdAlarm": {"channel": 0, "useNewSens": 1, "newSens": {"sensDef": 21}}}}]
+```
+→ the last is user sensitivity 30. `GetWhiteLed` `ColorTemp` 40 → 4800 K; 4500 K → `newColorTemperature` 50.
+
+Ability fixture: `abilityChn[0]` with `ptzType.ver` 2, `ptzPreset.ver` 1, `supportPtzSpeed` absent → pan, tilt, zoom,
+presets, speed; `ptzType.ver` 7 → pan only, no tilt, no zoom, no speed.
+
+## G. Gaps
+
+- Two-way audio: uplink protocol, codec, sample rate, frame size and model list are not in the sources (A).
+- `ZoomInc`/`ZoomDec` direction disagrees between the guide and reolink-aio.
+- Whether `SetPtzPreset` stores the current position is not stated.
+- Zone bitmap cell order is not stated.
+- Baichuan reply element names beyond those quoted (talk configuration, 208 IR brightness) are not specified.

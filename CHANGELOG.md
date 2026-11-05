@@ -8,17 +8,29 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- The Philips Hue Sync Box plugin (platform `PhilipsHueSyncBoxPlatform`, a clean-room implementation compatible with
-  homebridge-philips-hue-sync-box's configuration): a Lightbulb or Switch that starts and stops syncing, a power switch,
-  and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
-  Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
-  name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
 - The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
   doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
   Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
   push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
-  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
-  and `HomeswiftNetwork` `ARPTable.entries()`.
+  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer
+  that starts again on its own when its livestream ends) and `HomeswiftNetwork` `ARPTable.entries()`.
+- Reolink: PTZ moves, zoom, presets, patrols and the home position as Assistant and MCP actions, with optional
+  "Go to <preset>" and Patrol switches; privacy mode as a Privacy switch kept in step with HomeKit's Camera Active (no
+  HTTP login while it is on); the floodlight's colour temperature with Adaptive Lighting, and its mode; a switch per
+  wireless Reolink Chime; a Recording switch for the device's own recording; motion and AI sensitivity. Privacy and
+  Recording are security controls, confirmed by MCP clients. A camera's settings sheet groups its settings (Sensors,
+  Lights and switches, Video, Connection).
+- Reolink: battery cameras on their own Wi-Fi, without a Home Hub or NVR (experimental, a clean-room implementation of
+  docs/clean-room/ReolinkBattery.md; TCP only): found at Setup by their Baichuan abilities when the HTTP API does not
+  answer, published from what they said of themselves so they are never woken at launch, live video from the Baichuan
+  media stream remuxed to MPEG-TS for FFmpeg (H.264 and H.265, AAC audio), Baichuan snapshots with a cache that never
+  wakes the camera for the Home app's periodic requests, battery level and charging, and motion and doorbell presses by
+  the camera's webhook; a connection is opened only on demand and closed 5 seconds after its last use.
+- Reolink: two-way audio over Baichuan (experimental, off unless a channel's `twoWayAudio` is on; a clean-room
+  implementation of docs/clean-room/ReolinkTalk.md): a camera, an NVR or Home Hub channel or a battery camera whose talk
+  ability says it can gets a Speaker, and the Home app's talk button reaches its speaker as IMA ADPCM, started with
+  `TalkConfig` and stopped once the audio has played; a battery camera stays awake only while a Talk runs. Tested
+  against fake devices only.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
@@ -26,6 +38,72 @@ All notable changes to this project are documented here. The format follows
   spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
   within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
   streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
+- `HomeswiftFFmpeg`: HomeKit's return audio for camera plugins. `RTSPCameraStreamer` takes `ReturnAudioOptions`: a
+  `ReturnAudioReceiver` per live stream decodes the SRTP AAC-ELD HomeKit sends while someone talks into PCM frames,
+  one `Talk` per burst of speech, for the plugin's handler; G.711 A-law and µ-law and IMA ADPCM encoders, and AAC in ADTS
+  through FFmpeg.
+- IMOU: two-way audio (experimental, off unless a camera's `twoWayAudio` is `auto` or `on`): the Home app's talk button
+  sends to the camera's speaker over Dahua's `postAudio` CGI, or its ONVIF RTSP backchannel where that CGI is missing;
+  tested against fake cameras only.
+- Tapo battery cameras (`TapoP100`, `type` `Camera` or `DualLensCamera`): a C675D's wide and tele lenses as two HomeKit
+  cameras, streamed without RTSP through the cameras' Streamd server on port 8800 (signed in with the owner's cloud
+  password, HEVC transcoded to H.264), reached only while someone watches: snapshots are the last live view's, and the
+  stream reconnects quietly after the camera's standby. Each lens has a Motion Sensor fed by the TP-Link cloud's
+  notification inbox, which never wakes the camera (Setup asks for the code the cloud e-mails the first time).
+  Clean-room implementations from docs/clean-room/TapoCamera.md and TapoCloudEvents.md.
+- Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
+  **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
+  like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
+  anything else it needs, probes the device, and finishes with the Device Id the device answered with. That id keys
+  the device's Accessory Settings and its credentials in the vault. The device is then set up and included like a
+  discovered one, and a `null` in a device outcome's settings now removes the key. Elgato Key Lights adopts it: a
+  light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
+  V2C Trydan adds a charger, APsystems ECU an ECU, IMOU a local camera (with its safety code) and Reolink a camera, NVR or
+  hub (with a local user's login) the same way.
+- Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
+  a field a step may leave empty says Optional.
+- The APsystems ECU plugin (platform `APsystemsECU`, experimental, a clean-room implementation of the ECU's local
+  protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
+  energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
+  Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
+- Renault: the rest of the battery's report on the car's Battery service and in the history (available energy, the
+  charge status in words, when the car last reported, the level and status codes); the location stays out.
+- APsystems ECU: each phase of an ECU-C's CT clamps (production, grid and home on A, B and C) as its own series in the
+  Status page's history.
+- V2C Trydan: the current's limits and the installation's voltage as Accessory Settings sent once per change, and the
+  session's time, the meter's code, the Wi-Fi signal and each phase's current and voltage in the Status page's history.
+- Daikin Cloud: each unit's kWh today in the Status page's history, and with `energyHistory` the units' `consumptionData`
+  imported into the Energy section as the home's use (two-hour slots for yesterday and today, days for two weeks), on
+  each unit's own time zone; a day imported from its slots keeps them once only its week's total is left.
+- Philips Hue: an Eve history on the motion, temperature and light level sensors (fakegato's format), with Eve's Last
+  Activation on the motion sensor.
+- Philips Hue: a Tap dial's ring as two Stateless Programmable Switches, Clockwise and Anticlockwise, from the event
+  stream's `relative_rotary` reports: a turn is a Single Press, a longer turn a Long Press, for scenes and automations.
+- Magic Home: the built-in effects as switches on the colour lights that play them, behind `effects` (off by default)
+  with an `effectSpeed`, also per light in its Accessory Settings.
+- V2C Trydan: the dynamic power modes as a set of switches (`exposeModes`), the wiring (`ChargeMode`) as an Accessory
+  Setting sent once per change, and a lifetime energy total made of the sessions' energy, kept across restarts, as
+  Eve's Total Consumption and on the Status page (the session's energy beside it).
+- Renault: the range, the time to a full charge and the charge power on the car's Battery service (the plugin's own
+  characteristics and Eve's Current Consumption), a battery temperature sensor where the car reports it, the four on
+  the Status page's history, and the charge target and minimum as Accessory Settings sent to the car once per change;
+  all from reads the plugin made already, within Renault's hourly quota.
+- The Philips Hue Sync Box plugin (platform `PhilipsHueSyncBoxPlatform`, a clean-room implementation compatible with
+  homebridge-philips-hue-sync-box's configuration): a Lightbulb or Switch that starts and stops syncing, a power switch,
+  and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
+  Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
+  name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
+- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
+  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
+  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
+  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
+  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
+- The V2C Trydan plugin (platform `V2CTrydan`, experimental): V2C Trydan EV chargers over their local HTTP interface, a new
+  plugin with no Homebridge counterpart: an Outlet that allows or pauses charging with Eve power and energy, the current
+  offered as a fan's speed in amperes, a lock that disables the charger, a sensor for the car plugged in, optional timer,
+  dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
+  (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
+  repaired.
 - The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
   homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
   the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's
@@ -75,6 +153,18 @@ All notable changes to this project are documented here. The format follows
   or Pro EM keeps are imported by the hour as it connects. An optional Shelly Cloud account (Setup: the Shelly app's
   email and password, in the vault) imports the history the Shelly app shows for plugs and relays, and names the
   devices named only in the Shelly app.
+- Tuya: live video and snapshots for Tuya cameras (`sp`), each on an accessory of its own with a Motion Sensor and
+  Doorbell that follow the bridged ones (which stay where they are); an RTSP URL allocated from the cloud for each
+  stream, snapshots (and a failed one) coalesced for 10 seconds, a refused subscription backed off for 5 minutes, offline cameras refused
+  without a call, the URL never logged. The `video` Accessory Setting (on by default) turns it off, `recording` (off by
+  default) adds HomeKit Secure Video. `RTSPCameraOptions.socketTimeout` (FFmpeg's `-timeout`, `-stimeout` before
+  FFmpeg 5, left out for an unknown version, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
+  `RTSPCameraStreamer.standardResolutions` and `minimumInactivity`, and every query value of an RTSP URL masked in FFmpeg's
+  logs.
+- IMOU: the documented HMAC-SHA256 signature, with MD5 kept for accounts that refuse it; pan, tilt, zoom, presets, night
+  vision's modes, restart and the SD card as actions for MCP and the Assistant; person detection, status light, siren and
+  light on alarm, night vision and preset switches (Accessory Settings, off by default); privacy kept in step with
+  HomeKit Camera Active; the extra switches' reads spread over polls to keep within the day's budget.
 
 ### Changed
 
@@ -83,6 +173,29 @@ All notable changes to this project are documented here. The format follows
 - The web UI writes energy under a kWh in Wh, on the charts' axes too.
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
   shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
+
+### Fixed
+
+- IMOU: one camera's error from the cloud (unbound, shared without permission) no longer stops the poll of the others
+  or reads as the cloud being down, and is logged once; a refused App Id or App Secret stops every cloud call, polls and
+  switches alike, until Setup; a camera the account stops listing but that is set up on the LAN goes on without the
+  cloud's switches; a quick second change to privacy or night vision no longer shows the first one for a moment; an App
+  Secret or safety code newly written in the block reaches the vault instead of being dropped; Setup checks the safety
+  code of a camera whose serial request fails in any way; a firmware version such as `V2.1` reads 2.1.0.
+- Setup sheet: a step asked again after an error keeps the choices made too (Tahoma's service), as the server now
+  sends each field's answer back with the error, to MCP clients as well. A first step that fails reaches MCP clients as
+  untrusted data. Looking for devices again after a failure keeps the device's settings at the end. The Add a plugin
+  search ignores accents.
+- Philips Hue Sync Box: Setup asks for the address again, the old one filled in, when the block's box no longer
+  answers there, rather than failing; several boxes found and none chosen asks again. A refused token makes the
+  account Need Authorization; the cached accessories show No Response while the box is down at start; a block pointed
+  at another box no longer takes the previous box's ID.
+- Somfy TaHoma: Excluded scenarios stay on Add accessories, and `exclude` entries naming a scenario move to its
+  Accessory Settings. Setup pauses its sign-ins after three refusals in a row. A `user` and `password` typed into the
+  block are the ones sealed in the vault, not the running ones.
+- Synology: the bridge no longer warns at every start that other accounts can reach its secrets when the only entry
+  in its shared folder's ACL is the package's own. DSM shows the package's user the mode `777` on a folder with an ACL;
+  the bridge now reads the entries with `synoacltool -get` and names any that gives access to another account or group.
 
 ## [0.20.1] - 2026-11-04
 

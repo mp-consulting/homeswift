@@ -169,6 +169,10 @@ actor Executions {
 
     private func timedOut(_ execID: String) {
         guard let execution = tracked.removeValue(forKey: execID) else { return }
+        Self.tellTimedOut(execution, execID: execID)
+    }
+
+    private static func tellTimedOut(_ execution: Tracked, execID: String) {
         let update = ExecutionUpdate(state: .timedOut, failureType: nil, execID: execID)
         for action in execution.actions { action.observers.forEach { $0(update) } }
     }
@@ -210,8 +214,7 @@ actor Executions {
         pending = []
         for (execID, execution) in tracked {
             execution.timeout?.cancel()
-            let update = ExecutionUpdate(state: .timedOut, failureType: nil, execID: execID)
-            for action in execution.actions { action.observers.forEach { $0(update) } }
+            Self.tellTimedOut(execution, execID: execID)
         }
         tracked = [:]
         early = []

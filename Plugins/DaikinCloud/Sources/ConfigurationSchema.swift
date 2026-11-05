@@ -207,6 +207,12 @@ extension DaikinCloudPlugin {
         "type": "boolean",
         "default": true,
         "description": "Enable real-time updates via WebSocket. Only available with Mobile App authentication. Provides instant device state updates."
+      },
+      "energyHistory": {
+        "title": "Energy use in the Energy section",
+        "type": "boolean",
+        "default": false,
+        "description": "Counts the units' electricity use, as the Daikin cloud reports it (kWh per two hours for yesterday and today, per day for the last two weeks), as the home's use in the Status page's Energy section. Leave it off when a meter already reports the home's use: it would be counted twice."
       }
     }
   },
@@ -387,6 +393,7 @@ extension DaikinCloudPlugin {
       "expanded": false,
       "items": [
         "enableWebSocket",
+        "energyHistory",
         "httpTransport",
         "updateIntervalInMinutes",
         "forceUpdateDelay"
@@ -449,7 +456,9 @@ extension DaikinCloudPlugin {
       "Fan without heating/cooling as a switch (only if supported by your device).": "Ventilation sans chauffage ni refroidissement, sous forme d'interrupteur (seulement si votre appareil le prend en charge).",
       "Expose fan oscillation (swing) as a separate HomeKit switch. Useful because the built-in swing control disappears when the accessory is grouped into a single tile in the Home app.": "Présente l'oscillation (balayage) sous forme d'interrupteur HomeKit distinct. Utile, car la commande de balayage intégrée disparaît quand l'accessoire est regroupé en une seule tuile dans l'app Maison.",
       "Expose holiday (away) mode as a separate HomeKit switch (only if supported by your device). Turn it on to put the unit into holiday mode and off to resume normal operation.": "Présente le mode vacances (absence) sous forme d'interrupteur HomeKit distinct (seulement si votre appareil le prend en charge). Activez-le pour passer l'unité en mode vacances, désactivez-le pour reprendre le fonctionnement normal.",
-      "Expose gateway firmware updates as a HomeKit switch (only if supported by your device). The plugin logs when Daikin stages an update; turn the switch on to install it — the unit is unavailable while updating.": "Présente les mises à jour du firmware de la passerelle sous forme d'interrupteur HomeKit (seulement si votre appareil le prend en charge). Le plugin signale dans le journal quand Daikin prépare une mise à jour ; activez l'interrupteur pour l'installer — l'unité est indisponible pendant la mise à jour."
+      "Expose gateway firmware updates as a HomeKit switch (only if supported by your device). The plugin logs when Daikin stages an update; turn the switch on to install it — the unit is unavailable while updating.": "Présente les mises à jour du firmware de la passerelle sous forme d'interrupteur HomeKit (seulement si votre appareil le prend en charge). Le plugin signale dans le journal quand Daikin prépare une mise à jour ; activez l'interrupteur pour l'installer — l'unité est indisponible pendant la mise à jour.",
+      "Energy use in the Energy section": "Consommation dans la section Énergie",
+      "Counts the units' electricity use, as the Daikin cloud reports it (kWh per two hours for yesterday and today, per day for the last two weeks), as the home's use in the Status page's Energy section. Leave it off when a meter already reports the home's use: it would be counted twice.": "Compte la consommation électrique des appareils, telle que le cloud Daikin la donne (kWh par tranche de deux heures pour hier et aujourd'hui, par jour pour les deux dernières semaines), comme consommation de la maison dans la section Énergie de la page État. Laissez-le désactivé si un compteur donne déjà la consommation de la maison : elle serait comptée deux fois."
     },
     "es": {
       "Enter your Client ID": "Introduce tu Client ID",
@@ -506,7 +515,9 @@ extension DaikinCloudPlugin {
       "Fan without heating/cooling as a switch (only if supported by your device).": "Ventilador sin calefacción ni refrigeración, como interruptor (solo si tu dispositivo lo admite).",
       "Expose fan oscillation (swing) as a separate HomeKit switch. Useful because the built-in swing control disappears when the accessory is grouped into a single tile in the Home app.": "Muestra la oscilación (barrido) como un interruptor de HomeKit aparte. Es útil porque el control de barrido integrado desaparece cuando el accesorio se agrupa en un solo mosaico en la app Casa.",
       "Expose holiday (away) mode as a separate HomeKit switch (only if supported by your device). Turn it on to put the unit into holiday mode and off to resume normal operation.": "Muestra el modo vacaciones (ausencia) como un interruptor de HomeKit aparte (solo si tu dispositivo lo admite). Actívalo para poner la unidad en modo vacaciones y desactívalo para volver al funcionamiento normal.",
-      "Expose gateway firmware updates as a HomeKit switch (only if supported by your device). The plugin logs when Daikin stages an update; turn the switch on to install it — the unit is unavailable while updating.": "Muestra las actualizaciones del firmware de la pasarela como un interruptor de HomeKit (solo si tu dispositivo lo admite). El plugin avisa en el registro cuando Daikin prepara una actualización; activa el interruptor para instalarla — la unidad no está disponible durante la actualización."
+      "Expose gateway firmware updates as a HomeKit switch (only if supported by your device). The plugin logs when Daikin stages an update; turn the switch on to install it — the unit is unavailable while updating.": "Muestra las actualizaciones del firmware de la pasarela como un interruptor de HomeKit (solo si tu dispositivo lo admite). El plugin avisa en el registro cuando Daikin prepara una actualización; activa el interruptor para instalarla — la unidad no está disponible durante la actualización.",
+      "Energy use in the Energy section": "Consumo en la sección Energía",
+      "Counts the units' electricity use, as the Daikin cloud reports it (kWh per two hours for yesterday and today, per day for the last two weeks), as the home's use in the Status page's Energy section. Leave it off when a meter already reports the home's use: it would be counted twice.": "Cuenta el consumo eléctrico de los equipos, tal como lo da la nube de Daikin (kWh por tramos de dos horas para ayer y hoy, por día para las dos últimas semanas), como consumo de la casa en la sección Energía de la página Estado. Déjelo desactivado si un contador ya da el consumo de la casa: se contaría dos veces."
     },
     "pt": {
       "Enter your Client ID": "Introduza o Client ID",
@@ -563,7 +574,9 @@ extension DaikinCloudPlugin {
       "Fan without heating/cooling as a switch (only if supported by your device).": "Ventilação sem aquecimento nem arrefecimento, como interruptor (apenas se o dispositivo o suportar).",
       "Expose fan oscillation (swing) as a separate HomeKit switch. Useful because the built-in swing control disappears when the accessory is grouped into a single tile in the Home app.": "Apresenta a oscilação (varrimento) como um interruptor HomeKit à parte. É útil porque o controlo de varrimento integrado desaparece quando o acessório é agrupado num único mosaico na app Casa.",
       "Expose holiday (away) mode as a separate HomeKit switch (only if supported by your device). Turn it on to put the unit into holiday mode and off to resume normal operation.": "Apresenta o modo férias (ausência) como um interruptor HomeKit à parte (apenas se o dispositivo o suportar). Ativá-lo coloca a unidade em modo férias; desativá-lo retoma o funcionamento normal.",
-      "Expose gateway firmware updates as a HomeKit switch (only if supported by your device). The plugin logs when Daikin stages an update; turn the switch on to install it — the unit is unavailable while updating.": "Apresenta as atualizações do firmware do gateway como um interruptor HomeKit (apenas se o dispositivo o suportar). O plugin indica no registo quando a Daikin prepara uma atualização; ativar o interruptor instala-a — a unidade fica indisponível durante a atualização."
+      "Expose gateway firmware updates as a HomeKit switch (only if supported by your device). The plugin logs when Daikin stages an update; turn the switch on to install it — the unit is unavailable while updating.": "Apresenta as atualizações do firmware do gateway como um interruptor HomeKit (apenas se o dispositivo o suportar). O plugin indica no registo quando a Daikin prepara uma atualização; ativar o interruptor instala-a — a unidade fica indisponível durante a atualização.",
+      "Energy use in the Energy section": "Consumo na secção Energia",
+      "Counts the units' electricity use, as the Daikin cloud reports it (kWh per two hours for yesterday and today, per day for the last two weeks), as the home's use in the Status page's Energy section. Leave it off when a meter already reports the home's use: it would be counted twice.": "Conta o consumo elétrico dos equipamentos, tal como a nuvem Daikin o indica (kWh por períodos de duas horas para ontem e hoje, por dia para as duas últimas semanas), como consumo da casa na secção Energia da página Estado. Deixe-o desativado se um contador já indicar o consumo da casa: seria contado duas vezes."
     }
   }
 }

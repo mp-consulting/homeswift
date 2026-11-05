@@ -104,7 +104,8 @@ enum ImouOnline: Sendable, Equatable {
     }
 }
 
-/// What a channel offers, from its abilities (section 1.3, [O]'s table).
+/// What a channel offers, from its abilities (section 1.3, [O]'s table; addendum, section 2). A versioned ability
+/// (`AlarmPIRV2`) also counts as its name without the version.
 struct ImouFeatures: Sendable, Equatable {
     var motionDetectSwitch: Bool
     var privacy: Bool
@@ -112,15 +113,87 @@ struct ImouFeatures: Sendable, Equatable {
     var siren: Bool
     var battery: Bool
     var doorbell: Bool
+    /// Human detection's enableTypes, one per ability that has one (addendum, section 2.2).
+    var humanDetection: [String]
+    var statusLight: Bool
+    var linkageSiren: Bool
+    var linkageLight: Bool
+    var nightVision: Bool
+    var ptz: ImouPTZ?
+    var presets: Bool
+    var reboot: Bool
+    var storage: Bool
 
-    init(abilities: Set<String>) {
+    init(abilities given: Set<String>) {
+        var abilities = given
+        for ability in given {
+            if let last = ability.last, last.isNumber, ability.dropLast().hasSuffix("V") { abilities.insert(String(ability.dropLast(2))) }
+        }
         motionDetectSwitch = abilities.contains("MobileDetect") || abilities.contains("AlarmMD")
         privacy = abilities.contains("CloseCamera")
         whiteLight = abilities.contains("WhiteLight") || abilities.contains("ChnWhiteLight")
         siren = abilities.contains("Siren")
         battery = abilities.contains("Electric")
         doorbell = abilities.contains("CallAbility")
+        humanDetection = [("HeaderDetect", "headerDetect"), ("AiHuman", "aiHuman")].filter { abilities.contains($0.0) }.map(\.1)
+            + (abilities.contains("SMDH") || abilities.contains("SmdHuman") ? ["smdHuman"] : [])
+        statusLight = abilities.contains("BreathingLight")
+        linkageSiren = abilities.contains("LinkageSiren")
+        linkageLight = whiteLight || abilities.contains("LinkageWhiteLight")
+        nightVision = abilities.contains("NVM")
+        ptz = abilities.contains("PTZ") ? .full : abilities.contains("PT") || abilities.contains("PT1") ? .fourWay : abilities.contains("PT2") ? .pan : nil
+        presets = abilities.contains("CollectionPoint")
+        reboot = abilities.contains("Reboot")
+        storage = abilities.contains("LocalStorage") || abilities.contains("LocalStorageEnable")
     }
+}
+
+/// What a camera's pan and tilt can do (addendum, section 1.1): `PTZ` all of it, `PT`/`PT1` four directions and their
+/// diagonals without zoom, `PT2` left and right.
+enum ImouPTZ: String, Sendable, Equatable {
+    case full = "PTZ", fourWay = "PT", pan = "PT2"
+
+    func allows(_ move: ImouPTZMove) -> Bool {
+        switch self {
+        case .full: true
+        case .fourWay: move != .zoomIn && move != .zoomOut
+        case .pan: [.left, .right, .stop].contains(move)
+        }
+    }
+}
+
+/// `controlMovePTZ`'s operations, by their code.
+enum ImouPTZMove: Int, CaseIterable, Sendable {
+    case up = 0, down, left, right, upLeft, downLeft, upRight, downRight, zoomIn, zoomOut, stop
+
+    var name: String { "\(self)" }
+    init?(name: String) {
+        guard let move = Self.allCases.first(where: { $0.name.lowercased() == name.lowercased() }) else { return nil }
+        self = move
+    }
+}
+
+/// A HomeKit switch backed by one or more enableTypes of `getDeviceCameraStatus` (addendum, section 2): on when any reads
+/// on, off only when all answered off; a write goes to each, and fails only when all fail. A device-level one is read and
+/// written without a `channelId`.
+struct ImouSwitch: Sendable, Equatable {
+    var subtype: String
+    var label: String
+    var enableTypes: [String]
+    var deviceLevel = false
+
+    static let statusLight = ImouSwitch(subtype: "statusLight", label: "Status Light", enableTypes: ["breathingLight"], deviceLevel: true)
+    /// On when either reads on; off only when both answered off (section 4.4).
+    static let motionDetection = ImouSwitch(subtype: "motionDetection", label: "Motion Detection", enableTypes: ["mobileDetect", "motionDetect"])
+}
+
+/// What `deviceSdcardStatus` and `deviceStorage` say (addendum, section 4.1).
+struct ImouStorage: Sendable, Equatable {
+    /// `none`, `normal`, `abnormal` or `recovering` (formatting); another word as the cloud wrote it.
+    var status: String
+    var usedPercent: Int?
+
+    var json: JSONValue { ["status": .string(status), "usedPercent": usedPercent.map { .number(Double($0)) } ?? .null] }
 }
 
 /// The newest alarm of a camera (`getAlarmMessage`, section 4.6).
@@ -148,7 +221,7 @@ enum ImouEvents {
     /// The Dahua event codes asked of a camera's event stream, and those that are motion.
     static let localCodes = ["VideoMotion", "SmartMotionHuman", "SmartMotionVehicle", "CrossLineDetection", "CrossRegionDetection", "AlarmLocal"]
     static let localMotionCodes = Set(localCodes)
-    static let localDoorbellCodes: Set<String> = ["CallNoAnswered", "BackKeyLight"]
+    static let localDoorbellCodes = ["BackKeyLight", "CallNoAnswered"]
 }
 
 // MARK: The methods
@@ -177,11 +250,35 @@ extension ImouCloud {
         return (ImouOnline(data["onLine"].text), channels)
     }
 
-    /// `getDeviceCameraStatus`: on or off; nil for a status it does not say.
-    func cameraStatus(_ deviceID: String, channel: String, _ enableType: String, polling: Bool = false) async throws -> Bool? {
-        let data = try await call("getDeviceCameraStatus", ["deviceId": .string(deviceID), "channelId": .string(channel), "enableType": .string(enableType)],
-                                  polling: polling)
+    /// `getDeviceCameraStatus`: on or off; nil for a status it does not say. A device-level switch (no channel) goes without
+    /// `channelId`, and once more with `"0"` if the cloud wants one (addendum, section 2.1).
+    func cameraStatus(_ deviceID: String, channel: String?, _ enableType: String, polling: Bool = false) async throws -> Bool? {
+        let data = try await scoped("getDeviceCameraStatus", ["deviceId": .string(deviceID), "enableType": .string(enableType)], channel: channel, polling: polling)
         return Self.status(data["status"])
+    }
+
+    private func deviceID(_ params: [String: JSONValue]) -> String { params["deviceId"]?.stringValue ?? "" }
+
+    /// A call with `channelId`, or without one for a device-level call, retried with `"0"` on `OP1003`.
+    private func scoped(_ method: String, _ params: [String: JSONValue], channel: String?, polling: Bool = false) async throws -> JSONValue {
+        var params = params
+        if let channel {
+            params["channelId"] = .string(channel)
+            return try await call(method, params, polling: polling)
+        }
+        if devicesWantingChannel.contains(deviceID(params)) {
+            params["channelId"] = "0"
+            return try await call(method, params, polling: polling)
+        }
+        do {
+            return try await call(method, params, polling: polling)
+        } catch let error as ImouError where error.code == "OP1003" {
+            params["channelId"] = "0"
+            let data = try await call(method, params, polling: polling)
+            // Remembered: one call, not two, from then on.
+            wantsChannel(deviceID(params))
+            return data
+        }
     }
 
     /// `"on"`/`"off"`, `1`/`0`, `"1"`/`"0"` or a boolean (section 4.4).
@@ -199,9 +296,81 @@ extension ImouCloud {
         }
     }
 
-    func setCameraStatus(_ deviceID: String, channel: String, _ enableType: String, _ enable: Bool) async throws {
-        _ = try await call("setDeviceCameraStatus", ["deviceId": .string(deviceID), "channelId": .string(channel), "enableType": .string(enableType),
-                                                     "enable": .bool(enable)])
+    func setCameraStatus(_ deviceID: String, channel: String?, _ enableType: String, _ enable: Bool) async throws {
+        _ = try await scoped("setDeviceCameraStatus", ["deviceId": .string(deviceID), "enableType": .string(enableType), "enable": .bool(enable)], channel: channel)
+    }
+
+    /// The legacy `breathingLightStatus`, for a camera that does not answer the `breathingLight` enableType (addendum, 2.4).
+    func breathingLightStatus(_ deviceID: String) async throws -> Bool? {
+        Self.status(try await call("breathingLightStatus", ["deviceId": .string(deviceID)], polling: true)["status"])
+    }
+
+    /// `getNightVisionMode`: the mode, and those the camera has (addendum, section 2.6).
+    func nightVision(_ deviceID: String, channel: String) async throws -> (mode: String?, modes: [String]) {
+        let data = try await call("getNightVisionMode", ["deviceId": .string(deviceID), "channelId": .string(channel)], polling: true)
+        let modes = (data["modes"]?.arrayValue ?? []).prefix(16).compactMap { $0.stringValue.map { String($0.prefix(32)) } }
+        return (data["mode"]?.stringValue.map { String($0.prefix(32)) }, modes)
+    }
+
+    func setNightVision(_ deviceID: String, channel: String, mode: String) async throws {
+        _ = try await call("setNightVisionMode", ["deviceId": .string(deviceID), "channelId": .string(channel), "mode": .string(mode)])
+    }
+
+    /// `controlMovePTZ` for `duration` milliseconds (addendum, section 1.1): `operation` as a string, as the documentation's
+    /// sample sends it, and once as a number when the cloud refuses that (`OP1003`), remembered.
+    func movePTZ(_ deviceID: String, channel: String, _ move: ImouPTZMove, milliseconds: Int) async throws {
+        func send(asNumber: Bool) async throws {
+            _ = try await call("controlMovePTZ", [
+                "deviceId": .string(deviceID), "channelId": .string(channel),
+                "operation": asNumber ? .number(Double(move.rawValue)) : .string(String(move.rawValue)), "duration": .number(Double(milliseconds)),
+            ])
+        }
+        if ptzOperationAsNumber { return try await send(asNumber: true) }
+        do {
+            try await send(asNumber: false)
+        } catch let error as ImouError where error.code == "OP1003" {
+            try await send(asNumber: true)
+            ptzTakesNumbers()
+        }
+    }
+
+    /// `controlLocationPTZ`: `h` and `v` from -1 to 1, `z` from 0 (widest) to 1 (addendum, section 1.2).
+    func locatePTZ(_ deviceID: String, channel: String, h: Double, v: Double, z: Double) async throws {
+        _ = try await call("controlLocationPTZ", ["deviceId": .string(deviceID), "channelId": .string(channel), "h": .number(h), "v": .number(v), "z": .number(z)])
+    }
+
+    /// `getCollection`'s preset names. Its answer's shape is not documented (addendum, section 1.2): the names of a list of
+    /// objects under any key of `data`, or strings, read leniently.
+    func presets(_ deviceID: String, channel: String) async throws -> [String] {
+        let data = try await call("getCollection", ["deviceId": .string(deviceID), "channelId": .string(channel)])
+        let lists = data.arrayValue.map { [$0] } ?? (data.objectValue ?? [:]).sorted { $0.key < $1.key }.compactMap(\.value.arrayValue)
+        var names: [String] = []
+        for item in lists.joined().prefix(64) {
+            guard let name = (item.stringValue ?? item["name"]?.stringValue ?? item["collectionName"]?.stringValue)?.trimmingCharacters(in: .whitespaces),
+                  !name.isEmpty, name.count <= 64, !names.contains(name) else { continue }
+            names.append(name)
+        }
+        return names
+    }
+
+    func goToPreset(_ deviceID: String, channel: String, name: String) async throws {
+        _ = try await call("turnCollection", ["deviceId": .string(deviceID), "channelId": .string(channel), "name": .string(name)])
+    }
+
+    /// `deviceSdcardStatus`, then `deviceStorage` for a card that is `normal` (addendum, section 4.1).
+    func storage(_ deviceID: String) async throws -> ImouStorage {
+        let text = try await call("deviceSdcardStatus", ["deviceId": .string(deviceID)], polling: true)["status"]?.stringValue ?? ""
+        var storage = ImouStorage(status: text.isEmpty ? "none" : String(text.prefix(32)))
+        guard text == "normal" else { return storage }
+        let data = try await call("deviceStorage", ["deviceId": .string(deviceID)], polling: true)
+        if let total = data["totalBytes"]?.doubleValue, total > 0, let used = data["usedBytes"]?.doubleValue, used >= 0 {
+            storage.usedPercent = Int(saturating: (used * 100 / total).rounded(.down), in: 0...100)
+        }
+        return storage
+    }
+
+    func restart(_ deviceID: String) async throws {
+        _ = try await call("restartDevice", ["deviceId": .string(deviceID)])
     }
 
     /// The camera's own motion detection (section 4.5): `modifyDeviceAlarmStatus`, else `setDeviceCameraStatus`
@@ -226,11 +395,17 @@ extension ImouCloud {
         }
     }
 
-    /// `getAlarmMessage`'s newest alarm, from a day ago to a day ahead (local time).
-    func latestAlarm(_ deviceID: String, channel: String, now: Date) async throws -> ImouAlarm? {
+    /// `getAlarmMessage`'s times: local time, to the second.
+    private static let alarmTimeFormat = {
         let format = DateFormatter()
         format.locale = Locale(identifier: "en_US_POSIX")
         format.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return format
+    }()
+
+    /// `getAlarmMessage`'s newest alarm, from a day ago to a day ahead (local time).
+    func latestAlarm(_ deviceID: String, channel: String, now: Date) async throws -> ImouAlarm? {
+        let format = Self.alarmTimeFormat
         let data = try await call("getAlarmMessage", [
             "deviceId": .string(deviceID), "channelId": .string(channel), "count": "10",
             "beginTime": .string(format.string(from: now.addingTimeInterval(-86_400))), "endTime": .string(format.string(from: now.addingTimeInterval(86_400))),

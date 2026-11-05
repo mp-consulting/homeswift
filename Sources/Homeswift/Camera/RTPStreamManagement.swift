@@ -379,6 +379,77 @@ final class RTPStreamManagement: @unchecked Sendable {
         }
     }
 
+    /// The address to announce for a stream: the connection's own (`local`), unless the controller connected through
+    /// another of this host's network addresses than the one the system sends to it from (a camera network routed to
+    /// the home's), when it is that one. A loopback connection, or an address that is not one of the host's, keeps
+    /// `local`.
+    static func announcedAddress(local: String, target: String, port: Int, version: IPAddressVersion,
+                                 hostAddresses: () -> Set<String> = RTPStreamManagement.hostAddresses) -> String {
+        guard !local.hasPrefix("127."), local != "::1", hostAddresses().contains(local),
+              let source = sourceAddress(toward: target, port: port, version: version), source != local, hostAddresses().contains(source) else { return local }
+        return source
+    }
+
+    /// This host's interface addresses.
+    static func hostAddresses() -> Set<String> {
+        Set(((try? System.enumerateDevices()) ?? []).compactMap { HAPConnection.plainAddress($0.address?.ipAddress) })
+    }
+
+    /// The local address the system sends from to `host` (a connected UDP socket's own address; nothing is sent), or nil.
+    static func sourceAddress(toward host: String, port: Int, version: IPAddressVersion) -> String? {
+        let family = version == .ipv6 ? AF_INET6 : AF_INET
+        #if canImport(Glibc)
+        let fd = socket(family, Int32(SOCK_DGRAM.rawValue), 0)
+        #else
+        let fd = socket(family, SOCK_DGRAM, 0)
+        #endif
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var storage = sockaddr_storage()
+        let length: socklen_t
+        if version == .ipv6 {
+            var address = sockaddr_in6()
+            address.sin6_family = sa_family_t(AF_INET6)
+            address.sin6_port = in_port_t(UInt16(clamping: max(port, 1)).bigEndian)
+            guard inet_pton(AF_INET6, host.split(separator: "%").first.map(String.init) ?? host, &address.sin6_addr) == 1 else { return nil }
+            withUnsafeMutableBytes(of: &storage) { $0.copyMemory(from: withUnsafeBytes(of: address) { $0 }) }
+            length = socklen_t(MemoryLayout<sockaddr_in6>.size)
+        } else {
+            var address = sockaddr_in()
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(UInt16(clamping: max(port, 1)).bigEndian)
+            guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else { return nil }
+            withUnsafeMutableBytes(of: &storage) { $0.copyMemory(from: withUnsafeBytes(of: address) { $0 }) }
+            length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        }
+        let connected = withUnsafePointer(to: &storage) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, length) }
+        }
+        guard connected == 0 else { return nil }
+        var local = sockaddr_storage()
+        var localLength = socklen_t(MemoryLayout<sockaddr_storage>.size)
+        let named = withUnsafeMutablePointer(to: &local) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &localLength) }
+        }
+        guard named == 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        let text: UnsafePointer<CChar>? = withUnsafePointer(to: &local) { pointer in
+            if version == .ipv6 {
+                return pointer.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { address in
+                    var raw = address.pointee.sin6_addr
+                    return inet_ntop(AF_INET6, &raw, &buffer, socklen_t(buffer.count))
+                }
+            }
+            return pointer.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { address in
+                var raw = address.pointee.sin_addr
+                return inet_ntop(AF_INET, &raw, &buffer, socklen_t(buffer.count))
+            }
+        }
+        guard text != nil else { return nil }
+        let result = String(cString: buffer)
+        return result.isEmpty || result == "0.0.0.0" || result == "::" ? nil : result
+    }
+
     func generateSetupEndpointResponse(context: HAPRequestContext, identifier: String, request: PrepareStreamRequest, response: PrepareStreamResponse) throws {
         if !videoOnly, response.audio == nil { throw ResponseError.missingAudio }
         let audio = response.audio
@@ -391,9 +462,12 @@ final class RTPStreamManagement: @unchecked Sendable {
             addressVersion = HAPRequestContext.isIPv6(override) ? .ipv6 : .ipv4
             address = override
         } else {
-            // HAP-NodeJS: an address of the version the controller asked for, on the connection's interface.
+            // HAP-NodeJS: an address of the version the controller asked for, on the connection's interface. Unlike it, the
+            // address the streams will leave from when the host has another route to the controller: a host on two
+            // networks (a camera network routed to the home's) may have the controller connect to one address and send
+            // RTP from the other, and the controller drops packets from an address it was not given.
             guard let local = context.localAddress(for: addressVersion) else { throw ResponseError.noLocalAddress(addressVersion) }
-            address = local
+            address = Self.announcedAddress(local: local, target: request.targetAddress, port: request.video.port, version: addressVersion)
         }
         guard addressVersion == request.addressVersion else {
             throw ResponseError.addressVersionMismatch(expected: request.addressVersion, got: addressVersion)

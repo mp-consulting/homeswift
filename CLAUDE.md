@@ -105,6 +105,10 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
 - Never log setup codes, keys, tokens or pair-setup/pair-verify bodies (the trace log prints only their size).
 - Aids and iids must stay stable for an accessory `id` (keys `aid/serviceUUID/subtype[/charUUID]`), or HomeKit
   loses rooms, scenes and automations. Plugins prefix ids with their platform name (`ElgatoKeyLights:<MAC>`).
+- Accessory Information's Serial Number is the device's MAC address whenever the plugin can learn it (from the device,
+  its hub or its cloud, never by waking a battery device for it), as uppercase hex without separators; a device shown as
+  several accessories (a camera's lenses) adds `-<part>` to each (`105A952FAD17-wide`, `-tele`). Without a MAC, the
+  device's own serial, else its id. The serial is display only: changing it never changes the accessory `id`.
 - Run one demo or bridge per identity at a time: two processes advertising the same device ID make the Home
   app drop pairings.
 - Tests use `MemoryStorage` and `advertise: false`; they never touch `~/.homeswift`. They wait for what they check

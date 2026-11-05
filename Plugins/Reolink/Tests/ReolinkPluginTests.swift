@@ -16,6 +16,10 @@ final class ReolinkEnvironment: Sendable {
     let scale: Double
     /// An ARP table that does not answer: discovery stops looking after a moment.
     let silentNetwork: Bool
+    /// Sets up each fake Baichuan camera before the plugin talks to it (its answers, its login reply).
+    let prepareCamera = NIOLockedValueBox<(@Sendable (FakeBaichuanCamera) -> Void)?>(nil)
+    /// A standalone battery camera answers Baichuan in place of `FakeBaichuanCamera` when set.
+    let batteryCamera = NIOLockedValueBox<FakeBatteryCamera?>(nil)
     private let plugins = NIOLockedValueBox<[ReolinkPlugin]>([])
 
     init(_ answers: [String: @Sendable (JSONValue?) -> JSONValue] = cameraAnswers(), baichuanFails: Bool = false, scale: Double = 0.002, silentNetwork: Bool = false) {
@@ -32,11 +36,17 @@ final class ReolinkEnvironment: Sendable {
         let http = http
         let cameras = cameras
         let fails = baichuanFails
+        let prepare = prepareCamera
+        let battery = batteryCamera
         var dependencies = ReolinkPlugin.Dependencies()
         dependencies.makeSender = { _ in http }
+        dependencies.localAddress = { _ in "192.168.1.10" }
+        dependencies.webhookBindHost = "127.0.0.1"
         dependencies.connectBaichuan = { _, _, _ in
+            if let camera = battery.withLockedValue({ $0 }) { return try camera.connect() }
             if fails { throw HTTPClientError.cannotConnect(host: "camera", port: 9000, code: 61, reason: "refused") }
             let camera = FakeBaichuanCamera()
+            prepare.withLockedValue { $0 }?(camera)
             cameras.withLockedValue { $0.append(camera) }
             return camera
         }
@@ -263,6 +273,7 @@ final class ReolinkEnvironment: Sendable {
         #expect(await eventually { await environment.plugin?.camera(host: "192.168.1.20", channel: 0) != nil })
         let camera = try #require(await environment.plugin?.camera(host: "192.168.1.20", channel: 0))
         let siren = try #require(camera.services.siren)
+        #expect(siren.characteristic(.on).isSecurityControl)
         try await siren.characteristic(.on).writeHandler(for: .bool(true))?(.bool(true))
         #expect(environment.camera?.sirenBodies.first?.contains("<onOff>1</onOff>") == true)
         siren.characteristic(.on).value = true
@@ -275,7 +286,8 @@ final class ReolinkEnvironment: Sendable {
         environment.http.state.withLockedValue { $0.unreachable = true }
         let host = try await environment.start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { environment.http.requestCount == 0 && environment.cameras.withLockedValue { $0.isEmpty } })
+        // Baichuan is asked first (privacy mode), HTTP does not answer: no accessory.
+        #expect(await eventually { environment.http.requestCount == 0 && environment.camera?.commands.contains(31) == true })
         try await Task.sleep(for: .milliseconds(50))
         #expect(environment.accessory(host, Self.cameraID) == nil)
         // It comes back.
@@ -340,29 +352,54 @@ final class ReolinkEnvironment: Sendable {
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
         let devices = try await plugin.discover()
-        #expect(devices.map(\.deviceID) == ["address:"])
+        #expect(devices.isEmpty)
     }
 
-    @Test func setupProbesAndKeepsTheLogin() async throws {
+    @Test func setupListsTheNetworksDevices() async throws {
         let environment = ReolinkEnvironment()
         let host = try await environment.start([:])
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
         let devices = try await plugin.discover()
-        #expect(devices.contains { $0.deviceID == "address:192.168.1.40" && $0.authorization == .accountLogin })
-        #expect(!devices.contains { $0.address == "192.168.1.41" })
-        let byAddress = try #require(devices.first { $0.deviceID == "address:" })
-        let first = try await plugin.authorize(SetupRequest(target: .device(byAddress)))
-        guard case .ask(let prompt, _) = first else { Issue.record("no prompt"); return }
+        #expect(devices.map(\.deviceID) == ["address:192.168.1.40"])
+        let found = try #require(devices.first)
+        #expect(found.authorization == .accountLogin && found.address == "192.168.1.40" && !found.isSetUp)
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .device(found))) else { Issue.record("no prompt"); return }
+        #expect(prompt.fields.map(\.key) == ["username", "password"])
+    }
+
+    @Test func addByAddressProbesTheHostAndKeysItByItsDeviceId() async throws {
+        #expect(ReolinkPlugin.addsDevicesByAddress)
+        let environment = ReolinkEnvironment()
+        let host = try await environment.start([:])
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
         #expect(prompt.fields.map(\.key) == ["host", "username", "password"])
+        #expect(prompt.fields[1].value == "admin" && prompt.fields[2].kind == .secret)
         await #expect(throws: SetupError.self) {
-            try await plugin.authorize(SetupRequest(target: .device(byAddress), answers: ["host": "192.168.1.20", "username": "admin", "password": "wrong"]))
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.168.1.20", "username": "admin", "password": "wrong"]))
         }
-        let done = try await plugin.authorize(SetupRequest(target: .device(byAddress), answers: ["host": "192.168.1.20", "username": "admin", "password": "secret"]))
+        let done = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.168.1.20", "username": "admin", "password": "secret"]))
         guard case .done(let outcome) = done else { Issue.record("not done"); return }
         #expect(outcome.deviceID == "95270000ABCDEFGH")
-        #expect(outcome.settings["host"] == "192.168.1.20")
-        #expect(outcome.credentials?["password"] == "secret")
+        #expect(outcome.settings == ["host": "192.168.1.20"])
+        #expect(outcome.credentials?["username"] == "admin" && outcome.credentials?["password"] == "secret")
+
+        environment.http.state.withLockedValue { $0.unreachable = true }
+        await #expect(throws: SetupError("No Reolink device answered at 192.168.1.60. A battery camera on its own may be asleep: wake it (press its button, or move in front of it) and try again.")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.168.1.60", "password": "secret"]))
+        }
+        environment.http.state.withLockedValue { $0.unreachable = false }
+
+        // Kept as the bridge keeps it, the host is reached from its Accessory Settings under its Device Id.
+        try await plugin.context.saveCredentials(try #require(outcome.credentials), for: "95270000ABCDEFGH")
+        await host.stop()
+        let again = try await environment.start(["_accessories": ["95270000ABCDEFGH": ["host": "192.168.1.20"]]])
+        defer { Task { await again.stop() } }
+        #expect(await eventually { await environment.plugin?.camera(host: "192.168.1.20", channel: 0) != nil })
+        let rediscovered = try await #require(environment.plugin).discover()
+        #expect(rediscovered.contains { $0.deviceID == "95270000ABCDEFGH" && $0.isSetUp })
+        #expect(!rediscovered.contains { $0.deviceID.hasPrefix(ReolinkPlugin.byAddressID) && $0.address == "192.168.1.20" })
     }
 
     @Test func canonicalSettingsMoveCameraOptions() async throws {

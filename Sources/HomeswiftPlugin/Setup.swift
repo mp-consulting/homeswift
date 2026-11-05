@@ -4,7 +4,9 @@ import HomeswiftAI
 // Setup (GLOSSARY.md, "Setup"): a plugin finds its devices (`discover`), says what each one asks before the bridge
 // may talk to it (an `AuthorizationMethod`), and answers the steps of that Authorization (`authorize`). The bridge
 // holds each Setup in progress (a Setup Session), keeps what an Authorization gives in the vault, and writes the
-// settings it brings, so the web UI and MCP clients set up every plugin's devices the same way.
+// settings it brings, so the web UI and MCP clients set up every plugin's devices the same way. A plugin whose devices
+// cannot be found (reached by address on the LAN) also takes one a person names (`addsDevicesByAddress`, Add by address):
+// its Setup is a device step whose target is `.newDevice`, the device's Device Id told by the outcome.
 
 /// The kinds of Authorization the bridge knows how to ask a person or an agent for.
 public enum AuthorizationMethod: String, Sendable, Codable, CaseIterable {
@@ -266,10 +268,11 @@ public struct SetupOutcome: Sendable {
     /// the vault, in the instance's namespace, and hands it back with `PluginContext.credentials`. Never in config.json.
     public var credentials: JSONValue?
     /// Settings that are not secret, merged into the plugin's block for an account (a hub's host), or into the device's
-    /// Accessory Settings for a device. A null takes the key out of the block: a key the credentials now hold.
+    /// Accessory Settings for a device. A null takes the key out: a key the credentials now hold, a port back to its default.
     public var settings: [String: JSONValue]
     /// The device's Device Id when the Authorization is what tells it (a TV's MAC, read once paired): the credentials and
-    /// the settings go under it rather than under the one discovery gave.
+    /// the settings go under it rather than under the one discovery gave. Required to finish Add by address
+    /// (`SetupRequest.Target.newDevice`): the device the plugin probed at the address.
     public var deviceID: String?
 
     public init(credentials: JSONValue? = nil, settings: [String: JSONValue] = [:], deviceID: String? = nil) {
@@ -313,6 +316,12 @@ public struct SetupRequest: Sendable {
         /// The plugin instance's account.
         case account
         case device(DiscoveredDevice)
+        /// Add by address (GLOSSARY.md): a device discovery cannot find, which the person names (a host, a port, a
+        /// user and password). Sent only to a plugin whose `addsDevicesByAddress` is true. The first step asks for its
+        /// address; the plugin probes it and answers `.done` with the `SetupOutcome.deviceID` it read (required), the
+        /// Accessory Settings that reach it (its host) and its credentials, or throws `SetupError` ("Nothing answered at
+        /// 192.0.2.50").
+        case newDevice
     }
 
     public let target: Target
@@ -353,11 +362,14 @@ public struct SetupRequest: Sendable {
         guard target == .account else { throw SetupError(reason) }
     }
 
-    /// The device this step is for; throws for an account step.
+    /// The device this step is for; throws for an account step and for Add by address.
     public func device() throws -> DiscoveredDevice {
         guard case .device(let device) = target else { throw SetupError("This step is for a device") }
         return device
     }
+
+    /// Add by address: a device the person names, not one discovery found (`Target.newDevice`).
+    public var isNewDevice: Bool { target == .newDevice }
 }
 
 /// A step that did not work, for people: the Setup stays where it was, so they can answer again.

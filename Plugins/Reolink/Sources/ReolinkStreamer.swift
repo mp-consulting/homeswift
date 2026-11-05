@@ -13,7 +13,19 @@ struct ReolinkCameraSource: Sendable {
     var stream: @Sendable (_ sub: Bool) async -> (url: String, stream: ReolinkStream)?
     /// Whether the channel is a battery camera asleep now (its snapshot would wake it).
     var asleep: @Sendable () async -> Bool
+    /// A standalone battery camera's live media (ReolinkBattery.md 5.3), read from a pipe rather than `stream`'s URL.
+    var media: (@Sendable (_ sub: Bool, _ audio: Bool) async throws -> ReolinkMediaFeed)? = nil
+    /// A standalone battery camera's snapshot policy (ReolinkBattery.md 7), in place of the cache here.
+    var snapshotRequest: (@Sendable (SnapshotRequest) async throws -> Data)? = nil
 }
+
+/// Live media remuxed to MPEG-TS for FFmpeg's standard input, and how to stop it.
+struct ReolinkMediaFeed: Sendable {
+    var stream: ReolinkStream
+    var data: AsyncThrowingStream<Data, any Error>
+    var stop: @Sendable () async -> Void
+}
+
 
 /// Snapshots and live streams of one channel (6.2, 4.6, 4.7): snapshots from `Snap` with a 10-second cache and an FFmpeg
 /// frame as the fallback; live video by an FFmpeg reading RTSP over TCP and sending SRTP to the controller, the sub
@@ -32,6 +44,12 @@ actor ReolinkStreamer: CameraStreamingDelegate {
     private let log: Logger
     private let timing: ReolinkTiming
     private weak var controller: CameraController?
+    /// HomeKit's return audio, for a camera published with two-way audio (ReolinkTalk.md 8), and its decoder.
+    private let returnAudio: ReturnAudioOptions?
+    private let returnAudioFFmpeg: RTSPCameraFFmpeg?
+    private let returnAudioDecoder: ReturnAudioDecoderFactory?
+    /// HomeKit's Speaker, for return audio.
+    private var speaker = (muted: false, volume: 100)
 
     private struct Prepared {
         var address: String
@@ -54,6 +72,10 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         var watcher: Task<Void, Never>?
         var ports: [Int]
         var started = false
+        /// A pipe's writer and its feed's stop (a battery camera).
+        var writer: Task<Void, Never>?
+        var feedStop: (@Sendable () async -> Void)?
+        var receiver: ReturnAudioReceiver?
     }
 
     private var prepared: [String: Prepared] = [:]
@@ -62,8 +84,13 @@ actor ReolinkStreamer: CameraStreamingDelegate {
     private var lastImage: (data: Data, at: ContinuousClock.Instant)?
     private var fetching: Task<Data, any Error>?
 
+    /// `returnAudio` receives HomeKit's return audio while someone talks: given only for a camera published with two-way
+    /// audio. `returnAudioDecoder` replaces FFmpeg's decoding in tests.
     init(name: String, options: ReolinkPlugin.CameraOptions, ffmpeg: FfmpegOptions, ports: RtpPortAllocator, source: ReolinkCameraSource, log: Logger,
-         timing: ReolinkTiming) {
+         timing: ReolinkTiming, returnAudio: ReturnAudioOptions? = nil, codecs: FfmpegCodecs? = nil, returnAudioDecoder: ReturnAudioDecoderFactory? = nil) {
+        self.returnAudio = returnAudio
+        returnAudioFFmpeg = returnAudio == nil ? nil : RTSPCameraFFmpeg(options: ffmpeg, codecs: codecs)
+        self.returnAudioDecoder = returnAudioDecoder
         self.name = name
         self.options = options
         self.ffmpeg = ffmpeg
@@ -73,13 +100,29 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         self.timing = timing
     }
 
-    func attach(_ controller: CameraController) { self.controller = controller }
+    func attach(_ controller: CameraController) {
+        self.controller = controller
+        guard returnAudio != nil, let service = controller.speakerService else { return }
+        speaker = (service.characteristic(.mute).value.boolValue ?? false, service.characteristic(.volume).value.intValue ?? 100)
+        controller.onSpeakerChange { [weak self] muted, volume in
+            Task { await self?.speakerChanged(muted: muted, volume: volume) }
+        }
+    }
+
+    private func speakerChanged(muted: Bool, volume: Int) async {
+        speaker = (muted, volume)
+        for session in sessions.values { await session.receiver?.speakerChanged(muted: muted, volume: volume) }
+    }
 
     var sessionCount: Int { sessions.count }
+
+    /// The return audio of a stream, for tests.
+    func returnAudioReceiver(_ sessionID: String) -> ReturnAudioReceiver? { sessions[sessionID]?.receiver }
 
     // MARK: Snapshots
 
     func handleSnapshotRequest(_ request: SnapshotRequest) async throws -> Data {
+        if let custom = source.snapshotRequest { return try await custom(request) }
         let now = ContinuousClock.now
         if let lastImage, now - lastImage.at < timing.seconds(Self.snapshotCache) { return lastImage.data }
         if let lastImage, now - lastImage.at < timing.seconds(Self.sleepingSnapshotCache), await source.asleep() { return lastImage.data }
@@ -167,12 +210,14 @@ actor ReolinkStreamer: CameraStreamingDelegate {
     /// encoded as HomeKit asked, the audio when on, both as SRTP.
     static func arguments(url: String, stream: ReolinkStream, request: StartStreamRequest, target: (address: String, isIPv6: Bool, videoPort: Int, videoKey: Data,
                                                                                                    videoSSRC: UInt32, audioPort: Int, audioKey: Data, audioSSRC: UInt32),
-                          options: ReolinkPlugin.CameraOptions, ffmpeg: FfmpegOptions, audioEncoder: [String]?) -> [String] {
+                          options: ReolinkPlugin.CameraOptions, ffmpeg: FfmpegOptions, audioEncoder: [String]?, inputOptions: [String] = []) -> [String] {
         let video = request.video
         let host = target.isIPv6 ? "[\(target.address)]" : target.address
         var arguments = ["-hide_banner", "-nostats", "-fflags", "+discardcorrupt", "-err_detect", "ignore_err"]
+        arguments += inputOptions
         if url.hasPrefix("rtsp") { arguments += ["-rtsp_transport", "tcp"] }
-        arguments += ["-i", url, "-map", "0:v:0"]
+        arguments += ["-i", url]
+        arguments += ["-map", "0:v:0"]
         if options.vcodec == "copy", stream.codec == "h264" {
             arguments += ["-codec:v", "copy"]
         } else {
@@ -195,8 +240,15 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         return arguments
     }
 
+    /// The input options of a battery camera's pipe, `pipe:0` (ReolinkBattery.md 5.3).
+    static let pipeInputOptions = ["-f", "mpegts", "-probesize", "1000000", "-analyzeduration", "1000000"]
+
     private func startStream(_ request: StartStreamRequest) async throws {
         guard let entry = prepared.removeValue(forKey: request.sessionID) else { throw HAPStatusError(.serviceCommunicationFailure) }
+        if let media = source.media {
+            try await startMediaStream(request, entry: entry, media: media)
+            return
+        }
         let subInfo = await source.stream(true)
         let sub = subInfo.map { Self.usesSub(options.stream, request: request.video, sub: $0.stream) } ?? false
         guard let chosen = sub ? subInfo : await source.stream(false) else {
@@ -209,12 +261,45 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         let arguments = Self.arguments(url: chosen.url, stream: chosen.stream, request: request, target: target, options: options, ffmpeg: ffmpeg,
                                        audioEncoder: audioEncoder)
         log.info("\(name): streaming \(request.video.width) x \(request.video.height) at \(request.video.fps) fps from the \(sub ? "sub" : "main") stream (\(chosen.stream.codec)).")
+        try await launch(arguments, request: request, entry: entry, feed: nil)
+    }
+
+    /// A battery camera's stream: its media through a pipe, the sub stream for sizes up to 640 x 360 (5.1).
+    private func startMediaStream(_ request: StartStreamRequest, entry: Prepared,
+                                  media: @Sendable (_ sub: Bool, _ audio: Bool) async throws -> ReolinkMediaFeed) async throws {
+        let sub = Self.usesSub(options.stream, request: request.video, sub: ReolinkStream(codec: "h264", width: 640, height: 360, fps: 15))
+        let feed: ReolinkMediaFeed
+        do {
+            feed = try await media(sub, options.audio)
+        } catch {
+            release(entry)
+            log.error("\(name): the camera sent no video (asleep or out of reach): \(error)")
+            throw HAPStatusError(.serviceCommunicationFailure)
+        }
+        let audioEncoder: [String]? = options.audio ? ffmpeg.audioEncoder().nonEmptyArray : nil
+        let target = (entry.address, entry.isIPv6, entry.videoPort, entry.videoKey, entry.videoSSRC, entry.audioPort, entry.audioKey, entry.audioSSRC)
+        let arguments = Self.arguments(url: "pipe:0", stream: feed.stream, request: request, target: target, options: options, ffmpeg: ffmpeg,
+                                       audioEncoder: audioEncoder, inputOptions: Self.pipeInputOptions)
+        log.info("\(name): streaming \(request.video.width) x \(request.video.height) at \(request.video.fps) fps from the \(sub ? "sub" : "main") stream (\(feed.stream.codec), over Baichuan).")
+        try await launch(arguments, request: request, entry: entry, feed: feed)
+    }
+
+    private func launch(_ arguments: [String], request: StartStreamRequest, entry: Prepared, feed: ReolinkMediaFeed?) async throws {
         nextToken += 1
         let token = nextToken
         let sessionID = request.sessionID
         let process = FfmpegProcess(ffmpeg, commandLineArgs: arguments)
-        sessions[sessionID] = Session(token: token, process: process, ports: [entry.videoReturnPort, entry.audioReturnPort])
+        sessions[sessionID] = Session(token: token, process: process, ports: [entry.videoReturnPort, entry.audioReturnPort], feedStop: feed?.stop)
         process.start()
+        if let feed {
+            sessions[sessionID]?.writer = Task { [weak self] in
+                do {
+                    for try await chunk in feed.data { try await process.writeStdin(chunk) }
+                } catch {}
+                guard !Task.isCancelled else { return }
+                await self?.feedEnded(sessionID: sessionID, token: token)
+            }
+        }
         let watched = process.onceExit { [weak self] status in
             Task { await self?.exited(status, sessionID: sessionID, token: token) }
         }
@@ -229,6 +314,9 @@ actor ReolinkStreamer: CameraStreamingDelegate {
             let interval = Double(request.video.rtcpInterval > 0 ? request.video.rtcpInterval : 0.5)
             let timeout = timing.seconds(min(max(interval * 5, 30), 300))
             sessions[sessionID]?.watcher = watch(socket, timeout: timeout, sessionID: sessionID, token: token)
+            if let returnAudio, let returnAudioFFmpeg {
+                await startReturnAudio(returnAudio, ffmpeg: returnAudioFFmpeg, request: request, entry: entry, token: token)
+            }
             try await process.waitForStart()
         } catch {
             log.error("\(name): the stream did not start: \(error)")
@@ -236,6 +324,21 @@ actor ReolinkStreamer: CameraStreamingDelegate {
             throw HAPStatusError(.serviceCommunicationFailure)
         }
         sessions[sessionID]?.started = true
+    }
+
+    /// The receiver of a stream's return audio, on its audio return port; a bind failure leaves the video alone.
+    private func startReturnAudio(_ returnAudio: ReturnAudioOptions, ffmpeg: RTSPCameraFFmpeg, request: StartStreamRequest, entry: Prepared, token: Int) async {
+        let sessionID = request.sessionID
+        let receiver = ReturnAudioReceiver(
+            stream: .init(sessionID: sessionID, returnPort: entry.audioReturnPort, ipFamily: entry.isIPv6 ? .ipv6 : .ipv4, controllerAddress: entry.address,
+                          srtp: entry.audioKey, payloadType: request.audio.pt),
+            ports: ports, ffmpeg: ffmpeg, options: returnAudio, name: name, log: log, debug: options.debug, muted: speaker.muted, volume: speaker.volume,
+            timeScale: timing.scale, decoder: returnAudioDecoder)
+        guard sessions[sessionID]?.token == token else { return }
+        sessions[sessionID]?.receiver = receiver
+        await receiver.start()
+        // A stop while it bound has closed the session without it.
+        if sessions[sessionID]?.token != token { await receiver.close() }
     }
 
     /// HomeKit's RTCP on the video return port: a silence of `timeout` ends the stream.
@@ -264,6 +367,14 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         await stopStream(sessionID, token: token)
     }
 
+    /// The camera's media ended (it slept, the connection dropped): the stream ends.
+    private func feedEnded(sessionID: String, token: Int) async {
+        guard let session = sessions[sessionID], session.token == token else { return }
+        log.info("\(name): the camera's video ended.")
+        await stopStream(sessionID, token: token)
+        if session.started { controller?.forceStopStreamingSession(sessionID) }
+    }
+
     private func exited(_ status: FfmpegExitStatus, sessionID: String, token: Int) async {
         guard let session = sessions[sessionID], session.token == token else { return }
         log.error("\(name): FFmpeg ended (code \(status.exitCode.map(String.init) ?? "none"), signal \(status.signal ?? "none")).")
@@ -276,8 +387,11 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         guard let session = sessions[sessionID], token == nil || session.token == token else { return }
         sessions.removeValue(forKey: sessionID)
         session.watcher?.cancel()
+        session.writer?.cancel()
+        await session.receiver?.close()
         await session.socket?.close()
         session.process.stop()
+        await session.feedStop?()
         for port in session.ports { ports.cancel(port) }
         log.debug("\(name): stream stopped.")
     }

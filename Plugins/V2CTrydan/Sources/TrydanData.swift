@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 
 /// The charger's IEC 61851 state, `ChargeState` (docs/clean-room/V2CTrydan.md, 3.3). `3` is not defined.
@@ -60,6 +61,21 @@ enum DynamicPowerMode: Int, Sendable, CaseIterable {
         }
     }
 
+    /// The modes offered as switches: all but the deprecated one.
+    static let switchable: [DynamicPowerMode] = [.timed, .solarMin, .solarOnly, .solarGrid, .stop]
+
+    /// A mode switch's name.
+    var switchName: String {
+        switch self {
+        case .timed: "Timed power"
+        case .timedOff: "Timed power off"
+        case .solarMin: "Solar and minimum"
+        case .solarOnly: "Solar only"
+        case .solarGrid: "Solar and grid"
+        case .stop: "Stop mode"
+        }
+    }
+
 
     init?(name: String) {
         let lowered = name.trimmingCharacters(in: .whitespaces).lowercased()
@@ -101,6 +117,8 @@ struct TrydanReport: Sendable, Equatable {
     var lightLED: Int?
     var logoLED: Int?
     var firmwareVersion: String?
+    /// Wi-Fi signal quality, its scale undocumented (V2C's sample: 3).
+    var signalStatus: Int?
     /// Measured current per phase, amperes, for the phases the firmware reports.
     var intensityMeasures: [Double] = []
     /// Measured voltage per phase, volts.
@@ -166,6 +184,7 @@ struct TrydanReport: Sendable, Equatable {
         lightLED = optionalInt("LightLED")
         logoLED = optionalInt("LogoLED")
         firmwareVersion = text("FirmwareVersion")?.nonEmpty
+        signalStatus = optionalInt("SignalStatus")
         // The sheet's sample spells the first phase `IntensityMeasure_L1y`: both are read.
         intensityMeasures = [["IntensityMeasure_L1", "IntensityMeasure_L1y"], ["IntensityMeasure_L2"], ["IntensityMeasure_L3"]].compactMap { keys in
             keys.lazy.compactMap { object[$0].flatMap(Self.number) }.first
@@ -370,7 +389,7 @@ enum TrydanIdentity {
         }
         if let port {
             guard let number = Int(port), (1...65535).contains(number) else { return nil }
-            return number == 80 ? String(name) : "\(name):\(number)"
+            return hostHeader(host: String(name), port: number, defaultPort: 80)
         }
         return String(name)
     }

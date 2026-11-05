@@ -662,6 +662,9 @@ label > input, label > select { margin-top: 5px; }
 .page-head .tools { display: flex; gap: var(--space-10); align-items: center; }
 /* The title and its line keep room to read (the tools go under them when both do not fit), not a word a line. */
 .page-head > .who { flex: 1 1 280px; }
+/* The Accessories page's toolbar on a line of its own under the title, whatever its width: the wall's and the graph's
+   then sit in the same place. */
+.page-head > .tools:has(> .accessories-toolbar) { flex-basis: 100%; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 /* A count beside its title, the tools at the end: spread out, the count floated alone in the middle. */
 .section-head > h2 + .muted:not(:last-child) { margin-right: auto; }
@@ -2590,6 +2593,16 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 @media (hover: hover) and (pointer: fine) { a.link:hover { text-decoration: underline; } }
 .subnav { margin: -6px 0 var(--space-18); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
+/* The Accessories page's tabs and, after them, the view's Full screen button: a 40px circle, as round buttons are at phone width. */
+.accessories-views { display: flex; align-items: center; gap: var(--space-10); margin: -6px 0 var(--space-18); }
+.accessories-views > .subnav { margin: 0; min-width: 0; }
+/* Add accessories at the row's end; an icon alone at phone width, as in a toolbar. */
+.accessories-views .accessories-add { margin-left: auto; flex: none; min-height: 40px; }
+@media (max-width: 600px) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
+@media (max-width: 600px) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
+.accessories-views .accessory-options-button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0;
+  color: var(--muted); background: var(--material-thin); box-shadow: none; }
+.accessories-views .accessory-options-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 /* Where tabs are scrolled out of sight, the row fades: the way it scrolls, without a bar. */
 .subnav[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
 .subnav[data-more-start] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
@@ -3895,6 +3908,10 @@ select option:disabled { color: var(--muted); }
 .setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
 @media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+/* Add by address, under the devices: a device the plugin does not find, named by its address. */
+.setup-add-address { display: flex; padding-top: var(--space-12); }
+/* A field a Setup step may leave empty (a port with its default): said beside its name. */
+.field-optional { margin-left: var(--space-6); font-weight: var(--weight-regular); }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }
 /* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
@@ -4149,11 +4166,6 @@ select option:disabled { color: var(--muted); }
 .overview-card .who { min-width: 0; }
 .overview-card .chart-head .muted { font-size: var(--text-sm); }
 .overview-frame { position: relative; }
-/* Search and filters over the graph, as the Accessories page's toolbar; the count says what is left. */
-.overview-count { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.overview-count:empty { display: none; }
-.overview-toolbar .clear-filters { margin-left: auto; }
-.overview-toolbar .clear-filters:disabled { visibility: hidden; }
 .overview-empty { padding: 56px var(--space-16); text-align: center; }
 .overview-graph { display: block; width: 100%; max-width: 820px; height: auto; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
 .overview-graph:focus { outline: none; }
@@ -4171,7 +4183,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .dot .node-disc { stroke-width: 1.4; }
 .overview-graph :is(.node, .dot):hover .node-disc { stroke-width: 2.8; }
 .overview-graph :is(.node, .dot):focus-visible .node-disc { stroke: var(--accent); stroke-width: 2.8; }
-.overview-graph .bridge-node.unpaired .node-disc { stroke: var(--warn); }
+.overview-graph :is(.bridge-node, .dot).unpaired .node-disc { stroke: var(--warn); }
 .overview-graph :is(.bridge-node.built-in, .plugin-node.paused) .node-disc { stroke-dasharray: 3 2; }
 .overview-graph .dot.unavailable .node-disc { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
 .overview-graph .dot.unavailable svg { opacity: 0.4; }
@@ -4556,6 +4568,8 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 .wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
+/* Leave full screen, to the options' left: one button's width and a gap further in. */
+.wall-full-exit { top: max(var(--space-16), env(safe-area-inset-top)); right: calc(max(var(--space-16), env(safe-area-inset-right)) + 44px + var(--space-8)); }
 .wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
 /* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */
@@ -4702,6 +4716,10 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 .settings-foot a, .form-foot a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
 @media (hover: hover) and (pointer: fine) { .settings-foot a:hover, .form-foot a:hover { text-decoration: underline; } }
+/* "Edit config.json" in the foot's sentence opens the block as JSON under it. */
+.settings-foot .help > button.link { display: inline-flex; vertical-align: baseline; min-height: 0; padding: 0; font: inherit; font-weight: var(--weight-medium); }
+.settings-foot .block-json { margin-top: var(--space-12); }
+.settings-foot .block-json .settings-bar { margin-top: var(--space-10); }
 /* A long block name in the breadcrumb is cut, not pushed past a phone's edge (its page's title has it whole). */
 .breadcrumb ol { min-width: 0; }
 .breadcrumb li { max-width: 100%; }

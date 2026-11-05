@@ -58,6 +58,8 @@ actor AccessController {
     private(set) var connected = false
     private var mqtt: AccessMQTT?
     private var removalQueue: [String: ContinuousClock.Instant] = [:]
+    /// The `sync` passes made: tests wait for the one a bootstrap's event brings.
+    private(set) var syncs = 0
     private var unsupported: Set<String> = []
     private var mqttPublishTelemetry = false
     private var tasks: [Task<Void, Never>] = []
@@ -218,6 +220,7 @@ actor AccessController {
 
     /// Adds new devices, updates the known ones, removes those that left (`discoverAndSyncAccessories`).
     func sync() async {
+        defer { syncs += 1 }
         guard !stopped, await api.bootstrap != nil else { return }
         let apiName = await api.name
         name = settings.name ?? apiName

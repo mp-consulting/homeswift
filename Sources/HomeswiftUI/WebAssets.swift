@@ -1268,10 +1268,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function overviewModel(status, plugins, accessories, filter = null, matter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
+    // An accessory on a HomeKit server of its own (a camera, a television) is shown as what it is, with its category's icon.
     const tops = bridges.map((bridge) => ({
-      kind: bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge, count: bridge.accessories ?? 0,
-      sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}) }));
+      kind: bridge.external ? "external" : bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge,
+      count: bridge.accessories ?? 0, sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}),
+      accessory: bridge.external ? accessories.find((accessory) => accessory.name === bridge.name) : undefined,
+      icon: bridge.external ? deviceIcon(accessories.find((accessory) => accessory.name === bridge.name)?.category) : undefined }));
     const topByName = new Map(tops.map((top) => [top.name, top]));
+    // The HomeKit servers of an accessory of its own (a camera), by name: the plugin that publishes it shows it, with the
+    // server's pairing, port and Device ID on its card.
+    const externals = new Map(bridges.filter((bridge) => bridge.external).map((bridge) => [bridge.name, bridge]));
+    const shown = new Set();
     const entries = plugins?.platforms ?? [];
     const claimed = new Set();
     let pluginCount = 0, pausedCount = 0, colorIndex = 0;
@@ -1301,6 +1308,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const key = `${block.platform}|${bridgeName}`;
       let leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
       claimed.add(key);
+      // Its accessories of their own, under the first of its blocks.
+      if (!claimed.has(`${block.platform}|external`)) {
+        claimed.add(`${block.platform}|external`);
+        for (const accessory of accessories) {
+          const server = externals.get(accessory.bridge);
+          if (accessory.platform !== block.platform || !server) continue;
+          shown.add(server.name);
+          leaves.push({ ...accessory, server });
+        }
+      }
       if (filter) {
         leaves = leaves.filter(filter.keeps);
         if (!leaves.length) continue;
@@ -1310,8 +1327,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pausedCount += paused ? 1 : 0;
       parent.children.push(branchOf({ name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, color }, leaves));
     }
+    // A server whose accessory hangs from its plugin is not a node of its own.
+    tops.splice(0, tops.length, ...tops.filter((top) => top.kind !== "external" || !shown.has(top.name)));
     for (const top of tops) top.color = "var(--muted)";
-    if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
+    // A filter keeps the nodes with something it matches: a bridge's plugins, or the accessory of its own no plugin shows.
+    if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length || (top.accessory && filter.keeps(top.accessory))));
     // A plugin's accessories grouped by device type: one group per run of the same category (the leaves are sorted by it).
     const groupsOf = (plugin) => {
       const groups = [];
@@ -1470,14 +1490,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       document.documentElement.classList.add("wall-full", "graph-full");
       app().show(main, card);
     } else {
-      app().show(main, app().pageHead(t("Accessories"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")), tabs, card);
+      // The wall's head, word for word: the same title, line and toolbar place, so nothing moves between the two views.
+      const { status, accessories } = model.source;
+      const shown = accessories.filter((accessory) => !accessory.hidden);
+      const servers = new Set(shown.map((accessory) => accessory.bridge)).size || (status.bridges ?? []).length;
+      const line = !shown.length ? ""
+        : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: shown.length })
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: shown.length, servers });
+      // Full screen and Add accessories after the tabs, as on the wall.
+      if (card.fullScreenButton) tabs.append(card.fullScreenButton);
+      if (app().isAdmin() && accessories.length) tabs.append(el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus",
+        "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }));
+      app().show(main, app().pageHead(t("Accessories"), line, card.toolbar), tabs, card);
     }
   }
   /// In or out of the graph's full screen: the browser's too, where it can.
   function setGraphFullScreen(on) {
     if (on) document.documentElement.requestFullscreen?.().catch(() => {});
     else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    app().navigate(`/accessories/graph${on ? "?full=1" : ""}`, { replace: true });
+    // The search and filters stay.
+    const next = new URLSearchParams(location.search);
+    if (on) next.set("full", "1"); else next.delete("full");
+    app().navigate(`/accessories/graph${next.size ? `?${next}` : ""}`, { replace: true });
   }
 
   /// What a detail card shows: a name and icon (or the app's icon), a status, facts, and readings; an accessory's
@@ -1497,6 +1531,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return { name: accessory.name, icon: accessoryIcon(accessory), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts, actions,
       media: camera ? () => HomeswiftWidgets.cameraView(accessory) : () => el("div", { class: "detail-widget" }, HomeswiftWidgets.card(accessory, { size: "large" })),
       sections: HomeswiftWidgets.valueSections(accessory) };
+  }
+  /// An accessory's card; one on a HomeKit server of its own (a camera) adds that server's pairing, port and Device ID.
+  function leafDetails(accessory) {
+    const details = accessoryDetails(accessory), server = accessory.server;
+    if (!server) return details;
+    return { ...details, warn: server.paired === false || details.warn,
+      status: server.paired ? t("Paired · {count}", { count: server.controllers ?? 0 }) : t("Not paired"),
+      facts: [...details.facts, factRow("bridgeType", t("Accessory of its own")), factRow("port", server.port), factRow("deviceId", server.deviceId)] };
   }
   /// A card's fact: its label, its value, and a tooltip saying what it is.
   const factInfo = {
@@ -1526,9 +1568,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     update: [t("Update available"), t("Whether a newer homeswift release is out.")],
   };
   const factRow = (key, value) => { const [label, tip] = factInfo[key]; return [label, value, tip]; };
+  /// What a top node is: built in, a child bridge, an accessory of its own (a camera on its own HomeKit server), or a bridge.
+  function topType(top) {
+    if (top.kind === "system") return t("Built in");
+    if (top.kind === "external") return t("Accessory of its own");
+    return top.kind === "child" ? t("Child bridge") : t("Bridge");
+  }
   function bridgeDetails(top) {
     const bridge = top.raw;
-    const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
+    // An accessory of its own is that accessory (a camera's live picture first), with its HomeKit server's pairing,
+    // port and Device ID.
+    if (top.kind === "external" && top.accessory) return leafDetails({ ...top.accessory, server: bridge });
+    const type = topType(top);
     return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
@@ -1553,7 +1604,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
   const accessoryItems = (leaves) => leaves.map((one) => ({ icon: accessoryIcon(one), name: one.name, status: deviceStatus(one),
-    warn: Boolean(one.unavailable), details: () => accessoryDetails(one) }));
+    warn: Boolean(one.unavailable), details: () => leafDetails(one) }));
   /// A detail card's content: the head with the icon (a back button when `back` is given) and close, then its facts,
   /// its readings and its accessories, each of which `open` shows in the card's place.
   function detailNodes(data, close, { back = null, open = null } = {}) {
@@ -1791,10 +1842,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
     const { status, plugins, accessories: all, matter } = model.source;
-    const chosen = { from: null, bridges: new Set(), categories: new Set(), unavailable: false };
-    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
+    // Kept in the address with the wall's names (q, from, bridge, type, unavailable): a tab carries them to the wall and back.
+    const params = new URLSearchParams(location.search);
+    const chosen = { from: params.get("from"), bridges: new Set(params.getAll("bridge")), categories: new Set(params.getAll("type")),
+      unavailable: params.get("unavailable") === "1" };
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories"),
+      value: params.get("q") ?? "" });
+    const remember = () => {
+      const next = new URLSearchParams(location.search);
+      for (const key of ["q", "from", "bridge", "type", "unavailable"]) next.delete(key);
+      if (search.value.trim()) next.set("q", search.value.trim());
+      if (chosen.from) next.set("from", chosen.from);
+      for (const name of chosen.bridges) next.append("bridge", name);
+      for (const category of chosen.categories) next.append("type", category);
+      if (chosen.unavailable) next.set("unavailable", "1");
+      history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
+    };
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
-    const count = el("span", { class: "overview-count muted", role: "status" });
     const empty = el("div", { class: "overview-empty", hidden: true }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("search")),
       el("p", { class: "muted", text: t("No accessories match the current search.") }));
     frame.append(empty);
@@ -1807,6 +1871,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
+      remember();
       const filter = filterOf();
       const next = overviewModel(status, plugins, all, filter, matter);
       closeDetail();
@@ -1820,11 +1885,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       Object.assign(zoom, home());
       apply();
       svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-      // Each accessory once: the Matter block's branches show again accessories a plugin has.
-      const shown = new Set(next.tops.flatMap((top) => top.children.flatMap((plugin) => plugin.leaves.map((leaf) => leaf.id)))).size;
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
-      count.textContent = filter ? tn("{n} accessory", "{n} accessories", shown, {}) : "";
       filters.classList.toggle("on", active() > 0);
       filters.replaceChildren(...[HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
       search.dispatchEvent(new Event("change")); // the Clear filters button's state
@@ -1835,7 +1897,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A menu choice: a toggle in `set`, with what it would leave.
     const choice = (set, value, label, icon) => ({ label, icon, count: matching({ [set]: new Set(chosen[set]).add(value) }), checked: chosen[set].has(value),
       checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
-    const bridgeNames = (status.bridges ?? []).map((bridge) => bridge.name);
+    // A server that is one accessory of its own (a camera) is that accessory, under its plugin: filtered by its type, as on the wall.
+    const bridgeNames = (status.bridges ?? []).filter((bridge) => !bridge.external).map((bridge) => bridge.name);
     const categories = [...new Set(all.map((one) => one.category))].sort((a, b) => categoryName(a).localeCompare(categoryName(b), locale));
     // The controllers some accessories mirror (Apple Home, through Wingman), as on the wall.
     const sources = [...new Set(all.map((one) => one.mirroredFrom).filter(Boolean))];
@@ -1846,13 +1909,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
         onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
-      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
+      ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: clear.disabled, onSelect: () => clear.click() },
     ]));
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setGraphFullScreen(true) }, HomeswiftCommon.icon("expand"));
-    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear, full ? null : fullScreenButton);
+    // Full screen goes beside the Wall and Graph tabs (`card.fullScreenButton`), as on the wall.
+    // The search and Filters alone, as on the wall: Clear filters is in the Filters menu (and full screen's panel).
+    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters);
     redraw();
 
     const controls = el("div", { class: "overview-zoom" },
@@ -1867,23 +1932,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Full screen: the graph and its zoom alone, the search and the filters in a panel from the one button left, and
     // that button and the zoom faded while nothing happens, as on the wall.
     const chrome = full ? graphFullScreenChrome(frame, search, filters, clear) : null;
-    return el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
+    // The search and filters go in the page's head, where the wall has its own (`card.toolbar`), so switching views
+    // leaves them in place; full screen keeps them in the card, for its panel.
+    const card = el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
       chrome,
       el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: t("Graph of the bridges, plugins and accessories") }),
         el("div", { class: "muted", text: t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.") }))),
-      toolbar, frame, controls, legend,
+      full ? toolbar : null, frame, controls, legend,
       el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), table));
+    card.toolbar = toolbar;
+    card.fullScreenButton = full ? null : fullScreenButton;
+    return card;
   }
 
-  /// The full-screen graph's chrome: the button that opens a panel with the search, the filters and Leave full screen;
+  /// The full-screen graph's chrome: Leave full screen, and the button that opens a panel with the search and the filters;
   /// Escape (or the browser's own) leaves; a touch, the mouse or a key wakes the chrome, which fades a few seconds later.
   function graphFullScreenChrome(frame, search, filters, clear) {
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Graph options"), "aria-haspopup": "dialog",
       title: t("Graph options"), onclick: () => app().openSheet((done) => el("div", { class: "wall-full-panel" },
         el("h2", { id: "graph-full-panel-title", text: t("Graph") }),
         search, el("div", { class: "actions graph-full-filters" }, filters, clear),
+        // Leaving is the button beside this panel's.
         el("div", { class: "actions" },
-          el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setGraphFullScreen(false); } }),
           el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
       "graph-full-panel-title", { returnFocus: optionsButton }) }, HomeswiftCommon.icon("sliders"));
     let sleepTimer = null;
@@ -1911,7 +1981,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     addEventListener("pointerdown", onPointer, { passive: true });
     if (document.fullscreenElement) document.addEventListener("fullscreenchange", onFullScreen);
     wake();
-    return el("div", { class: "wall-full-chrome" }, optionsButton);
+    // Leaving at hand, beside the options, as on the wall.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setGraphFullScreen(false) }, HomeswiftCommon.icon("collapse"));
+    return el("div", { class: "wall-full-chrome" }, exitButton, optionsButton);
   }
 
   /// The radial graph: homeswift at the origin, each bridge an icon on the first ring, each plugin one on the second, each
@@ -1958,8 +2031,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             card: () => groupDetails(group), zoom: { radius: (rings.group + rings.leaf) / 2, k: 2.8 } }));
           for (const accessory of group.leaves) {
             edges.push(link(group, accessory, "leaf", branch.color));
-            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: accessoryIcon(accessory),
-              tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => accessoryDetails(accessory) }));
+            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}${accessory.server?.paired === false ? " unpaired" : ""}`,
+              radius: disc.radius, icon: accessoryIcon(accessory),
+              tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => leafDetails(accessory) }));
           }
         }
       }
@@ -1975,7 +2049,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function overviewTable(model) {
     const rows = model.tops.flatMap((top) => [
       el("tr", { class: "overview-bridge" }, el("th", { scope: "row", text: top.name }),
-        el("td", { text: top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge") }),
+        el("td", { text: topType(top) }),
         el("td", { text: top.kind === "system" ? "" : top.sub }),
         el("td", { text: top.kind === "system" ? "" : top.paired ? t("Paired") : t("Not paired") })),
       ...top.children.map((plugin) => el("tr", { class: "overview-plugin" }, el("th", { scope: "row", text: plugin.name }),
@@ -4013,7 +4087,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /accessories?group=room|plugin&hidden=1&from=<source>: sections per room (once there are rooms) or per plugin; hidden
   // accessories only with hidden=1; only another controller's (Apple Home's, through Wingman) with from=.
   /// The Accessories page's views, as tabs: the wall and the graph.
-  const accessoryTabs = (current) => HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
+  /// Their search and filters are the address's, which a tab carries to the other view.
+  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "hidden"];
+  /// The tabs' row holds `extra` after them (the view's Full screen button), in the same place in both views.
+  const accessoryTabs = (current, ...extra) => {
+    const nav = HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
+    // At the click, before the router follows the link: the filters as they are now (a search typed since included).
+    nav.addEventListener("click", (event) => {
+      const link = event.target.closest("a");
+      if (!link) return;
+      const now = new URLSearchParams(location.search), kept = new URLSearchParams();
+      for (const [key, value] of now) if (accessoryFilterKeys.includes(key)) kept.append(key, value);
+      const url = new URL(link.href);
+      link.href = `${url.pathname}${kept.size ? `?${kept}` : ""}`;
+    }, true);
+    return el("div", { class: "accessories-views" }, nav, ...extra.filter(Boolean));
+  };
+  /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
+  const replaceQuery = (key, value) => {
+    const next = new URLSearchParams(location.search);
+    if (value) next.set(key, value); else next.delete(key);
+    history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
+  };
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
@@ -4032,7 +4127,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
     // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
-    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
+    // A server that is one accessory of its own (a camera, a television) is that accessory, filtered by its type, not a bridge.
+    const ownServer = (name) => {
+      const on = all.filter((accessory) => accessory.bridge === name);
+      return on.length === 1 && on[0].name === name;
+    };
+    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))].filter((name) => !ownServer(name));
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
     const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
@@ -4637,7 +4737,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       none.classList.toggle("hidden", shown > 0);
     }
-    search.addEventListener("input", filter);
+    search.value = params.get("q") ?? "";
+    search.addEventListener("input", () => { filter(); replaceQuery("q", search.value.trim()); });
     const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
     const setGrouping = (value) => { layout.grouping = value; save(); render(); };
     const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
@@ -4677,10 +4778,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
-      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
+      ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
+        replaceQuery("q", "");
         if (activeFilters) {
           const next = new URLSearchParams(location.search);
           for (const key of ["from", "hidden", "unavailable", "bridge", "type"]) next.delete(key);
@@ -4743,15 +4845,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const now = Math.round(content.scrollLeft / Math.max(1, content.clientWidth));
         if (now !== page) { page = now; mark(); }
       } : null;
-      chrome.replaceChildren(optionsButton,
+      chrome.replaceChildren(exitButton, optionsButton,
         ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
       mark();
       if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
       wake();
       chrome.go = go;
     }
-    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping, the
-    // filters and Leave full screen, opened by the one button left on the wall.
+    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping and
+    // the filters, opened by the options button; Leave full screen is the button beside it.
     const openToolbar = () => openSheet((done) => el("div", { class: "wall-full-panel" },
       el("h2", { id: "wall-full-panel-title", text: t("Accessories") }),
       search,
@@ -4759,12 +4861,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("button", { type: "button", actionIcon: icon, class: layout.grouping === value ? "primary" : "", "aria-pressed": String(layout.grouping === value), text: label,
           onclick: () => { page = 0; setGrouping(value); done(); } }))),
       filters,
+      // Leaving is the button beside this panel's.
       el("div", { class: "actions" },
-        el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setFullScreen(false); } }),
         el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
     "wall-full-panel-title", { returnFocus: optionsButton });
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Accessory options"), "aria-haspopup": "dialog",
       title: t("Accessory options"), onclick: openToolbar }, HomeswiftCommon.icon("sliders"));
+    // Leaving at hand, beside the options.
+    const exitButton = el("button", { type: "button", class: "wall-full-button wall-full-exit", "aria-label": t("Leave full screen"), title: t("Leave full screen"),
+      onclick: () => setFullScreen(false) }, HomeswiftCommon.icon("collapse"));
     // A search from the panel changes which pages there are.
     search.addEventListener("input", () => { if (fullScreen) fullScreenChrome(); });
     // The chrome wakes on a touch, the mouse or a key, and fades after a few quiet seconds.
@@ -4805,8 +4910,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null, addButton)),
-      accessoryTabs(""),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
+      accessoryTabs("", accessories.length ? fullScreenButton : null, addButton),
       note,
       accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
         !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
@@ -5757,6 +5862,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // Its Add button says it as a sentence does: "Address" in lower case, a name in capitals (ECU, UniFi, TV) kept.
+        const inSentence = (text) => text.replace(/(?<![\p{L}\p{N}])\p{Lu}\p{Ll}*(?![\p{L}\p{N}])/gu, (word) => word.toLowerCase());
         // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
         const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
         const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
@@ -5834,7 +5941,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: inSentence(noun) }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       if (type === "string" && property["x-schema-form"]?.type === "menu" && property["x-schema-form"].source) {
@@ -7204,7 +7311,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -9194,6 +9301,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
     // Full screen: a frame with its corners pulled out, top right and bottom left.
     expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
+    // Leaving full screen: expand's corners turned inward.
+    collapse: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M16.5 10.5h-3v-3M7.5 13.5h3v3"/>',
     // The web UI: a browser window with a page of tiles in it.
     browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
     selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
@@ -9325,6 +9434,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     "logo-hue": "M20.672 9.6c-2.043 0-3.505 1.386-3.682 3.416h-.664c-.247 0-.395.144-.395.384 0 .24.148.384.395.384h.661c.152 2.09 1.652 3.423 3.915 3.423.944 0 1.685-.144 2.332-.453.158-.075.337-.217.292-.471a.334.334 0 0 0-.15-.242c-.104-.065-.25-.072-.422-.02a7.93 7.93 0 0 0-.352.12c-.414.146-.771.273-1.599.273-1.75 0-2.908-1.023-2.952-2.605v-.025h5.444c.313 0 .492-.164.505-.463v-.058C23.994 9.865 21.452 9.6 20.672 9.6zm2.376 3.416h-5l.004-.035c.121-1.58 1.161-2.601 2.649-2.601 1.134 0 2.347.685 2.347 2.606zM9.542 10.221c0-.335-.195-.534-.52-.534s-.52.2-.52.534v2.795h1.04zm4.29 3.817c0 1.324-.948 2.361-2.16 2.361-1.433 0-2.13-.763-2.13-2.333v-.282h-1.04v.34c0 2.046.965 3.083 2.868 3.083 1.12 0 1.943-.486 2.443-1.445l.02-.036v.861c0 .334.193.534.519.534.325 0 .52-.2.52-.534v-2.803h-1.04zm.52-4.351c-.326 0-.52.2-.52.534v2.795h1.04v-2.795c0-.335-.195-.534-.52-.534zM3.645 9.6c-1.66 0-2.31 1.072-2.471 1.4l-.135.278V7.355c0-.347-.199-.562-.52-.562-.32 0-.519.215-.519.562v5.661h1.039v-.015c0-1.249.72-2.592 2.304-2.592 1.29 0 2.001.828 2.001 2.332v.275h1.04v-.246c0-2.044-.973-3.17-2.739-3.17zM0 16.558c0 .347.199.563.52.563.32 0 .519-.216.519-.563v-2.774H0zm5.344 0c0 .347.2.563.52.563s.52-.216.52-.563v-2.774h-1.04z",
     "logo-lg": "M14.522 14.078h3.27v1.33h-4.847v-6.83h1.577v5.5zm6.74-1.274h1.284v1.195c-.236.09-.698.18-1.137.18-1.42 0-1.893-.721-1.893-2.186 0-1.398.45-2.221 1.869-2.221.791 0 1.24.248 1.612.722l.982-.903c-.6-.855-1.646-1.114-2.629-1.114-2.208 0-3.368 1.205-3.368 3.504 0 2.288 1.047 3.528 3.358 3.528 1.06 0 2.096-.27 2.66-.665V11.53h-2.739v1.274zM5.291 6.709a5.29 5.29 0 1 1 0 10.582 5.291 5.291 0 1 1 0-10.582m3.16 8.457a4.445 4.445 0 0 0 1.31-3.161v-.242l-.22.001H6.596v.494h2.662l-.001.015a3.985 3.985 0 0 1-3.965 3.708 3.95 3.95 0 0 1-2.811-1.165 3.952 3.952 0 0 1-1.164-2.811c0-1.061.414-2.059 1.164-2.81a3.951 3.951 0 0 1 2.81-1.164l.252.003v-.495l-.251-.003a4.475 4.475 0 0 0-4.47 4.469c0 1.194.465 2.316 1.309 3.161a4.444 4.444 0 0 0 3.16 1.31 4.444 4.444 0 0 0 3.162-1.31m-2.91-1.297V9.644H5.04v4.72h1.556v-.495H5.543zm-1.265-3.552a.676.676 0 1 0-.675.674.676.676 0 0 0 .675-.674",
     "logo-ubiquiti": "M23.1627 0h-1.4882v1.4882h1.4882zm-5.2072 10.4226V7.4409l.0007.001h2.9755v2.9762h2.9756v.9433c0 1.0906-.0927 2.3827-.306 3.3973-.1194.5672-.3004 1.1308-.5127 1.672-.2175.5537-.468 1.0841-.7408 1.5595a11.6795 11.6795 0 0 1-1.2456 1.7762l-.0253.0294-.0417.0488c-.1148.1347-.2283.2679-.3531.398a11.7612 11.7612 0 0 1-.4494.4492c-1.9046 1.8343-4.3861 2.98-6.9808 3.243-.3122.032-.939.0652-1.2519.0652-.3139-.001-.9397-.0331-1.252-.0651-2.5946-.263-5.0761-1.4097-6.9806-3.243a11.75 11.75 0 0 1-.4495-.4494c-.131-.1356-.249-.2748-.3683-.4154l-.0006-.0004-.0512-.0603a11.6576 11.6576 0 0 1-1.2456-1.7762c-.2727-.4763-.5233-1.0058-.7408-1.5595-.2123-.5414-.3933-1.1048-.5128-1.6718C.1854 13.743.0927 12.452.0927 11.3616V.1864h5.9518v10.2362s0 .7847.0099 1.0415l.0022.0599v.0004c.0127.332.0247.6575.0594.9812.098.919.3014 1.7913.7203 2.5288.1213.213.2443.42.3915.616.8953 1.1939 2.2577 2.0901 3.9573 2.3398.2022.0294.6108.0552.8149.0552.204 0 .6125-.0258.8149-.0552 1.6996-.2497 3.062-1.146 3.9573-2.3398.148-.196.2701-.403.3914-.616.419-.7375.6224-1.6095.7204-2.5288.0346-.3243.047-.6503.0594-.9831l.0022-.0584c.0099-.2568.0099-1.0415.0099-1.0415zm.7427-8.19h2.2326v2.2319h2.9764v2.9764h-2.9764V4.4654h-2.2326V2.2328Z",
+    // Tapo's mark (a house with its door cut out), not in Simple Icons: traced from the app's icon, one colour as the others.
+    "logo-tapo": "M10.9.95Q12 .2 13.1.95L20.76 6.13Q24 8.42 24 11.8v10.51Q24 23.8 22.52 23.8h-5.4V13.68q0-1.21-.94-1.95L12 8.83l-4.18 2.9q-1.08.74-1.08 1.95V23.8H1.48Q0 23.8 0 22.31V11.8q0-3.38 3.24-5.67Z",
     "logo-ecoflow": "M2.0 8.0h9.62v1.58H2.0zM2.0 11.21h9.62v1.58H2.0zM2.0 14.42h9.62v1.58H2.0zM12.57 8.0h9.43v1.58H12.57zM12.57 11.21h9.43v1.58H12.57zM12.57 11.21h1.58v4.79H12.57z",
     "logo-elgato": "m13.8818 8.3964.0261.0196 9.9494 5.7172c-.4884 2.729-1.9196 5.2223-4.0384 7.0253A11.9262 11.9262 0 0 1 12.097 24c-3.1925 0-6.1939-1.2477-8.4527-3.5144C1.3868 18.2188.1427 15.2044.1427 12c0-3.2042 1.244-6.2187 3.5015-8.4854C5.9019 1.248 8.9032 0 12.097 0c2.4394 0 4.7847.7333 6.783 2.1187 1.9526 1.354 3.4466 3.2357 4.3227 5.4422.1112.2829.2149.5736.3051.8657l-2.1255 1.2359a9.4924 9.4924 0 0 0-.2619-.8694c-1.354-3.8303-4.9813-6.4048-9.0237-6.4048C6.8171 2.3883 2.522 6.7005 2.522 12c0 5.2995 4.295 9.6115 9.5748 9.6115 2.052 0 4.0084-.6442 5.6596-1.8647 1.6172-1.1955 2.8036-2.8337 3.4309-4.7364l.0065-.0419L9.5906 8.3048v7.2256l4.0004-2.3138 2.06 1.1811-5.9962 3.4688-2.12-1.2126V7.1943l2.1174-1.2245 4.2309 2.4279-.0013-.0013",
     "logo-ikea": "M0 7.2v9.6h24V7.2H0zm12.002 9.12C5.308 16.32.48 14.36.48 12s4.831-4.32 11.522-4.32c6.69 0 11.518 1.96 11.518 4.32s-4.824 4.32-11.518 4.32zm-.225-6.062h4.176v.964c-.103-.047-.203-.047-.306-.047h-1.758v.46h1.689v.732h-1.689v.457h1.758c.103 0 .203 0 .306-.05v.967h-4.176c.052-.101.052-.198.052-.299V10.56c0-.101 0-.198-.052-.302zm-7.076.302v2.881c0 .101 0 .198.052.299H2.4c.052-.101.052-.198.052-.299V10.56c0-.101 0-.198-.052-.299h2.353c-.052.101-.052.198-.052.299zm6.447 2.881c.076.107.158.208.255.299H8.805c0-.101-.1-.306-.21-.467-.11-.161-.705-1.044-.705-1.044v1.212c0 .101 0 .198.052.299H5.778c.052-.101.052-.198.052-.299V10.56c0-.101 0-.198-.052-.299h2.164c-.052.101-.052.198-.052.299v1.259s.691-.88.85-1.085c.12-.154.268-.373.268-.473h2.257c-.155.101-.327.282-.468.45l-.826.984s1.039 1.548 1.177 1.746zm10.546-3.005a.178.178 0 0 0-.175-.178h-.21v.551h.083v-.195h.12l.11.195h.093l-.12-.212a.184.184 0 0 0 .099-.161zm-.189.101h-.114v-.191h.124c.055 0 .093.047.093.101 0 .053-.048.093-.103.09zm-.021-.457h-.031a.444.444 0 0 0-.437.457c0 .007 0 .017-.003.023a.466.466 0 0 0 .482.447.464.464 0 0 0 .458-.47v-.017a.454.454 0 0 0-.469-.44zm0 .823a.372.372 0 0 1-.375-.366v-.027a.357.357 0 0 1 .375-.339c.206 0 .375.165.375.366s-.168.366-.375.366zm-.877-.339c-.038-.101-.093-.198-.065-.299h-3.017c.014.101-.024.198-.062.299l-1.07 2.881a.852.852 0 0 1-.162.299h1.785c-.014-.101.024-.198.058-.299.034-.101.072-.198.072-.198l.021-.054h1.304l.021.05c.048.118.083.198.083.198.041.101.079.198.069.299h2.263a.837.837 0 0 1-.169-.299 690.277 690.277 0 0 0-1.131-2.877zm-2.167 1.893c.155-.42.289-.772.299-.806.028-.074.048-.151.062-.228.017.077.041.154.069.228l.316.806h-.746z",
@@ -13008,9 +13119,9 @@ HomeswiftI18n.add("es", {
   "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Cámaras, timbres, NVR y Home Hubs de Reolink: vídeo en directo, movimiento, personas y vehículos, focos",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmas, cámaras, timbres, carillones y Smart Lighting de Ring",
   "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "La sincronización, los modos, las entradas y las zonas de entretenimiento de una Sync Box HDMI",
-  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Cámaras y timbres IMOU en la red local, con el modo de privacidad y la sirena de la nube IMOU",
   "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luces, controladores LED y enchufes Wi-Fi Magic Home en la red local",
   "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Coches Renault, Dacia y Alpine: batería, carga, climatización, claxon y luces",
+  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Cámaras y timbres IMOU en la red local, con el modo de privacidad y la sirena de la nube IMOU",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Altavoces Sonos: reproducción, volumen y grupos, favoritos como entradas de TV, LED y alarmas",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya y Smart Life a través de la nube de Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, cerraduras, luces y mandos IR a través de la nube de SwitchBot",
@@ -13020,6 +13131,7 @@ HomeswiftI18n.add("es", {
   "Devices that speak MQTT, described topic by topic": "Dispositivos que hablan MQTT, descritos tema por tema",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Persianas, calefacción y sensores Somfy TaHoma, Connexoon y Cozytouch",
   "Tapo plugs and bulbs on the local network": "Enchufes y bombillas Tapo en la red local",
+  "Solar production from an APsystems ECU on the local network": "La producción solar de una ECU APsystems en la red local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Cargadores Trydan en la red local: carga, corriente, bloqueo y potencia",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luces, sensores, persianas, ventiladores y climatizadores de dispositivos ESPHome",
@@ -15594,13 +15706,25 @@ HomeswiftI18n.add("es", {
   "Could not look for its devices: {error}": "No se pudieron buscar sus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Ya está configurado. Vuelve a buscar ahora, o más tarde desde esta página.",
   "Find again": "Buscar de nuevo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
   "Set up again": "Configurar de nuevo",
   "Include": "Incluir",
   "Exclude": "Excluir",
   "Asking the plugin…": "Consultando al plugin…",
   "Account of {name}": "Cuenta de {name}",
   "{name} is set up.": "{name} está configurado.",
+  "Add by address…": "Añadir por dirección…",
+  "Optional": "Opcional",
+  "Add by address": "Añadir por dirección",
+  "No devices found yet: add one by its address.": "Aún no se encontraron dispositivos: añade uno por su dirección.",
+  "The device is added.": "El dispositivo está añadido.",
+  "{name} is added.": "{name} está añadido.",
+  "{platform} did not say which device it reached": "{platform} no indicó qué dispositivo alcanzó",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Introduce la dirección de la luz: su dirección IP o nombre de host, tal como lo muestra tu router o la app Control Center.",
+  "IP address or host name": "Dirección IP o nombre de host",
+  "No light answered at {address}": "Ninguna luz respondió en {address}",
+  "{host} is not an IP address or a host name": "{host} no es una dirección IP ni un nombre de host",
+  "The port must be between 1 and 65535": "El puerto debe estar entre 1 y 65535",
+  "The light at {host} did not give its MAC address": "La luz en {host} no dio su dirección MAC",
   "The account is set up.": "La cuenta está configurada.",
   "Its accessories reach the Home app in a moment.": "Sus accesorios llegan a la app Casa en un momento.",
   "Time is up. Try again when you are ready.": "Se acabó el tiempo. Inténtalo de nuevo cuando estés listo.",
@@ -15612,6 +15736,17 @@ HomeswiftI18n.add("es", {
   "Left out by its settings": "Excluido por sus ajustes",
   "Press the link button on the Hue Bridge.": "Pulsa el botón de enlace del puente Hue.",
   "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Ningún puente Hue respondió en la red. Introduce su dirección, en los ajustes de la app Hue.",
+  "Sign in with your MyRenault account.": "Inicia sesión con tu cuenta MyRenault.",
+  "Renault sends a code to confirm the sign-in. Which address should it go to?": "Renault envía un código para confirmar el inicio de sesión. ¿A qué dirección lo envía?",
+  "Enter the code Renault sent to {address}.": "Introduce el código que Renault envió a {address}.",
+  "Several of your Renault accounts have cars. Which one should the bridge use?": "Varias de tus cuentas Renault tienen coches. ¿Cuál debe usar el puente?",
+  "Pick a country": "Elige un país",
+  "Pick an address": "Elige una dirección",
+  "Renault sent no device id": "Renault no envió ningún identificador de dispositivo",
+  "Renault has no e-mail address for the code: add one in the MyRenault app": "Renault no tiene ninguna dirección de correo para el código: añade una en la app MyRenault",
+  "The code is wrong; check it and try again": "El código no es correcto; compruébalo y vuelve a intentarlo",
+  "Renault refused the e-mail or the password": "Renault rechazó el correo o la contraseña",
+  "This MyRenault account has no car yet: add it in the MyRenault app": "Esta cuenta MyRenault aún no tiene coche: añádelo en la app MyRenault",
   "Enter the PIN the TV shows.": "Introduce el PIN que muestra el televisor.",
   "Enter the device's encryption key: the key under api: encryption: in its ESPHome configuration.": "Introduzca la clave de cifrado del dispositivo: la clave bajo api: encryption: en su configuración de ESPHome.",
   "The device asks for its API password: the password under api: in its ESPHome configuration.": "El dispositivo pide su contraseña de API: la contraseña bajo api: en su configuración de ESPHome.",
@@ -15629,6 +15764,26 @@ HomeswiftI18n.add("es", {
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicia sesión con tu cuenta Tapo y activa la compatibilidad con servicios de terceros en la app Tapo.",
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Escribe la dirección del V2C Trydan: su dirección IP o nombre de host en la red local, en tu router o en la app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "No es una dirección: escribe una dirección IP o un nombre de host, como 192.168.1.50",
+  "No V2C Trydan answered at {address}": "Ningún V2C Trydan respondió en {address}",
+  "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Escribe la dirección del ECU: su dirección IP o nombre de host, en tu router, donde suele aparecer como un dispositivo Espressif.",
+  "No ECU answered at {address}": "Ningún ECU respondió en {address}",
+  "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Escribe la dirección de la cámara: su dirección IP o nombre de host en tu red, en tu router o en IMOU Life.",
+  "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Escribe el código de seguridad de la cámara, impreso en su etiqueta (o la contraseña que le diste en IMOU Life).",
+  "Safety code": "Código de seguridad",
+  "That is not an address.": "No es una dirección.",
+  "No camera answered at {address}": "Ninguna cámara respondió en {address}",
+  "The camera at {host} refused this safety code.": "La cámara en {host} rechazó este código de seguridad.",
+  "The camera at {host} did not give its serial number.": "La cámara en {host} no dio su número de serie.",
+  "Cannot reach the camera at {host}: is it on, and on this network? ({error})": "No se puede contactar con la cámara en {host}: ¿está encendida y en esta red? ({error})",
+  "Enter the Reolink device's address, from your router or the Reolink app, and a local user's name and password (an administrator, for floodlights, sirens and IR lights).": "Introduce la dirección del dispositivo Reolink, desde tu router o la app Reolink, y el nombre y la contraseña de un usuario local (un administrador, para los focos, las sirenas y las luces infrarrojas).",
+  "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).": "Inicia sesión en el dispositivo Reolink con un usuario local (un administrador, para los focos, las sirenas y las luces infrarrojas).",
+  "Enter the device's address": "Introduce la dirección del dispositivo",
+  "No Reolink device answered at {address}. A battery camera on its own may be asleep: wake it (press its button, or move in front of it) and try again.": "Ningún dispositivo Reolink respondió en {address}. Una cámara de batería independiente puede estar en reposo: despiértela (pulse su botón o pase por delante) y vuelva a intentarlo.",
+  "This battery camera talks only over Reolink's UDP protocol, which Homeswift does not support yet: add it to a Reolink Home Hub or NVR, then add that instead.": "Esta cámara de batería solo se comunica por el protocolo UDP de Reolink, que Homeswift aún no admite: añádala a un Home Hub o NVR de Reolink y añada este en su lugar.",
+  "The camera is bound to a Reolink cloud account (an account device), which refuses local sign-in: switch it back to a local device in the Reolink app.": "La cámara está vinculada a una cuenta en la nube de Reolink (un dispositivo de cuenta), que rechaza el inicio de sesión local: vuelva a convertirla en dispositivo local en la app Reolink.",
+  "The camera refused the user name or password.": "La cámara rechazó el nombre de usuario o la contraseña.",
+  "The device refused the user name or password ({detail})": "El dispositivo rechazó el nombre de usuario o la contraseña ({detail})",
+  "The device at {address} gave no serial number": "El dispositivo en {address} no dio ningún número de serie",
   "A Tapo device refused this email and password.": "Un dispositivo Tapo rechazó este correo y esta contraseña.",
   "Email": "Correo electrónico",
   "Code": "Código",
@@ -15736,6 +15891,7 @@ HomeswiftI18n.add("es", {
   "For {name} as a whole. A save reloads it once, its accessories kept.": "Para {name} en su conjunto. Al guardar se recarga una vez y conserva sus accesorios.",
   "Something this form does not show is in config.json, the one place to write it as it is.": "Lo que este formulario no muestra está en config.json, el único lugar donde escribirlo tal cual.",
   "Edit config.json": "Editar config.json",
+  "Hide config.json": "Ocultar config.json",
   "What {plugin} finds, set up or not.": "Lo que {plugin} encuentra, configurado o no.",
   "Not set up yet: its devices show once it is.": "Aún sin configurar: sus dispositivos aparecen cuando lo esté.",
   "Settings of {name}": "Ajustes de {name}",
@@ -15824,6 +15980,37 @@ HomeswiftI18n.add("es", {
   "Unmetered": "Sin medir",
   "What no meter measures on its own": "Lo que ningún medidor mide por separado",
   "The whole home": "Toda la casa",
+  "Range (km)": "Autonomía (km)",
+  "Time to Full (min)": "Tiempo hasta carga completa (min)",
+  "Session Energy (kWh)": "Energía de la sesión (kWh)",
+  "Available Energy (kWh)": "Energía disponible (kWh)",
+  "Charge Status": "Estado de la carga",
+  "Battery Updated": "Batería actualizada",
+  "Choose the Sync Box, or enter its address.": "Elige la Sync Box o introduce su dirección.",
+  "Choose a Sync Box, or enter its address.": "Elige una Sync Box o introduce su dirección.",
+  "Sync Box": "Sync Box",
+  "No Sync Box answered on the network. Enter its address, from the Hue Sync app's settings.": "Ninguna Sync Box ha respondido en la red. Introduce su dirección, desde los ajustes de la app Hue Sync.",
+  "The Sync Box did not answer at {address}. Enter its address, from the Hue Sync app's settings.": "La Sync Box no ha respondido en {address}. Introduce su dirección, desde los ajustes de la app Hue Sync.",
+  "Press and hold the button on the Sync Box until its light turns green.": "Mantén pulsado el botón de la Sync Box hasta que su luz se ponga verde.",
+  "{address} is not an address": "{address} no es una dirección",
+  "The Sync Box at {address} did not answer: {error}": "La Sync Box en {address} no ha respondido: {error}",
+  "The Sync Box at {address} took the registration but not its token: {error}": "La Sync Box en {address} aceptó el registro pero no su token: {error}",
+  "The Sync Box's lights and televisions need no setup of their own": "Las luces y televisores de la Sync Box no necesitan configuración propia",
+  "Sign in with the account of the vendor's app. For a gateway's local API, turn on Developer Mode in the TaHoma by Somfy app (tap the box's PIN seven times in its settings) and give the PIN and a token it generates.": "Inicia sesión con la cuenta de la app del fabricante. Para la API local de una pasarela, activa el Modo desarrollador en la app TaHoma by Somfy (toca siete veces el PIN de la caja en sus ajustes) e indica el PIN y un token que genere.",
+  "Service": "Servicio",
+  "E-mail, or the gateway's PIN or IP address": "Correo electrónico, o el PIN o la dirección IP de la pasarela",
+  "Password, or the Developer Mode token": "Contraseña, o el token del Modo desarrollador",
+  "Somfy TaHoma, Connexoon or Switch on the local network (Developer Mode)": "Somfy TaHoma, Connexoon o Switch en la red local (Modo desarrollador)",
+  "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma o Connexoon, Europa",
+  "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Oceanía",
+  "Somfy TaHoma, North America": "Somfy TaHoma, Norteamérica",
+  "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch de Atlantic, Thermor o Sauter",
+  "Give the gateway's PIN (1234-5678-9012) or its IP address.": "Indica el PIN de la pasarela (1234-5678-9012) o su dirección IP.",
+  "The gateway refused this token.": "La pasarela ha rechazado este token.",
+  "The account refused this user and password.": "La cuenta ha rechazado este usuario y esta contraseña.",
+  "Could not reach the gateway: {error}": "No se ha podido contactar con la pasarela: {error}",
+  "Could not reach Overkiz: {error}": "No se ha podido contactar con Overkiz: {error}",
+  "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "El inicio de sesión está en pausa durante {duration} tras el rechazo del servidor: comprueba las credenciales o espera a que se levante el bloqueo",
 });
 
 """#),
@@ -15896,9 +16083,9 @@ HomeswiftI18n.add("fr", {
   "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Caméras, sonnettes, NVR et Home Hubs Reolink : vidéo en direct, mouvements, personnes et véhicules, projecteurs",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, caméras, sonnettes, carillons et Smart Lighting de Ring",
   "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "La synchronisation, les modes, les entrées et les zones de divertissement d'une Sync Box HDMI",
-  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Caméras et sonnettes IMOU sur le réseau local, avec le mode confidentialité et la sirène du cloud IMOU",
   "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Lampes, contrôleurs LED et prises Wi-Fi Magic Home sur le réseau local",
   "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Voitures Renault, Dacia et Alpine : batterie, recharge, climatisation, klaxon et feux",
+  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Caméras et sonnettes IMOU sur le réseau local, avec le mode confidentialité et la sirène du cloud IMOU",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Enceintes Sonos : lecture, volume et groupes, favoris en entrées TV, voyants et alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Appareils Tuya et Smart Life via le cloud Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, rideaux, thermomètres, serrures, lampes et télécommandes IR via le cloud SwitchBot",
@@ -15908,6 +16095,7 @@ HomeswiftI18n.add("fr", {
   "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Volets, chauffages et capteurs Somfy TaHoma, Connexoon et Cozytouch",
   "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
+  "Solar production from an APsystems ECU on the local network": "La production solaire d’un ECU APsystems sur le réseau local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Bornes de recharge Trydan sur le réseau local : charge, courant, verrou et puissance",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interrupteurs, lumières, capteurs, volets, ventilateurs et climatiseurs des appareils ESPHome",
@@ -18482,13 +18670,25 @@ HomeswiftI18n.add("fr", {
   "Could not look for its devices: {error}": "Impossible de rechercher ses appareils : {error}",
   "It is set up. Look again now, or later from this page.": "Il est configuré. Relancez la recherche maintenant, ou plus tard depuis cette page.",
   "Find again": "Chercher à nouveau",
-  "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
   "Set up again": "Configurer à nouveau",
   "Include": "Inclure",
   "Exclude": "Exclure",
   "Asking the plugin…": "Le plugin répond…",
   "Account of {name}": "Compte de {name}",
   "{name} is set up.": "{name} est configuré.",
+  "Add by address…": "Ajouter par adresse…",
+  "Optional": "Facultatif",
+  "Add by address": "Ajouter par adresse",
+  "No devices found yet: add one by its address.": "Aucun appareil trouvé pour l’instant : ajoutez-en un par son adresse.",
+  "The device is added.": "L’appareil est ajouté.",
+  "{name} is added.": "{name} est ajouté.",
+  "{platform} did not say which device it reached": "{platform} n’a pas dit quel appareil il a joint",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Saisissez l’adresse de la lampe : son adresse IP ou son nom d’hôte, tel que votre routeur ou l’app Control Center l’affiche.",
+  "IP address or host name": "Adresse IP ou nom d’hôte",
+  "No light answered at {address}": "Aucune lampe n’a répondu à {address}",
+  "{host} is not an IP address or a host name": "{host} n’est ni une adresse IP ni un nom d’hôte",
+  "The port must be between 1 and 65535": "Le port doit être compris entre 1 et 65535",
+  "The light at {host} did not give its MAC address": "La lampe à {host} n’a pas donné son adresse MAC",
   "The account is set up.": "Le compte est configuré.",
   "Its accessories reach the Home app in a moment.": "Ses accessoires arrivent dans l'app Maison dans un instant.",
   "Time is up. Try again when you are ready.": "Le temps est écoulé. Réessayez quand vous êtes prêt.",
@@ -18500,6 +18700,17 @@ HomeswiftI18n.add("fr", {
   "Left out by its settings": "Exclu par ses réglages",
   "Press the link button on the Hue Bridge.": "Appuyez sur le bouton de liaison du pont Hue.",
   "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Aucun pont Hue n’a répondu sur le réseau. Saisissez son adresse, dans les réglages de l’app Hue.",
+  "Sign in with your MyRenault account.": "Connectez-vous avec votre compte MyRenault.",
+  "Renault sends a code to confirm the sign-in. Which address should it go to?": "Renault envoie un code pour confirmer la connexion. À quelle adresse l’envoyer ?",
+  "Enter the code Renault sent to {address}.": "Saisissez le code que Renault a envoyé à {address}.",
+  "Several of your Renault accounts have cars. Which one should the bridge use?": "Plusieurs de vos comptes Renault ont des voitures. Lequel le pont doit-il utiliser ?",
+  "Pick a country": "Choisissez un pays",
+  "Pick an address": "Choisissez une adresse",
+  "Renault sent no device id": "Renault n’a envoyé aucun identifiant d’appareil",
+  "Renault has no e-mail address for the code: add one in the MyRenault app": "Renault n’a aucune adresse e-mail pour le code : ajoutez-en une dans l’app MyRenault",
+  "The code is wrong; check it and try again": "Le code est erroné ; vérifiez-le et réessayez",
+  "Renault refused the e-mail or the password": "Renault a refusé l’e-mail ou le mot de passe",
+  "This MyRenault account has no car yet: add it in the MyRenault app": "Ce compte MyRenault n’a pas encore de voiture : ajoutez-la dans l’app MyRenault",
   "Enter the PIN the TV shows.": "Saisissez le code PIN affiché par le téléviseur.",
   "Enter the device's encryption key: the key under api: encryption: in its ESPHome configuration.": "Saisissez la clé de chiffrement de l'appareil : la clé sous api: encryption: dans sa configuration ESPHome.",
   "The device asks for its API password: the password under api: in its ESPHome configuration.": "L'appareil demande son mot de passe d'API : le mot de passe sous api: dans sa configuration ESPHome.",
@@ -18517,6 +18728,26 @@ HomeswiftI18n.add("fr", {
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Connectez-vous avec votre compte Tapo, et activez la compatibilité avec les services tiers dans l’app Tapo.",
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Saisissez l’adresse du V2C Trydan : son adresse IP ou son nom d’hôte sur le réseau local, dans votre routeur ou l’app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Ce n’est pas une adresse : saisissez une adresse IP ou un nom d’hôte, comme 192.168.1.50",
+  "No V2C Trydan answered at {address}": "Aucun V2C Trydan n’a répondu à {address}",
+  "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Saisissez l’adresse de l’ECU : son adresse IP ou son nom d’hôte, dans votre routeur, où il apparaît souvent comme un appareil Espressif.",
+  "No ECU answered at {address}": "Aucun ECU n’a répondu à {address}",
+  "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Saisissez l’adresse de la caméra : son adresse IP ou son nom d’hôte sur votre réseau, dans votre routeur ou IMOU Life.",
+  "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Saisissez le code de sécurité de la caméra, imprimé sur son étiquette (ou le mot de passe que vous lui avez donné dans IMOU Life).",
+  "Safety code": "Code de sécurité",
+  "That is not an address.": "Ce n’est pas une adresse.",
+  "No camera answered at {address}": "Aucune caméra n’a répondu à {address}",
+  "The camera at {host} refused this safety code.": "La caméra à {host} a refusé ce code de sécurité.",
+  "The camera at {host} did not give its serial number.": "La caméra à {host} n’a pas donné son numéro de série.",
+  "Cannot reach the camera at {host}: is it on, and on this network? ({error})": "Impossible de joindre la caméra à {host} : est-elle allumée, et sur ce réseau ? ({error})",
+  "Enter the Reolink device's address, from your router or the Reolink app, and a local user's name and password (an administrator, for floodlights, sirens and IR lights).": "Saisissez l’adresse de l’appareil Reolink, dans votre routeur ou l’app Reolink, et le nom et le mot de passe d’un utilisateur local (un administrateur, pour les projecteurs, les sirènes et les lumières infrarouges).",
+  "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).": "Connectez-vous à l’appareil Reolink avec un utilisateur local (un administrateur, pour les projecteurs, les sirènes et les lumières infrarouges).",
+  "Enter the device's address": "Saisissez l’adresse de l’appareil",
+  "No Reolink device answered at {address}. A battery camera on its own may be asleep: wake it (press its button, or move in front of it) and try again.": "Aucun appareil Reolink n’a répondu à {address}. Une caméra sur batterie autonome est peut-être en veille : réveillez-la (appuyez sur son bouton, ou passez devant) et réessayez.",
+  "This battery camera talks only over Reolink's UDP protocol, which Homeswift does not support yet: add it to a Reolink Home Hub or NVR, then add that instead.": "Cette caméra sur batterie ne communique que par le protocole UDP de Reolink, que Homeswift ne prend pas encore en charge : ajoutez-la à un Home Hub ou un NVR Reolink, puis ajoutez celui-ci à sa place.",
+  "The camera is bound to a Reolink cloud account (an account device), which refuses local sign-in: switch it back to a local device in the Reolink app.": "La caméra est liée à un compte cloud Reolink (un appareil de compte), qui refuse la connexion locale : repassez-la en appareil local dans l’app Reolink.",
+  "The camera refused the user name or password.": "La caméra a refusé le nom d’utilisateur ou le mot de passe.",
+  "The device refused the user name or password ({detail})": "L’appareil a refusé le nom d’utilisateur ou le mot de passe ({detail})",
+  "The device at {address} gave no serial number": "L’appareil à {address} n’a donné aucun numéro de série",
   "A Tapo device refused this email and password.": "Un appareil Tapo a refusé cet e-mail et ce mot de passe.",
   "Email": "E-mail",
   "Code": "Code",
@@ -18624,6 +18855,7 @@ HomeswiftI18n.add("fr", {
   "For {name} as a whole. A save reloads it once, its accessories kept.": "Pour {name} dans son ensemble. L'enregistrement le redémarre une fois, ses accessoires gardés.",
   "Something this form does not show is in config.json, the one place to write it as it is.": "Ce que ce formulaire ne montre pas est dans config.json, le seul endroit où l'écrire tel quel.",
   "Edit config.json": "Modifier config.json",
+  "Hide config.json": "Masquer config.json",
   "What {plugin} finds, set up or not.": "Ce que {plugin} trouve, configuré ou non.",
   "Not set up yet: its devices show once it is.": "Pas encore configuré : ses appareils apparaissent ensuite.",
   "Settings of {name}": "Réglages de {name}",
@@ -18712,6 +18944,37 @@ HomeswiftI18n.add("fr", {
   "Unmetered": "Non mesuré",
   "What no meter measures on its own": "Ce qu'aucun compteur ne mesure à part",
   "The whole home": "Toute la maison",
+  "Range (km)": "Autonomie (km)",
+  "Time to Full (min)": "Temps avant charge complète (min)",
+  "Session Energy (kWh)": "Énergie de la session (kWh)",
+  "Available Energy (kWh)": "Énergie disponible (kWh)",
+  "Charge Status": "État de la charge",
+  "Battery Updated": "Batterie mise à jour",
+  "Choose the Sync Box, or enter its address.": "Choisissez la Sync Box, ou saisissez son adresse.",
+  "Choose a Sync Box, or enter its address.": "Choisissez une Sync Box, ou saisissez son adresse.",
+  "Sync Box": "Sync Box",
+  "No Sync Box answered on the network. Enter its address, from the Hue Sync app's settings.": "Aucune Sync Box n’a répondu sur le réseau. Saisissez son adresse, depuis les réglages de l’app Hue Sync.",
+  "The Sync Box did not answer at {address}. Enter its address, from the Hue Sync app's settings.": "La Sync Box n’a pas répondu à {address}. Saisissez son adresse, depuis les réglages de l’app Hue Sync.",
+  "Press and hold the button on the Sync Box until its light turns green.": "Maintenez le bouton de la Sync Box enfoncé jusqu’à ce que son voyant devienne vert.",
+  "{address} is not an address": "{address} n’est pas une adresse",
+  "The Sync Box at {address} did not answer: {error}": "La Sync Box à {address} n’a pas répondu : {error}",
+  "The Sync Box at {address} took the registration but not its token: {error}": "La Sync Box à {address} a accepté l’enregistrement mais pas son jeton : {error}",
+  "The Sync Box's lights and televisions need no setup of their own": "Les lampes et téléviseurs de la Sync Box ne demandent pas de configuration à part",
+  "Sign in with the account of the vendor's app. For a gateway's local API, turn on Developer Mode in the TaHoma by Somfy app (tap the box's PIN seven times in its settings) and give the PIN and a token it generates.": "Connectez-vous avec le compte de l’app du fabricant. Pour l’API locale d’une passerelle, activez le Mode développeur dans l’app TaHoma by Somfy (touchez sept fois le PIN du boîtier dans ses réglages) et donnez le PIN et un jeton qu’elle génère.",
+  "Service": "Service",
+  "E-mail, or the gateway's PIN or IP address": "E-mail, ou le PIN ou l’adresse IP de la passerelle",
+  "Password, or the Developer Mode token": "Mot de passe, ou le jeton du Mode développeur",
+  "Somfy TaHoma, Connexoon or Switch on the local network (Developer Mode)": "Somfy TaHoma, Connexoon ou Switch sur le réseau local (Mode développeur)",
+  "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma ou Connexoon, Europe",
+  "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Océanie",
+  "Somfy TaHoma, North America": "Somfy TaHoma, Amérique du Nord",
+  "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch Atlantic, Thermor ou Sauter",
+  "Give the gateway's PIN (1234-5678-9012) or its IP address.": "Donnez le PIN de la passerelle (1234-5678-9012) ou son adresse IP.",
+  "The gateway refused this token.": "La passerelle a refusé ce jeton.",
+  "The account refused this user and password.": "Le compte a refusé cet utilisateur et ce mot de passe.",
+  "Could not reach the gateway: {error}": "Impossible de joindre la passerelle : {error}",
+  "Could not reach Overkiz: {error}": "Impossible de joindre Overkiz : {error}",
+  "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "La connexion est suspendue pendant {duration} après le refus du serveur : vérifiez les identifiants, ou attendez la levée du blocage",
 });
 
 """#),
@@ -18784,9 +19047,9 @@ HomeswiftI18n.add("pt", {
   "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Câmaras, campainhas, NVR e Home Hubs Reolink: vídeo em direto, movimento, pessoas e veículos, projetores",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
   "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "A sincronização, os modos, as entradas e as áreas de entretenimento de uma Sync Box HDMI",
-  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Câmaras e campainhas IMOU na rede local, com o modo de privacidade e a sirene da nuvem IMOU",
   "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luzes, controladores LED e tomadas Wi-Fi Magic Home na rede local",
   "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Carros Renault, Dacia e Alpine: bateria, carregamento, climatização, buzina e luzes",
+  "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Câmaras e campainhas IMOU na rede local, com o modo de privacidade e a sirene da nuvem IMOU",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Colunas Sonos: reprodução, volume e grupos, favoritos como entradas de TV, LED e alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya e Smart Life através da nuvem Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, fechaduras, luzes e comandos IV através da nuvem da SwitchBot",
@@ -18796,6 +19059,7 @@ HomeswiftI18n.add("pt", {
   "Devices that speak MQTT, described topic by topic": "Dispositivos que falam MQTT, descritos tópico a tópico",
   "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Estores, aquecimento e sensores Somfy TaHoma, Connexoon e Cozytouch",
   "Tapo plugs and bulbs on the local network": "Tomadas e lâmpadas Tapo na rede local",
+  "Solar production from an APsystems ECU on the local network": "A produção solar de uma ECU APsystems na rede local",
   "Trydan EV chargers on the local network: charging, current, lock and power": "Carregadores Trydan na rede local: carga, corrente, bloqueio e potência",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luzes, sensores, estores, ventoinhas e climatizadores de dispositivos ESPHome",
@@ -21370,13 +21634,25 @@ HomeswiftI18n.add("pt", {
   "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
   "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
-  "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
   "Include": "Incluir",
   "Exclude": "Excluir",
   "Asking the plugin…": "A consultar o plugin…",
   "Account of {name}": "Conta de {name}",
   "{name} is set up.": "{name} está configurado.",
+  "Add by address…": "Adicionar por endereço…",
+  "Optional": "Opcional",
+  "Add by address": "Adicionar por endereço",
+  "No devices found yet: add one by its address.": "Ainda não foram encontrados dispositivos: adicione um pelo seu endereço.",
+  "The device is added.": "O dispositivo foi adicionado.",
+  "{name} is added.": "{name} foi adicionado.",
+  "{platform} did not say which device it reached": "{platform} não indicou que dispositivo alcançou",
+  "Enter the address of the light: its IP address or host name, as your router or the Control Center app shows it.": "Introduza o endereço da luz: o seu endereço IP ou nome de anfitrião, tal como o router ou a app Control Center o mostra.",
+  "IP address or host name": "Endereço IP ou nome de anfitrião",
+  "No light answered at {address}": "Nenhuma luz respondeu em {address}",
+  "{host} is not an IP address or a host name": "{host} não é um endereço IP nem um nome de anfitrião",
+  "The port must be between 1 and 65535": "A porta tem de estar entre 1 e 65535",
+  "The light at {host} did not give its MAC address": "A luz em {host} não deu o seu endereço MAC",
   "The account is set up.": "A conta está configurada.",
   "Its accessories reach the Home app in a moment.": "Os seus acessórios chegam à app Casa num instante.",
   "Time is up. Try again when you are ready.": "O tempo acabou. Tente de novo quando estiver pronto.",
@@ -21388,6 +21664,17 @@ HomeswiftI18n.add("pt", {
   "Left out by its settings": "Excluído pelas suas definições",
   "Press the link button on the Hue Bridge.": "Prima o botão de ligação da ponte Hue.",
   "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Nenhuma ponte Hue respondeu na rede. Introduza o endereço, nas definições da app Hue.",
+  "Sign in with your MyRenault account.": "Inicie sessão com a sua conta MyRenault.",
+  "Renault sends a code to confirm the sign-in. Which address should it go to?": "A Renault envia um código para confirmar o início de sessão. Para que endereço o deve enviar?",
+  "Enter the code Renault sent to {address}.": "Introduza o código que a Renault enviou para {address}.",
+  "Several of your Renault accounts have cars. Which one should the bridge use?": "Várias das suas contas Renault têm carros. Qual deve a ponte usar?",
+  "Pick a country": "Escolha um país",
+  "Pick an address": "Escolha um endereço",
+  "Renault sent no device id": "A Renault não enviou nenhum identificador de dispositivo",
+  "Renault has no e-mail address for the code: add one in the MyRenault app": "A Renault não tem nenhum endereço de e-mail para o código: adicione um na app MyRenault",
+  "The code is wrong; check it and try again": "O código está errado; verifique-o e tente novamente",
+  "Renault refused the e-mail or the password": "A Renault recusou o e-mail ou a palavra-passe",
+  "This MyRenault account has no car yet: add it in the MyRenault app": "Esta conta MyRenault ainda não tem carro: adicione-o na app MyRenault",
   "Enter the PIN the TV shows.": "Introduza o PIN que o televisor mostra.",
   "Enter the device's encryption key: the key under api: encryption: in its ESPHome configuration.": "Introduza a chave de encriptação do dispositivo: a chave em api: encryption: na sua configuração ESPHome.",
   "The device asks for its API password: the password under api: in its ESPHome configuration.": "O dispositivo pede a sua palavra-passe da API: a palavra-passe em api: na sua configuração ESPHome.",
@@ -21405,6 +21692,26 @@ HomeswiftI18n.add("pt", {
   "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicie sessão com a sua conta Tapo e ative a compatibilidade com serviços de terceiros na app Tapo.",
   "Enter the address of the V2C Trydan: its IP address or host name on the local network, from your router or the V2C app.": "Introduza o endereço do V2C Trydan: o seu endereço IP ou nome de anfitrião na rede local, no seu router ou na app V2C.",
   "That is not an address: type an IP address or a host name, such as 192.168.1.50": "Não é um endereço: introduza um endereço IP ou um nome de anfitrião, como 192.168.1.50",
+  "No V2C Trydan answered at {address}": "Nenhum V2C Trydan respondeu em {address}",
+  "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Introduza o endereço do ECU: o seu endereço IP ou nome de anfitrião, no seu router, onde aparece muitas vezes como um dispositivo Espressif.",
+  "No ECU answered at {address}": "Nenhum ECU respondeu em {address}",
+  "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Introduza o endereço da câmara: o seu endereço IP ou nome de anfitrião na sua rede, no seu router ou na IMOU Life.",
+  "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Introduza o código de segurança da câmara, impresso na sua etiqueta (ou a palavra-passe que lhe deu na IMOU Life).",
+  "Safety code": "Código de segurança",
+  "That is not an address.": "Não é um endereço.",
+  "No camera answered at {address}": "Nenhuma câmara respondeu em {address}",
+  "The camera at {host} refused this safety code.": "A câmara em {host} recusou este código de segurança.",
+  "The camera at {host} did not give its serial number.": "A câmara em {host} não deu o seu número de série.",
+  "Cannot reach the camera at {host}: is it on, and on this network? ({error})": "Não é possível contactar a câmara em {host}: está ligada e nesta rede? ({error})",
+  "Enter the Reolink device's address, from your router or the Reolink app, and a local user's name and password (an administrator, for floodlights, sirens and IR lights).": "Introduza o endereço do dispositivo Reolink, no seu router ou na app Reolink, e o nome e a palavra-passe de um utilizador local (um administrador, para os projetores, as sirenes e as luzes infravermelhas).",
+  "Sign in to the Reolink device with a local user (an administrator, for floodlights, sirens and IR lights).": "Inicie sessão no dispositivo Reolink com um utilizador local (um administrador, para os projetores, as sirenes e as luzes infravermelhas).",
+  "Enter the device's address": "Introduza o endereço do dispositivo",
+  "No Reolink device answered at {address}. A battery camera on its own may be asleep: wake it (press its button, or move in front of it) and try again.": "Nenhum dispositivo Reolink respondeu em {address}. Uma câmara de bateria autónoma pode estar em repouso: acorde-a (prima o botão ou passe à frente dela) e tente novamente.",
+  "This battery camera talks only over Reolink's UDP protocol, which Homeswift does not support yet: add it to a Reolink Home Hub or NVR, then add that instead.": "Esta câmara de bateria só comunica pelo protocolo UDP da Reolink, que o Homeswift ainda não suporta: adicione-a a um Home Hub ou NVR Reolink e adicione esse em vez dela.",
+  "The camera is bound to a Reolink cloud account (an account device), which refuses local sign-in: switch it back to a local device in the Reolink app.": "A câmara está associada a uma conta na nuvem da Reolink (um dispositivo de conta), que recusa o início de sessão local: volte a torná-la um dispositivo local na app Reolink.",
+  "The camera refused the user name or password.": "A câmara recusou o nome de utilizador ou a palavra-passe.",
+  "The device refused the user name or password ({detail})": "O dispositivo recusou o nome de utilizador ou a palavra-passe ({detail})",
+  "The device at {address} gave no serial number": "O dispositivo em {address} não deu nenhum número de série",
   "A Tapo device refused this email and password.": "Um dispositivo Tapo recusou este e-mail e esta palavra-passe.",
   "Email": "E-mail",
   "Code": "Código",
@@ -21512,6 +21819,7 @@ HomeswiftI18n.add("pt", {
   "For {name} as a whole. A save reloads it once, its accessories kept.": "Para {name} no seu todo. Guardar recarrega-o uma vez, mantendo os acessórios.",
   "Something this form does not show is in config.json, the one place to write it as it is.": "O que este formulário não mostra está no config.json, o único sítio onde o escrever tal como é.",
   "Edit config.json": "Editar o config.json",
+  "Hide config.json": "Ocultar config.json",
   "What {plugin} finds, set up or not.": "O que {plugin} encontra, configurado ou não.",
   "Not set up yet: its devices show once it is.": "Ainda não configurado: os dispositivos aparecem depois.",
   "Settings of {name}": "Definições de {name}",
@@ -21600,6 +21908,37 @@ HomeswiftI18n.add("pt", {
   "Unmetered": "Não medido",
   "What no meter measures on its own": "O que nenhum medidor mede à parte",
   "The whole home": "Toda a casa",
+  "Range (km)": "Autonomia (km)",
+  "Time to Full (min)": "Tempo até carga completa (min)",
+  "Session Energy (kWh)": "Energia da sessão (kWh)",
+  "Available Energy (kWh)": "Energia disponível (kWh)",
+  "Charge Status": "Estado da carga",
+  "Battery Updated": "Bateria atualizada",
+  "Choose the Sync Box, or enter its address.": "Escolha a Sync Box ou introduza o seu endereço.",
+  "Choose a Sync Box, or enter its address.": "Escolha uma Sync Box ou introduza o seu endereço.",
+  "Sync Box": "Sync Box",
+  "No Sync Box answered on the network. Enter its address, from the Hue Sync app's settings.": "Nenhuma Sync Box respondeu na rede. Introduza o seu endereço, a partir das definições da app Hue Sync.",
+  "The Sync Box did not answer at {address}. Enter its address, from the Hue Sync app's settings.": "A Sync Box não respondeu em {address}. Introduza o seu endereço, a partir das definições da app Hue Sync.",
+  "Press and hold the button on the Sync Box until its light turns green.": "Mantenha premido o botão da Sync Box até a luz ficar verde.",
+  "{address} is not an address": "{address} não é um endereço",
+  "The Sync Box at {address} did not answer: {error}": "A Sync Box em {address} não respondeu: {error}",
+  "The Sync Box at {address} took the registration but not its token: {error}": "A Sync Box em {address} aceitou o registo, mas não o seu token: {error}",
+  "The Sync Box's lights and televisions need no setup of their own": "As luzes e televisores da Sync Box não precisam de configuração própria",
+  "Sign in with the account of the vendor's app. For a gateway's local API, turn on Developer Mode in the TaHoma by Somfy app (tap the box's PIN seven times in its settings) and give the PIN and a token it generates.": "Inicie sessão com a conta da app do fabricante. Para a API local de um gateway, ative o Modo de programador na app TaHoma by Somfy (toque sete vezes no PIN da caixa nas definições) e indique o PIN e um token que ela gere.",
+  "Service": "Serviço",
+  "E-mail, or the gateway's PIN or IP address": "E-mail, ou o PIN ou o endereço IP do gateway",
+  "Password, or the Developer Mode token": "Palavra-passe, ou o token do Modo de programador",
+  "Somfy TaHoma, Connexoon or Switch on the local network (Developer Mode)": "Somfy TaHoma, Connexoon ou Switch na rede local (Modo de programador)",
+  "Somfy TaHoma or Connexoon, Europe": "Somfy TaHoma ou Connexoon, Europa",
+  "Somfy Connexoon RTS, Oceania": "Somfy Connexoon RTS, Oceânia",
+  "Somfy TaHoma, North America": "Somfy TaHoma, América do Norte",
+  "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch da Atlantic, Thermor ou Sauter",
+  "Give the gateway's PIN (1234-5678-9012) or its IP address.": "Indique o PIN do gateway (1234-5678-9012) ou o seu endereço IP.",
+  "The gateway refused this token.": "O gateway recusou este token.",
+  "The account refused this user and password.": "A conta recusou este utilizador e esta palavra-passe.",
+  "Could not reach the gateway: {error}": "Não foi possível contactar o gateway: {error}",
+  "Could not reach Overkiz: {error}": "Não foi possível contactar a Overkiz: {error}",
+  "Sign-in is paused for {duration} after the server refused it: check the credentials, or wait to be unbanned": "O início de sessão está em pausa durante {duration} após a recusa do servidor: verifique as credenciais ou aguarde o fim do bloqueio",
 });
 
 """#),
@@ -24159,9 +24498,7 @@ HomeswiftI18n.add("pt", {
           formBox,
           form ? el("div", { class: "settings-bar" }, message, revert, save) : null),
         devices.node,
-        el("section", { class: "settings-section settings-foot" },
-          el("p", { class: "help" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ",
-            el("a", { href: "/settings/config", text: t("Edit config.json") })))),
+        blockJSON({ block, kit })),
       el("div", { class: "danger-zone" },
         el("div", {}, el("strong", { text: t("Remove this plugin") }),
           el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
@@ -24182,6 +24519,87 @@ HomeswiftI18n.add("pt", {
     }
   }
 
+  /// The settings' foot: what the form does not show is in config.json, and "Edit config.json" opens this block of it
+  /// (and only this block) as JSON under the form. Its Save writes the block as the Config tab does
+  /// (PUT /api/config/platforms/<index>, secrets sealed, the plugin reloaded) and draws the page again.
+  function blockJSON({ block, kit }) {
+    const textarea = el("textarea", { class: "short", spellcheck: false, "aria-label": t("The block as JSON") });
+    const editor = HomeswiftCommon.jsonEditor(textarea, { secretKey: kit.isSecretKey });
+    const message = el("span", { class: "muted" });
+    const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: t("Save") }));
+    const cancel = el("button", { class: "settings-action" }, HomeswiftCommon.icon("close"), el("span", { text: t("Cancel") }));
+    const format = el("button", { type: "button", class: "settings-action" }, HomeswiftCommon.icon("code"), el("span", { text: t("Format") }));
+    const panel = el("div", { class: "block-json" }, editor, el("div", { class: "settings-bar" }, message, format, cancel, save));
+    panel.hidden = true;
+    const toggle = el("button", { type: "button", class: "link", actionIcon: "code", "aria-expanded": "false", text: t("Edit config.json") });
+    let index = block.index, original = "";
+    const update = () => {
+      const result = editor.check();
+      format.disabled = !("value" in result);
+      if (!("value" in result)) {
+        message.className = "error";
+        message.replaceChildren(...(result.line ? [el("button", { type: "button", class: "line-link", text: t("Line {line}", { line: result.line }), onclick: () => editor.reveal(result.offset) })] : []), result.message);
+        save.disabled = true;
+        return;
+      }
+      const changed = textarea.value !== original;
+      save.disabled = !changed;
+      if (!message.classList.contains("error") && !message.classList.contains("ok")) {
+        message.className = changed ? "dirty" : "muted";
+        message.textContent = changed ? t("Unsaved changes · a save reloads {name} once", { name: block.name }) : t("Saved");
+      }
+    };
+    const close = () => {
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = t("Edit config.json");
+    };
+    const open = async () => {
+      // The block as config.json has it now (its secrets as the placeholder), found by its platform and name.
+      const config = await api("/api/config", { raw: true }).then(JSON.parse);
+      const platforms = config.platforms || [];
+      const at = platforms.findIndex((one) => one.platform === block.platform && one.name === block.name);
+      index = at >= 0 ? at : block.index;
+      original = JSON.stringify(platforms[index] ?? { platform: block.platform, name: block.name }, null, 2);
+      textarea.value = original;
+      message.className = "muted";
+      panel.hidden = false;
+      editor.repaint();
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.textContent = t("Hide config.json");
+      update();
+      textarea.focus();
+    };
+    toggle.addEventListener("click", () => HomeswiftCommon.busyButton(toggle, () => panel.hidden ? open() : close(), { report: (e) => HomeswiftCommon.showAlert(e.message) }));
+    panel.addEventListener("input", () => { message.className = ""; update(); });
+    format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); message.className = ""; update(); });
+    cancel.addEventListener("click", () => { textarea.value = original; editor.repaint(); message.className = ""; close(); });
+    save.addEventListener("click", () => HomeswiftCommon.busyButton(save, async () => {
+      const value = JSON.parse(textarea.value);
+      value.platform = block.platform;
+      message.className = "muted";
+      message.textContent = t("Saving…");
+      try {
+        const result = await api(`/api/config/platforms/${index}`, { method: "PUT", body: value });
+        message.className = "ok";
+        message.textContent = kit.savedText(result);
+        original = textarea.value;
+        // The form above shows the block as saved: the page is drawn again, at the block's new address if it was renamed.
+        kit.setLeaveGuard(null);
+        if (value.name && value.name !== block.name) app().navigate(`/plugins/${HomeswiftCommon.slug(value.name)}/settings`, { replace: true });
+        else app().route();
+      } catch (e) {
+        message.className = "error";
+        if (!e.problems) { message.textContent = e.message; return; }
+        message.replaceChildren(el("span", { text: t("The plugin's schema refuses this:") }),
+          kit.problemList(e.problems.map((problem) => ({ ...problem, text: HomeswiftI18n.message(problem.text) })), editor));
+      }
+    }, { report: (e) => { message.className = "error"; message.textContent = e.message; } }));
+    return el("section", { class: "settings-section settings-foot" },
+      el("p", { class: "help" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ", toggle),
+      panel);
+  }
+
   /// A plugin instance's Discovered Devices: each with where it stands and what can be done with it: a set-up one opens
   /// its settings, an Excluded one is included, one that Needs Authorization is set up again. `accountRow`'s state line
   /// says where the account stands once the plugin has answered.
@@ -24192,7 +24610,10 @@ HomeswiftI18n.add("pt", {
     const node = el("section", { class: "settings-section" },
       el("div", { class: "settings-section-head with-tools" },
         el("div", {}, el("h3", {}, t("Devices"), " ", count), el("p", { class: "help", text: t("What {plugin} finds, set up or not.", { plugin: block.name }) })), again),
-      list);
+      list,
+      // A device the plugin does not find, added by its address: the Add accessories page's sheet.
+      plugin?.addByAddress ? el("div", { class: "setup-add-address" },
+        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -24205,7 +24626,8 @@ HomeswiftI18n.add("pt", {
         showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
+            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("No devices found") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -24258,14 +24680,14 @@ HomeswiftI18n.add("pt", {
 (() => {
   "use strict";
 
-  const { el, tile, menuButton } = HomeswiftCommon;
+  const { el, tile, menuButton, fold } = HomeswiftCommon;
   const { t, tn } = HomeswiftI18n;
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
   /// Changes Accessory Settings (Excluded, Parts) by Accessory Id: one device's, or several by id in one write.
   const settings = (block, body, accessoryID) => api(`/api/settings/accessories${accessoryID ? `/${encodeURIComponent(accessoryID)}` : ""}?instance=${encodeURIComponent(block.name)}`, { method: "PATCH", body });
-  const accessoryID = (block, device) => device.accessoryID || `${block.platform}:${device.deviceID}`;
+  const accessoryID = (block, device) => device.accessoryID;
   const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
 
   /// What each Authorization Method is called, and the glyph its rows and the sheet show.
@@ -24365,14 +24787,14 @@ HomeswiftI18n.add("pt", {
     const none = el("p", { class: "muted setup-none", hidden: true, text: t("No plugin matches.") });
     const search = el("input", { type: "search", class: "search setup-search", placeholder: t("Search plugins"), "aria-label": t("Search plugins"),
       oninput: () => {
-        const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const words = fold(search.value.trim()).split(/\s+/).filter(Boolean);
         let shown = 0;
         for (const [index, item] of items.entries()) shown += (item.hidden = !words.every((word) => text[index].includes(word))) ? 0 : 1;
         none.hidden = shown > 0;
       } });
     return { search, none };
   }
-  const searchText = (plugin) => `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
+  const searchText = (plugin) => fold(`${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`);
 
   /// Before any plugin: the brands, each a card with its name and how it connects.
   function brandGrid(plugins) {
@@ -24420,10 +24842,15 @@ HomeswiftI18n.add("pt", {
     // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
     // work: an optional account left alone needs no one.
     let accountState = "notSetUp", needsAccount = false;
-    // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
+    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
+    const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    // The account's Setup: its sign-in the first time, again once it is set up.
+    const openAccount = (trigger = null) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger, after: load });
+    // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
+      plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
+      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => openAccount() } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
     // The row opens and closes it; its menu sits beside the chevron.
@@ -24447,7 +24874,7 @@ HomeswiftI18n.add("pt", {
         el("div", { class: "muted", text: accountState === "refused" ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
           : t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
       el("span", { class: "pill status away", text: accountState === "refused" ? t("Refused") : statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: load }) }));
+      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => openAccount(event.currentTarget) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -24475,7 +24902,11 @@ HomeswiftI18n.add("pt", {
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
+          : t("No devices found") }));
+        // Under its devices, a way to add one the plugin does not find.
+        if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
+          el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
         list.replaceChildren(...rows);
         const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
@@ -24486,7 +24917,7 @@ HomeswiftI18n.add("pt", {
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
         // Asked for by the plugin's page: its account's sheet, once.
-        if (start && action) { start = false; open({ block, plugin, firstTime: accountState === "notSetUp", after: load }); }
+        if (start && action) { start = false; openAccount(); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -24546,10 +24977,10 @@ HomeswiftI18n.add("pt", {
 
   /// A device's parts (a gate's side door, a door sensor, a doorbell), each with its switch: those switched off are left
   /// out while the device stays. `onChange(part, included)` is told of each switch; `changes()` what differs from now.
-  function partsList(device, { disabled = false, onChange = null } = {}) {
+  function partsList(device, { onChange = null } = {}) {
     const parts = device.parts ?? [];
     if (!parts.length) return null;
-    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": t(part.name) }));
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, "aria-label": t(part.name) }));
     const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
       ...parts.map((part, index) => el("label", { class: "setup-part" },
         el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
@@ -24609,15 +25040,17 @@ HomeswiftI18n.add("pt", {
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? block.name;
+  /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
+  /// whatever else the plugin needs, then ends on the device's settings as any device's does.
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
+    const title = device?.name ?? (adding ? t("Add by address") : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
-    // way to sign in may be the person's choice, asked in the sheet).
-    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
+    // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
+    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
-    const picking = firstTime && !device;
+    const picking = firstTime && !device && !adding;
     const devicesStage = t("Devices");
-    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
+    const stages = [device || adding ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
     let drawn = 0;
@@ -24647,11 +25080,18 @@ HomeswiftI18n.add("pt", {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
-        const editor = device && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device }) : null;
+        // A device added by address is named once its settings have loaded: the sheet's title and the line say it.
+        const named = el("strong", { text: device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
+          : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
+        const onTitle = (name) => {
+          if (!adding || !name) return;
+          form.querySelector("#setup-title").textContent = name;
+          named.textContent = t("{name} is added.", { name });
+        };
+        const editor = (device || adding) && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device, onTitle }) : null;
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
-            el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
-              : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
+            el("p", {}, named),
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
@@ -24677,8 +25117,8 @@ HomeswiftI18n.add("pt", {
         if (closed) return;
         // The search failed, which is not finding nothing: say why, and offer it again. The account or device is set up.
         if (!found.length && failure) {
-          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner }) });
-          form.onsubmit = (event) => { event.preventDefault(); finish(); };
+          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner, accessory }) });
+          form.onsubmit = (event) => { event.preventDefault(); finish(null, accessory); };
           fill(
             el("p", { class: "error", role: "alert", text: t("Could not look for its devices: {error}", { error: failure.message }) }),
             el("p", { class: "muted", text: t("It is set up. Look again now, or later from this page.") }),
@@ -24781,6 +25221,7 @@ HomeswiftI18n.add("pt", {
             el("div", { class: "actions" }, cancel));
           return;
         }
+        // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
           const input = el("input", {
@@ -24790,6 +25231,7 @@ HomeswiftI18n.add("pt", {
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
           });
+          if (field.kind !== "secret") input.value = field.value ?? "";
           return [field, input];
         });
         const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
@@ -24807,19 +25249,23 @@ HomeswiftI18n.add("pt", {
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
           ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
-            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title" }, t(field.label),
+              field.optional ? el("span", { class: "muted field-optional", text: t("Optional") }) : null), input)),
           left,
           error,
           el("div", { class: "actions" }, cancel, submit));
-        (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
+        // After an error, the first field, its text selected to type it again; else the first one left to fill.
+        const first = answer.error ? inputs.find(([field]) => field.kind !== "choice")?.[1] : null;
+        if (first) { first.focus(); first.select(); }
+        else (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }
 
       const step = (answers) => post(session, { answers });
       // A plugin added from the catalog: its block is saved once its Setup is done.
       // A Setup the Assistant started is taken over where it stands; the others start here.
-      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined }))
+      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, addByAddress: adding || undefined, block: draft ? block : undefined }))
         .then(draw)
-        .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
+        .catch((e) => fill(el("p", { class: "error", role: "alert", text: HomeswiftI18n.message(e.message) }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
       return form;
     }, "setup-title", {
@@ -24837,20 +25283,22 @@ HomeswiftI18n.add("pt", {
 
   /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
   /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
-  async function resume({ session, platform, name }) {
+  async function resume({ session, platform, name, addByAddress = false }) {
     try {
       const plugins = await api("/api/plugins");
       const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
-      const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
-      const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
-      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+      const saved = plugins.blocks.find((one) => one.platform === platform && one.name === name);
+      const block = saved ?? { platform, name: name ?? platform };
+      const isNew = !saved;
+      open({ block, plugin, resume: session, firstTime: isNew, adding: addByAddress === true, after: () => { if (location.pathname === "/setup") app().route(); } });
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
   /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
-  /// lists what the plugin finds, as the Add accessories page does.
-  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
+  /// lists what the plugin finds, as the Add accessories page does; `adding`, Add by address, for a plugin whose
+  /// `addByAddress`.
+  const setUp = ({ block, plugin, device = null, firstTime = false, adding = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, adding, trigger, after });
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.
@@ -25525,6 +25973,9 @@ label > input, label > select { margin-top: 5px; }
 .page-head .tools { display: flex; gap: var(--space-10); align-items: center; }
 /* The title and its line keep room to read (the tools go under them when both do not fit), not a word a line. */
 .page-head > .who { flex: 1 1 280px; }
+/* The Accessories page's toolbar on a line of its own under the title, whatever its width: the wall's and the graph's
+   then sit in the same place. */
+.page-head > .tools:has(> .accessories-toolbar) { flex-basis: 100%; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 /* A count beside its title, the tools at the end: spread out, the count floated alone in the middle. */
 .section-head > h2 + .muted:not(:last-child) { margin-right: auto; }
@@ -27453,6 +27904,16 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 @media (hover: hover) and (pointer: fine) { a.link:hover { text-decoration: underline; } }
 .subnav { margin: -6px 0 var(--space-18); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
+/* The Accessories page's tabs and, after them, the view's Full screen button: a 40px circle, as round buttons are at phone width. */
+.accessories-views { display: flex; align-items: center; gap: var(--space-10); margin: -6px 0 var(--space-18); }
+.accessories-views > .subnav { margin: 0; min-width: 0; }
+/* Add accessories at the row's end; an icon alone at phone width, as in a toolbar. */
+.accessories-views .accessories-add { margin-left: auto; flex: none; min-height: 40px; }
+@media (max-width: 600px) { .accessories-views > .subnav { flex: 1 1 0; width: auto; } }
+@media (max-width: 600px) { .accessories-views .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; } }
+.accessories-views .accessory-options-button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; min-height: 40px; padding: 0;
+  color: var(--muted); background: var(--material-thin); box-shadow: none; }
+.accessories-views .accessory-options-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 /* Where tabs are scrolled out of sight, the row fades: the way it scrolls, without a bar. */
 .subnav[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
 .subnav[data-more-start] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
@@ -28758,6 +29219,10 @@ select option:disabled { color: var(--muted); }
 .setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
 @media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+/* Add by address, under the devices: a device the plugin does not find, named by its address. */
+.setup-add-address { display: flex; padding-top: var(--space-12); }
+/* A field a Setup step may leave empty (a port with its default): said beside its name. */
+.field-optional { margin-left: var(--space-6); font-weight: var(--weight-regular); }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }
 /* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
@@ -29012,11 +29477,6 @@ select option:disabled { color: var(--muted); }
 .overview-card .who { min-width: 0; }
 .overview-card .chart-head .muted { font-size: var(--text-sm); }
 .overview-frame { position: relative; }
-/* Search and filters over the graph, as the Accessories page's toolbar; the count says what is left. */
-.overview-count { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.overview-count:empty { display: none; }
-.overview-toolbar .clear-filters { margin-left: auto; }
-.overview-toolbar .clear-filters:disabled { visibility: hidden; }
 .overview-empty { padding: 56px var(--space-16); text-align: center; }
 .overview-graph { display: block; width: 100%; max-width: 820px; height: auto; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
 .overview-graph:focus { outline: none; }
@@ -29034,7 +29494,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .dot .node-disc { stroke-width: 1.4; }
 .overview-graph :is(.node, .dot):hover .node-disc { stroke-width: 2.8; }
 .overview-graph :is(.node, .dot):focus-visible .node-disc { stroke: var(--accent); stroke-width: 2.8; }
-.overview-graph .bridge-node.unpaired .node-disc { stroke: var(--warn); }
+.overview-graph :is(.bridge-node, .dot).unpaired .node-disc { stroke: var(--warn); }
 .overview-graph :is(.bridge-node.built-in, .plugin-node.paused) .node-disc { stroke-dasharray: 3 2; }
 .overview-graph .dot.unavailable .node-disc { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
 .overview-graph .dot.unavailable svg { opacity: 0.4; }
@@ -29419,6 +29879,8 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 .wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
+/* Leave full screen, to the options' left: one button's width and a gap further in. */
+.wall-full-exit { top: max(var(--space-16), env(safe-area-inset-top)); right: calc(max(var(--space-16), env(safe-area-inset-right)) + 44px + var(--space-8)); }
 .wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
 /* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */
@@ -29565,6 +30027,10 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 .settings-foot a, .form-foot a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
 @media (hover: hover) and (pointer: fine) { .settings-foot a:hover, .form-foot a:hover { text-decoration: underline; } }
+/* "Edit config.json" in the foot's sentence opens the block as JSON under it. */
+.settings-foot .help > button.link { display: inline-flex; vertical-align: baseline; min-height: 0; padding: 0; font: inherit; font-weight: var(--weight-medium); }
+.settings-foot .block-json { margin-top: var(--space-12); }
+.settings-foot .block-json .settings-bar { margin-top: var(--space-10); }
 /* A long block name in the breadcrumb is cut, not pushed past a phone's edge (its page's title has it whole). */
 .breadcrumb ol { min-width: 0; }
 .breadcrumb li { max-width: 100%; }

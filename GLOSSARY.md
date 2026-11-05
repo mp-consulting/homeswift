@@ -72,6 +72,15 @@ _Avoid_: Excluded, hidden from HomeKit
 An accessory that is published to HomeKit but left off the web UI's wall.
 _Avoid_: Excluded, invisible
 
+**Return Audio**:
+The audio HomeKit sends back to a camera while someone talks in the Home app, for the camera's speaker.
+_Avoid_: Talkback, backchannel (a camera's own way in for it)
+
+**Talk**:
+One continuous period of Return Audio on a live stream, from its first packet to a silence; a plugin sends each to
+its camera's speaker.
+_Avoid_: Intercom session, talk session
+
 ## Setup
 
 **Setup**:
@@ -83,6 +92,12 @@ _Avoid_: Onboarding, pairing, adding a device
 A device a plugin has found and can tell apart by its Device Id, whether or not it is set up yet. A scene a hub
 keeps is one too, Excluded like any other.
 _Avoid_: Candidate, scan result, found device
+
+**Add by address**:
+A Setup that starts from a device the person names by its address (a host, perhaps a port, a user and password) rather
+than from a Discovered Device: the plugin probes it and says its Device Id, and the device is then set up like a
+discovered one. For devices discovery cannot find; with or without an account.
+_Avoid_: Manual device, add manually, static device
 
 **Device Kind**:
 What sort of device a plugin says a Discovered Device is, such as a camera or a sensor, which decides the Plugin

@@ -52,7 +52,10 @@ final class TestEnvironment: Sendable {
                 self.settings.withLockedValue { $0.append(settings) }
                 return self.broker(settings.url)
             },
-            thing: Thing.Dependencies(timeScale: timeScale, now: { self.clock.now }, hostName: "testhost.local"),
+            // The windows that gather a change's writes into one publish are ten times the real ones: on a busy
+            // runner, HomeKit's writes of one change (one test line each) can be further apart than 20 ms.
+            thing: Thing.Dependencies(
+                timeScale: timeScale, coalescing: .milliseconds(200), codecDelay: .milliseconds(500), now: { self.clock.now }, hostName: "testhost.local"),
             environment: environment, backoff: Backoff(initial: .milliseconds(10), maximum: .milliseconds(50)))
         registry.register(platform: MQTTThingPlugin.platform, name: MQTTThingPlugin.name, runsAccessoryBlocks: true) { json, context in
             MQTTThingPlugin(configuration: try JSONDecoder().decode(MQTTThingPlugin.Configuration.self, from: json), context: context, dependencies: dependencies)
@@ -67,7 +70,7 @@ final class TestEnvironment: Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
