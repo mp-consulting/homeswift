@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows
   light's `host` and `port` sit in its Accessory Settings under its MAC, and win over its entry in `addresses`.
 - Setup sheet: a step asked again after an error keeps what was typed (secrets left out), with the first field selected;
   a field a step may leave empty says Optional.
+### Changed
+
+- A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
+  shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
 ## [0.20.1] - 2026-11-04
 
