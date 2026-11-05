@@ -375,6 +375,8 @@
     const devicesStage = t("Devices");
     const stages = [device || adding ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
+    /// What was typed in the last step's fields, secrets left out: a step asked again after an error keeps it.
+    let typed = {};
     /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
     let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
@@ -553,6 +555,9 @@
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
           });
+          // Asked again after an error, the field keeps what was typed; else what the plugin knows already.
+          const known = answer.error ? typed[field.key] : undefined;
+          if (field.kind !== "secret") input.value = known ?? field.value ?? "";
           return [field, input];
         });
         const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
@@ -562,6 +567,7 @@
           const missing = inputs.find(([field, input]) => !field.optional && !input.value.trim());
           if (missing) { missing[1].focus(); return; }
           stop();
+          typed = Object.fromEntries(inputs.filter(([field]) => field.kind !== "secret" && field.kind !== "choice").map(([field, input]) => [field.key, input.value]));
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         const link = /^https?:\/\//i.test(prompt.url ?? "")
@@ -570,11 +576,15 @@
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
           ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
-            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title" }, t(field.label),
+              field.optional ? el("span", { class: "muted field-optional", text: t("Optional") }) : null), input)),
           left,
           error,
           el("div", { class: "actions" }, cancel, submit));
-        (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
+        // After an error, the first field, its text selected to type it again; else the first one left to fill.
+        const first = answer.error ? inputs.find(([field]) => field.kind !== "choice")?.[1] : null;
+        if (first) { first.focus(); first.select(); }
+        else (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }
 
       const step = (answers) => post(session, { answers });

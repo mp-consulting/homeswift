@@ -2652,6 +2652,7 @@ HomeswiftI18n.add("pt", {
   "Account of {name}": "Conta de {name}",
   "{name} is set up.": "{name} está configurado.",
   "Add by address…": "Adicionar por endereço…",
+  "Optional": "Opcional",
   "Add by address": "Adicionar por endereço",
   "No devices found yet: add one by its address.": "Ainda não foram encontrados dispositivos: adicione um pelo seu endereço.",
   "The device is added.": "O dispositivo foi adicionado.",
