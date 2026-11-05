@@ -41,6 +41,8 @@ final class ReolinkCamera: @unchecked Sendable {
     private let presets: [Int: Service]
     private let patrol: Service?
     private let privacy: Service?
+    /// Recording on the device's own storage.
+    private let recordingSwitch: Service?
     /// A momentary switch per paired Reolink Chime, by id.
     private let chimes: [Int: Service]
     /// HomeKit's Camera Active (with HomeKit Secure Video): off while privacy mode is on, and the other way round.
@@ -68,6 +70,7 @@ final class ReolinkCamera: @unchecked Sendable {
         var privacy: @Sendable (_ on: Bool) async throws -> Void
         var floodlightColour: @Sendable (_ mireds: Int) async throws -> Void
         var chime: @Sendable (_ id: Int) async throws -> Void
+        var recording: @Sendable (_ on: Bool) async throws -> Void
         var patrol: @Sendable (_ on: Bool) async throws -> Void
     }
 
@@ -117,6 +120,10 @@ final class ReolinkCamera: @unchecked Sendable {
         let privacy = info.privacy && options.privacySwitch ? Service(.switch, name: "\(name) Privacy", subtype: "privacy") : nil
         privacy?.characteristic(.on).securityControl()
         self.privacy = privacy
+        // Recording off blinds the camera's own storage: a security control, so MCP clients confirm.
+        let recordingSwitch = options.recordingSwitch && info.recording ? Service(.switch, name: "\(name) Recording", subtype: "recording") : nil
+        recordingSwitch?.characteristic(.on).securityControl()
+        self.recordingSwitch = recordingSwitch
         var chimes: [Int: Service] = [:]
         if options.chimeSwitch {
             for chime in info.chimes { chimes[chime.id] = Service(.switch, name: "\(name) Chime \(chime.name)", subtype: "chime\(chime.id)") }
@@ -143,7 +150,7 @@ final class ReolinkCamera: @unchecked Sendable {
             id: id, name: name, manufacturer: "Reolink", model: info.model.nonEmptyText ?? "Reolink", serialNumber: serial.nonEmptyText ?? id,
             firmwareRevision: info.firmware, category: isDoorbell ? .videoDoorbell : .ipCamera,
             services: [doorbell].compactMap { $0 } + sensors + [floodlight, siren, ir, battery].compactMap { $0 }
-                + presets.keys.sorted().compactMap { presets[$0] } + [patrol, privacy].compactMap { $0 } + chimes.keys.sorted().compactMap { chimes[$0] },
+                + presets.keys.sorted().compactMap { presets[$0] } + [patrol, privacy, recordingSwitch].compactMap { $0 } + chimes.keys.sorted().compactMap { chimes[$0] },
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
         cameraActive = info.privacy ? accessory.service(.cameraOperatingMode)?.characteristic(.homeKitCameraActive) : nil
@@ -220,6 +227,13 @@ final class ReolinkCamera: @unchecked Sendable {
                     }
                 }
             }
+        }
+        if let recordingSwitch {
+            let recordingGuard = LatestCallGuard(delay: timing.seconds(0.3))
+            recordingSwitch.characteristic(.on).onWrite(changesOnly: true, guarded { value in
+                guard await recordingGuard() else { return }
+                try await writes.recording(value.boolValue ?? false)
+            })
         }
         if let patrol {
             let patrolGuard = LatestCallGuard(delay: timing.seconds(0.3))
@@ -298,6 +312,7 @@ final class ReolinkCamera: @unchecked Sendable {
         }
         if let ir, let on = new.irOn, previous?.irOn != on { ir.characteristic(.on).value = .bool(on) }
         if let patrol, let on = new.patrolling, previous?.patrolling != on { patrol.characteristic(.on).value = .bool(on) }
+        if let recordingSwitch, let on = new.recordingOn, previous?.recordingOn != on { recordingSwitch.characteristic(.on).value = .bool(on) }
         if let on = new.privacy, previous?.privacy != on {
             privacy?.characteristic(.on).value = .bool(on)
             cameraActive?.value = .int(on ? 0 : 1)
@@ -388,4 +403,5 @@ final class ReolinkCamera: @unchecked Sendable {
     var ptzServices: (presets: [Int: Service], patrol: Service?) { (presets, patrol) }
     var privacyControls: (privacy: Service?, cameraActive: Characteristic?) { (privacy, cameraActive) }
     var chimeServices: [Int: Service] { chimes }
+    var recordingService: Service? { recordingSwitch }
 }

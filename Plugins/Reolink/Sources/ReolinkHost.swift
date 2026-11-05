@@ -116,6 +116,7 @@ actor ReolinkHost {
             if v20 { commands.append(.channel("GetAudioAlarmV20", ch)) } else if !battery { commands.append(.channel("GetAudioAlarm", ch)) }
             if battery { commands.append(.channel("GetBatteryInfo", ch)) }
             commands += Self.ptzCommands(info: info, channel: ch, battery: battery)
+            commands.append(ReolinkRecording.readCommand(v20: v20, channel: ch))
             // A battery doorbell on a hub is left out, as reolink-aio does.
             if info.ability("supportDingDongCtrl", channel: ch) > 0, !(battery && info.isHub) { commands.append(.channel("GetDingDongList", ch)) }
             ranges.append((status, start..<commands.count, battery))
@@ -181,6 +182,8 @@ actor ReolinkHost {
         }
         channel.ptz = Self.ptz(info: info, channel: ch, items: items)
         if let list = items["GetDingDongList"], list.ok { channel.chimes = ReolinkChime.paired(list.value) }
+        let rec = items["GetRecV20"] ?? items["GetRec"]
+        if let rec, rec.ok, ReolinkRecording.isOn(rec.value, v20: rec.cmd == "GetRecV20", multiChannel: info.isMultiChannel) != nil { channel.recording = true }
         for reply in items.values { apply(reply, to: &channel) }
         return channel
     }
@@ -321,6 +324,8 @@ actor ReolinkHost {
             }
         case "GetIrLights":
             if let state = value["IrLights"]?["state"]?.stringValue { channel.state.irOn = state != "Off" }
+        case "GetRecV20", "GetRec":
+            if let on = ReolinkRecording.isOn(value, v20: reply.cmd == "GetRecV20", multiChannel: info.isMultiChannel) { channel.state.recordingOn = on }
         case "GetBatteryInfo":
             let battery = value["Battery"]
             channel.state.batteryPercent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) ?? channel.state.batteryPercent
@@ -433,6 +438,7 @@ actor ReolinkHost {
             if channel.floodlight, !channel.battery { commands.append(.channel("GetWhiteLed", ch)) }
             if channel.battery { commands.append(.channel("GetBatteryInfo", ch)) }
             if channel.siren, v20 || !channel.battery { commands.append(.channel(v20 ? "GetAudioAlarmV20" : "GetAudioAlarm", ch)) }
+            if channel.recording { commands.append(ReolinkRecording.readCommand(v20: v20, channel: ch)) }
         }
         if info.isMultiChannel { commands.append(ReolinkCommand(cmd: "GetChannelstatus", action: 0, param: [:])) }
         await run(commands)
@@ -531,6 +537,23 @@ actor ReolinkHost {
             try? await Task.sleep(for: delay)
             await self?.reread("GetWhiteLed", channel: channel)
         }
+    }
+
+    /// Recording on the device's storage on or off (D.3): `Rec` read again and sent back whole with the flag changed.
+    func setRecording(channel: Int, on: Bool) async throws {
+        guard channels[channel]?.recording == true else { throw ReolinkError.unsupported("SetRec") }
+        let v20 = info.hostAbility("scheduleVersion") >= 1
+        let read = ReolinkRecording.readCommand(v20: v20, channel: channel)
+        guard let reply = try await http.execute([read]).first, reply.ok, let rec = reply.value?["Rec"],
+              let changed = ReolinkRecording.changed(rec, on: on, v20: v20, multiChannel: info.isMultiChannel) else {
+            throw ReolinkError.command(read.cmd, nil, "no Rec to change")
+        }
+        try await write(ReolinkCommand(cmd: v20 ? "SetRecV20" : "SetRec", action: 0, param: ["Rec": changed]))
+        channels[channel]?.state.recordingOn = on
+        guard let confirmed = try? await http.execute([read]).first, var state = channels[channel] else { return }
+        apply(confirmed, to: &state)
+        channels[channel] = state
+        publish(channel)
     }
 
     /// Plays a tone on a paired Reolink Chime (`DingDongOpt` option 4).

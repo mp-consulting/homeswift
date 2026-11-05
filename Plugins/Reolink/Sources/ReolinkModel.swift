@@ -171,6 +171,8 @@ struct ReolinkChannel: Sendable, Equatable {
     var floodlightModes: [String] = []
     /// The Reolink Chimes paired to a doorbell (`GetDingDongList`), by id.
     var chimes: [ReolinkPTZ.Entry] = []
+    /// Whether the device records the channel on its own storage by a schedule it can switch (`GetRec`/`GetRecV20`).
+    var recording = false
     var state = ReolinkChannelState()
 
     /// The device's AI type names and the HomeKit sensors' subtypes (6.3).
@@ -199,6 +201,40 @@ struct ReolinkChannelState: Sendable, Equatable {
     var floodlightMireds: Int?
     /// The floodlight's mode, in HTTP's numbering (`ReolinkFloodlight.modes`).
     var floodlightMode: Int?
+    /// Whether the device records the channel (its schedule on, and a camera's own master switch).
+    var recordingOn: Bool?
+}
+
+/// Recording on the device's own storage (addendum D.3): `GetRecV20` with `scheduleVersion`, `GetRec` before it.
+enum ReolinkRecording {
+    static func readCommand(v20: Bool, channel: Int) -> ReolinkCommand {
+        ReolinkCommand(cmd: v20 ? "GetRecV20" : "GetRec", action: 1, param: ["channel": .number(Double(channel))])
+    }
+
+    /// Whether `value.Rec` says it records; nil when it has no flag. A camera on its own (not `multiChannel`) also
+    /// needs V20's master `enable`.
+    static func isOn(_ value: JSONValue?, v20: Bool, multiChannel: Bool) -> Bool? {
+        guard let rec = value?["Rec"] else { return nil }
+        if v20 {
+            guard let schedule = rec["scheduleEnable"]?.saturatingIntValue else { return nil }
+            return schedule == 1 && (multiChannel || rec["enable"]?.saturatingIntValue != 0)
+        }
+        return rec["schedule"]?["enable"]?.saturatingIntValue.map { $0 == 1 }
+    }
+
+    /// The `Rec` object sent back whole with its flag changed (and, turning a camera on, its master switch).
+    static func changed(_ rec: JSONValue, on: Bool, v20: Bool, multiChannel: Bool) -> JSONValue? {
+        guard var fields = rec.objectValue else { return nil }
+        if v20 {
+            fields["scheduleEnable"] = .number(on ? 1 : 0)
+            if on, !multiChannel, fields["enable"]?.saturatingIntValue == 0 { fields["enable"] = 1 }
+        } else {
+            guard var schedule = fields["schedule"]?.objectValue else { return nil }
+            schedule["enable"] = .number(on ? 1 : 0)
+            fields["schedule"] = .object(schedule)
+        }
+        return .object(fields)
+    }
 }
 
 /// Reolink Chime, the wireless chime of a doorbell (addendum D.2).

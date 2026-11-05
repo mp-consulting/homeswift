@@ -455,4 +455,67 @@ import Testing
         let value: JSONValue = ["DingDongList": ["pairedlist": [["deviceId": 7, "deviceName": "Hall", "netState": 1], ["deviceId": 2, "deviceName": ""]]]]
         #expect(ReolinkChime.paired(value) == [.init(id: 2, name: "Chime 2"), .init(id: 7, name: "Hall")])
     }
+
+    // MARK: Recording
+
+    static func recordingAnswers(scheduleEnable: NIOLockedValueBox<Int>) -> [String: @Sendable (JSONValue?) -> JSONValue] {
+        var answers = cameraAnswers()
+        answers["GetAbility"] = okAnswer("GetAbility", ["Ability": ["rtsp": ["permit": 0, "ver": 1], "scheduleVersion": ["permit": 0, "ver": 1], "abilityChn": [[
+            "floodLight": ["permit": 0, "ver": 1],
+        ]]]])
+        answers["GetRecV20"] = { _ in ["cmd": "GetRecV20", "code": 0, "value": ["Rec": ["channel": 0, "scheduleEnable": .number(Double(scheduleEnable.withLockedValue { $0 }))]]] }
+        answers["SetRecV20"] = { param in
+            scheduleEnable.withLockedValue { $0 = param?["Rec"]?["scheduleEnable"]?.saturatingIntValue ?? $0 }
+            return ["cmd": "SetRecV20", "code": 0, "value": ["rspCode": 200]]
+        }
+        return answers
+    }
+
+    @Test func recordingSwitchSendsTheWholeRecBack() async throws {
+        let flag = NIOLockedValueBox(1)
+        // A tenth: switches 30 ms apart still count as one; refreshes are asked for.
+        let environment = ReolinkEnvironment(Self.recordingAnswers(scheduleEnable: flag), scale: 0.1)
+        let host = try await environment.start(Self.block(["recordingSwitch": true]))
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        let recording = try #require(camera.recordingService?.characteristic(.on))
+        #expect(recording.isSecurityControl)
+        #expect(await eventually { recording.value == true })
+        // Read with action 1 in the start-up batch.
+        #expect(sentItems(environment.http, "GetRecV20").first == ["cmd": "GetRecV20", "action": 1, "param": ["channel": 0]])
+        try await recording.write(.bool(false))
+        // The addendum's vector.
+        #expect(sentItems(environment.http, "SetRecV20") == [["cmd": "SetRecV20", "action": 0, "param": ["Rec": ["channel": 0, "scheduleEnable": 0]]]])
+        #expect(recording.value == false)
+        // Switched quickly: the last only.
+        let handler = try #require(recording.writeHandler(for: .bool(true)))
+        await withTaskGroup(of: Void.self) { group in
+            for on in [true, false, true] { group.addTask { try? await handler(.bool(on)) } }
+        }
+        #expect(sentItems(environment.http, "SetRecV20").count == 2)
+        // The device turns it on itself: the refresh shows it.
+        flag.withLockedValue { $0 = 1 }
+        await environment.plugin?.runtimes[Self.address]?.host.refresh()
+        #expect(await eventually { recording.value == true })
+    }
+
+    @Test func recordingRules() {
+        #expect(ReolinkRecording.isOn(["Rec": ["scheduleEnable": 1, "enable": 0]], v20: true, multiChannel: false) == false)
+        #expect(ReolinkRecording.isOn(["Rec": ["scheduleEnable": 1, "enable": 0]], v20: true, multiChannel: true) == true)
+        #expect(ReolinkRecording.isOn(["Rec": ["schedule": ["enable": 1]]], v20: false, multiChannel: false) == true)
+        #expect(ReolinkRecording.isOn(["Rec": [:]], v20: true, multiChannel: false) == nil)
+        // A camera's master switch turns on with its schedule; an old Rec keeps the rest of its schedule.
+        #expect(ReolinkRecording.changed(["channel": 0, "scheduleEnable": 0, "enable": 0], on: true, v20: true, multiChannel: false)
+            == ["channel": 0, "scheduleEnable": 1, "enable": 1])
+        #expect(ReolinkRecording.changed(["channel": 0, "schedule": ["enable": 1, "table": "111"]], on: false, v20: false, multiChannel: false)
+            == ["channel": 0, "schedule": ["enable": 0, "table": "111"]])
+    }
+
+    @Test func noRecordingSwitchWithoutTheReply() async throws {
+        let environment = ReolinkEnvironment(scale: 0.01)
+        let host = try await environment.start(Self.block(["recordingSwitch": true]))
+        defer { Task { await host.stop() } }
+        let camera = try #require(await Self.camera(environment))
+        #expect(camera.recordingService == nil)
+    }
 }

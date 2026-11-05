@@ -778,6 +778,15 @@
         "x-kinds": [
           "camera"
         ]
+      },
+      "recordingSwitch": {
+        "title": "Recording switch",
+        "type": "boolean",
+        "description": "A switch for the camera's own recording to its SD card or the NVR's disk (not HomeKit Secure Video). Off, nothing is recorded there.",
+        "default": false,
+        "x-kinds": [
+          "camera"
+        ]
       }
     }
   },
@@ -804,6 +813,7 @@
       "A motion sensor for each kind of detection the camera makes; empty for every kind it supports.": "Un détecteur de mouvement par type de détection de la caméra ; vide pour tous ceux qu'elle prend en charge.",
       "A motion sensor, which also starts HomeKit Secure Video recordings.": "Un détecteur de mouvement, qui déclenche aussi les enregistrements HomeKit Secure Video.",
       "A switch for the IR lights: on is automatic, off is off.": "Un interrupteur de l'éclairage infrarouge : allumé est automatique, éteint est éteint.",
+      "A switch for the camera's own recording to its SD card or the NVR's disk (not HomeKit Secure Video). Off, nothing is recorded there.": "Un interrupteur pour l'enregistrement propre de la caméra, sur sa carte SD ou le disque du NVR (pas HomeKit Secure Video). Éteint, rien n'y est enregistré.",
       "A switch per PTZ preset that turns the camera there, then turns itself off.": "Un interrupteur par position PTZ enregistrée, qui y tourne la caméra puis s'éteint seul.",
       "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Un interrupteur qui lance la première patrouille PTZ de la caméra, définie dans l'app Reolink.",
       "API port": "Port de l'API",
@@ -877,6 +887,7 @@
       "Push events": "Événements poussés",
       "RTMP": "RTMP",
       "RTSP (recommended)": "RTSP (recommandé)",
+      "Recording switch": "Interrupteur d'enregistrement",
       "Recordings in iCloud when motion is seen (needs a home hub and an iCloud plan).": "Des enregistrements dans iCloud quand un mouvement est vu (il faut un concentrateur et un forfait iCloud).",
       "Refresh interval (seconds)": "Intervalle d'actualisation (secondes)",
       "Reolink cameras, doorbells, NVRs and Home Hubs by address. Add accessories sets them up without editing this list.": "Caméras, sonnettes, NVR et Home Hubs Reolink par adresse. Ajouter des accessoires les configure sans modifier cette liste.",
@@ -915,6 +926,7 @@
       "A motion sensor for each kind of detection the camera makes; empty for every kind it supports.": "Un sensor de movimiento por tipo de detección de la cámara; vacío para todos los que admite.",
       "A motion sensor, which also starts HomeKit Secure Video recordings.": "Un sensor de movimiento, que también inicia las grabaciones de HomeKit Secure Video.",
       "A switch for the IR lights: on is automatic, off is off.": "Un interruptor de los infrarrojos: encendido es automático, apagado es apagado.",
+      "A switch for the camera's own recording to its SD card or the NVR's disk (not HomeKit Secure Video). Off, nothing is recorded there.": "Un interruptor para la grabación propia de la cámara en su tarjeta SD o en el disco del NVR (no HomeKit Secure Video). Apagado, no se graba nada allí.",
       "A switch per PTZ preset that turns the camera there, then turns itself off.": "Un interruptor por posición PTZ guardada, que gira la cámara hacia ella y luego se apaga solo.",
       "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Un interruptor que inicia la primera patrulla PTZ de la cámara, definida en la app Reolink.",
       "API port": "Puerto de la API",
@@ -988,6 +1000,7 @@
       "Push events": "Eventos enviados",
       "RTMP": "RTMP",
       "RTSP (recommended)": "RTSP (recomendado)",
+      "Recording switch": "Interruptor de grabación",
       "Recordings in iCloud when motion is seen (needs a home hub and an iCloud plan).": "Grabaciones en iCloud cuando se ve movimiento (necesita un concentrador y un plan de iCloud).",
       "Refresh interval (seconds)": "Intervalo de actualización (segundos)",
       "Reolink cameras, doorbells, NVRs and Home Hubs by address. Add accessories sets them up without editing this list.": "Cámaras, timbres, NVR y Home Hubs de Reolink por dirección. Añadir accesorios los configura sin editar esta lista.",
@@ -1026,6 +1039,7 @@
       "A motion sensor for each kind of detection the camera makes; empty for every kind it supports.": "Um sensor de movimento por tipo de deteção da câmara; vazio para todos os que suporta.",
       "A motion sensor, which also starts HomeKit Secure Video recordings.": "Um sensor de movimento, que também inicia as gravações do HomeKit Secure Video.",
       "A switch for the IR lights: on is automatic, off is off.": "Um interruptor dos infravermelhos: ligado é automático, desligado é desligado.",
+      "A switch for the camera's own recording to its SD card or the NVR's disk (not HomeKit Secure Video). Off, nothing is recorded there.": "Um interruptor para a gravação própria da câmara no seu cartão SD ou no disco do NVR (não HomeKit Secure Video). Desligado, nada é gravado aí.",
       "A switch per PTZ preset that turns the camera there, then turns itself off.": "Um interruptor por posição PTZ guardada, que vira a câmara para ela e depois se desliga sozinho.",
       "A switch that runs the camera's first PTZ patrol, set up in the Reolink app.": "Um interruptor que inicia a primeira patrulha PTZ da câmara, definida na app Reolink.",
       "API port": "Porta da API",
@@ -1099,6 +1113,7 @@
       "Push events": "Eventos enviados",
       "RTMP": "RTMP",
       "RTSP (recommended)": "RTSP (recomendado)",
+      "Recording switch": "Interruptor de gravação",
       "Recordings in iCloud when motion is seen (needs a home hub and an iCloud plan).": "Gravações no iCloud quando se vê movimento (precisa de um hub doméstico e de um plano iCloud).",
       "Refresh interval (seconds)": "Intervalo de atualização (segundos)",
       "Reolink cameras, doorbells, NVRs and Home Hubs by address. Add accessories sets them up without editing this list.": "Câmaras, campainhas, NVR e Home Hubs Reolink por endereço. Adicionar acessórios configura-os sem editar esta lista.",

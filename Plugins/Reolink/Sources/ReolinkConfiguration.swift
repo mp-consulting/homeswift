@@ -92,6 +92,8 @@ extension ReolinkPlugin {
         public var patrolSwitch: Bool
         /// A Privacy switch where the camera has privacy mode.
         public var privacySwitch: Bool
+        /// A Recording switch: the device's own recording of the channel on or off.
+        public var recordingSwitch: Bool
         /// A momentary switch per paired Reolink Chime.
         public var chimeSwitch: Bool
         /// The tone the chime switches play, `musicId` 0 to 9 (`ReolinkChime.tones`).
@@ -100,7 +102,7 @@ extension ReolinkPlugin {
         public var floodlightMode: String?
 
         static let settingKeys = ["motionSensor", "aiSensors", "doorbell", "floodlight", "siren", "irLights", "stream", "audio", "recording", "prebuffer",
-                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch", "floodlightMode", "chimeSwitch", "chimeTone"]
+                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch", "floodlightMode", "chimeSwitch", "chimeTone", "recordingSwitch"]
 
         init(json: JSONValue) {
             name = json["name"]?.stringValue?.nonEmptyText
@@ -123,6 +125,7 @@ extension ReolinkPlugin {
             presetSwitches = json["presetSwitches"]?.boolValue ?? false
             patrolSwitch = json["patrolSwitch"]?.boolValue ?? false
             privacySwitch = json["privacySwitch"]?.boolValue ?? true
+            recordingSwitch = json["recordingSwitch"]?.boolValue ?? false
             chimeSwitch = json["chimeSwitch"]?.boolValue ?? false
             chimeTone = json["chimeTone"]?.stringValue.flatMap { ReolinkChime.tones.firstIndex(of: $0) } ?? 0
             floodlightMode = json["floodlightMode"]?.stringValue.flatMap { ReolinkFloodlight.modeNumber($0) == nil ? nil : $0 }
@@ -141,7 +144,7 @@ extension ReolinkPlugin {
                                                "debug": .bool(debug), "ringThrottleSeconds": .number(Double(ringThrottleSeconds)),
                                                "presetSwitches": .bool(presetSwitches), "patrolSwitch": .bool(patrolSwitch),
                                                "privacySwitch": .bool(privacySwitch),
-                                               "chimeSwitch": .bool(chimeSwitch), "chimeTone": .string(ReolinkChime.tones[chimeTone])]
+                                               "chimeSwitch": .bool(chimeSwitch), "recordingSwitch": .bool(recordingSwitch), "chimeTone": .string(ReolinkChime.tones[chimeTone])]
             if let name { fields["name"] = .string(name) }
             if let motionSensor { fields["motionSensor"] = .bool(motionSensor) }
             if let aiSensors { fields["aiSensors"] = .array(aiSensors.map(JSONValue.string)) }
