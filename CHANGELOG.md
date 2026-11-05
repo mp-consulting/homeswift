@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
   through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
   Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
   heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
+### Changed
+
+- A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
+  shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
 ## [0.20.1] - 2026-11-04
 
