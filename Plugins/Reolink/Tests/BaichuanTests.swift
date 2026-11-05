@@ -6,7 +6,7 @@ import Testing
 @testable import HomeswiftReolink
 
 /// The spec's vectors (section 9) byte for byte, and the parser's checks.
-@Suite struct BaichuanVectorTests {
+@Suite(.timeLimit(.minutes(1))) struct BaichuanVectorTests {
     @Test func xorKeystreams() {
         #expect(hex(Baichuan.xor([UInt8](repeating: 0, count: 8), offset: 0)) == "1f 2d 3c 4b 5a 69 78 ff")
         #expect(hex(Baichuan.xor([UInt8](repeating: 0, count: 8), offset: 250)) == "c6 b1 a0 93 82 05 e5 d7")
@@ -184,7 +184,7 @@ import Testing
 }
 
 /// A session against the fake camera: the login, the subscription, events, the keepalive, the siren, reconnects.
-@Suite struct BaichuanSessionTests {
+@Suite(.timeLimit(.minutes(1))) struct BaichuanSessionTests {
     func session(_ camera: FakeBaichuanCamera, password: String = "secret", scale: Double = 0.01, connects: NIOCounter = NIOCounter()) -> BaichuanSession {
         BaichuanSession(host: "camera", port: 9000, username: "admin", password: password, connect: { _, _, _ in
             connects.increment()

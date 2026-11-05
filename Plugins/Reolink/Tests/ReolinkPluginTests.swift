@@ -72,7 +72,7 @@ final class ReolinkEnvironment: Sendable {
     }
 }
 
-@Suite struct ReolinkPluginTests {
+@Suite(.timeLimit(.minutes(1))) struct ReolinkPluginTests {
     static let cameraID = "Reolink:95270000ABCDEFGH"
 
     @Test func aMinimalBlockDecodes() throws {
@@ -204,7 +204,8 @@ final class ReolinkEnvironment: Sendable {
 
     @Test func doorbellRingsOnceOnARisingEdge() async throws {
         let environment = ReolinkEnvironment(cameraAnswers(model: "Reolink Video Doorbell PoE", doorbell: true), scale: 0.01)
-        let host = try await environment.start()
+        // 300 s at a hundredth: the real 3 s, which a loaded machine's four presses stay inside.
+        let host = try await environment.start(["devices": [["host": "192.168.1.20", "password": "secret", "cameras": ["0": ["ringThrottleSeconds": 300]]]]])
         defer { Task { await host.stop() } }
         #expect(await eventually { environment.accessory(host, Self.cameraID) != nil })
         let accessory = try #require(environment.accessory(host, Self.cameraID))

@@ -7,7 +7,7 @@ import Testing
 @testable import HomeswiftReolink
 
 /// The HTTP API (sections 3 and 4) against a fake device, and the fixtures of 9.4.
-@Suite struct ReolinkHTTPTests {
+@Suite(.timeLimit(.minutes(1))) struct ReolinkHTTPTests {
     final class Clock: Sendable {
         let box = NIOLockedValueBox(Date(timeIntervalSince1970: 1_000_000))
         var now: Date { box.withLockedValue { $0 } }
