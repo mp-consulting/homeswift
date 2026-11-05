@@ -104,6 +104,73 @@ struct StoragePermissionsTests {
         #expect(StoragePermissions.finding(path: "d", status: Status(mode: 0o775, isDirectory: true))?.openMode == true)
     }
 
+    /// `synoacltool -get` on a DSM 7 package's data share: DSM's grant to the package user alone.
+    static let packageShareACL = """
+        ACL version: 1
+        Archive: has_ACL,is_support_ACL
+        Owner: [homeswift(user)]
+        ---------------------
+                 [0] user:homeswift:allow:rwxpdDaARWc--:fd-- (level:0)
+
+        """
+
+    /// The same share after another account and the administrators were given access in Control Panel.
+    static let sharedWithOthersACL = """
+        ACL version: 1
+        Archive: has_ACL,is_support_ACL
+        Owner: [root(user)]
+        ---------------------
+                 [0] user:homeswift:allow:rwxpdDaARWc--:fd-- (level:0)
+                 [1] user:alice:allow:r-x---a-R-c--:fd-- (level:0)
+                 [2] group:administrators:allow:rwxpdDaARWc--:fd-- (level:0)
+                 [3] everyone:*:deny:rwxpdDaARWc--:fd-- (level:0)
+
+        """
+
+    func secure(_ files: FakeFiles, acl: [String: String]) -> [StoragePermissions.Finding] {
+        StoragePermissions.secure(
+            storage: storage, user: "homeswift", inspect: files.inspect, changeMode: files.changeMode,
+            readDSMACL: { acl[$0] })
+    }
+
+    @Test func dsmEntriesAreRead() {
+        #expect(StoragePermissions.dsmEntries(Self.packageShareACL) == ["user:homeswift:allow:rwxpdDaARWc--:fd--"])
+        #expect(StoragePermissions.dsmEntries("(synoacltool.c, 596)It's Linux mode").isEmpty)
+        #expect(
+            StoragePermissions.dsmEntriesForOthers(Self.sharedWithOthersACL, user: "homeswift", ownedByUser: false) == [
+                "user:alice:allow:r-x---a-R-c--:fd--", "group:administrators:allow:rwxpdDaARWc--:fd--",
+            ])
+        #expect(StoragePermissions.dsmEntriesForOthers("[0] owner:*:allow:rwx:fd--", user: "homeswift", ownedByUser: true).isEmpty)
+        #expect(StoragePermissions.dsmEntriesForOthers("[0] owner:*:allow:rwx:fd--", user: "homeswift", ownedByUser: false).count == 1)
+    }
+
+    /// DSM shows the package user 0777 on its share, whose only entry is its own: nothing to report.
+    @Test func thePackageShareIsNotReported() {
+        let files = FakeFiles([
+            storage.path: Status(mode: 0o777, isDirectory: true, aclAttributes: ["system.syno_acl_self"]),
+            path("secrets.key"): Status(mode: 0o600),
+        ])
+        #expect(secure(files, acl: [storage.path: Self.packageShareACL]).isEmpty)
+    }
+
+    @Test func aShareGivenToOthersNamesThem() throws {
+        let files = FakeFiles([
+            storage.path: Status(mode: 0o777, isDirectory: true, ownedByCurrentUser: false, aclAttributes: ["system.syno_acl_self"])
+        ])
+        let findings = secure(files, acl: [storage.path: Self.sharedWithOthersACL])
+        #expect(findings.map(\.path) == [storage.path])
+        let warning = try #require(StoragePermissions.warning(findings))
+        #expect(warning.contains("/volume1/homeswift (ACL user:alice:allow:r-x---a-R-c--:fd--, group:administrators:allow:rwxpdDaARWc--:fd--)"))
+    }
+
+    /// Without synoacltool's answer the ACL and the mode are reported as before.
+    @Test func anUnreadableDSMACLIsReported() {
+        let files = FakeFiles([
+            storage.path: Status(mode: 0o777, isDirectory: true, aclAttributes: ["system.syno_acl_self"])
+        ])
+        #expect(secure(files, acl: [:]).first?.openMode == true)
+    }
+
     @Test func aclNamesComeFromTheAttributeList() {
         let list = Array("user.comment\0system.posix_acl_access\0system.SYNO_ACL\0".utf8)
         #expect(StoragePermissions.aclNames(inList: list) == ["system.posix_acl_access", "system.SYNO_ACL"])

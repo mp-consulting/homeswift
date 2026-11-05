@@ -73,11 +73,16 @@ them, or replace config.json.
 At each start the package removes that ACL from these files (`/usr/syno/bin/synoacltool -del`, as a package user's
 PATH has no synoacltool) and sets them back to 0600, and the bridge sets each one to 0600 (a chmod, not only the mode
 it is created with) each time it writes it. The bridge then checks the folder and its secrets, and when other accounts
-can still reach them its log says which, starting `Other accounts can reach the bridge's secrets`. The folder itself
-(`drwxrwxrwx+`, root's) stays the share's and may be listed. Over SSH, to see for yourself:
+can still reach them its log says which, starting `Other accounts can reach the bridge's secrets`. The folder keeps the
+share's ACL, which DSM checks instead of its mode bits (it shows the package's user the mode `777`): the bridge reads
+its entries with `synoacltool -get` and reports any that gives access to someone other than the **homeswift** user,
+such as an account or group added in **Control Panel > Shared Folder**. The package's own grant
+(`user:homeswift:allow`) is not reported. To remove another entry, take that account or group off the folder in
+**Control Panel > Shared Folder > Edit > Permissions**. Over SSH, to see for yourself:
 
 ```bash
-ls -le /volume1/homeswift                              # no "+" after the mode of secrets.key and vault.json
+sudo ls -le /volume1/homeswift                         # no "+" after the mode of secrets.key and vault.json
+sudo /usr/syno/bin/synoacltool -get /volume1/homeswift  # one entry: user:homeswift:allow
 sudo /usr/syno/bin/synoacltool -get /volume1/homeswift/secrets.key   # no [0], [1]… entries, no is_inherit or has_ACL
 sudo /usr/syno/bin/synoacltool -get /volume1/homeswift/vault.json
 sudo homeswift logs | grep "reach the bridge's secrets"
