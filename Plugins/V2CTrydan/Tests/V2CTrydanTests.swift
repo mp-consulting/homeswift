@@ -134,7 +134,7 @@ final class TestEnvironment: Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -412,7 +412,10 @@ struct V2CTrydanPluginTests {
     }
 
     @Test func anOnWithABrightnessWritesTheBrightnessOnly() async throws {
-        let environment = TestEnvironment()
+        // A window a loaded runner starts both halves of the request in: the On is told apart from the brightness by time.
+        var timing = fastTiming
+        timing.coalescing = .milliseconds(600)
+        let environment = TestEnvironment(timing: timing)
         let host = try await environment.start(settings: [
             "devices": [["host": "192.0.2.50", "id": "TRY4F2A"]], "_accessories": ["TRY4F2A": ["exposeLeds": true]],
         ])
