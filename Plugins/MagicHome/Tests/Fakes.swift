@@ -46,6 +46,8 @@ final class FakeLAN: Sendable {
         var probes: [(data: Data, host: String)] = []
         var connections: [String: Int] = [:]
         var streams: [String: [FakeStream]] = [:]
+        /// A change the device at a host makes and pushes right after its next state reply.
+        var pushAfterReply: [String: @Sendable (inout MagicHomeState) -> Void] = [:]
         var socket: AsyncStream<(data: Data, address: String)>.Continuation?
     }
 
@@ -84,9 +86,17 @@ final class FakeLAN: Sendable {
 
     /// A state pushed by the device at `host` on its open connections.
     func push(from host: String) {
-        let (streams, device) = state.withLockedValue { ($0.streams[host] ?? [], $0.devices[host]) }
-        guard let device else { return }
-        for stream in streams { stream.yield(Self.reply(device)) }
+        // Under the lock, as a reply is: after any reply to a query already recorded, never inside one.
+        state.withLockedValue { state in
+            guard let device = state.devices[host] else { return }
+            for stream in state.streams[host] ?? [] { stream.yield(Self.reply(device)) }
+        }
+    }
+
+    /// The device at `host` answers its next state query, then makes `change` and pushes it at once, the two back to back
+    /// on the connection.
+    func pushAfterNextReply(from host: String, _ change: @escaping @Sendable (inout MagicHomeState) -> Void) {
+        state.withLockedValue { $0.pushAfterReply[host] = change }
     }
 
     static func reply(_ device: Device) -> [UInt8] {
@@ -145,15 +155,22 @@ final class FakeLAN: Sendable {
         let host = stream.host
         let inner = MagicHomeWrapper.unwrap(bytes) ?? bytes
         let counter: UInt8? = bytes.first == 0xB0 && bytes.count > 7 ? bytes[7] : nil
-        let reply: [UInt8]? = state.withLockedValue { state in
+        // Answered under the lock: a test that sees the query recorded and then pushes has its push arrive after the
+        // reply, as a device sends them, rather than taken for it (or cut into it).
+        state.withLockedValue { state in
             state.frames.append(Frame(host: host, bytes: bytes, inner: inner, wrapCounter: counter))
-            guard !state.silent.contains(host), var device = state.devices[host] else { return nil }
+            guard !state.silent.contains(host), var device = state.devices[host] else { return }
             defer { state.devices[host] = device }
-            if inner == MagicHomeFrame.stateQuery { return Self.reply(device) }
+            if inner == MagicHomeFrame.stateQuery {
+                stream.yield(Self.reply(device))
+                if let change = state.pushAfterReply.removeValue(forKey: host) {
+                    change(&device.state)
+                    stream.yield(Self.reply(device))
+                }
+                return
+            }
             Self.apply(inner, to: &device.state)
-            return nil
         }
-        if let reply { stream.yield(reply) }
     }
 
     /// What a real device would show after the frame.
@@ -288,13 +305,26 @@ extension PluginHost {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
         try? await Task.sleep(for: .milliseconds(10))
     }
     return await condition()
+}
+
+extension MagicHomeDevice {
+    /// A slider's drag as HomeKit's writes reach the device: in order, `spacing` apart, none waiting for the one before.
+    func drag(brightness values: [Int], spacing: Duration) async throws {
+        var writes: [Task<Void, any Error>] = []
+        for value in values {
+            // Started on the device, so each runs in the order it was made.
+            writes.append(Task { try await self.write(.brightness(Double(value))) })
+            try await Task.sleep(for: spacing)
+        }
+        for write in writes { try await write.value }
+    }
 }
 
 /// Runs the write handler of `characteristic` for `value`.

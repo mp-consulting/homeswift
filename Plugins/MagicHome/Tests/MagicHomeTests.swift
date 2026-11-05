@@ -112,23 +112,17 @@ struct MagicHomeTests {
         let started = ContinuousClock.now
         let host = try await environment.start(settings: ["advancedOptions": ["periodicDiscovery": false]])
         #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
-        let light = try #require(host.accessory(Fixtures.stripMAC)?.service(.lightbulb))
+        _ = try #require(host.accessory(Fixtures.stripMAC)?.service(.lightbulb))
         #expect(await eventually { environment.lan.queries(to: Self.stripHost) >= 4 })
         let elapsed = ContinuousClock.now - started
         // The query that added it, then one every 200 ms.
         let queries = environment.lan.queries(to: Self.stripHost)
         #expect(queries >= 3 && queries <= Int(elapsed / .milliseconds(200)) + 2, "\(queries) queries in \(elapsed)")
-        // A drag: twenty brightness writes 2 ms apart, one frame.
+        // A drag: twenty brightness writes 2 ms apart, one frame. They reach the device in order, as one connection's
+        // requests do: twenty tasks sleeping 2 ms apart could wake out of order on a loaded machine.
         let before = environment.lan.commands(to: Self.stripHost).count
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for step in 0..<20 {
-                group.addTask {
-                    try await Task.sleep(for: .milliseconds(2 * step))
-                    try await write(light[.brightness], .int(50 + step))
-                }
-            }
-            try await group.waitForAll()
-        }
+        let device = try #require(await environment.plugin?.devices[Fixtures.stripMAC])
+        try await device.drag(brightness: (0..<20).map { 50 + $0 }, spacing: .milliseconds(2))
         // Coalesced (a loaded machine may stretch the drag past one window, so a few frames, never twenty), the last
         // with the drag's last value.
         let last = hex(MagicHomeLevels.original(.rgbwwStrip, light: MagicHomeLight(hue: 0, saturation: 100, brightness: 69), effects: MagicHomeWhiteEffects())[0])
@@ -250,6 +244,7 @@ struct MagicHomeTests {
         #expect(light[.colorTemperature]?.value == .int(217) && light[.brightness]?.value == .int(100))
         try await write(light[.on], .bool(false))
         try await write(light[.on], .bool(true))
+        let written = environment.lan.queries(to: Self.tableHost)
         // Wrapped, and counted from 0 on the connection: every frame on it, a query a slow machine lets in between the
         // writes included.
         let wrapped = environment.lan.frames.filter { $0.host == Self.tableHost && $0.wrapCounter != nil }
@@ -257,13 +252,52 @@ struct MagicHomeTests {
         #expect(wrapped.filter { $0.inner != MagicHomeFrame.stateQuery }.map(\.inner).map(hex) == ["71 24 0F A4", "71 23 0F A3"])
         // One connection: the query that found it had its own.
         #expect(environment.lan.connections(to: Self.tableHost) == 2)
-        // After the read that follows the writes, a change in the app arrives on that connection before any poll.
-        #expect(await eventually { environment.lan.queries(to: Self.tableHost) >= 2 })
+        // After the read that follows the writes (a push before it would be taken for the fade), a change in the app
+        // arrives on that connection before any poll.
+        #expect(await eventually { environment.lan.queries(to: Self.tableHost) > written })
         let queries = environment.lan.queries(to: Self.tableHost)
         environment.lan.update(at: Self.tableHost) { $0.warm = 0 }
         environment.lan.push(from: Self.tableHost)
         #expect(await eventually { light[.colorTemperature]?.value == .int(370) })
         #expect(environment.lan.queries(to: Self.tableHost) == queries)
+        await host.stop()
+    }
+
+    /// A push while a write settles may be the fade: not shown, and the read once it settled still goes out.
+    @Test func aPushWhileAWriteSettlesIsReadAgain() async throws {
+        environment.lan.put(Fixtures.table, at: Self.tableHost)
+        var timing = TestEnvironment.timing
+        timing.pushPoll = .seconds(60)
+        // Long enough for the push to come within it on a loaded machine.
+        timing.settle = .seconds(2)
+        let host = try await environment.start(timing: timing)
+        #expect(await eventually { host.accessory(Fixtures.tableMAC) != nil })
+        let light = try #require(host.accessory(Fixtures.tableMAC)?.service(.lightbulb))
+        #expect(light[.colorTemperature]?.value == .int(217))
+        try await write(light[.on], .bool(true))
+        let written = environment.lan.queries(to: Self.tableHost)
+        environment.lan.update(at: Self.tableHost) { $0.warm = 0 }
+        environment.lan.push(from: Self.tableHost)
+        #expect(await eventually { environment.lan.queries(to: Self.tableHost) > written })
+        #expect(await eventually { light[.colorTemperature]?.value == .int(370) })
+        await host.stop()
+    }
+
+    /// A reply and a push right behind it: the reply's poll, resumed after the push was shown, does not put back the older
+    /// state.
+    @Test func aPushRightAfterAReplyIsNotUndoneByIt() async throws {
+        environment.lan.put(Fixtures.table, at: Self.tableHost)
+        var timing = TestEnvironment.timing
+        timing.pushPoll = .seconds(60)
+        let host = try await environment.start(timing: timing)
+        #expect(await eventually { host.accessory(Fixtures.tableMAC) != nil })
+        let light = try #require(host.accessory(Fixtures.tableMAC)?.service(.lightbulb))
+        #expect(light[.colorTemperature]?.value == .int(217))
+        let device = try #require(await environment.plugin?.devices[Fixtures.tableMAC])
+        environment.lan.pushAfterNextReply(from: Self.tableHost) { $0.warm = 0 }
+        _ = await device.poll()
+        #expect(await eventually { light[.colorTemperature]?.value == .int(370) })
+        #expect(environment.lan.queries(to: Self.tableHost) == 2)
         await host.stop()
     }
 
