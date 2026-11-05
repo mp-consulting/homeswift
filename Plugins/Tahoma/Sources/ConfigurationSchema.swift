@@ -16,7 +16,6 @@ extension TahomaPlugin {
         "title": "Name",
         "type": "string",
         "description": "Plugin name as shown in the logs",
-        "required": true,
         "default": "TaHoma"
       },
       "service": {
@@ -384,11 +383,41 @@ extension TahomaPlugin {
       }
     }
   },
+  "layout": [
+    "name",
+    "service",
+    "exposeScenarios",
+    {
+      "type": "fieldset",
+      "title": "Devices",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "exclude",
+        "devicesConfig"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "preferLocalAPI",
+        "pollingPeriod",
+        "execPollingPeriod",
+        "refreshPeriod",
+        "proxy",
+        "debug"
+      ]
+    }
+  ],
   "i18n": {
     "fr": {
       "A base URL every request goes to instead, with X-Forward-Host naming the server.": "Une URL de base à laquelle va chaque requête à la place, X-Forward-Host nommant le serveur.",
       "A uiClass, a widget or a protocol (rts, io) whose devices these options are for.": "Une uiClass, un widget ou un protocole (rts, io) dont les appareils reçoivent ces options.",
       "Added to every timed move.": "Ajouté à chaque mouvement minuté.",
+      "Advanced": "Avancé",
       "After a move, opens a little (2 %) to open the slats.": "Après un mouvement, rouvre un peu (2 %) pour ouvrir les lames.",
       "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch Atlantic, Thermor ou Sauter",
       "Blinds on a roller shutter motor": "Store sur un moteur de volet roulant",
@@ -396,6 +425,7 @@ extension TahomaPlugin {
       "Comfort temperature": "Température confort",
       "Cycle (seconds)": "Cycle (secondes)",
       "Debug": "Débogage",
+      "Devices": "Appareils",
       "Eco temperature": "Température éco",
       "Event period (seconds)": "Période des événements (secondes)",
       "Event period while a command runs (seconds)": "Période des événements pendant une commande (secondes)",
@@ -457,6 +487,7 @@ extension TahomaPlugin {
       "A base URL every request goes to instead, with X-Forward-Host naming the server.": "Una URL base a la que va cada petición en su lugar, con X-Forward-Host indicando el servidor.",
       "A uiClass, a widget or a protocol (rts, io) whose devices these options are for.": "Una uiClass, un widget o un protocolo (rts, io) a cuyos dispositivos se aplican estas opciones.",
       "Added to every timed move.": "Se suma a cada movimiento cronometrado.",
+      "Advanced": "Avanzado",
       "After a move, opens a little (2 %) to open the slats.": "Tras un movimiento, abre un poco (2 %) para abrir las lamas.",
       "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch de Atlantic, Thermor o Sauter",
       "Blinds on a roller shutter motor": "Estor con motor de persiana enrollable",
@@ -464,6 +495,7 @@ extension TahomaPlugin {
       "Comfort temperature": "Temperatura de confort",
       "Cycle (seconds)": "Ciclo (segundos)",
       "Debug": "Depuración",
+      "Devices": "Dispositivos",
       "Eco temperature": "Temperatura eco",
       "Event period (seconds)": "Periodo de eventos (segundos)",
       "Event period while a command runs (seconds)": "Periodo de eventos durante una orden (segundos)",
@@ -525,6 +557,7 @@ extension TahomaPlugin {
       "A base URL every request goes to instead, with X-Forward-Host naming the server.": "Um URL base para onde vai cada pedido em vez disso, com X-Forward-Host a indicar o servidor.",
       "A uiClass, a widget or a protocol (rts, io) whose devices these options are for.": "Uma uiClass, um widget ou um protocolo (rts, io) a cujos dispositivos se aplicam estas opções.",
       "Added to every timed move.": "Somado a cada movimento cronometrado.",
+      "Advanced": "Avançado",
       "After a move, opens a little (2 %) to open the slats.": "Após um movimento, abre um pouco (2 %) para abrir as lâminas.",
       "Atlantic, Thermor or Sauter Cozytouch": "Cozytouch da Atlantic, Thermor ou Sauter",
       "Blinds on a roller shutter motor": "Estore num motor de estore de enrolar",
@@ -532,6 +565,7 @@ extension TahomaPlugin {
       "Comfort temperature": "Temperatura de conforto",
       "Cycle (seconds)": "Ciclo (segundos)",
       "Debug": "Depuração",
+      "Devices": "Dispositivos",
       "Eco temperature": "Temperatura eco",
       "Event period (seconds)": "Período dos eventos (segundos)",
       "Event period while a command runs (seconds)": "Período dos eventos durante um comando (segundos)",
