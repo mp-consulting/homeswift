@@ -44,6 +44,7 @@ let package = Package(
         .library(name: "HomeswiftSonos", targets: ["HomeswiftSonos"]),
         .library(name: "HomeswiftIPCameras", targets: ["HomeswiftIPCameras"]),
         .library(name: "HomeswiftRing", targets: ["HomeswiftRing"]),
+        .library(name: "HomeswiftV2CTrydan", targets: ["HomeswiftV2CTrydan"]),
         .library(name: "HomeswiftTahoma", targets: ["HomeswiftTahoma"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
@@ -456,6 +457,11 @@ let package = Package(
             path: "Plugins/IPCameras/Sources"
         ),
         .target(
+            name: "HomeswiftV2CTrydan",
+            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
+            path: "Plugins/V2CTrydan/Sources"
+        ),
+        .target(
             name: "HomeswiftTahoma",
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Crypto", package: "swift-crypto"),
@@ -468,7 +474,7 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftTahoma",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftV2CTrydan", "HomeswiftTahoma",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -852,6 +858,15 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/IPCameras/Tests"
+        ),
+        .testTarget(
+            name: "V2CTrydanTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftV2CTrydan",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/V2CTrydan/Tests"
         ),
         .testTarget(
             name: "TahomaTests",
