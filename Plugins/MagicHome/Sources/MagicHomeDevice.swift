@@ -93,6 +93,8 @@ actor MagicHomeDevice {
     private let sliders: LatestCallGuard
     private var failures = 0
     private var lastUpdate: ContinuousClock.Instant?
+    /// What the device sent unasked: a poll whose reply was overtaken by one does not show the reply.
+    private var pushesHeard = 0
     private var lastWrite: ContinuousClock.Instant?
     /// A white Adaptive Lighting set while the light was off: sent with the power-on.
     private var levelsWaiting = false
@@ -182,9 +184,12 @@ actor MagicHomeDevice {
         if let lastWrite, now - lastWrite < options.timing.settle { return options.timing.settle - (now - lastWrite) }
         if profile.family.pushes, await connection.isOpen, let lastUpdate, now - lastUpdate < interval { return interval - (now - lastUpdate) }
         do {
+            let heard = pushesHeard
             let state = try await connection.query(wrapped: profile.family.wrapsRequests)
             await answered()
-            await received(state)
+            // A push that came while the reply made its way here may be newer than it (sent after it, it was shown
+            // first): the push stands.
+            if pushesHeard == heard { await received(state) }
             return interval
         } catch {
             return await unanswered(error)
@@ -221,12 +226,13 @@ actor MagicHomeDevice {
     private func wake() { sleeper?.cancel() }
 
     private func pushed(_ message: MagicHomeMessage) async {
+        pushesHeard &+= 1
         switch message {
         case .state(let state):
             await received(state)
         case .power(let on):
-            lastUpdate = .now
             guard !isSettling else { return }
+            lastUpdate = .now
             light.isOn = on
             set(services?.on, .bool(on))
         case .other:
@@ -238,7 +244,6 @@ actor MagicHomeDevice {
 
     /// A state reply or push: the profile (and the accessory) follow the device, then its values.
     func received(_ state: MagicHomeState) async {
-        lastUpdate = .now
         if state.model != record.model || state.version != record.version || state.mode != record.mode {
             record.model = state.model
             record.version = state.version
@@ -251,8 +256,10 @@ actor MagicHomeDevice {
             }
             await onRecord?(record)
         }
-        // A fade may still report what it showed before the write: read again once it settled.
+        // A fade may still report what it showed before the write: read again once it settled. Not shown, it is not an
+        // update either, so that read is not skipped for a push that came meanwhile.
         guard !isSettling else { return }
+        lastUpdate = .now
         show(MagicHomeReading.of(state, profile: profile, effects: options.effects))
     }
 
@@ -315,7 +322,13 @@ actor MagicHomeDevice {
         case .mirek: "mirek"
         case .on: nil
         }
-        if let slider, !(await sliders(slider)) { return }
+        if let slider {
+            // Claimed here, on the device, so the last write to reach it wins (the guard's own call would claim it after a
+            // hop off the actor, where two writes a moment apart can swap); then the wait for a later one.
+            let isLatest = sliders.claim(slider)
+            do { try await Task.sleep(for: options.timing.slider) } catch { return }
+            guard isLatest() else { return }
+        }
         guard let batcher else { return }
         try await batcher.set(change)
     }
