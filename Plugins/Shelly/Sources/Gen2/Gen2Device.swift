@@ -69,7 +69,18 @@ actor Gen2Device {
     private var historyJobs: [HistoryJob] = []
     private var importer: Task<Void, Never>?
     /// The relays' meters, whose history Shelly Cloud keeps (`importCloudHistory`), by channel.
-    private var cloudJobs: [(channel: Int, meter: PluginMeter)] = []
+    private var cloudJobs: [CloudJob] = []
+
+    /// A Meter whose history Shelly Cloud keeps: a relay's channel (`power-consumption`), or an energy meter
+    /// (`power-consumption/em-3p`, `em-1p`), which keeps weeks of its own records, so the cloud fills the days before them.
+    struct CloudJob: Sendable {
+        var key: String
+        var channel: Int
+        var endpoint: String
+        var meter: PluginMeter
+        /// The component whose own records the device keeps (`emdata:0`), when it has some.
+        var records: String?
+    }
     private var cloudImporter: Task<Void, Never>?
 
     struct HistoryJob: Sendable {
@@ -333,7 +344,13 @@ actor Gen2Device {
         let returned: (@Sendable ([String: JSONValue]) -> Double?)? = returned ?? (energyKey == nil ? Self.returnedEnergy : nil)
         let owned = context.meter(of: meter, accessoryID: owner.accessoryID, device: owner.device, suggestedRole: role, series: "\(deviceID):\(key):power")
         // A relay keeps no records: Shelly Cloud's are its history, with an account.
-        if key.hasPrefix("switch:") { cloudJobs.append((id, owned)) }
+        if key.hasPrefix("switch:") { cloudJobs.append(CloudJob(key: key, channel: id, endpoint: "", meter: owned)) }
+        if let history {
+            // An energy meter's history in the cloud: three phases (an `em`) or one (an `em1`, a channel of its own).
+            let threePhase = history.component == "emdata"
+            cloudJobs.append(CloudJob(key: key, channel: threePhase ? 0 : id, endpoint: threePhase ? "/em-3p" : "/em-1p", meter: owned,
+                                      records: "\(history.component):\(id)"))
+        }
         if let history { historyJobs.append(HistoryJob(component: history.component, id: id, meter: owned, drawn: history.drawn, back: history.back)) }
         bind(key) { fields in
             let watts = fields[power]?.number ?? 0
@@ -552,9 +569,10 @@ actor Gen2Device {
     // MARK: Shelly Cloud's history
 
     /// How far back a first import from the cloud looks; it stops sooner after `cloudEmptyDays` days in a row with nothing.
-    static let cloudDays = 400, cloudEmptyDays = 21
+    static let cloudDays = 3660, cloudEmptyDays = 45
 
-    /// Imports the relays' history from Shelly Cloud (`ShellyCloud`: unofficial), once: a day a request, the newest first,
+    /// Imports the relays' and the energy meters' history from Shelly Cloud (`ShellyCloud`: unofficial), once (an energy
+    /// meter's from the day before its own records begin): a day a request, the newest first,
     /// one a second (the cloud's limit, `delay`), back to the day the last import reached (`shelly-cloud-history.json`) or,
     /// the first time, until the cloud has nothing for `cloudEmptyDays` days in a row. A refused key is said on the
     /// Plugins page (`accountRefused`). Hours the bridge measured keep their own figures.
@@ -567,17 +585,22 @@ actor Gen2Device {
         let file = context.jsonFile("shelly-cloud-history.json", as: [String: Int].self)
         var reached = file.load() ?? [:]
         let day = 86_400.0
+        // Where each energy meter's own records begin (`importHistory`): the cloud fills the days before.
+        let local = context.jsonFile("shelly-ng-history.json", as: [String: ImportedSpan].self).load() ?? [:]
         for job in cloudJobs {
-            let key = "\(deviceID)/switch:\(job.channel)"
-            let stop = reached[key].map { Date(timeIntervalSince1970: TimeInterval($0) - day) } ?? now.addingTimeInterval(-Double(Self.cloudDays) * day)
-            let total = max(1, Int(now.timeIntervalSince(stop) / day) + 1)
+            let key = "\(deviceID)/\(job.key)"
+            let first = job.records.flatMap { local["\(deviceID)/\($0)"] }.map { Date(timeIntervalSince1970: TimeInterval($0.from) - day) }
+            let start = min(now, first ?? now)
+            let stop = reached[key].map { Date(timeIntervalSince1970: TimeInterval($0) - day) } ?? start.addingTimeInterval(-Double(Self.cloudDays) * day)
+            guard stop < start else { continue }
+            let total = max(1, Int(start.timeIntervalSince(stop) / day) + 1)
             var empty = 0, newest: Date?
-            var date = now
+            var date = start
             for index in 0..<total {
                 guard !Task.isCancelled else { return }
                 if index > 0 { try? await Task.sleep(for: delay) }
                 context.reportEnergyImport(EnergyImportProgress(state: .running, done: index, total: total))
-                switch await cloud.consumption(id: id, channel: job.channel, day: date, timeZone: .current) {
+                switch await cloud.consumption(id: id, channel: job.channel, day: date, timeZone: .current, endpoint: job.endpoint) {
                 case .refused:
                     context.accountRefused("Shelly Cloud refused the email and password: sign in again")
                     context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the email and password"))

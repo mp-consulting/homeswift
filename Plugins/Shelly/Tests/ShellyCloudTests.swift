@@ -66,4 +66,16 @@ struct ShellyCloudTests {
         #expect(ShellyCloud.answer(["isok": true, "data": ["history": [["datetime": "2026-11-04 01:00:00", "consumption": 2]]]], timeZone: paris, logger: logger) != .nothing)
         #expect(ShellyCloud.claims(of: "not.a.jwt") == nil)
     }
+
+    /// An energy meter's answer, a list per phase, is added up by hour.
+    @Test func anEnergyMetersPhasesAddUp() {
+        let json: JSONValue = ["history": [
+            [["datetime": "2026-11-04 13:00:00", "consumption": 100, "reversed": 1], ["datetime": "2026-11-04 14:00:00", "consumption": 10]],
+            [["datetime": "2026-11-04 13:00:00", "consumption": 200, "reversed": 2]],
+            [["datetime": "2026-11-04 13:00:00", "consumption": 300]],
+        ], "timezone": "Europe/Paris"]
+        guard case .hours(let hours) = ShellyCloud.answer(json, timeZone: paris, logger: Logger(label: "test")) else { Issue.record("no hours"); return }
+        #expect(hours.map(\.consumption) == [600, 10])
+        #expect(hours.first?.returned == 3)
+    }
 }

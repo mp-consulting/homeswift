@@ -121,7 +121,7 @@ actor ShellyCloud {
 
     /// One day's hours of a device's channel (`id` its MAC in lowercase, as the cloud names it), midnight to midnight in
     /// `timeZone`. A refused token signs in again once.
-    func consumption(id: String, channel: Int, day: Date, timeZone: TimeZone) async -> Answer {
+    func consumption(id: String, channel: Int, day: Date, timeZone: TimeZone, endpoint: String = "") async -> Answer {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let start = calendar.startOfDay(for: day)
@@ -134,7 +134,7 @@ actor ShellyCloud {
             case .success(let current): session = current
             case .failure(let failure): return failure.refused ? .refused : .nothing
             }
-            guard let url = URL(string: session.server.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/v2/statistics/power-consumption?" + query) else { return .nothing }
+            guard let url = URL(string: session.server.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/v2/statistics/power-consumption\(endpoint)?" + query) else { return .nothing }
             let request = HTTPRequest(url: url, headers: [("Authorization", "Bearer \(session.token)")], timeout: .seconds(30))
             let response: HomeswiftNetwork.HTTPResponse
             do { response = try await http.send(request) } catch {
@@ -174,7 +174,8 @@ actor ShellyCloud {
 
     /// The cloud's answer read: `{"history":[{"datetime":"2026-11-04 13:00:00","consumption":12.5,"reversed":0}],
     /// "timezone":"Europe/Paris"}`, or the same under `data` with `isok`, as the web view reads either; the datetimes in
-    /// its `timezone` (else `timeZone`), the figures in Wh; an hour marked `missing` left out.
+    /// its `timezone` (else `timeZone`), the figures in Wh; an hour marked `missing` left out. An energy meter's phases
+    /// (lists of their own) are added up by hour.
     static func answer(_ json: JSONValue, timeZone: TimeZone, logger: Logger) -> Answer {
         let body = json["history"] != nil ? json : (json["data"] ?? .null)
         // An answer with nothing in it is described once, by `consumption`.
@@ -184,11 +185,18 @@ actor ShellyCloud {
         }
         guard let history = body["history"]?.arrayValue else { return .nothing }
         let format = formatter(body["timezone"]?.stringValue.flatMap(TimeZone.init(identifier:)) ?? timeZone)
-        let hours = history.compactMap { entry -> MeterHourImport? in
+        // An energy meter's history may hold a list per phase (the web view flattens them): each hour added up.
+        var byHour: [Date: MeterHourImport] = [:]
+        for entry in history.flatMap({ $0.arrayValue ?? [$0] }) {
             guard entry["missing"]?.boolValue != true, let text = entry["datetime"]?.stringValue, let start = format.date(from: text),
-                  let consumption = entry["consumption"]?.number, consumption.isFinite, consumption >= 0 else { return nil }
-            return MeterHourImport(start: start, consumption: consumption, returned: entry["reversed"]?.number.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil })
+                  let consumption = entry["consumption"]?.number, consumption.isFinite, consumption >= 0 else { continue }
+            let returned = entry["reversed"]?.number.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+            var hour = byHour[start] ?? MeterHourImport(start: start, consumption: 0)
+            hour.consumption = (hour.consumption ?? 0) + consumption
+            if let returned { hour.returned = (hour.returned ?? 0) + returned }
+            byHour[start] = hour
         }
+        let hours = byHour.values.sorted { $0.start < $1.start }
         return .hours(hours)
     }
 }
