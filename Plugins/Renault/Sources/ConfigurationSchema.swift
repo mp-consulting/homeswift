@@ -56,7 +56,7 @@ extension RenaultPlugin {
         ]
       },
       "username": {
-        "title": "E-mail",
+        "title": "Email",
         "type": "string",
         "description": "The MyRenault account's e-mail. Setup fills it in."
       },
@@ -158,7 +158,7 @@ extension RenaultPlugin {
       "Switzerland (German)": "Suisse (allemand)",
       "Switzerland (Italian)": "Suisse (italien)",
       "United Kingdom": "Royaume-Uni",
-      "E-mail": "E-mail",
+      "Email": "E-mail",
       "The MyRenault account's e-mail. Setup fills it in.": "L'e-mail du compte MyRenault. La configuration le renseigne.",
       "Password": "Mot de passe",
       "Only for a block written by hand: Setup keeps the password in the vault instead.": "Seulement pour un bloc écrit à la main : la configuration garde le mot de passe dans le coffre.",
@@ -211,7 +211,7 @@ extension RenaultPlugin {
       "Switzerland (German)": "Suiza (alemán)",
       "Switzerland (Italian)": "Suiza (italiano)",
       "United Kingdom": "Reino Unido",
-      "E-mail": "Correo electrónico",
+      "Email": "Correo electrónico",
       "The MyRenault account's e-mail. Setup fills it in.": "El correo electrónico de la cuenta MyRenault. La configuración lo rellena.",
       "Password": "Contraseña",
       "Only for a block written by hand: Setup keeps the password in the vault instead.": "Solo para un bloque escrito a mano: la configuración guarda la contraseña en el almacén.",
@@ -264,7 +264,7 @@ extension RenaultPlugin {
       "Switzerland (German)": "Suíça (alemão)",
       "Switzerland (Italian)": "Suíça (italiano)",
       "United Kingdom": "Reino Unido",
-      "E-mail": "E-mail",
+      "Email": "E-mail",
       "The MyRenault account's e-mail. Setup fills it in.": "O e-mail da conta MyRenault. A configuração preenche-o.",
       "Password": "Palavra-passe",
       "Only for a block written by hand: Setup keeps the password in the vault instead.": "Apenas para um bloco escrito à mão: a configuração guarda a palavra-passe no cofre.",

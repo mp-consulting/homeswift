@@ -333,7 +333,7 @@ actor RenaultVehicle {
             built["ExteriorTemperature"] = Service(.temperatureSensor, name: "\(name) Exterior", subtype: "ExteriorTemperature", optional: [.configuredName])
         }
         if keys.contains(VehiclePart.batteryTemperature.rawValue) {
-            built["BatteryTemperature"] = Service(.temperatureSensor, name: "\(name) Battery", subtype: "BatteryTemperature", optional: [.configuredName])
+            built["BatteryTemperature"] = Service(.temperatureSensor, name: "\(name) Battery Temperature", subtype: "BatteryTemperature", optional: [.configuredName])
         }
         if keys.contains(VehiclePart.doors.rawValue) {
             for opening in LockStatus.openingNames {

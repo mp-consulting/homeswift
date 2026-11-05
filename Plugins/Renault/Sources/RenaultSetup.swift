@@ -51,7 +51,7 @@ extension RenaultPlugin {
         else {
             return .ask(SetupPrompt(message: "Sign in with your MyRenault account.", fields: [
                 .choice("locale", label: "Country", options: RenaultLocale.known.map(Self.localeOption), value: locale),
-                SetupField("email", label: "E-mail", value: configuration.username),
+                SetupField("email", label: "Email", value: configuration.username),
                 SetupField("password", label: "Password", kind: .secret),
             ]))
         }
