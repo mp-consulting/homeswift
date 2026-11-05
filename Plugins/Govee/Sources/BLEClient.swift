@@ -140,11 +140,11 @@ actor BLEClient {
             await central.reset()
             log.debug("connecting to device at \(target.address)")
             let central = central
-            let connected = try await Self.withTimeout(timing.connection, "Connection timeout") { try await central.connect(target) }
+            let connected = try await withTimeout(timing.connection, error: { BLEError.timeout("Connection timeout") }) { try await central.connect(target) }
             connection = connected
             log.debug("connected successfully")
             log.debug("discovering services and characteristics")
-            let found = try await Self.withTimeout(timing.discovery, "Service discovery timeout") {
+            let found = try await withTimeout(timing.discovery, error: { BLEError.timeout("Service discovery timeout") }) {
                 try await connected.discoverCharacteristic(Self.controlCharacteristic)
             }
             guard found else { throw BLEError.noCharacteristic }
@@ -153,7 +153,7 @@ actor BLEClient {
             let frames = params.frames
             for (index, frame) in frames.enumerated() {
                 log.debug("sending frame \(index + 1)/\(frames.count): \(Secrets.hex(frame))")
-                try await Self.withTimeout(timing.write, "Write timeout") { try await connected.write(Data(frame), to: Self.controlCharacteristic) }
+                try await withTimeout(timing.write, error: { BLEError.timeout("Write timeout") }) { try await connected.write(Data(frame), to: Self.controlCharacteristic) }
             }
             log.debug("command sent successfully")
         } catch {
@@ -172,7 +172,7 @@ actor BLEClient {
         if let connection {
             do {
                 log.debug("disconnecting from device")
-                try await Self.withTimeout(timing.disconnect, "Disconnect timeout") { try await connection.disconnect() }
+                try await withTimeout(timing.disconnect, error: { BLEError.timeout("Disconnect timeout") }) { try await connection.disconnect() }
                 log.debug("disconnected")
             } catch {
                 log.debug("disconnect error (non-critical): \(error)")
@@ -193,17 +193,6 @@ actor BLEClient {
         }
     }
 
-    static func withTimeout<T: Sendable>(_ timeout: Duration, _ message: String, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw BLEError.timeout(message)
-            }
-            defer { group.cancelAll() }
-            return try await group.next()!
-        }
-    }
 
     // MARK: Sensor scans
 

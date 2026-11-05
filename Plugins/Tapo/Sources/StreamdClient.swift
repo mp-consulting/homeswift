@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftPlugin
 import HomeswiftNetwork
 import Logging
 import NIOConcurrencyHelpers
@@ -60,7 +61,7 @@ struct StreamdClient: Sendable {
     private func attempt(password: String, forceMD5: Bool, channel: Int, resolution: Streamd.Resolution) async throws -> Session {
         let connection = try await connect(host, port, handshakeTimeout)
         do {
-            return try await withDeadline(handshakeTimeout, onTimeout: { await connection.close() }) {
+            return try await withTimeout(handshakeTimeout, error: { StreamdError.silent }, onTimeout: { await connection.close() }) {
                 try await handshake(connection, password: password, forceMD5: forceMD5, channel: channel, resolution: resolution)
             }
         } catch {
@@ -202,20 +203,4 @@ enum StreamdHandshakeError: Error {
 struct UnsafeTransfer<Value>: @unchecked Sendable {
     var value: Value
     init(_ value: Value) { self.value = value }
-}
-
-/// Runs `body`, or calls `onTimeout` and throws `StreamdError.silent` once `timeout` passes first.
-func withDeadline<T: Sendable>(_ timeout: Duration, onTimeout: @escaping @Sendable () async -> Void, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
-    try await withThrowingTaskGroup(of: T?.self) { group in
-        group.addTask { try await body() }
-        group.addTask {
-            try await Task.sleep(for: timeout)
-            return nil
-        }
-        defer { group.cancelAll() }
-        guard let first = try await group.next() else { throw StreamdError.silent }
-        if let first { return first }
-        await onTimeout()
-        throw StreamdError.silent
-    }
 }
