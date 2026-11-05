@@ -587,9 +587,11 @@ actor Gen2Device {
                 case .nothing:
                     empty += 1
                 case .hours(let hours):
+                    // A day of zeros alone is taken as nothing: the cloud answers so for a day it has no record of (and
+                    // has once for days it had), and its zeros would stand over an import of the day's real figures.
                     let known = hours.filter { $0.consumption > 0 || ($0.returned ?? 0) > 0 }
                     empty = known.isEmpty ? empty + 1 : 0
-                    if !hours.isEmpty {
+                    if !known.isEmpty {
                         job.meter.importHours(hours.map { MeterHourImport(start: $0.start, consumption: $0.consumption, returned: $0.returned) })
                         newest = newest ?? date
                     }

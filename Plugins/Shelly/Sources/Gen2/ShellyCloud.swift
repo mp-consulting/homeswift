@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftAI
 import HomeswiftNetwork
 import Logging
+import NIOConcurrencyHelpers
 
 /// The Shelly Cloud account of an instance (an Optional Account): its server, as the Shelly app shows it beside the key
 /// (`shelly-238-eu.shelly.cloud`), and its authorization cloud key (User settings, Authorization cloud key), kept in the
@@ -15,9 +16,10 @@ struct ShellyCloudCredentials: Codable, Sendable, Equatable {
 /// its own (an `em` keeps weeks; a plug, its last minutes).
 ///
 /// **Unofficial.** Shelly documents no history endpoint (its Cloud Control API, v1 and v2, only reads status and controls
-/// devices). This asks the one the Shelly app uses, `/statistics/relay/consumption`, as community scripts do; it may change
-/// or go without notice, and an answer of another shape is taken as no history, never as figures. The key goes in the
-/// request's body, never in its address or a log line.
+/// devices). This asks the one the Shelly app's web view (control.shelly.cloud) asks for a plug's or relay's charts,
+/// `GET /v2/statistics/power-consumption?id=&channel=&date_range=custom&date_from=&date_to=`; it may change or go without
+/// notice, and an answer of another shape is taken as no history, never as figures. The key goes in the query, as the
+/// documented v2 API takes it (`?auth_key=`); the address is never logged.
 struct ShellyCloud: Sendable {
     let credentials: ShellyCloudCredentials
     let http: any HTTPSending
@@ -50,7 +52,7 @@ struct ShellyCloud: Sendable {
     /// One day's hours of a device's channel (`id` its MAC in lowercase, as the cloud names it), midnight to midnight in
     /// `timeZone`.
     func consumption(id: String, channel: Int, day: Date, timeZone: TimeZone) async -> Answer {
-        guard let base, let url = URL(string: base.absoluteString + "/statistics/relay/consumption") else { return .nothing }
+        guard let base else { return .nothing }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let start = calendar.startOfDay(for: day)
@@ -61,28 +63,62 @@ struct ShellyCloud: Sendable {
         let fields = [("id", id), ("channel", String(channel)), ("date_range", "custom"),
                       ("date_from", format.string(from: start)), ("date_to", format.string(from: start.addingTimeInterval(86_399))),
                       ("auth_key", credentials.authKey)]
-        let body = URLEncoding.form(fields)
-        let request = HTTPRequest(method: "POST", url: url, headers: [("Content-Type", "application/x-www-form-urlencoded")], body: Data(body.utf8), timeout: .seconds(30))
-        guard let response = try? await http.send(request) else { return .nothing }
+        guard let url = URL(string: base.absoluteString + "/v2/statistics/power-consumption?" + URLEncoding.form(fields)) else { return .nothing }
+        let request = HTTPRequest(url: url, timeout: .seconds(30))
+        let response: HomeswiftNetwork.HTTPResponse
+        do { response = try await http.send(request) } catch {
+            // The error's kind only: its text could carry the address, and the address the key.
+            Self.describe(logger, "did not answer (\(type(of: error)))")
+            return .nothing
+        }
         if response.status == 401 || response.status == 403 { return .refused }
-        guard response.status == 200, let json = try? JSONValue(data: response.body) else { return .nothing }
-        return Self.answer(json, timeZone: timeZone, logger: logger)
+        guard response.status == 200, let json = try? JSONValue(data: response.body) else {
+            Self.describe(logger, "answered HTTP \(response.status), \(response.body.count) bytes\(response.status == 200 ? ", not JSON" : "")")
+            return .nothing
+        }
+        let answer = Self.answer(json, timeZone: timeZone, logger: logger)
+        if case .hours(let hours) = answer, !hours.isEmpty {
+            // A day of zeros said once or twice too, with its dates and how it was cut: the endpoint's ways are not known.
+            if hours.allSatisfy({ $0.consumption == 0 && ($0.returned ?? 0) == 0 }) {
+                let body = json["history"] != nil ? json : (json["data"] ?? .null)
+                Self.describe(logger, "gave \(hours.count) hours of zeros for \(format.string(from: start)), interval \(body["interval"]?.stringValue ?? body["history_interval"]?.stringValue ?? "none"), "
+                    + "keys \(body.objectValue?.keys.sorted() ?? []), first entry \(body["history"]?[0]?.objectValue?.keys.sorted() ?? []) at \(body["history"]?[0]?["datetime"]?.stringValue ?? "?")")
+            }
+            return answer
+        }
+        // The shape of an answer with nothing in it, to see what the unofficial endpoint gives: names, never values.
+        let history = (json["history"] ?? json["data"]?["history"])?.arrayValue
+        Self.describe(logger, "answered isok \(json["isok"].map { "\($0)" } ?? "missing"), keys \(json.objectValue?.keys.sorted() ?? []), "
+            + "data keys \(json["data"]?.objectValue?.keys.sorted() ?? []), errors \(json["errors"]?.objectValue?.keys.sorted() ?? []), "
+            + "\(history.map { "\($0.count) history entries, the first with \($0.first?.objectValue?.keys.sorted() ?? [])" } ?? "no history list")")
+        return answer
     }
 
-    /// The cloud's answer read: `{"isok":true,"data":{"history":[{"datetime":"2026-11-04 13:00:00","consumption":12.5,
-    /// "reversed":0}],"timezone":"Europe/Paris"}}`, the datetimes in `data.timezone` (else `timeZone`), the figures in Wh;
+    /// How many answers with nothing in them were described in the log, this run: the first few, not a year's.
+    private static let described = NIOLockedValueBox(0)
+
+    /// Says in the log what an answer without hours was like (its shape only: no key, no figures), the first three times.
+    static func describe(_ logger: Logger, _ text: String) {
+        guard described.withLockedValue({ count in defer { count += 1 }; return count < 3 }) else { return }
+        logger.info("Shelly Cloud's history \(text)")
+    }
+
+    /// The cloud's answer read: `{"history":[{"datetime":"2026-11-04 13:00:00","consumption":12.5,"reversed":0}],
+    /// "timezone":"Europe/Paris"}`, or the same under `data` with `isok`, as the web view reads either; the datetimes in
+    /// its `timezone` (else `timeZone`), the figures in Wh;
     /// an hour marked `missing` left out.
     static func answer(_ json: JSONValue, timeZone: TimeZone, logger: Logger) -> Answer {
-        guard json["isok"]?.boolValue == true else {
+        let body = json["history"] != nil ? json : (json["data"] ?? .null)
+        guard json["isok"]?.boolValue == true || json["history"] != nil else {
             let errors = json["errors"]?.objectValue?.keys.sorted() ?? []
             logger.debug("Shelly Cloud gave no history", metadata: ["errors": "\(errors)"])
             return errors.contains { $0.contains("auth") || $0.contains("unauthorized") || $0.contains("token") } ? .refused : .nothing
         }
-        guard let history = json["data"]?["history"]?.arrayValue else {
+        guard let history = body["history"]?.arrayValue else {
             logger.debug("Shelly Cloud answered without a history", metadata: ["keys": "\(json["data"]?.objectValue?.keys.sorted() ?? [])"])
             return .nothing
         }
-        let zone = json["data"]?["timezone"]?.stringValue.flatMap(TimeZone.init(identifier:)) ?? timeZone
+        let zone = body["timezone"]?.stringValue.flatMap(TimeZone.init(identifier:)) ?? timeZone
         let format = DateFormatter()
         format.locale = Locale(identifier: "en_US_POSIX")
         format.timeZone = zone
