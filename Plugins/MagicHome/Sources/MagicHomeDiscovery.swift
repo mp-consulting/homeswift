@@ -23,7 +23,7 @@ struct MagicHomeFound: Sendable, Equatable {
     var version: MagicHomeVersionReply?
 }
 
-/// The UDP socket a scan uses; tests use a fake.
+/// The UDP socket a scan uses; tests use a fake. `close` finishes `datagrams`.
 protocol MagicHomeDiscoverySocket: Sendable {
     var datagrams: AsyncStream<(data: Data, address: String)> { get }
     func send(_ data: Data, to host: String, port: Int) async throws
@@ -107,8 +107,9 @@ enum MagicHomeDiscovery {
         try? await Task.sleep(for: gap)
         for target in targets { try? await socket.send(versionQuery, to: target, port: port) }
         try? await Task.sleep(for: window - gap)
+        // Closing ends the datagrams once those already received are read: a reader that had not got to them yet (a
+        // busy machine) still counts them, where cancelling it would drop them.
         await socket.close()
-        collected.cancel()
         let result = await collected.value
         return result.announcements.values
             .map { MagicHomeFound(announcement: $0, version: result.versions[$0.address]) }
