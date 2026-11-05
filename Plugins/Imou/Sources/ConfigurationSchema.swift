@@ -138,7 +138,7 @@ extension ImouPlugin {
       "devices": {
         "title": "Cameras by Address",
         "type": "array",
-        "description": "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.",
+        "description": "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.",
         "items": {
           "title": "Camera",
           "type": "object",
@@ -376,7 +376,6 @@ extension ImouPlugin {
       "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Un interrupteur qui allume le projecteur quand la caméra déclenche une alarme, par le cloud.",
       "A switch that sounds the camera's siren, through the cloud.": "Un interrupteur qui fait sonner la sirène de la caméra, par le cloud.",
       "API Address": "Adresse de l'API",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire.",
       "Address": "Adresse",
       "Advanced": "Avancé",
       "App Id": "App Id",
@@ -436,7 +435,8 @@ extension ImouPlugin {
       "Video Encoder": "Encodeur vidéo",
       "Wake-up Wait (in seconds)": "Attente du réveil (en secondes)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Où votre application de développeur IMOU a été créée : elle doit correspondre à la région du portail.",
-      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Ajoutez par son adresse une caméra que le compte IMOU ne liste pas (ou sans compte), puis configurez-la depuis Ajouter des accessoires avec son code de sécurité. Une fois configurée, ses réglages sont avec son accessoire. Ajouter par adresse, dans Ajouter des accessoires, fait les deux en une fois."
     },
     "es": {
       "A light for the camera's spotlight, through the cloud.": "Una luz para el foco de la cámara, a través de la nube.",
@@ -450,7 +450,6 @@ extension ImouPlugin {
       "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Un interruptor que enciende el foco cuando la cámara da una alarma, a través de la nube.",
       "A switch that sounds the camera's siren, through the cloud.": "Un interruptor que hace sonar la sirena de la cámara, a través de la nube.",
       "API Address": "Dirección de la API",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio.",
       "Address": "Dirección",
       "Advanced": "Avanzado",
       "App Id": "App Id",
@@ -510,7 +509,8 @@ extension ImouPlugin {
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera del despertar (en segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Dónde se creó su aplicación de desarrollador IMOU: debe coincidir con la región del portal.",
-      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Añada por su dirección una cámara que la cuenta IMOU no muestra (o sin cuenta) y luego configúrela desde Añadir accesorios con su código de seguridad. Una vez configurada, sus ajustes están con su accesorio. Añadir por dirección, en Añadir accesorios, hace ambas cosas de una vez."
     },
     "pt": {
       "A light for the camera's spotlight, through the cloud.": "Uma luz para o projetor da câmara, através da nuvem.",
@@ -524,7 +524,6 @@ extension ImouPlugin {
       "A switch that has the spotlight turn on when the camera raises an alarm, through the cloud.": "Um interruptor que acende o projetor quando a câmara dá um alarme, através da nuvem.",
       "A switch that sounds the camera's siren, through the cloud.": "Um interruptor que faz soar a sirene da câmara, através da nuvem.",
       "API Address": "Endereço da API",
-      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório.",
       "Address": "Endereço",
       "Advanced": "Avançado",
       "App Id": "App Id",
@@ -584,7 +583,8 @@ extension ImouPlugin {
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera do despertar (em segundos)",
       "Where your IMOU developer app was made: it must match the portal's region.": "Onde a sua aplicação de programador IMOU foi criada: tem de corresponder à região do portal.",
-      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency",
+      "Add a camera the IMOU account does not list (or without an account) by its address, then set it up from Add accessories with its safety code. Once set up, its settings are with its accessory. Add by address, in Add accessories, does both in one step.": "Adicione pelo endereço uma câmara que a conta IMOU não lista (ou sem conta) e depois configure-a em Adicionar acessórios com o seu código de segurança. Depois de configurada, as suas definições ficam com o seu acessório. Adicionar por endereço, em Adicionar acessórios, faz as duas coisas de uma só vez."
     }
   }
 }
