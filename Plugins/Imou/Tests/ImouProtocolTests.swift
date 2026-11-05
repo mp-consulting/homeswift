@@ -207,6 +207,7 @@ struct ImouProtocolTests {
             == "rtsp://a%20b:p%40ss%3A%2F@cam.local:10554/cam/realmonitor?channel=3&subtype=1")
         #expect(ImouPlugin.firmwareRevision("2.840.0000000.12.R") == "2.840.0")
         #expect(ImouPlugin.firmwareRevision(nil) == "1.0.0" && ImouPlugin.firmwareRevision("3") == "3.0.0")
+        #expect(ImouPlugin.firmwareRevision("V2.1") == "2.1.0")
     }
 
     @Test func theSharedCameraArgumentsReadRTSPOverTCP() {

@@ -66,6 +66,8 @@ public actor ImouPlugin: HomeswiftPlugin {
     private var ffmpeg: RTSPCameraFFmpeg?
     private(set) var cloud: ImouCloud?
     private var cloudOutage = false
+    /// The error each device's `deviceOnline` last answered, so a lasting one is logged once.
+    private var deviceProblems: [String: String] = [:]
     /// enableTypes each accessory's camera lacks (`DV1019`), kept in `unsupported.json`: their switches are left out.
     private lazy var unsupported = context.persistedDictionary("unsupported.json", of: [String].self)
     /// Each device's SD card, when it was last read.
@@ -220,11 +222,18 @@ public actor ImouPlugin: HomeswiftPlugin {
         }
         var keep = Set(localCameras().map { Self.accessoryID(deviceID: $0.deviceID, channel: "0") })
         for device in listed.values { for channel in device.cameraChannels { keep.insert(Self.accessoryID(deviceID: device.deviceID, channel: channel.id)) } }
-        for (id, camera) in cameras where !keep.contains(id) {
+        // A camera gone, and one the cloud no longer lists that is set up on the LAN: published again without the cloud.
+        var republished: [String: Bool?] = [:]
+        for (id, camera) in cameras where !keep.contains(id) || (camera.cloud != nil && listed[camera.deviceID] == nil) {
+            if keep.contains(id) { republished[id] = .some(await camera.localEventsUp) }
             await camera.shutdown()
             cameras.removeValue(forKey: id)
         }
         await context.removeAccessories(keeping: keep)
+        if !republished.isEmpty {
+            await publishLocalCameras()
+            for case let (id, up?) in republished { await cameras[id]?.localEvents(up: up) }
+        }
     }
 
     private func queue(for deviceID: String) -> SerialQueue {
@@ -326,7 +335,10 @@ public actor ImouPlugin: HomeswiftPlugin {
 
     /// The leading numbers of a firmware version, as HomeKit takes them (`2.840.0000000.12.R` is `2.840.0`).
     static func firmwareRevision(_ text: String?) -> String {
-        let numbers = (text ?? "").split(separator: ".").prefix(3).map { part in Int(part.prefix(9)).map(String.init) ?? "0" }
+        // `V2.1` is 2.1: a part's letters before its digits are left out.
+        let numbers = (text ?? "").split(separator: ".").prefix(3).map { part in
+            Int(part.drop { !$0.isNumber }.prefix { $0.isASCII && $0.isNumber }.prefix(9)).map(String.init) ?? "0"
+        }
         guard let first = numbers.first, first != "0" || numbers.count > 1 else { return "1.0.0" }
         return (numbers + Array(repeating: "0", count: max(0, 3 - numbers.count))).joined(separator: ".")
     }
@@ -349,7 +361,7 @@ public actor ImouPlugin: HomeswiftPlugin {
             eventStreams[key] = nil
         }
         for (key, entry) in byHost where eventStreams[key] == nil {
-            let codes = ImouEvents.localCodes + (entry.doorbell ? ImouEvents.localDoorbellCodes.sorted() : [])
+            let codes = ImouEvents.localCodes + (entry.doorbell ? ImouEvents.localDoorbellCodes : [])
             let silence = dependencies.eventSilence
             let scale = dependencies.timeScale
             let logger = logger
@@ -484,14 +496,22 @@ public actor ImouPlugin: HomeswiftPlugin {
                 if state.device == .online, spare, cameras.contains(where: { $0.features.storage }), storageDue(deviceID) { await readStorage(deviceID, cloud: cloud) }
                 if cloudOutage { logger.info("The IMOU cloud answers again") }
                 cloudOutage = false
+                deviceProblems[deviceID] = nil
             } catch ImouError.overBudget {
                 return
             } catch let error as ImouError where error.isAuthRefused {
                 context.accountRefused("the IMOU cloud refused the App Id and App Secret (\(error))")
+                // As at the start: no more calls with refused credentials until it is set up again.
+                self.cloud = nil
                 return
-            } catch let error as ImouError where error.code == "OP1009" || error.code == "FL1001" {
-                for camera in cameras { await camera.refresh(.offline) }
-                logger.warning("\(deviceID): \(error)")
+            } catch let error as ImouError where error.code == "OP1014" {
+                // `deviceOnline` is spent for the day (logged by the cloud client): the next devices would answer the same.
+                return
+            } catch let error as ImouError where error.code != nil {
+                // This device's answer (offline, unbound, shared without permission…): the others are still polled.
+                if error.code == "OP1009" || error.code == "FL1001" { for camera in cameras { await camera.refresh(.offline) } }
+                if deviceProblems.updateValue("\(error)", forKey: deviceID) != "\(error)" { logger.warning("\(deviceID): \(error)") }
+                continue
             } catch {
                 if !cloudOutage { logger.warning("Cannot reach the IMOU cloud: \(error)") }
                 cloudOutage = true
@@ -566,14 +586,14 @@ public actor ImouPlugin: HomeswiftPlugin {
     /// switches: read on every poll while the day stays under 15,000, else on one poll in `extrasEvery`.
     func estimateCalls(quiet: Bool = false) async {
         var base = 0, extras = 0, storageDevices = 0
-        for (deviceID, cameras) in camerasByDevice() {
+        for cameras in camerasByDevice().values {
             base += 1 + (cameras.contains { $0.services.battery != nil } ? 1 : 0)
             for camera in cameras {
                 let reads = await camera.pollReads()
                 base += reads.base
                 extras += reads.extras
             }
-            if cameras.contains(where: { $0.features.storage }), cloudDevices[deviceID] != nil { storageDevices += 1 }
+            if cameras.contains(where: { $0.features.storage }) { storageDevices += 1 }
         }
         let polls = 86_400 / configuration.pollSeconds
         var daily = base * polls + 144 + storageDevices * 2 * 24

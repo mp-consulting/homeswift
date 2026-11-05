@@ -276,15 +276,19 @@ struct ImouParityTests {
         environment.cloud.addCamera(abilities: Self.allAbilities)
         let host = try await environment.start(block(["linkageSirenSwitch": true]))
         let on = try #require(service(try await garden(host), "alarmSiren")).characteristic(.on)
-        environment.cloud.state.withLockedValue { $0.setStatusDelay = .milliseconds(500) }
+        let camera = try #require(await environment.plugin?.camera(gardenID))
+        let cloud = environment.cloud
+        cloud.state.withLockedValue { $0.holdSetStatus = true }
         let first = Task { try await on.write(true) }
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await eventually { await camera.queuedOperations() == 1 })
         let second = Task { try await on.write(true) }
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await eventually { await camera.queuedOperations() == 2 })
         let third = Task { try await on.write(true) }
+        #expect(await eventually { await camera.queuedOperations() == 3 })
+        cloud.state.withLockedValue { $0.holdSetStatus = false }
         for task in [first, second, third] { try await task.value }
         // The second waited behind the first and was overtaken by the third: never sent.
-        #expect(environment.cloud.calls("setDeviceCameraStatus").filter { $0.params["enableType"] == "linkageSiren" }.count < 3)
+        #expect(cloud.calls("setDeviceCameraStatus").filter { $0.params["enableType"] == "linkageSiren" }.count == 2)
         await host.stop()
     }
 

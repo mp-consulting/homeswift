@@ -129,7 +129,9 @@ the day (`OP1014`) is not called again until midnight UTC.
   whose token request refuses it (`SN1001`) is signed with the MD5 hex of the same text, as IMOU's own libraries send it,
   from then on (until a restart); the access token is fetched once, again five minutes
   before it expires, and on `TK1002` (one refresh, one retry). A `currentDomain` in the token's answer moves the account to
-  that host. A refused App Id or App Secret (`SN1001`, `SN1004`, `OP1008`) marks the account Needs Authorization.
+  that host. A refused App Id or App Secret (`SN1001`, `SN1004`, `OP1008`) marks the account Needs Authorization, and no
+  cloud call is made again until Setup. A device's own error code to a poll is logged once and leaves the other devices
+  polled. An `apiUrl` in plain HTTP is warned of: the access token would cross the network unencrypted.
 - **The camera**: Dahua's HTTP CGI with Digest authentication; the event stream is
   `eventManager.cgi?action=attach&codes=[VideoMotion,…]&heartbeat=5` (the brackets as written, `[All]` if the camera
   refuses the list), a multipart stream parsed by each part's length. It reconnects with backoff (1 to 60 seconds),

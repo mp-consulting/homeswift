@@ -45,7 +45,8 @@ final class FakeImouCloud: HTTPSending, Sendable {
         var errors: [String: [String]] = [:]
         var currentDomain: String?
         var badSignatures = 0
-        var setStatusDelay: Duration = .zero
+        /// `setDeviceCameraStatus` waits while this is set.
+        var holdSetStatus = false
         /// An account that takes only the MD5 signature, as the libraries send it.
         var refusesHMAC = false
         /// enableTypes and methods the camera lacks: `DV1019`.
@@ -87,8 +88,9 @@ final class FakeImouCloud: HTTPSending, Sendable {
         let method = request.url.lastPathComponent
         let body = try JSONValue(data: request.body ?? Data())
         let params = body["params"] ?? [:]
-        let delay = state.withLockedValue { $0.setStatusDelay }
-        if method == "setDeviceCameraStatus", delay > .zero { try await Task.sleep(for: delay) }
+        if method == "setDeviceCameraStatus" {
+            while state.withLockedValue({ $0.holdSetStatus }) { try await Task.sleep(for: .milliseconds(5)) }
+        }
         let answer: JSONValue = state.withLockedValue { state in
             state.calls.append(Call(url: request.url, method: method, params: params, body: body))
             // The signature: MD5 of time, nonce and the secret.
@@ -99,10 +101,13 @@ final class FakeImouCloud: HTTPSending, Sendable {
                 state.badSignatures += 1
                 return Self.error("SN1001", "invalid sign")
             }
-            if var queued = state.errors[method], !queued.isEmpty {
-                let code = queued.removeFirst()
-                state.errors[method] = queued
-                return Self.error(code, "failed")
+            // Errors by method, or by method and device (`deviceOnline:TEST000CAM1`).
+            for key in ["\(method):\(params["deviceId"]?.stringValue ?? "")", method] {
+                if var queued = state.errors[key], !queued.isEmpty {
+                    let code = queued.removeFirst()
+                    state.errors[key] = queued
+                    return Self.error(code, "failed")
+                }
             }
             if method != "accessToken" {
                 guard let token = params["token"]?.stringValue, token == "At_\(state.tokens)" else { return Self.error("TK1002", "Token expired or does not exist, please get token again.") }

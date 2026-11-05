@@ -125,6 +125,9 @@ actor ImouCloud {
     /// The signature the account takes: the documented HMAC-SHA256 first, MD5 once the cloud refused it (addendum, section 0).
     private(set) var signing = ImouSigning.hmac
     private var signingSettled = false
+    /// The App Id and App Secret, once the cloud refused them: every later call fails at once, without a request, until
+    /// Setup makes a new client.
+    private var refusal: ImouError?
     /// Methods the cloud said are spent for the day (`OP1014`), with that UTC day (addendum, section 7.2).
     private var spent: [String: Int] = [:]
     /// `controlMovePTZ`'s `operation` as a number: the cloud refused it as a string (addendum, section 1.1).
@@ -138,6 +141,9 @@ actor ImouCloud {
         self.environment = environment
         self.logger = logger
         base = Self.baseURL(region: region, apiURL: apiURL)
+        if base.scheme?.lowercased() == "http" {
+            logger.warning("apiUrl is plain HTTP: the IMOU cloud's access token crosses the network unencrypted")
+        }
     }
 
     /// The region's host, or `apiUrl`: a host name (`openapi-fk.easy4ip.com`) or a whole base URL
@@ -200,6 +206,7 @@ actor ImouCloud {
 
     /// A method's `data` (`{}` when the answer has none). A `TK1002` fetches the token again, once, and retries once.
     func call(_ method: String, _ params: [String: JSONValue] = [:], polling: Bool = false) async throws -> JSONValue {
+        if let refusal { throw refusal }
         if polling, callsToday() >= ImouUsage.stopAt { throw ImouError.overBudget }
         if spent[method] == ImouUsage.day(of: environment.now()) { throw ImouError.api(code: "OP1014", message: "spent for today") }
         let used = try await currentToken()
@@ -215,6 +222,7 @@ actor ImouCloud {
     /// Checks the App Id and App Secret: a token fetched now.
     func verify() async throws {
         token = nil
+        refusal = nil
         _ = try await currentToken()
     }
 
@@ -232,6 +240,15 @@ actor ImouCloud {
     func wantsChannel(_ deviceID: String) { devicesWantingChannel.insert(deviceID) }
 
     private func fetchToken() async throws -> String {
+        do {
+            return try await requestToken()
+        } catch let error as ImouError where error.isAuthRefused {
+            refusal = error
+            throw error
+        }
+    }
+
+    private func requestToken() async throws -> String {
         let data: JSONValue
         do {
             data = try await send("accessToken", [:], token: nil)

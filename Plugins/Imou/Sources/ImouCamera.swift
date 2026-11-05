@@ -8,8 +8,12 @@ import Logging
 /// Runs one write at a time for a device, in order (section 7.3): a second toggle waits for the first.
 actor SerialQueue {
     private var tail: Task<Void, Never>?
+    /// The operations queued or running.
+    private(set) var pending = 0
 
     func run<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        pending += 1
+        defer { pending -= 1 }
         let previous = tail
         let task = Task {
             _ = await previous?.value
@@ -260,9 +264,10 @@ actor ImouCamera {
 
     /// Opens or closes the camera, from the Privacy switch or HomeKit Camera Active, and keeps the other in step.
     func setPrivacy(_ closed: Bool) async throws {
-        try await write("privacy", closed) { cloud, device, channel, on in
+        // A write a later one overtook was never sent: that one says where privacy stands.
+        guard try await write("privacy", closed, { cloud, device, channel, on in
             try await cloud.setCameraStatus(device, channel: channel, "closeCamera", on)
-        }
+        }) else { return }
         privacyChanged(closed)
     }
 
@@ -283,16 +288,15 @@ actor ImouCamera {
         }
     }
 
-    private func write(_ key: String, _ on: Bool, _ send: @escaping @Sendable (ImouCloud, String, String, Bool) async throws -> Void) async throws {
+    /// Sends a write, one at a time per device; false when a later write to the same switch overtook it, so it was not sent.
+    @discardableResult
+    private func write(_ key: String, _ on: Bool, _ send: @escaping @Sendable (ImouCloud, String, String, Bool) async throws -> Void) async throws -> Bool {
         guard let cloud else { throw HAPStatusError(.serviceCommunicationFailure) }
         let device = deviceID, channel = channel.id
         let sleeping = online == .sleeping
         let retryWait = timing.duration(timing.dormantRetryWait)
-        let isLatest = writes.claim(key)
         do {
-            try await queue.run {
-                // A later write to the same switch came in while this one waited: only that one is sent.
-                guard isLatest() else { return }
+            return try await sendLatest(key) {
                 do {
                     try await send(cloud, device, channel, on)
                 } catch let error as ImouError where sleeping && error.isDormant {
@@ -304,6 +308,17 @@ actor ImouCamera {
         } catch {
             log.warning("\(name): could not change the camera: \(error)")
             throw HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
+        }
+    }
+
+    /// Runs `send` in the device's queue unless a later write to `key` came in while it waited (only that one is sent);
+    /// false when it was not sent.
+    private func sendLatest(_ key: String, _ send: @escaping @Sendable () async throws -> Void) async throws -> Bool {
+        let isLatest = writes.claim(key)
+        return try await queue.run {
+            guard isLatest() else { return false }
+            try await send()
+            return true
         }
     }
 
@@ -480,11 +495,7 @@ actor ImouCamera {
             throw ActionRefused(description: "\(name)'s modes are \(nightVisionModes.joined(separator: ", "))")
         }
         let device = deviceID, channel = channel.id
-        let isLatest = writes.claim("nightVision")
-        try await queue.run {
-            guard isLatest() else { return }
-            try await cloud.setNightVision(device, channel: channel, mode: mode)
-        }
+        guard try await sendLatest("nightVision", { try await cloud.setNightVision(device, channel: channel, mode: mode) }) else { return }
         nightVisionMode = mode
         if let service = services.nightVision { set(service.characteristic(.on), .bool(mode != "Off")) }
     }
@@ -578,7 +589,7 @@ actor ImouCamera {
         // The cloud's alarms seen before the stream came back are old news when it drops again: the first is only noted.
         if up { lastAlarm = nil }
         localEventsUp = up
-        if cloud == nil { set(services.motion.characteristic(.statusActive), .bool(up)) }
+        if cloud == nil { set(services.motion.characteristic(.statusActive), .bool(up)) } else { updateStatusActive() }
     }
 
     /// The event source nobody has: the sensor never triggers, said once.
@@ -723,6 +734,9 @@ actor ImouCamera {
             log.warning("\(name): failed to wake up: \(error)")
         }
     }
+
+    /// The writes and moves queued or running for the device (for tests).
+    func queuedOperations() async -> Int { await queue.pending }
 
     func shutdown() async {
         await streamer?.stopAll()

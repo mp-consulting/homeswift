@@ -72,6 +72,15 @@ All notable changes to this project are documented here. The format follows
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
   shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
+### Fixed
+
+- IMOU: one camera's error from the cloud (unbound, shared without permission) no longer stops the poll of the others
+  or reads as the cloud being down, and is logged once; a refused App Id or App Secret stops every cloud call, polls and
+  switches alike, until Setup; a camera the account stops listing but that is set up on the LAN goes on without the
+  cloud's switches; a quick second change to privacy or night vision no longer shows the first one for a moment; an App
+  Secret or safety code newly written in the block reaches the vault instead of being dropped; Setup checks the safety
+  code of a camera whose serial request fails in any way; a firmware version such as `V2.1` reads 2.1.0.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
