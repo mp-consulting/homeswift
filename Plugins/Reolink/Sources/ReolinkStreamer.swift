@@ -91,7 +91,8 @@ actor ReolinkStreamer: CameraStreamingDelegate {
             } catch {
                 log.debug("\(name): Snap failed (\(error)); taking a frame of the stream instead.")
                 guard let stream = await source.stream(sub) else { throw error }
-                let arguments = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", stream.url, "-frames:v", "1", "-f", "image2", "-"]
+                let transport = stream.url.hasPrefix("rtsp") ? ["-rtsp_transport", "tcp"] : []
+                let arguments = ["-hide_banner", "-loglevel", "error"] + transport + ["-i", stream.url, "-frames:v", "1", "-f", "image2", "-"]
                 guard let frame = await FfmpegExec(ffmpeg, commandLineArgs: arguments, logErrors: false).exec(timeout: 15_000)?.stdout, !frame.isEmpty else {
                     throw error
                 }
@@ -208,7 +209,6 @@ actor ReolinkStreamer: CameraStreamingDelegate {
         let arguments = Self.arguments(url: chosen.url, stream: chosen.stream, request: request, target: target, options: options, ffmpeg: ffmpeg,
                                        audioEncoder: audioEncoder)
         log.info("\(name): streaming \(request.video.width) x \(request.video.height) at \(request.video.fps) fps from the \(sub ? "sub" : "main") stream (\(chosen.stream.codec)).")
-        log.debug("\(name): FFmpeg \(ReolinkStreamURL.masked(redactCommandLine(arguments)))")
         nextToken += 1
         let token = nextToken
         let sessionID = request.sessionID
@@ -336,7 +336,8 @@ final class ReolinkRecorder: CameraRecordingDelegate, @unchecked Sendable {
             state.configuration = configuration
             return state.source
         }
-        if let configuration { source?.start(configuration) }
+        // No configuration (HomeKit Secure Video off): the prebuffer's RTSP session is given back to the camera.
+        if let configuration { source?.start(configuration) } else { source?.stop() }
     }
 
     func handleRecordingStreamRequest(streamID: Int) -> AsyncThrowingStream<RecordingPacket, any Error> {

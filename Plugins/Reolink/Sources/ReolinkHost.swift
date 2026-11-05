@@ -33,7 +33,13 @@ actor ReolinkHost {
         self.timing = timing
     }
 
-    static let eventCommands: Set<String> = ["GetEvents", "GetMdState", "GetAiState"]
+    static let eventCommandNames: Set<String> = ["GetEvents", "GetMdState", "GetAiState"]
+
+    /// A channel's motion and AI commands (5.5): `GetEvents`, or `GetMdState` and `GetAiState` without it.
+    static func eventCommands(for channel: ReolinkChannel) -> [ReolinkCommand] {
+        if channel.hasGetEvents { return [.channel("GetEvents", channel.channel)] }
+        return (channel.motion ? [.channel("GetMdState", channel.channel)] : []) + (channel.aiTypes.isEmpty ? [] : [.channel("GetAiState", channel.channel)])
+    }
 
     func setListener(_ listener: @escaping Listener, onTopologyChange: @escaping @Sendable () -> Void) {
         self.listener = listener
@@ -62,9 +68,7 @@ actor ReolinkHost {
         guard !info.serial.isEmpty || info.hostID != nil else { throw ReolinkError.invalidResponse("GetDevInfo gave no serial") }
         if info.isAdmin == false { log.warning("The user \(device.username) is not an administrator: floodlights, sirens and IR lights stay read-only.") }
         self.info = info
-        var statuses = info.onlineChannels
-        if let wanted = device.channels { statuses = statuses.filter { wanted.contains($0.channel) } }
-        channels = try await readChannels(statuses)
+        channels = try await readWantedChannels()
         setOnline(true)
         log.info("Connected to \(info.model.isEmpty ? "the Reolink device" : info.model) (firmware \(info.firmware), \(channels.count) channel\(channels.count == 1 ? "" : "s")).")
     }
@@ -103,7 +107,7 @@ actor ReolinkHost {
         let model = typeInfo?["typeInfo"]?.stringValue?.nonEmptyText ?? status.model ?? info.model
         let defaultName = info.isMultiChannel ? "Channel \(ch + 1)" : (info.name.nonEmptyText ?? "Reolink")
         var channel = ReolinkChannel(
-            channel: ch, name: status.name ?? (info.isMultiChannel ? defaultName : info.name.nonEmptyText ?? defaultName), model: model,
+            channel: ch, name: status.name ?? defaultName, model: model,
             firmware: ReolinkParse.firmware(typeInfo?["firmVer"]?.stringValue ?? info.firmware),
             hardware: typeInfo?["boardInfo"]?.stringValue ?? info.hardware, uid: status.uid)
         channel.battery = battery
@@ -267,17 +271,8 @@ actor ReolinkHost {
 
     /// The motion batch of 5.5, only while push is not active.
     func pollMotionIfNeeded() async {
-        guard !(device.pushEvents && pushActive), !channels.isEmpty else { return }
-        var commands: [ReolinkCommand] = []
-        for channel in channels.values.sorted(by: { $0.channel < $1.channel }) {
-            if channel.hasGetEvents {
-                commands.append(.channel("GetEvents", channel.channel))
-            } else {
-                if channel.motion { commands.append(.channel("GetMdState", channel.channel)) }
-                if !channel.aiTypes.isEmpty { commands.append(.channel("GetAiState", channel.channel)) }
-            }
-        }
-        await run(commands)
+        guard !pushActive, !channels.isEmpty else { return }
+        await run(channels.values.sorted(by: { $0.channel < $1.channel }).flatMap(Self.eventCommands(for:)))
     }
 
     /// The full refresh of 4.3: non-waking commands for battery channels, the channel list of an NVR or hub.
@@ -285,15 +280,9 @@ actor ReolinkHost {
         let v20 = info.hostAbility("scheduleVersion") >= 1
         var commands: [ReolinkCommand] = []
         // While push is active it is the events' source: a poll's answer could come after a newer push.
-        let events = !(device.pushEvents && pushActive)
         for channel in channels.values.sorted(by: { $0.channel < $1.channel }) {
             let ch = channel.channel
-            if events, channel.hasGetEvents {
-                commands.append(.channel("GetEvents", ch))
-            } else if events {
-                if channel.motion { commands.append(.channel("GetMdState", ch)) }
-                if !channel.aiTypes.isEmpty { commands.append(.channel("GetAiState", ch)) }
-            }
+            if !pushActive { commands += Self.eventCommands(for: channel) }
             if channel.irLights { commands.append(.channel("GetIrLights", ch)) }
             if channel.floodlight, !channel.battery { commands.append(.channel("GetWhiteLed", ch)) }
             if channel.battery { commands.append(.channel("GetBatteryInfo", ch)) }
@@ -325,7 +314,7 @@ actor ReolinkHost {
                 if reply.ok, let value = reply.value { channelStatus(ReolinkHostInfo.channelStatus(value)) }
                 continue
             }
-            if device.pushEvents, pushActive, Self.eventCommands.contains(reply.cmd) { continue }
+            if pushActive, Self.eventCommandNames.contains(reply.cmd) { continue }
             guard let ch = command.param?["channel"]?.saturatingIntValue, var channel = channels[ch] else { continue }
             apply(reply, to: &channel)
             channels[ch] = channel
@@ -339,14 +328,16 @@ actor ReolinkHost {
         var changed = false
         for status in statuses {
             if var channel = channels[status.channel] {
-                if channel.uid != status.uid || (status.model != nil && status.model != channel.model) { changed = true }
+                // The UID only: `GetChnTypeInfo`'s model may be spelled differently from this list's, which would
+                // reload the channels at every refresh.
+                if channel.uid != status.uid { changed = true }
                 if channel.state.online != status.online || channel.state.asleep != status.asleep {
                     channel.state.online = status.online
                     channel.state.asleep = status.asleep
                     channels[status.channel] = channel
                     publish(status.channel)
                 }
-            } else if status.online, device.channels?.contains(status.channel) ?? true {
+            } else if status.online, !status.isForeign, device.channels?.contains(status.channel) ?? true {
                 changed = true
             }
         }
@@ -423,11 +414,11 @@ actor ReolinkHost {
         return try await http.snapshot(channel: channel, sub: sub, width: sub ? stream?.width : nil, height: sub ? stream?.height : nil)
     }
 
-    /// The URL FFmpeg reads a channel's stream from (4.6).
-    func streamURL(channel: Int, sub: Bool) async -> String? {
+    /// The URL FFmpeg reads a channel's stream from (4.6), by `streamProtocol` unless `protocol` says.
+    func streamURL(channel: Int, sub: Bool, protocol name: String? = nil) async -> String? {
         guard let info = channels[channel] else { return nil }
         let stream = sub ? info.sub : info.main
-        switch device.streamProtocol {
+        switch name ?? device.streamProtocol {
         case "rtmp":
             return ReolinkStreamURL.rtmp(host: device.host, port: self.info.rtmpPort, username: device.username, password: device.password, channel: channel, sub: sub)
         case "flv":
@@ -448,8 +439,13 @@ actor ReolinkHost {
             info.channels = ReolinkHostInfo.channelStatus(value)
             info.hasChannelStatus = true
         }
+        channels = try await readWantedChannels()
+    }
+
+    /// The online channels the block asks for, read.
+    private func readWantedChannels() async throws -> [Int: ReolinkChannel] {
         var statuses = info.onlineChannels
         if let wanted = device.channels { statuses = statuses.filter { wanted.contains($0.channel) } }
-        channels = try await readChannels(statuses)
+        return try await readChannels(statuses)
     }
 }

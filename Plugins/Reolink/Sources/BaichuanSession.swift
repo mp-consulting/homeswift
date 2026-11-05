@@ -24,7 +24,9 @@ actor BaichuanSession {
     static let loginSpacing: Double = 15
     static let defaultKeepalive: Double = 30
     static let requestTimeout: Double = 15
-    static let backoff = Backoff(initial: .seconds(5), maximum: .seconds(120), jitter: .proportional(0.1))
+    static let backoff = ReolinkPlugin.backoff
+    /// The unknown tags and AI types logged once each, at most.
+    static let unknownLimit = 64
 
     nonisolated let events: AsyncStream<BaichuanSessionEvent>
     private let continuation: AsyncStream<BaichuanSessionEvent>.Continuation
@@ -55,6 +57,15 @@ actor BaichuanSession {
     private struct Key: Hashable {
         var command: UInt32
         var messageID: UInt32
+
+        init(command: UInt32, messageID: UInt32) {
+            self.command = command
+            self.messageID = messageID
+        }
+
+        init(command: UInt32, channel: UInt8, counter: UInt32) {
+            self.init(command: command, messageID: BaichuanMessage.messageID(channel: channel, counter: counter))
+        }
     }
 
     init(host: String, port: Int, username: String, password: String, connect: @escaping Connect, log: Logger, timing: ReolinkTiming) {
@@ -69,7 +80,6 @@ actor BaichuanSession {
     }
 
     var isConnected: Bool { stream != nil && subscribed }
-    var currentKeepaliveInterval: Double { keepaliveInterval }
 
     // MARK: The session's life
 
@@ -102,9 +112,11 @@ actor BaichuanSession {
             let now = ContinuousClock.now
             if wasActive, lastImmediateReconnect.map({ now - $0 >= timing.seconds(60) }) ?? true {
                 lastImmediateReconnect = now
-                let idle = Double((now - lastReceive).components.seconds)
-                if now - started < timing.seconds(3600) {
-                    // The camera dropped an idle connection early: keep it alive more often.
+                // In the session's own seconds (tests scale them).
+                let idle = Double((now - lastReceive) / .seconds(1)) / max(timing.scale, .ulpOfOne)
+                if now - started < timing.seconds(3600), idle >= 11 {
+                    // The camera dropped a connection idle for a while, early: keep it alive more often. A drop right
+                    // after traffic (a reboot, the network) says nothing of idleness and leaves the interval.
                     keepaliveInterval = max(9, min(idle - 2, keepaliveInterval - 1))
                 }
                 continue
@@ -132,6 +144,7 @@ actor BaichuanSession {
         aesKey = nil
         for (_, waiter) in pending { waiter.resume(throwing: BaichuanError.closed) }
         pending = [:]
+        keepaliveWait?.cancel()
         if let stream { Task { await stream.close() } }
     }
 
@@ -161,7 +174,7 @@ actor BaichuanSession {
 
         // The nonce: a legacy header-only message, answered with BC-encrypted XML.
         counter += 1
-        let nonceReply = try await send(Baichuan.nonceRequest(counter: counter), key: Key(command: 1, messageID: UInt32(Baichuan.hostChannel) | counter << 8), timeout: 10)
+        let nonceReply = try await send(Baichuan.nonceRequest(counter: counter), key: Key(command: 1, channel: Baichuan.hostChannel, counter: counter), timeout: 10)
         let nonceXML = try BaichuanDecoder.decrypt(nonceReply.body, expected: nonceReply.declaredEncryption ?? .xor, offset: nonceReply.channel, key: nil)
         guard let root = try? BXParser.parse(nonceXML), let nonce = root.first("nonce")?.text.trimmingCharacters(in: .whitespacesAndNewlines), !nonce.isEmpty
         else { throw BaichuanError.noNonce }
@@ -169,23 +182,22 @@ actor BaichuanSession {
 
         let body = Baichuan.loginBody(username: username, password: password, nonce: nonce)
         log.trace("Baichuan login: \(body.utf8.count) bytes")
-        let reply: BaichuanMessage
         do {
-            reply = try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
+            try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
         } catch BaichuanError.status(401) {
             throw accountDevice ? BaichuanError.accountDevice : BaichuanError.unauthorized
-        } catch BaichuanError.status(let code) where accountDevice {
-            _ = code
+        } catch BaichuanError.status where accountDevice {
             throw BaichuanError.accountDevice
         }
-        _ = reply
         aesKey = Baichuan.aesKey(nonce: nonce, password: password)
     }
 
     private var readerTask: Task<Void, Never>?
+    /// The keepalive loop's wait, ended early by `close`.
+    private var keepaliveWait: Task<Void, Never>?
 
     private func subscribe() async throws {
-        _ = try await request(command: 31, channel: Baichuan.subscribeChannel, body: nil, encryption: .aes)
+        try await request(command: 31, channel: Baichuan.subscribeChannel, body: nil, encryption: .aes)
         subscribed = true
         lastIntervalRaise = .now
     }
@@ -197,8 +209,8 @@ actor BaichuanSession {
             let interval = timing.seconds(keepaliveInterval)
             if idle >= interval {
                 do {
-                    _ = try await request(command: eventsActive ? 93 : 31, channel: eventsActive ? Baichuan.hostChannel : Baichuan.subscribeChannel,
-                                          body: nil, encryption: .aes)
+                    try await request(command: eventsActive ? 93 : 31, channel: eventsActive ? Baichuan.hostChannel : Baichuan.subscribeChannel,
+                                      body: nil, encryption: .aes)
                 } catch {
                     log.debug("Baichuan keepalive failed: \(error)")
                     break
@@ -209,7 +221,12 @@ actor BaichuanSession {
                 keepaliveInterval = min(Self.defaultKeepalive, keepaliveInterval + 1)
             }
             let wait = max(timing.seconds(keepaliveInterval) - (ContinuousClock.now - lastReceive), timing.seconds(0.05))
-            try? await Task.sleep(for: wait)
+            // `close` ends the wait: a connection the camera dropped falls back to polling at once, not at the next
+            // keepalive.
+            let sleeper = Task { _ = try? await Task.sleep(for: wait) }
+            keepaliveWait = sleeper
+            await withTaskCancellationHandler { await sleeper.value } onCancel: { sleeper.cancel() }
+            keepaliveWait = nil
         }
         readerTask?.cancel()
         return eventsActive
@@ -229,13 +246,12 @@ actor BaichuanSession {
                  timeout: Double = requestTimeout) async throws -> BaichuanMessage {
         guard stream != nil else { throw BaichuanError.closed }
         counter = (counter + 1) & 0xFF_FFFF
-        let offset = channel
         func encode(_ text: String?) throws -> [UInt8] {
             guard let text else { return [] }
             let bytes = Array(text.utf8)
             switch encryption {
             case .none: return bytes
-            case .xor: return Baichuan.xor(bytes, offset: offset)
+            case .xor: return Baichuan.xor(bytes, offset: channel)
             case .aes:
                 guard let aesKey else { throw BaichuanError.closed }
                 return try Baichuan.aes(bytes, key: aesKey, decrypt: false)
@@ -246,7 +262,7 @@ actor BaichuanSession {
         let message = Baichuan.header(command: command, bodyLength: extBytes.count + bodyBytes.count, channel: channel, counter: counter,
                                       extensionLength: extBytes.count) + extBytes + bodyBytes
         guard message.count <= Baichuan.maximumRequest else { throw BaichuanError.requestTooLarge(message.count) }
-        let reply = try await send(message, key: Key(command: command, messageID: UInt32(channel) | counter << 8), timeout: timeout)
+        let reply = try await send(message, key: Key(command: command, channel: channel, counter: counter), timeout: timeout)
         if let status = reply.status, ![200, 201, 300].contains(status) { throw BaichuanError.status(status) }
         return reply
     }
@@ -312,7 +328,7 @@ actor BaichuanSession {
         for push in BaichuanEvents.parse(command: message.command, xml: xml, unknown: &unknown) {
             continuation.yield(.push(push))
         }
-        for item in unknown where unknownLogged.insert(item).inserted {
+        for item in unknown where unknownLogged.count < Self.unknownLimit && unknownLogged.insert(item).inserted {
             log.debug("Baichuan push: unknown \(item), ignored.")
         }
     }

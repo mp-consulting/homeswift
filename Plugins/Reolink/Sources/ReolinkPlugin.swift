@@ -77,9 +77,13 @@ public actor ReolinkPlugin: HomeswiftPlugin {
     /// A channel's Device Id: the host id for a camera on its own; `<host id>:<channel UID>`, or `<host id>:ch<n>`
     /// without one, for a channel of an NVR or a hub.
     static func deviceID(hostID: String, info: ReolinkHostInfo, channel: ReolinkChannel) -> String {
+        deviceID(hostID: hostID, info: info, channel: channel.channel, uid: channel.uid)
+    }
+
+    static func deviceID(hostID: String, info: ReolinkHostInfo, channel: Int, uid: String?) -> String {
         guard info.isMultiChannel else { return hostID }
-        if let uid = channel.uid { return "\(hostID):\(uid)" }
-        return "\(hostID):ch\(channel.channel)"
+        if let uid { return "\(hostID):\(uid)" }
+        return "\(hostID):ch\(channel)"
     }
 
     static func accessoryID(deviceID: String) -> String { "\(platform):\(deviceID)" }
@@ -123,6 +127,9 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         let known = hostsFile.load() ?? [:]
         for entry in entries {
             if let hostID = known[entry.host.lowercased()], context.isExcluded(hostID) { continue }
+            if entry.streamProtocol != "rtsp" {
+                logger.warning("[\(entry.host)] streamProtocol \(entry.streamProtocol) puts the password in the stream URL's query, readable on the network (rtmp) or over HTTPS that FFmpeg does not check (flv): prefer rtsp.")
+            }
             if !entry.password.isEmpty, entry.password.contains(where: { !Self.safePasswordCharacters.contains($0) }) || entry.password.count > 31 {
                 logger.warning("[\(entry.host)] The password has characters Reolink devices do not take in every URL, or more than 31: if streams fail, change it to letters, digits and @$*~_-+=!?.,:;'()[] only.")
             }
@@ -140,12 +147,13 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         }
     }
 
-    func makeHost(_ entry: Device) -> ReolinkHost {
+    /// `trustingAgain` (Setup) forgets the host's pinned certificate: the next one is pinned in its place.
+    func makeHost(_ entry: Device, trustingAgain: Bool = false) -> ReolinkHost {
         let base = logger
         let log = Logger(label: base.label, factory: { _ in ReolinkLogHandler(base: base, prefix: "[\(entry.host)] ") })
         let pins = certificates
         let hostKey = entry.host.lowercased()
-        let trust = HTTPClient.TrustOnFirstUse(pinned: pins.load()?[hostKey]) { fingerprint in
+        let trust = HTTPClient.TrustOnFirstUse(pinned: trustingAgain ? nil : pins.load()?[hostKey]) { fingerprint in
             var all = pins.load() ?? [:]
             all[hostKey] = fingerprint
             try? pins.save(all)
@@ -223,10 +231,22 @@ public actor ReolinkPlugin: HomeswiftPlugin {
                 if options.siren, !channel.siren { logger.info("[\(address)] \(camera.accessory.name): this camera has no siren.") }
             } catch {
                 logger.error("[\(address)] Could not publish channel \(channel.channel + 1): \(error)")
+                published.insert(Self.accessoryID(deviceID: deviceID))
             }
         }
+        // A channel the host still lists but offline (or asleep, or another brand's) keeps its accessory, not
+        // responding (7.4): taking it away would lose its room and automations in Apple Home.
+        let wanted = runtime.device.channels
+        let listed = Set(info.channels.filter { wanted?.contains($0.channel) ?? true }.map {
+            Self.accessoryID(deviceID: Self.deviceID(hostID: hostID, info: info, channel: $0.channel, uid: $0.uid))
+        })
         for accessory in context.accessories where Self.belongs(accessory.id, to: hostID) && !published.contains(accessory.id) {
-            try? await context.remove(id: accessory.id)
+            let excluded = context.isExcluded(String(accessory.id.dropFirst(Self.platform.count + 1)))
+            if !excluded, listed.contains(accessory.id) || !info.isMultiChannel || !info.hasChannelStatus {
+                accessory.isUnavailable = true
+            } else {
+                try? await context.remove(id: accessory.id)
+            }
         }
         runtimes[address] = runtime
         let cameras = runtime.cameras
@@ -269,7 +289,8 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         let streamer = ReolinkStreamer(name: name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: logger,
                                        timing: dependencies.timing)
         let recorder = options.recording ? ReolinkRecorder(name: name, fps: channel.main.fps, log: logger) {
-            guard let url = await host.streamURL(channel: ch, sub: false) else { return nil }
+            // RTSP whatever `streamProtocol` says: the recording's livestream reads RTSP over TCP.
+            guard let url = await host.streamURL(channel: ch, sub: false, protocol: "rtsp") else { return nil }
             return RTSPRecordingSource(options: ffmpeg, url: url, codec: channel.main.codec, keepsPrebuffer: options.prebuffer)
         } : nil
         let writes = ReolinkCamera.Writes(
@@ -277,7 +298,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             siren: { on in try await host.setSiren(channel: ch, on: on) },
             ir: { on in try await host.setIRLights(channel: ch, on: on) })
         return try ReolinkCamera(
-            id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite, brightness: channel.floodlightBrightness,
+            id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite,
             streamer: streamer, recorder: recorder, writes: writes, log: logger, timing: dependencies.timing)
     }
 

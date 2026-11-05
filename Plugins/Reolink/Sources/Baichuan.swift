@@ -23,7 +23,6 @@ enum Baichuan {
     /// Message classes, as bytes 18 and 19 read them.
     static let modernClass: [UInt8] = [0x14, 0x64]
     static let legacyClass: [UInt8] = [0x14, 0x65]
-    static let encryptedClass: [UInt8] = [0x14, 0x66]
 
     // MARK: Encryption (5.2)
 
@@ -172,7 +171,8 @@ struct BaichuanMessage: Sendable, Equatable {
     var channel: UInt8
     var counter: UInt32
     /// The full message id: bytes 12 to 15 read as one integer (`ch_id` and the counter).
-    var messageID: UInt32 { UInt32(channel) | counter << 8 }
+    var messageID: UInt32 { Self.messageID(channel: channel, counter: counter) }
+    static func messageID(channel: UInt8, counter: UInt32) -> UInt32 { UInt32(channel) | counter << 8 }
     /// The status of a 24-byte header; nil for a 20-byte one.
     var status: UInt16?
     /// What bytes 16 and 17 of a 20-byte (class 1466) header say; nil for a 24-byte one.
@@ -194,7 +194,6 @@ enum BaichuanError: Error, CustomStringConvertible, Equatable {
     case status(UInt16)
     case timeout
     case closed
-    case loginTooSoon
     case requestTooLarge(Int)
 
     var description: String {
@@ -210,7 +209,6 @@ enum BaichuanError: Error, CustomStringConvertible, Equatable {
         case .status(let code): "the device answered with status \(code)"
         case .timeout: "the device did not answer in time"
         case .closed: "the connection closed"
-        case .loginTooSoon: "a login less than 15 seconds after the last"
         case .requestTooLarge(let size): "a request of \(size) bytes, above the device's limit"
         }
     }
@@ -226,6 +224,7 @@ struct BaichuanFramer: Sendable {
     var pendingCount: Int { buffer.count }
 
     /// The messages the chunk completes; an error (an unknown class, a body above the limit) drops what was buffered.
+    /// Messages are read from an offset and the buffer compacted once, so a chunk of many messages costs its length.
     mutating func push(_ chunk: [UInt8]) -> [Result<BaichuanMessage, BaichuanError>] {
         if buffer.count >= 4, chunk.starts(with: Baichuan.magic) {
             // A new message starts while one is pending: reolink-aio's choice is to drop the pending one.
@@ -233,76 +232,68 @@ struct BaichuanFramer: Sendable {
         }
         buffer += chunk
         var results: [Result<BaichuanMessage, BaichuanError>] = []
+        var start = 0
+        defer { buffer.removeFirst(min(start, buffer.count)) }
         while true {
-            resynchronise()
-            guard buffer.count >= 20 else { break }
-            let classBytes = (buffer[18], buffer[19])
+            start = resynchronised(from: start)
+            let available = buffer.count - start
+            guard available >= 20 else { break }
+            let bodyLength = Int(Baichuan.readUInt32(buffer, start + 8))
+            guard bodyLength <= Baichuan.maximumBody else {
+                start = buffer.count
+                results.append(.failure(.tooLarge(bodyLength)))
+                return results
+            }
             let headerLength: Int
-            switch classBytes {
+            switch (buffer[start + 18], buffer[start + 19]) {
             case (0x14, 0x64), (0x00, 0x00): headerLength = 24
             case (0x14, 0x66): headerLength = 20
             case (0x14, 0x65):
                 // Not parsed, as reolink-aio: an error for the waiting request.
-                let length = Int(Baichuan.readUInt32(buffer, 8))
-                guard length <= Baichuan.maximumBody else {
-                    buffer = []
-                    results.append(.failure(.tooLarge(length)))
-                    return results
-                }
-                guard buffer.count >= 20 + length else { return results }
-                buffer.removeFirst(20 + length)
+                guard available >= 20 + bodyLength else { return results }
+                start += 20 + bodyLength
                 results.append(.failure(.legacyReply))
                 continue
-            default:
-                buffer = []
-                results.append(.failure(.unknownClass(classBytes.0, classBytes.1)))
+            case let (a, b):
+                start = buffer.count
+                results.append(.failure(.unknownClass(a, b)))
                 return results
             }
-            guard buffer.count >= headerLength else { break }
-            let bodyLength = Int(Baichuan.readUInt32(buffer, 8))
-            guard bodyLength <= Baichuan.maximumBody else {
-                buffer = []
-                results.append(.failure(.tooLarge(bodyLength)))
-                return results
-            }
-            guard buffer.count >= headerLength + bodyLength else { break }
-            let header = Array(buffer[0..<headerLength])
-            let body = Array(buffer[headerLength..<(headerLength + bodyLength)])
-            buffer.removeFirst(headerLength + bodyLength)
-            let counter = UInt32(header[13]) | UInt32(header[14]) << 8 | UInt32(header[15]) << 16
-            var message = BaichuanMessage(command: Baichuan.readUInt32(header, 4), channel: header[12], counter: counter, status: nil,
-                                          declaredEncryption: nil, extensionBytes: [], body: body)
+            guard available >= headerLength + bodyLength else { break }
+            let bodyStart = start + headerLength
+            var message = BaichuanMessage(command: Baichuan.readUInt32(buffer, start + 4), channel: buffer[start + 12],
+                                          counter: Baichuan.readUInt32(buffer, start + 12) >> 8, status: nil, declaredEncryption: nil,
+                                          extensionBytes: [], body: [])
+            var payloadStart = bodyStart
             if headerLength == 24 {
-                message.status = UInt16(header[16]) | UInt16(header[17]) << 8
-                let extensionLength = min(Int(Baichuan.readUInt32(header, 20)), body.count)
-                if extensionLength > 0 {
-                    message.extensionBytes = Array(body[0..<extensionLength])
-                    message.body = Array(body[extensionLength...])
-                }
+                message.status = UInt16(buffer[start + 16]) | UInt16(buffer[start + 17]) << 8
+                let extensionLength = min(Int(Baichuan.readUInt32(buffer, start + 20)), bodyLength)
+                message.extensionBytes = Array(buffer[bodyStart..<(bodyStart + extensionLength)])
+                payloadStart += extensionLength
             } else {
-                message.declaredEncryption = switch (header[16], header[17]) {
+                message.declaredEncryption = switch (buffer[start + 16], buffer[start + 17]) {
                 case (0x01, 0xDD), (0x12, 0xDD): .xor
                 case (0x02, 0xDD), (0x03, 0xDD): .aes
                 default: BaichuanEncryption.none
                 }
             }
+            message.body = Array(buffer[payloadStart..<(bodyStart + bodyLength)])
+            start = bodyStart + bodyLength
             results.append(.success(message))
         }
         return results
     }
 
-    /// Drops bytes before the next magic when nothing valid is pending; a trailing partial magic is kept.
-    private mutating func resynchronise() {
-        guard !buffer.starts(with: Baichuan.magic) else { return }
-        if buffer.count < 4, Baichuan.magic.starts(with: buffer) { return }
-        // The first place a magic, or the start of one at the end, begins.
-        var index = 1
+    /// The offset of the next magic at or after `start` when nothing valid is pending there; a trailing partial magic
+    /// is kept.
+    private func resynchronised(from start: Int) -> Int {
+        var index = start
         while index < buffer.count {
             let rest = buffer[index...]
-            if rest.starts(with: Baichuan.magic) || (rest.count < 4 && Baichuan.magic.starts(with: rest)) { break }
+            if rest.starts(with: Baichuan.magic) || (rest.count < 4 && Baichuan.magic.starts(with: rest)) { return index }
             index += 1
         }
-        buffer.removeFirst(min(index, buffer.count))
+        return index
     }
 }
 

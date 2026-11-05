@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftFFmpeg
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Testing
@@ -67,6 +68,44 @@ import Testing
         await #expect(throws: ReolinkError.frequentLogins) { try await http.execute([ReolinkCommand(cmd: "GetDevInfo")]) }
         await #expect(throws: ReolinkError.frequentLogins) { try await http.execute([ReolinkCommand(cmd: "GetDevInfo")]) }
         #expect(device.logins == 1)
+    }
+
+    @Test func aSkippedCommandStaysInLineAcrossARenewal() async throws {
+        var answers = cameraAnswers()
+        answers["GetSlow"] = { _ in ["cmd": "GetSlow", "code": 1, "error": ["rspCode": -8, "detail": "timeout"]] }
+        let device = FakeReolinkHTTP(answers)
+        let clock = Clock()
+        let http = client(device, clock: clock)
+        device.state.withLockedValue { $0.batchErrorOnce = true }
+        // One by one after the batch error: GetSlow times out on its own and is skipped from then on.
+        let first = try await http.execute([ReolinkCommand(cmd: "GetSlow"), ReolinkCommand(cmd: "GetDevInfo")])
+        #expect(first.map(\.rspCode) == [-8, nil])
+        // The token is renewed in this request (a login empties the skipped commands): the answers still line up.
+        clock.advance(3600 - 299)
+        let second = try await http.execute([ReolinkCommand(cmd: "GetSlow"), ReolinkCommand(cmd: "GetDevInfo")])
+        #expect(second.map(\.cmd) == ["GetSlow", "GetDevInfo"])
+        #expect(second[0].detail == "skipped")
+        #expect(second[1].ok)
+    }
+
+    /// HTTPS refused with a certificate other than the pinned one, plain HTTP answering.
+    final class Impostor: HTTPSending, @unchecked Sendable {
+        let plain = NIOLockedValueBox(0)
+        func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+            if request.url.scheme == "https" { throw HTTPClientError.certificateMismatch(expected: String(repeating: "a", count: 64), observed: String(repeating: "b", count: 64)) }
+            plain.withLockedValue { $0 += 1 }
+            return HomeswiftNetwork.HTTPResponse(status: 200, body: Data("[]".utf8))
+        }
+    }
+
+    @Test func aRefusedCertificateNeverFallsBackToPlainHTTP() async {
+        let impostor = Impostor()
+        for pinned in [String(repeating: "a", count: 64), nil] {
+            let http = ReolinkHTTPClient(host: "192.168.1.20", port: nil, useHttps: nil, username: "admin", password: "secret", makeSender: { _ in impostor },
+                                         trust: HTTPClient.TrustOnFirstUse(pinned: pinned), log: testLogger, timing: ReolinkTiming(scale: 0.001))
+            await #expect(throws: (any Error).self) { try await http.execute([ReolinkCommand(cmd: "GetDevInfo")]) }
+        }
+        #expect(impostor.plain.withLockedValue { $0 } == 0)
     }
 
     @Test func fortyCommandsAreTwoPosts() async throws {
@@ -219,9 +258,18 @@ import Testing
             == "https://192.168.1.20:443/flv?port=1935&app=bcs&stream=channel0_main.bcs&user=admin&password=p@ss!")
         #expect(ReolinkStreamURL.rtsp(host: "192.168.1.20", port: 554, username: "admin", password: "pw", channel: 0, sub: true, codec: "h264",
                                       reported: "rtsp://192.168.1.20:554/Preview_01_sub", rtspVersion: 3) == "rtsp://admin:pw@192.168.1.20:554/Preview_01_sub")
-        let masked = ReolinkStreamURL.masked("rtmp://h:1935/bcs/c.bcs?channel=0&user=admin&password=p@ss! rtsp://admin:pw@h/x")
-        #expect(!masked.contains("p@ss!"))
-        #expect(!masked.contains(":pw@"))
+        // A device reporting another host, or credentials of its own, never gets the login sent there.
+        #expect(ReolinkStreamURL.rtsp(host: "192.168.1.20", port: 554, username: "admin", password: "pw", channel: 0, sub: false, codec: "h264",
+                                      reported: "rtsp://evil.example:8554/Preview_01_main", rtspVersion: 3) == "rtsp://admin:pw@192.168.1.20:8554/Preview_01_main")
+        #expect(ReolinkStreamURL.rtsp(host: "192.168.1.20", port: 554, username: "admin", password: "pw", channel: 0, sub: false, codec: "h264",
+                                      reported: "rtsp://x:y@evil.example/a b", rtspVersion: 3) == "rtsp://admin:pw@192.168.1.20:554/h264Preview_01_main")
+        #expect(ReolinkStreamURL.reportedTarget("file:///etc/passwd") == nil)
+        #expect(ReolinkStreamURL.reportedTarget("rtsp://h/x -i file:/etc/passwd") == nil)
+        let logged = redactCommandLine(["-i", ReolinkStreamURL.rtmp(host: "h", port: 1935, username: "admin", password: "p@ss!", channel: 0, sub: false),
+                                        "-i", ReolinkStreamURL.rtsp(host: "h", port: 554, username: "admin", password: "pw", channel: 0, sub: false, codec: "h264",
+                                                                    reported: nil, rtspVersion: 0)])
+        #expect(!logged.contains("p@ss!"))
+        #expect(!logged.contains(":pw@"))
     }
 }
 

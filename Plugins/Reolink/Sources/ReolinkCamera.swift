@@ -54,7 +54,7 @@ final class ReolinkCamera: @unchecked Sendable {
     }
 
     /// The services a channel gets, from what it supports and its options.
-    init(id: String, channel info: ReolinkChannel, host: ReolinkHostInfo, options: ReolinkPlugin.CameraOptions, canWrite: Bool, brightness: Bool,
+    init(id: String, channel info: ReolinkChannel, host: ReolinkHostInfo, options: ReolinkPlugin.CameraOptions, canWrite: Bool,
          streamer: ReolinkStreamer, recorder: ReolinkRecorder?, writes: Writes, log: Logger, timing: ReolinkTiming) throws {
         let name = options.name ?? info.name
         self.name = name
@@ -65,7 +65,7 @@ final class ReolinkCamera: @unchecked Sendable {
         self.recorder = recorder
         ringThrottle = Double(options.ringThrottleSeconds)
 
-        let motion = (options.motionSensor ?? info.motion) && info.motion ? Service(.motionSensor, name: "\(name) Motion", subtype: "motion", optional: [.statusActive]) : nil
+        let motion = (options.motionSensor ?? true) && info.motion ? Service(.motionSensor, name: "\(name) Motion", subtype: "motion", optional: [.statusActive]) : nil
         self.motion = motion
         let wanted = Set(options.aiSensors ?? ReolinkChannel.aiSensors.map(\.subtype))
         var ai: [String: Service] = [:]
@@ -77,7 +77,7 @@ final class ReolinkCamera: @unchecked Sendable {
         let doorbell = isDoorbell ? Service(.doorbell, name: name, subtype: "doorbell", isPrimary: true) : nil
         self.doorbell = doorbell
         let floodlight = (options.floodlight ?? true) && info.floodlight
-            ? Service(.lightbulb, name: "\(name) Floodlight", subtype: "floodlight", optional: brightness ? [.brightness] : []) : nil
+            ? Service(.lightbulb, name: "\(name) Floodlight", subtype: "floodlight", optional: [.brightness]) : nil
         self.floodlight = floodlight
         let siren = options.siren && info.siren ? Service(.switch, name: "\(name) Siren", subtype: "siren") : nil
         self.siren = siren
@@ -105,7 +105,7 @@ final class ReolinkCamera: @unchecked Sendable {
         accessory = Accessory(
             id: id, name: name, manufacturer: "Reolink", model: info.model.nonEmptyText ?? "Reolink", serialNumber: serial.nonEmptyText ?? id,
             firmwareRevision: info.firmware, category: isDoorbell ? .videoDoorbell : .ipCamera,
-            services: [doorbell, motion].compactMap { $0 } + ReolinkChannel.aiSensors.compactMap { ai[$0.type] } + [floodlight, siren, ir, battery].compactMap { $0 },
+            services: [doorbell].compactMap { $0 } + sensors + [floodlight, siren, ir, battery].compactMap { $0 },
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
         for service in sensors { service.characteristic(.motionDetected).value = false }
@@ -123,17 +123,14 @@ final class ReolinkCamera: @unchecked Sendable {
         if let floodlight {
             let lightGuard = LatestCallGuard(delay: timing.seconds(0.3))
             floodlight.characteristic(.on).onWrite(changesOnly: true, guarded { value in
-                let on = value.boolValue ?? false
-                let level = brightness && on ? floodlight[.brightness]?.value.intValue.flatMap { $0 > 0 ? $0 : nil } : nil
-                try await writes.floodlight(on, level)
+                // Only the field that changes (4.4): a model that refuses `bright` still turns on and off.
+                try await writes.floodlight(value.boolValue ?? false, nil)
             })
-            if brightness {
-                floodlight.characteristic(.brightness).onWrite(changesOnly: true, guarded { value in
-                    guard let level = value.intValue else { return }
-                    guard await lightGuard() else { return }
-                    try await writes.floodlight(level > 0, level > 0 ? min(100, level) : nil)
-                })
-            }
+            floodlight.characteristic(.brightness).onWrite(changesOnly: true, guarded { value in
+                guard let level = value.intValue else { return }
+                guard await lightGuard() else { return }
+                try await writes.floodlight(level > 0, level > 0 ? min(100, level) : nil)
+            })
         }
         if let siren {
             siren.characteristic(.on).onWrite(changesOnly: true, guarded { [weak self] value in

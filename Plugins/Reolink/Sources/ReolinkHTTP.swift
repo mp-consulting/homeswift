@@ -50,6 +50,9 @@ struct ReolinkReply: Sendable, Equatable {
         detail = json["error"]?["detail"]?.stringValue
     }
 
+    /// A command left out for the session (it timed out on its own before).
+    static func skipped(_ cmd: String) -> ReolinkReply { ReolinkReply(cmd: cmd, code: 1, rspCode: -8, detail: "skipped") }
+
     var isLoginRequired: Bool { rspCode == -6 || detail?.lowercased().contains("please login first") == true }
 }
 
@@ -152,7 +155,6 @@ actor ReolinkHTTPClient {
 
     var isHTTPS: Bool { (endpoint ?? candidates[0]).https }
     var apiPort: Int { (endpoint ?? candidates[0]).port }
-    var hasSession: Bool { token != nil }
 
     // MARK: Commands
 
@@ -174,8 +176,10 @@ actor ReolinkHTTPClient {
     }
 
     private func post(_ batch: [ReolinkCommand]) async throws -> [ReolinkReply] {
-        let runnable = batch.filter { !skipped.contains($0.cmd) }
-        guard !runnable.isEmpty else { return batch.map { ReolinkReply(cmd: $0.cmd, code: 1, rspCode: -8, detail: "skipped") } }
+        // Decided once: a login on the way empties `skipped`, and the answers must still line up with what was sent.
+        let isSkipped = batch.map { skipped.contains($0.cmd) }
+        let runnable = zip(batch, isSkipped).filter { !$0.1 }.map(\.0)
+        guard !runnable.isEmpty else { return batch.map { ReolinkReply.skipped($0.cmd) } }
         var lastError: any Error = ReolinkError.invalidResponse("no answer")
         for attempt in 1...Self.attempts {
             do {
@@ -206,8 +210,8 @@ actor ReolinkHTTPClient {
                     return try await individually(batch)
                 }
                 var byIndex = items.makeIterator()
-                return batch.map { command in
-                    skipped.contains(command.cmd) ? ReolinkReply(cmd: command.cmd, code: 1, rspCode: -8, detail: "skipped") : byIndex.next()!
+                return zip(batch, isSkipped).map { command, isSkipped in
+                    isSkipped ? ReolinkReply.skipped(command.cmd) : byIndex.next() ?? ReolinkReply(cmd: command.cmd, code: 1)
                 }
             } catch let error as ReolinkError {
                 switch error {
@@ -217,8 +221,10 @@ actor ReolinkHTTPClient {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                // A timeout or a reset: the session may still be held on the device, so the next login logs it out
+                // first (3.2) rather than leaving it to linger for an hour.
                 lastError = error
-                dropSession()
+                expiry = .distantPast
             }
         }
         throw lastError
@@ -228,7 +234,7 @@ actor ReolinkHTTPClient {
         var replies: [ReolinkReply] = []
         for command in batch {
             if skipped.contains(command.cmd) {
-                replies.append(ReolinkReply(cmd: command.cmd, code: 1, rspCode: -8, detail: "skipped"))
+                replies.append(ReolinkReply.skipped(command.cmd))
                 continue
             }
             let reply = try await post([command]).first ?? ReolinkReply(cmd: command.cmd, code: 1)
@@ -281,7 +287,9 @@ actor ReolinkHTTPClient {
         guard now() >= nextLoginAllowed else { throw ReolinkError.frequentLogins }
         await logout()
         let body: JSONValue = [["cmd": "Login", "action": 0, "param": ["User": ["userName": .string(username), "password": .string(password)]]]]
-        var options = endpoint.map { [$0] } ?? candidates
+        // Once a certificate is pinned the device has answered HTTPS: plain HTTP is not tried any more (unless the block
+        // asks for it), so a man in the middle that blocks HTTPS does not get the password in clear.
+        var options = endpoint.map { [$0] } ?? (trust.fingerprint != nil && candidates.contains(where: \.https) ? candidates.filter(\.https) : candidates)
         var lastError: any Error = ReolinkError.unreachable("no answer")
         var index = 0
         while index < options.count {
@@ -292,8 +300,13 @@ actor ReolinkHTTPClient {
             do {
                 response = try await send(method: "POST", query: "cmd=Login&token=null", body: body)
             } catch let error as HTTPClientError {
-                if case .certificateMismatch(_, let observed) = error, trust.reportMismatch(observed: observed) {
-                    log.error("The device's HTTPS certificate changed since it was first seen: the plugin refuses it. Set the device up again to trust the new one.")
+                if case .certificateMismatch(_, let observed) = error {
+                    if trust.reportMismatch(observed: observed) {
+                        log.error("The device's HTTPS certificate changed since it was first seen: the plugin refuses it. Set the device up again to trust the new one.")
+                    }
+                    // Not another candidate: the login must not go to plain HTTP behind a refused certificate.
+                    endpoint = nil
+                    throw ReolinkError.unreachable(error.description)
                 }
                 lastError = ReolinkError.unreachable(error.description)
                 continue
@@ -354,6 +367,7 @@ actor ReolinkHTTPClient {
         await gate.run { await self.logout() }
     }
 
+    /// Forgets a token the device no longer accepts.
     private func dropSession() {
         token = nil
         expiry = .distantPast
@@ -365,7 +379,7 @@ actor ReolinkHTTPClient {
         let option = endpoint ?? candidates[0]
         let scheme = option.https ? "https" : "http"
         let defaultPort = option.https ? 443 : 80
-        let authority = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        let authority = ReolinkStreamURL.bracketed(host)
         let portPart = option.port == defaultPort ? "" : ":\(option.port)"
         guard let url = URL(string: "\(scheme)://\(authority)\(portPart)/cgi-bin/api.cgi?\(query)") else { throw HTTPClientError.invalidURL(host) }
         var request = HTTPRequest(method: method, url: url, body: body.map { $0.encoded() }, timeout: timing.seconds(30))

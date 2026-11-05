@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import HomeswiftPlugin
 
 /// What the plugin knows of a host from its start-up batch (4.1) and abilities (4.5).
@@ -14,7 +15,6 @@ struct ReolinkHostInfo: Sendable, Equatable {
     var uid: String?
     var rtspPort = 554
     var rtmpPort = 1935
-    var rtspEnabled = true
     var mediaPort: Int?
     /// nil when `GetUser` did not answer.
     var isAdmin: Bool?
@@ -47,11 +47,7 @@ struct ReolinkHostInfo: Sendable, Equatable {
             if isMultiChannel { return (0..<max(1, channelNum)).map { ReolinkChannelStatus(channel: $0, online: true) } }
             return [channels.first { $0.channel == 0 } ?? ReolinkChannelStatus(channel: 0, online: true)]
         }
-        return channels.filter { status in
-            guard status.online else { return false }
-            let foreignName = status.name == "NVT" || status.name == "IPCAM"
-            return !(foreignName && status.model == "IPC")
-        }
+        return channels.filter { $0.online && !$0.isForeign }
     }
 
     // MARK: Parsing
@@ -77,7 +73,6 @@ struct ReolinkHostInfo: Sendable, Equatable {
             let port = value["NetPort"]
             rtspPort = port?["rtspPort"]?.saturatingIntValue(in: 1...65535) ?? rtspPort
             rtmpPort = port?["rtmpPort"]?.saturatingIntValue(in: 1...65535) ?? rtmpPort
-            rtspEnabled = (port?["rtspEnable"]?.saturatingIntValue ?? 1) != 0
             mediaPort = port?["mediaPort"]?.saturatingIntValue(in: 1...65535)
         case "GetP2p":
             uid = value["P2p"]?["uid"]?.stringValue?.nonEmptyText
@@ -130,6 +125,9 @@ struct ReolinkChannelStatus: Sendable, Equatable {
     var model: String?
     var uid: String?
     var asleep = false
+
+    /// Another brand's camera on an NVR (named `NVT` or `IPCAM`, model `IPC`): left out.
+    var isForeign: Bool { (name == "NVT" || name == "IPCAM") && model == "IPC" }
 }
 
 /// A stream's encoding, from `GetEnc`.
@@ -156,7 +154,6 @@ struct ReolinkChannel: Sendable, Equatable {
     var aiTypes: Set<String> = []
     var doorbell = false
     var floodlight = false
-    var floodlightBrightness = true
     var irLights = false
     var siren = false
     var battery = false
@@ -258,23 +255,34 @@ extension String {
 /// Stream URLs (4.6).
 enum ReolinkStreamURL {
     /// The password percent-encoded with no safe characters, for RTSP.
-    static func rtspEncoded(_ text: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
-    }
+    static func rtspEncoded(_ text: String) -> String { URLEncoding.rfc3986(text) }
 
     static func channelDigits(_ channel: Int) -> String { String(format: "%02d", channel + 1) }
 
-    /// RTSP: `GetRtspUrl`'s URL with the credentials inserted when the host's RTSP ability is 3 or more, else
-    /// `<codec>Preview_<CC>_<stream>`.
+    /// RTSP: `GetRtspUrl`'s path (and port) when the host's RTSP ability is 3 or more, else `<codec>Preview_<CC>_<stream>`.
+    /// The credentials only ever go to the configured host: the address the device reports is not used, so a device
+    /// cannot send them elsewhere.
     static func rtsp(host: String, port: Int, username: String, password: String, channel: Int, sub: Bool, codec: String, reported: String?, rtspVersion: Int) -> String {
         let credentials = "\(rtspEncoded(username)):\(rtspEncoded(password))@"
-        if rtspVersion >= 3, let reported, reported.hasPrefix("rtsp://") {
-            return "rtsp://" + credentials + reported.dropFirst("rtsp://".count)
+        let address = bracketed(host)
+        if rtspVersion >= 3, let reported, let target = reportedTarget(reported) {
+            return "rtsp://\(credentials)\(address):\(target.port ?? port)\(target.path)"
         }
-        let address = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
         return "rtsp://\(credentials)\(address):\(port)/\(codec)Preview_\(channelDigits(channel))_\(sub ? "sub" : "main")"
+    }
+
+    /// An IPv6 address in brackets, for a URL's authority.
+    static func bracketed(_ host: String) -> String { host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host }
+
+    /// The port and the path with its query of an `rtsp://` URL without credentials; nil for anything else, a URL with
+    /// spaces, control or non-ASCII characters, or a path of more than 512 bytes.
+    static func reportedTarget(_ url: String) -> (port: Int?, path: String)? {
+        guard url.utf8.count <= 1024, url.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value < 0x7F }), let components = URLComponents(string: url), components.scheme?.lowercased() == "rtsp",
+              components.user == nil, components.password == nil, components.fragment == nil else { return nil }
+        let path = components.percentEncodedPath + (components.percentEncodedQuery.map { "?\($0)" } ?? "")
+        guard path.hasPrefix("/"), path.count > 1, path.utf8.count <= 512 else { return nil }
+        if let port = components.port, !(1...65535).contains(port) { return nil }
+        return (components.port, path)
     }
 
     static func rtmp(host: String, port: Int, username: String, password: String, channel: Int, sub: Bool) -> String {
@@ -284,12 +292,5 @@ enum ReolinkStreamURL {
 
     static func flv(https: Bool, host: String, apiPort: Int, rtmpPort: Int, username: String, password: String, channel: Int, sub: Bool) -> String {
         "\(https ? "https" : "http")://\(host):\(apiPort)/flv?port=\(rtmpPort)&app=bcs&stream=channel\(channel)_\(sub ? "sub" : "main").bcs&user=\(username)&password=\(password)"
-    }
-
-    /// A URL for the log: credentials in the authority and `password=`/`token=` values masked.
-    static func masked(_ url: String) -> String {
-        var result = url.replacing(#/([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/)[^\/?#\s@]*@/#) { $0.output.1 + "<credentials>@" }
-        result = result.replacing(#/(password|token|user)=[^&\s]*/#) { "\($0.output.1)=<\($0.output.1)>" }
-        return result
     }
 }

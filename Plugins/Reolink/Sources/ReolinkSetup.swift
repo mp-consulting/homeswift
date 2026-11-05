@@ -17,7 +17,7 @@ extension ReolinkPlugin {
     public func discover() async throws -> [DiscoveredDevice] {
         var found: [DiscoveredDevice] = []
         var addresses = Set<String>()
-        let known = knownHosts()
+        let known = hostsFile.load() ?? [:]
         for entry in hostEntries() {
             let address = entry.host.lowercased()
             addresses.insert(address)
@@ -52,9 +52,6 @@ extension ReolinkPlugin {
         return found
     }
 
-    private func knownHosts() -> [String: String] {
-        context.jsonFile("hosts.json", as: [String: String].self).load() ?? [:]
-    }
 
     /// A connected host's devices: itself (an NVR or a hub) and its channels.
     private func devices(of info: ReolinkHostInfo, hostID: String, address: String, channels: [Int: ReolinkChannel]) -> [DiscoveredDevice] {
@@ -98,7 +95,7 @@ extension ReolinkPlugin {
             throw SetupError("Enter the device's address")
         }
         entry.pushEvents = false
-        let host = makeHost(entry)
+        let host = makeHost(entry, trustingAgain: true)
         do {
             try await host.connect()
         } catch ReolinkError.credentials(let detail) {
@@ -112,9 +109,9 @@ extension ReolinkPlugin {
         let channels = await host.channels.count
         await host.stop()
         guard let hostID = info.hostID ?? info.serial.nonEmptyText else { throw SetupError("The device at \(address) gave no serial number") }
-        var known = knownHosts()
+        var known = hostsFile.load() ?? [:]
         known[address.lowercased()] = hostID
-        try? context.jsonFile("hosts.json", as: [String: String].self).save(known)
+        try? hostsFile.save(known)
         logger.info("Signed in to the \(info.model.nonEmptyText ?? "Reolink device") at \(address) through Setup (\(channels) channel\(channels == 1 ? "" : "s")).")
         return .done(try SetupOutcome(encoding: Login(username: username, password: password), settings: ["host": .string(address)], deviceID: hostID))
     }
@@ -141,9 +138,7 @@ extension ReolinkPlugin {
                 }
                 let deviceID = Self.deviceID(hostID: hostID, info: info, channel: channel)
                 for (name, value) in values {
-                    if name == "name" { entries.setIfAbsent("name", value, on: deviceID) } else if CameraOptions.settingKeys.contains(name) {
-                        entries.setIfAbsent(name, value, on: deviceID)
-                    }
+                    if name == "name" || CameraOptions.settingKeys.contains(name) { entries.setIfAbsent(name, value, on: deviceID) }
                 }
                 changed = true
             }

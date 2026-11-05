@@ -147,13 +147,52 @@ final class ReolinkEnvironment: Sendable {
         #expect(await eventually { environment.accessory(host, Self.cameraID) != nil })
         let start = environment.http.requestCount
         let events = environment.http.count("GetEvents")
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await eventually { environment.http.count("GetEvents") - events > 2 })
+        // Requests first: a poll between the two reads only adds to `polls`.
         let requests = environment.http.requestCount - start
         let polls = environment.http.count("GetEvents") - events
         // One POST per cycle (10 ms), every channel's GetEvents in it: as many requests as polls, give or take a refresh.
-        #expect(polls > 2)
         #expect(requests <= polls + 2)
         #expect(environment.http.logins == 1)
+    }
+
+    /// An NVR with two cameras and another brand's: `online` tells which are there now.
+    static func nvrAnswers(online: [Int]) -> [String: @Sendable (JSONValue?) -> JSONValue] {
+        var answers = cameraAnswers()
+        answers["GetDevInfo"] = { _ in ["cmd": "GetDevInfo", "code": 0, "value": ["DevInfo": ["model": "RLN8-410", "name": "NVR", "serial": "00000000000009",
+                                                                                              "firmVer": "v3.3.0.226", "exactType": "NVR", "channelNum": 3]]] }
+        answers["GetChannelstatus"] = { _ in
+            ["cmd": "GetChannelstatus", "code": 0, "value": ["count": 3, "status": [
+                ["channel": 0, "name": "Gate", "online": .number(online.contains(0) ? 1 : 0), "typeInfo": "RLC-510A", "uid": "95270000AAAAAAAA"],
+                ["channel": 1, "name": "Yard", "online": .number(online.contains(1) ? 1 : 0), "typeInfo": "RLC-520A", "uid": "95270000BBBBBBBB"],
+                ["channel": 2, "name": "NVT", "online": 1, "typeInfo": "IPC"],
+            ]]]
+        }
+        answers["GetChnTypeInfo"] = { _ in ["cmd": "GetChnTypeInfo", "code": 0, "value": ["typeInfo": "RLC-5x0A", "firmVer": "v3.1.0"]] }
+        return answers
+    }
+
+    @Test func anNVRKeepsAnOfflineCameraAndDoesNotReloadForeignOnes() async throws {
+        let id = "Reolink:95270000ABCDEFGH:95270000BBBBBBBB"
+        let environment = ReolinkEnvironment(Self.nvrAnswers(online: [0, 1]), baichuanFails: true)
+        let first = try await environment.start()
+        #expect(await eventually { await environment.plugin?.camera(host: "192.168.1.20", channel: 1) != nil })
+        await first.stop()
+
+        // The yard camera is off when the bridge starts again: its accessory stays, not responding.
+        environment.http.state.withLockedValue { $0.answers = Self.nvrAnswers(online: [0]) }
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        #expect(await eventually { await environment.plugin?.camera(host: "192.168.1.20", channel: 0) != nil })
+        let refreshes = environment.http.count("GetChannelstatus")
+        let reads = environment.http.count("GetEnc")
+        // Full refreshes every 120 ms: a few, none of which reads the channels again for the other brand's camera
+        // or GetChnTypeInfo's model.
+        #expect(await eventually { environment.http.count("GetChannelstatus") >= refreshes + 3 })
+        #expect(environment.http.count("GetEnc") == reads)
+        let plugin = try #require(environment.plugin)
+        let yard = try #require(await plugin.context.accessory(id: id))
+        #expect(yard.isUnavailable)
     }
 
     @Test func doorbellRingsOnceOnARisingEdge() async throws {
@@ -195,7 +234,8 @@ final class ReolinkEnvironment: Sendable {
         let light = try #require(camera.services.floodlight)
         try await light.characteristic(.on).writeHandler(for: .bool(true))?(.bool(true))
         let body = environment.http.state.withLockedValue { $0.requests.last { $0.cmd == "SetWhiteLed" }?.body }
-        #expect(body == [["cmd": "SetWhiteLed", "param": ["WhiteLed": ["channel": 0, "state": 1, "bright": 80]]]])
+        // Only the field that changes (4.4).
+        #expect(body == [["cmd": "SetWhiteLed", "param": ["WhiteLed": ["channel": 0, "state": 1]]]])
         // A drag of the brightness slider: one request.
         let before = environment.http.count("SetWhiteLed")
         let handler = try #require(light.characteristic(.brightness).writeHandler(for: .int(10)))
