@@ -199,12 +199,12 @@ public final class AACTalkEncoder: Sendable {
     }
 
     public func write(_ samples: [Int16]) async throws {
-        var data = Data(capacity: samples.count * 2)
-        for sample in samples {
-            let bits = UInt16(bitPattern: sample)
-            data.append(UInt8(bits & 0xFF))
-            data.append(UInt8(bits >> 8))
-        }
+        // s16le: the samples' own bytes on a little-endian host, swapped on a big-endian one.
+        #if _endian(little)
+        let data = samples.withUnsafeBytes { Data($0) }
+        #else
+        let data = samples.map(\.littleEndian).withUnsafeBytes { Data($0) }
+        #endif
         try await process.writeStdin(data)
     }
 

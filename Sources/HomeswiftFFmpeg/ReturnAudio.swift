@@ -261,7 +261,6 @@ public actor ReturnAudioReceiver {
         var continuation: AsyncStream<PCMFrame>.Continuation
         var offset = 0
         var startedAt: ContinuousClock.Instant
-        var lastPacket: ContinuousClock.Instant
         var packets = 0
         var frames = 0
         var watcher: Task<Void, Never>?
@@ -369,7 +368,6 @@ public actor ReturnAudioReceiver {
         packetCount += 1
         guard !closed, !muted, !gaveUp else { return }
         lastPacket = .now
-        talk?.lastPacket = .now
         talk?.packets += 1
         if decoder == nil, !decoderStarting { await startDecoder() }
     }
@@ -379,7 +377,7 @@ public actor ReturnAudioReceiver {
         let number = talks
         let (frames, continuation) = AsyncStream.makeStream(of: PCMFrame.self, bufferingPolicy: .bufferingNewest(Self.frameBuffer))
         let now = ContinuousClock.now
-        talk = OpenTalk(number: number, continuation: continuation, startedAt: now, lastPacket: lastPacket ?? now)
+        talk = OpenTalk(number: number, continuation: continuation, startedAt: now)
         talk?.watcher = watch(number)
         log.info("\(name): Talk started.")
         let talk = Talk(sessionID: stream.sessionID, format: options.format, frames: frames, volume: volume)
@@ -413,9 +411,10 @@ public actor ReturnAudioReceiver {
         }
     }
 
+    /// The open Talk's last packet (the stream's: a Talk begins only while they come) and its start.
     private func talkTimes(_ number: Int) -> (ContinuousClock.Instant, ContinuousClock.Instant)? {
         guard let talk, talk.number == number else { return nil }
-        return (talk.lastPacket, talk.startedAt)
+        return (lastPacket ?? talk.startedAt, talk.startedAt)
     }
 
     private func endTalk(_ number: Int, reason: String) {
