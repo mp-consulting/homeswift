@@ -35,7 +35,10 @@ attached to it rather than shown alone. Scenarios are switches when `exposeScena
 
 **Add accessories** asks for the service and the account: the vendor app's e-mail and password, or, for a gateway's
 local API, its PIN (or IP address) and a Developer Mode token (in the TaHoma by Somfy app, tap the box's PIN seven times
-in its settings, accept the terms, then generate a token). The account is kept in the bridge's vault.
+in its settings, accept the terms, then generate a token). The account is kept in the bridge's vault, and a `user` and
+`password` typed into the block later move there too. After three refusals in a row, Setup pauses its sign-ins for a
+minute, then longer, as the plugin does after one, so a run of wrong passwords does not get the account banned.
+Scenarios Excluded, or named in `exclude`, stay listed on Add accessories, to include them again.
 
 With a Somfy cloud account whose setup has a single gateway, the plugin mints a Developer Mode token for that gateway
 itself, over the cloud session (Developer Mode turned on when the gateway says it is off, a token generated, then

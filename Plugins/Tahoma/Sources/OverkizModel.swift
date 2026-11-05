@@ -188,7 +188,9 @@ enum ExecutionState: String, Sendable, Equatable {
         self = text.flatMap(ExecutionState.init(rawValue:)) ?? .unknown
     }
 
-    var isFinal: Bool { self == .completed || self == .failed || self == .timedOut }
+    var isFinal: Bool { self == .completed || isFailure }
+    /// It did not do what was asked: failed, or no answer in time.
+    var isFailure: Bool { self == .failed || self == .timedOut }
 }
 
 /// What an action of an execution became: its state, and on a failure the server's `failureType`.

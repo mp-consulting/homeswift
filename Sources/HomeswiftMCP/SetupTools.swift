@@ -141,23 +141,26 @@ extension HomeswiftCatalog {
     public func continueSetup(_ id: String, answers: [String: JSONValue], by writer: ConfigWriter = .person) async throws -> JSONValue {
         guard let session = setupSessions.session(id) else { throw CatalogError("No Setup in progress with id \(id): it ended or expired, start it again") }
         var texts: [String: String] = [:]
+        // What was answered, secrets left out: a step asked again shows it, to correct rather than type again.
+        let answered = answers.compactMapValues { $0.stringValue }
+        let asking = { (error: String) in self.asking(session, error: error, answers: answered) }
         for field in session.prompt.fields {
             guard let value = answers[field.key], let text = value.stringValue ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
-                guard field.optional || session.prompt.waitSeconds != nil else { return asking(session, error: "\(field.label) is missing") }
+                guard field.optional || session.prompt.waitSeconds != nil else { return asking("\(field.label) is missing") }
                 continue
             }
             if field.kind == .secret, let reference = SecretReference(text) {
                 // A client names the bridge's own secrets only: env: and file: read what is on its machine.
                 if writer == .client, !reference.isVault {
-                    return asking(session, error: "\(field.label): only a vault: reference is accepted here")
+                    return asking("\(field.label): only a vault: reference is accepted here")
                 }
                 do {
                     texts[field.key] = try SecretResolver(storage: storageDirectory).resolve(reference)
                 } catch {
-                    return asking(session, error: "\(field.label): \(reference) does not resolve")
+                    return asking("\(field.label): \(reference) does not resolve")
                 }
             } else if field.kind == .secret, writer == .client {
-                return asking(session, error: "\(field.label) is a secret: pass a vault: reference (the person adds the entry on the Vault page), or finish this step in the web UI")
+                return asking("\(field.label) is a secret: pass a vault: reference (the person adds the entry on the Vault page), or finish this step in the web UI")
             } else {
                 texts[field.key] = text
             }
@@ -211,9 +214,9 @@ extension HomeswiftCatalog {
                 return step
             }
         } catch {
-            let message = error is SetupError ? "\(error)" : Redaction.redactText("\(error)")
-            if first { throw CatalogError(message) }
-            return asking(session, error: message)
+            // The plugin's own words go as they are (start_setup wraps them as untrusted data), anything else masked.
+            if first { throw error is SetupError ? error : CatalogError(Redaction.redactText("\(error)")) }
+            return asking(session, error: error is SetupError ? "\(error)" : Redaction.redactText("\(error)"), answers: answers)
         }
         switch step {
         case .ask(let prompt, let state):
@@ -263,10 +266,16 @@ extension HomeswiftCatalog {
         return .object(answer)
     }
 
-    private func asking(_ session: SetupSession, error: String?) -> JSONValue {
+    /// The session's prompt, with `error` when the last answer did not work; its fields then show what was `answers`ed,
+    /// secrets left out, for the person or the client to correct.
+    private func asking(_ session: SetupSession, error: String?, answers: [String: String] = [:]) -> JSONValue {
+        var prompt = session.prompt
+        for index in prompt.fields.indices where prompt.fields[index].kind != .secret {
+            if let answer = answers[prompt.fields[index].key] { prompt.fields[index].value = answer }
+        }
         var answer: [String: JSONValue] = [
             "status": "asking", "session": .string(session.id), "platform": .string(session.platform), "name": .string(session.name),
-            "method": .string(session.method.rawValue), "prompt": (try? JSONValue(encoding: session.prompt)) ?? .null,
+            "method": .string(session.method.rawValue), "prompt": (try? JSONValue(encoding: prompt)) ?? .null,
             "message": .string(session.prompt.text),
         ]
         if let deviceID = session.deviceID { answer["deviceID"] = .string(deviceID) }
@@ -325,7 +334,12 @@ extension HomeswiftCatalog {
                 let draft: JSONValue? = exists ? nil : ["platform": .string(platform), "name": .string(name ?? platform)]
                 // A value that is not a boolean is refused rather than taken for the account's Setup.
                 if let value = call.arguments["addByAddress"], value.boolValue == nil, !value.isNull { throw CatalogError("addByAddress must be true or false") }
-                return Self.untrusted(try await catalog.startSetup(platform: platform, name: name, deviceID: call.optionalString("deviceID"), addByAddress: call.bool("addByAddress"), block: draft))
+                do {
+                    return Self.untrusted(try await catalog.startSetup(platform: platform, name: name, deviceID: call.optionalString("deviceID"), addByAddress: call.bool("addByAddress"), block: draft))
+                } catch let error as SetupError {
+                    // The plugin's words, which a device may choose: untrusted data, as its prompts are.
+                    throw CatalogError("The Setup did not start", detail: error.description)
+                }
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",

@@ -47,11 +47,7 @@ public actor ImouPlugin: HomeswiftPlugin {
     static let storageInterval: Double = 3600
 
     /// The sizes HomeKit may ask for.
-    static let resolutions: [VideoResolution] = [
-        VideoResolution(320, 180, 30), VideoResolution(320, 240, 15), VideoResolution(320, 240, 30), VideoResolution(480, 270, 30),
-        VideoResolution(480, 360, 30), VideoResolution(640, 360, 30), VideoResolution(640, 480, 30), VideoResolution(1280, 720, 30),
-        VideoResolution(1280, 960, 30), VideoResolution(1920, 1080, 30), VideoResolution(1600, 1200, 30),
-    ]
+    static let resolutions = RTSPCameraStreamer.standardResolutions
 
     let configuration: Configuration
     let context: PluginContext

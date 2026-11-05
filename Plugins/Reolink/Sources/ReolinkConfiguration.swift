@@ -86,9 +86,27 @@ extension ReolinkPlugin {
         public var encoderOptions: String?
         public var debug: Bool
         public var ringThrottleSeconds: Int
+        /// A momentary "Go to <preset>" switch per PTZ preset.
+        public var presetSwitches: Bool
+        /// A switch that runs the camera's first PTZ patrol.
+        public var patrolSwitch: Bool
+        /// A Privacy switch where the camera has privacy mode.
+        public var privacySwitch: Bool
+        /// Motion sensitivity, 1 to 50, written to the device at start; nil leaves it.
+        public var motionSensitivity: Int?
+        /// AI detections' sensitivity, 0 to 100, written to the device at start; nil leaves it.
+        public var aiSensitivity: Int?
+        /// A Recording switch: the device's own recording of the channel on or off.
+        public var recordingSwitch: Bool
+        /// A momentary switch per paired Reolink Chime.
+        public var chimeSwitch: Bool
+        /// The tone the chime switches play, `musicId` 0 to 9 (`ReolinkChime.tones`).
+        public var chimeTone: Int
+        /// The floodlight's mode (`ReolinkFloodlight.modes`), written to the device at start; nil leaves it.
+        public var floodlightMode: String?
 
         static let settingKeys = ["motionSensor", "aiSensors", "doorbell", "floodlight", "siren", "irLights", "stream", "audio", "recording", "prebuffer",
-                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds"]
+                                  "maxStreams", "vcodec", "encoderOptions", "debug", "ringThrottleSeconds", "presetSwitches", "patrolSwitch", "privacySwitch", "floodlightMode", "chimeSwitch", "chimeTone", "recordingSwitch", "motionSensitivity", "aiSensitivity"]
 
         init(json: JSONValue) {
             name = json["name"]?.stringValue?.nonEmptyText
@@ -108,6 +126,15 @@ extension ReolinkPlugin {
             encoderOptions = json["encoderOptions"]?.stringValue?.nonEmptyText
             debug = json["debug"]?.boolValue ?? false
             ringThrottleSeconds = max(0, json["ringThrottleSeconds"].lenientInt ?? 3)
+            presetSwitches = json["presetSwitches"]?.boolValue ?? false
+            patrolSwitch = json["patrolSwitch"]?.boolValue ?? false
+            privacySwitch = json["privacySwitch"]?.boolValue ?? true
+            motionSensitivity = json["motionSensitivity"].lenientInt.map { min(50, max(1, $0)) }
+            aiSensitivity = json["aiSensitivity"].lenientInt.map { min(100, max(0, $0)) }
+            recordingSwitch = json["recordingSwitch"]?.boolValue ?? false
+            chimeSwitch = json["chimeSwitch"]?.boolValue ?? false
+            chimeTone = json["chimeTone"]?.stringValue.flatMap { ReolinkChime.tones.firstIndex(of: $0) } ?? 0
+            floodlightMode = json["floodlightMode"]?.stringValue.flatMap { ReolinkFloodlight.modeNumber($0) == nil ? nil : $0 }
         }
 
         /// The options with Accessory Settings on top.
@@ -120,7 +147,10 @@ extension ReolinkPlugin {
         var json: JSONValue {
             var fields: [String: JSONValue] = ["siren": .bool(siren), "irLights": .bool(irLights), "stream": .string(stream), "audio": .bool(audio),
                                                "recording": .bool(recording), "prebuffer": .bool(prebuffer), "maxStreams": .number(Double(maxStreams)),
-                                               "debug": .bool(debug), "ringThrottleSeconds": .number(Double(ringThrottleSeconds))]
+                                               "debug": .bool(debug), "ringThrottleSeconds": .number(Double(ringThrottleSeconds)),
+                                               "presetSwitches": .bool(presetSwitches), "patrolSwitch": .bool(patrolSwitch),
+                                               "privacySwitch": .bool(privacySwitch),
+                                               "chimeSwitch": .bool(chimeSwitch), "recordingSwitch": .bool(recordingSwitch), "chimeTone": .string(ReolinkChime.tones[chimeTone])]
             if let name { fields["name"] = .string(name) }
             if let motionSensor { fields["motionSensor"] = .bool(motionSensor) }
             if let aiSensors { fields["aiSensors"] = .array(aiSensors.map(JSONValue.string)) }
@@ -128,10 +158,18 @@ extension ReolinkPlugin {
             if let floodlight { fields["floodlight"] = .bool(floodlight) }
             if let vcodec { fields["vcodec"] = .string(vcodec) }
             if let encoderOptions { fields["encoderOptions"] = .string(encoderOptions) }
+            if let floodlightMode { fields["floodlightMode"] = .string(floodlightMode) }
+            if let motionSensitivity { fields["motionSensitivity"] = .number(Double(motionSensitivity)) }
+            if let aiSensitivity { fields["aiSensitivity"] = .number(Double(aiSensitivity)) }
             return .object(fields)
         }
 
         static let defaults = CameraOptions(json: [:])
+
+        /// The options the device itself keeps, written at start.
+        var deviceSettings: ReolinkHost.DeviceSettings {
+            ReolinkHost.DeviceSettings(floodlightMode: floodlightMode, motionSensitivity: motionSensitivity, aiSensitivity: aiSensitivity)
+        }
     }
 }
 

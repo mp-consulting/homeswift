@@ -6,11 +6,16 @@ import Logging
 struct ReolinkTiming: Sendable {
     var scale: Double = 1
 
-    func seconds(_ value: Double) -> Duration { .milliseconds(Int(max(0, value * scale * 1000))) }
+    func seconds(_ value: Double) -> Duration { Self.duration(value * scale) }
+
+    /// At most a year: a configured interval can be any number, and a larger one would trap converting to `Int`.
+    private static func duration(_ seconds: Double) -> Duration {
+        .milliseconds(Int(min(max(0, seconds.isNaN ? 0 : seconds), 365 * 86_400) * 1000))
+    }
 
     /// A bound on a wait for the device (a connection, a reply), never scaled: tests' fakes answer or refuse at once, and a
     /// scaled one (30 ms of 15 s) is shorter than a loaded machine takes to pass a reply on.
-    func timeout(_ value: Double) -> Duration { .milliseconds(Int(max(0, value * 1000))) }
+    func timeout(_ value: Double) -> Duration { Self.duration(value) }
 }
 
 /// What a Baichuan session reports to its host.
@@ -45,7 +50,9 @@ actor BaichuanSession {
     private var stream: (any ByteStream)?
     private var counter: UInt32 = 0
     private var aesKey: [UInt8]?
-    private var pending: [Key: CheckedContinuation<BaichuanMessage, any Error>] = [:]
+    /// The requests waiting for their reply, each with the order it was sent in.
+    private var pending: [Key: (order: UInt64, waiter: CheckedContinuation<BaichuanMessage, any Error>)] = [:]
+    private var sent: UInt64 = 0
     private var lastLogin: ContinuousClock.Instant?
     private var lastReceive = ContinuousClock.now
     private var eventsActive = false
@@ -57,6 +64,11 @@ actor BaichuanSession {
     private var stopped = false
     /// Whether the last connection attempt failed: an outage is logged once.
     private var failing = false
+    /// The login reply's `DeviceInfo` (5.3.2): the device's type and, on a camera with privacy mode, `sleep`.
+    private(set) var deviceInfo: BXElement?
+    /// Who waits for the first connection attempt to end (`waitUntilReady`).
+    private let readyWaiters = Waiters<Bool>()
+    private var attempted = false
 
     private struct Key: Hashable {
         var command: UInt32
@@ -98,6 +110,7 @@ actor BaichuanSession {
                 try await subscribe()
                 if failing { log.info("Baichuan push connection to the device is back.") }
                 failing = false
+                firstAttemptEnded(true)
                 attempt = 0
                 wasActive = await serve()
             } catch is CancellationError {
@@ -107,6 +120,7 @@ actor BaichuanSession {
                     log.warning("Baichuan push unavailable: \(error). Falling back to polling, retrying in the background.")
                 }
                 failing = true
+                firstAttemptEnded(false)
             }
             close()
             if eventsActive { continuation.yield(.active(false)) }
@@ -131,9 +145,24 @@ actor BaichuanSession {
         close()
     }
 
+    /// Waits for the session to be logged in and subscribed: true once it is, false when the first attempt failed or
+    /// `timeout` passed.
+    func waitUntilReady(timeout: Duration) async -> Bool {
+        if isConnected { return true }
+        if attempted || stopped { return false }
+        return await readyWaiters.wait(timeout: timeout, fallback: false)
+    }
+
+    /// The first attempt ended (or the session stopped): who waits for it hears how.
+    private func firstAttemptEnded(_ ok: Bool) {
+        attempted = true
+        readyWaiters.resumeAll(ok)
+    }
+
     /// Logs out (5.3.4) and closes; `run` ends.
     func stop() async {
         stopped = true
+        readyWaiters.resumeAll(false)
         if stream != nil, aesKey != nil {
             _ = try? await request(command: 2, channel: Baichuan.hostChannel, body: Baichuan.logoutBody, encryption: .aes, timeout: 2)
         }
@@ -146,7 +175,7 @@ actor BaichuanSession {
         self.stream = nil
         subscribed = false
         aesKey = nil
-        for (_, waiter) in pending { waiter.resume(throwing: BaichuanError.closed) }
+        for (_, request) in pending { request.waiter.resume(throwing: BaichuanError.closed) }
         pending = [:]
         keepaliveWait?.cancel()
         if let stream { Task { await stream.close() } }
@@ -187,7 +216,9 @@ actor BaichuanSession {
         let body = Baichuan.loginBody(username: username, password: password, nonce: nonce)
         log.trace("Baichuan login: \(body.utf8.count) bytes")
         do {
-            try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
+            let reply = try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
+            let xml = try? BaichuanDecoder.decrypt(reply.body, expected: reply.declaredEncryption ?? .xor, offset: reply.channel, key: nil)
+            deviceInfo = xml.flatMap { try? BXParser.parse($0) }?.first("DeviceInfo")
         } catch BaichuanError.status(401) {
             throw accountDevice ? BaichuanError.accountDevice : BaichuanError.unauthorized
         } catch BaichuanError.status where accountDevice {
@@ -280,16 +311,17 @@ actor BaichuanSession {
         }
         defer { timer.cancel() }
         return try await withCheckedThrowingContinuation { (waiter: CheckedContinuation<BaichuanMessage, any Error>) in
-            pending[key]?.resume(throwing: BaichuanError.closed)
-            pending[key] = waiter
+            pending[key]?.waiter.resume(throwing: BaichuanError.closed)
+            sent += 1
+            pending[key] = (sent, waiter)
             Task {
                 do { try await stream.send(bytes) } catch { self.fail(key, error) }
             }
         }
     }
 
-    private func expire(_ key: Key) { pending.removeValue(forKey: key)?.resume(throwing: BaichuanError.timeout) }
-    private func fail(_ key: Key, _ error: any Error) { pending.removeValue(forKey: key)?.resume(throwing: error) }
+    private func expire(_ key: Key) { pending.removeValue(forKey: key)?.waiter.resume(throwing: BaichuanError.timeout) }
+    private func fail(_ key: Key, _ error: any Error) { pending.removeValue(forKey: key)?.waiter.resume(throwing: error) }
 
     // MARK: Received
 
@@ -300,11 +332,11 @@ actor BaichuanSession {
             case .failure(let error):
                 log.debug("Baichuan: \(error)")
                 // An unparsed reply fails the oldest waiting request rather than leaving it to time out.
-                if error == .legacyReply, let key = pending.keys.first { fail(key, error) }
+                if error == .legacyReply, let key = pending.min(by: { $0.value.order < $1.value.order })?.key { fail(key, error) }
             case .success(let message):
                 let key = Key(command: message.command, messageID: message.messageID)
-                if let waiter = pending.removeValue(forKey: key) {
-                    waiter.resume(returning: message)
+                if let request = pending.removeValue(forKey: key) {
+                    request.waiter.resume(returning: message)
                 } else {
                     handlePush(message)
                 }
@@ -338,6 +370,58 @@ actor BaichuanSession {
     }
 
     // MARK: Commands
+
+    /// A channel command (the channel extension, `ch_id` channel + 1) and its reply's XML text; "" for an empty reply.
+    func channelRequest(command: UInt32, channel: Int, body: String? = nil) async throws -> String {
+        let reply = try await request(command: command, channel: UInt8(clamping: channel + 1), extension: Baichuan.channelExtension(channel), body: body, encryption: .aes)
+        return try replyText(reply)
+    }
+
+    /// A reply's XML: its body, or its extension when it has no body.
+    private func replyText(_ reply: BaichuanMessage) throws -> String {
+        let piece = reply.body.isEmpty ? reply.extensionBytes : reply.body
+        return try BaichuanDecoder.decrypt(piece, expected: reply.declaredEncryption ?? .aes, offset: reply.channel, key: aesKey)
+    }
+
+    /// The abilities of `cmd_id` 199 by channel (addendum A.2): each list's `item` elements, by `chnID`, with every
+    /// other child an ability and its integer text the version.
+    func abilities() async throws -> [Int: [String: Int]] {
+        let reply = try await request(command: 199, channel: Baichuan.hostChannel, body: nil, encryption: .aes)
+        let xml = try replyText(reply)
+        guard !xml.isEmpty, let root = try? BXParser.parse(xml) else { return [:] }
+        return BaichuanEvents.abilities(root)
+    }
+
+    /// The floodlight task (`cmd_id` 289) with `changes` made to its children, sent back whole (`cmd_id` 290).
+    func updateFloodlightTask(channel: Int, changes: [String: String]) async throws {
+        var xml = try await channelRequest(command: 289, channel: channel)
+        guard xml.contains("<FloodlightTask") else { throw BaichuanError.undecryptable }
+        for (name, value) in changes {
+            guard let changed = Baichuan.replacingText(of: name, with: value, in: xml) else { throw ReolinkError.unsupported(name) }
+            xml = changed
+        }
+        _ = try await channelRequest(command: 290, channel: channel, body: xml)
+    }
+
+    /// Privacy mode (addendum C, `cmd_id` 574): the reply's `sleep`; nil when it has none (the device has no privacy mode).
+    func privacy(channel: Int) async throws -> Bool? {
+        let xml = try await channelRequest(command: 574, channel: channel)
+        guard !xml.isEmpty, let sleep = (try? BXParser.parse(xml))?.first("sleep")?.text.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        return sleep == "1"
+    }
+
+    /// Turns privacy mode on or off (`cmd_id` 575), then reads it again.
+    func setPrivacy(channel: Int, on: Bool) async throws -> Bool? {
+        _ = try await channelRequest(command: 575, channel: channel, body: Baichuan.privacyBody(on))
+        return try await privacy(channel: channel)
+    }
+
+    /// Whether a patrol runs on the channel (`cmd_id` 64): any `cruising` element of the reply is 1.
+    func patrolRunning(channel: Int) async throws -> Bool {
+        let xml = try await channelRequest(command: 64, channel: channel)
+        guard !xml.isEmpty, let root = try? BXParser.parse(xml) else { return false }
+        return root.all("cruising").contains { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == "1" }
+    }
 
     /// The siren (5.4.3): `channel` nil is a hub's own.
     func siren(channel: Int?, mode: Baichuan.SirenMode) async throws {

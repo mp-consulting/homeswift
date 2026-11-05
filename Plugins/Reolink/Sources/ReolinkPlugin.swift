@@ -72,6 +72,7 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        certificates = context.persistedDictionary("certificates.json", of: String.self, autosave: nil)
     }
 
     // MARK: Ids (6.1)
@@ -94,7 +95,8 @@ public actor ReolinkPlugin: HomeswiftPlugin {
     /// not responding.
     var hostsFile: JSONFile<[String: String]> { context.jsonFile("hosts.json", as: [String: String].self) }
     /// Each host's pinned HTTPS certificate (fingerprints, not secrets).
-    private var certificates: JSONFile<[String: String]> { context.jsonFile("certificates.json", as: [String: String].self) }
+    /// Locked: hosts connect in parallel and each pins from its own TLS handshake.
+    private let certificates: PersistedDictionary<String>
 
     // MARK: The hosts
 
@@ -155,10 +157,9 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         let log = Logger(label: base.label, factory: { _ in ReolinkLogHandler(base: base, prefix: "[\(entry.host)] ") })
         let pins = certificates
         let hostKey = entry.host.lowercased()
-        let trust = HTTPClient.TrustOnFirstUse(pinned: trustingAgain ? nil : pins.load()?[hostKey]) { fingerprint in
-            var all = pins.load() ?? [:]
-            all[hostKey] = fingerprint
-            try? pins.save(all)
+        let trust = HTTPClient.TrustOnFirstUse(pinned: trustingAgain ? nil : pins[hostKey]) { fingerprint in
+            pins[hostKey] = fingerprint
+            try? pins.flush()
         }
         let http = ReolinkHTTPClient(host: entry.host, port: entry.port, useHttps: entry.useHttps, username: entry.username, password: entry.password,
                                      makeSender: dependencies.makeSender, trust: trust, log: log, timing: dependencies.timing, now: dependencies.now)
@@ -169,10 +170,17 @@ public actor ReolinkPlugin: HomeswiftPlugin {
     private func connect(_ address: String) async {
         guard let runtime = runtimes[address] else { return }
         var attempt = 0
+        var privacyLogged = false
         while !Task.isCancelled {
             do {
                 try await runtime.host.connect()
                 break
+            } catch ReolinkError.privacy {
+                // Not an outage: the camera turned its HTTP API off itself. No login is tried until a push says it ended
+                // (or a minute passed, to ask again over Baichuan), so the device never sees a run of refused logins.
+                if !privacyLogged { logger.info("[\(address)] Privacy mode is on: the camera is added when it ends.") }
+                privacyLogged = true
+                await runtime.host.waitForPrivacyOff(timeout: dependencies.timing.seconds(60))
             } catch {
                 if attempt == 0 {
                     logger.error("[\(address)] Cannot reach the Reolink device: \(error)")
@@ -218,20 +226,36 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             try? hostsFile.save(known)
         }
         let channels = await host.channels.values.sorted { $0.channel < $1.channel }
+        let deviceIDs = Dictionary(uniqueKeysWithValues: channels.map { ($0.channel, Self.deviceID(hostID: hostID, info: info, channel: $0)) })
+        let canWrite = await host.isAdmin
+        // A channel whose camera was swapped (its UID changed) is another device: the old one's accessory goes, and
+        // the new one gets its own Device Id rather than the old one's rooms and settings.
+        for channel in channels {
+            guard let camera = runtime.cameras[channel.channel], let deviceID = deviceIDs[channel.channel],
+                  camera.accessory.id != Self.accessoryID(deviceID: deviceID) else { continue }
+            await camera.stop()
+            runtime.cameras[channel.channel] = nil
+        }
         var published = Set(runtime.cameras.values.map(\.accessory.id))
         for channel in channels where runtime.cameras[channel.channel] == nil {
-            let deviceID = Self.deviceID(hostID: hostID, info: info, channel: channel)
-            guard !context.isExcluded(deviceID) else { continue }
+            guard let deviceID = deviceIDs[channel.channel], !context.isExcluded(deviceID) else { continue }
             let options = (runtime.device.cameras[String(channel.channel)] ?? .defaults).with(settings: context.accessorySettings(for: deviceID).plugin)
+            var started: ReolinkCamera?
             do {
-                let camera = try makeCamera(deviceID: deviceID, channel: channel, info: info, options: options, host: host, canWrite: await host.isAdmin)
+                let camera = try makeCamera(deviceID: deviceID, channel: channel, info: info, options: options, host: host, canWrite: canWrite)
+                started = camera
                 await camera.start()
                 camera.apply(channel.state)
                 try await context.publishExternal(camera.accessory)
                 runtime.cameras[channel.channel] = camera
                 published.insert(camera.accessory.id)
+                // In the background: the next channel is published without waiting for the device's settings.
+                let settings = options.deviceSettings, ch = channel.channel, name = camera.accessory.name
+                if !settings.isEmpty { tasks.add { await host.apply(settings, channel: ch, name: name) } }
                 if options.siren, !channel.siren { logger.info("[\(address)] \(camera.accessory.name): this camera has no siren.") }
             } catch {
+                // Its streamer and prebuffer were started: they would hold one of the camera's RTSP sessions.
+                await started?.stop()
                 logger.error("[\(address)] Could not publish channel \(channel.channel + 1): \(error)")
                 published.insert(Self.accessoryID(deviceID: deviceID))
             }
@@ -286,7 +310,8 @@ public actor ReolinkPlugin: HomeswiftPlugin {
                 guard let url = await host.streamURL(channel: ch, sub: sub), let info = await host.channelInfo(ch) else { return nil }
                 return (url, sub ? info.sub : info.main)
             },
-            asleep: { await host.channelInfo(ch).map { $0.battery && $0.state.asleep } ?? false })
+            // A sleeping battery camera, or one in privacy mode, keeps its last snapshot.
+            asleep: { await host.channelInfo(ch).map { ($0.battery && $0.state.asleep) || $0.state.privacy == true } ?? false })
         let name = options.name ?? channel.name
         let streamer = ReolinkStreamer(name: name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: logger,
                                        timing: dependencies.timing)
@@ -298,10 +323,21 @@ public actor ReolinkPlugin: HomeswiftPlugin {
         let writes = ReolinkCamera.Writes(
             floodlight: { on, brightness in try await host.setFloodlight(channel: ch, on: on, brightness: brightness) },
             siren: { on in try await host.setSiren(channel: ch, on: on) },
-            ir: { on in try await host.setIRLights(channel: ch, on: on) })
-        return try ReolinkCamera(
+            ir: { on in try await host.setIRLights(channel: ch, on: on) },
+            goToPreset: { id in try await host.ptzControl(channel: ch, op: "ToPos", id: id) },
+            privacy: { on in try await host.setPrivacy(channel: ch, on: on) },
+            floodlightColour: { mireds in try await host.setFloodlightColour(channel: ch, mireds: mireds) },
+            chime: { [tone = options.chimeTone] id in try await host.playChime(channel: ch, chime: id, tone: tone) },
+            recording: { on in try await host.setRecording(channel: ch, on: on) },
+            patrol: { on in try await host.setPatrol(channel: ch, on: on) })
+        let camera = try ReolinkCamera(
             id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite,
             streamer: streamer, recorder: recorder, writes: writes, log: logger, timing: dependencies.timing)
+        // A floodlight with Brightness and Color Temperature gets Adaptive Lighting, before the accessory is published.
+        if let floodlight = camera.services.floodlight {
+            camera.adaptiveLighting = context.adaptiveLighting(for: floodlight, accessoryID: camera.accessory.id)
+        }
+        return camera
     }
 
     // MARK: Tests

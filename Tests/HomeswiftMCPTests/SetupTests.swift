@@ -370,6 +370,8 @@ struct AddByAddressTests {
         let session = try #require(first["session"]?.stringValue)
         let nothing = try await setup.catalog.continueSetup(session, answers: ["host": "192.0.2.50"])
         #expect(nothing["error"] == "Nothing answered at 192.0.2.50" && nothing["session"]?.stringValue == session)
+        // Asked again, the field says what was answered, to correct it.
+        #expect(nothing["prompt"]?["fields"]?[0]?["value"] == "192.0.2.50")
         let password = try await setup.catalog.continueSetup(session, answers: ["host": "192.0.2.10"])
         #expect(password["prompt"]?["fields"]?[0]?["kind"] == "secret" && HomeswiftCatalog.needsThePage(password))
         let done = try await setup.catalog.continueSetup(session, answers: ["password": "charger-pass"])

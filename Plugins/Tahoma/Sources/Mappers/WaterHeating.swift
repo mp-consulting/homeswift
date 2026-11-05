@@ -80,7 +80,7 @@ class HotWaterProductionMapper: WaterHeaterMapper, @unchecked Sendable {
                 guard let self else { return }
                 let previous = thermostat[TahomaCharacteristics.targetShower]?.value ?? .null
                 try await execute([OverkizCommand("setExpectedNumberOfShower", .number(value.doubleValue ?? 0))]) { [weak self] update in
-                    if update.state == .failed || update.state == .timedOut { self?.thermostat[TahomaCharacteristics.targetShower]?.value = previous }
+                    if update.state.isFailure { self?.thermostat[TahomaCharacteristics.targetShower]?.value = previous }
                 }
             }
         }
@@ -226,7 +226,7 @@ final class VentilationMapper: Mapper, @unchecked Sendable {
             let auto = value.intValue == 1
             let mode = auto ? "auto" : (dimplex ? "max" : "boost")
             try await execute([OverkizCommand("setAirDemandMode", .string(mode))]) { [weak self] update in
-                guard let self, update.state == .failed || update.state == .timedOut else { return }
+                guard let self, update.state.isFailure else { return }
                 self.purifier.characteristic(.targetAirPurifierState).value = .int(auto ? 0 : 1)
             }
         }

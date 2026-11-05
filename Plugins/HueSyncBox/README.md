@@ -22,12 +22,15 @@ The Philips Hue Play HDMI Sync Box in HomeKit, over its local HTTPS API:
 The box's state is read every `updateIntervalInSeconds` (5 by default) in one request for every accessory. A write is
 sent at once (one at a time: the box takes few connections), then the state is read again so the switches and inputs
 that follow from it show. A drag of the brightness sends one request. When the box stops answering, the plugin says so
-once and tries again with back-off; after three failed reads its accessories show No Response.
+once and tries again with back-off; after three failed reads its accessories show No Response, those the cache kept
+from the last run included. A token the box refuses (its registration deleted in the Hue Sync app) shows on Add
+accessories as the account to pair again.
 
 ## Setup
 
 On **Add accessories**, pick Philips Hue Sync Box. The plugin looks for boxes on the network (Bonjour, `_huesync._tcp`)
-and offers them, or asks for the address. Then press and hold the button on the box until its light turns green: the
+and offers them, or asks for the address; a box the block names already is tried there first, and asked for again,
+the old address filled in, when it no longer answers. Then press and hold the button on the box until its light turns green: the
 Setup sheet asks the box for a token every second for a minute. The token goes in the vault; the block gets the address
 (`syncBoxIpAddress`), the box's unique ID (`syncBoxUniqueId`) and, for a new block, `uuidSeed` set to that ID.
 

@@ -2,7 +2,7 @@
 
 Tuya and Smart Life devices in HomeKit through the Tuya Cloud OpenAPI: lights, switches and plugs, dimmers, fans,
 air conditioners, heaters, thermostats, humidifiers and dehumidifiers, purifiers and diffusers, curtains and garage
-doors, locks and alarms, sensors, doorbells and cameras' events, IR remotes (and IR air conditioners) behind an IR
+doors, locks and alarms, sensors, doorbells, cameras (live video and snapshots), IR remotes (and IR air conditioners) behind an IR
 hub, and a Smart Home account's scenes.
 
 **Experimental**: written from a specification and tested against fakes of the cloud and its MQTT, not yet on real
@@ -27,6 +27,20 @@ devices. Maintainer: Mickael Palma.
   included), an IR air conditioner a heater-cooler with its dehumidifier and fan modes.
 - **Locks** open and close through Tuya's password-free door operation; HomeKit's lock state goes through the bridge's
   security rules (the MCP server and the Assistant ask first).
+- **Cameras** (`sp`) keep their doorbell, motion sensor and floodlight in the bridge, as before, so existing homes keep
+  their rooms, scenes and automations. Their video is an accessory of its own (`context.publishExternal`): add it in the
+  Home app as a camera, with the bridge's setup code. It has live video, snapshots, and a Motion Sensor and a Doorbell
+  that follow the bridged ones, so HomeKit's notifications carry a picture. Each stream asks the cloud for a fresh RTSP
+  URL (`POST /v1.0/devices/{id}/stream/actions/allocate`, `{"type":"rtsp"}`), read by FFmpeg over TCP with a 10 second
+  socket timeout (left out when FFmpeg's version is unknown, where the option's name differs); an answer that is not an
+  RTSP URL is not read. Snapshots are a frame of such a stream, kept 10 seconds and shared by the requests that come
+  meanwhile; a failed one answers the requests of the next 10 seconds without another cloud call. The cloud project needs the **IoT Video Live Stream** service authorized; when Tuya answers that it is not
+  subscribed or expired, no stream is asked for that camera for 5 minutes. An offline camera is refused without a cloud
+  call. The URL carries a credential: it is never logged, and FFmpeg's command lines and messages show it masked.
+  FFmpeg is the `ffmpeg` on the `PATH` (with `libfdk_aac` for audio, or AudioToolbox's AAC on macOS). Virtual devices
+  (ids starting `vdevo`) have no video. In the camera's Accessory Settings, **Video** (`video`, on by default) turns the
+  video accessory off, and **HomeKit Secure Video** (`recording`, off by default) records its motion and rings, each recording
+  opening a stream of its own.
 
 ## Configuration
 
@@ -89,11 +103,18 @@ Choices of Homeswift's own:
   write (it is not a secret-named key, so the runtime does not seal it in place).
 - **`projectType` may be a number** (`1` or `2`) as well as the strings.
 - **A lock without `lock_motor_state`** shows its state read-only: writing its target is refused.
+- **Cameras' video** (docs/clean-room/TuyaCamera.md): an allocation that fails answers HomeKit at once (the original
+  never answered); a stream ends after 30 seconds without HomeKit's reports at the least (the original's 2.5 seconds
+  stopped healthy streams); an offline camera's stream is refused (the original tried); the stream is scaled to the size
+  HomeKit asks; snapshots are coalesced (the original allocated a stream for every one); the URL is never logged (the
+  original logged FFmpeg's whole command line).
 
 ## Gaps
 
-- **Camera video.** A camera (`sp`) shows its doorbell, motion and floodlight, but not its video stream yet: the
-  stream would come from Tuya's RTSP allocation through FFmpeg.
+- **Cameras:** no two-way audio (the original has none either); HLS and the other stream types are not asked for; the
+  lifetime of an allocated URL is unknown, so a very long stream ends when the cloud closes it (HomeKit can start another);
+  a snapshot is the camera's full frame, not resized; HomeKit Secure Video starts each recording on a new cloud stream,
+  so its first seconds are those of the connection, with no prebuffer.
 - **`onGet`/`onSet`** beyond the documented subset (above).
 - **Custom projects** read the first 100 top-level assets, as the original does.
 
@@ -102,13 +123,15 @@ Choices of Homeswift's own:
 `swift test --filter "TuyaTests|TuyaProtocolTests"`: the specification's signing vectors (token grant, Smart Home
 login, a signed query, commands), its MQTT vectors (AES-ECB and AES-GCM, a changed byte or time refused), the device
 list and specification of its example lamp and power strip end to end on a host (values, coalesced writes, offline,
-push, Adaptive Lighting, scenes, overrides), the expression evaluator on the documented examples, the settings'
+push, Adaptive Lighting, scenes, overrides), a camera's video on fakes (the allocation's signature from the camera
+specification's vector, one allocation per stream start, coalesced snapshots, a refusal answered and backed off, an
+offline camera refused without a call, the URL never logged), the expression evaluator on the documented examples, the settings'
 canonical shape. Checked on a throwaway bridge without an account (it says it is not configured, and does not crash).
 
 ## Clean-room implementation
 
 Compatible with the configuration of [homebridge-tuya-platform](https://github.com/0x5e/homebridge-tuya-platform) by
-Tuya Inc. (MIT). Written from the functional specification in
-[docs/clean-room/Tuya.md](../../docs/clean-room/Tuya.md) and Tuya's public developer documentation
+Tuya Inc. (MIT). Written from the functional specifications in
+[docs/clean-room/Tuya.md](../../docs/clean-room/Tuya.md) and [docs/clean-room/TuyaCamera.md](../../docs/clean-room/TuyaCamera.md), and Tuya's public developer documentation
 (developer.tuya.com: API request and signing, the standard instruction sets, the Message Service, the IR control hub
 open service, password-free unlocking), without reading or copying its code.

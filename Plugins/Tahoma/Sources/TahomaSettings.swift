@@ -10,16 +10,30 @@ import HomeswiftPlugin
 // since they are for every device of that kind.
 extension TahomaPlugin {
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        let canonical = Self.canonical(block, devices: devices, scenarios: scenarios)
+        let canonical = Self.canonical(block, devices: devices, scenarios: listedScenarios)
         guard var fields = canonical.objectValue, fields["user"] != nil || fields["password"] != nil else { return canonical }
-        if context.credentials(as: TahomaAccount.self) == nil {
-            guard let account else { return canonical }
-            let context = context
-            await context.whenSettingsWritten { try context.saveCredentials(account) }
+        let kept = context.credentials(as: TahomaAccount.self)
+        // A user and password typed into the block are the account from now on; one it only names (sealed, a `vault:`
+        // reference) is the running configuration's, resolved.
+        if let moving = Self.typedAccount(fields, service: account?.service) ?? (kept == nil ? account : nil) {
+            if moving != kept {
+                let context = context
+                await context.whenSettingsWritten { try context.saveCredentials(moving) }
+            }
+        } else if kept == nil {
+            return canonical
         }
         fields.removeValue(forKey: "user")
         fields.removeValue(forKey: "password")
         return .object(fields)
+    }
+
+    /// The block's own `user` and `password`, when both are there as typed (neither sealed nor a reference).
+    static func typedAccount(_ fields: [String: JSONValue], service: String?) -> TahomaAccount? {
+        guard let user = fields["user"]?.stringValue?.trimmingCharacters(in: .whitespaces), !user.isEmpty,
+              let password = fields["password"]?.stringValue, !password.isEmpty, !SecretBox.isSealed(password), SecretReference(password) == nil
+        else { return nil }
+        return TahomaAccount(service: fields["service"]?.stringValue ?? service ?? OverkizService.somfyEurope.rawValue, user: user, password: password)
     }
 
     static func canonical(_ block: JSONValue, devices: [OverkizDevice], scenarios: [OverkizScenario]) -> JSONValue {

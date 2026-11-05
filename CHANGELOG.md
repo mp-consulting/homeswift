@@ -8,6 +8,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
+  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
+  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
+  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
+  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer
+  that starts again on its own when its livestream ends) and `HomeswiftNetwork` `ARPTable.entries()`.
+- Reolink: PTZ moves, zoom, presets, patrols and the home position as Assistant and MCP actions, with optional
+  "Go to <preset>" and Patrol switches; privacy mode as a Privacy switch kept in step with HomeKit's Camera Active (no
+  HTTP login while it is on); the floodlight's colour temperature with Adaptive Lighting, and its mode; a switch per
+  wireless Reolink Chime; a Recording switch for the device's own recording; motion and AI sensitivity. Privacy and
+  Recording are security controls, confirmed by MCP clients. A camera's settings sheet groups its settings (Sensors,
+  Lights and switches, Video, Connection).
+- The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
+  and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
+  motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
+  set up with a developer app's App Id and App Secret) lists the account's cameras and adds privacy mode, the siren, the
+  spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
+  within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
+  streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
 - Setup: Add by address, for a device a plugin cannot find. A plugin that sets `addsDevicesByAddress` gets
   **Add by address…** on its instance in the Add accessories page, and `start_setup` takes `addByAddress: true` (admin,
   like every Setup). Its Setup is `authorize` with `SetupRequest.Target.newDevice`: the plugin asks for the address and
@@ -48,6 +67,14 @@ All notable changes to this project are documented here. The format follows
   the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
   and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
   Setup with the e-mailed two-factor code, within Renault's hourly request quota.
+- Tuya: live video and snapshots for Tuya cameras (`sp`), each on an accessory of its own with a Motion Sensor and
+  Doorbell that follow the bridged ones (which stay where they are); an RTSP URL allocated from the cloud for each
+  stream, snapshots (and a failed one) coalesced for 10 seconds, a refused subscription backed off for 5 minutes, offline cameras refused
+  without a call, the URL never logged. The `video` Accessory Setting (on by default) turns it off, `recording` (off by
+  default) adds HomeKit Secure Video. `RTSPCameraOptions.socketTimeout` (FFmpeg's `-timeout`, `-stimeout` before
+  FFmpeg 5, left out for an unknown version, through `RTSPCameraFFmpeg.input`), `RTSPCameraFFmpeg.frame` (one JPEG of a stream),
+  `RTSPCameraStreamer.standardResolutions` and `minimumInactivity`, and every query value of an RTSP URL masked in FFmpeg's
+  logs.
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,
@@ -67,6 +94,7 @@ All notable changes to this project are documented here. The format follows
   vision's modes, restart and the SD card as actions for MCP and the Assistant; person detection, status light, siren and
   light on alarm, night vision and preset switches (Accessory Settings, off by default); privacy kept in step with
   HomeKit Camera Active; the extra switches' reads spread over polls to keep within the day's budget.
+
 ### Changed
 
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
@@ -80,6 +108,17 @@ All notable changes to this project are documented here. The format follows
   cloud's switches; a quick second change to privacy or night vision no longer shows the first one for a moment; an App
   Secret or safety code newly written in the block reaches the vault instead of being dropped; Setup checks the safety
   code of a camera whose serial request fails in any way; a firmware version such as `V2.1` reads 2.1.0.
+- Setup sheet: a step asked again after an error keeps the choices made too (Tahoma's service), as the server now
+  sends each field's answer back with the error, to MCP clients as well. A first step that fails reaches MCP clients as
+  untrusted data. Looking for devices again after a failure keeps the device's settings at the end. The Add a plugin
+  search ignores accents.
+- Philips Hue Sync Box: Setup asks for the address again, the old one filled in, when the block's box no longer
+  answers there, rather than failing; several boxes found and none chosen asks again. A refused token makes the
+  account Need Authorization; the cached accessories show No Response while the box is down at start; a block pointed
+  at another box no longer takes the previous box's ID.
+- Somfy TaHoma: Excluded scenarios stay on Add accessories, and `exclude` entries naming a scenario move to its
+  Accessory Settings. Setup pauses its sign-ins after three refusals in a row. A `user` and `password` typed into the
+  block are the ones sealed in the vault, not the running ones.
 - Synology: the bridge no longer warns at every start that other accounts can reach its secrets when the only entry
   in its shared folder's ACL is the package's own. DSM shows the package's user the mode `777` on a folder with an ACL;
   the bridge now reads the entries with `synoacltool -get` and names any that gives access to another account or group.

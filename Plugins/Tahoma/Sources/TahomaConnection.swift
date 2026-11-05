@@ -43,30 +43,23 @@ struct GatewayAnnouncement: Sendable, Equatable {
         return name.contains(pin)
     }
 
-    /// The gateways announced within `duration`, or until the one of `pin` is.
+    /// The gateways announced within `duration`, or until the one of `pin` is: the last announcement of each name.
     static func browse(for duration: Duration, pin: String?) async -> [GatewayAnnouncement] {
-        let found = await withTaskGroup(of: [String: GatewayAnnouncement]?.self) { group in
-            group.addTask {
-                var found: [String: GatewayAnnouncement] = [:]
-                // Ends when the task is cancelled (the window's end).
+        let announced = AsyncStream<GatewayAnnouncement> { continuation in
+            let task = Task {
                 for await event in BonjourBrowser.browse(type: "_kizboxdev._tcp") {
                     guard case .found(let service) = event else { continue }
-                    let address = service.addresses.first { !$0.contains(":") } ?? service.addresses.first
-                    let gateway = GatewayAnnouncement(name: service.name, pin: service.txt["gateway_pin"], address: address)
-                    found[service.name] = gateway
+                    var address = service.preferredAddress
+                    if address.hasSuffix(".") { address.removeLast() }
+                    let gateway = GatewayAnnouncement(name: service.name, pin: service.txt["gateway_pin"], address: address.isEmpty ? nil : address)
+                    continuation.yield(gateway)
                     if let pin, gateway.matches(pin) { break }
                 }
-                return found
+                continuation.finish()
             }
-            group.addTask {
-                try? await Task.sleep(for: duration)
-                return nil
-            }
-            var found = await group.next().flatMap { $0 } ?? [:]
-            group.cancelAll()
-            while let result = await group.next() { found.merge(result ?? [:]) { first, _ in first } }
-            return found
+            continuation.onTermination = { _ in task.cancel() }
         }
+        let found = Dictionary(await announced.collect(for: duration).map { ($0.name, $0) }, uniquingKeysWith: { _, last in last })
         return found.values.sorted { $0.name < $1.name }
     }
 }
@@ -144,7 +137,7 @@ extension TahomaPlugin {
     }
 
     /// A client for a gateway by IP address or PIN; a PIN is looked up on the network for 10 s, then `gateway-<PIN>.local`.
-    func localClient(user: String, token: String, refusesAccount: Bool) async throws -> OverkizClient {
+    func localClient(user: String, token: String, refusesAccount: Bool, lockout: SignInLockout? = nil) async throws -> OverkizClient {
         let host: String
         var pin: String?
         if Self.isIPv4(user) {
@@ -162,12 +155,13 @@ extension TahomaPlugin {
         } else {
             throw OverkizError(message: "Invalid username. Please provide gateway PIN (XXXX-XXXX-XXXX) or gateway IP")
         }
-        return makeClient(.local(host: host, pin: pin, token: token), http: dependencies.localHTTP(pin), refusesAccount: refusesAccount)
+        return makeClient(.local(host: host, pin: pin, token: token), http: dependencies.localHTTP(pin), refusesAccount: refusesAccount, lockout: lockout)
     }
 
     /// A client; `refusesAccount` for the instance's own account, whose refusals the bridge shows, whose refresh token
-    /// is kept in the vault and whose sign-in pause outlives the client. Setup's checks keep none of these.
-    func makeClient(_ endpoint: OverkizEndpoint, http: any HTTPSending, refusesAccount: Bool) -> OverkizClient {
+    /// is kept in the vault and whose sign-in pause outlives the client. Setup's checks keep none of these, and pause on
+    /// the `lockout` given (`setupLockout(service:user:)`).
+    func makeClient(_ endpoint: OverkizEndpoint, http: any HTTPSending, refusesAccount: Bool, lockout: SignInLockout? = nil) -> OverkizClient {
         let context = context
         var store: RefreshTokenStore?
         if refusesAccount, case .cloud(_, let user, _) = endpoint {
@@ -183,10 +177,10 @@ extension TahomaPlugin {
         }
         return OverkizClient(
             endpoint: endpoint, transport: .init(http: http, timeout: scaled(15)), proxy: configuration.proxy, logger: logger, tokenStore: store,
-            lockout: refusesAccount ? signInLockout : SignInLockout(),
+            lockout: lockout ?? (refusesAccount ? signInLockout : SignInLockout()),
             onAccount: { refusal in
             guard refusesAccount else { return }
-            if let refusal { context.accountRefused("The account refused to sign in: \(refusal.message)") } else { context.accountAccepted() }
+            if let refusal { context.accountRefused("The account refused to sign in: \(OverkizClient.redacted(refusal.message))") } else { context.accountAccepted() }
         })
     }
 }
