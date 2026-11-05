@@ -109,7 +109,12 @@ removed or broke it, so a meter that does not answer leaves the grid and home un
   (rewriting the ECU's Wi-Fi settings, which needs the home's Wi-Fi password) are left out; the local pages they used
   are gone on recent ECU-C firmware.
 - The day's power curve and the week, month and year energy queries, which could fill the Status page's history
-  before the bridge ran (`importEnergy`).
+  before the bridge ran (`importEnergy`): their requests are not specified well enough to send. The week, month and
+  year request's length field (`0039`) does not match its 33 bytes in the only source that sends it, another source
+  writes it without its second `END`, and no answer to it but one week's was seen; the day's request encodes its date as
+  ASCII digits in one source and BCD in another, and no answer of it was seen at all (spec 3.8 and 8). A request an ECU
+  takes the wrong way could leave it answering nothing until it is power-cycled, which these ECUs are known for, so the
+  plugin does not guess. A frame of each from a real ECU would settle it.
 - SunSpec over Modbus TCP, which ECU-R-Pro and ECU-C units also answer.
 
 ## Gaps
