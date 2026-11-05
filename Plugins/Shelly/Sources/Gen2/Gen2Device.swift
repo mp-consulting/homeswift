@@ -581,8 +581,8 @@ actor Gen2Device {
                 context.reportEnergyImport(EnergyImportProgress(state: .running, done: index, total: total))
                 switch await cloud.consumption(id: id, channel: job.channel, day: date, timeZone: .current) {
                 case .refused:
-                    context.accountRefused("Shelly Cloud refused the authorization key: copy it again from the Shelly app")
-                    context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the authorization key"))
+                    context.accountRefused("Shelly Cloud refused the email and password: sign in again")
+                    context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the email and password"))
                     return
                 case .nothing:
                     empty += 1

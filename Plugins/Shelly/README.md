@@ -34,10 +34,10 @@ Each family runs only when its block is there: a `ShellyNG` block alone does not
   are imported into its Meter by the hour as it connects: summed by the device (`EMData.GetNetEnergies`, net of what
   was sent back, months in seconds), else a day at a time from its CSV; then on from where the last import stopped.
   Every metered component (plugs and relays too) records the device's own watt-hours, with what it sent back. A plug
-  or relay keeps no records: with the optional Shelly Cloud account (Setup: the server and the authorization cloud key
-  from the Shelly app's User settings), the history the Shelly app shows is imported, a day a request, through the
-  endpoint its web view asks (`/v2/statistics/power-consumption`), which Shelly does not document and may change; the key
-  stays in the vault.
+  or relay keeps no records: with the optional Shelly Cloud account (Setup: the Shelly app's email and password, kept in
+  the vault), the history the Shelly app shows is imported, a day a request, as the app's web view gets it (its sign-in at
+  `api2.shelly.cloud`, then `/v2/statistics/power-consumption` on the account's server), which Shelly does not document
+  and may change.
   Models the original did not know (Plus Plug S, Gen3, Gen4…) are mapped from
   the components their status lists.
 
