@@ -80,6 +80,9 @@ All notable changes to this project are documented here. The format follows
   cloud's switches; a quick second change to privacy or night vision no longer shows the first one for a moment; an App
   Secret or safety code newly written in the block reaches the vault instead of being dropped; Setup checks the safety
   code of a camera whose serial request fails in any way; a firmware version such as `V2.1` reads 2.1.0.
+- Synology: the bridge no longer warns at every start that other accounts can reach its secrets when the only entry
+  in its shared folder's ACL is the package's own. DSM shows the package's user the mode `777` on a folder with an ACL;
+  the bridge now reads the entries with `synoacltool -get` and names any that gives access to another account or group.
 
 ## [0.20.1] - 2026-11-04
 
