@@ -42,9 +42,6 @@ struct ReolinkHostInfo: Sendable, Equatable {
     func reportedAbility(_ name: String, channel: Int) -> Int? {
         let list = channel < channelAbilities.count ? channelAbilities[channel] : channelAbilities.first
         return list?[name]
-    func ability(_ name: String, channel: Int) -> Int {
-        let list = channel < channelAbilities.count ? channelAbilities[channel] : channelAbilities.first
-        return list?[name] ?? 0
     }
 
     /// The channels to publish: those online (all of `channelNum` without a channel status), other brands on an NVR left out.

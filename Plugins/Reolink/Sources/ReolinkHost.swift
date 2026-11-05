@@ -81,8 +81,6 @@ actor ReolinkHost {
                 if on { throw ReolinkError.privacy }
             }
         }
-    /// Logs in and reads the host and its channels.
-    func connect() async throws {
         let commands = Self.hostCommands(username: device.username)
         let replies = try await http.execute(commands)
         var info = ReolinkHostInfo()
@@ -95,7 +93,6 @@ actor ReolinkHost {
         if let baichuan, await baichuan.isConnected, let abilities = try? await baichuan.abilities() { baichuanAbilities = abilities }
         channels = try await readWantedChannels()
         await readPrivacy()
-        channels = try await readWantedChannels()
         setOnline(true)
         log.info("Connected to \(info.model.isEmpty ? "the Reolink device" : info.model) (firmware \(info.firmware), \(channels.count) channel\(channels.count == 1 ? "" : "s")).")
     }
@@ -317,8 +314,6 @@ actor ReolinkHost {
             if let state = value["IrLights"]?["state"]?.stringValue { channel.state.irOn = state != "Off" }
         case "GetRecV20", "GetRec":
             if let on = ReolinkRecording.isOn(value, v20: reply.cmd == "GetRecV20", multiChannel: info.isMultiChannel) { channel.state.recordingOn = on }
-        case "GetIrLights":
-            if let state = value["IrLights"]?["state"]?.stringValue { channel.state.irOn = state != "Off" }
         case "GetBatteryInfo":
             let battery = value["Battery"]
             channel.state.batteryPercent = battery?["batteryPercent"]?.saturatingIntValue(in: 0...100) ?? channel.state.batteryPercent
@@ -351,15 +346,6 @@ actor ReolinkHost {
             await session.stop()
             baichuan = nil
             _ = startBaichuan(port: media)
-    func run() {
-        if device.pushEvents {
-            let session = BaichuanSession(host: device.host, port: device.baichuanPort ?? info.mediaPort ?? 9000, username: device.username,
-                                          password: device.password, connect: connectBaichuan, log: log, timing: timing)
-            baichuan = session
-            tasks.add { await session.run() }
-            tasks.add { [weak self] in
-                for await event in session.events { await self?.handle(event) }
-            }
         }
         let motionInterval = timing.seconds(Double(device.motionPollInterval))
         tasks.add { [weak self] in
@@ -418,14 +404,12 @@ actor ReolinkHost {
         switch push {
         case .alarm(let ch, _, _, _), .sleep(let ch, _), .floodlight(let ch, _), .siren(let ch, _): publish(ch)
         case .dayNight, .privacy: break
-        case .dayNight: break
         }
     }
 
     /// The motion batch of 5.5, only while push is not active.
     func pollMotionIfNeeded() async {
         guard !pushActive, !channels.isEmpty, !isPrivate else { return }
-        guard !pushActive, !channels.isEmpty else { return }
         await run(channels.values.sorted(by: { $0.channel < $1.channel }).flatMap(Self.eventCommands(for:)))
     }
 
@@ -452,7 +436,6 @@ actor ReolinkHost {
         guard !commands.isEmpty else { return }
         do {
             let replies = try await execute(commands)
-            let replies = try await http.execute(commands)
             if pollFailing { log.info("The device answers again.") }
             pollFailing = false
             setOnline(true)
@@ -636,12 +619,6 @@ actor ReolinkHost {
         for reply in replies.dropFirst(writes.count) { apply(reply, to: &state) }
         channels[ch] = state
         publish(ch)
-        // The light settles before it is read back.
-        let delay = timing.seconds(3)
-        tasks.add { [weak self] in
-            try? await Task.sleep(for: delay)
-            await self?.reread("GetWhiteLed", channel: channel)
-        }
     }
 
     func setIRLights(channel: Int, on: Bool) async throws {
@@ -739,8 +716,6 @@ actor ReolinkHost {
 
     private func write(_ command: ReolinkCommand) async throws {
         let replies = try await execute([command])
-    private func write(_ command: ReolinkCommand) async throws {
-        let replies = try await http.execute([command])
         guard let reply = replies.first, reply.writeOK else {
             let reply = replies.first
             if reply?.rspCode == -9 || reply?.rspCode == -26 { throw ReolinkError.unsupported(command.cmd) }
@@ -752,8 +727,6 @@ actor ReolinkHost {
 
     private func reread(_ command: ReolinkCommand) async {
         guard let channel = command.param?["channel"]?.saturatingIntValue, let reply = try? await execute([command]).first, var state = channels[channel] else { return }
-    private func reread(_ cmd: String, channel: Int) async {
-        guard let reply = try? await http.execute([.channel(cmd, channel)]).first, var state = channels[channel] else { return }
         apply(reply, to: &state)
         channels[channel] = state
         publish(channel)
@@ -772,9 +745,6 @@ actor ReolinkHost {
 
     func snapshot(channel: Int, sub: Bool) async throws -> Data {
         guard channels[channel]?.state.privacy != true else { throw ReolinkError.privacy }
-    // MARK: Snapshots and streams
-
-    func snapshot(channel: Int, sub: Bool) async throws -> Data {
         let stream = channels[channel]?.sub
         return try await http.snapshot(channel: channel, sub: sub, width: sub ? stream?.width : nil, height: sub ? stream?.height : nil)
     }
@@ -782,7 +752,6 @@ actor ReolinkHost {
     /// The URL FFmpeg reads a channel's stream from (4.6), by `streamProtocol` unless `protocol` says.
     func streamURL(channel: Int, sub: Bool, protocol name: String? = nil) async -> String? {
         guard let info = channels[channel], info.state.privacy != true else { return nil }
-        guard let info = channels[channel] else { return nil }
         let stream = sub ? info.sub : info.main
         switch name ?? device.streamProtocol {
         case "rtmp":

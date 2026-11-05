@@ -41,10 +41,6 @@ struct ReolinkReply: Sendable, Equatable {
         self.code = code
         self.value = value
         self.range = range
-    init(cmd: String, code: Int, value: JSONValue? = nil, rspCode: Int? = nil, detail: String? = nil) {
-        self.cmd = cmd
-        self.code = code
-        self.value = value
         self.rspCode = rspCode
         self.detail = detail
     }
@@ -82,7 +78,6 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
     case offline
     /// Privacy mode is on: the camera's HTTP API and streams are off until it ends (addendum C).
     case privacy
-    case offline
 
     var description: String {
         switch self {
@@ -97,7 +92,6 @@ enum ReolinkError: Error, CustomStringConvertible, Equatable {
         case .outOfRange(let reason): reason
         case .offline: "the channel is offline"
         case .privacy: "privacy mode is on: the camera's video and HTTP API are off until it ends"
-        case .offline: "the channel is offline"
         }
     }
 }

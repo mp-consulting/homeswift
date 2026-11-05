@@ -5,7 +5,6 @@ camera channel is an accessory of its own, added in the Home app with the bridge
 snapshots, HomeKit Secure Video, motion and AI detections (person, vehicle, pet, face, package), the doorbell button,
 the floodlight (with its colour temperature and Adaptive Lighting), the siren, the IR lights, privacy mode, the device's
 own recording and wireless chimes; PTZ cameras move, zoom and go to their presets from the Assistant and MCP clients. Events come by the devices' own push protocol (Baichuan, TCP 9000); the
-the floodlight, the siren and the IR lights. Events come by the devices' own push protocol (Baichuan, TCP 9000); the
 plugin polls them every 5 seconds only while push is not active.
 
 **Status: experimental.** Nobody has run it against a real Reolink device yet: it is tested against a fake device that
@@ -40,13 +39,6 @@ camera from seeing. **Privacy and Recording are security controls** (`securityCo
 camera's video and detections off, and recording off stops the device keeping footage, so either can blind a camera
 someone relies on; Camera Active, which drives privacy mode too, is marked the same way. MCP clients change them only through `set_security_accessory`, after the user confirms, and the web
 UI asks first. Every feature is gated by the device's abilities: a camera without one gets nothing new. Accessory Information: Manufacturer Reolink, the channel's model, the host's
-| Lightbulb (`floodlight`) | the camera has a floodlight or spotlight | On, Brightness 1 to 100 |
-| Switch (`siren`) | `siren: true` and the camera has one | A manual siren; the switch turns itself off after a minute |
-| Switch (`ir`, "Infrared") | `irLights: true` and the camera has IR lights | On is `Auto`, off is `Off` |
-| Battery (`battery`) | a battery camera behind a hub or NVR | Level, Charging, Low below 20 % |
-
-A detection stays on at least two seconds after the device clears it, so short events reach HomeKit and HKSV. The siren
-is a plain switch, not a security control. Accessory Information: Manufacturer Reolink, the channel's model, the host's
 serial (an NVR channel's UID), the firmware as digits and dots (`v3.1.0.2368_23062508` is `3.1.0.2368`).
 
 **Identity.** A camera on its own is `Reolink:<host id>`, the host id being its P2P UID, else its MAC. A channel of an
@@ -153,8 +145,6 @@ that channel's `cameras` options. Then add the new accessory in the Home app and
 - **Cost:** the new reads join the existing batches (PTZ presets, patrols, guard and zoom range, chimes and the recording
   state at start-up; the recording state in the full refresh) or come from push; writes are coalesced (a slider, a drag of
   the colour, quick flips of a switch send the last), and one HTTP request is in flight per host, as before.
-  per outage; motion, AI, visitor, floodlight, siren and sleep pushes. The siren goes through Baichuan when its session
-  is up, HTTP's `AudioAlarmPlay` otherwise.
 - **Battery cameras behind a hub or NVR**: only commands that do not wake them (no `GetEnc`, `GetWhiteLed`,
   `GetAudioAlarm`), so their floodlight and stream codec are not read; their snapshots and streams wake them.
 - An unreachable host leaves its cameras showing No Response and is retried with backoff; a channel that goes offline
@@ -204,7 +194,6 @@ Choices made where the spec is silent or leaves it open:
   Homeswift (the Reolink app does it). The privacy mask (black zones) and IR brightness are not exposed.
 - Schedules (floodlight, recording) stay in the Reolink app; the master recording switch of a camera on its own is turned
   on with its schedule, never off.
-- PTZ, chimes, two-way audio, privacy mode, colour temperature and schedules are not exposed (spec 1).
 
 ## Tests
 
@@ -223,7 +212,6 @@ push, presets, `ptzType` 2 and 7, `ToPos`, `StartPatrol`, a zoom of 34 refused, 
 for 30, ColorTemp 40 as 4800 K and 4500 K as 50; privacy and Camera Active both ways, no login while private and no outage
 when a refresh fails in privacy mode; Adaptive Lighting turned off by a colour set elsewhere and not by its echo; every
 feature absent without its ability; writes coalesced, no extra request per poll cycle and never two requests at once.
-over Baichuan, an unreachable device, No Response while offline, cached snapshots, Setup and the canonical settings.
 
 ## Clean-room implementation
 

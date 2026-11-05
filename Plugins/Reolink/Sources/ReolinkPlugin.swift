@@ -298,7 +298,6 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             },
             // A sleeping battery camera, or one in privacy mode, keeps its last snapshot.
             asleep: { await host.channelInfo(ch).map { ($0.battery && $0.state.asleep) || $0.state.privacy == true } ?? false })
-            asleep: { await host.channelInfo(ch).map { $0.battery && $0.state.asleep } ?? false })
         let name = options.name ?? channel.name
         let streamer = ReolinkStreamer(name: name, options: options, ffmpeg: ffmpeg, ports: dependencies.ports, source: source, log: logger,
                                        timing: dependencies.timing)
@@ -325,10 +324,6 @@ public actor ReolinkPlugin: HomeswiftPlugin {
             camera.adaptiveLighting = context.adaptiveLighting(for: floodlight, accessoryID: camera.accessory.id)
         }
         return camera
-            ir: { on in try await host.setIRLights(channel: ch, on: on) })
-        return try ReolinkCamera(
-            id: Self.accessoryID(deviceID: deviceID), channel: channel, host: info, options: options, canWrite: canWrite,
-            streamer: streamer, recorder: recorder, writes: writes, log: logger, timing: dependencies.timing)
     }
 
     // MARK: Tests

@@ -156,9 +156,6 @@ actor BaichuanSession {
     func stop() async {
         stopped = true
         readyWaiters.resumeAll(false)
-    /// Logs out (5.3.4) and closes; `run` ends.
-    func stop() async {
-        stopped = true
         if stream != nil, aesKey != nil {
             _ = try? await request(command: 2, channel: Baichuan.hostChannel, body: Baichuan.logoutBody, encryption: .aes, timeout: 2)
         }
@@ -215,7 +212,6 @@ actor BaichuanSession {
             let reply = try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
             let xml = try? BaichuanDecoder.decrypt(reply.body, expected: reply.declaredEncryption ?? .xor, offset: reply.channel, key: nil)
             deviceInfo = xml.flatMap { try? BXParser.parse($0) }?.first("DeviceInfo")
-            try await request(command: 1, channel: Baichuan.hostChannel, body: body, encryption: .xor)
         } catch BaichuanError.status(401) {
             throw accountDevice ? BaichuanError.accountDevice : BaichuanError.unauthorized
         } catch BaichuanError.status where accountDevice {
