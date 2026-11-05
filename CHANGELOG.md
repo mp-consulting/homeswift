@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Installing an update from the Status page asks GitHub for the release again first: a NAS that saw a release minutes
+  after it was published, before its packages were attached, failed with "the release has no package for x86_64" until
+  its next check, 12 hours later.
+
 ## [0.22.0] - 2026-11-05
 
 ### Added

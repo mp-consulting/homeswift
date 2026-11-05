@@ -193,7 +193,12 @@ public final class ReleaseWatcher: Sendable {
         options.logger.warning("Installing Homeswift \(version) (this is \(current))")
         Task { [self] in
             do {
-                try await installer.install(release: release) { [state] progress in state.withLockedValue { $0.progress = progress } }
+                // The release as GitHub has it now: one seen minutes after it was published may not have had its packages
+                // yet (the Synology and Docker builds attach them later). The same version only; a failed check keeps
+                // the release as it was.
+                await check()
+                let fresh = state.withLockedValue { $0.latest }.flatMap { $0.version == version ? $0 : nil } ?? release
+                try await installer.install(release: fresh) { [state] progress in state.withLockedValue { $0.progress = progress } }
                 let found = await installer.installedVersion()
                 guard let found, Self.isNewer(found, than: current) else {
                     throw UpdateError(message: "the installer finished, but Homeswift \(found ?? current) is still the one installed; Homebrew's tap may not have \(version) yet (it catches up within 6 hours)")
