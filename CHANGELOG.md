@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows
   protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
   energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
   Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
+### Changed
+
+- A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
+  shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
 ## [0.20.1] - 2026-11-04
 
