@@ -63,6 +63,8 @@ struct MagicHomeTests {
         // window that gathers them into one frame is wider here than the suite's 20 ms.
         var timing = TestEnvironment.timing
         timing.coalesce = .milliseconds(250)
+        // The kept connection outlives that window, or it closes while the writes gather and a poll opens another.
+        timing.connection.idle = .seconds(5)
         let host = try await environment.start(timing: timing)
         #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
         let light = try #require(host.accessory(Fixtures.stripMAC)?.service(.lightbulb))
