@@ -1814,15 +1814,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return card;
   }
 
-  /// The full-screen graph's chrome: the button that opens a panel with the search, the filters and Leave full screen;
+  /// The full-screen graph's chrome: Leave full screen, and the button that opens a panel with the search and the filters;
   /// Escape (or the browser's own) leaves; a touch, the mouse or a key wakes the chrome, which fades a few seconds later.
   function graphFullScreenChrome(frame, search, filters, clear) {
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Graph options"), "aria-haspopup": "dialog",
       title: t("Graph options"), onclick: () => app().openSheet((done) => el("div", { class: "wall-full-panel" },
         el("h2", { id: "graph-full-panel-title", text: t("Graph") }),
         search, el("div", { class: "actions graph-full-filters" }, filters, clear),
+        // Leaving is the button beside this panel's.
         el("div", { class: "actions" },
-          el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setGraphFullScreen(false); } }),
           el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
       "graph-full-panel-title", { returnFocus: optionsButton }) }, HomeswiftCommon.icon("sliders"));
     let sleepTimer = null;

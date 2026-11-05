@@ -2694,8 +2694,8 @@
       wake();
       chrome.go = go;
     }
-    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping, the
-    // filters and Leave full screen, opened by the one button left on the wall.
+    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping and
+    // the filters, opened by the options button; Leave full screen is the button beside it.
     const openToolbar = () => openSheet((done) => el("div", { class: "wall-full-panel" },
       el("h2", { id: "wall-full-panel-title", text: t("Accessories") }),
       search,
@@ -2703,8 +2703,8 @@
         el("button", { type: "button", actionIcon: icon, class: layout.grouping === value ? "primary" : "", "aria-pressed": String(layout.grouping === value), text: label,
           onclick: () => { page = 0; setGrouping(value); done(); } }))),
       filters,
+      // Leaving is the button beside this panel's.
       el("div", { class: "actions" },
-        el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setFullScreen(false); } }),
         el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
     "wall-full-panel-title", { returnFocus: optionsButton });
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Accessory options"), "aria-haspopup": "dialog",
