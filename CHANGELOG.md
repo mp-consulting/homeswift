@@ -68,6 +68,20 @@ All notable changes to this project are documented here. The format follows
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
   shrinking: a hard blink read as a fault, and constant motion on a wall pulled the eye.
 
+### Fixed
+
+- Setup sheet: a step asked again after an error keeps the choices made too (Tahoma's service), as the server now
+  sends each field's answer back with the error, to MCP clients as well. A first step that fails reaches MCP clients as
+  untrusted data. Looking for devices again after a failure keeps the device's settings at the end. The Add a plugin
+  search ignores accents.
+- Philips Hue Sync Box: Setup asks for the address again, the old one filled in, when the block's box no longer
+  answers there, rather than failing; several boxes found and none chosen asks again. A refused token makes the
+  account Need Authorization; the cached accessories show No Response while the box is down at start; a block pointed
+  at another box no longer takes the previous box's ID.
+- Somfy TaHoma: Excluded scenarios stay on Add accessories, and `exclude` entries naming a scenario move to its
+  Accessory Settings. Setup pauses its sign-ins after three refusals in a row. A `user` and `password` typed into the
+  block are the ones sealed in the vault, not the running ones.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
