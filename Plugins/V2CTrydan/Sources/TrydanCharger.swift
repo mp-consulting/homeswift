@@ -318,10 +318,12 @@ actor TrydanCharger {
             // HomeKit sends On with a Brightness in one request, in no set order: a brightness wins.
             let asked = ContinuousClock.now
             try? await Task.sleep(for: timing.coalescing)
-            if let lastBrightnessWrite, lastBrightnessWrite >= asked - timing.coalescing { return }
+            // A brightness of the same request may have started before this On, or finished just before it ran.
+            if let lastBrightnessWrite, lastBrightnessWrite >= asked - timing.coalescing * 2 { return }
             try await set("LightLED", lastLightLevel)
         case .lightLEDBrightness(let level):
             lastBrightnessWrite = .now
+            defer { lastBrightnessWrite = .now }
             guard await coalesce("lightLED") else { return }
             try await set("LightLED", min(max(level, 0), 100))
         case .logoLED(let on):
