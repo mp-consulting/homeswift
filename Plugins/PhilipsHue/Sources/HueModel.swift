@@ -109,8 +109,8 @@ struct HueSensorDevice: Sendable, Equatable {
     /// A button, by its `control_id` (1 to 4 on a dimmer switch), and its last report: an event and when it came.
     struct Button: Sendable, Equatable { var id: String; var controlID: Int; var event: String?; var updated: String? }
     /// A Tap dial's ring (`relative_rotary`) and its last report: `start` when a turn begins, `repeat` while it goes on,
-    /// its direction and steps, and when it came.
-    struct Rotary: Sendable, Equatable { var id: String; var action: String?; var clockwise: Bool?; var steps: Int?; var updated: String? }
+    /// its direction, and when it came.
+    struct Rotary: Sendable, Equatable { var id: String; var action: String?; var clockwise: Bool?; var updated: String? }
 
     var id: String
     var name: String
@@ -218,7 +218,6 @@ struct HueSensorDevice: Sendable, Equatable {
             var rotary = self.rotary ?? Rotary(id: rid)
             if let action = report?["action"]?.stringValue { rotary.action = action }
             if let direction = report?["rotation"]?["direction"]?.stringValue { rotary.clockwise = direction == "clock_wise" }
-            if let steps = report?["rotation"]?["steps"]?.intValue { rotary.steps = steps }
             // `last_event` has no time: a report of that shape leaves none.
             if report != nil { rotary.updated = report?["updated"]?.stringValue }
             self.rotary = rotary

@@ -87,16 +87,12 @@ extension PhilipsHuePlugin {
         let event: Int?
         switch rotary.action {
         case "start":
-            rotaryTurns[rotary.id] = (clockwise, false)
+            longTurns[rotary.id] = nil
             event = HAPConstants.ProgrammableSwitchEvent.singlePress
         case "repeat":
             // The first repeat of a turn (or of a turn the start of which was missed, or that changed direction) is a long one.
-            if let turn = rotaryTurns[rotary.id], turn.clockwise == clockwise, turn.long {
-                event = nil
-            } else {
-                event = HAPConstants.ProgrammableSwitchEvent.longPress
-            }
-            rotaryTurns[rotary.id] = (clockwise, true)
+            event = longTurns[rotary.id] == clockwise ? nil : HAPConstants.ProgrammableSwitchEvent.longPress
+            longTurns[rotary.id] = clockwise
         default:
             event = nil
         }

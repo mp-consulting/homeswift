@@ -117,8 +117,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     var sensorAccessories: [String: SensorServices] = [:]
     /// Each button's last report (its `updated` time), so a press fires once, from the event stream or a read.
     var buttonReports: [String: String] = [:]
-    /// Each Tap dial ring's turn going on: its direction, and whether its long press fired.
-    var rotaryTurns: [String: (clockwise: Bool, long: Bool)] = [:]
+    /// Each Tap dial ring's turn whose long press fired, by its direction (true clockwise): until the next turn starts.
+    var longTurns: [String: Bool] = [:]
     /// Each motion sensor's motion last put in its Eve history, by device id: a read that finds it unchanged adds nothing.
     var recordedMotion: [String: Bool] = [:]
     /// Each sensor's temperature and light level last put in its Eve history, by device id.
