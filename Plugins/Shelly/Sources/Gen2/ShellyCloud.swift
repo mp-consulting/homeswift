@@ -159,7 +159,7 @@ actor ShellyCloud {
                 // Several days asked: hourly figures only, else a day at a time (the cloud may sum a long span by day).
                 let body = json["history"] != nil ? json : (json["data"] ?? .null)
                 let interval = (body["interval"] ?? body["history_interval"])?.stringValue
-                Self.tell(logger, "Shelly Cloud gives \(days) day\(days == 1 ? "" : "s") of history by \(interval ?? "an unnamed step") (\(hours.count) entries)")
+                if days > 1 { logger.debug("Shelly Cloud gave \(days) days of history by \(interval ?? "an unnamed step") (\(hours.count) entries)", metadata: ["endpoint": "\(endpoint.isEmpty ? "relay" : endpoint)"]) }
                 if days > 1, interval.map({ $0 != "hour" }) ?? (hours.count <= days) { return .notHourly }
                 return answer
             }
@@ -171,15 +171,6 @@ actor ShellyCloud {
             return answer
         }
         return .nothing
-    }
-
-    /// Whether the step of the history's answers was said in the log, this run: once.
-    private static let told = NIOLockedValueBox(false)
-
-    /// Says something about the answers once a run.
-    static func tell(_ logger: Logger, _ text: String) {
-        guard told.withLockedValue({ told in defer { told = true }; return !told }) else { return }
-        logger.info("\(text)")
     }
 
     /// How many answers with nothing in them were described in the log, this run: the first few, not a year's.

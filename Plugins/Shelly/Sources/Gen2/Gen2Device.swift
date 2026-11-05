@@ -570,7 +570,7 @@ actor Gen2Device {
 
     /// How far back a first import from the cloud looks; it stops sooner after `cloudEmptyDays` days in a row with nothing.
     static let cloudDays = 3660, cloudEmptyDays = 45
-    /// The days asked of the cloud at a time, when it answers them by hour.
+    /// The days first asked of the cloud at a time; halved while it answers them by day (it gives three days by hour).
     static let cloudSpan = 7
 
     /// Imports the relays' and the energy meters' history from Shelly Cloud (`ShellyCloud`: unofficial), once (an energy
@@ -599,7 +599,7 @@ actor Gen2Device {
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = .current
             let total = max(1, Int(start.timeIntervalSince(stop) / day) + 1)
-            // A week a request, the newest first; a day at a time when the cloud sums a week by day.
+            // A week a request, the newest first; shorter spans when the cloud sums a week by day, down to a day.
             var span = Self.cloudSpan, done = 0, empty = 0, newest: Date?
             var last = calendar.startOfDay(for: start)
             while last >= calendar.startOfDay(for: stop) {
@@ -614,7 +614,8 @@ actor Gen2Device {
                     context.reportEnergyImport(EnergyImportProgress(state: .failed, message: "Shelly Cloud refused the email and password"))
                     return
                 case .notHourly:
-                    span = 1
+                    // The cloud sums so long a span by day: half as long (7, 3, then 1 day), kept for the rest.
+                    span = max(1, span / 2)
                     continue
                 case .nothing:
                     empty += days
