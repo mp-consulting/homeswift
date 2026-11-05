@@ -90,6 +90,11 @@ public final class RTSPCameraFFmpeg: Sendable {
         probe = Task { codecs }
     }
 
+    /// The encoders and decoders FFmpeg has; nil when the probe failed.
+    var codecs: FfmpegCodecs? {
+        get async { await probe.value }
+    }
+
     /// HomeKit's AAC-ELD for live streams: libfdk_aac, else AudioToolbox's on macOS; nil when FFmpeg has neither, and the
     /// stream goes without audio.
     public func liveAudioEncoder() async -> [String]? {
@@ -271,6 +276,10 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
     private let log: Logger
     private let timeScale: Double
     private let minimumInactivity: Duration
+    private let returnAudio: ReturnAudioOptions?
+    private let returnAudioDecoder: ReturnAudioDecoderFactory?
+    /// HomeKit's Speaker, for return audio.
+    private var speaker = (muted: false, volume: 100)
     private weak var controller: CameraController?
 
     private struct Prepared {
@@ -289,6 +298,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
         var watcher: Task<Void, Never>?
         var ports: [Int]
         var started = false
+        var receiver: ReturnAudioReceiver?
     }
 
     private var prepared: [String: Prepared] = [:]
@@ -300,9 +310,15 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
     /// `snapshot` answers HomeKit's snapshots (the plugin decides where they come from); `timeScale` shortens the inactivity
     /// timeout in tests; `minimumInactivity` is the shortest silence that ends a stream, whatever RTCP interval HomeKit asked
     /// (a stream whose source costs a cloud call should not end on one lost burst of reports).
+    ///
+    /// `returnAudio` receives HomeKit's return audio while someone talks (docs/clean-room/ReturnAudio.md): give it only for a
+    /// camera with a speaker, and publish that camera with `twoWayAudio: true`, which is what gives it the Speaker service.
+    /// `returnAudioDecoder` replaces FFmpeg's decoding in tests.
     public init(name: String, options: RTSPCameraOptions, ffmpeg: RTSPCameraFFmpeg, ports: RtpPortAllocator, open: @escaping RTSPSourceOpener,
                 snapshot: @escaping @Sendable (SnapshotRequest) async throws -> Data, log: Logger, timeScale: Double = 1,
-                minimumInactivity: Duration = .zero) {
+                minimumInactivity: Duration = .zero, returnAudio: ReturnAudioOptions? = nil, returnAudioDecoder: ReturnAudioDecoderFactory? = nil) {
+        self.returnAudio = returnAudio
+        self.returnAudioDecoder = returnAudioDecoder
         self.name = name
         self.options = options
         self.ffmpeg = ffmpeg
@@ -314,7 +330,22 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
         self.minimumInactivity = minimumInactivity
     }
 
-    public func attach(_ controller: CameraController) { self.controller = controller }
+    public func attach(_ controller: CameraController) {
+        self.controller = controller
+        guard returnAudio != nil, let service = controller.speakerService else { return }
+        speaker = (service.characteristic(.mute).value.boolValue ?? false, service.characteristic(.volume).value.intValue ?? 100)
+        controller.onSpeakerChange { [weak self] muted, volume in
+            Task { await self?.speakerChanged(muted: muted, volume: volume) }
+        }
+    }
+
+    private func speakerChanged(muted: Bool, volume: Int) async {
+        speaker = (muted, volume)
+        for session in sessions.values { await session.receiver?.speakerChanged(muted: muted, volume: volume) }
+    }
+
+    /// The return audio of a stream, for tests.
+    public func returnAudioReceiver(_ sessionID: String) -> ReturnAudioReceiver? { sessions[sessionID]?.receiver }
 
     /// The live streams running, for tests.
     public var sessionCount: Int { sessions.count }
@@ -406,6 +437,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
             let interval = Double(video.rtcpInterval > 0 ? video.rtcpInterval : 0.5)
             let timeout = max(Duration.milliseconds(Int(interval * 2000)), minimumInactivity) * timeScale
             sessions[sessionID]?.watcher = watch(socket, timeout: timeout, sessionID: sessionID, token: token)
+            if let returnAudio { await startReturnAudio(returnAudio, request: request, entry: entry, token: token) }
             try await process.waitForStart()
         } catch {
             log.error("\(name): failed to start the stream: \(error)")
@@ -415,6 +447,21 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
         }
         sessions[sessionID]?.started = true
         await source.started()
+    }
+
+    /// The receiver of a stream's return audio, on its audio return port; a bind failure leaves the video alone.
+    private func startReturnAudio(_ returnAudio: ReturnAudioOptions, request: StartStreamRequest, entry: Prepared, token: Int) async {
+        let sessionID = request.sessionID
+        let receiver = ReturnAudioReceiver(
+            stream: .init(sessionID: sessionID, returnPort: entry.audioReturnPort, ipFamily: entry.isIPv6 ? .ipv6 : .ipv4,
+                          controllerAddress: entry.target.address, srtp: entry.target.audioSRTP, payloadType: request.audio.pt),
+            ports: ports, ffmpeg: ffmpeg, options: returnAudio, name: name, log: log, debug: options.debug, muted: speaker.muted,
+            volume: speaker.volume, timeScale: timeScale, decoder: returnAudioDecoder)
+        guard sessions[sessionID]?.token == token else { return }
+        sessions[sessionID]?.receiver = receiver
+        await receiver.start()
+        // A stop while it bound has closed the session without it.
+        if sessions[sessionID]?.token != token { await receiver.close() }
     }
 
     /// HomeKit's RTCP on the video return port: once it has come, a silence of `timeout` ends the stream.
@@ -472,6 +519,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
         guard let session = sessions[sessionID], token == nil || session.token == token else { return }
         sessions.removeValue(forKey: sessionID)
         session.watcher?.cancel()
+        await session.receiver?.close()
         await session.socket?.close()
         session.process.stop()
         for port in session.ports { ports.cancel(port) }
