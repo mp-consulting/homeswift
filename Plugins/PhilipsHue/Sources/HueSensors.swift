@@ -74,9 +74,15 @@ extension PhilipsHuePlugin {
 
     /// Fires the ring's switch for a report newer than the last one seen (as `noteButton`): Single Press when a turn
     /// starts, Long Press once when it goes on past its first report (a longer turn), on the switch of its direction.
-    func noteRotary(_ rotary: HueSensorDevice.Rotary, on services: SensorServices) {
-        guard let updated = rotary.updated, let last = buttonReports[rotary.id], updated > last else { return }
-        buttonReports[rotary.id] = updated
+    /// A bridge that sends only the older `last_event` has no time on its reports: there, an event from the stream fires
+    /// (each comes once) and a read fires nothing.
+    func noteRotary(_ rotary: HueSensorDevice.Rotary, on services: SensorServices, fromEvent: Bool = false) {
+        if let updated = rotary.updated {
+            guard let last = buttonReports[rotary.id], updated > last else { return }
+            buttonReports[rotary.id] = updated
+        } else if !fromEvent {
+            return
+        }
         guard let clockwise = rotary.clockwise, let service = clockwise ? services.clockwise : services.anticlockwise else { return }
         let event: Int?
         switch rotary.action {
@@ -99,10 +105,15 @@ extension PhilipsHuePlugin {
 
     /// The sensor's readings into its Eve history: the temperature and light level averaged over its ten minutes, as
     /// fakegato's are, and the motion when it changes, with the motion sensor's Last Activation when it starts.
+    /// A reading goes in when it changes, not at every event or poll of the device (its battery's, its motion's), so the
+    /// average is not weighted by how often the device speaks; the history repeats the last average itself. A sensor
+    /// that cannot be reached adds nothing.
     func record(_ sensor: HueSensorDevice, on services: SensorServices) {
-        guard let history = services.history else { return }
-        if sensor.temperature != nil || sensor.lightLevel != nil {
-            history.add(EveHistory.Entry(temp: sensor.temperature.map { ($0.celsius * 10).rounded() / 10 }, lux: sensor.lightLevel?.lux))
+        guard let history = services.history, sensor.reachable else { return }
+        let reading = RecordedReading(temperature: sensor.temperature.map { ($0.celsius * 10).rounded() / 10 }, lux: sensor.lightLevel?.lux)
+        if reading.temperature != nil || reading.lux != nil, recordedReadings[sensor.id] != reading {
+            recordedReadings[sensor.id] = reading
+            history.add(EveHistory.Entry(temp: reading.temperature, lux: reading.lux))
         }
         guard let detected = sensor.motion?.detected, recordedMotion[sensor.id] != detected else { return }
         recordedMotion[sensor.id] = detected
@@ -307,7 +318,7 @@ extension PhilipsHuePlugin {
             if resource["type"]?.stringValue == "button", let button = sensor.buttons.first(where: { $0.id == rid }) {
                 noteButton(button, on: services)
             } else if resource["type"]?.stringValue == "relative_rotary", let rotary = sensor.rotary, rotary.id == rid {
-                noteRotary(rotary, on: services)
+                noteRotary(rotary, on: services, fromEvent: true)
             } else {
                 Self.showValues(sensor, on: services)
                 record(sensor, on: services)

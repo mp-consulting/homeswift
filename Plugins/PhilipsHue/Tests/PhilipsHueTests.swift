@@ -1003,6 +1003,10 @@ struct HueSensorTests {
         // The read sees the bridge's resources, whose report is older: nothing fires.
         await environment.plugin?.refresh()
         #expect(presses.withLockedValue { $0 } == ["cw 0", "cw 2", "ccw 0"])
+        // An older bridge's `last_event`, which has no time: the stream's event fires, a read of it does not.
+        environment.bridge.emit([["type": "update", "id": "e", "data": [["id": "dial-ring", "type": "relative_rotary", "owner": ["rid": "dev-6", "rtype": "device"],
+                                                                     "relative_rotary": ["last_event": ["action": "start", "rotation": ["direction": "clock_wise", "steps": 15, "duration": 400]]]]]]])
+        #expect(await eventually { presses.withLockedValue { $0 } == ["cw 0", "cw 2", "ccw 0", "cw 0"] })
         await host.stop()
     }
 

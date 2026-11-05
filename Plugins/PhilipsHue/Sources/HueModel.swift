@@ -219,7 +219,8 @@ struct HueSensorDevice: Sendable, Equatable {
             if let action = report?["action"]?.stringValue { rotary.action = action }
             if let direction = report?["rotation"]?["direction"]?.stringValue { rotary.clockwise = direction == "clock_wise" }
             if let steps = report?["rotation"]?["steps"]?.intValue { rotary.steps = steps }
-            if let updated = ring?["rotary_report"]?["updated"]?.stringValue { rotary.updated = updated }
+            // `last_event` has no time: a report of that shape leaves none.
+            if report != nil { rotary.updated = report?["updated"]?.stringValue }
             self.rotary = rotary
         default:
             break

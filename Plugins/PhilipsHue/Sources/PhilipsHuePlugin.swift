@@ -121,6 +121,9 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     var rotaryTurns: [String: (clockwise: Bool, long: Bool)] = [:]
     /// Each motion sensor's motion last put in its Eve history, by device id: a read that finds it unchanged adds nothing.
     var recordedMotion: [String: Bool] = [:]
+    /// Each sensor's temperature and light level last put in its Eve history, by device id.
+    var recordedReadings: [String: RecordedReading] = [:]
+    struct RecordedReading: Equatable { var temperature: Double?; var lux: Double? }
     /// Whether the event stream is open: while it is, polls are a safety net (`streamingPollInterval`).
     var streaming = false
     /// A read of the bridge asked for by an event, not yet run.
