@@ -202,6 +202,38 @@ extension HueSyncBoxPlugin {
       }
     }
   },
+  "layout": [
+    "name",
+    "baseAccessory",
+    "defaultOnMode",
+    "defaultOffMode",
+    {
+      "type": "fieldset",
+      "title": "More accessories",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "powerSwitchAccessory",
+        "tvAccessory",
+        "modeTvAccessory",
+        "intensityTvAccessory",
+        "entertainmentTvAccessory",
+        "treatPassthroughAsOffForTv"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "syncBoxIpAddress",
+        "syncBoxUniqueId",
+        "updateIntervalInSeconds",
+        "uuidSeed"
+      ]
+    }
+  ],
   "i18n": {
     "fr": {
       "A lightbulb on this television that starts and stops syncing and sets the brightness.": "Une ampoule sur ce téléviseur qui lance et arrête la synchronisation et règle la luminosité.",
@@ -213,6 +245,7 @@ extension HueSyncBoxPlugin {
       "Access Token": "Jeton d'accès",
       "Accessory ID Seed": "Graine des identifiants d'accessoires",
       "Added to every accessory's ID, so several Sync Boxes stay apart. Changing it makes new accessories in HomeKit.": "Ajoutée à l'identifiant de chaque accessoire, pour distinguer plusieurs Sync Box. La changer crée de nouveaux accessoires dans HomeKit.",
+      "Advanced": "Avancé",
       "Audio receiver": "Récepteur audio",
       "Entertainment Areas TV": "Téléviseur des zones de divertissement",
       "Game": "Jeu",
@@ -227,6 +260,7 @@ extension HueSyncBoxPlugin {
       "Mode When Turned Off": "Mode à l'extinction",
       "Mode When Turned On": "Mode à l'allumage",
       "Modes TV": "Téléviseur des modes",
+      "More accessories": "Autres accessoires",
       "Music": "Musique",
       "Name": "Nom",
       "None": "Aucun",
@@ -262,6 +296,7 @@ extension HueSyncBoxPlugin {
       "Access Token": "Token de acceso",
       "Accessory ID Seed": "Semilla de los ID de accesorios",
       "Added to every accessory's ID, so several Sync Boxes stay apart. Changing it makes new accessories in HomeKit.": "Se añade al ID de cada accesorio, para distinguir varias Sync Box. Cambiarla crea accesorios nuevos en HomeKit.",
+      "Advanced": "Avanzado",
       "Audio receiver": "Receptor de audio",
       "Entertainment Areas TV": "Televisor de zonas de entretenimiento",
       "Game": "Juego",
@@ -276,6 +311,7 @@ extension HueSyncBoxPlugin {
       "Mode When Turned Off": "Modo al apagar",
       "Mode When Turned On": "Modo al encender",
       "Modes TV": "Televisor de modos",
+      "More accessories": "Más accesorios",
       "Music": "Música",
       "Name": "Nombre",
       "None": "Ninguno",
@@ -311,6 +347,7 @@ extension HueSyncBoxPlugin {
       "Access Token": "Token de acesso",
       "Accessory ID Seed": "Semente dos ID de acessórios",
       "Added to every accessory's ID, so several Sync Boxes stay apart. Changing it makes new accessories in HomeKit.": "Acrescentada ao ID de cada acessório, para distinguir várias Sync Box. Alterá-la cria novos acessórios no HomeKit.",
+      "Advanced": "Avançado",
       "Audio receiver": "Recetor de áudio",
       "Entertainment Areas TV": "Televisor das áreas de entretenimento",
       "Game": "Jogo",
@@ -325,6 +362,7 @@ extension HueSyncBoxPlugin {
       "Mode When Turned Off": "Modo ao desligar",
       "Mode When Turned On": "Modo ao ligar",
       "Modes TV": "Televisor dos modos",
+      "More accessories": "Mais acessórios",
       "Music": "Música",
       "Name": "Nome",
       "None": "Nenhum",
