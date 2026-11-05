@@ -84,5 +84,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(RenaultPlugin.self)
     registry.register(ImouPlugin.self)
     registry.register(ReolinkPlugin.self)
+    registry.register(TahomaPlugin.self)
     return registry
 }
