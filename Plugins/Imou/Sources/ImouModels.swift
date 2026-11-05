@@ -221,7 +221,7 @@ enum ImouEvents {
     /// The Dahua event codes asked of a camera's event stream, and those that are motion.
     static let localCodes = ["VideoMotion", "SmartMotionHuman", "SmartMotionVehicle", "CrossLineDetection", "CrossRegionDetection", "AlarmLocal"]
     static let localMotionCodes = Set(localCodes)
-    static let localDoorbellCodes: Set<String> = ["CallNoAnswered", "BackKeyLight"]
+    static let localDoorbellCodes = ["BackKeyLight", "CallNoAnswered"]
 }
 
 // MARK: The methods
@@ -395,11 +395,17 @@ extension ImouCloud {
         }
     }
 
-    /// `getAlarmMessage`'s newest alarm, from a day ago to a day ahead (local time).
-    func latestAlarm(_ deviceID: String, channel: String, now: Date) async throws -> ImouAlarm? {
+    /// `getAlarmMessage`'s times: local time, to the second.
+    private static let alarmTimeFormat = {
         let format = DateFormatter()
         format.locale = Locale(identifier: "en_US_POSIX")
         format.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return format
+    }()
+
+    /// `getAlarmMessage`'s newest alarm, from a day ago to a day ahead (local time).
+    func latestAlarm(_ deviceID: String, channel: String, now: Date) async throws -> ImouAlarm? {
+        let format = Self.alarmTimeFormat
         let data = try await call("getAlarmMessage", [
             "deviceId": .string(deviceID), "channelId": .string(channel), "count": "10",
             "beginTime": .string(format.string(from: now.addingTimeInterval(-86_400))), "endTime": .string(format.string(from: now.addingTimeInterval(86_400))),

@@ -92,7 +92,6 @@ actor DahuaClient {
     static func check(_ status: Int) throws {
         switch status {
         case 200..<300: return
-        case 401: throw DahuaError.wrongPassword
         case 404, 405, 501: throw DahuaError.unsupported(status)
         default: throw DahuaError.http(status)
         }
