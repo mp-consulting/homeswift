@@ -28,10 +28,6 @@ All notable changes to this project are documented here. The format follows
   dynamic power and LED controls, the dynamic power mode as an Assistant tool, and its readings on the Status page
   (counted in the Energy section only when tagged). Written from a clean-room spec; the malformed JSON of some firmware is
   repaired.
-- The APsystems ECU plugin (platform `APsystemsECU`, experimental, a clean-room implementation of the ECU's local
-  protocol on TCP port 8899): the solar production of an ECU-C, ECU-R or ECU-B as a Light Sensor with Eve's power and
-  energy, each microinverter's power and temperature, the production and an ECU-C's CT clamps in the Status page's
-  Energy section, and a page with every inverter's channels. Read only; ECUs are added by address.
 - The Magic Home plugin (platform `homebridge-magichome-dynamic-platform`, a clean-room implementation compatible with
   homebridge-magichome-dynamic-platform's configuration): Magic Home Wi-Fi bulbs, LED controllers and sockets found by
   the UDP 48899 scan (or by address), the Homebridge plugin's models driven as it drove them and the newer firmware's

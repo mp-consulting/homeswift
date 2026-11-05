@@ -80,7 +80,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HueSyncBoxPlugin.self)
     registry.register(TahomaPlugin.self)
     registry.register(V2CTrydanPlugin.self)
-    registry.register(APsystemsECUPlugin.self)
     registry.register(MagicHomePlugin.self)
     registry.register(RenaultPlugin.self)
     registry.register(ImouPlugin.self)
