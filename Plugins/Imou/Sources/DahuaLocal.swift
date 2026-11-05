@@ -68,8 +68,9 @@ actor DahuaClient {
 
     /// Sends `target` with the Digest answer kept, and once more with the challenge of a 401 (one kept from before may have
     /// gone stale); a second 401 is a wrong password.
-    private func signed<Response>(_ target: String, timeout: Duration, headers: [(String, String)] = [], status: (Response) -> Int,
-                                  challenge: (Response) -> String?, send: (HomeswiftNetwork.HTTPRequest) async throws -> Response) async throws -> Response {
+    private func signed<Response: Sendable>(_ target: String, timeout: Duration, headers: [(String, String)] = [], status: (Response) -> Int,
+                                  challenge: (Response) -> String?,
+                                  send: @Sendable (HomeswiftNetwork.HTTPRequest) async throws -> Response) async throws -> Response {
         func attempt() async throws -> Response {
             var request = authorized(target, timeout: timeout)
             for (name, value) in headers { request.setHeader(name, value) }

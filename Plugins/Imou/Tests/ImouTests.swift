@@ -21,8 +21,8 @@ struct ImouTests {
         return block
     }
 
-    func garden(_ host: PluginHost) async throws -> Accessory {
-        let environment = environment, id = gardenID
+    func garden(_ host: PluginHost, in other: TestEnvironment? = nil) async throws -> Accessory {
+        let environment = other ?? environment, id = gardenID
         #expect(await eventually { environment.accessory(host, id) != nil })
         return try #require(environment.accessory(host, id))
     }
@@ -30,8 +30,8 @@ struct ImouTests {
     func service(_ accessory: Accessory, _ subtype: String) -> Service? { accessory.services.first { $0.subtype == subtype } }
 
     /// The plugin's camera of the garden, once it is published.
-    func runningCamera() async throws -> ImouCamera {
-        let environment = environment, id = gardenID
+    func runningCamera(in other: TestEnvironment? = nil) async throws -> ImouCamera {
+        let environment = other ?? environment, id = gardenID
         #expect(await eventually { await environment.plugin?.camera(id) != nil })
         return try #require(await environment.plugin?.camera(id))
     }
@@ -201,10 +201,12 @@ struct ImouTests {
     }
 
     @Test func aCloudSnapshotIsKeptAMinuteAndItsAddressNeverLogged() async throws {
+        // At a twentieth the minute is 3 s: a loaded machine cannot make the second request miss it.
+        let environment = TestEnvironment(timeScale: 0.05)
         environment.cloud.addCamera()
         let host = try await environment.start()
-        _ = try await garden(host)
-        let camera = try await runningCamera()
+        _ = try await garden(host, in: environment)
+        let camera = try await runningCamera(in: environment)
         #expect(try await camera.snapshotImage() == jpeg)
         #expect(try await camera.snapshotImage() == jpeg)
         #expect(environment.cloud.calls("setDeviceSnapEnhanced").count == 1)
