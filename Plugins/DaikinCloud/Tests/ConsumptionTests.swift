@@ -55,8 +55,10 @@ struct ConsumptionTests {
 
     @Test func slotsAndDaysBecomeHoursOfTheHomesUse() {
         let totals = DaikinConsumption.totals(of: Self.unit, now: Self.now, calendar: Self.calendar)
-        let hours = DaikinConsumption.hours(totals, now: Self.now, calendar: Self.calendar)
+        let result = DaikinConsumption.hours(totals, now: Self.now, calendar: Self.calendar)
+        let hours = DaikinConsumption.imports(result.hours)
         let byStart = Dictionary(uniqueKeysWithValues: hours.map { ($0.start, $0.flows) })
+        #expect(result.detailed == [Self.date("2026-11-03T00:00:00Z"), Self.date("2026-11-04T00:00:00Z")])
         // Yesterday and today come from the two-hour slots, the days before from the week's.
         #expect(byStart[Self.date("2026-11-03T05:00:00Z")]?.home == 500)
         #expect(abs((byStart[Self.date("2026-11-04T01:00:00Z")]?.home ?? 0) - 350) < 1e-9)
@@ -69,6 +71,37 @@ struct ConsumptionTests {
         #expect(hours.allSatisfy { $0.flows.solar == nil && $0.flows.gridImport == nil })
         let total = hours.reduce(0) { $0 + ($1.flows.home ?? 0) }
         #expect(abs(total - (80_000 + 12_000 + 3_200)) < 1e-6)
+    }
+
+    /// Monday's slots went into the Energy section on Tuesday: on Wednesday, its week's flat figure leaves them be.
+    @Test func aDayImportedFromItsSlotsIsNotFlattenedLater() {
+        let totals = DaikinConsumption.totals(of: Self.unit, now: Self.now, calendar: Self.calendar)
+        let monday = Self.date("2026-11-02T00:00:00Z")
+        let result = DaikinConsumption.hours(totals, now: Self.now, calendar: Self.calendar, detailed: [monday])
+        #expect(result.hours[Self.date("2026-11-02T07:00:00Z")] == nil)
+        #expect(result.hours[Self.date("2026-11-01T07:00:00Z")] != nil, "the days before are still the week's")
+    }
+
+    /// The slots are the unit's wall clock: its gateway's time zone, two hours each, one on the night the clocks go
+    /// forward.
+    @Test func theSlotsAreTheUnitsWallClock() {
+        var unit = Self.unit.objectValue!
+        var points = unit["managementPoints"]!.arrayValue!
+        points[1] = ["embeddedId": "gateway", "managementPointType": "gateway", "timeZone": ["settable": true, "value": "Europe/Paris"]]
+        unit["managementPoints"] = .array(points)
+        let calendar = DaikinConsumption.calendar(of: .object(unit))
+        #expect(calendar.timeZone.identifier == "Europe/Paris")
+        // Monday 30 March 2026, 13:30 in Paris: yesterday, the clocks went from 02:00 to 03:00.
+        let now = Self.date("2026-03-30T11:30:00Z")
+        let totals = DaikinConsumption.totals(of: .object(unit), now: now, calendar: calendar)
+        #expect(totals.slots[Self.date("2026-03-28T23:00:00Z")] == 1, "midnight in Paris")
+        #expect(totals.slotEnds[Self.date("2026-03-28T23:00:00Z")] == Self.date("2026-03-29T01:00:00Z"))
+        #expect(totals.slots[Self.date("2026-03-29T01:00:00Z")] == 1, "02:00 to 04:00, which lasted an hour")
+        #expect(totals.slotEnds[Self.date("2026-03-29T01:00:00Z")] == Self.date("2026-03-29T02:00:00Z"))
+        #expect(totals.slots[Self.date("2026-03-29T22:00:00Z")] != nil, "today's midnight")
+        let hours = DaikinConsumption.hours(totals, now: now, calendar: calendar).hours
+        #expect(hours[Self.date("2026-03-28T23:00:00Z")] == 500)
+        #expect(hours[Self.date("2026-03-29T01:00:00Z")] == 1000, "a one-hour slot")
     }
 
     @Test func anotherUnitIsNotRead() {

@@ -30,7 +30,8 @@ All notable changes to this project are documented here. The format follows
 - V2C Trydan: the current's limits and the installation's voltage as Accessory Settings sent once per change, and the
   session's time, the meter's code, the Wi-Fi signal and each phase's current and voltage in the Status page's history.
 - Daikin Cloud: each unit's kWh today in the Status page's history, and with `energyHistory` the units' `consumptionData`
-  imported into the Energy section as the home's use (two-hour slots for yesterday and today, days for two weeks).
+  imported into the Energy section as the home's use (two-hour slots for yesterday and today, days for two weeks), on
+  each unit's own time zone; a day imported from its slots keeps them once only its week's total is left.
 - Philips Hue: an Eve history on the motion, temperature and light level sensors (fakegato's format), with Eve's Last
   Activation on the motion sensor.
 - Philips Hue: a Tap dial's ring as two Stateless Programmable Switches, Clockwise and Anticlockwise, from the event

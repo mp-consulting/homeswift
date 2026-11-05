@@ -112,9 +112,12 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
 Each poll reads the units' `consumptionData` (kWh, heating and cooling of each management point added up), which
 the device list carries already: no call is added. Each unit's kWh so far today goes into the Status page's history
 (`<Device Id>:energyToday`). With `energyHistory`, the units' use also goes into the Energy section as the home's use,
-by `importEnergy`: yesterday's and today's two-hour slots split over their two hours, and the other days of the last two
-weeks (`w`) spread evenly over their 24 hours, so the day and month views have each day's kWh. Only slots and days that
-are over are imported; the hours the bridge recorded itself keep their own figures. It is off by default: a meter that
+by `importEnergy`: yesterday's and today's two-hour slots split over their hours, and the other days of the last two
+weeks (`w`) spread evenly over their 24 hours, so the day and month views have each day's kWh. The slots and days are the
+unit's wall clock, in its gateway's time zone (`timeZone`, the bridge's when it has none), so the night the clocks change
+has a one- or three-hour slot. A day imported from its slots keeps them once it leaves the cloud's two days: the plugin
+remembers those days (`daikin-energy-days.json`) and does not replace them with the week's flat figure. Only slots and
+days that are over are imported; the hours the bridge recorded itself keep their own figures. It is off by default: a meter that
 already reports the home's use would count the units twice. The months (`m`) are not imported, and the weeks are taken
 to start on Monday (ISO weeks, the Onecta app's).
 
