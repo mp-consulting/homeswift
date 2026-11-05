@@ -821,6 +821,71 @@
         "videoProcessor",
         "devices"
       ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Sensors",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "motionSensor",
+        "aiSensors",
+        "motionSensitivity",
+        "aiSensitivity",
+        "doorbell",
+        "ringThrottleSeconds"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Lights and switches",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "floodlight",
+        "floodlightMode",
+        "irLights",
+        "siren",
+        "privacySwitch",
+        "recordingSwitch",
+        "presetSwitches",
+        "patrolSwitch",
+        "chimeSwitch",
+        "chimeTone"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Video",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "stream",
+        "audio",
+        "recording",
+        "prebuffer",
+        "maxStreams",
+        "vcodec",
+        "encoderOptions",
+        "debug"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Connection",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "host",
+        "port",
+        "useHttps",
+        "baichuanPort",
+        "channels",
+        "streamProtocol",
+        "pushEvents",
+        "pollInterval",
+        "motionPollInterval"
+      ]
     }
   ],
   "i18n": {
@@ -939,7 +1004,11 @@
       "Way back home": "Retour à la maison",
       "What the floodlight does on its own, set on the camera at start; empty leaves the camera's. Only the modes the camera offers are taken.": "Ce que fait le projecteur de lui-même, réglé sur la caméra au démarrage ; vide garde celui de la caméra. Seuls les modes que la caméra propose sont pris.",
       "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Si la caméra a un mode confidentialité, un interrupteur qui l'active : ni vidéo ni détection tant qu'il est allumé. Il suit la caméra allumée ou éteinte dans HomeKit.",
-      "Which of the camera's streams answers HomeKit.": "Lequel des flux de la caméra répond à HomeKit."
+      "Which of the camera's streams answers HomeKit.": "Lequel des flux de la caméra répond à HomeKit.",
+      "Sensors": "Capteurs",
+      "Lights and switches": "Lumières et interrupteurs",
+      "Video": "Vidéo",
+      "Connection": "Connexion"
     },
     "es": {
       "A channel number, from 0.": "Un número de canal, desde 0.",
@@ -1056,7 +1125,11 @@
       "Way back home": "De vuelta a casa",
       "What the floodlight does on its own, set on the camera at start; empty leaves the camera's. Only the modes the camera offers are taken.": "Lo que hace el foco por sí solo, ajustado en la cámara al arrancar; vacío deja el de la cámara. Solo se aceptan los modos que ofrece la cámara.",
       "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Si la cámara tiene modo de privacidad, un interruptor que lo activa: sin vídeo ni detecciones mientras esté encendido. Sigue el encendido y apagado de la cámara en HomeKit.",
-      "Which of the camera's streams answers HomeKit.": "Qué flujo de la cámara responde a HomeKit."
+      "Which of the camera's streams answers HomeKit.": "Qué flujo de la cámara responde a HomeKit.",
+      "Sensors": "Sensores",
+      "Lights and switches": "Luces e interruptores",
+      "Video": "Vídeo",
+      "Connection": "Conexión"
     },
     "pt": {
       "A channel number, from 0.": "Um número de canal, a partir de 0.",
@@ -1173,7 +1246,11 @@
       "Way back home": "De volta a casa",
       "What the floodlight does on its own, set on the camera at start; empty leaves the camera's. Only the modes the camera offers are taken.": "O que o projetor faz sozinho, definido na câmara ao arrancar; vazio mantém o da câmara. Só são aceites os modos que a câmara oferece.",
       "Where the camera has privacy mode, a switch that turns it on: no video, no detections, until it is off. It follows HomeKit's camera on and off.": "Se a câmara tiver modo de privacidade, um interruptor que o ativa: sem vídeo nem deteções enquanto estiver ligado. Acompanha a câmara ligada ou desligada no HomeKit.",
-      "Which of the camera's streams answers HomeKit.": "Qual dos fluxos da câmara responde ao HomeKit."
+      "Which of the camera's streams answers HomeKit.": "Qual dos fluxos da câmara responde ao HomeKit.",
+      "Sensors": "Sensores",
+      "Lights and switches": "Luzes e interruptores",
+      "Video": "Vídeo",
+      "Connection": "Ligação"
     }
   }
 }

@@ -18,7 +18,8 @@ All notable changes to this project are documented here. The format follows
   "Go to <preset>" and Patrol switches; privacy mode as a Privacy switch kept in step with HomeKit's Camera Active (no
   HTTP login while it is on); the floodlight's colour temperature with Adaptive Lighting, and its mode; a switch per
   wireless Reolink Chime; a Recording switch for the device's own recording; motion and AI sensitivity. Privacy and
-  Recording are security controls, confirmed by MCP clients.
+  Recording are security controls, confirmed by MCP clients. A camera's settings sheet groups its settings (Sensors,
+  Lights and switches, Video, Connection).
 - The IMOU plugin (platform `Imou`, experimental, a clean-room implementation; no Homebridge plugin exists): IMOU cameras
   and doorbells, each on its own accessory, local first: RTSP live video and HomeKit Secure Video, CGI snapshots, and
   motion and rings from the camera's Dahua event stream, signed in with its safety code; the IMOU Open Platform (optional,

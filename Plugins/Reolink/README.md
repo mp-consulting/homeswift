@@ -102,6 +102,9 @@ New in the Accessory Settings: `presetSwitches` (false), `patrolSwitch` (false),
 and `aiSensitivity` (0 to 100, for every AI type the camera detects). The device-side ones (mode, sensitivities) are read
 in one batch at start and written in one more, only where the device differs; empty leaves the device's own.
 
+An accessory's settings sheet groups them: Sensors, Lights and switches, Video, and Connection (the address, ports,
+protocol and refresh intervals).
+
 ### PTZ from the Assistant and MCP clients
 
 HomeKit has no PTZ service, so PTZ is a set of Assistant actions (MCP tools named after the plugin): `list_ptz_cameras`
