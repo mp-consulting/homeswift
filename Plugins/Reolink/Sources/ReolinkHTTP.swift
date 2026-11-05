@@ -382,7 +382,7 @@ actor ReolinkHTTPClient {
         let authority = ReolinkStreamURL.bracketed(host)
         let portPart = option.port == defaultPort ? "" : ":\(option.port)"
         guard let url = URL(string: "\(scheme)://\(authority)\(portPart)/cgi-bin/api.cgi?\(query)") else { throw HTTPClientError.invalidURL(host) }
-        var request = HTTPRequest(method: method, url: url, body: body.map { $0.encoded() }, timeout: timing.seconds(30))
+        var request = HTTPRequest(method: method, url: url, body: body.map { $0.encoded() }, timeout: timing.timeout(30))
         if body != nil { request.setHeader("Content-Type", "application/json") }
         let tls = option.https ? trust.tls : HTTPClient.TLS.system
         if sender?.tls != tls { sender = (tls, makeSender(tls)) }

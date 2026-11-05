@@ -7,6 +7,10 @@ struct ReolinkTiming: Sendable {
     var scale: Double = 1
 
     func seconds(_ value: Double) -> Duration { .milliseconds(Int(max(0, value * scale * 1000))) }
+
+    /// A bound on a wait for the device (a connection, a reply), never scaled: tests' fakes answer or refuse at once, and a
+    /// scaled one (30 ms of 15 s) is shorter than a loaded machine takes to pass a reply on.
+    func timeout(_ value: Double) -> Duration { .milliseconds(Int(max(0, value * 1000))) }
 }
 
 /// What a Baichuan session reports to its host.
@@ -156,7 +160,7 @@ actor BaichuanSession {
             if wait > .zero { try await Task.sleep(for: wait) }
         }
         lastLogin = ContinuousClock.now
-        let stream = try await connect(host, port, timing.seconds(10))
+        let stream = try await connect(host, port, timing.timeout(10))
         self.stream = stream
         counter = 0
         lastReceive = .now
@@ -270,7 +274,7 @@ actor BaichuanSession {
     private func send(_ bytes: [UInt8], key: Key, timeout: Double) async throws -> BaichuanMessage {
         guard let stream else { throw BaichuanError.closed }
         let timer = Task { [weak self, timing] in
-            try? await Task.sleep(for: timing.seconds(timeout))
+            try? await Task.sleep(for: timing.timeout(timeout))
             guard !Task.isCancelled else { return }
             await self?.expire(key)
         }
