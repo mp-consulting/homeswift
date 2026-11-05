@@ -1153,6 +1153,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       accessory: bridge.external ? accessories.find((accessory) => accessory.name === bridge.name) : undefined,
       icon: bridge.external ? deviceIcon(accessories.find((accessory) => accessory.name === bridge.name)?.category) : undefined }));
     const topByName = new Map(tops.map((top) => [top.name, top]));
+    // The HomeKit servers of an accessory of its own (a camera), by name: the plugin that publishes it shows it, with the
+    // server's pairing, port and Device ID on its card.
+    const externals = new Map(bridges.filter((bridge) => bridge.external).map((bridge) => [bridge.name, bridge]));
+    const shown = new Set();
     const entries = plugins?.platforms ?? [];
     const claimed = new Set();
     let pluginCount = 0, pausedCount = 0, colorIndex = 0;
@@ -1182,6 +1186,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const key = `${block.platform}|${bridgeName}`;
       let leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
       claimed.add(key);
+      // Its accessories of their own, under the first of its blocks.
+      if (!claimed.has(`${block.platform}|external`)) {
+        claimed.add(`${block.platform}|external`);
+        for (const accessory of accessories) {
+          const server = externals.get(accessory.bridge);
+          if (accessory.platform !== block.platform || !server) continue;
+          shown.add(server.name);
+          leaves.push({ ...accessory, server });
+        }
+      }
       if (filter) {
         leaves = leaves.filter(filter.keeps);
         if (!leaves.length) continue;
@@ -1191,6 +1205,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pausedCount += paused ? 1 : 0;
       parent.children.push(branchOf({ name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, color }, leaves));
     }
+    // A server whose accessory hangs from its plugin is not a node of its own.
+    tops.splice(0, tops.length, ...tops.filter((top) => top.kind !== "external" || !shown.has(top.name)));
     for (const top of tops) top.color = "var(--muted)";
     if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
     // A plugin's accessories grouped by device type: one group per run of the same category (the leaves are sorted by it).
@@ -1379,6 +1395,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       media: camera ? () => HomeswiftWidgets.cameraView(accessory) : () => el("div", { class: "detail-widget" }, HomeswiftWidgets.card(accessory, { size: "large" })),
       sections: HomeswiftWidgets.valueSections(accessory) };
   }
+  /// An accessory's card; one on a HomeKit server of its own (a camera) adds that server's pairing, port and Device ID.
+  function leafDetails(accessory) {
+    const details = accessoryDetails(accessory), server = accessory.server;
+    if (!server) return details;
+    return { ...details, warn: server.paired === false || details.warn,
+      status: server.paired ? t("Paired · {count}", { count: server.controllers ?? 0 }) : t("Not paired"),
+      facts: [...details.facts, factRow("bridgeType", t("Accessory of its own")), factRow("port", server.port), factRow("deviceId", server.deviceId)] };
+  }
   /// A card's fact: its label, its value, and a tooltip saying what it is.
   const factInfo = {
     manufacturer: [t("Manufacturer"), t("Who made the device, as its plugin reports it.")],
@@ -1417,12 +1441,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const bridge = top.raw;
     // An accessory of its own is that accessory (a camera's live picture first), with its HomeKit server's pairing,
     // port and Device ID.
-    if (top.kind === "external" && top.accessory) {
-      const details = accessoryDetails(top.accessory);
-      return { ...details, warn: top.paired === false || details.warn,
-        status: top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
-        facts: [...details.facts, factRow("bridgeType", topType(top)), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId)] };
-    }
+    if (top.kind === "external" && top.accessory) return leafDetails({ ...top.accessory, server: bridge });
     const type = topType(top);
     return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
@@ -1448,7 +1467,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
   const accessoryItems = (leaves) => leaves.map((one) => ({ icon: accessoryIcon(one), name: one.name, status: deviceStatus(one),
-    warn: Boolean(one.unavailable), details: () => accessoryDetails(one) }));
+    warn: Boolean(one.unavailable), details: () => leafDetails(one) }));
   /// A detail card's content: the head with the icon (a back button when `back` is given) and close, then its facts,
   /// its readings and its accessories, each of which `open` shows in the card's place.
   function detailNodes(data, close, { back = null, open = null } = {}) {
@@ -1730,7 +1749,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A menu choice: a toggle in `set`, with what it would leave.
     const choice = (set, value, label, icon) => ({ label, icon, count: matching({ [set]: new Set(chosen[set]).add(value) }), checked: chosen[set].has(value),
       checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
-    const bridgeNames = (status.bridges ?? []).map((bridge) => bridge.name);
+    // A server that is one accessory of its own (a camera) is that accessory, under its plugin: filtered by its type, as on the wall.
+    const bridgeNames = (status.bridges ?? []).filter((bridge) => !bridge.external).map((bridge) => bridge.name);
     const categories = [...new Set(all.map((one) => one.category))].sort((a, b) => categoryName(a).localeCompare(categoryName(b), locale));
     // The controllers some accessories mirror (Apple Home, through Wingman), as on the wall.
     const sources = [...new Set(all.map((one) => one.mirroredFrom).filter(Boolean))];
@@ -1741,7 +1761,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
         onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
-      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
+      ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: clear.disabled, onSelect: () => clear.click() },
     ]));
@@ -1853,8 +1873,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             card: () => groupDetails(group), zoom: { radius: (rings.group + rings.leaf) / 2, k: 2.8 } }));
           for (const accessory of group.leaves) {
             edges.push(link(group, accessory, "leaf", branch.color));
-            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: accessoryIcon(accessory),
-              tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => accessoryDetails(accessory) }));
+            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}${accessory.server?.paired === false ? " unpaired" : ""}`,
+              radius: disc.radius, icon: accessoryIcon(accessory),
+              tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => leafDetails(accessory) }));
           }
         }
       }
@@ -3836,12 +3857,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
     // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
-    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
-    // A server that is one accessory of its own (a camera, a television) shows that accessory's icon, not a bridge's.
-    const serverIcon = (name) => {
+    // A server that is one accessory of its own (a camera, a television) is that accessory, filtered by its type, not a bridge.
+    const ownServer = (name) => {
       const on = all.filter((accessory) => accessory.bridge === name);
-      return on.length === 1 && on[0].name === name ? HomeswiftAdmin.deviceIcon(on[0].category) : "bridge";
+      return on.length === 1 && on[0].name === name;
     };
+    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))].filter((name) => !ownServer(name));
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
     const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
@@ -4485,8 +4506,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         onSelect: () => changeFilter("from", source, from !== source) })),
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
-      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, serverIcon(name)))] : []),
-      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
+      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
+      ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
@@ -28872,7 +28893,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .dot .node-disc { stroke-width: 1.4; }
 .overview-graph :is(.node, .dot):hover .node-disc { stroke-width: 2.8; }
 .overview-graph :is(.node, .dot):focus-visible .node-disc { stroke: var(--accent); stroke-width: 2.8; }
-.overview-graph .bridge-node.unpaired .node-disc { stroke: var(--warn); }
+.overview-graph :is(.bridge-node, .dot).unpaired .node-disc { stroke: var(--warn); }
 .overview-graph :is(.bridge-node.built-in, .plugin-node.paused) .node-disc { stroke-dasharray: 3 2; }
 .overview-graph .dot.unavailable .node-disc { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
 .overview-graph .dot.unavailable svg { opacity: 0.4; }

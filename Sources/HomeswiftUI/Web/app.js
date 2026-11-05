@@ -1948,12 +1948,12 @@
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
     // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
-    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
-    // A server that is one accessory of its own (a camera, a television) shows that accessory's icon, not a bridge's.
-    const serverIcon = (name) => {
+    // A server that is one accessory of its own (a camera, a television) is that accessory, filtered by its type, not a bridge.
+    const ownServer = (name) => {
       const on = all.filter((accessory) => accessory.bridge === name);
-      return on.length === 1 && on[0].name === name ? HomeswiftAdmin.deviceIcon(on[0].category) : "bridge";
+      return on.length === 1 && on[0].name === name;
     };
+    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))].filter((name) => !ownServer(name));
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
     const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
@@ -2597,8 +2597,8 @@
         onSelect: () => changeFilter("from", source, from !== source) })),
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
-      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, serverIcon(name)))] : []),
-      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
+      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
+      ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";

@@ -4106,7 +4106,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .dot .node-disc { stroke-width: 1.4; }
 .overview-graph :is(.node, .dot):hover .node-disc { stroke-width: 2.8; }
 .overview-graph :is(.node, .dot):focus-visible .node-disc { stroke: var(--accent); stroke-width: 2.8; }
-.overview-graph .bridge-node.unpaired .node-disc { stroke: var(--warn); }
+.overview-graph :is(.bridge-node, .dot).unpaired .node-disc { stroke: var(--warn); }
 .overview-graph :is(.bridge-node.built-in, .plugin-node.paused) .node-disc { stroke-dasharray: 3 2; }
 .overview-graph .dot.unavailable .node-disc { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
 .overview-graph .dot.unavailable svg { opacity: 0.4; }
