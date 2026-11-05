@@ -498,7 +498,7 @@ actor ImouCamera {
         return [
             "accessoryId": .string(accessoryID), "deviceId": .string(deviceID), "channel": .string(channel.id), "name": .string(name),
             "online": .string("\(online)"), "privacy": .bool(privacyOn), "ptz": features.ptz.map { .string($0.rawValue) } ?? .null,
-            "presets": .bool(features.presets), "switches": .object(switches),
+            "presets": .bool(features.presets), "restart": .bool(features.reboot), "switches": .object(switches),
             "nightVision": features.nightVision ? ["mode": nightVisionMode.map(JSONValue.string) ?? .null, "modes": .array(nightVisionModes.map(JSONValue.string))] : .null,
         ]
     }

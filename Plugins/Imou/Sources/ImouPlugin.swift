@@ -41,6 +41,8 @@ public actor ImouPlugin: HomeswiftPlugin {
     static let rediscoveryInterval: Double = 600
     /// The cloud's alarms, when they stand in for a camera's local events and no interval is set.
     static let defaultAlarmPollInterval = 60
+    /// A device's SD card is read on a poll at most this often (addendum, section 4.1).
+    static let storageInterval: Double = 3600
 
     /// The sizes HomeKit may ask for.
     static let resolutions: [VideoResolution] = [
@@ -64,6 +66,8 @@ public actor ImouPlugin: HomeswiftPlugin {
     private var cloudOutage = false
     /// enableTypes each accessory's camera lacks (`DV1019`), kept in `unsupported.json`: their switches are left out.
     private lazy var unsupported = context.persistedDictionary("unsupported.json", of: [String].self)
+    /// Each device's SD card, when it was last read.
+    private(set) var storage: [String: (value: ImouStorage, at: ContinuousClock.Instant)] = [:]
     private var polls = 0
     /// The quota governor: the switches beyond the first ones are read every this many polls, so the day's calls stay
     /// under `ImouUsage.warnAbove`.
@@ -475,6 +479,7 @@ public actor ImouPlugin: HomeswiftPlugin {
                     await camera.refresh(channel, battery: battery, extras: extras && spare)
                     await keepUnsupported(of: camera)
                 }
+                if state.device == .online, spare, cameras.contains(where: { $0.features.storage }), storageDue(deviceID) { await readStorage(deviceID, cloud: cloud) }
                 if cloudOutage { logger.info("The IMOU cloud answers again") }
                 cloudOutage = false
             } catch ImouError.overBudget {
@@ -527,6 +532,27 @@ public actor ImouPlugin: HomeswiftPlugin {
         }
     }
 
+    private func storageDue(_ deviceID: String) -> Bool {
+        storage[deviceID].map { ContinuousClock.now - $0.at >= scaled(Self.storageInterval) } ?? true
+    }
+
+    /// The SD card's state (addendum, section 4.1), its use recorded for the Status page.
+    private func readStorage(_ deviceID: String, cloud: ImouCloud) async {
+        do {
+            let value = try await cloud.storage(deviceID)
+            storage[deviceID] = (value, .now)
+            if let used = value.usedPercent { context.recordValue(Double(used), series: "sdcard:\(deviceID)") }
+        } catch let error as ImouError where ["DV1049", "NO_SD_CARD"].contains(error.code ?? "") {
+            storage[deviceID] = (ImouStorage(status: "none"), .now)
+        } catch let error as ImouError where error.code == "DEVICE_SD_EXCEPTION" {
+            storage[deviceID] = (ImouStorage(status: "abnormal"), .now)
+        } catch {
+            // Tried again in an hour, not every poll.
+            storage[deviceID] = (storage[deviceID]?.value ?? ImouStorage(status: "unknown"), .now)
+            logger.debug("\(deviceID): no SD card status from the cloud: \(error)")
+        }
+    }
+
     /// Keeps the enableTypes a camera found missing, so its next start leaves their switches out.
     private func keepUnsupported(of camera: ImouCamera) async {
         let found = await camera.takeUnsupported()
@@ -537,17 +563,18 @@ public actor ImouPlugin: HomeswiftPlugin {
     /// What the polls will cost a day, warned of above 15,000 (section 7.2), and the quota governor's spacing of the extra
     /// switches: read on every poll while the day stays under 15,000, else on one poll in `extrasEvery`.
     func estimateCalls(quiet: Bool = false) async {
-        var base = 0, extras = 0
-        for cameras in camerasByDevice().values {
+        var base = 0, extras = 0, storageDevices = 0
+        for (deviceID, cameras) in camerasByDevice() {
             base += 1 + (cameras.contains { $0.services.battery != nil } ? 1 : 0)
             for camera in cameras {
                 let reads = await camera.pollReads()
                 base += reads.base
                 extras += reads.extras
             }
+            if cameras.contains(where: { $0.features.storage }), cloudDevices[deviceID] != nil { storageDevices += 1 }
         }
         let polls = 86_400 / configuration.pollSeconds
-        var daily = base * polls + 144
+        var daily = base * polls + 144 + storageDevices * 2 * 24
         if let interval = configuration.alarmPollInterval, interval > 0 { daily += cameras.count * 86_400 / max(interval, 30) }
         let room = ImouUsage.warnAbove - daily
         if extras == 0 || extras * polls <= room {

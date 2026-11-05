@@ -121,6 +121,8 @@ struct ImouFeatures: Sendable, Equatable {
     var nightVision: Bool
     var ptz: ImouPTZ?
     var presets: Bool
+    var reboot: Bool
+    var storage: Bool
 
     init(abilities given: Set<String>) {
         var abilities = given
@@ -141,6 +143,8 @@ struct ImouFeatures: Sendable, Equatable {
         nightVision = abilities.contains("NVM")
         ptz = abilities.contains("PTZ") ? .full : abilities.contains("PT") || abilities.contains("PT1") ? .fourWay : abilities.contains("PT2") ? .pan : nil
         presets = abilities.contains("CollectionPoint")
+        reboot = abilities.contains("Reboot")
+        storage = abilities.contains("LocalStorage") || abilities.contains("LocalStorageEnable")
     }
 }
 
@@ -181,6 +185,15 @@ struct ImouSwitch: Sendable, Equatable {
     static let statusLight = ImouSwitch(subtype: "statusLight", label: "Status Light", enableTypes: ["breathingLight"], deviceLevel: true)
     /// On when either reads on; off only when both answered off (section 4.4).
     static let motionDetection = ImouSwitch(subtype: "motionDetection", label: "Motion Detection", enableTypes: ["mobileDetect", "motionDetect"])
+}
+
+/// What `deviceSdcardStatus` and `deviceStorage` say (addendum, section 4.1).
+struct ImouStorage: Sendable, Equatable {
+    /// `none`, `normal`, `abnormal` or `recovering` (formatting); another word as the cloud wrote it.
+    var status: String
+    var usedPercent: Int?
+
+    var json: JSONValue { ["status": .string(status), "usedPercent": usedPercent.map { .number(Double($0)) } ?? .null] }
 }
 
 /// The newest alarm of a camera (`getAlarmMessage`, section 4.6).
@@ -342,6 +355,22 @@ extension ImouCloud {
 
     func goToPreset(_ deviceID: String, channel: String, name: String) async throws {
         _ = try await call("turnCollection", ["deviceId": .string(deviceID), "channelId": .string(channel), "name": .string(name)])
+    }
+
+    /// `deviceSdcardStatus`, then `deviceStorage` for a card that is `normal` (addendum, section 4.1).
+    func storage(_ deviceID: String) async throws -> ImouStorage {
+        let text = try await call("deviceSdcardStatus", ["deviceId": .string(deviceID)], polling: true)["status"]?.stringValue ?? ""
+        var storage = ImouStorage(status: text.isEmpty ? "none" : String(text.prefix(32)))
+        guard text == "normal" else { return storage }
+        let data = try await call("deviceStorage", ["deviceId": .string(deviceID)], polling: true)
+        if let total = data["totalBytes"]?.doubleValue, total > 0, let used = data["usedBytes"]?.doubleValue, used >= 0 {
+            storage.usedPercent = Int(saturating: (used * 100 / total).rounded(.down), in: 0...100)
+        }
+        return storage
+    }
+
+    func restart(_ deviceID: String) async throws {
+        _ = try await call("restartDevice", ["deviceId": .string(deviceID)])
     }
 
     /// The camera's own motion detection (section 4.5): `modifyDeviceAlarmStatus`, else `setDeviceCameraStatus`

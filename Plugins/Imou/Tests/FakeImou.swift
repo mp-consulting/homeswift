@@ -56,6 +56,7 @@ final class FakeImouCloud: HTTPSending, Sendable {
         /// `controlMovePTZ` answers `OP1003` to an `operation` sent as a string, as a cloud might.
         var ptzWantsNumbers = false
         var presets: [String] = []
+        var sdStatus = "normal"
     }
 
     let state = NIOLockedValueBox(State())
@@ -151,10 +152,14 @@ final class FakeImouCloud: HTTPSending, Sendable {
             case "controlMovePTZ":
                 if state.ptzWantsNumbers, params["operation"]?.stringValue != nil { return Self.error("OP1003", "invalid parameter") }
                 return Self.ok([:])
-            case "controlLocationPTZ", "turnCollection":
+            case "controlLocationPTZ", "turnCollection", "restartDevice":
                 return Self.ok([:])
             case "getCollection":
                 return Self.ok(["collections": .array(state.presets.map { ["name": .string($0)] })])
+            case "deviceSdcardStatus":
+                return Self.ok(["status": .string(state.sdStatus)])
+            case "deviceStorage":
+                return Self.ok(["totalBytes": 31_254_904_832, "usedBytes": 27_553_759_232])
             case "getDevicePowerInfo":
                 return Self.ok(["electricitys": [["type": "battery", "electric": "89", "litElec": "77"]]])
             default:

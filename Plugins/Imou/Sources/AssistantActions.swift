@@ -2,7 +2,8 @@ import Foundation
 import HomeswiftAI
 import HomeswiftPlugin
 
-// What HomeKit has no service for (addendum, sections 1.4 and 2.6): pan, tilt and zoom, presets and night vision's modes, as routes of `handleWebRequest` that MCP and the Assistant call.
+// What HomeKit has no service for (addendum, sections 1.4, 2.6 and 4): pan, tilt and zoom, presets, night vision's modes,
+// the SD card and restart, as routes of `handleWebRequest` that MCP and the Assistant call.
 extension ImouPlugin {
     /// A camera by `accessoryId` (`Imou:<deviceId>:<channel>`), or `deviceId` with an optional `channel` ("0").
     static let cameraArguments: [String: JSONValue] = [
@@ -18,7 +19,8 @@ extension ImouPlugin {
         AssistantAction(
             name: "list_cameras", title: "Look at the cameras",
             description: "The cameras this instance runs, one per channel (accessory Imou:<deviceId>:<channel>): whether they answer, privacy, their switches, "
-                + "what they can do (ptz: PTZ moves and zooms, PT moves in eight directions, PT2 only left and right; presets), night vision's mode and modes.",
+                + "what they can do (ptz: PTZ moves and zooms, PT moves in eight directions, PT2 only left and right; presets; restart), night vision's mode "
+                + "and modes, and the SD card's status (none, normal, abnormal, recovering = formatting) with its use in percent, read hourly.",
             path: "cameras", access: .read),
         AssistantAction(
             name: "move", title: "Move a camera",
@@ -48,6 +50,10 @@ extension ImouPlugin {
             description: "Sets a camera's night vision mode: one of the modes list_cameras gives (Intelligent, FullColor, Infrared, Off, LowLight, SmartLowLight), "
                 + "exactly as written.",
             method: "POST", path: "night-vision", access: .configure, inputSchema: arguments(["mode": ["type": "string"]], required: ["mode"])),
+        AssistantAction(
+            name: "restart", title: "Restart a camera",
+            description: "Restarts a camera device (all its channels) through the cloud; it is offline for a minute or two.",
+            method: "POST", path: "restart", access: .configure, inputSchema: arguments([:]), confirm: true),
     ]
 }
 
@@ -57,7 +63,9 @@ extension ImouPlugin {
         if request.method == "GET", request.path == "cameras" {
             var list: [JSONValue] = []
             for camera in cameras.values.sorted(by: { $0.accessoryID < $1.accessoryID }) {
-                list.append(.object(await camera.summary()))
+                var summary = await camera.summary()
+                summary["sdCard"] = storage[camera.deviceID]?.value.json ?? .null
+                list.append(.object(summary))
             }
             return PluginWebResponse(["cameras": .array(list)])
         }
@@ -79,6 +87,10 @@ extension ImouPlugin {
             case ("POST", "night-vision"):
                 guard let mode = arguments["mode"].text, mode.count <= 32 else { return .error(400, "A mode is needed") }
                 try await camera.setNightVision(mode: mode)
+            case ("POST", "restart"):
+                guard camera.features.reboot, let cloud = camera.cloud else { return .error(409, "\(camera.name) cannot be restarted through the cloud") }
+                try await cloud.restart(camera.deviceID)
+                logger.info("\(camera.name): restarting")
             default:
                 return .error(404, "Not found")
             }

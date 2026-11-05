@@ -8,7 +8,7 @@ import Testing
 @testable import Homeswift
 @testable import HomeswiftImou
 
-/// The addendum's signatures, PTZ, switches, privacy kept in step with HomeKit Camera Active, and the
+/// The addendum's signatures, PTZ, switches, privacy kept in step with HomeKit Camera Active, the SD card, restart and the
 /// quota governor (docs/clean-room/Imou.md, "Addendum").
 @Suite(.timeLimit(.minutes(1)))
 struct ImouParityTests {
@@ -135,13 +135,21 @@ struct ImouParityTests {
         #expect(fake.calls("setDeviceCameraStatus").last?.params == ["token": "At_1", "deviceId": "TEST000CAM1", "channelId": "0", "enableType": "linkageSiren", "enable": true])
     }
 
-    @Test func nightVisionModes() async throws {
+    @Test func nightVisionStorageAndRestart() async throws {
         let fake = FakeImouCloud()
         let cloud = cloud(fake)
         let read = try await cloud.nightVision("TEST000CAM1", channel: "0")
         #expect(read.mode == "Intelligent" && read.modes == ["Intelligent", "FullColor", "Infrared", "Off"])
         try await cloud.setNightVision("TEST000CAM1", channel: "0", mode: "FullColor")
         #expect(fake.calls("setNightVisionMode").first?.params == ["token": "At_1", "deviceId": "TEST000CAM1", "channelId": "0", "mode": "FullColor"])
+        #expect(try await cloud.storage("TEST000CAM1") == ImouStorage(status: "normal", usedPercent: 88))
+        fake.state.withLockedValue { $0.sdStatus = "" }
+        #expect(try await cloud.storage("TEST000CAM1") == ImouStorage(status: "none"))
+        fake.state.withLockedValue { $0.sdStatus = "recovering" }
+        #expect(try await cloud.storage("TEST000CAM1").status == "recovering")
+        #expect(fake.calls("deviceStorage").count == 1 && fake.calls("deviceSdcardStatus").first?.params == ["token": "At_1", "deviceId": "TEST000CAM1"])
+        try await cloud.restart("TEST000CAM1")
+        #expect(fake.calls("restartDevice").first?.params == ["token": "At_1", "deviceId": "TEST000CAM1"])
     }
 
     @Test func aMethodSpentForTheDayIsNotCalledUntilTheNext() async throws {
@@ -332,6 +340,8 @@ struct ImouParityTests {
         #expect(reads >= (polls - 1) * 8 && reads <= (polls + 1) * 8)
         let nightVision = cloud.calls("getNightVisionMode").count
         #expect(nightVision >= polls - 1 && nightVision <= polls + 1)
+        // The SD card once an hour (3.6 s at this scale), not every poll.
+        #expect(cloud.calls("deviceSdcardStatus").count <= 2 && cloud.calls("deviceStorage").count == cloud.calls("deviceSdcardStatus").count)
         await host.stop()
     }
 
@@ -348,6 +358,19 @@ struct ImouParityTests {
         let extras = cloud.calls("getNightVisionMode").count
         #expect(extras >= 1 && extras <= polls / 38 + 2)
         #expect(cloud.calls("getDeviceCameraStatus").filter { $0.params["enableType"] == "closeCamera" }.count >= polls - 1)
+        await host.stop()
+    }
+
+    @Test func theSDCardIsOnTheCamerasList() async throws {
+        environment.cloud.addCamera(abilities: Self.allAbilities)
+        let host = try await environment.start()
+        _ = try await garden(host)
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.storage["TEST000CAM1"] != nil })
+        let list = try await request("GET", "cameras")
+        let camera = try #require(list.json["cameras"]?[0])
+        #expect(camera["sdCard"] == ["status": "normal", "usedPercent": 88])
+        #expect(camera["ptz"] == "PTZ" && camera["restart"] == true && camera["accessoryId"] == .string(gardenID))
         await host.stop()
     }
 
@@ -375,14 +398,17 @@ struct ImouParityTests {
         #expect(try await request("POST", "ptz/position", ["deviceId": "TEST000CAM1", "h": 0.5, "v": -0.25, "z": 0]).status == 200)
         #expect(try await request("POST", "ptz/position", ["deviceId": "TEST000CAM1", "h": 2, "v": 0]).status == 409)
         #expect(cloud.calls("controlLocationPTZ").count == 1)
+        #expect(try await request("POST", "restart", ["deviceId": "TEST000CAM2"]).status == 409)
+        #expect(try await request("POST", "restart", ["deviceId": "TEST000CAM1"]).status == 200)
+        #expect(cloud.calls("restartDevice").map(\.params) == [["token": "At_1", "deviceId": "TEST000CAM1"]])
         #expect(try await request("POST", "ptz/move", ["deviceId": "NOPE", "direction": "up"]).status == 404)
         await host.stop()
     }
 
     @Test func theActionsDeclareTheirScope() {
         let actions = Dictionary(uniqueKeysWithValues: ImouPlugin.assistantActions.map { ($0.name, $0) })
-        for name in ["move", "point", "list_presets", "go_to_preset", "set_night_vision"] { #expect(actions[name]?.access == .configure, "\(name)") }
-        #expect(actions["list_cameras"]?.access == .read)
+        for name in ["move", "point", "list_presets", "go_to_preset", "set_night_vision", "restart"] { #expect(actions[name]?.access == .configure, "\(name)") }
+        #expect(actions["restart"]?.confirm == true && actions["list_cameras"]?.access == .read)
     }
 
     @Test func presetsAreActionsAndOptionalSwitches() async throws {

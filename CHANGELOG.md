@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
   spotlight and motion detection, cloud video and snapshots, and its alarms for a camera whose local events are down,
   within the account's daily call budget. `HomeswiftFFmpeg` gains `RTSPCameraStreamer` and `RTSPCameraRecorder`, live
   streams and recordings of an RTSP URL; `HTTPRequest.target` sends a request target as written.
+- IMOU: the documented HMAC-SHA256 signature, with MD5 kept for accounts that refuse it; pan, tilt, zoom, presets, night
+  vision's modes, restart and the SD card as actions for MCP and the Assistant; person detection, status light, siren and
+  light on alarm, night vision and preset switches (Accessory Settings, off by default); privacy kept in step with
+  HomeKit Camera Active; the extra switches' reads spread over polls to keep within the day's budget.
 - The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
   configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
   through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
