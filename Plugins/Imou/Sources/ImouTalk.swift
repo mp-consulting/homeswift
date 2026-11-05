@@ -308,7 +308,9 @@ actor ImouTalk {
 
     // MARK: Audio
 
-    /// The Talk's frames as the pieces written to the camera, at most three waiting (section 3.3).
+    /// The Talk's frames as the pieces written to the camera, at most three waiting (section 3.3). `rate` is the clock of
+    /// what is written: G.711's 8 kHz, or the AAC track's, FFmpeg resampling the Talk's PCM to it (a receiver made for G.711
+    /// gives 8 kHz, one for AAC 16 kHz, whatever track the backchannel offers).
     func pieces(_ talk: Talk, codec: TalkCodec, rate: Int) -> (AsyncStream<TalkPiece>, Task<Void, Never>) {
         let (pieces, continuation) = AsyncStream.makeStream(of: TalkPiece.self, bufferingPolicy: .bufferingNewest(Self.queuedPieces))
         let volume = talk.volume
@@ -330,12 +332,10 @@ actor ImouTalk {
                 }
                 if !buffer.isEmpty { continuation.yield(TalkPiece(bytes: buffer, samples: buffer.count, sampleRate: 8000)) }
             case .aac:
-                guard let ffmpeg, let encoder = AACTalkEncoder(ffmpeg: ffmpeg, sampleRate: rate) else { return }
+                guard let ffmpeg, let encoder = AACTalkEncoder(ffmpeg: ffmpeg, sampleRate: inputRate, outputRate: rate) else { return }
                 let writer = Task {
                     for await frame in talk.frames {
-                        var samples = PCMVolume.scale(frame.samples, volume: volume)
-                        if inputRate == 16000, rate == 8000 { samples = Self.halve(samples) }
-                        do { try await encoder.write(samples) } catch { break }
+                        do { try await encoder.write(PCMVolume.scale(frame.samples, volume: volume)) } catch { break }
                     }
                     encoder.finish()
                 }
@@ -402,9 +402,10 @@ actor ImouTalk {
                 guard let end = RTSPResponseReader.find([0x0D, 0x0A, 0x0D, 0x0A], in: state.bytes) ?? (state.bytes.count >= 8192 ? state.bytes.count : nil) else { return }
                 let lines = String(decoding: state.bytes[..<end], as: UTF8.self).components(separatedBy: "\r\n")
                 state.status = lines.first.flatMap { $0.split(separator: " ").dropFirst().first.flatMap { Int($0) } } ?? 0
-                state.challenge = lines.dropFirst().first { $0.lowercased().hasPrefix("www-authenticate:") }.map {
+                let challenges = lines.dropFirst().filter { $0.lowercased().hasPrefix("www-authenticate:") }.map {
                     String($0.dropFirst("www-authenticate:".count)).trimmingCharacters(in: .whitespaces)
                 }
+                state.challenge = challenges.first { $0.lowercased().hasPrefix("digest") } ?? challenges.first
             }
         }
 
@@ -489,12 +490,14 @@ actor ImouTalk {
 
     // MARK: The RTSP backchannel (section 4)
 
-    /// An RTSP session's sequence and credentials: a 401 answered once with Digest (or Basic on old firmware).
+    /// An RTSP session's sequence and credentials: a 401 answered once with Digest, or Basic on old firmware that never
+    /// offers Digest.
     private final class RTSPState: Sendable {
         struct Values {
             var digest: DigestAuthentication
             var basic: String
             var useBasic = false
+            var digestOffered = false
             var sequence = 0
             var session: String?
         }
@@ -520,14 +523,19 @@ actor ImouTalk {
             }
         }
 
-        /// Takes a 401's challenge; false when it is neither Digest nor Basic.
-        func accept(_ challenge: String) -> Bool {
+        /// Takes a 401's challenges (one `WWW-Authenticate` each): Digest whenever one is offered, Basic only on a camera
+        /// that has offered no Digest in this session, so the password is never sent in the clear to one that can do better.
+        /// False when there is nothing to answer.
+        func accept(_ challenges: [String]) -> Bool {
             values.withLockedValue { values in
-                if challenge.lowercased().hasPrefix("basic") {
-                    values.useBasic = true
-                    return true
+                if let digest = challenges.first(where: { $0.lowercased().hasPrefix("digest") }) {
+                    values.digestOffered = true
+                    values.useBasic = false
+                    return values.digest.accept(challenge: digest)
                 }
-                return values.digest.accept(challenge: challenge)
+                guard !values.digestOffered, challenges.contains(where: { $0.lowercased().hasPrefix("basic") }) else { return false }
+                values.useBasic = true
+                return true
             }
         }
 
@@ -604,7 +612,8 @@ actor ImouTalk {
             timer.cancel()
             guard let response else { throw TalkError.failed("the camera did not answer RTSP \(method)") }
             guard response.status == 401 else { return response }
-            guard !answered, let challenge = response.header("WWW-Authenticate"), state.accept(challenge) else { throw TalkError.wrongPassword }
+            let challenges = response.headers.filter { $0.0.lowercased() == "www-authenticate" }.map(\.1)
+            guard !answered, state.accept(challenges) else { throw TalkError.wrongPassword }
             answered = true
         }
     }
@@ -663,7 +672,7 @@ actor ImouTalk {
             switch track.codec {
             case .pcma: (codec, rate) = (.g711A, 8000)
             case .pcmu: (codec, rate) = (.g711Mu, 8000)
-            case .aac(let clock): (codec, rate) = (.aac, clock == 8000 ? 8000 : 16000)
+            case .aac(let clock): (codec, rate) = (.aac, (8000...96000).contains(clock) ? clock : 16000)
             }
             let (pieces, producer) = pieces(talk, codec: codec, rate: rate)
             defer { producer.cancel() }

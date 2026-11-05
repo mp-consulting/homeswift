@@ -12,11 +12,20 @@ import Testing
 // docs/clean-room/ImouTalk.md: section 9's vectors, `postAudio` and the RTSP backchannel against a fake camera in memory,
 // and the Speaker a camera gets only when it talks.
 
-/// One connection to the fake camera: what the plugin sends, each `send` on its own, and what the camera answers.
+/// One connection to the fake camera: what the plugin sends, each `send` on its own, and what the camera answers. The
+/// answers are handed over as the plugin reads them, `reads` counting its reads: once it is past an answer's, the plugin
+/// has handled that answer.
 final class FakeTalkConnection: ByteStream, Sendable {
+    private struct Inbox {
+        var pending: [[UInt8]] = []
+        var finished = false
+        var waiter: CheckedContinuation<[UInt8]?, Never>?
+        var reads = 0
+    }
+
     let port: Int
     let incoming: AsyncThrowingStream<[UInt8], any Error>
-    private let continuation: AsyncThrowingStream<[UInt8], any Error>.Continuation
+    private let inbox: NIOLockedValueBox<Inbox>
     private let onSend: @Sendable (FakeTalkConnection, [UInt8]) -> Void
     let sends = NIOLockedValueBox<[[UInt8]]>([])
     let closed = NIOLockedValueBox(false)
@@ -24,8 +33,30 @@ final class FakeTalkConnection: ByteStream, Sendable {
     init(port: Int, onSend: @escaping @Sendable (FakeTalkConnection, [UInt8]) -> Void) {
         self.port = port
         self.onSend = onSend
-        (incoming, continuation) = AsyncThrowingStream.makeStream(of: [UInt8].self, throwing: (any Error).self)
+        let inbox = NIOLockedValueBox(Inbox())
+        self.inbox = inbox
+        incoming = AsyncThrowingStream(unfolding: { await Self.next(inbox) })
     }
+
+    private static func next(_ inbox: NIOLockedValueBox<Inbox>) async -> [UInt8]? {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let ready = inbox.withLockedValue { inbox -> [UInt8]?? in
+                    inbox.reads += 1
+                    if !inbox.pending.isEmpty { return .some(inbox.pending.removeFirst()) }
+                    if inbox.finished || Task.isCancelled { return .some(nil) }
+                    inbox.waiter = continuation
+                    return nil
+                }
+                if let ready { continuation.resume(returning: ready) }
+            }
+        } onCancel: {
+            inbox.withLockedValue { inbox in defer { inbox.waiter = nil }; return inbox.waiter }?.resume(returning: nil)
+        }
+    }
+
+    /// The plugin's reads of the answers so far.
+    var reads: Int { inbox.withLockedValue { $0.reads } }
 
     func send(_ bytes: [UInt8]) async throws {
         guard !closed.withLockedValue({ $0 }) else { throw HTTPClientError.connectionClosed }
@@ -33,12 +64,26 @@ final class FakeTalkConnection: ByteStream, Sendable {
         onSend(self, bytes)
     }
 
-    func answer(_ text: String) { continuation.yield(Array(text.utf8)) }
-    func answer(_ bytes: [UInt8]) { continuation.yield(bytes) }
+    func answer(_ text: String) { answer(Array(text.utf8)) }
+    func answer(_ bytes: [UInt8]) {
+        inbox.withLockedValue { inbox -> CheckedContinuation<[UInt8]?, Never>? in
+            guard !inbox.finished else { return nil }
+            guard let waiter = inbox.waiter else {
+                inbox.pending.append(bytes)
+                return nil
+            }
+            inbox.waiter = nil
+            return waiter
+        }?.resume(returning: bytes)
+    }
 
     func close() async {
         closed.withLockedValue { $0 = true }
-        continuation.finish()
+        inbox.withLockedValue { inbox in
+            inbox.finished = true
+            defer { inbox.waiter = nil }
+            return inbox.waiter
+        }?.resume(returning: nil)
     }
 
     var allSends: [[UInt8]] { sends.withLockedValue { $0 } }
@@ -54,6 +99,8 @@ final class FakeTalkCamera: Sendable {
         var http = HTTPMode.accept
         var rtspSDP = backchannelSDP
         var rtspRefused = false
+        /// The `WWW-Authenticate` headers of the RTSP server's 401; Digest alone by default.
+        var rtspChallenges: [String]?
     }
 
     static let backchannelSDP = """
@@ -152,7 +199,8 @@ final class FakeTalkCamera: Sendable {
             connection.answer(all.joined(separator: "\r\n") + "\r\n\r\n" + body)
         }
         guard let authorization = header("Authorization", in: lines) else {
-            return reply("401 Unauthorized", ["WWW-Authenticate: Digest realm=\"Login to \(camera.serial)\", nonce=\"\(rtspNonce)\""])
+            let challenges = state.withLockedValue { $0.rtspChallenges } ?? ["Digest realm=\"Login to \(camera.serial)\", nonce=\"\(rtspNonce)\""]
+            return reply("401 Unauthorized", challenges.map { "WWW-Authenticate: \($0)" })
         }
         let f = fields(authorization)
         let ha1 = md5("admin:Login to \(camera.serial):\(camera.password)")
@@ -302,9 +350,8 @@ func feed(_ continuation: AsyncStream<PCMFrame>.Continuation, count: Int, sample
         f.talkCamera.state.withLockedValue { $0.http = .unauthorizedOnce }
         let (talk, frames) = makeTalk()
         async let handled: Void = f.talk.handle(talk)
-        // The camera's 401 arrives before the first piece is ready.
-        #expect(await eventually { f.talkCamera.connections(port: 80).count == 1 })
-        try await Task.sleep(for: .milliseconds(50))
+        // The camera's 401 arrives, and is read, before the first piece is ready.
+        #expect(await eventually { (f.talkCamera.connections(port: 80).first?.reads ?? 0) >= 2 })
         await feed(frames, count: 20)
         await handled
         let connections = f.talkCamera.connections(port: 80)
@@ -320,8 +367,7 @@ func feed(_ continuation: AsyncStream<PCMFrame>.Continuation, count: Int, sample
         f.talkCamera.state.withLockedValue { $0.http = .notFound }
         let (first, firstFrames) = makeTalk()
         async let handled: Void = f.talk.handle(first)
-        #expect(await eventually { f.talkCamera.connections(port: 80).count == 1 })
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await eventually { (f.talkCamera.connections(port: 80).first?.reads ?? 0) >= 2 })
         await feed(firstFrames, count: 20)
         await handled
         #expect(await f.talk.unavailable.http)
@@ -365,6 +411,29 @@ func feed(_ continuation: AsyncStream<PCMFrame>.Continuation, count: Int, sample
         #expect(await f.talk.probeBackchannel())
         f.talkCamera.state.withLockedValue { $0.rtspSDP = "v=0\r\nm=video 0 RTP/AVP 96\r\na=control:trackID=0\r\n" }
         #expect(await !f.talk.probeBackchannel())
+    }
+
+    /// Every request the plugin sent on port 554, as text.
+    func rtspRequests(_ f: Fixture) -> [String] {
+        f.talkCamera.connections(port: 554).flatMap(\.allSends).filter { $0.first != 0x24 }.map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    @Test func digestIsPreferredToBasic() async {
+        // Basic offered first, Digest second: the answer is Digest's, the password never goes in the clear.
+        let f = fixture()
+        f.talkCamera.state.withLockedValue {
+            $0.rtspChallenges = ["Basic realm=\"Login to \(f.camera.serial)\"", "Digest realm=\"Login to \(f.camera.serial)\", nonce=\"\(f.talkCamera.rtspNonce)\""]
+        }
+        #expect(await f.talk.probeBackchannel())
+        #expect(rtspRequests(f).contains { $0.contains("Authorization: Digest ") })
+        #expect(!rtspRequests(f).contains { $0.contains("Authorization: Basic ") })
+    }
+
+    @Test func basicOnlyWhenDigestIsNeverOffered() async {
+        let f = fixture()
+        f.talkCamera.state.withLockedValue { $0.rtspChallenges = ["Basic realm=\"old\""] }
+        _ = await f.talk.probeBackchannel()
+        #expect(rtspRequests(f).contains { $0.contains("Authorization: Basic ") })
     }
 }
 
