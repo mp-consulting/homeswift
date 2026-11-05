@@ -288,6 +288,26 @@ struct HTTPClientTests {
         }
     }
 
+    @Test func trustsACertificateAuthorityAndChecksTheServerName() async throws {
+        let server = try await TestServer(tls: true, behaviour: .echo)
+        defer { Task { await server.stop() } }
+        // Reached by its address, which the certificate (CN=localhost) does not name.
+        let url = URL(string: "https://127.0.0.1:\(server.port)/6/system")!
+        let root = TestCertificate.certificatePEM
+
+        let anyName = try await HTTPClient(tls: .authority(pem: root, serverName: nil)).send(HTTPRequest(url: url))
+        #expect(anyName.status == 200)
+        let named = try await HTTPClient(tls: .authority(pem: root, serverName: "localhost")).send(HTTPRequest(url: url))
+        #expect(named.status == 200)
+
+        await #expect(throws: (any Error).self) {
+            try await HTTPClient(tls: .authority(pem: root, serverName: "C43212345678")).send(HTTPRequest(url: url))
+        }
+        await #expect(throws: (any Error).self) {
+            try await HTTPClient(tls: .authority(pem: TestClientCertificate.certificatePEM, serverName: nil)).send(HTTPRequest(url: url))
+        }
+    }
+
     @Test func offersTheCipherSuitesItIsGiven() async throws {
         let server = try await TestServer(tls: true, behaviour: .echo)
         defer { Task { await server.stop() } }

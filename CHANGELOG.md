@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
   push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
   local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
   and `HomeswiftNetwork` `ARPTable.entries()`.
+- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
+  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
+  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
+  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
+  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
 ### Changed
 
 - A charging battery's gauge breathes rather than blinks, and its bolt pulses in opacity only, without growing and
