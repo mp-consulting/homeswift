@@ -65,6 +65,7 @@ HomeswiftI18n.add("pt", {
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
   "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Câmaras, campainhas, NVR e Home Hubs Reolink: vídeo em direto, movimento, pessoas e veículos, projetores",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
+  "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "A sincronização, os modos, as entradas e as áreas de entretenimento de uma Sync Box HDMI",
   "IMOU cameras and doorbells on the local network, with the IMOU cloud's privacy mode and siren": "Câmaras e campainhas IMOU na rede local, com o modo de privacidade e a sirene da nuvem IMOU",
   "Magic Home Wi-Fi lights, LED controllers and sockets on the local network": "Luzes, controladores LED e tomadas Wi-Fi Magic Home na rede local",
   "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Carros Renault, Dacia e Alpine: bateria, carregamento, climatização, buzina e luzes",

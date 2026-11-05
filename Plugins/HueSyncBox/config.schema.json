@@ -1,0 +1,386 @@
+{
+  "pluginAlias": "PhilipsHueSyncBoxPlatform",
+  "pluginType": "platform",
+  "singular": false,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Philips Hue Sync Box",
+        "description": "Shown in the log only."
+      },
+      "syncBoxIpAddress": {
+        "title": "Sync Box Address",
+        "type": "string",
+        "placeholder": "192.168.1.50",
+        "description": "The Sync Box's IP address or host name on the local network. Setup fills it in."
+      },
+      "syncBoxUniqueId": {
+        "title": "Sync Box ID",
+        "type": "string",
+        "description": "The Sync Box's unique ID, which its certificate names. Setup fills it in; without it, any certificate Philips signed is accepted until the Sync Box tells it."
+      },
+      "defaultOnMode": {
+        "title": "Mode When Turned On",
+        "type": "string",
+        "default": "video",
+        "description": "The mode a HomeKit \"on\" starts.",
+        "oneOf": [
+          {
+            "title": "Video",
+            "enum": [
+              "video"
+            ]
+          },
+          {
+            "title": "Music",
+            "enum": [
+              "music"
+            ]
+          },
+          {
+            "title": "Game",
+            "enum": [
+              "game"
+            ]
+          },
+          {
+            "title": "Last sync mode",
+            "enum": [
+              "lastSyncMode"
+            ]
+          }
+        ]
+      },
+      "defaultOffMode": {
+        "title": "Mode When Turned Off",
+        "type": "string",
+        "default": "passthrough",
+        "description": "The mode a HomeKit \"off\" sets.",
+        "oneOf": [
+          {
+            "title": "Passthrough",
+            "enum": [
+              "passthrough"
+            ]
+          },
+          {
+            "title": "Power save",
+            "enum": [
+              "powersave"
+            ]
+          }
+        ]
+      },
+      "baseAccessory": {
+        "title": "Sync Accessory",
+        "type": "string",
+        "default": "lightbulb",
+        "description": "What starts and stops syncing in HomeKit.",
+        "oneOf": [
+          {
+            "title": "Lightbulb, with the brightness",
+            "enum": [
+              "lightbulb"
+            ]
+          },
+          {
+            "title": "Switch",
+            "enum": [
+              "switch"
+            ]
+          },
+          {
+            "title": "None",
+            "enum": [
+              "none"
+            ]
+          }
+        ]
+      },
+      "powerSwitchAccessory": {
+        "title": "Power Switch",
+        "type": "boolean",
+        "default": false,
+        "description": "A switch that wakes the Sync Box (passthrough) and puts it in power save."
+      },
+      "tvAccessory": {
+        "title": "HDMI Inputs TV",
+        "type": "boolean",
+        "default": false,
+        "description": "A television whose inputs are the four HDMI inputs. Add it in the Home app with the bridge's setup code."
+      },
+      "modeTvAccessory": {
+        "title": "Modes TV",
+        "type": "boolean",
+        "default": false,
+        "description": "A television whose inputs are the modes: video, music, game, passthrough and power save."
+      },
+      "intensityTvAccessory": {
+        "title": "Intensities TV",
+        "type": "boolean",
+        "default": false,
+        "description": "A television whose inputs are the intensities: subtle, moderate, high and intense."
+      },
+      "entertainmentTvAccessory": {
+        "title": "Entertainment Areas TV",
+        "type": "boolean",
+        "default": false,
+        "description": "A television whose inputs are the Hue Bridge's entertainment areas."
+      },
+      "treatPassthroughAsOffForTv": {
+        "title": "Passthrough Turns the TVs Off",
+        "type": "boolean",
+        "default": false,
+        "description": "The televisions show as off in passthrough, not only in power save."
+      },
+      "updateIntervalInSeconds": {
+        "title": "Update Interval (seconds)",
+        "type": "integer",
+        "default": 5,
+        "minimum": 1,
+        "description": "How often the Sync Box's state is read."
+      },
+      "uuidSeed": {
+        "title": "Accessory ID Seed",
+        "type": "string",
+        "description": "Added to every accessory's ID, so several Sync Boxes stay apart. Changing it makes new accessories in HomeKit."
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "accessoryType": {
+        "title": "Icon",
+        "type": "string",
+        "x-kinds": [
+          "tv"
+        ],
+        "description": "How the Home app shows this television.",
+        "oneOf": [
+          {
+            "title": "Television",
+            "enum": [
+              "tv"
+            ]
+          },
+          {
+            "title": "Set-top box",
+            "enum": [
+              "settopbox"
+            ]
+          },
+          {
+            "title": "Streaming stick",
+            "enum": [
+              "tvstick"
+            ]
+          },
+          {
+            "title": "Audio receiver",
+            "enum": [
+              "audioreceiver"
+            ]
+          }
+        ]
+      },
+      "lightbulb": {
+        "title": "Lightbulb",
+        "type": "boolean",
+        "x-kinds": [
+          "tv"
+        ],
+        "description": "A lightbulb on this television that starts and stops syncing and sets the brightness."
+      }
+    }
+  },
+  "layout": [
+    "name",
+    "baseAccessory",
+    "defaultOnMode",
+    "defaultOffMode",
+    {
+      "type": "fieldset",
+      "title": "More accessories",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "powerSwitchAccessory",
+        "tvAccessory",
+        "modeTvAccessory",
+        "intensityTvAccessory",
+        "entertainmentTvAccessory",
+        "treatPassthroughAsOffForTv"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "syncBoxIpAddress",
+        "syncBoxUniqueId",
+        "updateIntervalInSeconds",
+        "uuidSeed"
+      ]
+    }
+  ],
+  "i18n": {
+    "fr": {
+      "A lightbulb on this television that starts and stops syncing and sets the brightness.": "Une ampoule sur ce téléviseur qui lance et arrête la synchronisation et règle la luminosité.",
+      "A switch that wakes the Sync Box (passthrough) and puts it in power save.": "Un interrupteur qui réveille la Sync Box (transfert direct) et la met en économie d'énergie.",
+      "A television whose inputs are the Hue Bridge's entertainment areas.": "Un téléviseur dont les entrées sont les zones de divertissement du pont Hue.",
+      "A television whose inputs are the four HDMI inputs. Add it in the Home app with the bridge's setup code.": "Un téléviseur dont les entrées sont les quatre entrées HDMI. Ajoutez-le dans l'app Maison avec le code de configuration du pont.",
+      "A television whose inputs are the intensities: subtle, moderate, high and intense.": "Un téléviseur dont les entrées sont les intensités : subtile, modérée, élevée et intense.",
+      "A television whose inputs are the modes: video, music, game, passthrough and power save.": "Un téléviseur dont les entrées sont les modes : vidéo, musique, jeu, transfert direct et économie d'énergie.",
+      "Access Token": "Jeton d'accès",
+      "Accessory ID Seed": "Graine des identifiants d'accessoires",
+      "Added to every accessory's ID, so several Sync Boxes stay apart. Changing it makes new accessories in HomeKit.": "Ajoutée à l'identifiant de chaque accessoire, pour distinguer plusieurs Sync Box. La changer crée de nouveaux accessoires dans HomeKit.",
+      "Advanced": "Avancé",
+      "Audio receiver": "Récepteur audio",
+      "Entertainment Areas TV": "Téléviseur des zones de divertissement",
+      "Game": "Jeu",
+      "HDMI Inputs TV": "Téléviseur des entrées HDMI",
+      "How often the Sync Box's state is read.": "La fréquence de lecture de l'état de la Sync Box.",
+      "How the Home app shows this television.": "Comment l'app Maison montre ce téléviseur.",
+      "Icon": "Icône",
+      "Intensities TV": "Téléviseur des intensités",
+      "Last sync mode": "Dernier mode de synchronisation",
+      "Lightbulb": "Ampoule",
+      "Lightbulb, with the brightness": "Ampoule, avec la luminosité",
+      "Mode When Turned Off": "Mode à l'extinction",
+      "Mode When Turned On": "Mode à l'allumage",
+      "Modes TV": "Téléviseur des modes",
+      "More accessories": "Autres accessoires",
+      "Music": "Musique",
+      "Name": "Nom",
+      "None": "Aucun",
+      "Passthrough": "Transfert direct",
+      "Passthrough Turns the TVs Off": "Le transfert direct éteint les téléviseurs",
+      "Power Switch": "Interrupteur d'alimentation",
+      "Power save": "Économie d'énergie",
+      "Set-top box": "Décodeur",
+      "Shown in the log only.": "Affiché dans le journal seulement.",
+      "Streaming stick": "Clé de streaming",
+      "Switch": "Interrupteur",
+      "Sync Accessory": "Accessoire de synchronisation",
+      "Sync Box Address": "Adresse de la Sync Box",
+      "Sync Box ID": "Identifiant de la Sync Box",
+      "Television": "Téléviseur",
+      "The Sync Box's IP address or host name on the local network. Setup fills it in.": "L'adresse IP ou le nom d'hôte de la Sync Box sur le réseau local. La configuration le remplit.",
+      "The Sync Box's unique ID, which its certificate names. Setup fills it in; without it, any certificate Philips signed is accepted until the Sync Box tells it.": "L'identifiant unique de la Sync Box, que son certificat nomme. La configuration le remplit ; sans lui, tout certificat signé par Philips est accepté jusqu'à ce que la Sync Box le donne.",
+      "The mode a HomeKit \"off\" sets.": "Le mode qu'un « éteindre » de HomeKit règle.",
+      "The mode a HomeKit \"on\" starts.": "Le mode qu'un « allumer » de HomeKit lance.",
+      "The televisions show as off in passthrough, not only in power save.": "Les téléviseurs apparaissent éteints en transfert direct, pas seulement en économie d'énergie.",
+      "The token the Sync Box gives when its button is pressed. Setup keeps it in the vault; a Homebridge block's token is read as it is.": "Le jeton que la Sync Box donne quand on appuie sur son bouton. La configuration le garde dans le coffre ; le jeton d'un bloc Homebridge est lu tel quel.",
+      "Update Interval (seconds)": "Intervalle de mise à jour (secondes)",
+      "Video": "Vidéo",
+      "What starts and stops syncing in HomeKit.": "Ce qui lance et arrête la synchronisation dans HomeKit."
+    },
+    "es": {
+      "A lightbulb on this television that starts and stops syncing and sets the brightness.": "Una bombilla en este televisor que inicia y detiene la sincronización y ajusta el brillo.",
+      "A switch that wakes the Sync Box (passthrough) and puts it in power save.": "Un interruptor que despierta la Sync Box (paso directo) y la pone en ahorro de energía.",
+      "A television whose inputs are the Hue Bridge's entertainment areas.": "Un televisor cuyas entradas son las zonas de entretenimiento del puente Hue.",
+      "A television whose inputs are the four HDMI inputs. Add it in the Home app with the bridge's setup code.": "Un televisor cuyas entradas son las cuatro entradas HDMI. Añádalo en la app Casa con el código de configuración del puente.",
+      "A television whose inputs are the intensities: subtle, moderate, high and intense.": "Un televisor cuyas entradas son las intensidades: sutil, moderada, alta e intensa.",
+      "A television whose inputs are the modes: video, music, game, passthrough and power save.": "Un televisor cuyas entradas son los modos: vídeo, música, juego, paso directo y ahorro de energía.",
+      "Access Token": "Token de acceso",
+      "Accessory ID Seed": "Semilla de los ID de accesorios",
+      "Added to every accessory's ID, so several Sync Boxes stay apart. Changing it makes new accessories in HomeKit.": "Se añade al ID de cada accesorio, para distinguir varias Sync Box. Cambiarla crea accesorios nuevos en HomeKit.",
+      "Advanced": "Avanzado",
+      "Audio receiver": "Receptor de audio",
+      "Entertainment Areas TV": "Televisor de zonas de entretenimiento",
+      "Game": "Juego",
+      "HDMI Inputs TV": "Televisor de entradas HDMI",
+      "How often the Sync Box's state is read.": "Cada cuánto se lee el estado de la Sync Box.",
+      "How the Home app shows this television.": "Cómo muestra la app Casa este televisor.",
+      "Icon": "Icono",
+      "Intensities TV": "Televisor de intensidades",
+      "Last sync mode": "Último modo de sincronización",
+      "Lightbulb": "Bombilla",
+      "Lightbulb, with the brightness": "Bombilla, con el brillo",
+      "Mode When Turned Off": "Modo al apagar",
+      "Mode When Turned On": "Modo al encender",
+      "Modes TV": "Televisor de modos",
+      "More accessories": "Más accesorios",
+      "Music": "Música",
+      "Name": "Nombre",
+      "None": "Ninguno",
+      "Passthrough": "Paso directo",
+      "Passthrough Turns the TVs Off": "El paso directo apaga los televisores",
+      "Power Switch": "Interruptor de encendido",
+      "Power save": "Ahorro de energía",
+      "Set-top box": "Decodificador",
+      "Shown in the log only.": "Solo se muestra en el registro.",
+      "Streaming stick": "Dispositivo de streaming",
+      "Switch": "Interruptor",
+      "Sync Accessory": "Accesorio de sincronización",
+      "Sync Box Address": "Dirección de la Sync Box",
+      "Sync Box ID": "ID de la Sync Box",
+      "Television": "Televisor",
+      "The Sync Box's IP address or host name on the local network. Setup fills it in.": "La dirección IP o el nombre de host de la Sync Box en la red local. La configuración la rellena.",
+      "The Sync Box's unique ID, which its certificate names. Setup fills it in; without it, any certificate Philips signed is accepted until the Sync Box tells it.": "El ID único de la Sync Box, que nombra su certificado. La configuración lo rellena; sin él, se acepta cualquier certificado firmado por Philips hasta que la Sync Box lo indique.",
+      "The mode a HomeKit \"off\" sets.": "El modo que fija un «apagar» de HomeKit.",
+      "The mode a HomeKit \"on\" starts.": "El modo que inicia un «encender» de HomeKit.",
+      "The televisions show as off in passthrough, not only in power save.": "Los televisores se muestran apagados en paso directo, no solo en ahorro de energía.",
+      "The token the Sync Box gives when its button is pressed. Setup keeps it in the vault; a Homebridge block's token is read as it is.": "El token que da la Sync Box cuando se pulsa su botón. La configuración lo guarda en la bóveda; el token de un bloque de Homebridge se lee tal cual.",
+      "Update Interval (seconds)": "Intervalo de actualización (segundos)",
+      "Video": "Vídeo",
+      "What starts and stops syncing in HomeKit.": "Lo que inicia y detiene la sincronización en HomeKit."
+    },
+    "pt": {
+      "A lightbulb on this television that starts and stops syncing and sets the brightness.": "Uma lâmpada neste televisor que inicia e para a sincronização e ajusta o brilho.",
+      "A switch that wakes the Sync Box (passthrough) and puts it in power save.": "Um interruptor que acorda a Sync Box (passagem direta) e a põe em poupança de energia.",
+      "A television whose inputs are the Hue Bridge's entertainment areas.": "Um televisor cujas entradas são as áreas de entretenimento da ponte Hue.",
+      "A television whose inputs are the four HDMI inputs. Add it in the Home app with the bridge's setup code.": "Um televisor cujas entradas são as quatro entradas HDMI. Adicione-o na app Casa com o código de configuração da ponte.",
+      "A television whose inputs are the intensities: subtle, moderate, high and intense.": "Um televisor cujas entradas são as intensidades: subtil, moderada, alta e intensa.",
+      "A television whose inputs are the modes: video, music, game, passthrough and power save.": "Um televisor cujas entradas são os modos: vídeo, música, jogo, passagem direta e poupança de energia.",
+      "Access Token": "Token de acesso",
+      "Accessory ID Seed": "Semente dos ID de acessórios",
+      "Added to every accessory's ID, so several Sync Boxes stay apart. Changing it makes new accessories in HomeKit.": "Acrescentada ao ID de cada acessório, para distinguir várias Sync Box. Alterá-la cria novos acessórios no HomeKit.",
+      "Advanced": "Avançado",
+      "Audio receiver": "Recetor de áudio",
+      "Entertainment Areas TV": "Televisor das áreas de entretenimento",
+      "Game": "Jogo",
+      "HDMI Inputs TV": "Televisor das entradas HDMI",
+      "How often the Sync Box's state is read.": "A frequência com que o estado da Sync Box é lido.",
+      "How the Home app shows this television.": "Como a app Casa mostra este televisor.",
+      "Icon": "Ícone",
+      "Intensities TV": "Televisor das intensidades",
+      "Last sync mode": "Último modo de sincronização",
+      "Lightbulb": "Lâmpada",
+      "Lightbulb, with the brightness": "Lâmpada, com o brilho",
+      "Mode When Turned Off": "Modo ao desligar",
+      "Mode When Turned On": "Modo ao ligar",
+      "Modes TV": "Televisor dos modos",
+      "More accessories": "Mais acessórios",
+      "Music": "Música",
+      "Name": "Nome",
+      "None": "Nenhum",
+      "Passthrough": "Passagem direta",
+      "Passthrough Turns the TVs Off": "A passagem direta desliga os televisores",
+      "Power Switch": "Interruptor de energia",
+      "Power save": "Poupança de energia",
+      "Set-top box": "Descodificador",
+      "Shown in the log only.": "Mostrado apenas no registo.",
+      "Streaming stick": "Dispositivo de streaming",
+      "Switch": "Interruptor",
+      "Sync Accessory": "Acessório de sincronização",
+      "Sync Box Address": "Endereço da Sync Box",
+      "Sync Box ID": "ID da Sync Box",
+      "Television": "Televisor",
+      "The Sync Box's IP address or host name on the local network. Setup fills it in.": "O endereço IP ou o nome de anfitrião da Sync Box na rede local. A configuração preenche-o.",
+      "The Sync Box's unique ID, which its certificate names. Setup fills it in; without it, any certificate Philips signed is accepted until the Sync Box tells it.": "O ID único da Sync Box, que o seu certificado nomeia. A configuração preenche-o; sem ele, qualquer certificado assinado pela Philips é aceite até a Sync Box o indicar.",
+      "The mode a HomeKit \"off\" sets.": "O modo que um «desligar» do HomeKit define.",
+      "The mode a HomeKit \"on\" starts.": "O modo que um «ligar» do HomeKit inicia.",
+      "The televisions show as off in passthrough, not only in power save.": "Os televisores aparecem desligados em passagem direta, não só em poupança de energia.",
+      "The token the Sync Box gives when its button is pressed. Setup keeps it in the vault; a Homebridge block's token is read as it is.": "O token que a Sync Box dá quando se prime o seu botão. A configuração guarda-o no cofre; o token de um bloco do Homebridge é lido tal como está.",
+      "Update Interval (seconds)": "Intervalo de atualização (segundos)",
+      "Video": "Vídeo",
+      "What starts and stops syncing in HomeKit.": "O que inicia e para a sincronização no HomeKit."
+    }
+  }
+}

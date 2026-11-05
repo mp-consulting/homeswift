@@ -45,6 +45,7 @@ let package = Package(
         .library(name: "HomeswiftIPCameras", targets: ["HomeswiftIPCameras"]),
         .library(name: "HomeswiftRing", targets: ["HomeswiftRing"]),
         .library(name: "HomeswiftAPsystemsECU", targets: ["HomeswiftAPsystemsECU"]),
+        .library(name: "HomeswiftHueSyncBox", targets: ["HomeswiftHueSyncBox"]),
         .library(name: "HomeswiftReolink", targets: ["HomeswiftReolink"]),
         .library(name: "HomeswiftImou", targets: ["HomeswiftImou"]),
         .library(name: "HomeswiftMagicHome", targets: ["HomeswiftMagicHome"]),
@@ -467,6 +468,11 @@ let package = Package(
             path: "Plugins/APsystemsECU/Sources"
         ),
         .target(
+            name: "HomeswiftHueSyncBox",
+            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
+            path: "Plugins/HueSyncBox/Sources"
+        ),
+        .target(
             name: "HomeswiftReolink",
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftFFmpeg",
@@ -518,7 +524,7 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftAPsystemsECU", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftRenault", "HomeswiftMagicHome", "HomeswiftImou", "HomeswiftReolink",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftAPsystemsECU", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftRenault", "HomeswiftMagicHome", "HomeswiftImou", "HomeswiftReolink", "HomeswiftHueSyncBox",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -911,6 +917,15 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/APsystemsECU/Tests"
+        ),
+        .testTarget(
+            name: "HueSyncBoxTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftHueSyncBox",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/HueSyncBox/Tests"
         ),
         .testTarget(
             name: "ReolinkTests",

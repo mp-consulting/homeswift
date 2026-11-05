@@ -12,6 +12,7 @@ import HomeswiftElgatoKeyLights
 import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
+import HomeswiftHueSyncBox
 import HomeswiftImou
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
@@ -76,6 +77,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
     registry.register(APsystemsECUPlugin.self)
+    registry.register(HueSyncBoxPlugin.self)
     registry.register(ReolinkPlugin.self)
     registry.register(ImouPlugin.self)
     registry.register(MagicHomePlugin.self)
