@@ -230,6 +230,9 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   schema, `core`, `readOnly` (a mirrored accessory's Name) and `default` `{setting, value}` when a Plugin Setting gives
   it a plugin-wide default; `kind` is its Device Kind, which decides the plugin's fields shown. For a plugin it answers
   its Plugin Settings (secrets as handles and MCP tokens redacted, as `get_config` gives them), its `schema` and `accessorySchema`.
+  With `bridge: true` they read and write the Bridge Settings that change without a restart: `location`, the Location
+  (`{latitude, longitude, name}`, `null` to forget it), answered with the next sunrise and sunset there; the bridge's
+  name, port and setup code stay `update_bridge_settings`'.
   `update_settings` merges `settings` into them (objects key by key, `null` clears a key) or, with `accessories`,
   settings by Accessory Id in one write; every key must be declared (Core, or the plugin's schema), its value is checked,
   and the answer gives each accessory's `settings` and the keys `changed`, and what reloaded. For an accessory with

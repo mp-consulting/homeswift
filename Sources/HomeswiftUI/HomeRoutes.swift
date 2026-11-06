@@ -18,7 +18,6 @@ import NIOHTTP1
 //   POST   /api/scenes/targets            {"ids"}: the hubs that could keep a scene of these lights
 //   POST   /api/scenes/hub                {"hub", "name", "actions"}: a new scene kept on that hub
 //   PUT    /api/scenes/<id>/hub           {"name"?, "fromCurrent"?}: a hub's scene renamed, or its lights kept as they are
-//   PUT    /api/scenes/location               where sunrise and sunset are computed for
 //   PUT    /api/scenes/<id>                   a scene changed
 //   DELETE /api/scenes/<id>                   a hub's scene too, from its hub
 //   POST   /api/scenes/<id>/run               {"confirmSecurity": true} once the person agreed to its locks and doors; a
@@ -103,8 +102,6 @@ extension UIServer {
             let result = try await catalog.updateHubScene(path[1], name: body["name"]?.stringValue, plan: nil, fromCurrent: body["fromCurrent"]?.boolValue == true, dryRun: false)
             logger.info("Web UI changed a hub's scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
             return .json(result)
-        case (.PUT, ["scenes", "location"]):
-            return .json(try catalog.setSceneLocation(body))
         case (.PUT, let path) where path.count == 2 && path[0] == "scenes":
             let scene = try catalog.updateScene(id: path[1], body)
             logger.info("Web UI changed a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])

@@ -258,14 +258,23 @@ extension HomeswiftCatalog {
                 throw CatalogError("\(key) must be a whole number from \(range.lowerBound) to \(range.upperBound), or null for the default")
             }
         }
+        return try await updateBridgeBlock(dryRun: dryRun) { bridge in
+            for (key, value) in settings {
+                if value.isNull || value.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == true { bridge.removeValue(forKey: key) } else { bridge[key] = value }
+            }
+        }
+    }
+
+    /// config.json's `bridge` block changed by `edit` and applied: the bridge's identity restarts homeswift, the Tariffs
+    /// and the Location do not. A change of the bridge block alone checks no plugin's schema.
+    func updateBridgeBlock(dryRun: Bool, by writer: ConfigWriter = .person, backup: Bool = true,
+                           _ edit: (inout [String: JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         var bridge = root["bridge"]?.objectValue ?? [:]
-        for (key, value) in settings {
-            if value.isNull || value.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == true { bridge.removeValue(forKey: key) } else { bridge[key] = value }
-        }
+        try edit(&bridge)
         root["bridge"] = .object(bridge)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: false, by: writer, backup: backup)
     }
 
     // MARK: Tools

@@ -9,6 +9,10 @@ its plugins and their accessories from the web UI, the command line and AI agent
 What a person sets for the bridge itself: its name, port, setup code and identity.
 _Avoid_: Global settings, server settings
 
+**Location**:
+A Bridge Setting: where the home is, for the times of the sun and the weather.
+_Avoid_: Coordinates, position, scene location
+
 **Plugin Settings**:
 What a person sets for one plugin instance as a whole, such as a host or a polling interval. Its account's
 credentials are not Plugin Settings: they come from Authorization, and change only by setting it up again.
