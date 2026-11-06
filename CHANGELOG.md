@@ -49,6 +49,12 @@ All notable changes to this project are documented here. The format follows
   getUpdates), Web Push actions in Chromium; elsewhere, and for a lock, a garage door or an alarm, a tap opens a
   confirmation page behind sign-in (`/notify/<id>`). Notifications' taps open their page on ntfy and Pushover too, at the
   new **Address in notifications**.
+- ESPHome: passive Bluetooth LE sensors through ESPHome's Bluetooth proxies: BTHome v2 (open, or encrypted with a
+  bindkey), Xiaomi MiBeacon (LYWSD03MMC and others on stock firmware, with their bindkey) and Govee thermometers (H5072,
+  H5074, H5075, the H5100 family, H5179). Each sensor heard is a Discovered Device of the kind `sensor` in Add
+  accessories, and asks for its bindkey when it encrypts; its temperature, humidity, light, CO₂, battery, motion,
+  occupancy, contact, leak, smoke and carbon monoxide, and BTHome buttons, become HomeKit services. A frame heard by
+  several proxies is read once, and a sensor unheard for `bluetoothTimeout` minutes (30) shows No Response.
 
 ### Changed
 
