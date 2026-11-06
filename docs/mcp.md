@@ -237,8 +237,9 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `suggestedRole`; `energyRoles` gives a Meter's Energy Role by its key (`solar`, `home`, `grid`, `battery`, or `none`
   for a single device's use; `null` gives back the plugin's suggestion), and counts from then on, the history kept as it
   was. Name, room, Hidden, Not in Home and Energy Roles apply at once without reloading the plugin; Excluded, Parts, Plugin Accessory Settings and Plugin Settings
-  reload it. A mirrored accessory's Name is read-only, and its room always moves on its hub; another accessory moves on
-  the hubs that keep rooms when Room Sync is on (`hubMoves`). It is not destructive as a whole: a Name, a room, Hidden,
+  reload it. A mirrored accessory's Name is read-only. Once the bridge is linked to Apple Home (`get_home_link`), a room
+  change moves the accessory there too (`appleHomeRefused` lists what Apple Home refused), and `separateFunctions` makes
+  each thing it does an accessory of its own there (a Function), so it can be grouped. It is not destructive as a whole: a Name, a room, Hidden,
   an Include and Plugin Accessory Settings apply without asking, while a change that Excludes an accessory, puts it Not
   in Home or changes its Parts, and every change of Plugin Settings, asks first ([Confirmations](#confirmations)), with
   its dry run's changes. `forget_device` (an `accessory`, `plugin.name` when its platform has several blocks) Forgets a
@@ -269,14 +270,23 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   in the web UI. What a device or a plugin says is wrapped in `<untrusted-data>`. `update_settings` with a device's
   `accessoryID` excludes it or includes it again (`excluded`) and includes or leaves out one of its parts (`parts`, by the
   part's id: a gate's side door, a door sensor, a camera's occupancy sensor).
-- **Rooms.** The Home app's rooms never reach a bridge; these are Homeswift's. An accessory's room is its `room`
+- **Rooms.** The Rooms are Apple Home's once the bridge is linked to it through the Home Link (Homeswift Wingman); until
+  then they are the bridge's own. An accessory's room is its `room`
   Accessory Setting (`update_settings`; a new name adds the room, `""` puts it in none). `get_accessory_layout` lists the
   rooms with their accessories (and `displayName`, `hidden`, `favourite`) and those in no room; `set_accessory_layout`
   changes the Arrangement (`accessory-layout.json`): it orders (`rooms`), renames (`renameRoom`, which every accessory's
-  `room` in it follows) or removes (`removeRooms`) rooms, and makes accessories Quick Controls (`favourite`). HomeKit is
-  not changed. `syncRoomNames: true` turns Room Sync on (a Bridge Setting, `bridge.roomSync` in config.json, off by
-  default, applied without a restart): a later `renameRoom` renames the rooms of the same name on the plugins' hubs too
-  (Philips Hue, IKEA DIRIGERA, eWeLink; case and accents aside), and `hubRooms` in the answer says what each hub did.
+  `room` in it follows) or removes (`removeRooms`) rooms, and makes accessories Quick Controls (`favourite`). A Room
+  created, renamed or removed is in Apple Home too: at once while the link is up, as a Pending Change while it is down,
+  refused while Apple Home does not let the bridge edit (`appleHomeRefused`). A `renameRoom` renames the rooms of the
+  same name on the plugins' hubs too (Philips Hue, IKEA DIRIGERA, eWeLink; case and accents aside), and `hubRooms` in
+  the answer says what each hub did. The order of the Rooms is the bridge's own.
+- **Zones.** `get_zones` lists Apple Home's sets of Rooms (Upstairs), each with its Rooms, a Room in several at most;
+  `set_zones` creates one (`create`), changes one (`zone` with `name`, `rooms` or `delete`) or orders them (`order`), in
+  Apple Home too. `list_accessories` and `set_accessories` take `zone`.
+- **The Home Link.** `get_home_link` says whether the link is `up`, `readOnly` (with the `reason`: what to turn on),
+  `down` (the Pending Changes waiting) or `none`; `linked` whether the bridge is linked to its home; `comparison`, what
+  its first link would change, waiting for `confirm_home_link` (destructive: it asks first); `refused`, what Apple Home
+  refused lately.
 - **The wall.** `get_wall_layout` answers the Accessories page's wall as it is drawn (`ui-layout.json`): its grouping,
   the sections in order with their accessories in order and the sizes chosen, the default size of each kind of
   widget, and the accessory groups where they stand. `set_wall_layout` arranges it: `groups` makes accessories that
@@ -320,9 +330,8 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   allow (`dryRun` shows the change); an action on a lock, a garage door or an alarm is refused, as are accessory triggers
   and conditions, which the Home app edits. `delete_hub_automation` removes one after the user confirms. New Apple Home
   automations are made in the Home app; Homeswift's own are its scenes with triggers.
-- **Apple Home's rooms.** With Room Sync on, `set_accessory_layout`'s `renameRoom` and an accessory's `room`
-  (`update_settings`) reach the Home app through Wingman (`hubRooms`, `hubMoves` say what each hub did); an accessory of
-  Apple Home's own moves there whether Room Sync is on or not.
+- **Apple Home's rooms, zones and groups** are the bridge's own through the Home Link: see Rooms, Zones and the wall.
+  A group follows the Home app's rules: accessories of one kind, each doing one thing, all in Apple Home.
 - **How scenes change lights.** Only lightbulbs move in an animation, never a security control. Homeswift's player
   writes every light of a step at the same time, at least a quarter of a second a step since many lights fade; a scene
   started on lights another plays on takes them over and puts them back as they were before the first; one that takes

@@ -330,7 +330,7 @@ extension HomeswiftCatalog {
     /// Accessory Settings left out). A write that changes what some plugin reads keeps a backup of config.json, which is
     /// what a person restores after a change of Plugin Settings, an Exclude, Parts or the first canonical shape of a
     /// block in Homebridge's shape; one that changes only live settings (a Name, a room, Hidden, Not in Home: a Home app
-    /// rename, Room Sync's move) keeps none, so those never push the restorable ones out of the last 20. A block whose
+    /// rename, a move Apple Home made) keeps none, so those never push the restorable ones out of the last 20. A block whose
     /// plugin would read only its canonical shape anew keeps its plugin running (`PluginHost.CanonicalMove`).
     struct BlockWrite {
         let platform: String
@@ -820,7 +820,8 @@ extension HomeswiftCatalog {
                     + "and a null clears a key (the default again). Every key must be one get_settings lists. "
                     + "An accessory's name (in Apple Home too), room (a new name adds the room; \"\" for none), hidden (off the web UI's wall) and notInHome (out of Apple Home, "
                     + "which loses its room, scenes and automations) apply at once; excluded, parts and the plugin's own settings reload the plugin, as Plugin Settings do. "
-                    + "A mirrored accessory's name is read-only. With Room Sync on, an accessory moved to a room moves on the hubs that keep rooms (hubMoves); a mirrored one always does. "
+                    + "A mirrored accessory's name is read-only. Once the bridge is linked to Apple Home (get_home_link), an accessory moved to a room, or to none, moves in Apple Home too "
+                    + "(appleHomeRefused lists what it refused); separateFunctions makes each thing it does an accessory of its own there, so it can be grouped. "
                     + "accessories, an object of settings by Accessory Id, changes several accessories in one write. Answers each accessory's settings and the keys that changed, "
                     + "and what reloaded. dryRun previews.",
                 inputSchema: ["type": "object", "properties": .object(address.merging([

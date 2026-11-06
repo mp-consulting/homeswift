@@ -284,7 +284,14 @@ does nothing for it, but should not set Name or Configured Name again on its own
 An accessory that shows several services gets a Configured Name, its Name without the accessory's name in front
 (`Desk Candle` on `Desk` gives `Candle`), on each of the others that has none: the Home app names an accessory's other
 services by their Configured Name, inside the accessory, and numbers those without one ("Switch 1", "Switch 2"). A plugin may give one itself; the primary service gets one only with a `name`, as above.
-`bridge.roomSync` is Room Sync (GLOSSARY.md), which needs no restart.
+`bridge.roomSync`, the retired Room Sync, is read and ignored: the Rooms follow Apple Home through the Home Link.
+
+**Separate Functions.** An accessory doing several things (a light with a motion sensor) can be published Function by
+Function when a person asks (`separateFunctions`, a Core Accessory Setting applied live): the runtime keeps the device's
+own accessory with its main Function under its id, and makes each other Function an accessory of its own
+(`<id>:<function>`), the plugin's services moved, so its handlers and events keep working; `context.accessories` and
+the cache keep the plugin's accessory whole. A camera, a doorbell, a television and a remote's buttons stay whole; a
+plugin says which other Functions must stay together with `accessory.keepFunctionsTogether([light, sensor])`.
 `disabledPlugins` lists platform names to skip; their accessories leave HomeKit. Homebridge's `accessories`
 blocks are not supported.
 

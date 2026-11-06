@@ -1,7 +1,7 @@
 import Foundation
 import HomeswiftPlugin
 
-// The hubs' rooms, renamed when a room of the same name is renamed in Homeswift (`syncRoomNames`): lpgera/dirigera's
+// The hubs' rooms, renamed when a Room of the same name is renamed in Homeswift (`HubRooms.swift`): lpgera/dirigera's
 // rooms API.
 extension DirigeraPlugin {
     /// Every connected hub's rooms, asked now. The id names the hub too (`<room id>@<hub>`): several hubs may be set up.

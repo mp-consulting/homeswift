@@ -2,8 +2,8 @@ import Foundation
 import HomeswiftPlugin
 
 extension PhilipsHuePlugin {
-    /// The bridge's rooms (not its zones, which cross rooms), for Homeswift to rename the one named like a room renamed
-    /// there (`syncRoomNames`).
+    /// The bridge's rooms (not its zones, which cross rooms and are no Zones), for Homeswift to rename the one named like
+    /// a Room renamed there (`HubRooms.swift`).
     public func rooms() async -> [PluginRoom] {
         guard client != nil else { return [] }
         return snapshot.groups.filter { $0.kind == "room" }.map { PluginRoom(id: $0.id, name: $0.name) }

@@ -161,7 +161,7 @@ point to the card and never to ask for the secret in the chat.
 
 With the Wingman plugin, the Assistant works on Apple Home too (`chat.md`, and Wingman's `assistantBackground`): "move
 the lamp to the kitchen in Apple Home" through `update_settings` (the lamp's room) and "rename the Salon room" through
-`set_accessory_layout` while Room Sync (`syncRoomNames`) is on; "make a Movie scene" kept in Apple Home through `save_scene`'s `hub`, and its scenes run, renamed or removed with
+`set_accessory_layout`, both reaching the Home app through the Home Link (a first link waiting is confirmed only once the user agrees, `confirm_home_link`); "make a Movie scene" kept in Apple Home through `save_scene`'s `hub`, and its scenes run, renamed or removed with
 `run_scene`, `update_hub_scene` and `delete_hub_scene`; its automations listed, turned on or off, renamed, moved in
 time or given other scenes and actions with `list_hub_automations` and `update_hub_automation`, and removed with
 `delete_hub_automation`, which asks first. "Turn the porch light on at sunset" changes an Apple Home automation that

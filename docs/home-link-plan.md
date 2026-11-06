@@ -5,6 +5,25 @@ Rooms, Zones and Groups; the bridge keeps a linked copy) and [ADR 0006](adr/0006
 (the bridge separates an accessory's Functions). The words are in [GLOSSARY.md](../GLOSSARY.md): Home, Room, No Room,
 Zone, Group, Home Link, Pending Change, Function, Separate Functions.
 
+## Status
+
+Built, on branch `feat/home-link` (homeswift) and `feat/home-link` (homeswift-wingman, phase 3):
+
+| Phase | State |
+|---|---|
+| 0. Clean the Wingman checkout | Left to a person: the phase 3 work is in its own worktree, the conflicted checkout untouched |
+| 1. Spike on a real home | **Not run.** Every HomeKit behaviour below is written to the API's documentation, not yet tried on a home |
+| 2. Unique serials, the bridge by its serial | Done |
+| 3. Wingman's `home-link` API | Done (DemoStore and loopback tests; the app builds unsigned). Create edits take a `home` |
+| 4. The linked copy | Done: `home.json` (`HomeLinkFile`) links the layout's Rooms, the Zones and the wall's Groups |
+| 5. Wingman as the Home Link | Done, but one Wingman per Home is chosen by connection and id, not the TXT `home` hash |
+| 6. Rooms over the link, Room Sync retired | Done |
+| 7. The first link's comparison | Done: it applies Apple Home's placements with the defaults, no choice per accessory |
+| 8. Zones | Done, as a filter of the wall rather than a grouping level of its own |
+| 9. Groups | Done |
+| 10. Separate Functions | Done; wall order, Quick Controls and scenes that name a moved Function are not moved with it |
+| 11. Release | Not done |
+
 ## Goal
 
 One definition of the Rooms, Zones and Groups, shared by Homeswift and the Home app:

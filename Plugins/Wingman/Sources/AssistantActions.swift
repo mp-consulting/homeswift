@@ -32,9 +32,9 @@ extension WingmanPlugin {
         signing). Never ask for the token. When Wingman serves Apple Home's structure (and its owner turned on "Let bridges \
         edit rooms, scenes and automations"), Apple Home's scenes are hub scenes (list_scenes, run_scene, update_hub_scene, \
         delete_hub_scene, save_scene with its hub), its automations are list_hub_automations, update_hub_automation and \
-        delete_hub_automation, and with Room Sync (syncRoomNames) on, renaming a room with set_accessory_layout or moving an \
-        accessory with update_settings does the same in the Home app, and the other way round; an accessory of Apple Home's \
-        own always moves there. "structural edits are turned off in \
+        delete_hub_automation. Wingman is the Home Link: the bridge's Rooms, Zones and Groups are Apple Home's (get_home_link), \
+        so renaming a room with set_accessory_layout, moving an accessory with update_settings, changing a zone with \
+        set_zones or a group with set_wall_layout does the same in the Home app, and the other way round. "structural edits are turned off in \
         Wingman's settings" means that setting is off; "only an administrator of the home can change it" means the Mac's \
         Apple Account is not an administrator of that home. Built-in scenes (Good Morning and the like) cannot be renamed \
         or deleted; automations' accessory triggers and conditions, and new automations, are made in the Home app.

@@ -108,7 +108,7 @@ extension HomeswiftCatalog {
     }
 
     /// Changes the layout as `updateLayout(_:by:)` says, then the Accessory Settings that name a room renamed or removed
-    /// and Room Sync, in one write of config.json; answers the room renamed.
+    /// in one write of config.json; answers what changed.
     private func applyLayout(_ body: JSONValue) async throws -> LayoutChange {
         func cleanName(_ value: String) throws -> String {
             let name = value.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -83,14 +83,13 @@ The plugin's MCP tool is `Wingman_list_wingmen`; Setup's `discover_devices` and 
 A Wingman that serves Apple Home's structure (its `/info` lists the `structure` feature; docs/apple-home-design.md)
 also gives Homeswift:
 
-- **Rooms**: with **Sync rooms with the hubs** on (the Accessories page's **Rooms** menu), rooms stay in step both
-  ways. A room renamed in Homeswift is renamed in Apple Home, and one renamed in the Home app renames Homeswift's room
-  of the old name (and the other hubs' with it). An accessory moved to another room in Homeswift moves to Apple Home's
-  room of that name (added when there is none), and one moved in the Home app moves in Homeswift. Mirrored accessories
-  are known by their HomeKit id, Homeswift's own by their serial number behind Homeswift's bridge (so a hub's light
-  Apple Home also has is never taken for Homeswift's), or among the accessories it publishes on their own; one taken out
-  of every room in Homeswift stays
-  where it is in Apple Home.
+- **Rooms, zones and groups** (the Home Link, with a Wingman that has `home-link`): the bridge's Rooms, Zones and Groups
+  are those of its home in Apple Home (the one whose accessories include Homeswift's bridge). A room renamed, created
+  or removed, an accessory moved, a zone or a group changed on either side is so on the other, by HomeKit id; while
+  Wingman is not reachable Homeswift's changes wait for it, and while **Let bridges edit rooms, scenes and automations**
+  is off they are refused. Mirrored accessories are known by their HomeKit id, Homeswift's own by their serial number
+  behind Homeswift's bridge (so a hub's light Apple Home also has is never taken for Homeswift's), or among the
+  accessories it publishes on their own. Only that home's accessories are mirrored, unless `homes` names others.
 - **Scenes**: Apple Home's scenes join **Scenes from your hubs**, in the room of their accessories when they share one.
   Run them, and from their ⋯ menu rename them, keep their lights as they are (their other actions stay) or delete them.
   A new scene of lights that are all in one Apple Home home can be kept there. Built-in scenes (Good Morning and the

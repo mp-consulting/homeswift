@@ -216,21 +216,27 @@ screenshots, and what a plugin does to get good ones.
   accessories that answer, **Online** (`?online=1`: neither No Response nor paused), or those that do not, **No Response**
   (`?unavailable=1`); choosing one clears the other. The Arrangement is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`), where older versions also kept rooms, Hidden and
-  display names: those are read until the accessory's settings are next written, which moves them there. The Home app never sees it; the MCP tools do:
-  `list_accessories` and `set_accessories` filter by these rooms.
-- **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
+  display names: those are read until the accessory's settings are next written, which moves them there. The order of the
+  Rooms is the bridge's own; the MCP tools filter by the Rooms (`list_accessories`, `set_accessories`), and by the Zones
+  too (`?zone=<name>` on the wall, among the **Filters**).
+- **Rooms and Apple Home**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
   Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
-  that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
-  one too (choose it). Its **Sync rooms with the hubs** switch, Room Sync, off until turned on (`roomSync` in config.json's
-  bridge block, applied without a restart), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
-  an IKEA DIRIGERA hub, an eWeLink home or Apple Home (through Wingman) named as the room was, case and accents aside,
-  is renamed with it, and the log says so (`Room "Salon" renamed "Lounge" on Hue`). From Apple Home it goes both ways:
-  a room renamed in the Home app renames Homeswift's room of the old name, and the other hubs' with it. A room renamed
-  in the Hue, IKEA or eWeLink app stays as Homeswift has it. With Apple Home the switch moves accessories too, both
-  ways: an accessory moved to another room here (a tile dragged, a room chosen) moves to Apple Home's room of that name,
-  which Wingman adds when there is none, and one moved in the Home app moves here. An accessory taken out of every room
-  stays where it is in Apple Home. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
-  Homeswift all the same.
+  that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu
+  orders the rooms (drag them), renames one (choose it), opens **Zones…** (Apple Home's sets of rooms, such as
+  Upstairs: a name and its rooms each, a room in several at most) and says where the rooms stand with Apple Home. With
+  Homeswift Wingman paired (the Home Link), the Rooms, Zones and Groups are Apple Home's: a room renamed, created or
+  removed here, an accessory moved, a zone or a group changed is in the Home app too, and the other way round; while
+  Wingman is not reachable the changes wait and reach Apple Home when it is back; while Wingman's owner does not let
+  bridges edit, a change here is refused and says what to turn on. A bridge that has rooms of its own when it first
+  meets its home shows a banner: **Review** lists what linking changes (the rooms made in Apple Home, those taken from
+  it, the accessories that move: Apple Home's room wins, but one in no room there keeps the bridge's) and **Link**
+  makes it so. A renamed room's new name also reaches the rooms of that name on a Philips Hue Bridge, an IKEA DIRIGERA
+  hub and an eWeLink home, case and accents aside, and the log says so (`Room "Salon" renamed "Lounge" on Hue`); a room
+  renamed in the Hue, IKEA or eWeLink app stays as Homeswift has it. Govee keeps no rooms its API can reach. A hub that
+  refuses says why; the room is renamed in Homeswift all the same.
+- **Separate Functions**, in an accessory's settings (**Where it shows**), for one that does several things (a light with
+  a motion sensor): each thing becomes an accessory of its own in Apple Home, with its own name, room and group, which
+  the Home app needs to group it. It asks first: Apple Home's scenes and automations on what moves need redoing.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you
   do not want, then **Apply** saves the rooms and the names as the accessories' settings (a name is its Name, in the
@@ -621,7 +627,7 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
     keeping this machine's bridge and web UI ports. Files the backup does not have stay.
   - **config.json backups**: the file before each of its last 20 saves, each compared with the file as it is (a diff)
     or restored. A settings write that changes only an accessory's Name, room, Hidden or Not in Home (a rename in the
-    Home app, a move Room Sync follows) keeps none.
+    Home app, a move Apple Home made) keeps none.
 - **Vault** (docs/vault-design.md), for administrators:
 
   ![Settings › Vault: a secret still in config.json, and the entries](images/ui/vault.png)

@@ -46,6 +46,23 @@ All notable changes to this project are documented here. The format follows
   them; `standalone: true` on a device keeps each lens on a HAP server of its own, added in the Home app one by one. A
   camera added before shows as a new accessory on the bridge: remove its old one from the Home app.
 
+- One room definition with Apple Home: through the Home Link (Homeswift Wingman with its `home-link` feature), the
+
+  bridge's Rooms, Zones and Groups are those of its home in Apple Home, kept in step both ways by HomeKit id. A change
+  made in Homeswift reaches the Home app at once, waits as a Pending Change while Wingman is not reachable, and is
+  refused, saying what to turn on, while Apple Home does not let the bridge edit. A bridge with rooms of its own waits
+  for a person to review its first link (the Accessories page's banner, `get_home_link` and `confirm_home_link`). No Room
+  is Apple Home's Default Room. Room Sync is retired: other hubs' rooms (Philips Hue, DIRIGERA, eWeLink) follow a Room's
+  renames, always. The design is docs/adr/0005 and docs/home-link-plan.md, the words GLOSSARY.md's Home section.
+- Zones: Apple Home's sets of rooms, edited from the Rooms menu's **Zones…** or `get_zones`/`set_zones`, and a filter on
+  the wall and in `list_accessories`/`set_accessories` (`zone`).
+- Groups follow Apple Home's rules (accessories of one kind, each doing one thing, all in Apple Home) and are made, renamed
+  and changed there too.
+- Separate Functions (docs/adr/0006): an accessory doing several things, such as a light with a motion sensor, can have
+  each Function published as an accessory of its own, live, so Apple Home can group it and put each in its own room. A
+  camera, a doorbell, a television and a remote's buttons stay whole; plugins keep others together with
+  `Accessory.keepFunctionsTogether`. Matter keeps the accessory whole.
+
 ### Fixed
 
 - Rooms through Wingman: Homeswift's own accessories are found in Apple Home by their serial number behind Homeswift's

@@ -1,7 +1,7 @@
 import Foundation
 import HomeswiftPlugin
 
-// The account's rooms, renamed when a room of the same name is renamed in Homeswift (`syncRoomNames`).
+// The account's rooms, renamed when a Room of the same name is renamed in Homeswift (`HubRooms.swift`).
 extension EWeLinkPlugin {
     /// The rooms of every home of the account, asked now through the platform's session; none before it logged in.
     public func rooms() async -> [PluginRoom] {
