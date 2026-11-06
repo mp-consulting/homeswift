@@ -99,8 +99,9 @@ public actor ESPHomePlugin: HomeswiftPlugin {
     }
 
     public static func deviceID(ofAccessory suffix: String) -> String? {
-        // `<name>@<MAC>` and `<name>@<MAC>#<key>` (a Bluetooth sensor's `ble@<MAC>`); a bare name belongs to whichever
-        // device claimed it.
+        // A Bluetooth sensor's is its MAC.
+        if MACAddress.canonical(suffix) == suffix { return suffix }
+        // `<name>@<MAC>` and `<name>@<MAC>#<key>`; a bare name belongs to whichever device claimed it.
         guard let at = suffix.lastIndex(of: "@") else { return nil }
         return MACAddress.canonical(String(suffix[suffix.index(after: at)...].prefix { $0 != "#" }))
     }
@@ -261,9 +262,8 @@ public actor ESPHomePlugin: HomeswiftPlugin {
         let macs = Set(setups.map(\.mac))
         for accessory in context.accessories {
             let suffix = String(accessory.id.dropFirst(Self.platform.count + 1))
-            // An entity named `ble` gets `ble@<its device's MAC>` too: the directory says which it is.
-            guard suffix.hasPrefix(BluetoothSensor.idPrefix), let mac = Self.deviceID(ofAccessory: suffix), !macs.contains(mac),
-                  !directory.isClaimed(suffix) else { continue }
+            // An entity named like a MAC is a device's, not a sensor's: the directory says which it is.
+            guard MACAddress.canonical(suffix) == suffix, !macs.contains(suffix), !directory.isClaimed(suffix) else { continue }
             logger.info("Removing \(accessory.name): its Bluetooth sensor is no longer set up")
             try? await context.remove(id: accessory.id)
         }

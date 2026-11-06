@@ -228,12 +228,12 @@ struct BluetoothPluginTests {
         environment.transport.add(garage, at: "garage.local")
         let host = try await environment.start(settings: [
             "devices": [["host": "hall.local"], ["host": "garage.local"]],
-            "_accessories": [thermometer: ["format": "bthome"]],
+            "_accessories": [thermometer: ["format": "bthome", "name": "Hallway"]],
         ])
         defer { Task { await host.stop() } }
         #expect(await eventually { subscribed(hall) && subscribed(garage) })
 
-        let id = "esphome:ble@\(thermometer)"
+        let id = "esphome:\(thermometer)"
         let reading = rawAdvertisement(serviceData: (0xFCD2, [0x40, 0x00, 0x07, 0x01, 0x5D, 0x02, 0xCA, 0x09, 0x03, 0xBF, 0x13, 0x3A, 0x00]))
         hall.push(rawAdvertisements([(thermometer, -80, reading)]))
         garage.push(rawAdvertisements([(thermometer, -50, reading)]))
@@ -244,6 +244,8 @@ struct BluetoothPluginTests {
         #expect(accessory.service(.statelessProgrammableSwitch) != nil)
         #expect(accessory.information.characteristic(.serialNumber).value == .string("A4C138000001"))
         #expect(accessory.information.characteristic(.manufacturer).value == .string("BTHome"))
+        // Its Accessory Settings' name, by its Device Id: the accessory id is `<platform>:<MAC>`.
+        #expect(accessory.information.characteristic(.name).value == .string("Hallway"))
         let plugin = try #require(environment.plugin)
         // Heard twice, read once; the loudest proxy is the one it is nearest.
         #expect(await eventually { await plugin.bluetooth.heard[thermometer]?.proxy == "garage.local:6053" })
@@ -316,14 +318,14 @@ struct BluetoothPluginTests {
         defer { Task { await host.stop() } }
         #expect(await eventually { subscribed(hall) })
         hall.push(rawAdvertisements([(mac, -60, rawAdvertisement(serviceData: (0xFCD2, Hex.bytes("41a47266c95f730011223378237214")!)))]))
-        #expect(await eventually { shows(host.accessory("esphome:ble@\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.06) })
-        #expect(ESPHomePlugin.deviceID(ofAccessory: "ble@\(mac)") == mac)
+        #expect(await eventually { shows(host.accessory("esphome:\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.06) })
+        #expect(ESPHomePlugin.deviceID(ofAccessory: mac) == mac)
 
         // A later frame is read; an open one, and an older one replayed, are not.
         let plugin = try #require(environment.plugin)
         let later = try sealedBTHome(mac: mac, objects: [0x02, 0xB8, 0x0B], counter: 0x3322_1101, key: bthomeKey)
         hall.push(rawAdvertisements([(mac, -60, rawAdvertisement(serviceData: (0xFCD2, later)))]))
-        let temperature = host.accessory("esphome:ble@\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature)
+        let temperature = host.accessory("esphome:\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature)
         #expect(await eventually { shows(temperature, 30) })
         let older = try sealedBTHome(mac: mac, objects: [0x02, 0xE8, 0x03], counter: 0x3322_1000, key: bthomeKey)
         hall.push(rawAdvertisements([
@@ -348,15 +350,15 @@ struct BluetoothPluginTests {
         #expect(await eventually { subscribed(hall) })
         let reading = rawAdvertisement(serviceData: (0xFCD2, [0x40, 0x02, 0xCA, 0x09]))
         hall.push(rawAdvertisements([(thermometer, -60, reading), (excluded, -60, reading)]))
-        #expect(await eventually { first.accessory("esphome:ble@\(thermometer)")?.service(.temperatureSensor) != nil })
-        #expect(first.accessory("esphome:ble@\(excluded)") == nil)
+        #expect(await eventually { first.accessory("esphome:\(thermometer)")?.service(.temperatureSensor) != nil })
+        #expect(first.accessory("esphome:\(excluded)") == nil)
         await first.stop()
 
         var off = settings
         off["bluetooth"] = false
         let host = try await environment.start(settings: off)
         defer { Task { await host.stop() } }
-        let restored = try #require(host.accessory("esphome:ble@\(thermometer)"))
+        let restored = try #require(host.accessory("esphome:\(thermometer)"))
         #expect(shows(restored.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.06))
         #expect(restored.isUnavailable)
         #expect(await eventually { hall.connections == 2 && hall.isConnected })

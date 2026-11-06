@@ -250,9 +250,8 @@ final class BluetoothSensor {
         lastHeard = heardAt
     }
 
-    /// `esphome:ble@<MAC>`: the shape of an entity's `<name>@<MAC>`, whose MAC is its Device Id.
-    var id: String { "\(ESPHomePlugin.platform):\(Self.idPrefix)\(setup.mac)" }
-    static let idPrefix = "ble@"
+    /// `esphome:<MAC>`: `<platform>:<Device Id>`, which the runtime reads the Accessory Settings (its name) by.
+    var id: String { "\(ESPHomePlugin.platform):\(setup.mac)" }
 
     /// The Serial Number: the MAC, uppercase, without separators.
     static func serialNumber(_ mac: String) -> String { mac.replacingOccurrences(of: ":", with: "") }

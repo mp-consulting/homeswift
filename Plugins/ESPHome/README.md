@@ -46,7 +46,7 @@ within 5 seconds), and the loudest proxy of the last minute is the one it is nea
 | BTHome button events | A Stateless Programmable Switch per button: press, double press, long press (and hold) |
 
 The accessory gets a service for each value as the sensor first sends it, so a Xiaomi sending its temperature,
-humidity and battery in turn has its three within a minute or two. Its id is `esphome:ble@<MAC>`, its Serial Number the MAC
+humidity and battery in turn has its three within a minute or two. Its id is `esphome:<MAC>`, its Serial Number the MAC
 without separators (`A4C138123456`).
 
 **Setup.** Each sensor heard in one of these formats is a Discovered Device of the Device Kind `sensor` in **Add
