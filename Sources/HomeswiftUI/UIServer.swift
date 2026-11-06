@@ -446,7 +446,7 @@ public final class UIServer: Sendable {
             // The rooms, zones, scenes and Quick Controls the Accessories and Status pages show, and whether the rooms are
             // Apple Home's; this browser's Web Push.
             if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["notifications", "push"]].contains(route) { return .read }
-            if route == ["assistant", "chat"] { return .control }
+            if route == ["assistant", "chat"] || route == ["assistant", "models"] { return .control }
             // Today's digest, as the Status page's widget shows it (writing one is an administrator's); each user's
             // own conversations and appearance.
             if route == ["assistant", "digest"] { return .read }
@@ -658,7 +658,9 @@ public final class UIServer: Sendable {
             case ["assistant"]:
                 // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
                 guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
-                return .json(["enabled": true, "provider": .string(assistant.providerName), "model": .string(assistant.model)])
+                // The chat's model: the user's choice, else the block's (`defaultModel`).
+                return .json(["enabled": true, "provider": .string(assistant.providerName), "model": .string(chatAssistant(assistant, for: username).model),
+                              "defaultModel": .string(assistant.model)])
             case ["assistant", "chat"]:
                 guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
                 // The conversation so far, then the run going on, if any, as it goes.
@@ -1072,6 +1074,19 @@ public final class UIServer: Sendable {
     }
 
     /// Counts an Assistant request for the user: nil when there is room, else a 429 with when to try again.
+    /// The Assistant on the model the user chose for the chat (their `assistantModel` preference), else the block's. A
+    /// choice the provider can no longer be made for falls back to the block's model.
+    func chatAssistant(_ assistant: AssistantService, for username: String) -> AssistantService {
+        guard let model = preferences.preferences(for: username)["assistantModel"]?.stringValue, model != assistant.model,
+              let configuration = catalog.host.aiConfiguration else { return assistant }
+        do {
+            return try assistant.withModel(model, configuration: configuration, transport: catalog.host.aiTransport)
+        } catch {
+            logger.warning("Web UI chat model unavailable: \(error)", metadata: ["user": "\(username)", "model": "\(model)"])
+            return assistant
+        }
+    }
+
     func limitAssistant(for username: String) -> Reply? {
         let result = options.assistantRateLimiter.consume(username)
         guard !result.allowed else { return nil }
@@ -1256,7 +1271,7 @@ public final class UIServer: Sendable {
             let page = body["page"]?.stringValue.map { String($0.prefix(100)) }
             if conversation.isRunning { return .error(409, "the Assistant is still answering; stop it first") }
             if let refused = limitAssistant(for: username) { return refused }
-            guard conversation.send(text, page: page, user: username, assistant: assistant.forUser(username).speaking(language), logger: logger) else {
+            guard conversation.send(text, page: page, user: username, assistant: chatAssistant(assistant, for: username).forUser(username).speaking(language), logger: logger) else {
                 return .error(409, "the Assistant is still answering; stop it first")
             }
             return .events(conversation.subscribe())

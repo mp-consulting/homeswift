@@ -91,6 +91,17 @@
     const exportPrice = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: latest?.exportPrice ?? "", placeholder: t("Not paid") });
     const rows = el("div", { class: "tariff-periods" });
     const message = el("p", { class: "status-line muted", role: "status" });
+    /// A price's unit inside its field ("EUR/kWh"), following the currency as it is typed.
+    const units = [];
+    const unit = (per) => { const node = el("span", { class: "tariff-unit", "aria-hidden": "true" }); node.per = per; units.push(node); showUnits(); return node; };
+    function showUnits() {
+      const code = currency.value.trim().toUpperCase();
+      for (const node of units) node.textContent = `${code}/${node.per}`;
+    }
+    currency.addEventListener("input", showUnits);
+    /// A control with its own small name over it: a phone's period has no column heads (the wide one does, and the
+    /// names hide there).
+    const cell = (text, control, extra = null) => el("label", { class: `tariff-cell${extra ? " with-unit" : ""}` }, el("span", { class: "tariff-cell-label", text }), control, extra);
     const addRow = (period = { from: "00:00", to: "24:00", price: "" }) => {
       const name = el("input", { type: "text", value: period.name ?? "", placeholder: t("Name, such as Peak"), maxLength: 40, "aria-label": t("Period name") });
       const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From") });
@@ -98,7 +109,8 @@
       const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
       const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
       const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: t("Price per kWh"), "aria-label": t("Price per kWh"), required: true });
-      const row = el("div", { class: "tariff-period" }, name, from, to, days, price,
+      const row = el("div", { class: "tariff-period" }, cell(t("Name"), name), cell(t("From"), from), cell(t("To"), to), cell(t("Days"), days),
+        cell(t("Price per kWh"), price, unit("kWh")),
         el("button", { type: "button", class: "icon-button", "aria-label": t("Remove this period"), title: t("Remove this period"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
       row.read = () => ({ ...(name.value.trim() ? { name: name.value.trim() } : {}), from: from.value || "00:00",
         // A period ending at midnight ends at 24:00, unless it starts later in the day and runs past midnight.
@@ -133,7 +145,7 @@
       el("div", { class: "fields" },
         field(t("Applies from"), start, t("Another day starts a new tariff: the days before it keep their prices.")),
         field(t("Currency"), currency, t("A currency code, such as EUR, USD or GBP.")),
-        field(t("Export price"), exportPrice, t("What a kWh sent back to the grid is paid, if it is."))),
+        field(t("Export price"), el("span", { class: "tariff-cell with-unit" }, exportPrice, unit("kWh")), t("What a kWh sent back to the grid is paid, if it is."))),
       el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
         el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
         el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
@@ -1561,7 +1573,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (card.fullScreenButton) tabs.append(card.fullScreenButton);
       if (app().isAdmin() && accessories.length) tabs.append(el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus",
         "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }));
-      app().show(main, app().pageHead(t("Accessories"), line, card.toolbar), tabs, card);
+      app().show(main, app().pageHead(t("Accessories"), line), app().accessoriesBar(card.toolbar, tabs), card);
     }
   }
   /// In or out of the graph's full screen: the browser's too, where it can.
@@ -1965,7 +1977,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
       filters.classList.toggle("on", active() > 0);
-      filters.replaceChildren(...[HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
+      filters.replaceChildren(...[HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
+      filters.classList.add("accessories-filters");
       search.dispatchEvent(new Event("change")); // the Clear filters button's state
       table.replaceChildren(overviewTable(next));
       title.textContent = by === "room" ? t("Graph of the rooms, plugins and accessories") : t("Graph of the bridges, plugins and accessories");
@@ -2008,7 +2021,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: clear.disabled, onSelect: () => clear.click() },
     ]));
-    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button accessories-full-screen", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setGraphFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // Full screen goes beside the Wall and Graph tabs (`card.fullScreenButton`), as on the wall.
     // The search and Filters alone, as on the wall: Clear filters is in the Filters menu (and full screen's panel).

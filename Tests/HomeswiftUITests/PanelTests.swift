@@ -223,6 +223,30 @@ struct PanelTests {
         #expect(try await browser.get("/api/logs").json?.arrayValue?.contains { $0["text"] == "Desk Lamp slow" } == false)
     }
 
+    /// The chat's model: a user's choice of the provider's models, checked, kept in their preferences, sent to the
+    /// provider from the next message on, and back to the block's when cleared; anyone who may chat lists the models.
+    @Test func switchesTheChatsModel() async throws {
+        let model = CannedModel()
+        let environment = try UITestEnvironment(auth: .none, model: model)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        let before = try await browser.get("/api/assistant").json
+        #expect(before?["model"] == "llama3.1")
+        #expect(before?["defaultModel"] == "llama3.1")
+        #expect(try await browser.get("/api/assistant/models").status == 200)
+
+        #expect(try await browser.put("/api/preferences", ["assistantModel": "qwen3 8b"]).status == 400)
+        #expect(try await browser.put("/api/preferences", ["assistantModel": "qwen3:8b"]).json?["assistantModel"] == "qwen3:8b")
+        #expect(try await browser.get("/api/assistant").json?["model"] == "qwen3:8b")
+        let run = try await browser.post("/api/assistant/chat", ["text": "Is my bridge fine?"])
+        #expect(events(run.body).last?.0 == "done")
+        #expect(model.sent.last?.contains(#""model":"qwen3:8b""#) == true)
+
+        #expect(try await browser.put("/api/preferences", ["assistantModel": .null]).json?["assistantModel"] == nil)
+        #expect(try await browser.get("/api/assistant").json?["model"] == "llama3.1")
+    }
+
     /// The chat's conversations: New chat files the current one away, it opens again with its messages, and goes.
     @Test func keepsEarlierChats() async throws {
         let environment = try UITestEnvironment(auth: .none, model: CannedModel())
