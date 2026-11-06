@@ -418,6 +418,12 @@ public final class PluginHost: @unchecked Sendable {
         changes.add(observer)
     }
 
+    /// Calls `observer` after every write on any server the host runs (`HAPServer.observeWrites`), in the writing
+    /// task, until the observation is cancelled.
+    public func observeWrites(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
+        changes.addWrites(observer)
+    }
+
     /// Calls `observer` after an accessory is added, replaced or removed on any server the host runs, and when the
     /// host adds a server, until the observation is cancelled. It says nothing of what changed: look again.
     public func observeStructure(_ observer: @escaping @Sendable () -> Void) -> Observation {

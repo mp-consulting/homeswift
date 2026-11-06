@@ -239,7 +239,8 @@ public final class UIServer: Sendable {
             return .error(403, caller.token?.scope == .read ? "this API token can only read" : "only an administrator can do this")
         }
         do {
-            var reply = try await api(route, request, caller: caller)
+            // What the request changes is its user's in the Logbook.
+            var reply = try await ChangeSource.user(caller.username).run { try await api(route, request, caller: caller) }
             if request.method != .GET { audit(route, request, caller: caller, reply: reply) }
             // A stream outlives the request: it ends once its caller could no longer open it (signed out, removed,
             // the token revoked, or no longer an administrator, whose stream carries the log).
@@ -437,7 +438,7 @@ public final class UIServer: Sendable {
     static func requiredScope(_ method: HTTPMethod, _ route: [String]) -> Scope {
         switch method {
         case .GET:
-            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "consumption"], ["events"], ["assistant"]].contains(route) { return .read }
+            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "consumption"], ["events"], ["assistant"], ["logbook"]].contains(route) { return .read }
             // A camera's pan and tilt: asking may sign in to the camera, so it is for those who may move it.
             if route.count == 3, route[0] == "cameras", route[2] == "controls" { return .control }
             if route.count == 3, route[0] == "cameras" { return .read }

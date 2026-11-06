@@ -155,8 +155,10 @@ extension HAPConnection {
         let origin = id
         let perform = { @Sendable (write: (index: Int, characteristic: Characteristic, value: HAPValue, readBack: Bool)) async -> (Int, HAPStatus, HAPValue?) in
             do {
+                // The Home app's writes are its pairing's (the Logbook's Change Source).
+                let source = ChangeSource.homeApp(pairing: requestContext.controllerID ?? "unknown")
                 let stored = try await HAPRequestContext.$current.withValue(requestContext) {
-                    try await write.characteristic.write(write.value, origin: origin)
+                    try await source.run { try await write.characteristic.write(write.value, origin: origin) }
                 }
                 return (write.index, .success, write.readBack ? stored : HAPValue?.none)
             } catch {

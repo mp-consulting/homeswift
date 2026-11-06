@@ -1226,7 +1226,7 @@
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
