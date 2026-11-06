@@ -39,6 +39,8 @@ import NIOHTTP1
 //   DELETE /api/automations/<id>              (administrators)
 //   POST   /api/automations/<id>/run          its Steps now, whatever its triggers and conditions
 //   POST   /api/automations/draft             {"sentence"}: the Assistant's draft, not saved
+//   GET    /api/notifications/actions/<id>    a notification's buttons, for its confirmation page
+//   POST   /api/notifications/actions/<id>/<n> {"confirmSecurity"?}: presses one, once
 //   POST   /api/notifications/push/unsubscribe {"endpoint"}
 //   POST   /api/notifications/push/test       {"endpoint"?}
 //   DELETE /api/notifications/push/subscriptions/<id>
@@ -82,6 +84,13 @@ extension UIServer {
                 return .error(502, "the Assistant did not answer: \(error)")
             }
 
+        case (.GET, let path) where path.count == 3 && path[0] == "notifications" && path[1] == "actions":
+            return .json(try catalog.notificationActionsJSON(path[2]))
+        case (.POST, let path) where path.count == 4 && path[0] == "notifications" && path[1] == "actions":
+            guard let index = Int(path[3]) else { return .error(400, "no such button") }
+            let result = try await catalog.pressNotificationButton(path[2], index: index, by: username, confirmSecurity: body["confirmSecurity"]?.boolValue == true)
+            logger.info("Web UI pressed a notification's button", metadata: ["user": "\(username)", "button": "\(result["done"]?.stringValue ?? "")"])
+            return .json(result)
         case (.GET, ["automations"]):
             var answer = catalog.automationsJSON().objectValue ?? [:]
             answer["tools"] = catalog.automationToolsJSON()["tools"]

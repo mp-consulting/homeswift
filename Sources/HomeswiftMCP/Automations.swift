@@ -41,6 +41,8 @@ public struct AutomationStep: Codable, Sendable, Equatable {
     /// `tool`: a plugin's action (its MCP tool's name) and its arguments.
     public var tool: String?
     public var arguments: JSONValue?
+    /// `notify`: up to three buttons (`NotificationActions.swift`).
+    public var buttons: [NotificationButton]?
 
     public init(type: String) { self.type = type }
 }
@@ -163,6 +165,11 @@ enum AutomationRules {
             guard !message.isEmpty, message.count <= 500 else { throw CatalogError("\(label): the message is 1 to 500 characters") }
             step.message = message
             step.title = object["title"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty.map { String($0.prefix(80)) }
+            if let list = object["buttons"], !list.isNull {
+                guard let buttons = list.arrayValue, buttons.count <= NotificationActionRules.maxButtons else { throw CatalogError("\(label): at most \(NotificationActionRules.maxButtons) buttons") }
+                let parsed = try buttons.enumerated().map { try NotificationActionRules.button($1, index: $0, label: label) }
+                step.buttons = parsed.isEmpty ? nil : parsed
+            }
         case "tool":
             let name = try SceneRules.string(object, "tool", label, max: 128)
             guard let tool = tools[name] else { throw CatalogError("\(label): no plugin action \(name) an automation may call (one that needs no confirmation)") }
@@ -531,8 +538,7 @@ extension HomeswiftCatalog {
             }
             return "timed out: went on"
         case "notify":
-            let sent = await notify(.automationMessage, title: step.title ?? automation.name, message: step.message ?? "", path: "/automations",
-                                    subject: "\(automation.id):\(UUID().uuidString)")
+            let sent = await notifyWithButtons(step.buttons ?? [], title: step.title ?? automation.name, message: step.message ?? "", automation: automation)
             return sent == nil ? "no notification channel is on, or the limit was reached" : nil
         case "tool":
             return try await callPluginAction(step.tool ?? "", arguments: step.arguments ?? [:], by: automation.name)
@@ -643,6 +649,7 @@ extension HomeswiftCatalog {
     func stopAutomations() {
         for running in home.automationRuns.withLockedValue({ runs in defer { runs = [:] }; return Array(runs.values) }) { running.task.cancel() }
         for timer in home.staysTimers.withLockedValue({ timers in defer { timers = [:] }; return Array(timers.values) }) { timer.cancel() }
+        home.telegramPoller.withLockedValue { $0 }?.cancel()
     }
 }
 
@@ -719,7 +726,7 @@ extension HomeswiftCatalog {
                 "All must hold when a trigger fires. {type: time, after, before: HH:mm|sunrise|sunset}; {type: characteristic, id, characteristic, operator, value}")],
             "steps": ["type": "array", "minItems": 1, "maxItems": 30, "items": ["type": "object"], "description": .string(
                 "Run in order. {type: scene, scene: <id>}; {type: set, id, characteristic, value}; {type: wait, seconds}; {type: waitUntil, id, characteristic, operator, value, seconds}; "
-                + "{type: notify, title, message}; {type: tool, tool: <a plugin action's tool name>, arguments}. Locks, garage doors and alarms are never set: such a step is skipped.")],
+                + "{type: notify, title, message, buttons: [up to 3 {label, type: scene|set|open, scene | id, characteristic, value | path}]}; {type: tool, tool: <a plugin action's tool name>, arguments}. Locks, garage doors and alarms are never set: such a step is skipped.")],
         ],
     ]
 

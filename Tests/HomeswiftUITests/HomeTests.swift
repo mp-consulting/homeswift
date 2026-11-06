@@ -45,6 +45,18 @@ struct HomeTests {
         #expect(try await browser.post("/api/layout/suggest", [:]).status == 404)
     }
 
+    /// A notification's button: its token route takes no cookie and only POST; its confirmation page's API needs a
+    /// sign-in.
+    @Test func notificationButtonsNeedTheirTokenOrASignIn() async throws {
+        let environment = try UITestEnvironment(auth: .form)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        #expect(try await browser.post("/notify/act/unknown", [:]).status == 410)
+        #expect(try await browser.get("/notify/act/unknown").status == 405)
+        #expect(try await browser.get("/api/notifications/actions/unknown").status == 401)
+    }
+
     /// Automations over the page's API: made, listed, run by hand (the lock left out), refused when wrong, deleted.
     @Test func automationsAreSavedRunAndDeleted() async throws {
         let environment = try UITestEnvironment(auth: .none)

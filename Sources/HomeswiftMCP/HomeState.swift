@@ -75,6 +75,12 @@ public final class HomeState: Sendable {
     /// How an Automation's waits are counted; tests make them shorter.
     public let automationTimeScale = NIOLockedValueBox(1.0)
     public let notifications: JSONFileStore<NotificationSettings>
+    /// The notifications with buttons, while their tokens last (`NotificationActions.swift`).
+    let notificationActions = NIOLockedValueBox<[String: PendingNotification]>([:])
+    /// Reads the Telegram bot's button presses while one waits.
+    let telegramPoller = NIOLockedValueBox<Task<Void, Never>?>(nil)
+    /// The web UI's address, for notifications' links; set by the web UI as it starts.
+    let uiAddress = NIOLockedValueBox<String?>(nil)
     /// The shows and plugin scenes that set the lights and can still be undone, with what the lights were.
     let heldLights: JSONFileStore<[SavedHeldLights]>
     let sceneUndo: JSONFileStore<[String: SceneUndo]>
