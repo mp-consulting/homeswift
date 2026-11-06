@@ -657,7 +657,8 @@
         "0": "Off",
         "1": "Heat",
         "11": "Energy heat",
-        "31": "Manufacturer specific"
+        "31": "Manufacturer specific",
+        "2": "Cool"
        }
       },
       "value": 1
@@ -680,6 +681,25 @@
       "value": 21,
       "propertyKey": 1,
       "propertyKeyName": "Heating"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 67,
+      "commandClassName": "Thermostat Setpoint",
+      "property": "setpoint",
+      "propertyName": "setpoint",
+      "ccVersion": 1,
+      "propertyKey": 2,
+      "propertyKeyName": "Cooling",
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "unit": "°C",
+       "min": 8,
+       "max": 28
+      },
+      "value": 24
      },
      {
       "endpoint": 0,

@@ -68,7 +68,6 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
         var host: String
         var port: Int
         var client: ZWaveClient?
-        var version: ServerVersion?
         /// Its nodes as last reported, by node id; the controller's own node left out.
         var nodes: [Int: ZNode] = [:]
         var failures = 0
@@ -154,7 +153,6 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
                     if (servers[homeID]?.failures ?? 0) > 0 { logger.info("Reconnected to zwave-js-server at \(address)") }
                     servers[homeID]?.failures = 0
                     servers[homeID]?.client = client
-                    servers[homeID]?.version = version
                     logger.info("Connected to zwave-js-server \(version.serverVersion ?? "?") (driver \(version.driverVersion ?? "?")) at \(address), home id \(homeID)")
                     await apply(state: state, homeID: homeID)
                     for await event in client.events {
@@ -185,6 +183,11 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     /// Every node of a server answers No Response while it is away.
     func setServerUnavailable(_ homeID: String) {
         for (deviceID, accessory) in accessories where deviceID.hasPrefix("\(homeID)-") { accessory.setUnavailable(true) }
+        // Those the cache brought back before the server ever answered.
+        let prefix = Self.accessoryID(deviceID: "\(homeID)-")
+        for accessory in context.accessories where accessory.id.hasPrefix(prefix) && !accessory.isUnavailable {
+            accessory.isUnavailable = true
+        }
     }
 
     // MARK: State and events
@@ -295,8 +298,11 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
             accessories[deviceID]?.setUnavailable(dead)
             logger.info("\(accessories[deviceID]?.accessory.information.characteristic(.name).value.stringValue ?? "Node \(nodeID)") is \(dead ? "dead" : "alive again")")
         case "ready", "interview completed":
-            // A node that finished its interview: its values are all known now.
-            guard let state = event["nodeState"], let node = ZNode(state), !node.isControllerNode else { return }
+            // A node that finished its interview: its values are all known now. Older schemas send no `nodeState`: the
+            // node as `node added` and the value events left it.
+            let reported = event["nodeState"].flatMap(ZNode.init)
+            guard var node = reported ?? servers[homeID]?.nodes[nodeID], !node.isControllerNode else { return }
+            node.ready = true
             servers[homeID]?.nodes[nodeID] = node
             publish(node, homeID: homeID)
         default:

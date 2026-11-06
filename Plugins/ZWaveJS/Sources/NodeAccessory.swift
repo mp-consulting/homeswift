@@ -23,15 +23,11 @@ final class NodeAccessory: Sendable {
     private let updaters: [ValueID: [Updater]]
     /// What a value notification (Central Scene's key presses) sends, by value id.
     private let notifiers: [ValueID: Updater]
-    /// The Meters it declared, kept so their readings keep their ids.
-    let meters: [PluginMeter]
-
-    fileprivate init(accessory: Accessory, kind: String, updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater], meters: [PluginMeter]) {
+    fileprivate init(accessory: Accessory, kind: String, updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater]) {
         self.accessory = accessory
         self.kind = kind
         self.updaters = updaters
         self.notifiers = notifiers
-        self.meters = meters
     }
 
     /// The value ids the accessory reads.
@@ -70,10 +66,8 @@ struct NodeBuilder {
     private var services: [Service] = []
     private var updaters: [ValueID: [NodeAccessory.Updater]] = [:]
     private var notifiers: [ValueID: NodeAccessory.Updater] = [:]
-    private var meters: [PluginMeter] = []
     /// The value ids a function took, so another does not show them twice.
     private var claimed: Set<ValueID> = []
-    private var kinds: [String] = []
 
     init(node: ZNode, deviceID: String, name: String, showAs: SwitchShape?, write: @escaping ValueWriter,
          meter: @escaping (Service) -> PluginMeter, coalesce: LatestCallGuard) {
@@ -84,17 +78,35 @@ struct NodeBuilder {
         self.write = write
         self.meter = meter
         self.coalesce = coalesce
+        primaryTypes = Self.primaryTypes(of: node)
+    }
+
+    /// The services that may be the primary one: the node's actuators when it has some, else its sensors and buttons.
+    private let primaryTypes: Set<HAPUUID>
+
+    static func primaryTypes(of node: ZNode) -> Set<HAPUUID> {
+        let actuators: [ServiceType] = [.lightbulb, .windowCovering, .outlet, .switch, .lockMechanism, .thermostat]
+        let hasActuator = node.values.keys.contains {
+            [CommandClass.binarySwitch, CommandClass.multilevelSwitch, CommandClass.doorLock, CommandClass.thermostatMode, CommandClass.thermostatSetpoint]
+                .contains($0.commandClass)
+        }
+        if hasActuator { return Set(actuators.map(\.uuid)) }
+        return Set(SensorKind.allCases.map(\.type.uuid) + [ServiceType.temperatureSensor, .humiditySensor, .lightSensor, .statelessProgrammableSwitch].map(\.uuid))
     }
 
     /// The node's accessory, or nil when none of its values maps to a service.
     mutating func build() -> NodeAccessory? {
         let endpoints = node.endpoints
         let multiChannel = endpoints.filter { $0 > 0 }.count > 1
+        func label(_ endpoint: Int) -> String { multiChannel && endpoint > 0 ? "\(name) \(endpoint)" : name }
+        // Actuators first, so a thermostat takes its air temperature (perhaps the root endpoint's) before the sensors.
         for endpoint in endpoints {
-            let label = multiChannel && endpoint > 0 ? "\(name) \(endpoint)" : name
-            let main = buildActuator(endpoint: endpoint, label: label)
-            buildThermostat(endpoint: endpoint, label: label)
-            buildMeters(endpoint: endpoint, on: main, label: label)
+            let main = buildActuator(endpoint: endpoint, label: label(endpoint))
+            buildThermostat(endpoint: endpoint, label: label(endpoint))
+            buildMeters(endpoint: endpoint, on: main, label: label(endpoint))
+        }
+        for endpoint in endpoints {
+            let label = label(endpoint)
             buildNotificationSensors(endpoint: endpoint, label: label)
             buildBinarySensors(endpoint: endpoint, label: label)
             buildMultilevelSensors(endpoint: endpoint, label: label)
@@ -110,7 +122,7 @@ struct NodeBuilder {
             id: ZWaveJSPlugin.accessoryID(deviceID: deviceID), name: name, manufacturer: node.manufacturer ?? "Z-Wave",
             model: node.label ?? node.productDescription ?? "Z-Wave device", serialNumber: node.serialNumber ?? deviceID,
             firmwareRevision: node.firmwareVersion ?? "1.0.0", category: category, services: ordered)
-        let built = NodeAccessory(accessory: accessory, kind: kind, updaters: updaters, notifiers: notifiers, meters: meters)
+        let built = NodeAccessory(accessory: accessory, kind: kind, updaters: updaters, notifiers: notifiers)
         for value in node.values.values {
             if let current = value.value { built.update(value.id, current) }
         }
@@ -140,17 +152,6 @@ struct NodeBuilder {
 
     private mutating func add(_ service: Service) {
         services.append(service)
-    }
-
-    /// The services that may be the primary one: the node's actuators when it has some, else its sensors and buttons.
-    private var primaryTypes: Set<HAPUUID> {
-        let actuators: [ServiceType] = [.lightbulb, .windowCovering, .outlet, .switch, .lockMechanism, .thermostat]
-        let hasActuator = node.values.keys.contains {
-            [CommandClass.binarySwitch, CommandClass.multilevelSwitch, CommandClass.doorLock, CommandClass.thermostatMode, CommandClass.thermostatSetpoint]
-                .contains($0.commandClass)
-        }
-        if hasActuator { return Set(actuators.map(\.uuid)) }
-        return Set(SensorKind.allCases.map(\.type.uuid) + [ServiceType.temperatureSensor, .humiditySensor, .lightSensor, .statelessProgrammableSwitch].map(\.uuid))
     }
 
     /// A service, primary when it is the first that may be.
@@ -213,7 +214,6 @@ struct NodeBuilder {
             if level > 0 { brightness.value = .int(Self.percent(level: level)) }
         }
         if hasColor { buildColor(service, colors: colors, endpoint: endpoint) }
-        kinds.append("light")
         add(service)
         return service
     }
@@ -300,7 +300,6 @@ struct NodeBuilder {
                 targetPosition.value = .int(Self.percent(level: level))
             }
         }
-        kinds.append("cover")
         add(service)
         return service
     }
@@ -321,7 +320,6 @@ struct NodeBuilder {
         on(state.id) { value in
             if let state = value.boolValue { power.value = .bool(state) }
         }
-        kinds.append(shape == .lightbulb ? "light" : "switch")
         add(service)
         return service
     }
@@ -341,7 +339,6 @@ struct NodeBuilder {
             current.value = .int(state)
             if state != 3 { targetState.value = .int(state) }
         }
-        kinds.append("lock")
         add(service)
         return service
     }
@@ -371,8 +368,10 @@ struct NodeBuilder {
         let hasOperatingState = node.value(CommandClass.thermostatOperatingState, endpoint: endpoint, property: "state") != nil
         // The setpoint shown and written: cooling's in Cool, heating's otherwise (cooling's when there is no heating).
         let setpoints_ = NIOLockedValueBox<[Int: Double]>([:])
+        // The latest mode, written or reported: a write's handler runs before the characteristic keeps the value.
+        let latestMode = NIOLockedValueBox<Int>(modes.first ?? 0)
         let shownKey: @Sendable () -> Int = {
-            let mode = targetMode.value.intValue ?? 1
+            let mode = latestMode.withLockedValue { $0 }
             if mode == 2, cooling != nil { return 2 }
             return heating != nil ? 1 : 2
         }
@@ -385,11 +384,15 @@ struct NodeBuilder {
             targetMode.onWrite { value in
                 guard let mode = value.intValue else { return }
                 try await target(.number(Double(mode)))
+                latestMode.withLockedValue { $0 = mode }
                 showSetpoint()
             }
             on(mode.id) { value in
                 guard let mode = value.intValue else { return }
-                if Self.homeKitModes.contains(mode) { targetMode.value = .int(mode) }
+                if Self.homeKitModes.contains(mode) {
+                    latestMode.withLockedValue { $0 = mode }
+                    targetMode.value = .int(mode)
+                }
                 if !hasOperatingState { currentMode.value = .int(mode == 1 ? 1 : mode == 2 ? 2 : 0) }
                 showSetpoint()
             }
@@ -431,7 +434,6 @@ struct NodeBuilder {
                 currentTemperature.value = .double(min(100, max(-50, airFahrenheit ? (reading - 32) * 5 / 9 : reading)))
             }
         }
-        kinds.append("thermostat")
         add(service)
     }
 
@@ -464,7 +466,6 @@ struct NodeBuilder {
         if consumed != nil { extra.append(Characteristic(EveCharacteristic.totalConsumption, value: .double(0))) }
         for characteristic in extra { service.characteristic(adding: characteristic.type).value = characteristic.value }
         let meter = self.meter(service)
-        meters.append(meter)
         let inUse = service.type.uuid == ServiceType.outlet.uuid ? service.characteristic(.outletInUse) : nil
         if let power {
             let characteristic = service.characteristic(EveCharacteristic.currentConsumption)
@@ -547,7 +548,6 @@ struct NodeBuilder {
                 characteristic.value = kind.value(detected: detected)
             }
         }
-        kinds.append("sensor")
         add(service)
     }
 
@@ -598,7 +598,6 @@ struct NodeBuilder {
                 guard let reading = value.numberValue else { return }
                 characteristic.value = .double(min(100, max(-100, fahrenheit ? (reading - 32) * 5 / 9 : reading)))
             }
-            kinds.append("sensor")
             add(service)
         }
         if let humidity = node.value(CommandClass.multilevelSensor, endpoint: endpoint, property: "Humidity"), humidity.unit != "g/m³" {
@@ -608,7 +607,6 @@ struct NodeBuilder {
                 guard let reading = value.numberValue else { return }
                 characteristic.value = .double(min(100, max(0, reading)))
             }
-            kinds.append("sensor")
             add(service)
         }
         if let light = node.value(CommandClass.multilevelSensor, endpoint: endpoint, property: "Illuminance"), light.unit?.lowercased() == "lux" {
@@ -618,7 +616,6 @@ struct NodeBuilder {
                 guard let reading = value.numberValue else { return }
                 characteristic.value = .double(min(100_000, max(0.0001, reading)))
             }
-            kinds.append("sensor")
             add(service)
         }
     }
@@ -680,7 +677,6 @@ struct NodeBuilder {
         }
         let label = Service(.serviceLabel, subtype: "scenes")
         label.characteristic(.serviceLabelNamespace).value = .int(1)
-        kinds.append("button")
         services.append(label)
     }
 }

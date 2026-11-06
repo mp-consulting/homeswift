@@ -87,7 +87,6 @@ struct ZValue: Sendable {
     }
 
     var unit: String? { metadata["unit"]?.stringValue }
-    var writeable: Bool { metadata["writeable"]?.boolValue ?? false }
     /// The named states (`"0": "Off"`), by number.
     var states: [Int: String] {
         guard let states = metadata["states"]?.objectValue else { return [:] }

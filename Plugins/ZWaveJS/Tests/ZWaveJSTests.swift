@@ -236,7 +236,7 @@ struct ZWaveJSTests {
         let thermostat = try #require(host.accessory(id(6))?.service(.thermostat, subtype: "0:thermostat"))
         #expect(thermostat.isPrimary)
         #expect(thermostat[.targetHeatingCoolingState]?.value == 1)
-        #expect(thermostat[.targetHeatingCoolingState]?.type.validValues == [0, 1])
+        #expect(thermostat[.targetHeatingCoolingState]?.type.validValues == [0, 1, 2])
         #expect(thermostat[.targetTemperature]?.value == .double(21))
         #expect(thermostat[.currentTemperature]?.value == .double(19.5))
         #expect(thermostat[.currentHeatingCoolingState]?.value == 1)
@@ -297,6 +297,13 @@ struct ZWaveJSTests {
         let blind = try #require(host.accessory(id(9))?.service(.windowCovering))
         try await blind[.targetPosition]!.write(.int(100), origin: nil)
         #expect(environment.server.setValues.last?["value"] == 99)
+
+        // Cool shows, and then writes, the cooling setpoint at once, before the server echoes the mode.
+        try await thermostat[.targetHeatingCoolingState]!.write(.int(2), origin: nil)
+        #expect(environment.server.setValues.last?["valueId"] == ["commandClass": 64, "endpoint": 0, "property": "mode"])
+        #expect(thermostat[.targetTemperature]?.value == .double(24))
+        try await thermostat[.targetTemperature]!.write(.double(25), origin: nil)
+        #expect(environment.server.setValues.last?["valueId"] == ["commandClass": 67, "endpoint": 0, "property": "setpoint", "propertyKey": 2])
         await host.stop()
     }
 
@@ -389,6 +396,19 @@ struct ZWaveJSTests {
         await host.stop()
     }
 
+    @Test func cachedAccessoriesAnswerNoResponseWhileTheServerIsAway() async throws {
+        let first = try await started()
+        await first.stop()
+        environment.server.set(reachable: false)
+        let host = try await environment.start()
+        // Back from the cache, before any connection: No Response once the first attempt fails.
+        #expect(host.accessory(id(3)) != nil)
+        #expect(await eventually { host.accessory(id(3))?.isUnavailable == true && host.accessory(id(2))?.isUnavailable == true })
+        environment.server.set(reachable: true)
+        #expect(await eventually { host.accessory(id(3))?.isUnavailable == false })
+        await host.stop()
+    }
+
     @Test func nodesComeAndGo() async throws {
         let host = try await started()
         let server = environment.server
@@ -408,6 +428,15 @@ struct ZWaveJSTests {
         added["ready"] = true
         server.send(event: ["source": "node", "event": "ready", "nodeId": 11, "nodeState": .object(added)])
         #expect(await eventually { host.accessory(id(11))?.information.characteristic(.name).value == "Fan Plug" })
+
+        // An older schema's `ready` has no node state: the node as `node added` gave it.
+        var older = added
+        older["nodeId"] = 12
+        older["name"] = "Hall Plug"
+        older["ready"] = false
+        server.send(event: ["source": "controller", "event": "node added", "node": .object(older), "result": .object([:])])
+        server.send(event: ["source": "node", "event": "ready", "nodeId": 12, "args": .object([:])])
+        #expect(await eventually { host.accessory(id(12))?.information.characteristic(.name).value == "Hall Plug" })
 
         // A node gone while the bridge was away leaves at the next state dump.
         server.removeNode(4)
