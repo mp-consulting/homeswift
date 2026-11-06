@@ -189,7 +189,7 @@ private final class WebhookHTTPHandler: ChannelInboundHandler, @unchecked Sendab
                     buffer.writeString(answer.body)
                     context.write(self.wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
                     context.writeAndFlush(self.wrapOutboundOut(.end(nil))).whenComplete { _ in
-                        if !keepAlive { context.close(promise: nil) }
+                        if !keepAlive { bound.value.close(promise: nil) }
                     }
                 }
             }

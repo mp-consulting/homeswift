@@ -66,7 +66,7 @@ actor ShellyCloud {
         // The password as the Shelly app sends it: its SHA-1, in lowercase hex.
         var fields: [String: JSONValue] = ["email": .string(credentials.email.lowercased()), "password": .string(TextDigest.sha1(credentials.password))]
         for attempt in 0..<2 {
-            guard let body = try? JSONValue.object(fields).encoded() else { return .failed("cannot write the request") }
+            let body = JSONValue.object(fields).encoded()
             let request = HTTPRequest(method: "POST", url: authServer.appendingPathComponent("v2/users/auth/login"),
                                       headers: [("Content-Type", "application/json")], body: body, timeout: .seconds(30))
             let response: HomeswiftNetwork.HTTPResponse

@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format follows
 - MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
   goes further back.
 
+### Fixed
+
+- Two-way audio: a camera's Talk begins and stays open while HomeKit's return audio keeps coming, however busy the
+  bridge. The receiver timed the idle gap from when it got to each packet rather than from when the packet arrived, and on
+  a loaded machine that can be seconds later: audio decoded in time began no Talk, or a Talk under way ended mid-sentence.
+
 ## [0.23.0] - 2026-11-06
 
 ### Added
