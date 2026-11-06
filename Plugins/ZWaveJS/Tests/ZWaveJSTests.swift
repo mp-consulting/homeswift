@@ -156,8 +156,9 @@ extension Accessory {
     func service(_ type: ServiceType, subtype: String) -> Service? { services.first { $0.type.uuid == type.uuid && $0.subtype == subtype } }
 }
 
-/// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+/// Polls `condition` until it holds or `timeout` passes: long enough for a CI machine running every suite at once
+/// (Linux runs them in one process), returning as soon as it holds.
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
