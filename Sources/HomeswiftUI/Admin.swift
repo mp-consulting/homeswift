@@ -44,7 +44,7 @@ extension UIServer {
                 return .error(404, error.description)
             }
         }
-        let routes: Set<String> = ["settings", "pairings", "cached-accessories", "child-bridges", "backups", "audit"]
+        let routes: Set<String> = ["settings", "pairings", "cached-accessories", "child-bridges", "backups", "audit", "diagnostics"]
         let isConfigBackups = route.count >= 2 && route[0] == "config" && route[1] == "backups"
         guard let first = route.first, routes.contains(first) || isConfigBackups else { return nil }
         guard caller.isAdmin else { return .error(403, "only an administrator can do this") }
@@ -63,6 +63,12 @@ extension UIServer {
             case (.PUT, ["settings", "bridge"]):
                 guard let settings = body["settings"]?.objectValue else { return .error(400, "settings are required") }
                 return .json(try await catalog.updateBridgeSettings(settings, dryRun: body["dryRun"]?.boolValue == true))
+
+            // Diagnostics: a plugin instance's or an accessory's, as a file to review and share (Diagnostics.swift).
+            case (.GET, let path) where path.count == 4 && path[0] == "diagnostics" && path[1] == "plugins":
+                return try await diagnosticsFile(.plugin(platform: path[2], name: path[3]))
+            case (.GET, let path) where path.count == 3 && path[0] == "diagnostics" && path[1] == "accessories":
+                return try await diagnosticsFile(.accessory(id: path[2]))
 
             // The Tariffs (`bridge.tariffs`): no restart.
             case (.GET, ["settings", "tariffs"]):
@@ -158,6 +164,14 @@ extension UIServer {
         } catch let error as CatalogError {
             return .error(400, error.description)
         }
+    }
+
+    /// A Diagnostics file, to download: the bundle pretty-printed, named after what it is for and the day.
+    func diagnosticsFile(_ target: HomeswiftCatalog.DiagnosticsTarget) async throws -> Reply {
+        let bundle = try await catalog.diagnosticsJSON(target)
+        let name = HomeswiftCatalog.diagnosticsFileName(target)
+        return .data(status: 200, contentType: "application/json; charset=utf-8", body: Data(bundle.text(pretty: true).utf8),
+                     headers: ["Content-Disposition": "attachment; filename=\"\(name)\""])
     }
 
     static func download(_ data: Data, name: String) -> Reply {

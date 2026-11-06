@@ -220,3 +220,10 @@ _Avoid_: Other, remainder, unknown
 A Bridge Setting: what the home pays per kWh from a start date, by period of the day and week, and optionally what
 it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
 _Avoid_: Price, rate, contract, cost settings
+
+## Support
+
+**Diagnostics**:
+One file a person downloads for a plugin instance or an accessory, to review and attach to an issue: the versions, the
+settings with their secrets masked, the accessories' values and the plugin's recent log, redacted. Names stay in it.
+_Avoid_: Debug dump, support bundle, report

@@ -1968,6 +1968,14 @@
   const rememberMatterOwn = (matter) => { matterOwn = new Set([...(matter?.ownDevices || []), ...(matter?.failedDevices || [])].map((device) => device.id)); };
   const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
 
+  /// Downloads a Diagnostics file (Diagnostics.swift): the browser saves it, and the page stays where it is.
+  function downloadDiagnostics(url) {
+    const link = el("a", { href: url, download: "", hidden: true });
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
+
   /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
   function matterActions(accessory) {
     const card = `/status#matter-${slug(accessory.id)}`;
@@ -2012,6 +2020,7 @@
         glyph: HomeswiftWidgets.categoryIcon(accessory.category) ?? "accessory" }) } : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "plugin", href: `/plugins/${slug(accessory.platformName || accessory.platform)}/settings` } : null,
+      accessory.platform && isAdmin() ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/accessories/${encodeURIComponent(accessory.id)}`) } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
       .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
@@ -2943,6 +2952,7 @@
         { label: t("Edit config.json"), icon: "code", href: "/settings/config" },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
         instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
+        plugin ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/plugins/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`) } : null,
         { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
       ];
     }

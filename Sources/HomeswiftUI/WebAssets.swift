@@ -4133,6 +4133,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const rememberMatterOwn = (matter) => { matterOwn = new Set([...(matter?.ownDevices || []), ...(matter?.failedDevices || [])].map((device) => device.id)); };
   const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
 
+  /// Downloads a Diagnostics file (Diagnostics.swift): the browser saves it, and the page stays where it is.
+  function downloadDiagnostics(url) {
+    const link = el("a", { href: url, download: "", hidden: true });
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
+
   /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
   function matterActions(accessory) {
     const card = `/status#matter-${slug(accessory.id)}`;
@@ -4177,6 +4185,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         glyph: HomeswiftWidgets.categoryIcon(accessory.category) ?? "accessory" }) } : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "plugin", href: `/plugins/${slug(accessory.platformName || accessory.platform)}/settings` } : null,
+      accessory.platform && isAdmin() ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/accessories/${encodeURIComponent(accessory.id)}`) } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
       .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
@@ -5108,6 +5117,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { label: t("Edit config.json"), icon: "code", href: "/settings/config" },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
         instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
+        plugin ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/plugins/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`) } : null,
         { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
       ];
     }
@@ -16714,6 +16724,7 @@ HomeswiftI18n.add("es", {
   "Separate": "Separar",
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
+  "Download diagnostics": "Descargar diagnósticos",
 });
 
 """#),
@@ -19750,6 +19761,7 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Download diagnostics": "Télécharger les diagnostics",
 });
 
 """#),
@@ -22786,6 +22798,7 @@ HomeswiftI18n.add("pt", {
   "Separate": "Separar",
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
+  "Download diagnostics": "Transferir diagnósticos",
 });
 
 """#),
