@@ -183,8 +183,8 @@ public struct SetupField: Sendable, Codable, Equatable {
     }
 
     /// Several of `options` to pick, `picked` ticked to begin with (`SetupRequest.choices` reads the answer).
-    public static func choices(_ key: String, label: String, options: [SetupOption], picked: [String] = [], optional: Bool = false) -> SetupField {
-        SetupField(key, label: label, kind: .choices, optional: optional, options: options, value: picked.isEmpty ? nil : picked.joined(separator: ","))
+    public static func choices(_ key: String, label: String, options: [SetupOption], picked: [String] = []) -> SetupField {
+        SetupField(key, label: label, kind: .choices, options: options, value: picked.isEmpty ? nil : picked.joined(separator: ","))
     }
 
     /// A choice between `options`, `value` picked to begin with.
@@ -199,15 +199,18 @@ public struct SetupOption: Sendable, Codable, Equatable {
     public var value: String
     public var label: String
     public var detail: String?
+    /// A word set apart beside it, for people, in English: "Private address".
+    public var badge: String?
     /// The ISO 3166 country the option is (`GB`).
     public var country: String?
     /// The language tag the option is (`fr-FR`).
     public var language: String?
 
-    public init(_ value: String, label: String, detail: String? = nil, country: String? = nil, language: String? = nil) {
+    public init(_ value: String, label: String, detail: String? = nil, badge: String? = nil, country: String? = nil, language: String? = nil) {
         self.value = value
         self.label = label
         self.detail = detail
+        self.badge = badge
         self.country = country
         self.language = language
     }

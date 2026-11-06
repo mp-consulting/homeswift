@@ -145,9 +145,8 @@ extension HomeswiftCatalog {
         let answered = answers.compactMapValues { $0.stringValue ?? $0.arrayValue.map { $0.compactMap(\.stringValue).joined(separator: ",") } }
         let asking = { (error: String) in self.asking(session, error: error, answers: answered) }
         for field in session.prompt.fields {
-            // Several options picked (`choices`): an array of their values, or the values separated by commas.
-            let picked = field.kind == .choices ? answers[field.key]?.arrayValue.map { $0.compactMap(\.stringValue).joined(separator: ",") } : nil
-            guard let value = answers[field.key], let text = picked ?? value.stringValue ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
+            // Several options picked (`choices`) come as an array of their values, which `answered` joined with commas.
+            guard let value = answers[field.key], let text = answered[field.key] ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
                 guard field.optional || session.prompt.waitSeconds != nil else { return asking("\(field.label) is missing") }
                 continue
             }

@@ -10,12 +10,12 @@ extension PresencePlugin {
     /// The Persons, and Anyone Home.
     public func discover() async throws -> [DiscoveredDevice] {
         var found = [DiscoveredDevice(deviceID: Self.anyoneID, name: context.accessorySettings(for: Self.anyoneID).name ?? "Anyone Home", isSetUp: true, kind: Self.anyoneKind)]
-        for (id, settings) in context.allAccessorySettings where id.hasPrefix("person-") {
+        for (id, settings) in context.allAccessorySettings where Self.isPerson(id) {
             var person = DiscoveredDevice(deviceID: id, name: settings.name ?? id, isSetUp: true, kind: Self.personKind)
             person.isExcluded = settings.excluded
             found.append(person)
         }
-        return found.sorted { ($0.kind == Self.anyoneKind ? 0 : 1, $0.name) < ($1.kind == Self.anyoneKind ? 0 : 1, $1.name) }
+        return found.sorted { ($0.deviceID == Self.anyoneID ? 0 : 1, $0.name) < ($1.deviceID == Self.anyoneID ? 0 : 1, $1.name) }
     }
 
     static let privateAddressWarning = "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the "
@@ -36,8 +36,9 @@ extension PresencePlugin {
         guard name.count <= 64 else { throw SetupError("The name is too long: 64 characters at most") }
         let user = request.state["user"]?.stringValue ?? request.answer("user")
         if let user, !context.webUsers.contains(where: { $0.username == user }) { throw SetupError("There is no web UI user \(user)") }
-        var kept: [String: JSONValue] = ["name": .string(name)]
-        if let user { kept["user"] = .string(user) }
+        // Kept from the first step to the second, then the Person's Accessory Settings with their devices.
+        var settings: [String: JSONValue] = ["name": .string(name)]
+        if let user { settings["user"] = .string(user) }
 
         let picked = request.choices("devices").compactMap(MACAddress.canonical)
         guard !picked.isEmpty else {
@@ -45,15 +46,15 @@ extension PresencePlugin {
             guard !devices.isEmpty else { throw SetupError("No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)") }
             let options = devices.map { device in
                 SetupOption(device.mac, label: device.name ?? device.address,
-                            detail: [device.name == nil ? nil : device.address, device.mac, device.isPrivate ? "Private address" : nil].compactMap { $0 }.joined(separator: " · "))
+                            detail: [device.name == nil ? nil : device.address, device.mac].compactMap { $0 }.joined(separator: " · "),
+                            badge: device.isPrivate ? "Private address" : nil)
             }
             return .ask(SetupPrompt(message: "Pick {name}'s devices: those they carry, such as their phone or their watch.", values: ["name": name],
                                     fields: [.choices("devices", label: "Devices", options: options)], warning: Self.privateAddressWarning),
-                        state: .object(kept))
+                        state: .object(settings))
         }
-        var settings: [String: JSONValue] = ["name": .string(name), "devices": .array(picked.map(JSONValue.string))]
-        if let user { settings["user"] = .string(user) }
-        let id = "person-" + String(format: "%08x", UInt32.random(in: .min ... .max))
+        settings["devices"] = .array(picked.map(JSONValue.string))
+        let id = Self.personPrefix + String(format: "%08x", UInt32.random(in: .min ... .max))
         logger.info("Added the Person \(name)")
         return .done(SetupOutcome(settings: settings, deviceID: id))
     }

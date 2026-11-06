@@ -154,6 +154,9 @@
     });
   }
 
+  /// What adding a device by its address is called for a plugin: its own words ("Add a Person"), else Add by address.
+  const addTitle = (plugin) => plugin?.addLabel ? t(plugin.addLabel) : t("Add by address");
+
   /// A wait for a plugin, its ring turning beside what it is waiting for.
   const loading = (text) => el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text }));
 
@@ -170,7 +173,7 @@
     // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs. A
     // plugin may call it otherwise ("Add a Person").
     const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
-    const addLabel = plugin.addLabel ? `${t(plugin.addLabel)}…` : t("Add by address…");
+    const addLabel = plugin.addLabel ? `${addTitle(plugin)}…` : t("Add by address…");
     // The account's Setup: its sign-in the first time, again once it is set up.
     const openAccount = (trigger = null) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger, after: load });
     // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
@@ -346,6 +349,11 @@
       ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
   }
 
+  /// An option's words: its label, a badge beside it ("Private address"), what it means beneath.
+  const optionText = (option) => el("span", {},
+    el("strong", {}, el("span", { text: t(option.label) }), option.badge ? el("span", { class: "pill status away setup-option-badge", text: t(option.badge) }) : null),
+    option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null);
+
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
   /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
   /// "", and `focus()`.
@@ -356,8 +364,7 @@
     const radios = options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === (field.value ?? (field.optional ? "" : undefined)) }));
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
-      ...options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
+      ...options.map((option, index) => el("label", { class: "setup-option" }, radios[index], optionText(option))));
     Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
     node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
     return node;
@@ -375,7 +382,7 @@
     const node = el("fieldset", { class: "field setup-choice setup-choices", id: `setup-${field.key}` },
       el("legend", { class: "field-title" }, el("span", { text: t(field.label) }), count),
       el("div", { class: "setup-choices-list" }, ...field.options.map((option, index) => el("label", { class: "setup-option" }, boxes[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: option.detail.split(" · ").map((part) => t(part)).join(" · ") }) : null)))));
+        optionText(option)))));
     Object.defineProperty(node, "value", { get: () => boxes.filter((box) => box.checked).map((box) => box.value).join(",") });
     node.focus = () => (boxes.find((box) => box.checked) ?? boxes[0])?.focus();
     return node;
@@ -393,7 +400,7 @@
   /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
   /// whatever else the plugin needs, then ends on the device's settings as any device's does.
   function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? (adding ? (plugin?.addLabel ? t(plugin.addLabel) : t("Add by address")) : block.name);
+    const title = device?.name ?? (adding ? addTitle(plugin) : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";

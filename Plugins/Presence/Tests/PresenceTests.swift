@@ -216,7 +216,8 @@ struct PresenceTests {
         let devices = try #require(second.fields.first)
         #expect(devices.kind == .choices)
         #expect(devices.options.map(\.label) == ["Alex’s iPhone", "192.168.1.21"])
-        #expect(devices.options[1].detail?.contains("Private address") == true)
+        #expect(devices.options[1].badge == "Private address")
+        #expect(devices.options[0].badge == nil)
         #expect(second.warning?.contains("Fixed") == true)
         #expect(kept["name"] == "Alex")
 

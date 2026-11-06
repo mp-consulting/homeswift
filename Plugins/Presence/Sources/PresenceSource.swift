@@ -49,7 +49,7 @@ struct NetworkPresenceSource: PresenceSource {
     let network: any LocalNetwork
     /// The least time between two sweeps of the local networks for missing MACs: while a Person is away their devices
     /// are missing at every check, and a sweep is a datagram to every address.
-    var sweepEvery: Duration = .seconds(120)
+    let sweepEvery: Duration
     private let lastSweep = NIOLockedValueBox<ContinuousClock.Instant?>(nil)
 
     init(network: any LocalNetwork, sweepEvery: Duration = .seconds(120)) {
@@ -65,12 +65,16 @@ struct NetworkPresenceSource: PresenceSource {
             await network.resolve(lookingFor: missing)
             table = Self.addresses(await network.arpEntries(), of: macs)
         }
-        let answered = await withTaskGroup(of: (String, Bool).self) { group in
+        // The MACs at once; a MAC's addresses one after another, until one answers.
+        let answered = await withTaskGroup(of: String?.self) { group in
             for (mac, ips) in table {
-                for ip in ips { group.addTask { (mac + "@" + ip, await network.isReachable(ip)) } }
+                group.addTask {
+                    for ip in ips where await network.isReachable(ip) { return mac + "@" + ip }
+                    return nil
+                }
             }
             var answered: Set<String> = []
-            for await (key, reachable) in group where reachable { answered.insert(key) }
+            for await key in group { if let key { answered.insert(key) } }
             return answered
         }
         guard !answered.isEmpty else { return [] }
@@ -107,7 +111,7 @@ struct NetworkPresenceSource: PresenceSource {
 
     /// An IPv4 address as a number, to sort by.
     static func order(_ address: String) -> UInt32 {
-        address.split(separator: ".").reduce(0) { $0 << 8 | (UInt32($1) ?? 0) }
+        IPv4Network.parse(address) ?? 0
     }
 }
 

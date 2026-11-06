@@ -694,7 +694,7 @@
     if (!iso) return "";
     const date = new Date(iso);
     const today = new Date().toDateString() === date.toDateString();
-    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
     return format.format(date);
   }
 

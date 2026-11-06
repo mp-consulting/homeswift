@@ -47,14 +47,17 @@ public actor PresencePlugin: HomeswiftPlugin {
 
     /// Anyone Home's Device Id.
     static let anyoneID = "anyone"
+    /// What every Person's Device Id starts with.
+    static let personPrefix = "person-"
     static let personKind = "person"
     static let anyoneKind = "anyone"
     static let defaultGraceMinutes = 10.0
     static let graceRange = 1.0...240.0
     static let defaultInterval = 30.0
     static let intervalRange = 10.0...600.0
-    /// How often a Person's last sighting is saved when nothing else changed.
-    static let saveEvery: TimeInterval = 300
+    /// How often a Person's last sighting is saved when nothing else changed (a clean stop saves it anyway): rarely, as
+    /// the bridge runs from an SD card on a Raspberry Pi.
+    static let saveEvery: TimeInterval = 1800
 
     let configuration: Configuration
     let context: PluginContext
@@ -96,7 +99,7 @@ public actor PresencePlugin: HomeswiftPlugin {
     /// The Persons of the Accessory Settings, Excluded ones left out, by name.
     var persons: [Person] {
         context.allAccessorySettings.compactMap { id, settings -> Person? in
-            guard id.hasPrefix("person-"), !settings.excluded else { return nil }
+            guard Self.isPerson(id), !settings.excluded else { return nil }
             let own = settings.decode(PersonSettings.self) ?? PersonSettings()
             return Person(id: id, name: settings.name ?? id, devices: Set((own.devices ?? []).compactMap(MACAddress.canonical)), user: own.user?.nonEmpty)
         }.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
@@ -106,8 +109,8 @@ public actor PresencePlugin: HomeswiftPlugin {
         started = true
         tracker = PresenceTracker(grace: tracker.grace, states: stateFile.load() ?? [:])
         let persons = persons
-        for person in persons { try add(person) }
-        if !context.isExcluded(Self.anyoneID) { try addAnyoneHome() }
+        for person in persons { try addSensor(person.id, name: person.name, model: "Person") }
+        if !context.isExcluded(Self.anyoneID) { try addSensor(Self.anyoneID, name: "Anyone Home", model: "Anyone Home") }
         _ = await context.removeAccessories(keeping: Set(persons.map { Self.accessoryID($0.id) } + [Self.accessoryID(Self.anyoneID)]), message: "Removing a Person")
         show(persons, changed: [])
         let interval = interval
@@ -140,17 +143,14 @@ public actor PresencePlugin: HomeswiftPlugin {
 
     /// The sensors and the board as the tracker has them; each Person who came or went is logged.
     private func show(_ persons: [Person], changed: [String]) {
-        for person in persons {
+        let published = persons.map { person in
             let state = tracker.state(of: person.id)
             sensors[person.id]?.value = .int(state.isHome ? 1 : 0)
             if changed.contains(person.id) { logger.info("\(person.name) is \(state.isHome ? "home" : "away")") }
-        }
-        let anyone = persons.contains { tracker.state(of: $0.id).isHome }
-        sensors[Self.anyoneID]?.value = .int(anyone ? 1 : 0)
-        context.presence.publish(persons.map { person in
-            let state = tracker.state(of: person.id)
             return PersonPresence(id: Self.accessoryID(person.id), name: person.name, isHome: state.isHome, since: state.since, user: person.user)
-        })
+        }
+        sensors[Self.anyoneID]?.value = .int(published.contains(where: \.isHome) ? 1 : 0)
+        context.presence.publish(published)
     }
 
     private func save(at now: Date) {
@@ -162,24 +162,18 @@ public actor PresencePlugin: HomeswiftPlugin {
         }
     }
 
-    private func add(_ person: Person) throws {
-        let sensor = Service(.occupancySensor, name: person.name, isPrimary: true)
-        sensors[person.id] = sensor.characteristic(.occupancyDetected)
+    /// An occupancy sensor of its own: a Person's, or Anyone Home's. Its Serial Number is its Device Id: no MAC is its own.
+    private func addSensor(_ deviceID: String, name: String, model: String) throws {
+        let sensor = Service(.occupancySensor, name: name, isPrimary: true)
+        sensors[deviceID] = sensor.characteristic(.occupancyDetected)
         try context.add(Accessory(
-            id: Self.accessoryID(person.id), name: person.name, manufacturer: "Homeswift", model: "Person", serialNumber: person.id,
-            category: .sensor, services: [sensor]))
+            id: Self.accessoryID(deviceID), name: name, manufacturer: "Homeswift", model: model, serialNumber: deviceID, category: .sensor, services: [sensor]))
     }
 
-    private func addAnyoneHome() throws {
-        let sensor = Service(.occupancySensor, name: "Anyone Home", isPrimary: true)
-        sensors[Self.anyoneID] = sensor.characteristic(.occupancyDetected)
-        try context.add(Accessory(
-            id: Self.accessoryID(Self.anyoneID), name: "Anyone Home", manufacturer: "Homeswift", model: "Anyone Home", serialNumber: Self.anyoneID,
-            category: .sensor, services: [sensor]))
-    }
+    static func isPerson(_ deviceID: String) -> Bool { deviceID.hasPrefix(personPrefix) }
 
     public func deviceKind(of deviceID: String) async -> String? {
-        deviceID == Self.anyoneID ? Self.anyoneKind : deviceID.hasPrefix("person-") ? Self.personKind : nil
+        deviceID == Self.anyoneID ? Self.anyoneKind : Self.isPerson(deviceID) ? Self.personKind : nil
     }
 }
 

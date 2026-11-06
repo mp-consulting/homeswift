@@ -2864,7 +2864,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!iso) return "";
     const date = new Date(iso);
     const today = new Date().toDateString() === date.toDateString();
-    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
     return format.format(date);
   }
 
@@ -25913,6 +25913,9 @@ HomeswiftI18n.add("pt", {
     });
   }
 
+  /// What adding a device by its address is called for a plugin: its own words ("Add a Person"), else Add by address.
+  const addTitle = (plugin) => plugin?.addLabel ? t(plugin.addLabel) : t("Add by address");
+
   /// A wait for a plugin, its ring turning beside what it is waiting for.
   const loading = (text) => el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text }));
 
@@ -25929,7 +25932,7 @@ HomeswiftI18n.add("pt", {
     // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs. A
     // plugin may call it otherwise ("Add a Person").
     const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
-    const addLabel = plugin.addLabel ? `${t(plugin.addLabel)}…` : t("Add by address…");
+    const addLabel = plugin.addLabel ? `${addTitle(plugin)}…` : t("Add by address…");
     // The account's Setup: its sign-in the first time, again once it is set up.
     const openAccount = (trigger = null) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger, after: load });
     // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
@@ -26105,6 +26108,11 @@ HomeswiftI18n.add("pt", {
       ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
   }
 
+  /// An option's words: its label, a badge beside it ("Private address"), what it means beneath.
+  const optionText = (option) => el("span", {},
+    el("strong", {}, el("span", { text: t(option.label) }), option.badge ? el("span", { class: "pill status away setup-option-badge", text: t(option.badge) }) : null),
+    option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null);
+
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
   /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
   /// "", and `focus()`.
@@ -26115,8 +26123,7 @@ HomeswiftI18n.add("pt", {
     const radios = options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === (field.value ?? (field.optional ? "" : undefined)) }));
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
-      ...options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
+      ...options.map((option, index) => el("label", { class: "setup-option" }, radios[index], optionText(option))));
     Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
     node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
     return node;
@@ -26134,7 +26141,7 @@ HomeswiftI18n.add("pt", {
     const node = el("fieldset", { class: "field setup-choice setup-choices", id: `setup-${field.key}` },
       el("legend", { class: "field-title" }, el("span", { text: t(field.label) }), count),
       el("div", { class: "setup-choices-list" }, ...field.options.map((option, index) => el("label", { class: "setup-option" }, boxes[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: option.detail.split(" · ").map((part) => t(part)).join(" · ") }) : null)))));
+        optionText(option)))));
     Object.defineProperty(node, "value", { get: () => boxes.filter((box) => box.checked).map((box) => box.value).join(",") });
     node.focus = () => (boxes.find((box) => box.checked) ?? boxes[0])?.focus();
     return node;
@@ -26152,7 +26159,7 @@ HomeswiftI18n.add("pt", {
   /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
   /// whatever else the plugin needs, then ends on the device's settings as any device's does.
   function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? (adding ? (plugin?.addLabel ? t(plugin.addLabel) : t("Add by address")) : block.name);
+    const title = device?.name ?? (adding ? addTitle(plugin) : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
@@ -30520,7 +30527,8 @@ select option:disabled { color: var(--muted); }
 .setup-choices-count { font-size: var(--text-sm); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
 .setup-choices-list > .setup-option { margin: 0; }
-.setup-option strong { overflow-wrap: anywhere; }
+.setup-option strong { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
+.setup-option-badge { font-size: var(--text-2xs); padding: 1px var(--space-8); }
 /* A word of caution beside a step's message (a phone's private Wi-Fi address). */
 .setup-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12);
   border-radius: var(--radius-md); background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent); }
@@ -32995,11 +33003,8 @@ self.addEventListener("notificationclick", (event) => {
       const occupied = ctx.take(primary, "Occupancy Detected");
       const home = () => occupied?.value === 1 || occupied?.value === true;
       const anyone = ctx.accessory.id === "Presence:anyone";
-      return {
-        on: home,
-        hero: () => el("span", { class: "w-hero-word" }, home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"))),
-        status: () => [home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]")), ""],
-      };
+      const word = () => home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"));
+      return { on: home, hero: () => el("span", { class: "w-hero-word" }, word()), status: () => [word(), ""] };
     },
   });
 

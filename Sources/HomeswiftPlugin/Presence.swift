@@ -40,11 +40,11 @@ public enum PresenceEvent: Sendable, Equatable {
 /// The Persons the Presence plugin follows, for the rest of the bridge (`PluginHost.presence`, `PluginContext.presence`).
 public final class PresenceBoard: Sendable {
     private struct State {
-        /// By id, as the plugin last published them; nil before it published anything, and once it stopped.
+        /// By id, as the plugin last published them; nil before it published anything. Kept when the plugin stops, so a
+        /// reload's first publish is compared with them and a Person who came or went meanwhile is still told.
         var persons: [String: PersonPresence]?
-        /// The last ones published, kept when the plugin stops: a reload's first publish is compared with them, so a
-        /// Person who came or went meanwhile is still told.
-        var last: [String: PersonPresence]?
+        /// Whether a plugin publishes now: not before the first publish, nor once it stopped.
+        var isPublishing = false
         var observers: [UUID: @Sendable (PresenceEvent) -> Void] = [:]
     }
 
@@ -54,12 +54,12 @@ public final class PresenceBoard: Sendable {
 
     /// Every Person, by name; empty when no Presence plugin runs.
     public var persons: [PersonPresence] {
-        state.withLockedValue { $0.persons.map { Array($0.values) } ?? [] }.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
+        state.withLockedValue { $0.isPublishing ? $0.persons.map { Array($0.values) } ?? [] : [] }.sorted { ($0.name, $0.id) < ($1.name, $1.id) }
     }
 
     /// Whether at least one Person is home; nil when no Presence plugin publishes.
     public var anyoneHome: Bool? {
-        state.withLockedValue { $0.persons.map { $0.values.contains(where: \.isHome) } }
+        state.withLockedValue { state in state.isPublishing ? state.persons.map { $0.values.contains(where: \.isHome) } : nil }
     }
 
     /// The Persons a web UI user is linked to.
@@ -71,10 +71,10 @@ public final class PresenceBoard: Sendable {
     /// when it changes. A Person new to the board, or one taken off it, is no arrival or departure.
     public func publish(_ persons: [PersonPresence]) {
         let (events, observers) = state.withLockedValue { state -> ([PresenceEvent], [@Sendable (PresenceEvent) -> Void]) in
-            let before = state.persons ?? state.last
+            let before = state.persons
             let after = Dictionary(persons.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             state.persons = after
-            state.last = after
+            state.isPublishing = true
             guard let before else { return ([], []) }
             var events: [PresenceEvent] = []
             for person in persons {
@@ -93,7 +93,7 @@ public final class PresenceBoard: Sendable {
     /// Takes the plugin's Persons off the board: it stopped. The next publish (the plugin reloaded) is still compared with
     /// them.
     public func clear() {
-        state.withLockedValue { $0.persons = nil }
+        state.withLockedValue { $0.isPublishing = false }
     }
 
     /// Follows arrivals, departures and Anyone Home; `cancel()` the observation to stop.

@@ -1600,11 +1600,8 @@
       const occupied = ctx.take(primary, "Occupancy Detected");
       const home = () => occupied?.value === 1 || occupied?.value === true;
       const anyone = ctx.accessory.id === "Presence:anyone";
-      return {
-        on: home,
-        hero: () => el("span", { class: "w-hero-word" }, home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"))),
-        status: () => [home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]")), ""],
-      };
+      const word = () => home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"));
+      return { on: home, hero: () => el("span", { class: "w-hero-word" }, word()), status: () => [word(), ""] };
     },
   });
 

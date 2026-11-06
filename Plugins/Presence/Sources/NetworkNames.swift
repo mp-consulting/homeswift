@@ -1,5 +1,7 @@
 import Foundation
 import HomeswiftNetwork
+import HomeswiftPlugin
+import NIOConcurrencyHelpers
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -56,33 +58,37 @@ enum NetworkNames {
 
     /// The router's names for the addresses (DHCP host names, through its DNS), those found within `dnsWindow`.
     static func reverseNames(_ ips: [String]) async -> [String: String] {
-        let found = LockedNames()
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                await withTaskGroup(of: Void.self) { lookups in
-                    for (index, ip) in ips.enumerated() {
-                        if index >= dnsLookupsAtOnce { await lookups.next() }
-                        guard !Task.isCancelled else { return }
-                        lookups.addTask {
-                            if let name = await reverseName(ip) { found.set(ip, name) }
-                        }
+        let found = NIOLockedValueBox<[String: String]>([:])
+        // The names found by then are kept: a lookup still running when the time is up is left out.
+        try? await withTimeout(dnsWindow) {
+            await withTaskGroup(of: Void.self) { lookups in
+                for (index, ip) in ips.enumerated() {
+                    if index >= dnsLookupsAtOnce { await lookups.next() }
+                    guard !Task.isCancelled else { return }
+                    lookups.addTask {
+                        if let name = await reverseName(ip) { found.withLockedValue { $0[ip] = name } }
                     }
                 }
             }
-            group.addTask { try? await Task.sleep(for: dnsWindow) }
-            await group.next()
-            group.cancelAll()
         }
-        return found.all
+        return found.withLockedValue { $0 }
     }
 
     /// One address's name in the system resolver, on a thread of its own (`getnameinfo` blocks); nil for none, or for a
     /// name that only spells the address out.
+    /// Cancelled, it answers nil at once and the thread's answer, when it comes, is dropped: nothing waits on a resolver
+    /// that does not answer.
     static func reverseName(_ ip: String) async -> String? {
-        await withCheckedContinuation { continuation in
-            Thread.detachNewThread {
-                continuation.resume(returning: lookUpSync(ip).flatMap { hostLabel($0, ip: ip) })
+        let pending = NIOLockedValueBox<CheckedContinuation<String?, Never>?>(nil)
+        let answer = { @Sendable (name: String?) in pending.withLockedValue { $0.take() }?.resume(returning: name) }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                pending.withLockedValue { $0 = continuation }
+                if Task.isCancelled { answer(nil); return }
+                Thread.detachNewThread { answer(lookUpSync(ip).flatMap { hostLabel($0, ip: ip) }) }
             }
+        } onCancel: {
+            answer(nil)
         }
     }
 
@@ -110,13 +116,4 @@ enum NetworkNames {
         guard !label.isEmpty, !label.allSatisfy({ $0.isNumber || $0 == "-" }), !digits.allSatisfy({ label.contains($0) }) else { return nil }
         return String(label.prefix(64))
     }
-}
-
-/// Names found by the lookups running at once.
-private final class LockedNames: @unchecked Sendable {
-    private let lock = NSLock()
-    private var names: [String: String] = [:]
-
-    func set(_ ip: String, _ name: String) { lock.withLock { names[ip] = name } }
-    var all: [String: String] { lock.withLock { names } }
 }
