@@ -27900,9 +27900,10 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 @media (hover: hover) and (pointer: fine) { .camera-button:hover { background: rgba(30, 32, 40, 0.62); } }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .camera-button.active { background: rgba(255, 255, 255, 0.9); color: #10131a; }
-/* Pan and tilt: a pad to press or drag like a joystick over the picture's lower left, the presets beside it. */
+/* Pan and tilt: a pad to press or drag like a joystick over the picture's lower right, under the thumb of the hand that
+   holds a phone and beside the button that opens it, the presets on its left. */
 .ptz-panel {
-  position: absolute; left: var(--space-12); bottom: 58px; z-index: 2; display: flex; align-items: flex-end; gap: var(--space-10);
+  position: absolute; right: var(--space-12); bottom: 58px; z-index: 2; display: flex; flex-direction: row-reverse; align-items: flex-end; gap: var(--space-10);
   max-width: calc(100% - 2 * var(--space-12)); transform-origin: 100% 100%;
   animation: ptz-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
@@ -27932,7 +27933,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
 .ptz-arrow.left { left: 2px; top: 43px; } .ptz-arrow.right { right: 2px; top: 43px; }
 .ptz-arrow.active { color: #fff; background: color-mix(in srgb, var(--accent) 80%, transparent); }
 .ptz-arrow.off { opacity: 0.3; }
-.ptz-presets { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-6); min-width: 0; max-height: 120px; overflow-y: auto; scrollbar-width: none; }
+.ptz-presets { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-6); min-width: 0; max-height: 120px; overflow-y: auto; scrollbar-width: none; }
 .ptz-chip {
   display: inline-flex; align-items: center; gap: var(--space-6); max-width: 100%; min-height: 32px; padding: 0 var(--space-12) 0 var(--space-10);
   border-radius: var(--radius-pill); color: #fff; font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap;
