@@ -22,6 +22,11 @@ All notable changes to this project are documented here. The format follows
   the header at the top.
 - Web UI: the Assistant chat's model is a menu under its title, of the provider's models: each user picks their own,
   kept in their preferences, from the next message on (`GET /api/assistant/models` lists them for anyone who may chat).
+- Z-Wave JS plugin (experimental): the nodes already on a Z-Wave network, through zwave-js-server's WebSocket API, the
+  server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run. Switches and outlets, dimmers, colour lights, window
+  coverings, door locks, thermostats, motion, contact, leak, smoke and CO sensors, temperature, humidity and light,
+  batteries, Central Scene buttons, and meters that count in the Energy section. The server is found over mDNS or added
+  by its address; a dead node answers No Response. Including and excluding nodes stays in Z-Wave JS UI.
 - Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
   attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
   masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
