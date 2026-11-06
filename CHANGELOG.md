@@ -18,6 +18,18 @@ All notable changes to this project are documented here. The format follows
   bridge and follow their changes; `newDeviceLabel` names Add by address for devices that have no address;
   `accessorySettingChoices` gives a Plugin Accessory Setting choices that depend on the home; Setup has a `choices`
   field, several options picked.
+- Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
+  attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
+  masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
+  warnings over the last week. Names are kept. MCP clients get the same bundle from `get_diagnostics`, administrators
+  only.
+
+### Changed
+
+- The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
+  (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
+  `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
+  The location an older `scenes.json` kept moves there at startup.
 
 ### Fixed
 

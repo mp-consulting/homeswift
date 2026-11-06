@@ -2661,8 +2661,19 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 }
 @media (pointer: coarse) { .template-describe input { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
-.location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
+/* The Location's fold: a card head (tile, title, the place), the chevron turning as it opens. */
+.location > summary { cursor: pointer; list-style: none; padding: 0; color: inherit; }
+.location > summary::-webkit-details-marker { display: none; }
+.location > summary .who { flex: 1; min-width: 0; }
+.location-chevron { display: inline-flex; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.location-chevron svg { width: 20px; height: 20px; }
+.location[open] > summary { margin-bottom: var(--space-14); }
+.location[open] .location-chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .location-chevron { transition: none; } }
+.location .actions { flex-wrap: wrap; }
+.location .actions button { white-space: nowrap; }
+.location .status-line:empty, .location-search .status-line:empty, .location-search-results:empty { display: none; }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
 .scene-editor h2 + p { margin: 0 0 var(--space-8); font-size: var(--text-md); }
 .editor-list { display: grid; gap: var(--space-8); }
@@ -4611,6 +4622,10 @@ select option:disabled { color: var(--muted); }
 .location-search-input input { width: 100%; padding-right: calc(var(--space-20) * 2); }
 .location-search-input .spinner { position: absolute; right: var(--space-12); top: 50%; margin-top: -9px; pointer-events: none; }
 .location-search-input .spinner[hidden] { display: none; }
+@media (max-width: 520px) {
+  .location-search-bar { flex-wrap: wrap; }
+  .location-search-input { flex: 1 1 100%; }
+}
 .location-search > p { font-size: var(--text-sm); margin-block: var(--space-10); }
 .location-search-results button { border-radius: var(--radius-sm); padding: var(--space-12); box-shadow: none; border: 1px solid var(--line); touch-action: manipulation; }
 .location-result-copy { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }

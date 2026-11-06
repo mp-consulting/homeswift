@@ -164,6 +164,9 @@ public final class PluginHost: @unchecked Sendable {
 
     /// The configuration as last applied.
     public var configuration: HomeswiftConfiguration { configurationBox.withLockedValue { $0 } }
+    /// The Location as the configuration has it now, for plugins' `context.location`: read live, without copying the
+    /// configuration.
+    var locationReader: @Sendable () -> Location? { { [weak self] in self?.configurationBox.withLockedValue { $0.location } } }
     public let storageDirectory: URL
     /// The plugins this host knows, whether or not config.json uses them.
     public let registry: PluginRegistry
@@ -181,6 +184,11 @@ public final class PluginHost: @unchecked Sendable {
     }
 
     public var platforms: [PlatformInstance] { instances.map(\.described) }
+
+    /// Why an instance's plugin did not start (its configuration did not decode, `start()` threw), or nil.
+    public func startFailure(platform: String, name: String) -> String? {
+        instances.first { $0.block.platform == platform && $0.block.name == name }?.failure.withLockedValue { $0 }
+    }
 
     /// The instances whose plugin runs (not paused, started), with it.
     func runningPlugins() -> [(instance: Instance, plugin: any HomeswiftPlugin)] {
@@ -267,6 +275,9 @@ public final class PluginHost: @unchecked Sendable {
         aiConfigurationBox = NIOLockedValueBox(ai)
         assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, storageDirectory: storageDirectory, transport: options.aiTransport, logger: logger) }
 
+        if configuration.invalidLocation {
+            logger.warning("config.json's bridge.location is not a Location (latitude -90 to 90, longitude -180 to 180): it is ignored until it is set again under Settings, Bridge")
+        }
         if configuration.ignoredAccessoryBlocks > 0 {
             logger.warning("config.json has \(configuration.ignoredAccessoryBlocks) malformed \"accessories\" block(s) (no \"accessory\", or a bad \"_bridge\"); they are ignored")
         }
@@ -722,7 +733,8 @@ public final class PluginHost: @unchecked Sendable {
         if let child = block.childBridge {
             bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
         }
-        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, meterReadings: meterReadings, assistantBackground: entry.assistantBackground)
+        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, meterReadings: meterReadings, assistantBackground: entry.assistantBackground,
+                                       location: locationReader)
         attachHost(context)
         context.logs = options.logs
         context.naming.setNames(block.accessoryNames)
@@ -774,7 +786,8 @@ public final class PluginHost: @unchecked Sendable {
     static func makeContext(
         block: HomeswiftConfiguration.Platform, key: String, bridge: Bridge, storageDirectory: URL, logLevel: Logger.Level,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, values: ValueFeed, energyImports: EnergyImportFeed,
-        energyProgress: NIOLockedValueBox<[String: EnergyImportProgress]>, meterReadings: MeterFeed, assistantBackground: String?
+        energyProgress: NIOLockedValueBox<[String: EnergyImportProgress]>, meterReadings: MeterFeed, assistantBackground: String?,
+        location: @escaping @Sendable () -> Location?
     ) -> PluginContext {
         var pluginLogger = Logger(label: block.name)
         pluginLogger.logLevel = logLevel
@@ -786,7 +799,7 @@ public final class PluginHost: @unchecked Sendable {
             recordSink: { series, value, tag in values.publish(series, value, tag) },
             energyImportSink: { hours in energyImports.publish(EnergyImport(source: key, hours: hours)) },
             energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } },
-            meterSink: { reading in meterReadings.publish(reading) })
+            meterSink: { reading in meterReadings.publish(reading) }, location: location)
     }
 
     func launch(_ instance: Instance, as verb: String = "Started") async {
