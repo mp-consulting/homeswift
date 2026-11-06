@@ -22,6 +22,11 @@ All notable changes to this project are documented here. The format follows
   the header at the top.
 - Web UI: the Assistant chat's model is a menu under its title, of the provider's models: each user picks their own,
   kept in their preferences, from the next message on (`GET /api/assistant/models` lists them for anyone who may chat).
+- Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
+  attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
+  masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
+  warnings over the last week. Names are kept. MCP clients get the same bundle from `get_diagnostics`, administrators
+  only.
 
 ### Changed
 

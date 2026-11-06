@@ -3039,5 +3039,6 @@ HomeswiftI18n.add("fr", {
   "Dictation could not reach its speech service. Check the connection and try again.": "La dictée n'a pas pu joindre son service de reconnaissance vocale. Vérifiez la connexion et réessayez.",
   "Dictation does not support {language}: choose another Voice language from the Settings menu.": "La dictée ne prend pas en charge {language} : choisissez une autre Langue de la voix dans le menu Réglages.",
   "The Assistant: its provider, model and key, whether the provider answers, what it costs, and its budgets.": "L'Assistant : son fournisseur, son modèle et sa clé, si le fournisseur répond, ce qu'il coûte, et ses budgets.",
+  "Download diagnostics": "Télécharger les diagnostics",
   "Forgotten.": "Oubliée.",
 });
