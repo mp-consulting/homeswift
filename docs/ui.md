@@ -282,8 +282,8 @@ scene, leaving out its locks, doors and alarms; turning it off puts the lights b
 on. The switch has the scene's name in the Home app: renaming the scene renames it there, and renaming it in the Home
 app renames the scene.
 
-![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's card says its
-room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
+![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's tile says what
+starts it, its Details its room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
 Its ⋯ menu gives it a picture of your own (**Choose a picture…**, shrunk to 640 pixels; JPEG, PNG or WebP up to 1 MB)
 or takes it away; a hub's scene has the same menu, and its picture is the one the Hue or IKEA page shows. The bridge
 keeps them in `scene-pictures/` next to config.json. A hub's scene's menu also renames it on its hub, keeps its lights
@@ -291,11 +291,19 @@ as they are now, or deletes it from the hub (after asking: it goes from the hub'
 only, without triggers or an animation, can be saved to the Hue room or zone, or the IKEA hub, that has all its lights:
 the editor's save bar offers it beside **Create the scene**.
 
-![Scenes from your hubs, by room, with their pictures and menus](images/plugins/scenes-from-hubs.png)
+![Scenes from your hubs, each shown once, with the scenes in no room under Around the house](images/plugins/scenes-from-hubs.png)
 
-**Scenes from your hubs**, under them: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub,
-the scenes picked for Govee lights), by room, with their pictures or colours and a source filter when there are
-several. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
+The page opens on a search and the rooms as chips (the rooms of your scenes and the hubs' rooms and zones): a room
+narrows everything to its own scenes, and the page remembers it; **Clear filters** goes back to every scene. A source
+filter beside **Scenes from your hubs** keeps one hub's scenes when there are several. **Your scenes** come first, then **Scenes from your
+hubs**: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub, the scenes picked for Govee
+lights, Apple Home's through Wingman), with their pictures or colours. A scene a hub has in several rooms shows once,
+saying in how many: Hue makes Relax, Read or Concentrate in each room, so a home of fifteen rooms has a hundred of
+them. The most widespread come first, a dozen until **Show all**. A tap opens its rooms, each with its own tile and ⋯
+menu, and **Run in every room**; its own ⋯ runs it in every room, stops it, or opens its rooms. A scene in one room
+runs at once. The scenes in no room (Apple Home's) are small
+buttons by name under **Around the house**, and several with one name show as one with their number (×3), which opens
+each copy. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
 lights it changed, for 12 hours, as for any scene. **Automate** makes a Homeswift scene that recalls it, to give it
 triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. The editor's **Animation** step
 makes the chosen lights move after the actions: a style (candle, fire, sparkle, prism, underwater, a sunrise, moving
@@ -304,8 +312,9 @@ its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a su
 Ambilight TV for music);
 Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
 
-**Templates**, on the same page: the rooms that have lights as chips, and the collection by kind, each drawn with
-photographic thumbnails. A tap tries one on the room's lights at once, without saving it: calm ones set the lights,
+**Ideas**, folded at the foot of the page (the page head's **Ideas** opens it; it stays open while a template plays):
+the templates, the rooms that have lights as chips, and the collection by kind, each drawn with photographic
+thumbnails. A tap tries one on the room's lights at once, without saving it: calm ones set the lights,
 effects (a fireplace, a candle flicker, an ocean, a sunrise) play each brand's own way where its lights have it, and
 signals and party ones are timed sequences. The pill stays lit while it plays, and what was tried shows under the rooms
 with **Stop** (or **Undo**, for 12 hours, for one that set the lights once) and **Save as a scene**, which keeps it as a
@@ -318,7 +327,7 @@ On a phone each photographic theme is a single row that swipes sideways; Calm, S
 controlling accessories, as running a scene is. `SceneTemplateLibrary` is the collection; MCP clients use `list_scene_templates`,
 and `run_scene` or `save_scene` with `template` (or `description`) and `room`.
 
-Scene cards keep accessory actions collapsed under **Details**. Expand it to see every action.
+Your scenes are picture tiles, as the hubs' are: a tap runs one, the line under its name says what starts it, and small marks say it is in the Home app, starts on its own or changes a lock. Its ⋯ menu has **Details…** (a sheet with every action and its last run), **Edit**, its picture and **Delete**.
 
 ![All scene actions](images/ui/scene-card-details.png)
 
