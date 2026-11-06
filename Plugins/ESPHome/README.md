@@ -72,6 +72,10 @@ plugin has heard: Setup on a paused instance finds no sensors.
 | `bluetooth` | `true` | Subscribe to the advertisements of every Bluetooth proxy |
 | `bluetoothTimeout` | `30` | Minutes without a frame before a sensor shows No Response |
 
+A sensor set up with a bindkey is read only from its encrypted frames, each with a counter above the last one read: an
+open frame under its address, or a recorded frame sent again, could come from anyone in radio range and is ignored. A
+sensor unheard for `bluetoothTimeout` may restart its counter (the counters are kept in memory, not on disk).
+
 A sensor not heard for `bluetoothTimeout` minutes shows No Response, until it is heard again. After a restart its
 cached accessory keeps its values and stays reachable for that long while the proxies reconnect.
 

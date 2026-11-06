@@ -262,12 +262,14 @@ public actor ESPHomePlugin: HomeswiftPlugin {
         let macs = Set(setups.map(\.mac))
         for accessory in context.accessories {
             let suffix = String(accessory.id.dropFirst(Self.platform.count + 1))
-            guard MACAddress.canonical(suffix) == suffix, !macs.contains(suffix) else { continue }
+            // An entity named like a MAC is a device's, not a sensor's.
+            guard MACAddress.canonical(suffix) == suffix, !macs.contains(suffix), !directory.isClaimed(suffix) else { continue }
             logger.info("Removing \(accessory.name): its Bluetooth sensor is no longer set up")
             try? await context.remove(id: accessory.id)
         }
-        await bluetooth.configure(setups)
-        guard configuration.bluetooth != false else { return }
+        let listening = configuration.bluetooth != false
+        await bluetooth.configure(setups, listening: listening)
+        guard listening else { return }
         let hub = bluetooth, interval = dependencies.bluetoothCheckInterval
         tasks.add {
             while !Task.isCancelled {

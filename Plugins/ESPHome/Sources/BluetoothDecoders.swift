@@ -58,6 +58,8 @@ enum BluetoothDecodeError: Error, Equatable {
     case wrongKey
     /// A frame the plugin does not read (a legacy encryption, a version it does not know, bytes missing).
     case unsupported
+    /// Open, from a sender set up with a bindkey: anyone can send it under the sensor's address.
+    case unencrypted
 }
 
 enum BluetoothDecoders {
@@ -90,6 +92,24 @@ enum BluetoothDecoders {
         }
     }
 
+    /// The counter of an encrypted frame, which the sender increases with each one: a frame whose counter does not is a
+    /// replay. nil for an open frame.
+    static func counter(_ advertisement: BluetoothAdvertisement, as format: BluetoothFormat) -> UInt32? {
+        switch format {
+        case .bthome:
+            // The four bytes before the MIC.
+            guard let data = advertisement.serviceData[BTHome.uuid], let info = data.first, info & 1 != 0, data.count >= 9 else { return nil }
+            return uint(data[(data.count - 8)..<(data.count - 4)])
+        case .xiaomi:
+            // The extended counter (three bytes before the MIC) above the frame counter.
+            guard let data = advertisement.serviceData[MiBeacon.uuid], let header = MiBeacon.Header(data, mac: advertisement.mac), header.encrypted,
+                  data.count - header.payloadStart >= 7 else { return nil }
+            return uint(data[(data.count - 7)..<(data.count - 4)]) << 8 | UInt32(header.counter)
+        case .govee:
+            return nil
+        }
+    }
+
     /// The six octets of a canonical MAC, the first one first.
     static func octets(_ mac: String) -> [UInt8] {
         mac.split(separator: ":").compactMap { UInt8($0, radix: 16) }
@@ -119,6 +139,7 @@ enum BTHome {
     static func decode(_ data: [UInt8], mac: String, key: [UInt8]?) throws -> BluetoothReadings {
         guard let info = data.first, info >> 5 == 2 else { throw BluetoothDecodeError.unsupported }
         var objects = Array(data.dropFirst())
+        guard info & 1 != 0 || key == nil else { throw BluetoothDecodeError.unencrypted }
         if info & 1 != 0 {
             guard let key else { throw BluetoothDecodeError.needsKey }
             guard objects.count >= 8, key.count == 16 else { throw BluetoothDecodeError.unsupported }
@@ -262,6 +283,7 @@ enum MiBeacon {
         guard let header = Header(data, mac: mac) else { throw BluetoothDecodeError.unsupported }
         guard header.hasObjects else { return BluetoothReadings() }
         var payload = Array(data[header.payloadStart...])
+        guard header.encrypted || key == nil else { throw BluetoothDecodeError.unencrypted }
         if header.encrypted {
             // Versions before 4 used another scheme, which this plugin does not read.
             guard header.version >= 4 else { throw BluetoothDecodeError.unsupported }
@@ -317,7 +339,7 @@ enum MiBeacon {
 
 /// Govee's thermometers and hygrometers, in manufacturer data. Company id 0xEC88: the H5072 and H5075 (six bytes, the
 /// temperature and humidity packed in three, then the battery) and the H5074 (seven bytes, the temperature and humidity in
-/// hundredths, little-endian, then the battery). Company id 0x0001, told by a name starting GVH5 or Govee: the H5100
+/// hundredths, little-endian, then the battery); other lengths there are other Govee devices. Company id 0x0001, told by a name starting GVH5 or Govee: the H5100
 /// family (H5100, H5101, H5102, H5104, H5174, H5177; six bytes, packed from the third) and the H5179 (nine bytes, the
 /// values in hundredths from the fifth). Packed is `temperature × 10000 + humidity × 10` in tenths, its top bit the sign.
 enum Govee {
@@ -330,12 +352,12 @@ enum Govee {
         if let data = advertisement.manufacturerData[companyID] {
             switch data.count {
             case 6: return named ?? "H5075"
-            case 7...: return named ?? "H5074"
+            case 7: return named ?? "H5074"
             default: return nil
             }
         }
         if let data = advertisement.manufacturerData[genericCompanyID], let named, isGovee(name) {
-            return data.count == 6 || data.count >= 9 ? named : nil
+            return data.count == 6 || data.count == 9 ? named : nil
         }
         return nil
     }
@@ -355,12 +377,12 @@ enum Govee {
     static func decode(_ advertisement: BluetoothAdvertisement, name: String?) -> BluetoothReadings? {
         if let data = advertisement.manufacturerData[companyID] {
             if data.count == 6 { return packed(data[1..<4], battery: data[4]) }
-            if data.count >= 7 { return hundredths(data[1..<5], battery: data[5]) }
+            if data.count == 7 { return hundredths(data[1..<5], battery: data[5]) }
             return nil
         }
         if let data = advertisement.manufacturerData[genericCompanyID], isGovee(name) {
             if data.count == 6 { return packed(data[2..<5], battery: data[5]) }
-            if data.count >= 9 { return hundredths(data[4..<8], battery: data[8]) }
+            if data.count == 9 { return hundredths(data[4..<8], battery: data[8]) }
         }
         return nil
     }

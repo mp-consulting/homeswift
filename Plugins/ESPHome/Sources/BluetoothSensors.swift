@@ -3,7 +3,6 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
-import NIOConcurrencyHelpers
 
 /// A Bluetooth sensor set up through Setup: its format (its Accessory Settings' `format`), and its bindkey when it
 /// encrypts (in the vault, as `ESPHomeCredentials.encryptionKey`).
@@ -47,6 +46,8 @@ actor BluetoothHub {
     private var sensors: [String: BluetoothSensor] = [:]
     private var setups: [String: BluetoothSensorSetup] = [:]
     private var warnedKeys = Set<String>()
+    /// The counter of the last encrypted frame read from each sensor, and when.
+    private var counters: [String: (value: UInt32, at: ContinuousClock.Instant)] = [:]
     /// The frames of sensors set up that were read: one per frame, however many proxies heard it.
     private(set) var framesRead = 0
 
@@ -58,14 +59,16 @@ actor BluetoothHub {
     var setUp: [String: BluetoothSensorSetup] { setups }
 
     /// The sensors set up, from the Accessory Settings; their accessories restored from the cache come back as they were,
-    /// reachable for `timeout` unless heard.
-    func configure(_ list: [BluetoothSensorSetup]) {
+    /// reachable for `timeout` unless heard. Not `listening` (the `bluetooth` option off), they show No Response: nothing
+    /// will update them.
+    func configure(_ list: [BluetoothSensorSetup], listening: Bool = true) {
         let now = clock.now
         for setup in list {
             setups[setup.mac] = setup
             let sensor = BluetoothSensor(setup: setup, context: context, heardAt: now)
             sensors[setup.mac] = sensor
             sensor.restore()
+            if !listening { sensor.markUnavailable(true) }
         }
     }
 
@@ -74,7 +77,7 @@ actor BluetoothHub {
         let now = clock.now
         for advertisement in advertisements {
             let mac = advertisement.mac
-            if let name = advertisement.name, Govee.isGovee(name) || heard[mac] != nil || setups[mac] != nil { names[mac] = name }
+            if let name = advertisement.name, Govee.isGovee(name) || heard[mac] != nil || setups[mac] != nil { remember(name, of: mac) }
             let name = names[mac] ?? advertisement.name
             let known = heard[mac]?.recognition
             guard let recognition = BluetoothDecoders.recognize(advertisement, name: name) ?? known.flatMap({ known in
@@ -109,10 +112,21 @@ actor BluetoothHub {
             framesRead += 1
             do {
                 guard let readings = try BluetoothDecoders.decode(advertisement, as: setup.format, key: setup.key, name: name) else { continue }
-                sensor.show(readings, model: recognition.model, at: now)
+                // Checked once the frame is authentic, so a forged one cannot move it. A sensor unheard for `timeout` may
+                // have restarted its counter.
+                if let counter = BluetoothDecoders.counter(advertisement, as: setup.format) {
+                    if let last = counters[mac], counter <= last.value, now - last.at < timeout {
+                        logger.debug("Ignoring a replayed frame of \(mac)")
+                        continue
+                    }
+                    counters[mac] = (counter, now)
+                }
+                sensor.show(readings, model: entry.recognition.model, at: now)
                 warnedKeys.remove(mac)
             } catch BluetoothDecodeError.wrongKey {
                 if warnedKeys.insert(mac).inserted { logger.warning("The bindkey of \(mac) does not open its advertisements: set it up again") }
+            } catch BluetoothDecodeError.unencrypted {
+                logger.debug("Ignoring an open frame of \(mac): it is set up with a bindkey")
             } catch BluetoothDecodeError.needsKey {
                 if warnedKeys.insert(mac).inserted { logger.warning("\(mac) encrypts its advertisements: set it up again to give its bindkey") }
             } catch {
@@ -128,6 +142,15 @@ actor BluetoothHub {
         case .xiaomi: advertisement.serviceData[MiBeacon.uuid]
         case .govee: advertisement.manufacturerData[Govee.companyID] ?? (Govee.isGovee(name) ? advertisement.manufacturerData[Govee.genericCompanyID] : nil)
         }
+    }
+
+    /// A sender's name, the names of senders neither heard nor set up let go when there are `capacity` of them.
+    private func remember(_ name: String, of mac: String) {
+        if names[mac] == nil, names.count >= Self.capacity {
+            names = names.filter { heard[$0.key] != nil || setups[$0.key] != nil }
+            guard names.count < Self.capacity else { return }
+        }
+        names[mac] = name
     }
 
     private func evictIfFull() {
@@ -156,8 +179,9 @@ actor BluetoothHub {
     }
 }
 
-/// One Bluetooth sensor's accessory: a service for each value it has sent, added as they first come.
-final class BluetoothSensor: @unchecked Sendable {
+/// One Bluetooth sensor's accessory: a service for each value it has sent, added as they first come. Owned and called
+/// by `BluetoothHub` alone, whose isolation keeps it.
+final class BluetoothSensor {
     /// What the accessory shows, in the order of its services.
     enum Capability: Int, Sendable, CaseIterable, Comparable {
         case temperature, humidity, illuminance, carbonDioxide, motion, occupancy, contact, leak, smoke, carbonMonoxide, battery
@@ -221,7 +245,6 @@ final class BluetoothSensor: @unchecked Sendable {
     private var model: String?
     private var lastHeard: ContinuousClock.Instant
     private var unavailable = false
-    private let lock = NIOLock()
 
     init(setup: BluetoothSensorSetup, context: PluginContext, heardAt: ContinuousClock.Instant) {
         self.setup = setup
@@ -236,49 +259,49 @@ final class BluetoothSensor: @unchecked Sendable {
 
     /// The cached accessory, rebuilt with the services it had.
     func restore() {
-        lock.withLock {
-            guard let cached = context.accessory(id: id) else { return }
-            for capability in Capability.allCases where cached.services.contains(where: { $0.type.uuid == capability.serviceType.uuid }) {
-                capabilities.insert(capability)
-            }
-            buttonCount = cached.services.filter { $0.type.uuid == ServiceType.statelessProgrammableSwitch.uuid }.count
-            model = cached.information.characteristic(.model).value.stringValue
-            guard !capabilities.isEmpty || buttonCount > 0 else { return }
-            publish(from: cached)
+        guard let cached = context.accessory(id: id) else { return }
+        for capability in Capability.allCases where cached.services.contains(where: { $0.type.uuid == capability.serviceType.uuid }) {
+            capabilities.insert(capability)
         }
+        buttonCount = cached.services.filter { $0.type.uuid == ServiceType.statelessProgrammableSwitch.uuid }.count
+        model = cached.information.characteristic(.model).value.stringValue
+        guard !capabilities.isEmpty || buttonCount > 0 else { return }
+        publish(from: cached)
     }
 
     func show(_ readings: BluetoothReadings, model heardModel: String?, at now: ContinuousClock.Instant) {
-        lock.withLock {
-            lastHeard = now
-            let wanted = capabilities.union(Capability.of(readings))
-            if wanted != capabilities || readings.buttons.count > buttonCount || accessory == nil || (heardModel != nil && heardModel != model) {
-                guard !wanted.isEmpty || readings.buttons.count > buttonCount || buttonCount > 0 else { return }
-                capabilities = wanted
-                buttonCount = max(buttonCount, readings.buttons.count)
-                model = heardModel ?? model
-                publish(from: accessory ?? context.accessory(id: id))
-            }
-            guard let accessory else { return }
-            if unavailable {
-                unavailable = false
-                accessory.isUnavailable = false
-            }
-            apply(readings, to: accessory)
+        lastHeard = now
+        let wanted = capabilities.union(Capability.of(readings))
+        if wanted != capabilities || readings.buttons.count > buttonCount || accessory == nil || (heardModel != nil && heardModel != model) {
+            guard !wanted.isEmpty || readings.buttons.count > buttonCount || buttonCount > 0 else { return }
+            capabilities = wanted
+            buttonCount = max(buttonCount, readings.buttons.count)
+            model = heardModel ?? model
+            publish(from: accessory ?? context.accessory(id: id))
         }
+        guard let accessory else { return }
+        if unavailable {
+            unavailable = false
+            accessory.isUnavailable = false
+        }
+        apply(readings, to: accessory)
     }
 
     func updateReachability(now: ContinuousClock.Instant, timeout: Duration) {
-        lock.withLock {
-            let gone = now - lastHeard > timeout
-            guard gone != unavailable, let accessory else { return }
-            unavailable = gone
-            accessory.isUnavailable = gone
-            if gone { context.logger.info("\(accessory.name) has not been heard for \(Int(timeout.components.seconds / 60)) minutes: No Response") }
-        }
+        markUnavailable(now - lastHeard > timeout, timeout: timeout)
     }
 
-    // Called with the lock held.
+    /// No Response, or back; logged once when it goes.
+    func markUnavailable(_ gone: Bool, timeout: Duration? = nil) {
+        guard gone != unavailable, let accessory else { return }
+        unavailable = gone
+        accessory.isUnavailable = gone
+        guard gone, let timeout else { return }
+        let seconds = timeout.components.seconds
+        let span = seconds >= 120 ? "\(seconds / 60) minutes" : "\(seconds) seconds"
+        context.logger.info("\(accessory.name) has not been heard for \(span): No Response")
+    }
+
     private func publish(from previous: Accessory?) {
         var services: [Service] = []
         for capability in capabilities.sorted() {
@@ -332,7 +355,6 @@ final class BluetoothSensor: @unchecked Sendable {
         }
     }
 
-    // Called with the lock held.
     private func apply(_ readings: BluetoothReadings, to accessory: Accessory) {
         func service(_ capability: Capability) -> Service? {
             accessory.services.first { $0.type.uuid == capability.serviceType.uuid }

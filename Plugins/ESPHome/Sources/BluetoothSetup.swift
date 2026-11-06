@@ -68,7 +68,7 @@ extension ESPHomePlugin {
         } catch {
             throw SetupError("The sensor sends a frame the plugin cannot read")
         }
-        let credentials = ESPHomeCredentials(encryptionKey: key.map { String(format: "%02x", $0) }.joined())
+        let credentials = ESPHomeCredentials(encryptionKey: Secrets.hex(key))
         return .done(try SetupOutcome(encoding: credentials, settings: settings, deviceID: mac))
     }
 

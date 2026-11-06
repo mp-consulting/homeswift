@@ -44,6 +44,11 @@ final class EntityDirectory: Sendable {
         return (suffix, suffix != name)
     }
 
+    /// Whether an entity holds this suffix.
+    func isClaimed(_ suffix: String) -> Bool {
+        claims.withLockedValue { $0[suffix] != nil }
+    }
+
     /// Lets an id go: its entity is gone.
     func release(_ suffix: String) {
         claims.withLockedValue { _ = $0.removeValue(forKey: suffix) }
