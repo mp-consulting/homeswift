@@ -59,5 +59,5 @@ extension TapoPlugin {
     }
 
     /// A device's keys, in `devices` and in `_accessories`.
-    static let deviceKeys = ["host", "type", "updateInterval", "timeout", "resolution", "motion", "cloudId"]
+    static let deviceKeys = ["host", "type", "updateInterval", "timeout", "resolution", "motion", "cloudId", "standalone"]
 }

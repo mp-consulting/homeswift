@@ -21,8 +21,8 @@ Please report what works on yours.
 | `Light` | L510E | Lightbulb: On, Brightness |
 | `WhiteLight` | L520E | Lightbulb: On, Brightness, Color Temperature (154 to 400 mireds), Adaptive Lighting |
 | `Colorlight` | L530E | Lightbulb: On, Brightness, Color Temperature (140 to 400 mireds), Hue, Saturation, Adaptive Lighting; Eve's consumption characteristics and history |
-| `Camera` | Battery cameras with one lens (C400, C420, C425, …; untested) | A camera of its own (live video, snapshots) |
-| `DualLensCamera` | C675D | Two cameras of their own: the wide lens, and the tele lens as `<name> Tele` |
+| `Camera` | Battery cameras with one lens (C400, C420, C425, …; untested) | A camera (live video, snapshots), its battery |
+| `DualLensCamera` | C675D | Two cameras: the wide lens, and the tele lens as `<name> Tele`, each with the camera's battery |
 
 `type` is matched in any case. Accessory Information has Manufacturer TP-Link, the model of the kind (`Tapo P110`), the
 device's hardware id as the serial number and the version of its firmware.
@@ -56,8 +56,10 @@ sees a new service, so the automations and scenes that used it as an outlet need
 
 Tapo's battery cameras have no RTSP and no camera account: they stream only through TP-Link's own media server on port
 8800, which signs in with the **cloud password of the camera's owner** (the account the plugin is signed in with must be
-the primary owner's; a shared account is refused). Each lens is a camera accessory on a HAP server of its own (add it in
-the Home app with the bridge's setup code, as other cameras).
+the primary owner's; a shared account is refused). Each lens is a camera accessory on the bridge, so pairing the bridge
+brings them all. With `standalone: true` each lens is on a HAP server of its own instead, added in the Home app on its
+own with the bridge's setup code (a C675D is then two accessories to add); switching it either way makes new
+accessories in the Home app, which lose their rooms and automations.
 
 - **The battery comes first.** The camera is reached only while the Home app shows its live view: the plugin connects
   when HomeKit starts a stream and disconnects a few seconds after the last viewer leaves. It never connects for a
@@ -77,6 +79,14 @@ the Home app with the bridge's setup code, as other cameras).
   account), which never reaches the camera. Motion Detected stays on 30 seconds after the last detection; expect it a
   few seconds after the Tapo app's notification. The camera's **Activity Notifications** must be on in the Tapo app.
   `motion: false` leaves the sensor and the cloud out.
+- **The battery is read while the camera is awake.** Each lens has a Battery service: Battery Level, Charging State
+  (charging only while the camera says it charges: on a solar panel in the sun, not when full or too hot) and Status Low
+  Battery (the camera's own flag, else below 20%). The camera tells its battery only through its control API, which
+  answers only while it is awake ([docs/clean-room/TapoBattery.md](../../docs/clean-room/TapoBattery.md)), so the
+  plugin asks a few seconds after a live view opens, at most every five minutes, and never wakes the camera for it. The
+  last reading is kept in `battery.json` and shown between live views: the level is as fresh as the last time someone
+  watched. The cloud's **low battery** and **battery empty** notifications (with the motion's, so not with
+  `motion: false`) set Status Low Battery at once.
 - **Signing in to the cloud** happens at Setup (Add accessories), with the account's sign-in: the first time, the cloud
   e-mails the account a code for this new "terminal" (it may also e-mail that a new device signed in); once given, the
   terminal is trusted and its session is kept in the vault. Without cameras the code may be left empty: the account then
@@ -136,6 +146,7 @@ the Home app with the bridge's setup code, as other cameras).
 | `devices[].resolution` | `HD` | A camera's stream: `HD` (every lens) or `VGA` (the sub stream: one lens) |
 | `devices[].motion` | `true` | A camera's Motion Sensor, from the TP-Link cloud |
 | `devices[].cloudId` | | The camera's id in the TP-Link cloud, when it is not found otherwise |
+| `devices[].standalone` | `false` | A camera's lenses each on a HAP server of their own, added in the Home app one by one, rather than on the bridge |
 | `videoProcessor` | `ffmpeg` | The FFmpeg the cameras' streams go through |
 
 Each `devices` entry moves into the block's `_accessories` the first time the settings are saved, under its Device Id
@@ -205,8 +216,9 @@ pinned on first use in `control-certificates.json`, signed in as `admin` with th
 - Eve's Reset Total is not offered (the Homebridge plugin defines it but adds it nowhere), and the total is today's.
 - Battery cameras: no audio, no two-way audio, no HomeKit Secure Video (recording on motion needs a recording source fed by
   the stream rather than RTSP); person, vehicle and pet detections are all Motion; the cameras' settings (privacy mode,
-  the floodlight, the siren, the battery level) are not read from the camera's control API, which the plugin uses for pan
-  and tilt only. Motion
+  the floodlight, the siren) are not read from the camera's control API, which the plugin uses for pan and tilt and
+  the battery only; the battery level between live views would need the TP-Link cloud's device shadow, not tried yet
+  (TapoBattery.md 4.3). Motion
   push (FCM) instead of the inbox poll is not done.
 
 ## Tests
@@ -222,7 +234,9 @@ session, the feed opening no connection until someone watches, one session for b
 last viewer, quiet reconnections after standby and the budget that ends them. The motion runs against a fake TP-Link
 cloud that checks each call's signature: the sign-in, the e-mailed code of a new terminal through Setup, an expired token
 refreshed once, a refused password stopping the watch, the camera found by its MAC, and a detection reaching both lenses
-and clearing after its hold without a connection to the camera.
+and clearing after its hold without a connection to the camera. The battery: the spec's vectors, the level read for both
+lenses only once a live view opens and not again within five minutes, kept across a restart, and the cloud's low-battery
+notice.
 
 `StreamdLiveTests` records a sample from a real camera when `TAPO_LIVE_HOST`, `TAPO_LIVE_PASSWORD_FILE` (a file holding
 the cloud password) and `TAPO_LIVE_OUTPUT` are set, and runs the live stream's FFmpeg command on a recorded sample for
@@ -238,4 +252,8 @@ without reading or copying its code. The cameras are written from [docs/clean-ro
 a spec of the Streamd protocol as [pytapo](https://github.com/JurajNyiri/pytapo) (MIT) and
 [go2rtc](https://github.com/AlexxIT/go2rtc) (MIT) speak it, without reading or copying their code; their motion from
 [docs/clean-room/TapoCloudEvents.md](../../docs/clean-room/TapoCloudEvents.md), a spec of the TP-Link cloud's sign-in and
-notification inbox written from public projects and the Tapo app's published names.
+notification inbox written from public projects and the Tapo app's published names. Pan and tilt come from
+[docs/clean-room/TapoPTZ.md](../../docs/clean-room/TapoPTZ.md), and the battery from
+[docs/clean-room/TapoBattery.md](../../docs/clean-room/TapoBattery.md), a spec of the control API's battery fields
+written from pytapo, Home Assistant's Tapo integration (Apache-2.0), python-kasa's captured replies (GPL-3.0, read for
+facts only) and the Tapo app's published names, without reading or copying their code.

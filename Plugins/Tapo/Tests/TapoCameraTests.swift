@@ -291,6 +291,26 @@ struct TapoCameraPluginTests {
         #expect(!host.bridges.flatMap(\.server.accessories).contains { $0.id.hasSuffix(":tele") })
         await host.stop()
     }
+
+    @Test func theLensesGoOnTheBridgeByDefault() async throws {
+        let camera = FakeStreamdCamera()
+        let host = try await environment.start(
+            devices: [["name": "Garden", "host": "192.168.1.40", "type": "DualLensCamera"]], connect: camera.connect)
+        let ids: Set = ["TapoP100:192.168.1.40Garden", "TapoP100:192.168.1.40Garden:tele"]
+        #expect(await eventually { Set(host.bridges.filter { !$0.isExternal }.flatMap { $0.server.accessories.map(\.id) }).isSuperset(of: ids) })
+        #expect(!host.bridges.contains { $0.isExternal })
+        await host.stop()
+    }
+
+    @Test func standaloneLensesHaveServersOfTheirOwn() async throws {
+        let camera = FakeStreamdCamera()
+        let host = try await environment.start(
+            devices: [["name": "Garden", "host": "192.168.1.40", "type": "DualLensCamera", "standalone": true]], connect: camera.connect)
+        let ids: Set = ["TapoP100:192.168.1.40Garden", "TapoP100:192.168.1.40Garden:tele"]
+        #expect(await eventually { Set(host.bridges.filter { $0.isExternal }.map { $0.server.primary.id }) == ids })
+        #expect(!host.bridges.filter { !$0.isExternal }.flatMap { $0.server.accessories }.contains { ids.contains($0.id) })
+        await host.stop()
+    }
 }
 
 /// `MPEGTSLensFilter` on a TS shaped as a C675D's in HD (docs/clean-room/TapoCamera.md, 7): a program per lens and one

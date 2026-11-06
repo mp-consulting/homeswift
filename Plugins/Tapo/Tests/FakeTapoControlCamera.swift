@@ -14,6 +14,9 @@ final class FakeTapoControlCamera: HTTPSending, @unchecked Sendable {
         var presetError: Int?
         var moves: [(x: Int, y: Int)] = []
         var presetsVisited: [String] = []
+        /// What getDeviceInfo answers in `basic_info` (docs/clean-room/TapoBattery.md, 2.1), and how often it was asked.
+        var basicInfo: [String: Any] = ["power": "SOLAR", "battery_percent": 64, "battery_charging": "NO", "low_battery": false]
+        var deviceInfoReads = 0
         var logins = 0
         var discovers = 0
         var badTags = 0
@@ -91,6 +94,9 @@ final class FakeTapoControlCamera: HTTPSending, @unchecked Sendable {
             case "relativeMove":
                 let move = ((params["motor"] as? [String: Any])?["move"] as? [String: Any]) ?? [:]
                 state.moves.append((Int(move["x_coord"] as? String ?? "") ?? 0, Int(move["y_coord"] as? String ?? "") ?? 0))
+            case "getDeviceInfo":
+                state.deviceInfoReads += 1
+                entry["result"] = ["device_info": ["basic_info": state.basicInfo]]
             case "motorMoveToPreset":
                 let id = (((params["preset"] as? [String: Any])?["goto_preset"] as? [String: Any])?["id"] as? String) ?? ""
                 if state.presets.contains(where: { $0.id == id }) { state.presetsVisited.append(id) } else { entry["error_code"] = -64302 }

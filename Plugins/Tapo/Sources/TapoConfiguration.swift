@@ -21,6 +21,9 @@ extension TapoPlugin {
             public var motion: Bool?
             /// The camera's id in the TP-Link cloud, when its name, its model or its MAC do not find it.
             public var cloudId: String?
+            /// Whether a camera's lenses each get a HAP server of their own (`publishExternal`), added in the Home app one
+            /// by one, rather than going on the bridge: off by default, as UniFi Protect's `Device.Standalone`.
+            public var standalone: Bool?
         }
 
         /// The Tapo account's email.
