@@ -257,6 +257,7 @@ public final class Characteristic: @unchecked Sendable {
         // A revert the handler scheduled has already put the value back (a short delay, a slow write): it stands.
         if state.withLockedValue({ $0.reverts }) != reverts { return state.withLockedValue { $0.value } }
         update(coerced, origin: origin, force: false, reason: .write, context: context, notify: notify)
+        if !isConfidential { state.withLockedValue { $0.server }?.characteristicWasWritten(self, value: coerced) }
         return coerced
     }
 

@@ -86,7 +86,8 @@
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
   /// of it. With `latest`, the legend writes each series' last value beside its name (a battery's level), so the
   /// chart needs no separate line of them. Returns `update(points, from, to, step)`.
-  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false }) {
+  /// With `fit`, the axis spans the values (a room's 19 to 22 °C) rather than starting at zero.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false, fit = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -120,7 +121,16 @@
       const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
       // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
       let top = niceMax(highest, unit(highest)), bottom = 0, ticks = [0, 1, 2, 3, 4].map((i) => top / 4 * i);
-      if (lowest < 0) {
+      const fitted = values.length ? [Math.min(...values), Math.max(...values)] : null;
+      if (fit && fitted) {
+        const [low, high] = fitted;
+        const span = Math.max(high - low, Math.abs(high) * 0.02, unit(Math.abs(high)) || 1);
+        const step = niceStep(span / 4, unit(span));
+        bottom = Math.floor(low / step) * step;
+        top = Math.max(bottom + step, Math.ceil(high / step) * step);
+        ticks = [];
+        for (let value = bottom; value <= top + step / 2; value += step) ticks.push(Math.round(value / step) * step);
+      } else if (lowest < 0) {
         const size = Math.max(highest, -lowest);
         const step = niceStep((highest - lowest) / 4, unit(size));
         top = Math.max(step, Math.ceil(highest / step) * step);
@@ -166,7 +176,7 @@
         for (const run of runs(one)) {
           const line = run.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
           if (series.length === 1 && run.length > 1) {
-            const base = y(0).toFixed(1);
+            const base = y(Math.max(bottom, Math.min(0, top))).toFixed(1);
             root.append(svg("path", { d: `${line}L${run.at(-1)[0].toFixed(1)},${base}L${run[0][0].toFixed(1)},${base}Z`, class: `area tone-${one.tone}` }));
           }
           root.append(svg("path", { d: line, class: `line tone-${one.tone}` }));
@@ -388,5 +398,99 @@
     return { update(bars) { state = bars; chosen = null; tooltip.classList.add("hidden"); draw(); } };
   }
 
-  window.HomeswiftChart = { lineChart, stackedBars };
+  /// A state over time in `container` (an accessory's On, a door's state, a mode): a band split where the value
+  /// changed, each value in its colour. `spans` are `{ from, to, value }` (times in ms) in order, `label(value)` words a
+  /// value and `tone(value)` picks its slot (1 to 7); a span with a null value is a time nothing was known. A legend names
+  /// the values, a tooltip says what a span was and when, on hover and with the arrow keys. Returns `update(spans, from, to)`.
+  function stateTimeline(container, { title, spans, from, to, label, tone }) {
+    const band = 26, top = 6, total = top + band + 24;
+    const frame = html("div", "chart-frame");
+    const tooltip = html("div", "chart-tooltip hidden");
+    tooltip.setAttribute("role", "status");
+    frame.append(tooltip);
+    const legend = html("div", "chart-legend");
+    container.append(frame, legend);
+    let state = { spans, from, to };
+    let chosen = null;
+    let drawn = 0;
+
+    function draw() {
+      const width = Math.max(frame.clientWidth, 240);
+      drawn = width;
+      const { spans, from, to } = state;
+      const known = spans.filter((span) => span.value != null);
+      const plotWidth = width - pad.left - pad.right;
+      const x = (time) => pad.left + (Math.min(Math.max(time, from), to) - from) / Math.max(to - from, 1) * plotWidth;
+      const root = svg("svg", { width, height: total, viewBox: `0 0 ${width} ${total}`, class: "chart timeline", role: "img",
+        "aria-label": known.length ? tn("{title}: {n} change", "{title}: {n} changes", Math.max(0, known.length - 1), { title }) : t("{title}, nothing recorded", { title }) });
+      root.setAttribute("tabindex", "0");
+      root.append(svg("rect", { x: pad.left, y: top, width: plotWidth, height: band, rx: 4, class: "timeline-empty" }));
+      const rects = spans.map((span) => {
+        if (span.value == null) return null;
+        const left = x(span.from), right = x(span.to);
+        const rect = svg("rect", { x: left, y: top, width: Math.max(right - left, 1.5), height: band, class: `timeline-span tone-${tone(span.value)}` });
+        root.append(rect);
+        return rect;
+      });
+      for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
+        const text = svg("text", { x: x(tick), y: total - 6, class: "tick", "text-anchor": "middle" });
+        text.textContent = tickLabel(tick);
+        root.append(text);
+      }
+      if (!known.length) {
+        const empty = svg("text", { x: pad.left + plotWidth / 2, y: top + band / 2 + 4, class: "tick", "text-anchor": "middle" });
+        empty.textContent = t("Nothing recorded in this range");
+        root.append(empty);
+      }
+      frame.querySelector("svg")?.remove();
+      frame.prepend(root);
+      const show = (index) => {
+        chosen = index;
+        rects.forEach((rect, i) => rect?.classList.toggle("chosen", i === index));
+        const span = index == null ? null : spans[index];
+        if (!span || span.value == null) { tooltip.classList.add("hidden"); return; }
+        tooltip.replaceChildren(html("div", "chart-time", `${fullTime.format(span.from)} – ${fullTime.format(span.to)}`));
+        const row = html("div", "chart-row");
+        row.append(html("i", `key bar tone-${tone(span.value)}`), html("b", "", label(span.value)));
+        tooltip.append(row);
+        tooltip.classList.remove("hidden");
+        const px = (x(span.from) + x(span.to)) / 2;
+        const left = px + 12 + tooltip.offsetWidth > width ? px - 12 - tooltip.offsetWidth : px + 12;
+        tooltip.style.left = `${Math.max(0, left)}px`;
+      };
+      const at = (clientX) => {
+        const time = from + (clientX - root.getBoundingClientRect().left - pad.left) / plotWidth * (to - from);
+        const index = spans.findIndex((span) => span.from <= time && time < span.to);
+        return index < 0 ? null : index;
+      };
+      root.addEventListener("pointermove", (event) => show(at(event.clientX)));
+      root.addEventListener("pointerleave", () => { if (document.activeElement !== root) show(null); });
+      root.addEventListener("blur", () => show(null));
+      root.addEventListener("focus", () => show(chosen ?? (spans.length ? spans.length - 1 : null)));
+      root.addEventListener("keydown", (event) => {
+        if (!spans.length) return;
+        const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+        if (!(event.key in moves)) return;
+        event.preventDefault();
+        show(Math.min(spans.length - 1, Math.max(0, (chosen ?? spans.length - 1) + moves[event.key])));
+      });
+      // The values it took, in their colours.
+      const values = [];
+      for (const span of known) if (!values.some((value) => value === span.value)) values.push(span.value);
+      legend.replaceChildren(...values.map((value) => {
+        const item = html("span", "", null);
+        item.append(html("i", `key bar tone-${tone(value)}`), document.createTextNode(label(value)));
+        return item;
+      }));
+    }
+    const resize = new ResizeObserver(() => {
+      if (!frame.isConnected) { resize.disconnect(); return; }
+      if (frame.clientWidth && Math.abs(frame.clientWidth - drawn) > 1) draw();
+    });
+    resize.observe(frame);
+    draw();
+    return { update(spans, from, to) { state = { spans, from, to }; chosen = null; tooltip.classList.add("hidden"); draw(); } };
+  }
+
+  window.HomeswiftChart = { lineChart, stackedBars, stateTimeline };
 })();
