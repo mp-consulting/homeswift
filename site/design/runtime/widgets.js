@@ -230,8 +230,10 @@
     };
     /// A write with no value to keep (a remote's key): its failure is the caller's to show.
     ctx.send = (service, characteristic, value) => put(service, characteristic, value);
-    const put = (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
-      method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
+    // A group's merged accessory (groups.js) writes to each of its members instead.
+    const put = options.group ? (service, characteristic, value) => options.group.write(service, characteristic, value)
+      : (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
+        method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
     ctx.flashing = null;
     ctx.flash = (text) => {
       clearTimeout(ctx.flashTimer);
@@ -239,6 +241,8 @@
       ctx.paint();
       ctx.flashTimer = setTimeout(() => { ctx.flashing = null; ctx.paint(); }, 5000);
     };
+    // A group repaints its cards when a member changes.
+    options.group?.attach(ctx);
     return ctx;
   }
 
@@ -293,7 +297,8 @@
     sweep();
     const byID = new Map(accessories.map(a => [a.id, a]));
     for (const ctx of cards) {
-      if (!ctx.node?.isConnected) continue;
+      // A group's merged accessory is not on the bridge: groups.js follows its members.
+      if (!ctx.node?.isConnected || ctx.options?.group) continue;
       reconcileAccessory(ctx.accessory, byID.get(ctx.accessory.id));
       ctx.paint();
     }

@@ -1322,6 +1322,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
+    // A tap beside it closes it too (on a phone, Done may be below the fold until the history is scrolled).
+    dialog.addEventListener("click", (event) => {
+      const box = dialog.getBoundingClientRect();
+      if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) dialog.close();
+    });
     dialog.addEventListener("close", () => dialog.remove());
     document.body.append(dialog);
     dialog.showModal();

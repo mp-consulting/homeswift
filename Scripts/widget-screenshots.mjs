@@ -211,18 +211,18 @@ try {
     document.querySelector('main').replaceChildren(HomeswiftCommon.el('div', {class:'wall'}, card));
   })()`);
   await shot("group-controls", ".accessory-group");
-  const groupSliders = await evaluate("[...document.querySelectorAll('.accessory-group [role=slider]')].map(n=>({label:n.getAttribute('aria-label'),text:n.getAttribute('aria-valuetext'),track:n.classList.contains('track')}))");
-  if (!groupSliders.some(s=>s.label==='Brightness') || !groupSliders.some(s=>s.track)) throw new Error('Group sliders must reuse brightness and temperature tracks');
+  // Lights grouped look like one light: its brightness and colours, a change written to each of them.
+  const groupLook = await evaluate("({sliders: [...document.querySelectorAll('.accessory-group [role=slider]')].map(n=>n.getAttribute('aria-label')), swatches: document.querySelectorAll('.accessory-group .swatches > *').length, light: document.querySelector('.accessory-group').classList.contains('widget-light')})");
+  if (!groupLook.light || !groupLook.sliders.includes('Brightness') || !groupLook.swatches) throw new Error('Grouped lights must be drawn as a light, with its brightness and colours');
   const groupWriteStart = writes.length;
   await evaluate(`(async () => {
-    const sliders = [...document.querySelectorAll('.accessory-group [role=slider]')];
-    const white = sliders.find(n=>n.classList.contains('track'));
-    white.dispatchEvent(new KeyboardEvent('keydown', {key:'End', bubbles:true}));
+    const brightness = [...document.querySelectorAll('.accessory-group [role=slider]')].find(n=>n.getAttribute('aria-label')==='Brightness');
+    brightness.dispatchEvent(new KeyboardEvent('keydown', {key:'End', bubbles:true}));
     await new Promise(resolve=>setTimeout(resolve, 600));
   })()`);
   const groupWrites = writes.slice(groupWriteStart);
-  if (groupWrites.length !== 2 || groupWrites.some(w=>w.body.characteristic !== 'Color Temperature' || !Number.isFinite(w.body.value) || w.body.value > 200)) throw new Error('Group temperature must write cool-end mired values to both lights');
-  console.log('PASS: group temperature slider writes converted mired values to both lights');
+  if (groupWrites.length !== 2 || groupWrites.some(w=>w.body.characteristic !== 'Brightness' || w.body.value !== 100)) throw new Error('Group brightness must be written to both lights');
+  console.log('PASS: grouped lights drawn as one light, its brightness written to both');
   await evaluate(`(() => {
     releaseGroups.edit(['spots', 'pendant']);
   })()`);

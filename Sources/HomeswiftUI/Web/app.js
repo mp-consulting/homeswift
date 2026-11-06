@@ -2122,7 +2122,12 @@
       }, 300);
     };
 
-    const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
+    const groupingControls = HomeswiftGroups.mount({ all, layout, rooms, sizeChoices: (group) => sizeChoices(group),
+      // A paused plugin's members do nothing until it runs again: Resume, once per plugin, as on one of them.
+      resumeChoices: (members) => !isAdmin() ? [] : [...new Map(members.filter((a) => a.paused).map((a) => [`${a.platform}/${a.platformName}`, a])).values()]
+        .map((a) => ({ label: t("Resume {name}", { name: a.platformName }), icon: "play", onSelect: async () => {
+          try { await setPaused(a.platform, a.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        } })),
       setGroupRoom: isAdmin() ? async (ids, room) => {
         // A plugin's accessories only (another kind has no Accessory Settings); none is "" for a mirrored one, so it
         // leaves the room its controller suggests.
@@ -2136,11 +2141,16 @@
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
+    /// The ⋯ menu's sizes for a widget (an accessory's, a group's).
+    const sizeChoices = (accessory) => {
+      const size = sizeOf(accessory);
+      return { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
+        badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) };
+    };
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
       return accessoryActions(accessory, [
-        { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
-          badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) },
+        sizeChoices(accessory),
         { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "grid", onSelect: () => resizeKind(kind, size) },
       ]);
     };
@@ -2396,7 +2406,9 @@
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
       let groupTarget = null;
-      const touchDrag = event.pointerType === "touch" || matchMedia("(max-width: 640px)").matches;
+      // A pending reorder over the edge of a tile it could group with (below).
+      let reorderTimer = null;
+      const cancelReorder = () => { clearTimeout(reorderTimer); reorderTimer = null; };
       const clearGroupTarget = () => {
         groupTarget?.classList.remove("group-drop-target");
         groupTarget?.removeAttribute("data-drop-label");
@@ -2433,23 +2445,43 @@
           wall.append(slot);
           slide(left, () => arrange(left), node);
         }
-        const under = stack
-          .map((element) => element.closest(".wall > .widget"))
-          .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
-        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); placeSlot(); return; }
+        // By the boxes, not what the page reports under the pointer (the lifted widget is over them).
+        const within = (candidate, reach = 0) => {
+          const box = candidate.getBoundingClientRect();
+          return pointer.clientX > box.left - reach && pointer.clientX < box.right + reach && pointer.clientY > box.top - reach && pointer.clientY < box.bottom + reach;
+        };
+        const overSlot = slot.parentElement === wall && within(slot);
+        // Over a tile, or in the gap beside it, its edge: moving the slot from there would push the tile the pointer is
+        // heading for out of the way (the slot follows the widget's corner, which reaches the next cell first).
+        const tiles = overSlot ? [] : [...wall.children].filter((candidate) => candidate !== node && candidate !== slot && candidate.classList.contains("widget"));
+        const under = tiles.find((candidate) => within(candidate)) ?? tiles.find((candidate) => within(candidate, 16));
+        if (!under || under === slot || under.parentElement !== wall) {
+          cancelReorder(); clearGroupTarget();
+          // Over its own slot the wall stays as it is: the slot follows the widget's corner, and moving it there would
+          // push the tile the pointer is heading for (to group with it) out of the way before the pointer reaches it.
+          if (!overSlot) placeSlot();
+          return;
+        }
         const box = under.getBoundingClientRect();
-        // On compact/touch layouts leave only a narrow edge for reordering. Otherwise a
-        // small tile moves away before the finger can reach its old central drop zone.
-        const insetX = touchDrag ? Math.min(8, box.width * .08) : box.width * .2;
-        const insetY = touchDrag ? Math.min(6, box.height * .08) : box.height * .15;
+        // The middle half of a tile groups; the band around it reorders once the pointer rests there (below).
+        const insetX = box.width * .25, insetY = box.height * .25;
         const center = pointer.clientX > box.left + insetX && pointer.clientX < box.right - insetX && pointer.clientY > box.top + insetY && pointer.clientY < box.bottom - insetY;
-        if (center && groupingControls.canJoin(node.dataset.id, under.dataset.id)) {
+        const joinable = groupingControls.canJoin(node.dataset.id, under.dataset.id);
+        if (center && joinable) {
+          cancelReorder();
           if (groupTarget !== under) { clearGroupTarget(); groupTarget = under; }
           under.classList.add("group-drop-target");
           under.dataset.dropLabel = t("Release to group");
           return;
         }
         clearGroupTarget();
+        // On the edge of a tile it could group with, the wall reorders only once the pointer rests there: crossing the
+        // edge on the way to the centre would otherwise slide the tile away from under it.
+        if (joinable) {
+          reorderTimer ??= setTimeout(() => { reorderTimer = null; placeSlot(); }, 300);
+          return;
+        }
+        cancelReorder();
         placeSlot();
       };
       /// The slot on the cell under the widget's top-left corner.
@@ -2490,6 +2522,8 @@
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
         if (ended.type === "pointerup" && slot) { pointer = ended; hover(); }
+        // Let go on an edge before the reorder came: it happens now, as resting there would have made it.
+        if (reorderTimer) { cancelReorder(); if (ended.type === "pointerup" && slot?.isConnected) placeSlot(); }
         const joinTarget = ended.type === "pointerup" && groupTarget ? groupTarget.dataset.id : null;
         clearGroupTarget();
         if (!slot || !slot.isConnected) return;
