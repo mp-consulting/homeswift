@@ -718,10 +718,11 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   and every change made in this UI (client `web UI`, the user, the route, a small body with its secrets masked), newest
   first, filtered by time, outcome, tool and client (`/settings/audit?since=7d&outcome=failed&tool=…&client=…`).
   `auditLog: false` in the MCP block turns it off.
-- **Assistant** (`/settings/assistant`): **Test connection** (a one-word request with the saved HomeswiftAiKit block),
-  what the Assistant used today and this month against its budgets, by model and by user, and **Edit the budgets**,
-  written to the block. The block's own page has the same card above its form, where the test takes the form's settings,
-  saved or not, and the budgets are saved with the form.
+- **Assistant** (`/settings/assistant`): the HomeswiftAiKit block's whole form (the provider, model and key, the MCP
+  server and the rest) with its save bar, under a card with **Test connection** (it takes the form's settings, saved or
+  not), what the Assistant used today and this month against its budgets, by model and by user, and **Edit the budgets**,
+  saved with the form. The block's own page under Plugins is the same form. Without a block, the page offers to set
+  one up.
 
 The pages' changes that cannot be undone (pairings, caches, a restore) ask first, some with a word to type.
 
@@ -835,7 +836,8 @@ do and when it last came, and **⋯ › Disconnect** ends one at once.
 ## The Assistant's chat
 
 With a `HomeswiftAiKit` block that names a provider, a sparkle button opens a chat on every page, plugin pages included:
-in the header, or floating at the bottom right of a window 1180 px wide or more, where the chat opens above it. Its head
+in the header, floating at the bottom right of a window 1180 px wide or more, where the chat opens above it, and on a
+phone floating just above the sections' button, within the thumb's reach. Its head
 has Copy, Earlier chats, New chat and a cog whose menu opens Settings › Assistant (the provider, for an administrator)
 and sets the voice's language (A to Z, the browser's first); the field is at the very bottom, under the provider's
 note. With a mouse, drag the head to move the panel anywhere in the window (the browser remembers where; a double click
@@ -850,10 +852,15 @@ check a light's address, recall a Hue scene; [plugins.md](plugins.md)).
   `web UI chat`.
 - **Secrets stay home.** A password a device hands out while pairing reaches config.json as a handle (`__SECRET_1__`)
   the model passes on without reading it; configuration it reads has `__REDACTED__` values, which a write restores.
-- **Voice.** The mic dictates a message (tap, or hold while speaking), and the answer to a spoken message is read out,
+- **The model.** Under the title, the model that answers opens a menu of the provider's others (its models list, asked
+  with the bridge's key); the block's `model` is marked Default. Anyone who may chat can switch, from the next message
+  on: the choice is the user's own (`assistantModel` in `ui-preferences.json`), the budgets and usage stay the bridge's,
+  and choosing the default again clears it. A model the provider no longer offers falls back to the block's.
+- **Voice.** The mic dictates a message (tap, or hold while speaking with a mouse), and the answer to a spoken message is read out,
   in the language chosen under the field (the browser's unless you pick one; each browser keeps its choice). Browsers
   allow the microphone only on `localhost` or over HTTPS: turn on `https` to use it from a phone or another computer.
-  Safari sends the audio to Apple and Chrome to Google for recognition.
+  Safari sends the audio to Apple and Chrome to Google for recognition. On an iPhone or iPad, dictation needs
+  Settings › General › Keyboard › Enable Dictation; when it is off, the note under the field says so.
 - **Conversations are kept**, per user, in `ui-chats.json` (owner-only): the open one, which a reload, another browser
   or a restart finds, and the ten before it. **New chat** files the open one away; **Earlier chats** (the clock) lists
   them and opens one again where it was, the Assistant remembering it, or forgets one. The copy button puts the

@@ -337,6 +337,17 @@ enum WebAssets {
     const exportPrice = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: latest?.exportPrice ?? "", placeholder: t("Not paid") });
     const rows = el("div", { class: "tariff-periods" });
     const message = el("p", { class: "status-line muted", role: "status" });
+    /// A price's unit inside its field ("EUR/kWh"), following the currency as it is typed.
+    const units = [];
+    const unit = (per) => { const node = el("span", { class: "tariff-unit", "aria-hidden": "true" }); node.per = per; units.push(node); showUnits(); return node; };
+    function showUnits() {
+      const code = currency.value.trim().toUpperCase();
+      for (const node of units) node.textContent = `${code}/${node.per}`;
+    }
+    currency.addEventListener("input", showUnits);
+    /// A control with its own small name over it: a phone's period has no column heads (the wide one does, and the
+    /// names hide there).
+    const cell = (text, control, extra = null) => el("label", { class: `tariff-cell${extra ? " with-unit" : ""}` }, el("span", { class: "tariff-cell-label", text }), control, extra);
     const addRow = (period = { from: "00:00", to: "24:00", price: "" }) => {
       const name = el("input", { type: "text", value: period.name ?? "", placeholder: t("Name, such as Peak"), maxLength: 40, "aria-label": t("Period name") });
       const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From") });
@@ -344,7 +355,8 @@ enum WebAssets {
       const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
       const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
       const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: perUnit, "aria-label": perUnit, required: true });
-      const row = el("div", { class: "tariff-period" }, name, from, to, days, price,
+      const row = el("div", { class: "tariff-period" }, cell(t("Name"), name), cell(t("From"), from), cell(t("To"), to), cell(t("Days"), days),
+        cell(perUnit, price, unit(electricity ? "kWh" : "m³")),
         el("button", { type: "button", class: "icon-button", "aria-label": t("Remove this period"), title: t("Remove this period"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
       row.read = () => ({ ...(name.value.trim() ? { name: name.value.trim() } : {}), from: from.value || "00:00",
         // A period ending at midnight ends at 24:00, unless it starts later in the day and runs past midnight.
@@ -378,7 +390,7 @@ enum WebAssets {
       el("div", { class: "fields" },
         field(t("Applies from"), start, t("Another day starts a new tariff: the days before it keep their prices.")),
         field(t("Currency"), currency, t("A currency code, such as EUR, USD or GBP.")),
-        electricity ? field(t("Export price"), exportPrice, t("What a kWh sent back to the grid is paid, if it is.")) : null),
+        electricity ? field(t("Export price"), el("span", { class: "tariff-cell with-unit" }, exportPrice, unit("kWh")), t("What a kWh sent back to the grid is paid, if it is.")) : null),
       el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
         el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
         el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
@@ -1747,7 +1759,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (card.fullScreenButton) tabs.append(card.fullScreenButton);
       if (app().isAdmin() && accessories.length) tabs.append(el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus",
         "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }));
-      app().show(main, app().pageHead(t("Accessories"), line, card.toolbar), tabs, card);
+      app().show(main, app().pageHead(t("Accessories"), line), app().accessoriesBar(card.toolbar, tabs), card);
     }
   }
   /// In or out of the graph's full screen: the browser's too, where it can.
@@ -2151,7 +2163,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
       filters.classList.toggle("on", active() > 0);
-      filters.replaceChildren(...[HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
+      filters.replaceChildren(...[HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
+      filters.classList.add("accessories-filters");
       search.dispatchEvent(new Event("change")); // the Clear filters button's state
       table.replaceChildren(overviewTable(next));
       title.textContent = by === "room" ? t("Graph of the rooms, plugins and accessories") : t("Graph of the bridges, plugins and accessories");
@@ -2194,7 +2207,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: clear.disabled, onSelect: () => clear.click() },
     ]));
-    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button accessories-full-screen", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setGraphFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // Full screen goes beside the Wall and Graph tabs (`card.fullScreenButton`), as on the wall.
     // The search and Filters alone, as on the wall: Clear filters is in the Filters menu (and full screen's panel).
@@ -3458,24 +3471,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function digestWidget() {
     const body = el("div", { class: "digest-body", "aria-live": "polite" });
     const note = el("span", { class: "muted" });
+    // Who wrote it and when, and Write it again: only under a digest. Before one, the card's own button writes it, and a
+    // ⋯ alone under a rule would only say the same.
+    const foot = el("div", { class: "card-foot", hidden: true }, note, isAdmin() ? menuButton(t("Digest actions"), () => [{ label: t("Write it again"), icon: sparkle(), onSelect: () => write() }]) : null);
     const card = el("div", { class: "card digest-card" },
       el("div", { class: "server-head" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
         el("div", { class: "who" }, el("strong", { text: t("Daily digest") }), el("div", { class: "muted", text: t("What needs attention today, from the log and the accessories") }))),
       body,
       // Writing one costs the provider's quota: an administrator's (any user reads today's).
-      el("div", { class: "card-foot" }, note, isAdmin() ? menuButton(t("Digest actions"), () => [{ label: t("Write it again"), icon: sparkle(), onSelect: () => write() }]) : null));
+      foot);
     let controller = null;
 
     const shown = (digest) => {
       body.replaceChildren(HomeswiftCommon.markdown(digest.text));
       const when = new Date(digest.generatedAt).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
       note.textContent = digest.model ? t("Written {when} by {model}", { when, model: digest.model }) : t("Written {when}", { when });
+      foot.hidden = false;
     };
-    const offer = () => body.replaceChildren(...[
+    const offer = () => { foot.hidden = true; body.replaceChildren(...[
       el("p", { class: "muted", text: isAdmin() ? t("No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention.")
         : t("No digest yet today: an administrator has the Assistant write it.") }),
-      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: t("Write today's digest") })) : null].filter(Boolean));
+      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: t("Write today's digest") })) : null].filter(Boolean)); };
 
     async function write() {
       controller?.abort();
@@ -3485,6 +3502,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       body.replaceChildren(live, el("button", { actionIcon: "pause", class: "link", text: t("Stop"), onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
+      foot.hidden = true;
       try {
         shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
@@ -4068,7 +4086,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
       const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
       const roleNames = { home: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
-      const row = (one, nested) => {
+      const row = (one, nested, first = false) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
         const caption = !one.role ? null : wholes.includes(one) ? t("Whole home") : one.role === "grid" ? t("Grid") : roleNames[one.role];
@@ -4079,7 +4097,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // At the grid's price, hour by hour, whatever source covered it.
         const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
         const note = [cost, returned].filter(Boolean).join(" · ") || null;
-        return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
+        return el("li", { class: first ? "sources-start" : null }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
           "aria-label": [t("{name}: {value}", { name, value: formatKWh(figure) }), caption, cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
@@ -4097,7 +4115,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
           el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
-        ...sources.map((one) => row(one, false))].filter(Boolean));
+        ...sources.map((one, index) => row(one, false, index === 0 && wholes.length + shown.length > 0))].filter(Boolean));
       consumersMore.hidden = devices.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
         el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
@@ -4452,6 +4470,47 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       link.href = `${url.pathname}${kept.size ? `?${kept}` : ""}`;
     }, true);
     return el("div", { class: "accessories-views" }, nav, ...extra.filter(Boolean));
+  };
+  /// The Accessories page's tools as one bar, the same in both views: `toolbar` (the search, Filters and the rest) over
+  /// `views` (the tabs, Full screen, Add). On a phone it is a row of round buttons at the bottom, beside the sections'
+  /// button and within the thumb's reach, the views first, so filtering, arranging and switching views stay at hand; the
+  /// search opens over the row from its own button, rises with the on-screen keyboard, and stays open while it holds a
+  /// search.
+  const accessoriesBar = (toolbar, views) => {
+    const bar = el("div", { class: "accessories-bar" }, toolbar, views);
+    const search = toolbar.querySelector(".search");
+    if (!search) return bar;
+    const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
+      "aria-expanded": "false" }, HomeswiftCommon.icon("search"));
+    const open = (on) => {
+      bar.classList.toggle("searching", on);
+      toggle.classList.toggle("on", on);
+      toggle.setAttribute("aria-expanded", String(on));
+    };
+    toggle.addEventListener("click", () => {
+      const on = !bar.classList.contains("searching");
+      open(on);
+      if (on) search.focus(); else if (search.value) { search.value = ""; search.dispatchEvent(new Event("input")); }
+    });
+    // Left empty, it folds away again.
+    search.addEventListener("blur", () => { if (!search.value.trim()) open(false); });
+    open(Boolean(search.value.trim()));
+    search.after(toggle);
+    // Safari keeps a fixed bar's bottom under the on-screen keyboard: the bar sits on the keyboard while the search is
+    // typed in (`--keyboard`, what it covers), as the chat's sheet does.
+    const view = window.visualViewport;
+    if (view) {
+      const fit = () => {
+        if (!bar.isConnected) { view.removeEventListener("resize", fit); view.removeEventListener("scroll", fit); return; }
+        const covered = document.activeElement === search ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
+        bar.style.setProperty("--keyboard", `${covered}px`);
+      };
+      view.addEventListener("resize", fit);
+      view.addEventListener("scroll", fit);
+      search.addEventListener("focus", fit);
+      search.addEventListener("blur", () => bar.style.setProperty("--keyboard", "0px"));
+    }
+    return bar;
   };
   /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
   const replaceQuery = (key, value) => {
@@ -5133,7 +5192,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     search.addEventListener("input", () => { filter(); replaceQuery("q", search.value.trim()); });
     const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
     const setGrouping = (value) => { layout.grouping = value; save(); render(); };
-    const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
+    const edit = el("button", { actionIcon: "edit", type: "button", class: "accessories-edit", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
       edit.textContent = editing ? t("Done") : t("Edit");
       edit.classList.toggle("primary", editing);
@@ -5164,8 +5223,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const one of values) next.append(key, one);
         navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
       } });
-    const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
-      HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
+    const filters = el("button", { type: "button", class: `accessories-filters${activeFilters ? " on" : ""}`, "aria-haspopup": "menu" },
+      HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
       ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
@@ -5199,6 +5258,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         render();
       } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
+      // A phone's bar has no room for Full screen's and Add accessories' own buttons: they are here.
+      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true }, { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
+        ...(addButton ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : [])] : []),
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
@@ -5217,8 +5279,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     // Setup, in view whatever the wall holds; the empty wall has its own, larger.
-    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
-    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
+    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add in-menu-on-phone", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button accessories-full-screen in-menu-on-phone", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
     const chrome = el("div", { class: "wall-full-chrome" });
@@ -5311,9 +5373,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     show(main,
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
-        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
-      accessoryTabs("", accessories.length ? fullScreenButton : null, addButton),
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })),
+      accessoriesBar(el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more),
+        accessoryTabs("", accessories.length ? fullScreenButton : null, addButton)),
       note,
       // A first link to Apple Home waits for an administrator to review what it changes.
       homeLink.waiting && isAdmin() && !fullScreen ? el("p", { class: "home-link-banner", role: "status" },
@@ -5458,7 +5520,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A block's state pill: its label and tone.
   /// A block as the pages name it: a built-in block still under its platform's name reads as words ("HomeswiftMatter" is
   /// Homeswift Matter); any other, its own name.
-  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter" };
+  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter", HomeswiftAiKit: "Homeswift Ai Kit" };
   const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
   /// Running is green only when its devices can work: an account that Needs Authorization says what it needs ("Needs
   /// sign-in"), and a plugin none of whose accessories responds says so.
@@ -5498,7 +5560,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // config.schema.json (or the runtime's own), JSON when there is none; the save bar stays in view, and leaving with
   // unsaved changes asks first. The whole block as JSON is config.json's editor's (Settings › Config).
 
-  views.settings = async (main, [first, second]) => {
+  /// A block's Settings. `frame` (Settings › Assistant's head and tabs) draws the form in another page instead of under
+  /// the plugin's breadcrumb and head.
+  views.settings = async (main, [first, second], { frame = null } = {}) => {
     // The Expert form and its JSON were here: their addresses open the Settings.
     if (first !== "add" && second === "expert") {
       history.replaceState(null, "", `/plugins/${encodeURIComponent(first)}/settings`);
@@ -5700,14 +5764,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : t("Settings")]),
+      ...(frame ?? [breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : blockTitle(block) }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
-        el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
+        el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state })))]),
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -5842,7 +5906,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   async function assistantPage(main, subnav) {
     const plugins = await api("/api/plugins");
     const entry = plugins.blocks.find((one) => one.platform === "HomeswiftAiKit");
-    const head = pageHead(t("Settings"), t("The Assistant: whether its provider answers, what it costs, and its budgets."));
+    const head = pageHead(t("Settings"), t("The Assistant: its provider, model and key, whether the provider answers, what it costs, and its budgets."));
     if (!entry) {
       show(main, head, subnav, el("section", { class: "card assistant-welcome" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
@@ -5859,9 +5923,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           jsonView({ platform: "HomeswiftAiKit", provider: "anthropic", apiKey: "…" }))));
       return;
     }
-    const block = await api(`/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`);
-    show(main, head, subnav, assistantSettings({ block }),
-      el("div", { class: "actions" }, el("a", { class: "link", href: settingsLink(entry), text: t("All the Assistant's settings: provider, model, key, MCP server") })));
+    // The block's own form, here: the provider, model and key, the MCP server, its budgets, tested before it is saved.
+    return views.settings(main, [entry.slug, "settings"], { frame: [head, subnav] });
   }
 
   /// Describe your setup: the Assistant writes the block from the plugin's config.schema.json and a sentence
@@ -7724,7 +7787,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { accessoryFilterKeys, api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { accessoryFilterKeys, accessoriesBar, api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -9205,10 +9268,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         canSettle ? { label: t("Assistant settings"), icon: "gear", onSelect: () => { toggle(false); HomeswiftApp.navigate("/settings/assistant"); } } : null,
         Recognition ? { label: t("Voice language"), icon: "globe", count: voiceName(), onSelect: () => setTimeout(() => chooseVoice(settings)) } : null,
       ], { keyboard: event.detail === 0 }) }, icon("gear")) : null;
+    // Under the title, the model that answers: a menu of the provider's others, the choice kept for this user.
+    const modelLabel = el("span", { class: "chat-model-label", text: info.model || "" });
+    const modelButton = el("button", { type: "button", class: "chat-model", actionIcon: "down", "aria-haspopup": "menu", title: t("Choose the model"),
+      onclick: (event) => chooseModel(event.currentTarget, event.detail === 0) }, modelLabel);
     const head = el("div", { class: "chat-head" },
       el("span", { class: "chat-grabber", "aria-hidden": "true" }),
       el("span", { class: "chat-badge", "aria-hidden": "true" }, sparkle()),
-      el("div", { class: "chat-who" }, el("strong", { id: "chat-title", text: t("Assistant") }), el("span", { class: "chat-model", text: info.model || "" })),
+      el("div", { class: "chat-who" }, el("strong", { id: "chat-title", text: t("Assistant") }), modelButton),
       el("span", { class: "spacer" }),
       el("div", { class: "chat-tools" }, copy, earlier, fresh, settings), close);
     const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
@@ -9217,7 +9284,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "chat-surface" }, head, log, foot, form));
     const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
     document.body.append(scrim, sheet);
-    panel = { sheet, scrim, log, input, mic, send, foot, note, head, earlier, copy };
+    panel = { sheet, scrim, log, input, mic, send, foot, note, head, earlier, copy, modelButton, modelLabel };
+    showModel();
+    loadModels();
     showCopied(false);
 
     input.addEventListener("input", grow);
@@ -9759,6 +9828,47 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
+  // ---- The model --------------------------------------------------------------------------------------------
+
+  /// The provider's models (`/api/assistant/models`: `{ models: [{ id, name }], default, error? }`), asked once a page.
+  let models = null;
+  async function loadModels() {
+    if (models) return models;
+    try { models = await api("/api/assistant/models"); } catch (e) { return { models: [], error: e.message }; }
+    showModel();
+    return models;
+  }
+
+  /// The model under the title, by the provider's name for it when the list has one.
+  function showModel() {
+    if (!panel) return;
+    const known = models?.models?.find((one) => one.id === info.model);
+    panel.modelLabel.textContent = known?.name || info.model || "";
+    panel.modelButton.setAttribute("aria-label", t("Model: {model}. Choose another", { model: known?.name || info.model || "" }));
+  }
+
+  /// The menu of models, the one answering ticked and the block's marked Default. A choice holds from the next message on.
+  async function chooseModel(trigger, keyboard) {
+    const listed = await loadModels();
+    const list = [...(listed.models || [])];
+    // A model the list does not name (a custom one in the block) stays choosable.
+    for (const id of [info.model, info.defaultModel]) if (id && !list.some((one) => one.id === id)) list.unshift({ id });
+    menu(trigger, [
+      { heading: t("Model"), detail: listed.error ? t("The provider's list could not be read: {error}", { error: listed.error }) : providerNames[info.provider] || info.provider },
+      ...list.map((one) => ({ label: one.name || one.id, count: one.id === info.defaultModel ? t("Default") : undefined, checked: one.id === info.model,
+        onSelect: () => pickModel(one.id) })),
+    ], { keyboard });
+  }
+
+  async function pickModel(id) {
+    if (id === info.model) return;
+    try {
+      await api("/api/preferences", { method: "PUT", body: { assistantModel: id === info.defaultModel ? null : id } });
+    } catch (e) { showError(e.message); return; }
+    info.model = id;
+    showModel();
+  }
+
   // ---- Voice ------------------------------------------------------------------------------------------------
 
   let recognition = null;
@@ -9772,15 +9882,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       mic.title = t("Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.");
     }
     let pressedAt = 0;
+    // A mouse starts on the press, so holding it down is push to talk. A finger starts on the tap (its click): Safari
+    // lets a page listen only from a tap that ended, and a touch's press is not one, so it refused to start.
     mic.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
       pressedAt = event.timeStamp;
       if (!listening) startListening();
       else stopListening(false);
     });
     // Held down and let go: push to talk. A tap keeps listening until the next tap or a pause.
     mic.addEventListener("pointerup", (event) => {
-      if (listening && event.timeStamp - pressedAt > 400) stopListening(false);
+      if (event.pointerType === "mouse" && listening && event.timeStamp - pressedAt > 400) stopListening(false);
+    });
+    mic.addEventListener("click", (event) => {
+      // A mouse was handled on its press; a keyboard's Enter or Space below.
+      if (event.pointerType === "mouse" || event.detail === 0) return;
+      listening ? stopListening(false) : startListening();
     });
     mic.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); listening ? stopListening(false) : startListening(); }
@@ -9803,19 +9920,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     current.interimResults = true;
     current.continuous = false;
     const before = panel.input.value ? `${panel.input.value} ` : "";
-    let finalText = "";
+    // What was heard: Safari on iOS often ends without marking a result final, so the last words count either way.
+    let heardText = "";
+    let failed = false;
     current.onresult = (event) => {
-      let interim = "";
-      finalText = "";
-      for (const result of event.results) {
-        if (result.isFinal) finalText += result[0].transcript; else interim += result[0].transcript;
-      }
-      panel.input.value = before + finalText + interim;
+      heardText = [...event.results].map((result) => result[0].transcript).join("");
+      panel.input.value = before + heardText;
       grow();
     };
     current.onerror = (event) => {
-      voiceNote = event.error === "not-allowed" || event.error === "service-not-allowed"
-        ? t("The browser did not allow the microphone for this page.")
+      // Our own stop or cancel: nothing to say.
+      if (event.error === "aborted") return;
+      failed = true;
+      voiceNote = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+        // Safari says so when Siri & Dictation is off, or when dictation is not offered where the page runs.
+        : event.error === "service-not-allowed" ? t("Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.")
+        : event.error === "audio-capture" ? t("No microphone was found.")
+        : event.error === "network" ? t("Dictation could not reach its speech service. Check the connection and try again.")
+        : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: current.lang })
         : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
     current.onend = () => {
@@ -9824,7 +9946,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       listening = false;
       recognition = null;
       panel.sheet.classList.remove("listening");
-      const heard = send && finalText.trim();
+      const heard = send && !failed && heardText.trim();
       if (heard && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
       renderControls();
       const text = panel.input.value.trim();
@@ -9876,10 +9998,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
     }, sparkle());
     header.insertBefore(trigger, header.querySelector("#user"));
+    // A phone: the button floats above the sections' button at the bottom right, in the thumb's reach, rather than in
+    // the header at the top. The header's glass makes it the box fixed things inside it are placed in, so the button
+    // moves to a dock of its own, and back into the header on a wider window.
+    const dock = el("div", { class: "chat-dock" });
+    const place = () => {
+      if (phone.matches) {
+        if (!dock.isConnected) document.body.append(dock);
+        if (trigger.parentNode !== dock) dock.append(trigger);
+      } else if (trigger.parentNode !== header) {
+        header.insertBefore(trigger, header.querySelector("#user"));
+        dock.remove();
+      }
+    };
+    place();
+    phone.addEventListener("change", place);
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
-      // Not from the sign-in screen: the button is in the hidden app then.
-      if (!trigger?.isConnected || trigger.closest(".hidden")) return;
+      // Not from the sign-in screen: the button is in the hidden app then (on a phone, in its dock while the app is hidden).
+      if (!trigger?.isConnected || trigger.closest(".hidden") || document.querySelector("#app.hidden")) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !event.isComposing) {
         event.preventDefault();
         toggle();
@@ -10049,6 +10186,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     minus: '<path d="M5 12h14"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+    filter: '<path d="M4 5h16l-6.2 7.4V19l-3.6-1.8v-4.8z"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
     send: '<path d="m3 3 18 9-18 9 4-9zM7 12h14"/>',
     location: '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0z"/><circle cx="12" cy="10" r="2"/>',
@@ -14882,7 +15020,6 @@ HomeswiftI18n.add("es", {
   "All lines": "Todas las líneas",
   "All off": "Todo apagado",
   "All servers": "Todos los servidores",
-  "All the Assistant's settings: provider, model, key, MCP server": "Todos los ajustes del Asistente: proveedor, modelo, clave, servidor MCP",
   "Allow": "Permitir",
   "Allow {tool}?": "¿Permitir {tool}?",
   "Allowed": "Permitido",
@@ -16267,7 +16404,6 @@ HomeswiftI18n.add("es", {
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "El Asistente lee las líneas mostradas y agrupa los problemas, con causas y soluciones",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "El Asistente se ha detenido tras muchos pasos sin respuesta. Vuelve a preguntar, o con más precisión.",
   "the Assistant writes the settings": "el Asistente escribe los ajustes",
-  "The Assistant: whether its provider answers, what it costs, and its budgets.": "El Asistente: si su proveedor responde, lo que cuesta y sus presupuestos.",
   "The Assistant's explanation": "La explicación del Asistente",
   "The Assistant's summary of the day": "El resumen del día del Asistente",
   "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.": "El registro de auditoría está desactivado: el mcp.http del bloque HomeswiftAiKit indica auditLog: false.",
@@ -16284,7 +16420,6 @@ HomeswiftI18n.add("es", {
   "The bridge needs a name": "El puente necesita un nombre",
   "The bridge, its pairings and cached accessories, child bridges, backups and the audit log.": "El puente, sus emparejamientos y accesorios en caché, los puentes secundarios, las copias de seguridad y el registro de auditoría.",
   "The browser did not allow copying.": "El navegador no ha permitido copiar.",
-  "The browser did not allow the microphone for this page.": "El navegador no ha permitido el micrófono en esta página.",
   "The browser did not give its location (it needs HTTPS away from localhost).": "El navegador no ha dado su ubicación (necesita HTTPS fuera de localhost).",
   "The browser's notifications are blocked for this site.": "Las notificaciones del navegador están bloqueadas para este sitio.",
   "the change for {0} must be an object": "el cambio de {0} debe ser un objeto",
@@ -17296,6 +17431,15 @@ HomeswiftI18n.add("es", {
   "When it rises above the on value": "Cuando sube por encima del valor de activación",
   "When it falls below the on value": "Cuando baja por debajo del valor de activación",
   "Occupancy": "Presencia",
+  "Choose the model": "Elegir el modelo",
+  "Model: {model}. Choose another": "Modelo: {model}. Elegir otro",
+  "The provider's list could not be read: {error}": "No se ha podido leer la lista del proveedor: {error}",
+  "The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.": "El navegador no ha permitido el micrófono en esta página: permítelo en los ajustes del sitio y vuelve a tocar el micrófono.",
+  "Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.": "El dictado no está disponible aquí. En un iPhone o iPad, activa «Activar Dictado» en Ajustes › General › Teclado; si esta página se añadió a la pantalla de inicio, pruébala en Safari.",
+  "No microphone was found.": "No se ha encontrado ningún micrófono.",
+  "Dictation could not reach its speech service. Check the connection and try again.": "El dictado no ha podido conectar con su servicio de voz. Comprueba la conexión y vuelve a intentarlo.",
+  "Dictation does not support {language}: choose another Voice language from the Settings menu.": "El dictado no admite {language}: elige otro Idioma de voz en el menú Ajustes.",
+  "The Assistant: its provider, model and key, whether the provider answers, what it costs, and its budgets.": "El Asistente: su proveedor, su modelo y su clave, si el proveedor responde, lo que cuesta y sus presupuestos.",
   "Gas": "Gas",
   "What the gas meters measured in this period": "Lo que midieron los contadores de gas en este periodo",
   "What the water meters measured in this period": "Lo que midieron los contadores de agua en este periodo",
@@ -18043,7 +18187,6 @@ HomeswiftI18n.add("fr", {
   "All lines": "Toutes les lignes",
   "All off": "Tout est éteint",
   "All servers": "Tous les serveurs",
-  "All the Assistant's settings: provider, model, key, MCP server": "Tous les réglages de l'Assistant : fournisseur, modèle, clé, serveur MCP",
   "Allow": "Autoriser",
   "Allow {tool}?": "Autoriser {tool} ?",
   "Allowed": "Autorisé",
@@ -19428,7 +19571,6 @@ HomeswiftI18n.add("fr", {
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "L'Assistant lit les lignes affichées et regroupe les problèmes, avec leurs causes et leurs solutions",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "L'Assistant s'est arrêté après de nombreuses étapes sans réponse. Reposez la question, ou soyez plus précis.",
   "the Assistant writes the settings": "l'Assistant rédige les réglages",
-  "The Assistant: whether its provider answers, what it costs, and its budgets.": "L'Assistant : si son fournisseur répond, ce qu'il coûte, et ses budgets.",
   "The Assistant's explanation": "L'explication de l'Assistant",
   "The Assistant's summary of the day": "Le résumé de la journée par l'Assistant",
   "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.": "Le journal d'audit est désactivé : le mcp.http du bloc HomeswiftAiKit indique auditLog: false.",
@@ -19445,7 +19587,6 @@ HomeswiftI18n.add("fr", {
   "The bridge needs a name": "Le pont a besoin d'un nom",
   "The bridge, its pairings and cached accessories, child bridges, backups and the audit log.": "Le pont, ses jumelages et ses accessoires en cache, les ponts enfants, les sauvegardes et le journal d'audit.",
   "The browser did not allow copying.": "Le navigateur n'a pas autorisé la copie.",
-  "The browser did not allow the microphone for this page.": "Le navigateur n'a pas autorisé le micro pour cette page.",
   "The browser did not give its location (it needs HTTPS away from localhost).": "Le navigateur n'a pas donné sa position (il faut HTTPS hors de localhost).",
   "The browser's notifications are blocked for this site.": "Les notifications du navigateur sont bloquées pour ce site.",
   "the change for {0} must be an object": "la modification de {0} doit être un objet",
@@ -20457,6 +20598,15 @@ HomeswiftI18n.add("fr", {
   "When it rises above the on value": "Quand elle passe au-dessus de la valeur d’activation",
   "When it falls below the on value": "Quand elle passe en dessous de la valeur d’activation",
   "Occupancy": "Présence",
+  "Choose the model": "Choisir le modèle",
+  "Model: {model}. Choose another": "Modèle : {model}. En choisir un autre",
+  "The provider's list could not be read: {error}": "La liste du fournisseur n'a pas pu être lue : {error}",
+  "The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.": "Le navigateur n'a pas autorisé le micro pour cette page : autorisez-le dans les réglages du site, puis touchez à nouveau le micro.",
+  "Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.": "La dictée n'est pas disponible ici. Sur un iPhone ou un iPad, activez « Activer Dictée » dans Réglages › Général › Clavier ; si cette page a été ajoutée à l'écran d'accueil, essayez-la dans Safari.",
+  "No microphone was found.": "Aucun micro n'a été trouvé.",
+  "Dictation could not reach its speech service. Check the connection and try again.": "La dictée n'a pas pu joindre son service de reconnaissance vocale. Vérifiez la connexion et réessayez.",
+  "Dictation does not support {language}: choose another Voice language from the Settings menu.": "La dictée ne prend pas en charge {language} : choisissez une autre Langue de la voix dans le menu Réglages.",
+  "The Assistant: its provider, model and key, whether the provider answers, what it costs, and its budgets.": "L'Assistant : son fournisseur, son modèle et sa clé, si le fournisseur répond, ce qu'il coûte, et ses budgets.",
   "Gas": "Gaz",
   "What the gas meters measured in this period": "Ce que les compteurs de gaz ont mesuré sur cette période",
   "What the water meters measured in this period": "Ce que les compteurs d'eau ont mesuré sur cette période",
@@ -21204,7 +21354,6 @@ HomeswiftI18n.add("pt", {
   "All lines": "Todas as linhas",
   "All off": "Tudo desligado",
   "All servers": "Todos os servidores",
-  "All the Assistant's settings: provider, model, key, MCP server": "Todas as definições do Assistente: fornecedor, modelo, chave, servidor MCP",
   "Allow": "Permitir",
   "Allow {tool}?": "Permitir {tool}?",
   "Allowed": "Permitido",
@@ -22589,7 +22738,6 @@ HomeswiftI18n.add("pt", {
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "O Assistente lê as linhas mostradas e agrupa os problemas, com causas e soluções",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "O Assistente parou após muitos passos sem resposta. Pergunte novamente, ou de forma mais precisa.",
   "the Assistant writes the settings": "o Assistente escreve as definições",
-  "The Assistant: whether its provider answers, what it costs, and its budgets.": "O Assistente: se o fornecedor responde, quanto custa e os orçamentos.",
   "The Assistant's explanation": "A explicação do Assistente",
   "The Assistant's summary of the day": "O resumo do dia feito pelo Assistente",
   "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.": "O registo de auditoria está desativado: o mcp.http do bloco HomeswiftAiKit indica auditLog: false.",
@@ -22606,7 +22754,6 @@ HomeswiftI18n.add("pt", {
   "The bridge needs a name": "A ponte precisa de um nome",
   "The bridge, its pairings and cached accessories, child bridges, backups and the audit log.": "A ponte, os seus emparelhamentos e acessórios em cache, as pontes secundárias, as cópias de segurança e o registo de auditoria.",
   "The browser did not allow copying.": "O navegador não permitiu copiar.",
-  "The browser did not allow the microphone for this page.": "O navegador não permitiu o microfone nesta página.",
   "The browser did not give its location (it needs HTTPS away from localhost).": "O navegador não deu a sua localização (é necessário HTTPS fora de localhost).",
   "The browser's notifications are blocked for this site.": "As notificações do navegador estão bloqueadas para este site.",
   "the change for {0} must be an object": "a alteração de {0} tem de ser um objeto",
@@ -23618,6 +23765,15 @@ HomeswiftI18n.add("pt", {
   "When it rises above the on value": "Quando sobe acima do valor de ativação",
   "When it falls below the on value": "Quando desce abaixo do valor de ativação",
   "Occupancy": "Presença",
+  "Choose the model": "Escolher o modelo",
+  "Model: {model}. Choose another": "Modelo: {model}. Escolher outro",
+  "The provider's list could not be read: {error}": "Não foi possível ler a lista do fornecedor: {error}",
+  "The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.": "O navegador não permitiu o microfone nesta página: permita-o nas definições do site e toque de novo no microfone.",
+  "Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.": "O ditado não está disponível aqui. Num iPhone ou iPad, ative «Ativar ditado» em Definições › Geral › Teclado; se esta página foi adicionada ao ecrã principal, experimente-a no Safari.",
+  "No microphone was found.": "Não foi encontrado nenhum microfone.",
+  "Dictation could not reach its speech service. Check the connection and try again.": "O ditado não conseguiu ligar-se ao seu serviço de voz. Verifique a ligação e tente de novo.",
+  "Dictation does not support {language}: choose another Voice language from the Settings menu.": "O ditado não suporta {language}: escolha outro Idioma da voz no menu Definições.",
+  "The Assistant: its provider, model and key, whether the provider answers, what it costs, and its budgets.": "O Assistente: o fornecedor, o modelo e a chave, se o fornecedor responde, quanto custa e os orçamentos.",
   "Gas": "Gás",
   "What the gas meters measured in this period": "O que os contadores de gás mediram neste período",
   "What the water meters measured in this period": "O que os contadores de água mediram neste período",
@@ -27378,15 +27534,28 @@ header nav a svg { display: none; }
 .tariff-card input, .tariff-card select { box-sizing: border-box; height: 42px; }
 .tariff-card .actions.start { justify-content: flex-start; }
 .tariff-earlier { margin: var(--space-8) 0 0; padding-left: var(--space-18); color: var(--muted); font-size: var(--text-sm); }
+/* A control and its small name (its column's head says it where there are heads), and a price's unit inside its field. */
+.tariff-cell { position: relative; display: block; min-width: 0; margin: 0; }
+.tariff-cell > :is(input, select) { width: 100%; }
+.tariff-cell-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tariff-cell.with-unit > input { padding-right: 5.5em; }
+.tariff-unit { position: absolute; right: var(--space-14); bottom: 0; height: 42px; display: flex; align-items: center; color: var(--muted); font-size: var(--text-sm); pointer-events: none; font-variant-numeric: tabular-nums; }
+/* iOS draws a date or time field at its own width and height, past its column and over its neighbour: plain fields
+   that fill their cell, their value at the start as the other fields'. */
+@media (pointer: coarse) {
+  .tariff-card input:is([type="date"], [type="time"]) { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-width: 0; text-align: start; }
+  .tariff-card input:is([type="date"], [type="time"])::-webkit-date-and-time-value { text-align: start; margin: 0; }
+}
 @media (max-width: 640px) {
-  /* Three lines a period: its name, then its times, then its days and price. */
-  .tariff-period { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; padding-bottom: var(--space-8); border-bottom: 1px solid var(--line); }
-  .tariff-period > :nth-child(1) { grid-column: 1 / 3; grid-row: 1; }
-  .tariff-period > :nth-child(2) { grid-column: 1; grid-row: 2; }
-  .tariff-period > :nth-child(3) { grid-column: 2; grid-row: 2; }
-  .tariff-period > :nth-child(4) { grid-column: 1; grid-row: 3; }
-  .tariff-period > :nth-child(5) { grid-column: 2; grid-row: 3; }
-  .tariff-period .icon-button { grid-column: 3; grid-row: 1; width: 40px; min-width: 40px; height: 40px; min-height: 40px; }
+  /* A period as a small group of its own: its name (Remove in the corner), its times side by side, its days and price
+     side by side, each with its small name over it. */
+  .tariff-periods { gap: var(--space-10); }
+  .tariff-period { position: relative; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-10) var(--space-10); padding: var(--space-12);
+    border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
+  .tariff-period > .tariff-cell:nth-child(1) { grid-column: 1 / -1; margin-right: 48px; }
+  .tariff-period .tariff-cell-label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; display: block; margin: 0 0 var(--space-4); font-size: var(--text-xs); line-height: 1.25; font-weight: var(--weight-semibold); color: var(--muted); }
+  /* Remove level with the name's field: the period's padding and border, the name's small name, then 1px into its 42. */
+  .tariff-period > .icon-button { position: absolute; top: calc(var(--space-12) + 1px + 0.9375rem + var(--space-4) + 1px); right: var(--space-12); width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 0; }
   .tariff-period-head { display: none; }
 }
 .page-note { display: flex; align-items: center; gap: var(--space-14); justify-content: space-between; margin: 0 0 var(--space-14); padding: var(--space-12) var(--space-16) var(--space-12) var(--space-18); }
@@ -27775,11 +27944,18 @@ label > input, label > select { margin-top: 5px; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .scenes-empty > .button { margin-top: var(--space-12); }
+/* Under the hubs' scenes, apart from their last row. */
+.hub-scenes ~ .scenes-empty { margin-top: var(--space-16); }
 .scenes-empty.compact { display: flex; align-items: center; gap: var(--space-14); padding: var(--space-14) var(--space-18); text-align: left; }
 .scenes-empty.compact > .button { margin: 0 0 0 auto; flex: none; }
 .card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
 .scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
-@media (max-width: 640px) { .scenes-empty.compact { flex-wrap: wrap; } .scenes-empty.compact > .button { margin-left: 0; } }
+/* A phone: the glyph beside the words, the button under them, rather than the words squeezed between the two. */
+@media (max-width: 640px) {
+  .scenes-empty.compact { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: start; column-gap: var(--space-14); row-gap: var(--space-12); padding: var(--space-16); }
+  .card.empty.scenes-empty.compact > p { font-size: var(--text-base); line-height: 1.4; }
+  .scenes-empty.compact > .button { grid-column: 2; justify-self: start; margin: 0; }
+}
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -28600,6 +28776,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .range-control.more-before { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
 .range-control.more-before.more-after { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 .range-control .range-custom { font-variant-numeric: tabular-nums; }
+/* Each choice keeps its words' width, so where they outgrow the row they scroll rather than squeeze into each other
+   (a phone's buttons may shrink to nothing otherwise: min-width 0). */
+.range-control > button { flex: none; }
 .range-popover {
   position: fixed; z-index: var(--layer-menu); width: min(320px, calc(100vw - 16px)); padding: var(--space-14); display: grid; gap: var(--space-12); border-radius: var(--radius);
   background-color: var(--material-thick); background-image: var(--sheen);
@@ -28756,14 +28935,26 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-value small { font-size: var(--text-2xs); color: var(--muted); text-align: end; }
 .consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
 .consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The sources apart from the home (the grid, solar, batteries): a rule above the first. */
+.consumers > li.sources-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
 @media (max-width: 640px) {
-  /* The name over its bar, the figure beside them. */
-  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) 7.5rem auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
-  .consumer-spacer { grid-area: icon; }
-  .consumer-name { grid-area: name; }
-  .consumer-track { grid-area: track; }
-  .consumer-value { grid-area: value; }
-  .consumer.action-with-icon::before { grid-area: icon; }
+  /* A phone: the name and its figure on the first line, its role and cost under them, the bar across the whole row
+     under both, so a name keeps its width and the bars still read against one another. */
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: auto minmax(0, 1fr) auto 16px;
+    grid-template-areas: "name name value icon" "caption note note icon" "track track track track";
+    align-items: baseline; column-gap: var(--space-12); row-gap: 2px; padding: var(--space-10) var(--space-8); }
+  .consumer-name, .consumer-value { display: contents; }
+  .consumer-name > span { grid-area: name; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  .consumer-name > small { grid-area: caption; }
+  .consumer-value > b { grid-area: value; justify-self: end; }
+  .consumer-value > small { grid-area: note; justify-self: end; }
+  .consumer-name > small, .consumer-value > small { font-size: var(--text-xs); }
+  .consumer-track { grid-area: track; align-self: center; margin-top: var(--space-8); }
+  .consumer-spacer, .consumer.action-with-icon::before { grid-area: icon; align-self: center; }
+  .consumer.nested .consumer-name { padding-left: 0; }
+  .consumer.nested .consumer-name > * { padding-left: var(--space-16); }
+  /* The rule beside a device's words, stopping above its bar. */
+  .consumer.nested::after { left: calc(var(--space-8) + 3px); top: var(--space-10); bottom: calc(var(--space-10) + 8px + var(--space-8)); }
 }
 .energy-days .chart-table thead th.time { text-align: left; }
 /* The History sheet's note under its charts, apart from them. */
@@ -29111,10 +29302,20 @@ dd { margin: 0; }
 .chat-head { position: relative; display: flex; align-items: center; gap: var(--space-10); padding: var(--space-14) var(--space-12) var(--space-10) var(--space-14); border-bottom: 1px solid var(--line); }
 .chat-badge { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--control); box-shadow: var(--shadow-control); }
 .chat-head .chat-badge .sparkle { width: 20px; height: 20px; }
-.chat-who { display: grid; min-width: 0; line-height: 1.2; }
+.chat-who { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; line-height: 1.2; }
 .chat-head strong { font-size: var(--text-lg); letter-spacing: -0.01em; }
-.chat-model { color: var(--muted); font-size: var(--text-xs); letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-model:empty { display: none; }
+/* The model under the title: a quiet menu button, its chevron after the name. */
+.chat-model.action-with-icon { justify-self: start; min-width: 0; min-height: 0; margin: 1px 0 0 calc(var(--space-6) * -1); padding: 2px var(--space-6); gap: 3px; border: 0; border-radius: var(--radius-sm);
+  background: none; box-shadow: none; color: var(--muted); font: inherit; font-size: var(--text-xs); letter-spacing: 0.01em; }
+.chat-model.action-with-icon::before { order: 1; width: 12px; height: 12px; }
+.chat-model-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-model:empty, .chat-model:has(> .chat-model-label:empty) { display: none; }
+@media (hover: hover) and (pointer: fine) { .chat-model:hover { color: var(--text); background: var(--material-thin); } }
+.chat-model[aria-expanded="true"] { color: var(--text); background: var(--material-thin); }
+/* A phone: the sparkle beside the title goes (the header's button has it), so the model's name has the room. */
+@media (max-width: 640px) { .chat-badge { display: none; } }
+/* A finger gets a taller target than the line it sits on. */
+@media (pointer: coarse) { .chat-model.action-with-icon { padding-block: 7px; margin-block: -5px; } }
 /* A wider window with a mouse: the head is a handle the panel moves by (chat.js). */
 @media (min-width: 641px) and (pointer: fine) {
   .chat-head { cursor: grab; }
@@ -29690,7 +29891,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   color: #fff; background: rgba(0, 0, 0, 0.28); border: 0; box-shadow: none; }
 .hub-scene-actions > button svg { width: 16px; height: 16px; }
 .hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
-.hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.hub-scene-tile:not(.compact):has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 /* On a touch screen each takes a 44-point-tall tap around its 30-point disc, so a near miss opens it rather than the
    scene; only 2 points wider, so Stop and the menu, 4 apart, do not take each other's taps. */
 @media (pointer: coarse) {
@@ -30292,9 +30493,23 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: var(--space-8); }
+  /* Three rows rather than four, so the log starts higher: the levels, then the search and what the lines are about
+     side by side (Clear filters after them while there is something to clear), then the time range. */
+  .log-filter-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem);
+    grid-template-areas: "levels levels" "search source" "range range"; column-gap: var(--space-8); }
+  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem) auto;
+    grid-template-areas: "levels levels levels" "search source clear" "range range range"; }
+  .log-filter-panel > :is(.log-level-row, .log-scope-row) { display: contents; }
+  .log-level-row > .group { grid-area: levels; }
+  .log-level-row .search { grid-area: search; }
+  .log-level-row .clear-filters { grid-area: clear; }
+  .log-scope-row > label { grid-area: source; min-width: 0; }
+  .log-scope-row > .log-time { grid-area: range; min-width: 0; }
   /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
   .log-card .log-action-bar { padding: var(--space-8) var(--space-12); gap: var(--space-8); }
   .log-card .log-action-bar > .count { flex: 1 1 auto; }
+  /* The count may take two short lines rather than lose its end ("15 of 15 li…"). */
+  .log-card > .log-action-bar > .count { white-space: normal; overflow: visible; text-overflow: clip; font-size: var(--text-xs); line-height: 1.2; }
   .log-card .log-action-bar > button.action-with-icon { width: 40px; height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; }
 }
 }
@@ -30363,6 +30578,53 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .finder-status { display: flex; align-items: center; gap: var(--space-10); margin: -4px 0 var(--space-14); padding: 0 var(--space-6); font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
 .finder-status:empty { display: none; }
 .plugin-catalog { gap: var(--space-14); }
+/* A phone: your plugins and the catalog each one list on one surface, a row per plugin under a hairline, rather than a
+   card each. A row of yours opens what its name opens (its page, else its settings), all of it a target that lights up
+   when pressed; its state at the end, then its ⋯. Only what needs doing stands out: a note when it is not running as it
+   should, and Set up when its account waits. A catalog row ends with its Add. */
+@media (max-width: 640px) {
+  .grid.plugin-instances, .grid.plugin-catalog { display: block; overflow: hidden; border-radius: var(--radius-lg);
+    background-color: var(--material); background-image: var(--sheen); border: 1px solid var(--edge); box-shadow: var(--shadow), inset 0 1px 0 var(--edge-light);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+    animation: fade var(--normal) var(--ease-out); }
+  /* The list arrives as one surface, by its opacity, rather than each row materializing on its own. */
+  .grid:is(.plugin-instances, .plugin-catalog) > .card { animation: none; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card {
+    position: relative; display: grid; align-items: center; column-gap: var(--space-12); row-gap: 2px; margin: 0; padding: var(--space-12) var(--space-14);
+    border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+    transition: background-color 120ms var(--ease-out);
+  }
+  /* The hairline starts at the names, as a list's does. */
+  .grid:is(.plugin-instances, .plugin-catalog) > .card + .card::before { content: ""; position: absolute; top: 0; right: 0; left: calc(var(--space-14) + 36px + var(--space-12)); height: 1px; background: var(--line); }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card :is(.server-head, .card-foot, .plugin-card-actions) { display: contents; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .tile { grid-area: tile; align-self: start; width: 36px; height: 36px; border-radius: var(--radius-sm); }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .tile svg { width: 19px; height: 19px; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .who { grid-area: who; min-width: 0; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .who strong { font-size: var(--text-base); font-weight: var(--weight-semibold); letter-spacing: 0; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card :is(.status-dot, .pill.status) { grid-area: status; justify-self: end; }
+
+  .grid.plugin-instances > .card { grid-template-columns: 36px minmax(0, 1fr) auto auto;
+    grid-template-areas: "tile who status menu" "tile meta meta menu" ". note note note" ". setup setup setup"; }
+  .grid.plugin-instances > .card .meta { grid-area: meta; gap: 2px var(--space-12); font-size: var(--text-xs); }
+  .grid.plugin-instances > .card .meta svg { width: 13px; height: 13px; }
+  .grid.plugin-instances > .card .card-foot > .muted { grid-area: note; font-size: var(--text-xs); }
+  .grid.plugin-instances > .card .card-foot > .muted:empty { display: none; }
+  /* Open its page (or Settings) is the row itself, and the first item of its ⋯. */
+  .grid.plugin-instances > .card .plugin-card-actions > a.button { display: none; }
+  .grid.plugin-instances > .card .plugin-card-actions > button.primary { grid-area: setup; justify-self: start; margin-top: var(--space-6); position: relative; z-index: 1; }
+  .grid.plugin-instances > .card .menu-button { grid-area: menu; position: relative; z-index: 1; color: var(--muted); background: none; box-shadow: none; border-color: transparent; }
+  .grid.plugin-instances > .card .card-title::after { content: ""; position: absolute; inset: 0; }
+  .grid.plugin-instances > .card:has(.card-title:active) { background: var(--material-thin); }
+  .grid.plugin-instances > .card .card-title { -webkit-touch-callout: none; touch-action: manipulation; }
+
+  /* The name and what it brings get the width: In use under them, Add a round + (its words stay its name). */
+  .grid.plugin-catalog > .card { grid-template-columns: 36px minmax(0, 1fr) auto; grid-template-areas: "tile who add" "tile status add"; }
+  .grid.plugin-catalog > .card .pill.status { justify-self: start; margin: var(--space-4) 0 0; font-size: var(--text-2xs); }
+  .grid.plugin-catalog > .card .actions { grid-area: add; display: block; margin: 0; }
+  .grid.plugin-catalog > .card .actions > :is(button, a.button) { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px;
+    padding: 0; gap: 0; border-radius: 50%; font-size: 0; }
+  .grid.plugin-catalog > .card .actions > .action-with-icon::before { width: 18px; height: 18px; }
+}
 .plugin-catalog .catalog { padding: var(--space-20); }
 .plugin-catalog .server-head { margin-bottom: var(--space-20); }
 .plugin-catalog .actions { justify-content: flex-end; }
@@ -30440,6 +30702,21 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .hub-scene-tile.compact:has(> .scene-run:active:not(:disabled)) { transform: scale(0.97); }
 .hub-scene-tile.compact > .scene-run:active:not(:disabled) { transform: none; }
 @media (prefers-reduced-motion: reduce) { .hub-scene-tile.compact:has(> .scene-run:active) { transform: none; } }
+/* A phone: the scenes run by name as one list, a row each with its ⋯ at the end, rather than capsules that each
+   take a line of their own at a different width. A row lights up when pressed, as a list's rows do. */
+@media (max-width: 640px) {
+  .scene-around > .chips { display: grid; gap: 0; overflow: hidden; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow-control); }
+  .scene-around .hub-scene-tile.compact { max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none; transition: background-color 120ms var(--ease-out); }
+  .scene-around .hub-scene-tile.compact + .hub-scene-tile.compact::before { content: ""; position: absolute; top: 0; right: 0; left: 42px; height: 1px; background: var(--line); }
+  .scene-around .hub-scene-tile.compact > .scene-run { flex: 1; min-height: 50px; padding: 0 var(--space-14); justify-content: flex-start; border-radius: 0; font-size: var(--text-base); text-align: left; }
+  .scene-around .hub-scene-tile.compact .quick-scene-label { display: flex; align-items: center; gap: var(--space-12); min-width: 0; }
+  .scene-around .hub-scene-tile.compact .quick-scene-label > span { min-width: 0; flex-wrap: wrap; column-gap: var(--space-6); }
+  .scene-around .hub-scene-tile.compact .quick-scene-label > svg { width: 16px; height: 16px; flex: none; }
+  .scene-around .hub-scene-tile.compact > .hub-scene-actions { padding-right: var(--space-8); }
+  .scene-around .hub-scene-tile.compact .hub-scene-actions > button { --round-target: 36px; width: 36px; height: 36px; min-height: 36px; }
+  .scene-around .hub-scene-tile.compact > .scene-run.active { box-shadow: inset 3px 0 0 var(--accent); }
+  .scene-around .hub-scene-tile.compact:has(> .scene-run:active:not(:disabled)) { transform: none; background: var(--material-thin); }
+}
 .hub-scenes > p.muted { margin-top: calc(var(--space-8) * -1); }
 .templates { margin-top: var(--space-18); }
 .templates > summary { cursor: pointer; display: grid; gap: var(--space-4); list-style: none; }
@@ -30609,6 +30886,67 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 /* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
 @media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
+/* The Accessories page's tools (accessoriesBar): the toolbar over the views, as far apart as when the toolbar sat in the
+   page's head. Its search button is a phone's. */
+.page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
+.accessories-bar { display: grid; row-gap: var(--space-14); margin: 0 0 var(--space-18); }
+.accessories-bar > .accessories-views { margin: 0; }
+.accessories-bar .accessories-search-toggle { display: none; }
+/* A phone: one bar of glass along the bottom, within the thumb's reach, beside the sections' button (54px at 14px from
+   the right): the views first, then round buttons (the search, Filters with its count, Edit, the options). Full screen and
+   Add are in the options' menu on the wall. The search opens over the row, and the bar rises with the keyboard. */
+@media (max-width: 600px) {
+  main:has(> .accessories-bar) { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .accessories-bar {
+    position: fixed; z-index: var(--layer-header); left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px);
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); margin: 0; padding: var(--space-6);
+    border-radius: var(--radius-xl); background-color: var(--material-chrome); background-image: var(--sheen);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+  }
+  .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
+  .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
+  /* The views as two glyphs, their names for assistive technology. */
+  .accessories-bar .subnav { order: 0; flex: none; width: auto; margin: 0 auto 0 0; padding: 2px; display: flex; overflow: visible; mask-image: none; -webkit-mask-image: none; }
+  .accessories-bar .subnav a { display: grid; place-items: center; width: 40px; min-width: 40px; height: 36px; padding: 0; border-radius: var(--radius-pill); }
+  .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .accessories-bar .subnav svg { width: 20px; height: 20px; }
+  /* Anything else of the toolbar (the Rooms button of Edit by room) after Edit. */
+  .accessories-bar .accessories-toolbar > * { order: 4; }
+  .accessories-bar .accessories-search-toggle { display: grid; order: 1; }
+  .accessories-bar .accessories-filters { order: 2; }
+  .accessories-bar .accessories-edit { order: 3; }
+  .accessories-bar .accessory-options-button.menu-button { order: 5; }
+  .accessories-bar .accessories-full-screen { order: 6; }
+  .accessories-bar .accessories-add { order: 7; }
+  .accessories-bar .in-menu-on-phone { display: none; }
+  /* Every button a 40px circle, as round buttons are at phone width, its glyph in the middle; Filters keeps its count
+     as a badge. (Above the toolbar's own button rule, which lays a glyph and its words side by side.) */
+  .accessories-bar .accessories-toolbar > :is(button, a).accessories-search-toggle, .accessories-bar .accessories-toolbar > :is(button, a).accessories-filters,
+  .accessories-bar .accessories-toolbar > :is(button, a).accessories-edit, .accessories-bar .accessories-toolbar > :is(button, a)[aria-label],
+  .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .accessories-views > :is(button, a):not(.subnav) {
+    position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none;
+  }
+  .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-views > :is(button, a).in-menu-on-phone { display: none; }
+  .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
+  .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg { width: 18px; height: 18px; margin: 0; color: currentColor; opacity: 1; }
+  .accessories-bar .accessories-edit.action-with-icon::before, .accessories-bar .accessories-add.action-with-icon::before { width: 18px; height: 18px; margin: 0; }
+  .accessories-bar .search { order: -1; flex: 1 1 100%; width: 100%; display: none; }
+  /* The field rises out of the row it opens from, briefly; reduced motion shows it at once. */
+  .accessories-bar.searching .search { display: block; animation: accessories-search-in 180ms var(--ease-out); }
+  /* Its buttons are controls: a long press neither selects their names nor opens a callout. */
+  .accessories-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+}
+@keyframes accessories-search-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .accessories-bar.searching .search { animation: none; } }
+/* A narrow phone: the buttons a little smaller, so the row still fits beside the sections' button. */
+@media (max-width: 359px) {
+  .accessories-bar { gap: var(--space-4); padding: var(--space-4); }
+  .accessories-bar .accessories-toolbar > :is(button, a, .accessory-options-button), .accessories-bar .accessories-views > :is(button, a):not(.subnav) { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
+  .accessories-bar .subnav a { width: 36px; min-width: 36px; }
+}
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
 .accessories-toolbar .accessory-options-button svg {
@@ -30622,7 +30960,11 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .local-ui-settings .view-switch { margin-bottom: var(--space-20); }
 .local-ui-settings .group-box { border: 1px solid var(--line); border-radius: var(--radius-md); margin: 0 0 var(--space-14); background: var(--material-thin); overflow: hidden; }
 .local-ui-settings .group-box > summary { padding: var(--space-16) var(--space-18); font-size: var(--text-base); font-weight: var(--weight-semibold); cursor: pointer; }
-.local-ui-settings .group-box > .fields { padding: var(--space-4) var(--space-18) var(--space-18); }
+/* Its groups are sections of the card (the one-surface rules below): their settings across the whole width, under the
+   heading, as on a plugin's settings page. */
+.local-ui-settings .group-box > .fields { width: 100%; padding: var(--space-4) 0 var(--space-10); }
+/* A list first in its section needs no rule of its own under the section's heading. */
+.local-ui-settings .group-box > .fields > fieldset:first-child { border-top: 0; margin-top: 0; padding-top: var(--space-4); }
 .local-ui-settings .help { max-width: 680px; line-height: 1.55; }
 .local-ui-settings input:not([type=checkbox]), .local-ui-settings select { max-width: 560px; }
 .local-ui-settings .drop-zone { padding: var(--space-16); margin-bottom: var(--space-18); border-radius: var(--radius-sm); }
@@ -30685,6 +31027,16 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .restart-overlay.restart-leaving, .restart-overlay.restart-leaving::backdrop { animation: none; }
 }
 
+/* A phone: the Assistant's button above the sections' button, the same 54px circle, in the thumb's reach (chat.js
+   moves it to this dock). Hidden while the app is (the sign-in screen). */
+.chat-dock { display: none; }
+@media (max-width: 640px) {
+  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); display: block; }
+  body:has(#app.hidden) .chat-dock { display: none; }
+  .chat-dock .chat-open { width: 54px; height: 54px; min-width: 54px; min-height: 54px; background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+    -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); }
+  .chat-dock .chat-open .sparkle { width: 26px; height: 26px; }
+}
 /* Compact mobile navigation, anchored within thumb reach. */
 @media (max-width: 640px) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -31927,33 +32279,33 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 /* A plugin's Settings page: its account, its form and its save bar, its devices, in one card. */
 .plugin-settings { padding-top: var(--space-20); padding-bottom: var(--space-20); }
 .plugin-settings .settings-bar { margin-top: var(--space-16); }
-/* One surface (the settings page's card, an accessory's sheet): a group of settings, a list, a nested object is a
+/* One surface (a plugin's settings page and Homeswift UI's own, an accessory's sheet): a group of settings, a list, a nested object is a
    section of it, its heading over a hairline, rather than a box in the card; an expandable group's heading has a
    chevron, and a list's entries are rows between hairlines. */
-:is(.plugin-settings, .accessory-settings-sheet) :is(.group-box, fieldset) {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) :is(.group-box, fieldset) {
   border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none;
   padding: var(--space-12) 0 var(--space-4); margin: var(--space-14) 0 0;
 }
-:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) fieldset > legend {
   float: left; width: 100%; padding: 0; margin: 0 0 var(--space-6); color: var(--text); font-weight: var(--weight-semibold);
 }
-:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend + * { clear: both; }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) fieldset > legend + * { clear: both; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary {
   list-style: none; display: flex; align-items: center; gap: var(--space-8); cursor: pointer; padding: 0 0 var(--space-6);
 }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::-webkit-details-marker { display: none; }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary::-webkit-details-marker { display: none; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary::before {
   content: ""; width: 7px; height: 7px; flex: none; margin: 0 2px 0 1px; border: solid var(--muted); border-width: 0 2px 2px 0;
   transform: rotate(-45deg); transition: transform var(--fast) var(--ease-out);
 }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box[open] > summary::before { transform: rotate(45deg); }
-:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry, .item) {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box[open] > summary::before { transform: rotate(45deg); }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) :is(details.entry, .item) {
   border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; margin: 0;
 }
-:is(.plugin-settings, .accessory-settings-sheet) details.entry > summary { padding-inline: 0; }
-:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
-:is(.plugin-settings, .accessory-settings-sheet) .item { padding-inline: 0; }
-@media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before { transition: none; } }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) details.entry > summary { padding-inline: 0; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .item { padding-inline: 0; }
+@media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary::before { transition: none; } }
 /* A closed group's count of settings, quiet at the end of its heading; a group's own words under it; a group in a
    group, a heading over its fields. */
 .group-box > summary > .group-count { float: right; margin-left: auto; padding-left: var(--space-12); font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); }
