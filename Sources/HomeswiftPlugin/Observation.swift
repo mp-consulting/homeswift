@@ -24,10 +24,15 @@ public final class Observation: Sendable {
 /// servers that did not exist when it subscribed.
 final class ChangeFeed: Sendable {
     private let observers = NIOLockedValueBox<[UUID: HAPServer.ChangeObserver]>([:])
+    /// Those of writes (`HAPServer.observeWrites`).
+    private let writeObservers = NIOLockedValueBox<[UUID: HAPServer.ChangeObserver]>([:])
 
     func follow(_ server: HAPServer) {
         server.observeChanges { [self] accessory, characteristic, value in
             for observer in observers.withLockedValue({ Array($0.values) }) { observer(accessory, characteristic, value) }
+        }
+        server.observeWrites { [self] accessory, characteristic, value in
+            for observer in writeObservers.withLockedValue({ Array($0.values) }) { observer(accessory, characteristic, value) }
         }
     }
 
@@ -35,6 +40,12 @@ final class ChangeFeed: Sendable {
         let id = UUID()
         observers.withLockedValue { $0[id] = observer }
         return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
+    }
+
+    func addWrites(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
+        let id = UUID()
+        writeObservers.withLockedValue { $0[id] = observer }
+        return Observation { [self] in _ = writeObservers.withLockedValue { $0.removeValue(forKey: id) } }
     }
 }
 

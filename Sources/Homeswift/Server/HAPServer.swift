@@ -72,7 +72,8 @@ public final class HAPServer: @unchecked Sendable {
         }
     }
 
-    /// Called when a characteristic's value changes, from HomeKit or from the accessory's own code.
+    /// Called when a characteristic's value changes, from HomeKit or from the accessory's own code, in the task that
+    /// changed it (`ChangeSource.resolved` there says who did).
     public typealias ChangeObserver = @Sendable (_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue) -> Void
 
     /// How long a call took: a controller's read or write of `/characteristics` (`request`), or an accessory's
@@ -98,6 +99,7 @@ public final class HAPServer: @unchecked Sendable {
         var overCapacity: Set<String> = []
         var connections: [ObjectIdentifier: HAPConnection] = [:]
         var changeObservers: [ChangeObserver] = []
+        var writeObservers: [ChangeObserver] = []
         var structureObservers: [@Sendable () -> Void] = []
         var pairSetupOwner: ObjectIdentifier?
         /// When `pairSetupOwner` sent its M1.
@@ -367,6 +369,12 @@ public final class HAPServer: @unchecked Sendable {
     /// Registers an observer of characteristic changes on every accessory of this server.
     public func observeChanges(_ observer: @escaping ChangeObserver) {
         state.withLockedValue { $0.changeObservers.append(observer) }
+    }
+
+    /// Calls `observer` after every write that went through (a controller's, or `Characteristic.write` from the web UI,
+    /// an MCP client or a scene), changed value or not, in the writing task: after the change it made, if any.
+    public func observeWrites(_ observer: @escaping ChangeObserver) {
+        state.withLockedValue { $0.writeObservers.append(observer) }
     }
 
     /// Registers an observer of how long controllers' requests and the accessories' handlers take.
@@ -846,6 +854,12 @@ public final class HAPServer: @unchecked Sendable {
 }
 
 extension HAPServer {
+    func characteristicWasWritten(_ characteristic: Characteristic, value: HAPValue) {
+        let (observers, accessory) = state.withLockedValue { ($0.writeObservers, $0.accessories[characteristic.aid]) }
+        guard let accessory, !observers.isEmpty else { return }
+        for observer in observers { observer(accessory, characteristic, value) }
+    }
+
     func characteristicDidChange(_ characteristic: Characteristic, value: HAPValue, origin: ObjectIdentifier?) {
         let key = CharacteristicKey(aid: characteristic.aid, iid: characteristic.iid)
         let (connections, observers, accessory, hidden) = state.withLockedValue { state in

@@ -39,6 +39,10 @@ public struct HomeswiftConfiguration: Sendable {
         public var advertiser: String?
         /// The interfaces (names or IPv4 addresses) the built-in responder advertises on; a string or a list.
         public var bind: [String]?
+        /// How long the History's changes and the Logbook are kept, in days, and the History's hourly figures, in
+        /// years (`HistoryRetention`); nil for the defaults.
+        public var historyDays: Int?
+        public var historyYears: Int?
 
         public init(
             name: String = "Homeswift", username: String? = nil, port: Int? = nil, pin: String? = nil,
@@ -66,6 +70,8 @@ public struct HomeswiftConfiguration: Sendable {
             model = try container.decodeIfPresent(String.self, forKey: .model)
             firmwareRevision = try container.decodeIfPresent(String.self, forKey: .firmwareRevision)
             advertiser = try container.decodeIfPresent(String.self, forKey: .advertiser)
+            historyDays = try? container.decodeIfPresent(Int.self, forKey: .historyDays)
+            historyYears = try? container.decodeIfPresent(Int.self, forKey: .historyYears)
             if let one = try? container.decodeIfPresent(String.self, forKey: .bind) {
                 bind = [one]
             } else {

@@ -569,6 +569,12 @@ extension HomeswiftCatalog {
     /// Runs a scene, saved or not (a plan: `runPlan`). Its changes are kept for `LightShowRules.undoSeconds` under its id,
     /// so `stopScene` puts them back.
     func run(_ scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
+        // Its changes are the scene's in the Logbook, or its automation's when a trigger ran it.
+        let source: ChangeSource = trigger.isAutomatic ? .automation(scene.name) : .scene(scene.name)
+        return try await source.run { try await runSteps(of: scene, trigger: trigger, allowSecurity: allowSecurity) }
+    }
+
+    private func runSteps(of scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
         guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
         defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
         if trigger.isAutomatic, let reason = conditionsFail(scene.conditions) {
