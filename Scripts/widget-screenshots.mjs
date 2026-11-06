@@ -149,6 +149,9 @@ try {
   if (!(await evaluate("document.querySelector('.remote-sizes .size-medium').textContent.includes('Button 2 · Double press')"))) throw new Error("A remote's press is not in its status line");
   await shot("sensors", ".wall.sensors");
   await shot("remote", ".wall.remote-sizes");
+  // The Weather plugin's accessory at small, medium and large.
+  await open("weather");
+  await shot("weather", ".wall.weather-sizes");
   console.log('PASS: XL fits its contents and grows/shrinks with optional controls');
   if (process.argv[2]) { await open("sizes", 1272); await shot("s-m-l-xl", ".wall"); }
   await open("wall");

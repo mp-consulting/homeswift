@@ -139,6 +139,7 @@ list below that it has):
 | Lightbulb | Light | on and off, brightness; held, a colour or white picker | brightness, on and off; held, a colour or white picker | brightness, colours or white | tall brightness, colours, white |
 | Switch, Outlet (one) | Switch | on and off | on and off | a big switch | a power button, its facets |
 | Switch, Outlet (several) | Group of switches | how many are on | how many are on | chips | a tile each |
+| TemperatureSensor with Eve's Condition (Weather) | Weather | temperature and condition | temperature, the sky | temperature, humidity, wind | with rain, pressure, UV index |
 | Sensors | Sensor | the reading | the main reading | the readings | the readings, battery |
 | StatelessProgrammableSwitch | Remote | the last press | a key per button, the last press | a key per button, lit as it is pressed; low battery | the same |
 | (a camera) | Camera | the picture | the picture | the picture | the picture with its buttons |
@@ -150,6 +151,11 @@ only shows them: the tile gives a small press and the status line names the butt
 at once and fades out. Under reduced motion only the colour changes.
 
 ![Sensors and a remote at their sizes, and a remote's press](images/widgets/remote.png)
+
+The Weather plugin's accessory is a Temperature sensor with Eve's weather characteristics, drawn by the Weather widget: the
+temperature and the sky's icon, the condition in words, then its humidity, wind, rain, pressure and UV index as it grows.
+
+![The weather at its four sizes](images/widgets/weather.png)
 
 What a widget does not show of the primary service, and the accessory's other services, become **facets**:
 switches as chips, sensors as readouts, a filter or a battery as a meter, a secondary light, fan, thermostat or

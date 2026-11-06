@@ -9896,6 +9896,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     down: '<path d="M6 9l6 6 6-6"/>',
     // Energy (the Status page's Energy section): solar, the home, a battery, the grid's pylon, power, solar's share.
     globe: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
+    cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18z"/>',
+    rain: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 17l-1 3M12 17l-1 3M16 17l-1 3"/>',
+    snow: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 18h.01M12 18h.01M16 18h.01M10 21h.01M14 21h.01"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
     house: '<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>',
     battery: '<rect x="2.5" y="7" width="16.5" height="10" rx="2.5"/><path d="M21.5 10.5v3M6 10.5v3M9.5 10.5v3"/>',
@@ -16742,6 +16745,27 @@ HomeswiftI18n.add("es", {
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
   "Forgotten.": "Olvidada.",
+  "Clear sky": "Cielo despejado",
+  "Mainly clear": "Mayormente despejado",
+  "Partly cloudy": "Parcialmente nublado",
+  "Overcast": "Cubierto",
+  "Fog": "Niebla",
+  "Drizzle": "Llovizna",
+  "Freezing drizzle": "Llovizna helada",
+  "Rain": "Lluvia",
+  "Freezing rain": "Lluvia helada",
+  "Snow": "Nieve",
+  "Rain showers": "Chubascos",
+  "Snow showers": "Chubascos de nieve",
+  "Thunderstorm": "Tormenta",
+  "Thunderstorm with hail": "Tormenta con granizo",
+  "Raining": "Llueve",
+  "Wind": "Viento",
+  "Rain, last hour": "Lluvia, última hora",
+  "Pressure": "Presión",
+  "UV index": "Índice UV",
+  "The weather where the home is, from Open-Meteo: temperature, humidity, rain, wind and UV": "El tiempo donde está la casa, de Open-Meteo: temperatura, humedad, lluvia, viento y UV",
+  "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.": "El tiempo es el de donde está la casa: define la ubicación en Ajustes, Puente. Este paso continúa por sí solo cuando esté definida.",
 });
 
 """#),
@@ -19782,6 +19806,27 @@ HomeswiftI18n.add("fr", {
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
   "Forgotten.": "Oubliée.",
+  "Clear sky": "Ciel dégagé",
+  "Mainly clear": "Plutôt dégagé",
+  "Partly cloudy": "Partiellement nuageux",
+  "Overcast": "Couvert",
+  "Fog": "Brouillard",
+  "Drizzle": "Bruine",
+  "Freezing drizzle": "Bruine verglaçante",
+  "Rain": "Pluie",
+  "Freezing rain": "Pluie verglaçante",
+  "Snow": "Neige",
+  "Rain showers": "Averses",
+  "Snow showers": "Averses de neige",
+  "Thunderstorm": "Orage",
+  "Thunderstorm with hail": "Orage avec grêle",
+  "Raining": "Il pleut",
+  "Wind": "Vent",
+  "Rain, last hour": "Pluie, dernière heure",
+  "Pressure": "Pression",
+  "UV index": "Indice UV",
+  "The weather where the home is, from Open-Meteo: temperature, humidity, rain, wind and UV": "La météo là où se trouve la maison, par Open-Meteo : température, humidité, pluie, vent et UV",
+  "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.": "La météo est celle de l'endroit où se trouve la maison : définissez la position dans Réglages, Pont. Cette étape continue d'elle-même une fois qu'elle l'est.",
 });
 
 """#),
@@ -22822,6 +22867,27 @@ HomeswiftI18n.add("pt", {
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
   "Forgotten.": "Esquecida.",
+  "Clear sky": "Céu limpo",
+  "Mainly clear": "Pouco nublado",
+  "Partly cloudy": "Parcialmente nublado",
+  "Overcast": "Encoberto",
+  "Fog": "Nevoeiro",
+  "Drizzle": "Chuvisco",
+  "Freezing drizzle": "Chuvisco gelado",
+  "Rain": "Chuva",
+  "Freezing rain": "Chuva gelada",
+  "Snow": "Neve",
+  "Rain showers": "Aguaceiros",
+  "Snow showers": "Aguaceiros de neve",
+  "Thunderstorm": "Trovoada",
+  "Thunderstorm with hail": "Trovoada com granizo",
+  "Raining": "Está a chover",
+  "Wind": "Vento",
+  "Rain, last hour": "Chuva, última hora",
+  "Pressure": "Pressão",
+  "UV index": "Índice UV",
+  "The weather where the home is, from Open-Meteo: temperature, humidity, rain, wind and UV": "A meteorologia onde fica a casa, da Open-Meteo: temperatura, humidade, chuva, vento e UV",
+  "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.": "A meteorologia é a de onde fica a casa: defina a localização em Definições, Ponte. Este passo continua sozinho assim que estiver definida.",
 });
 
 """#),
@@ -32759,6 +32825,56 @@ self.addEventListener("notificationclick", (event) => {
       }
       if (size === "medium") built.body = [];
       if (size === "full") Object.assign(built, { body: [], facets: facets(ctx, [primary]) });
+      return built;
+    },
+  });
+
+  // The weather (the Weather plugin, or any Temperature sensor with Eve's Condition): the temperature and the sky's
+  // icon, the condition in words; from medium up the humidity, the wind and the last hour's rain, then the pressure
+  // and the UV index. Conditions are Open-Meteo's words in English, translated here.
+  const weatherConditions = {
+    "Clear sky": [t("Clear sky"), "sun"], "Mainly clear": [t("Mainly clear"), "sun"], "Partly cloudy": [t("Partly cloudy"), "cloud"],
+    Overcast: [t("Overcast"), "cloud"], Fog: [t("Fog"), "cloud"], Drizzle: [t("Drizzle"), "rain"], "Freezing drizzle": [t("Freezing drizzle"), "rain"],
+    Rain: [t("Rain"), "rain"], "Freezing rain": [t("Freezing rain"), "rain"], Snow: [t("Snow"), "snow"], "Rain showers": [t("Rain showers"), "rain"],
+    "Snow showers": [t("Snow showers"), "snow"], Thunderstorm: [t("Thunderstorm"), "rain"], "Thunderstorm with hail": [t("Thunderstorm with hail"), "rain"],
+  };
+  const weatherOf = (value) => weatherConditions[value] ?? [typeof value === "string" && value !== "Unknown" ? value : "", "cloud"];
+  register({
+    name: "weather", types: ["TemperatureSensor"], tone: "blue", size: "large",
+    icon: (ctx, primary) => weatherOf(ctx.char(primary, "Condition")?.value)[1],
+    match: (ctx, primary) => !!ctx.char(primary, "Condition"),
+    build(ctx, primary, size) {
+      const temperature = ctx.take(primary, "Current Temperature"), condition = ctx.take(primary, "Condition");
+      const wind = ctx.take(primary, "Wind Speed"), rain = ctx.take(primary, "Rain Last Hour");
+      const pressure = ctx.take(primary, "Air Pressure"), uv = ctx.take(primary, "UV Index");
+      const humidity = ctx.take(ctx.find("HumiditySensor"), "Current Relative Humidity");
+      const raining = ctx.take(ctx.find("OccupancySensor"), "Occupancy Detected");
+      const number = (c, digits = 0) => typeof c?.value === "number" ? c.value.toFixed(digits).replace(".", decimal) : "–";
+      const degreesNow = () => typeof temperature?.value === "number" ? HomeswiftCommon.temperature(temperature.value).value.toFixed(1).replace(".", decimal) : "–";
+      const unit = HomeswiftCommon.temperature(0).unit;
+      const words = () => weatherOf(condition?.value)[0] || (raining?.value === 1 ? t("Raining") : "");
+      const built = {
+        on: () => false,
+        hero: () => el("span", {}, degreesNow(), el("small", { text: unit })),
+        // A compact tile has no hero: the temperature goes before the condition.
+        status: () => [size !== "small" || ctx.tall ? words() : [`${degreesNow()} ${unit}`, words()].filter(Boolean).join(" · "), ""],
+      };
+      if (size === "small") return built;
+      const values = [
+        [t("Temperature"), degreesNow, unit],
+        humidity && [t("Humidity"), () => number(humidity), "%"],
+        wind && [t("Wind"), () => number(wind), "km/h"],
+        rain && [t("Rain, last hour"), () => number(rain), "mm"],
+        pressure && [t("Pressure"), () => number(pressure), "hPa"],
+        uv && [t("UV index"), () => number(uv), ""],
+      ].filter(Boolean);
+      const shown = (size === "medium" ? values.slice(0, 3) : values).map(([label, text, suffix]) => {
+        const control = readout(label);
+        ctx.watch(() => control.set(text(), suffix));
+        return control.node;
+      });
+      built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, shown)];
+      if (size === "full") built.facets = facets(ctx, ctx.services);
       return built;
     },
   });

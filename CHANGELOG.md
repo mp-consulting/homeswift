@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Weather, a plugin: the weather where the home is, from Open-Meteo with no account or key, for the Location set
+  under Settings, Bridge. One accessory with a Temperature sensor and Eve's air pressure, condition, wind speed, rain
+  in the last hour and UV index, a Humidity sensor, and an Is raining occupancy sensor for automations. It updates
+  every 15 minutes and at once when the Location moves, and appears as a Weather widget on the Accessories wall.
+
 ### Changed
 
 - The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
