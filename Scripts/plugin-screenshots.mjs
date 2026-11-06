@@ -86,9 +86,11 @@ const hueResources = [
   ...room("bedroom", "Bedroom", [...roomDevices("bedroom"), "d8"], "g2", true, 35),
   ...room("kitchen", "Kitchen", roomDevices("kitchen"), "g3", true, 100),
   ...room("hallway", "Hallway", ["d7", "d9"], "g4", false, 0),
-  scene("s1", "Savanna Sunset", "living", palettes.sunset, true), scene("s2", "Tokyo", "living", palettes.tokyo), scene("s3", "Read", "living", palettes.read),
-  scene("s4", "Relax", "living", palettes.relax), scene("s5", "Ocean Dawn", "bedroom", palettes.ocean), scene("s6", "Nightlight", "bedroom", palettes.relax),
-  scene("s7", "Spring Blossom", "bedroom", palettes.forest), scene("s8", "Concentrate", "kitchen", palettes.concentrate), scene("s9", "Energize", "kitchen", palettes.read),
+  scene("s1", "Savanna Sunset", "living", palettes.sunset, true), scene("s2", "Tokyo", "living", palettes.tokyo),
+  scene("s5", "Ocean Dawn", "bedroom", palettes.ocean), scene("s7", "Spring Blossom", "bedroom", palettes.forest),
+  // The scenes Hue makes in each room, as its app does: the Scenes page shows each once, with its rooms.
+  ...[["Read", palettes.read], ["Relax", palettes.relax], ["Concentrate", palettes.concentrate], ["Energize", palettes.read], ["Nightlight", palettes.relax]]
+    .flatMap(([name, colours], index) => ["living", "bedroom", "kitchen"].map((group) => scene(`s${10 + index}-${group}`, name, group, colours))),
   { id: "smart1", type: "smart_scene", metadata: { name: "Natural light" }, group: { rid: "living", rtype: "room" }, state: "inactive" },
 ];
 const hue = createServer(tls, (request, response) => {
@@ -161,7 +163,7 @@ writeFileSync(join(storage, "scenes.json"), JSON.stringify({ version: 1, scenes:
   { id: "5ce0e0000000a001", name: "Movie night", artworkId: "mood-cinema", homeKit: true, triggers: [], conditions: [],
     actions: [action("l2", "On", false), action("l3", "On", true), action("l3", "Brightness", 20), action("l6", "On", true), action("l6", "Hue", 230), action("l6", "Saturation", 80)] },
   { id: "5ce0e0000000a002", name: "Evening", artworkId: "rolling-hills", conditions: [{ type: "time", after: "sunset", before: "23:00" }],
-    triggers: [{ type: "schedule", time: "19:30", days: [1, 2, 3, 4, 5], enabled: true }],
+    triggers: [{ type: "time", at: "19:30", days: [1, 2, 3, 4, 5], enabled: true }],
     actions: [action("l2", "On", true), action("l2", "Brightness", 60), action("l3", "On", true), action("l3", "Brightness", 45)] },
 ] }));
 // A conversation where the Assistant started pairing the second bridge and handed the button press to the Setup sheet.
@@ -189,6 +191,14 @@ for (let i = 0; i < 80 && !up; i++) {
   if (!up) await sleep(250);
 }
 if (!up) { await stop(); throw new Error(`the bridge did not start (${binary})`); }
+// PLUGIN_SHOTS_SERVE=1 takes no picture: the bridge and its fakes stay up at the address printed, for a look in a browser,
+// until the script is stopped.
+if (process.env.PLUGIN_SHOTS_SERVE) {
+  console.log(`serving ${base}`);
+  await new Promise((done) => { process.once("SIGINT", done); process.once("SIGTERM", done); });
+  await stop();
+  process.exit(0);
+}
 
 // The Energy section's demonstration figures: the page asks /api/metrics/energy and its history, and is answered with a
 // day of fifteen-minute power (solar following the sun, the home's evening peak, the batteries charging on the surplus
@@ -359,11 +369,14 @@ try {
   await shot("hue-scenes-phone", "/plugins/philips-hue", { tab: "scenes", ready: "#scenes .scene", width: 390, height: 844, mobile: true, tall: 1530 });
   await shot("dirigera-devices", "/plugins/ikea-dirigera", { tab: "devices", ready: "#devices .widget" });
   await shot("dirigera-scenes", "/plugins/ikea-dirigera", { tab: "scenes", ready: "#scenes .scene" });
-  // Homeswift's Scenes page: the bridge's and the hub's scenes, by room, with their pictures, colours and menus.
+  // Homeswift's Scenes page: the bridge's scenes, then the hubs' each once (Hue's Relax in three rooms is one tile), and
+  // DIRIGERA's, in no room, under Around the house.
   await shot("scenes-from-hubs", "/scenes", { ready: ".hub-scene", tall: 1400 });
   // The templates for a room's lights (docs/ui.md, docs/images/ui): the first kinds, one tried and playing, on a phone.
   const templates = join(root, "docs/images/ui");
-  const shotUI = (name, options) => shot(name, "/scenes", { ready: ".templates .template-button", ...options }).then(() => {
+  // Ideas is folded at the page's foot, its collection drawn when it opens: each opens it and waits for it first.
+  const shotUI = (name, options) => shot(name, "/scenes", { ready: "#ideas", ...options,
+    prepare: 'document.getElementById("ideas").open = true; for (let i = 0; i < 40 && !document.querySelector(".templates .template-button"); i++) await new Promise((done) => setTimeout(done, 250)); await new Promise((done) => setTimeout(done, 600));' + (options.prepare || "") }).then(() => {
     if (!process.env.PLUGIN_SHOTS_ONLY || process.env.PLUGIN_SHOTS_ONLY.split(",").includes(name)) renameSync(join(out, `${name}.png`), join(templates, `${name}.png`));
   });
   // The first kind of templates after the gallery (Calm), and the gallery's shelves.
@@ -372,10 +385,6 @@ try {
   await shotUI("template-row-phone", { width: 390, height: 844, mobile: true, element: kind, tall: 700 });
   await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${literal(`${kind} .template-button`)})?.click();`, tall: 900 });
   await shotUI("scene-gallery-phone", { width: 390, height: 844, mobile: true, element: ".templates .template-group:has(.artwork-themes)", tall: 900 });
-  // A saved scene's card, its actions open; and once it ran, with Stop.
-  await shotUI("scene-card-details", { ready: ".scene-card", element: ".scene-card", prepare: 'document.querySelector(".scene-card details").open = true;' });
-  await shotUI("scene-stop", { ready: ".scene-card", element: ".scene-card",
-    prepare: 'document.querySelector(".scene-card .scene-run-actions button.primary").click(); await new Promise((done) => setTimeout(done, 1500)); history.go(0);' });
 
   // The scene editor (docs/ui.md, "Scenes"): its workflow on Movie night's actions; Evening's weekday trigger and its
   // time window; on a phone, the workflow, the condition and deleting the scene.
@@ -386,6 +395,13 @@ try {
     }
   };
   const toUI = into(templates), toStatus = into(join(root, "docs/images/status"));
+  // A saved scene's Details, from its tile's menu; and its tile once it ran, with Stop.
+  const pause = (ms) => `await new Promise((done) => setTimeout(done, ${ms}));`;
+  await shot("scene-card-details", "/scenes", { ready: ".own-scenes .hub-scene-tile", element: "dialog.sheet[open]", viewport: false,
+    prepare: `document.querySelector(".own-scenes .menu-button").click(); ${pause(600)}
+      [...document.querySelectorAll(".menu [role=menuitem]")].find((item) => item.textContent.includes("Details"))?.click(); ${pause(400)}` }).then(() => toUI("scene-card-details"));
+  await shot("scene-stop", "/scenes", { ready: ".own-scenes .hub-scene-tile", element: ".own-scenes .hub-scene-tile", width: 560,
+    prepare: `document.querySelector(".own-scenes .own-scene").click(); ${pause(1500)}` }).then(() => toUI("scene-stop"));
   // The Add accessories page (docs/ui.md), and its sheet pairing the second bridge.
   await shot("setup", "/setup", { ready: ".setup-account", tall: 1700 }).then(() => toUI("setup"));
   await shot("setup-pair", "/setup", { ready: ".setup-account button.primary", viewport: true, height: 720,

@@ -22,6 +22,12 @@ All notable changes to this project are documented here. The format follows
 
 - Web UI: a camera's pan and tilt pad sits at the live view's lower right, under the thumb of the hand holding a phone
   and beside the button that opens it, its presets on its left.
+- Web UI: the Scenes page shows a hub's scene once however many rooms have it (Hue makes Relax, Read or Concentrate
+  in each), the most widespread first, a tap opening its rooms with **Run in every room**; the scenes in no room
+  (Apple Home's through Wingman) are small buttons under **Around the house**, copies with one name shown once with
+  their number. A search and the rooms as chips narrow the whole page; the templates and the Assistant fold under
+  **Ideas**, and a room's scenes are no longer drawn a second time above them. Your own scenes are picture tiles too, a
+  fifth of the old card's height, their actions and last run under **Details…** in their ⋯ menu.
 - TP-Link Tapo: a battery camera's lenses go on the bridge, as UniFi Protect's cameras do, so pairing the bridge brings
   them; `standalone: true` on a device keeps each lens on a HAP server of its own, added in the Home app one by one. A
   camera added before shows as a new accessory on the bridge: remove its old one from the Home app.
@@ -31,6 +37,9 @@ All notable changes to this project are documented here. The format follows
 - The Home app named an accessory's other services by number ("Switch 1", "Switch 2") when a plugin gave them no
   Configured Name: the runtime now gives each, but the primary one, its Name as Configured Name, without the
   accessory's name in front ("Candle" on "Desk", not "Desk Candle"), as the Home app shows it inside the accessory.
+- Web UI: a round button drawn smaller than 40 pixels on a tile (a hub scene's ⋯ and Stop, a plugin page's scene) stays a
+  circle on a phone, not a 40 by 30 oval, and the page's header keeps a layer of its own, above anything that scrolls
+  under it.
 - Installing an update from the Status page asks GitHub for the release again first: a NAS that saw a release minutes
   after it was published, before its packages were attached, failed with "the release has no package for x86_64" until
   its next check, 12 hours later.

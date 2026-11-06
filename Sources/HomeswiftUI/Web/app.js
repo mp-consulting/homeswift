@@ -5240,7 +5240,7 @@
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin, onReturn,
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin, onReturn, openSheet,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.

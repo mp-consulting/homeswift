@@ -289,22 +289,44 @@
     return button;
   }
 
-  /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
-  /// is on now. Running it recalls it on the hub.
-  function hubSceneButton(scene) {
-    const picture = sceneImage(scene, "quick-scene-image");
+  /// A hub scene's colours, as a tile's background when it has no picture.
+  function paintColours(button, scene) {
     const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
-    // A scene its hub runs on its own (an IKEA wake-up) is shown, not run.
-    const runnable = (scene.capabilities || []).includes("recall");
-    const button = el("button", { type: "button", disabled: !runnable, class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: runnable ? t("Run {name}", { name: scene.name }) : scene.name },
+    if (colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
+    return colours.length > 0;
+  }
+  /// Whether its hub lets Homeswift run a scene (an IKEA wake-up runs on its own and is only shown).
+  const canRecall = (scene) => (scene.capabilities || []).includes("recall");
+  const collator = new Intl.Collator(HomeswiftI18n.locale);
+
+  /// The parts every scene tile shares: a button with its picture or colours, the play glyph, its name and a line under
+  /// it, Scene active while it is; round actions over its top corner. `extra` adds to the button (marks, a count).
+  function sceneTileShell({ scene, label, detail, compact = false, active = scene.active, className = "", extra = null, actions = [], onClick, attributes = {} }) {
+    const picture = compact ? null : sceneImage(scene, "quick-scene-image");
+    const button = el("button", { type: "button", ...attributes, class: `scene-run hub-scene${className ? ` ${className}` : ""}${compact ? " compact" : ""}${picture ? " pictured" : ""}${active ? " active" : ""}` },
       picture,
       el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"),
-        el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
-      scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
-    if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
-    button.addEventListener("click", async () => { if (await runScene(scene, button)) redrawScenes(); });
-    // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
-    const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
+        el("span", {}, el("span", { text: label }), detail ? el("span", { class: "scene-source", text: detail }) : null)),
+      active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : extra);
+    if (!picture && !compact && paintColours(button, scene)) button.classList.add("coloured");
+    if (onClick) button.addEventListener("click", () => onClick(button));
+    return { button, node: el("div", { class: `hub-scene-tile${compact ? " compact" : ""}` }, button, el("div", { class: "hub-scene-actions" }, actions)) };
+  }
+  /// Runs a scene from its tile, then redraws the page's tiles to say what is active and what can stop.
+  const runFromTile = async (scene, button) => { if (await runScene(scene, button)) redrawScenes(); };
+  /// Stop, while a scene can be: round, on its tile.
+  const stopButton = (scene) => {
+    if (!scene.stoppable) return null;
+    const stop = el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) });
+    return stop;
+  };
+
+  /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
+  /// is on now. Running it recalls it on the hub. `label` and `detail` replace its name and its source on the tile (a
+  /// group's sheet names each copy by its room); `compact` draws it as a small button, for scenes run by name.
+  function hubSceneButton(scene, options = {}) {
+    const { label = scene.name, detail = scene.source.pluginName, compact = false } = options;
+    const runnable = canRecall(scene);
     // A Homeswift scene that recalls it, to give it triggers and conditions.
     let automating = false;
     const automate = async () => {
@@ -315,12 +337,17 @@
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); automating = false; }
     };
-    // Everything in it changes scenes or pictures: an administrator's.
+    let button;
+    // Everything in its menu changes scenes or pictures: an administrator's.
     const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [
       runnable ? { label: t("Automate"), icon: "workflow", onSelect: automate } : null,
       ...hubSceneMenu(scene), ...pictureMenu(scene, button),
     ].filter(Boolean));
-    return sceneTile(el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu)), scene, hubSceneButton);
+    const shell = sceneTileShell({ scene, label, detail, compact, actions: [stopButton(scene), menu],
+      attributes: { disabled: !runnable, title: runnable ? t("Run {name}", { name: scene.name }) : scene.name },
+      onClick: (pressed) => runFromTile(scene, pressed) });
+    button = shell.button;
+    return sceneTile(shell.node, [scene], ([fresh]) => hubSceneButton(fresh, options));
   }
 
   /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
@@ -346,76 +373,182 @@
     ].filter(Boolean);
   }
 
-  /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
-  /// those whose name does not match; answers how many show.
+  /// Where a hub's scene is: the room Homeswift gives it, else its room or zone on the hub (a Hue zone), else nowhere.
+  const scenePlace = (scene) => scene.room || scene.hubRoom || "";
+  /// A scene's name as the search and the grouping compare it: no accents, no case, single spaces.
+  const foldedNames = new WeakMap();
+  const foldedName = (scene) => {
+    if (!foldedNames.has(scene)) foldedNames.set(scene, HomeswiftCommon.fold(scene.name.trim().replace(/\s+/g, " ")));
+    return foldedNames.get(scene);
+  };
+  /// Scenes that are the same scene in several places: a hub makes Relax or Concentrate in each of its rooms, and a
+  /// home keeps copies under one name. Same source and same name, whatever the accents, the case and the spaces.
+  function sceneGroups(scenes) {
+    const groups = new Map();
+    for (const scene of scenes) {
+      const key = `${scene.source.platform}\u0000${scene.source.name}\u0000${foldedName(scene)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(scene);
+    }
+    return [...groups.values()];
+  }
+  /// A group whose copies are each in a room of their own (Hue's Relax): one per room, run there or in all of them.
+  const inEveryRoom = (group) => group.every(scenePlace) && new Set(group.map(scenePlace)).size === group.length;
+
+  /// Runs every copy of a group its hub lets run, together, then redraws the tiles once.
+  async function runSceneGroup(group) {
+    await Promise.all(group.filter(canRecall).map((scene) => runScene(scene)));
+    await redrawScenes();
+  }
+  /// Stops every copy of a group that can stop, together, then redraws the tiles once.
+  async function stopSceneGroup(group) {
+    await Promise.all(group.filter((scene) => scene.stoppable).map((scene) => stopScene(scene, null, { redraw: false })));
+    await redrawScenes();
+  }
+
+  /// A group's copies in a sheet (from the right, from the bottom on a phone), each with its own tile (run, stop, its ⋯
+  /// menu) named by its room, and Run in every room. Its tiles follow runs and stops (`redrawScenes`); a rename or a
+  /// delete draws the page again (`app.route`), and the sheet, whose tiles are the old page's, goes with it.
+  let sheetSequence = 0;
+  function sceneGroupSheet(group) {
+    const first = group[0], rooms = inEveryRoom(group), id = `scene-group-${++sheetSequence}`;
+    const tiles = group.map((scene, index) => hubSceneButton(scene, rooms
+      ? { label: scenePlace(scene), detail: "" }
+      : { label: scenePlace(scene) || scene.name, detail: t("{n} of {count}", { n: index + 1, count: group.length }) }));
+    const all = rooms && group.filter(canRecall).length > 1
+      ? el("button", { type: "button", class: "primary", actionIcon: "play", text: t("Run in every room"), onclick: () => HomeswiftCommon.busyButton(all, () => runSceneGroup(group)) }) : null;
+    let close = () => {};
+    const page = new MutationObserver(() => close());
+    page.observe(document.getElementById("view"), { childList: true });
+    app.openSheet((done) => {
+      close = done;
+      return el("div", { class: "account-form scene-group-sheet" },
+        el("h2", { id, text: first.name }),
+        el("p", { class: "muted", text: rooms ? tn("{source} has it in {n} room. Run it there, or change it from its ⋯ menu.", "{source} has it in {n} rooms. Run it in one, in every room, or change one from its ⋯ menu.", group.length, { source: first.source.name })
+          : tn("{source} has {n} scene with this name.", "{source} has {n} scenes with this name: copies, perhaps. Run one, or rename or delete one from its ⋯ menu.", group.length, { source: first.source.name }) }),
+        el("div", { class: "quick-scenes" }, tiles),
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => done() }), all));
+    }, id, { onClose: () => page.disconnect() });
+  }
+
+  /// The tile of a scene a hub has in several places, or under one name several times: the picture of one of them
+  /// (an active one first), where it is, and Scene active while one is. A tap opens its copies (`sceneGroupSheet`);
+  /// its ⋯ runs or stops them all.
+  function sceneGroupTile(group, { compact = false } = {}) {
+    const shown = group.find((scene) => scene.active) || group.find((scene) => scene.picture || scene.artworkId) || group[0];
+    const rooms = inEveryRoom(group);
+    const places = group.map(scenePlace);
+    const copies = t("×{n}", { n: group.length });
+    const where = rooms ? (places.length > 2 ? tn("{n} room", "{n} rooms", places.length) : places.join(", ")) : null;
+    const menu = menuButton(t("Actions for {name}", { name: shown.name }), () => [
+      rooms && group.some(canRecall) ? { label: t("Run in every room"), icon: "play", onSelect: () => runSceneGroup(group) } : null,
+      group.some((scene) => scene.stoppable) ? { label: t("Stop"), icon: "stop", onSelect: () => stopSceneGroup(group) } : null,
+      { label: rooms ? t("Rooms…") : t("Copies…"), icon: rooms ? "room" : "copy", onSelect: () => sceneGroupSheet(group) },
+    ].filter(Boolean));
+    const { node } = sceneTileShell({ scene: shown, label: shown.name, compact, className: "scene-group",
+      detail: where || (compact ? null : copies), active: group.some((scene) => scene.active),
+      extra: !where && compact ? el("span", { class: "scene-copies", text: copies }) : null,
+      actions: [menu], attributes: { "aria-haspopup": "dialog", title: shown.name }, onClick: () => sceneGroupSheet(group) });
+    return sceneTile(node, group, (fresh) => sceneGroupTile(fresh, { compact }));
+  }
+
+  /// The scenes of the plugins' hubs, each once: a hub's scene in several rooms is one tile (Hue makes Relax in each),
+  /// the most widespread first and a dozen of them until Show all; scenes in no room (Apple Home's, through Wingman)
+  /// are small buttons by name under Around the house. A source filter when there are several hubs. `filter({ place,
+  /// query })` narrows both, a place showing its own copies, each with its menu; it answers how many show. The groups
+  /// are made once and each tile drawn once: a filter only puts the tiles it keeps back in order.
   function hubScenesSection(scenes) {
-    if (!scenes.length) return { node: null, filter: () => 0 };
-    const other = t("Other");
-    const rooms = [...new Set(scenes.map((scene) => scene.room || other))].sort((a, b) => a === other ? 1 : b === other ? -1 : a.localeCompare(b, HomeswiftI18n.locale));
+    if (!scenes.length) return { node: null, filter: () => 0, places: [] };
+    const roomed = scenes.filter(scenePlace), loose = scenes.filter((scene) => !scenePlace(scene));
+    const places = [...new Set(roomed.map(scenePlace))].sort(collator.compare);
+    const byName = (a, b) => collator.compare(a[0].name, b[0].name);
+    const moodGroups = sceneGroups(roomed).sort((a, b) => b.length - a.length || byName(a, b));
+    const looseGroups = sceneGroups(loose).sort(byName);
+    // The source shows on a small button only when the scenes in no room come from more than one hub.
+    const looseSources = new Set(loose.map((scene) => `${scene.source.platform}:${scene.source.name}`)).size;
     const sourceKey = (scene) => `${scene.source.platform}:${scene.source.name}`;
     const sources = [...new Map(scenes.map((scene) => [sourceKey(scene), scene.source.name])).entries()];
     const source = sources.length > 1 ? el("select", { "aria-label": t("Source") }, el("option", { value: "", text: t("All sources") }),
       sources.map(([key, name]) => el("option", { value: key, text: name }))) : null;
-    const tiles = scenes.map((scene) => ({ scene, node: hubSceneButton(scene) }));
-    const groups = rooms.map((room) => {
-      const members = tiles.filter(({ scene }) => (scene.room || other) === room);
-      return { members, node: el("div", { class: "hub-scene-room" }, el("div", { class: "service-name", text: room }), el("div", { class: "quick-scenes" }, members.map(({ node }) => node))) };
-    });
     const count = el("span", { class: "pill", text: String(scenes.length) });
-    let query = "";
-    const filter = (text = query) => {
-      query = text;
-      let shown = 0;
-      for (const { scene, node } of tiles) {
-        node.hidden = !scene.name.toLocaleLowerCase().includes(query) || (source?.value && sourceKey(scene) !== source.value);
-        if (!node.hidden) shown += 1;
+    const moods = el("div", { class: "quick-scenes scene-moods" });
+    const moreLabel = el("span", { class: "label" });
+    const more = el("button", { type: "button", class: "scene-more", actionIcon: "down" }, moreLabel);
+    const around = el("div", { class: "chips" });
+    const aroundSection = el("section", { class: "scene-around" }, el("h3", { class: "service-name", text: t("Around the house") }), around);
+    // Each tile drawn once, by what it shows: a group's copies, small or not, and whether a room is chosen.
+    const tiles = new Map();
+    const tileFor = (members, compact, place) => {
+      const key = `${compact ? "c" : "t"}${place ? "p" : ""}:${members.map((scene) => scene.id).join(",")}`;
+      if (!tiles.has(key)) {
+        tiles.set(key, members.length > 1 ? sceneGroupTile(members, { compact })
+          : hubSceneButton(members[0], compact ? { compact, detail: looseSources > 1 ? members[0].source.name : "" }
+            : { detail: place ? members[0].source.pluginName : scenePlace(members[0]) || members[0].source.pluginName }));
       }
-      for (const group of groups) group.node.hidden = group.members.every(({ node }) => node.hidden);
+      return tiles.get(key);
+    };
+    let state = { place: "", query: "" }, showAll = false;
+    const filter = (next = state) => {
+      state = next;
+      const keep = (scene) => (!state.query || foldedName(scene).includes(state.query)) && (!source?.value || sourceKey(scene) === source.value);
+      const shownMoods = moodGroups.map((group) => group.filter((scene) => keep(scene) && (!state.place || scenePlace(scene) === state.place))).filter((group) => group.length);
+      const limited = !showAll && !state.place && !state.query && shownMoods.length > 12;
+      moods.replaceChildren(...(limited ? shownMoods.slice(0, 12) : shownMoods).map((group) => tileFor(group, false, state.place)));
+      more.hidden = !limited;
+      moreLabel.textContent = t("Show all {count}", { count: shownMoods.length });
+      const shownLoose = state.place ? [] : looseGroups.map((group) => group.filter(keep)).filter((group) => group.length);
+      around.replaceChildren(...shownLoose.map((group) => tileFor(group, true, "")));
+      aroundSection.hidden = !shownLoose.length;
+      const shown = [...shownMoods, ...shownLoose].reduce((sum, group) => sum + group.length, 0);
       count.textContent = String(shown);
+      node.hidden = !shown;
       return shown;
     };
-    source?.addEventListener("change", () => filter());
+    more.addEventListener("click", () => { showAll = true; filter(); });
     const node = el("section", { class: "hub-scenes" },
       el("div", { class: "section-head hub-scenes-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
-      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.") }),
-      groups.map(({ node }) => node));
-    return { node, filter };
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. A scene a hub has in several rooms shows once: tap it to choose the room, or to rename, update or delete one from its ⋯ menu.") }),
+      moods, more, aroundSection);
+    filter();
+    return { node, filter, places, source };
   }
 
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
   /// Puts back what a scene's last run changed (a saved scene's locks, doors and alarms once the person agrees), then
-  /// redraws its tiles.
-  async function stopScene(scene, button) {
+  /// redraws its tiles unless `redraw` is false (a group's Stop redraws once, after all of them).
+  async function stopScene(scene, button, { redraw = true } = {}) {
     const confirmSecurity = Boolean(scene.security || scene.stopSecurity);
     if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
-    button.disabled = true;
+    if (button) button.disabled = true;
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
       if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-      await redrawScenes();
-    } catch (e) { HomeswiftCommon.showAlert(e.message); button.disabled = false; }
+      if (redraw) await redrawScenes();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); if (button) button.disabled = false; }
   }
 
-  /// A scene's tile (a hub scene's, a card of the Scenes page) and how to draw it again, for `redrawScenes`.
+  /// A scene tile (one scene's, or a group's, which shows several) and how to draw it again from fresh scenes, for
+  /// `redrawScenes`. Wherever it is, the page or a sheet over it.
   const sceneTiles = new WeakMap();
-  function sceneTile(node, scene, draw) {
-    node.dataset.scene = scene.id;
+  function sceneTile(node, scenes, draw) {
+    node.dataset.scenes = scenes.map((scene) => scene.id).join(" ");
     sceneTiles.set(node, draw);
     return node;
   }
   /// After a run or a stop, the scenes' tiles on the page say what is active and what can stop: they are drawn again
   /// in place, rather than the whole view, which a phone shows as the page loading again and back at its top. The
-  /// tiles stay the same nodes, so a filter that hides them keeps working.
+  /// tiles stay the same nodes, so a filter that keeps them keeps working.
   async function redrawScenes() {
     const data = await app.api("/api/scenes").catch(() => null);
     if (!data) return;
     const scenes = new Map([...data.scenes, ...(data.pluginScenes || [])].map((scene) => [scene.id, scene]));
-    for (const node of document.querySelectorAll("#view [data-scene]")) {
-      const scene = scenes.get(node.dataset.scene), draw = sceneTiles.get(node);
-      if (!scene || !draw) continue;
-      const fresh = draw(scene);
-      node.className = fresh.className;
-      node.replaceChildren(...fresh.childNodes);
+    for (const node of document.querySelectorAll("[data-scenes]")) {
+      const draw = sceneTiles.get(node);
+      const fresh = node.dataset.scenes.split(" ").map((id) => scenes.get(id)).filter(Boolean);
+      if (!draw || !fresh.length) continue;
+      const drawn = draw(fresh);
+      node.className = drawn.className;
+      node.replaceChildren(...drawn.childNodes);
     }
   }
 
@@ -471,6 +604,8 @@
   const templateCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
   const templateName = (id, name) => templateTexts[id]?.[0] ?? name;
   const templateRoomKey = "homeswift.templates.room";
+  const ideasOpenKey = "homeswift.scenes.ideas";
+  const scenePlaceKey = "homeswift.scenes.place";
 
   /// The rooms with a light in them, for the templates.
   function lightRooms(accessories) {
@@ -478,51 +613,38 @@
     return [...new Set(rooms)].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
   }
 
-  /// Templates for a room's lights: the rooms as chips, what was tried there and can still be stopped or undone, a box
+  /// Ideas, folded on the Scenes page until opened (open while a try still plays, and as the person left it):
+  /// templates for a room's lights, the rooms as chips, what was tried there and can still be stopped or undone, a box
   /// where the Assistant writes a scene from a description, and the collection by kind. A tap tries one at once without
   /// saving it (the pill lights up while it plays); Save keeps it as a scene. On a phone each kind is a row that swipes
   /// sideways, so the whole card fits on a screen.
-  function templatesSection(accessories, scenes = { scenes: [], pluginScenes: [] }) {
-    const section = el("section", { class: "templates" });
-    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("By room") }), el("span", { class: "muted", text: t("A room's scenes, then templates to try on its lights; save one as a scene when you like it.") })));
+  function templatesSection(accessories) {
+    const section = el("details", { class: "card templates", id: "ideas" });
+    try { section.open = localStorage.getItem(ideasOpenKey) === "1"; } catch {}
+    section.addEventListener("toggle", () => { try { localStorage.setItem(ideasOpenKey, section.open ? "1" : "0"); } catch {} });
+    const head = el("summary", {}, el("span", { class: "templates-title" }, sparkle(), el("strong", { text: t("Ideas") }), el("span", { class: "templates-chevron" }, HomeswiftCommon.icon("down"))),
+      el("span", { class: "muted", text: t("Templates to try on a room's lights, and scenes the Assistant writes from a description. Nothing is kept until you save it.") }));
     const rooms = lightRooms(accessories);
     if (!rooms.length) {
-      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.") })));
+      section.append(head, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.") }));
       return section;
     }
     let room = rooms[0];
     try { const remembered = localStorage.getItem(templateRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
-    const roomChips = el("div", { class: "template-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
-      const chip = el("button", { type: "button", class: "template-room", text: name, "aria-pressed": String(name === room) });
-      chip.addEventListener("click", () => {
-        room = name;
-        try { localStorage.setItem(templateRoomKey, name); } catch {}
-        for (const other of roomChips.children) other.setAttribute("aria-pressed", String(other === chip));
-        drawStrip();
-        drawTries();
-        markPlaying();
-      });
-      return chip;
-    }));
+    const roomChips = roomChipGroup(rooms, room, (name) => {
+      room = name;
+      try { localStorage.setItem(templateRoomKey, name); } catch {}
+      drawTries();
+      markPlaying();
+    }).node;
     const line = statusLine();
     const running = el("div", { class: "template-running" });
     const collection = el("div", { class: "template-collection" });
     const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a scene…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a scene") });
     const create = el("button", { type: "submit", class: "primary template-create" }, sparkle(), el("span", { text: t("Create") }));
     const designer = el("form", { class: "template-describe hidden" }, describe, create);
-    // The chosen room's own scenes and its hubs' scenes, to run in a tap.
-    const strip = el("div", { class: "quick-scenes room-scenes" });
-    const stripHead = el("div", { class: "service-name" });
     const templatesHead = el("div", { class: "service-name", text: t("From a template") });
-    function drawStrip() {
-      const own = scenes.scenes.filter((scene) => scene.room === room).map((scene) => sceneButton(scene));
-      const hubs = (scenes.pluginScenes || []).filter((scene) => scene.room === room).map((scene) => hubSceneButton(scene));
-      strip.replaceChildren(...own, ...hubs);
-      stripHead.textContent = t("Scenes in {room}", { room });
-      strip.hidden = stripHead.hidden = !own.length && !hubs.length;
-    }
-    drawStrip();
-    section.append(head, el("div", { class: "card template-card" }, roomChips, stripHead, strip, running, line, designer, templatesHead, collection));
+    section.append(head, el("div", { class: "template-card" }, roomChips, running, line, designer, templatesHead, collection));
 
     let data = { templates: [], tries: [] };
     const buttons = [];
@@ -606,10 +728,15 @@
       if (text) start({ description: text }, text, create);
     });
 
-    (async () => {
-      await refresh();
+    // The collection is drawn the first time Ideas opens: folded, the page needs only what was tried, to open it while
+    // one still plays.
+    let drawn = false;
+    let loaded = null;
+    const drawCollection = async () => {
+      if (drawn || !section.open) return;
+      drawn = true;
+      await loaded;
       const themes = await loadArtworkThemes();
-      designer.classList.toggle("hidden", !data.assistant);
       collection.replaceChildren(...templateCategories.map(([category, label]) => {
         const templates = data.templates.filter((template) => template.category === category);
         if (!templates.length) return null;
@@ -635,7 +762,11 @@
           category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "template-buttons" }, templates.map(makeButton)));
       }).filter(Boolean));
       markPlaying();
-    })().catch((e) => say(line, e.message, "error"));
+    };
+    const opened = () => drawCollection().catch((e) => { drawn = false; say(line, e.message, "error"); });
+    section.addEventListener("toggle", opened);
+    loaded = refresh().then(() => designer.classList.toggle("hidden", !data.assistant));
+    loaded.then(() => { if (data.tries.length) section.open = true; return opened(); }).catch((e) => say(line, e.message, "error"));
     return section;
   }
 
@@ -677,60 +808,136 @@
     return trigger.enabled === false ? t("{trigger} (off)", { trigger: text }) : text;
   }
 
+  /// What starts a scene of Homeswift's: its triggers, or by hand.
+  const sceneStarts = (scene, names) => scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand");
+  /// What a scene of Homeswift's is, in a line: its room, the Home app, its animation, what starts it.
+  function sceneSummary(scene, names) {
+    return [scene.room, scene.homeKit ? t("In the Home app") : null,
+      scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null,
+      sceneStarts(scene, names)].filter(Boolean).join(" · ");
+  }
+  /// Its last run, or why its last automatic run was skipped when that came after.
+  function sceneLastRun(scene) {
+    if (scene.lastSkipped && (!scene.lastRun || scene.lastSkipped.at > scene.lastRun.at)) {
+      return t("Skipped {date}: {reason}", { date: dateTimeFormat.format(new Date(scene.lastSkipped.at)), reason: HomeswiftI18n.message(scene.lastSkipped.reason) });
+    }
+    if (!scene.lastRun) return t("Never run");
+    const vars = { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger };
+    return scene.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
+  }
+  /// What a trigger shows as on a tile: a clock for a time or a cron, the sun, a sensor for an accessory's change.
+  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor" };
+
+  /// A scene's details in a sheet, from its tile's menu: what it is, each action, its locks and doors, its last run,
+  /// and Edit.
+  function sceneDetailsSheet(scene, names) {
+    const id = `scene-details-${++sheetSequence}`;
+    const actions = scene.actions.map((action) => action.recall ? el("div", { class: "control" },
+      el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.recall }) : action.name || action.recall }),
+      el("span", { class: "value", text: t("Hub scene") })) : el("div", { class: "control" },
+      el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
+      el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
+    app.openSheet((done) => el("div", { class: "account-form scene-details" },
+      el("h2", { id, text: scene.name }),
+      el("p", { class: "muted", text: sceneSummary(scene, names) }),
+      el("div", { class: "controls" }, actions),
+      scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
+      el("p", { class: "muted scene-last-run", text: sceneLastRun(scene) }),
+      el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => done() }),
+        el("a", { class: "button primary", href: `/scenes/${encodeURIComponent(scene.id)}`, actionIcon: "edit", text: t("Edit"), onclick: () => done() }))), id);
+  }
+
+  /// A scene of Homeswift's as a picture tile, as the hubs' scenes are: a tap runs it; marks for the Home app, what
+  /// starts it and a lock it changes; Stop while it can; its ⋯ for Details, Edit, its picture and Delete.
+  function ownSceneTile(scene, names) {
+    const firstTrigger = scene.triggers.find((trigger) => trigger.enabled !== false);
+    const marks = [
+      scene.homeKit ? ["house", t("In the Home app")] : null,
+      firstTrigger ? [triggerIcons[firstTrigger.type] || "history", describeTrigger(firstTrigger, names)] : null,
+      scene.security ? ["lock", t("It changes a lock, a door or an alarm")] : null,
+    ].filter(Boolean);
+    let button;
+    const menu = menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      { label: t("Details…"), icon: "logs", onSelect: () => sceneDetailsSheet(scene, names) },
+      { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
+      ...pictureMenu(scene, button),
+      { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+        try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } },
+    ]);
+    const shell = sceneTileShell({ scene, label: scene.name, detail: sceneStarts(scene, names), className: "own-scene",
+      extra: marks.length ? el("span", { class: "scene-marks" }, marks.map(([glyph, label]) => el("span", { title: label, "aria-label": label, role: "img" }, HomeswiftCommon.icon(glyph)))) : null,
+      actions: [stopButton(scene), menu], attributes: { title: t("Run {name}", { name: scene.name }) }, onClick: (pressed) => runFromTile(scene, pressed) });
+    button = shell.button;
+    return sceneTile(shell.node, [scene], ([fresh]) => ownSceneTile(fresh, names));
+  }
+
+  /// Rooms as a row of chips, one pressed: the Scenes page's filter and the templates' room. `all` adds a first chip
+  /// for every room (`""`).
+  function roomChipGroup(names, current, onPick, { all = null, className = "template-rooms" } = {}) {
+    const node = el("div", { class: className, role: "group", "aria-label": t("Room") });
+    const press = (name) => { for (const chip of node.children) chip.setAttribute("aria-pressed", String(chip.dataset.room === name)); };
+    node.append(...(all ? ["", ...names] : names).map((name) => el("button", { type: "button", class: "template-room", actionIcon: name ? "room" : "house",
+      text: name || all, "data-room": name, "aria-pressed": String(name === current), onclick: () => { press(name); onPick(name); } })));
+    return { node, press };
+  }
+
   async function scenesView(main) {
     const [data, accessories] = await Promise.all([app.api("/api/scenes"), app.api("/api/accessories")]);
     const names = new Map(accessories.map((a) => [a.id, displayName(a)]));
-    const card = (scene) => {
-      const actions = scene.actions.map((action) => action.recall ? el("div", { class: "control" },
-        el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.recall }) : action.name || action.recall }),
-        el("span", { class: "value", text: t("Hub scene") })) : el("div", { class: "control" },
-        el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
-        el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
-      const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
-      const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
-      const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
-      run.addEventListener("click", async () => { if (await runScene(scene, run)) redrawScenes(); });
-      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
-      return sceneTile(el("div", { class: "card server scene-card" },
-        sceneImage(scene),
-        el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
-              scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
-            el("div", { class: "muted", text: [scene.room, scene.homeKit ? t("In the Home app") : null, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
-          el("div", { class: "scene-run-actions" }, run, stop)),
-        el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
-        scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
-        el("div", { class: "card-foot" }, el("span", { class: "muted", text: scene.lastSkipped && (!scene.lastRun || scene.lastSkipped.at > scene.lastRun.at) ? t("Skipped {date}: {reason}", { date: dateTimeFormat.format(new Date(scene.lastSkipped.at)), reason: HomeswiftI18n.message(scene.lastSkipped.reason) }) : last }),
-          menuButton(t("Actions for {name}", { name: scene.name }), () => [
-            { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
-            { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
-            ...pictureMenu(scene),
-            { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
-              if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
-              try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
-            } },
-          ]))), scene, card);
-    };
-    const sceneCount = el("span", { class: "pill", text: String(data.scenes.length) });
-    const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
+    const own = data.scenes.map((scene) => ({ scene, node: ownSceneTile(scene, names) }));
+    const sceneCount = el("span", { class: "pill", text: String(own.length) });
     const hubScenes = hubScenesSection(data.pluginScenes || []);
-    const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
-    const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
-    search.addEventListener("input", () => {
-      const query = search.value.trim().toLocaleLowerCase();
-      for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
-      sceneCount.textContent = String(sceneCards.filter(({ node }) => !node.hidden).length);
-      const hubShown = hubScenes.filter(query);
-      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
-    });
+    // The places to narrow the page to: the rooms of Homeswift's scenes and the hubs' rooms and zones.
+    const places = [...new Set([...data.scenes.map((scene) => scene.room).filter(Boolean), ...hubScenes.places])].sort(collator.compare);
+    let place = "";
+    try { const remembered = localStorage.getItem(scenePlaceKey); if (places.includes(remembered)) place = remembered; } catch {}
+    const choosePlace = (name) => {
+      place = name;
+      try { localStorage.setItem(scenePlaceKey, name); } catch {}
+      filter();
+    };
+    const placeChips = roomChipGroup(places, place, choosePlace, { all: t("All rooms"), className: "scene-places" });
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search scenes"), "aria-label": t("Search scenes") });
+    // Back to every scene: the search, the room (remembered, so the page can open narrowed) and the source.
+    const clear = HomeswiftCommon.clearFilters([[search, ""], ...(hubScenes.source ? [[hubScenes.source, ""]] : [])], {
+      active: () => place !== "", reset: () => { placeChips.press(""); choosePlace(""); }, events: [[placeChips.node, "click"]] });
+    const ownSection = el("section", { class: "own-scenes" },
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount),
+      el("div", { class: "quick-scenes scene-moods" }, own.map(({ node }) => node)));
+    const noMatches = el("p", { class: "card empty", hidden: true, text: t("No scene matches.") });
+    function filter() {
+      const query = HomeswiftCommon.fold(search.value.trim());
+      for (const { scene, node } of own) node.hidden = !foldedName(scene).includes(query) || (place && scene.room !== place);
+      const ownShown = own.filter(({ node }) => !node.hidden).length;
+      sceneCount.textContent = String(ownShown);
+      ownSection.hidden = !ownShown;
+      const hubShown = hubScenes.filter({ place, query });
+      noMatches.hidden = ownShown > 0 || hubShown > 0 || (!query && !place);
+    }
+    search.addEventListener("input", filter);
+    const ideas = templatesSection(accessories);
+    const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const ideasButton = el("button", { type: "button", actionIcon: "sparkle", text: t("Ideas"), onclick: () => {
+      ideas.open = true;
+      ideas.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" });
+    } });
+    const newScene = () => el("a", { class: "button primary", href: "/scenes/new", actionIcon: "plus", text: t("New scene") });
+    const anything = own.length || hubScenes.node;
+    // With no scene of its own, a short line says what one is for: under the hubs' scenes, which are what there is to
+    // run, or alone at the top.
+    const empty = own.length ? null : el("div", { class: `card empty scenes-empty${hubScenes.node ? " compact" : ""}` }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")),
+      el("p", { class: "muted", text: hubScenes.node ? t("None of your own yet: a scene of yours sets several accessories at once, and can run a hub's scene at sunset or when a door opens.") : t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }),
+      newScene());
+    const sections = hubScenes.node ? [ownSection, noMatches, hubScenes.node, empty] : [empty, ownSection, noMatches];
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
-        data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
-      data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
-        // Short when the hubs' scenes follow: they are what there is to run.
-        : el("div", { class: `card empty scenes-empty${hubScenes.node ? " compact" : ""}` }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, hubScenes.node, templatesSection(accessories, data), locationCard(data));
+        ideasButton, anything ? newScene() : null),
+      anything ? el("div", { class: "scene-filters" }, search, clear, places.length > 1 ? placeChips.node : null) : null,
+      ...sections, ideas, locationCard(data));
+    hubScenes.source?.addEventListener("change", filter);
+    filter();
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
