@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Z-Wave JS plugin (experimental): the nodes already on a Z-Wave network, through zwave-js-server's WebSocket API, the
+  server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run. Switches and outlets, dimmers, colour lights, window
+  coverings, door locks, thermostats, motion, contact, leak, smoke and CO sensors, temperature, humidity and light,
+  batteries, Central Scene buttons, and meters that count in the Energy section. The server is found over mDNS or added
+  by its address; a dead node answers No Response. Including and excluding nodes stays in Z-Wave JS UI.
+
 ### Fixed
 
 - Two-way audio: a camera's Talk begins and stays open while HomeKit's return audio keeps coming, however busy the
