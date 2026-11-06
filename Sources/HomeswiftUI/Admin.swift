@@ -35,6 +35,16 @@ extension UIServer {
         }
         // An accessory's history is anyone's to read: the accessory is on the page already.
         if method == .GET, route.count == 3, route[0] == "accessories", route[2] == "history" {
+            // The History tab: `range` day, week or year, by day in the browser's time zone.
+            if let range = request.query["range"] {
+                guard ["day", "week", "year"].contains(range) else { return .error(400, "range is day, week or year") }
+                let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
+                do {
+                    return .json(try catalog.historyChartsJSON(id: route[1], range: range, timeZone: timeZone))
+                } catch let error as CatalogError {
+                    return .error(error.notFound ? 404 : 503, error.description)
+                }
+            }
             let hours = request.query["hours"].flatMap(Double.init) ?? 24
             guard hours > 0, hours <= 8760 else { return .error(400, "hours must be between 0 and 8760") }
             let points = min(max(request.query["points"].flatMap(Int.init) ?? 240, 2), 1000)
@@ -42,6 +52,21 @@ extension UIServer {
                 return .json(try catalog.accessoryHistoryJSON(id: route[1], hours: hours, maxPoints: points))
             } catch let error as CatalogError {
                 return .error(404, error.description)
+            }
+        }
+        // The Logbook is anyone's to read, as the accessories are; which user or MCP client made a change, an administrator's.
+        if method == .GET, route == ["logbook"] {
+            var since: Date?
+            if let text = request.query["since"] {
+                guard let date = HomeswiftCatalog.parseTimeBound(text) else { return .error(400, "since: an ISO time or a duration such as 30m, 1h, 2d") }
+                since = date
+            }
+            let limit = min(max(request.query["limit"].flatMap(Int.init) ?? 300, 1), 1000)
+            do {
+                return .json(try catalog.logbookJSON(since: since, room: request.query["room"], accessory: request.query["accessory"],
+                                                     sourceKind: request.query["source"], sourceName: request.query["sourceName"], limit: limit, people: caller.isAdmin))
+            } catch let error as CatalogError {
+                return .error(error.notFound ? 404 : 503, error.description)
             }
         }
         let routes: Set<String> = ["settings", "pairings", "cached-accessories", "child-bridges", "backups", "audit", "diagnostics"]

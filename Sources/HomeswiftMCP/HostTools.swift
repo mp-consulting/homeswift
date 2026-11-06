@@ -124,25 +124,76 @@ extension HomeswiftCatalog {
         (\.motion, "MotionDetected", nil), (\.valvePosition, "ValvePosition", "percentage"), (\.waterAmount, "WaterAmount", nil),
     ] }
 
-    static let noHistory = "No values were recorded for this accessory in this period. Homeswift keeps the history of accessories whose plugin "
-        + "records an Eve history (temperature, humidity, air quality, power, contact and motion of plugs and sensors), ten-minute averages for four weeks."
+    static let noHistory = "No values were recorded for this accessory in this period. The History keeps each change of every characteristic "
+        + "for the bridge's retention (14 days by default) and hourly figures of numbers for years; older readings come from an Eve history where its plugin keeps one."
 
-    /// Recorded readings of an accessory over `hours`: per characteristic, min and max (with when), the
-    /// time-weighted average, the last value and the points averaged down to `maxPoints`. Times are UTC.
-    public func accessoryHistoryJSON(id: String, hours: Double = 24, type: String? = nil, maxPoints: Int = 48) throws -> JSONValue {
+    /// Recorded values of an accessory over `hours`, from the History (every characteristic), with the Eve history
+    /// its plugin keeps before the History starts (or for a type the History lacks). A number: min and max (with
+    /// when), the time-weighted average, the last value and the points averaged down to `maxPoints`, read from each
+    /// change within the History's days and from its hours beyond. A state: its changes (the newest `maxPoints`) and
+    /// the value it held at the start. Times are UTC.
+    public func accessoryHistoryJSON(id: String, hours: Double = 24, type: String? = nil, maxPoints: Int = 48, now: Date = Date()) throws -> JSONValue {
         guard let located = find(id: id) else { throw CatalogError("No accessory with that id") }
-        let to = Date()
+        let to = now
         let from = to.addingTimeInterval(-hours * 3600)
         let entries = EveHistory.histories(of: located.accessory).flatMap { $0.entries(since: from) }.sorted { $0.time < $1.time }
+        func evePoints(_ wanted: String) -> [(time: Double, value: Double)] {
+            for field in Self.historyFields where Self.normalized(field.type) == Self.normalized(wanted) {
+                let points = entries.compactMap { entry in entry[keyPath: field.key].map { (time: Double(entry.time), value: $0) } }
+                if !points.isEmpty { return points }
+            }
+            return []
+        }
         var series: [JSONValue] = []
         var seen: Set<String> = []
+        let wanted = (history?.series(accessory: located.accessory.id) ?? []).filter { one in type.map { Self.normalized($0) == Self.normalized(one.characteristic) } ?? true }
+        let raw = hours <= Double(history?.retention.days ?? 0) * 24
+        // The changes of every series that reads them, each day file read once.
+        let changes = history?.changes(of: wanted.filter { $0.kind == .state || raw }, from: from, to: to) ?? [:]
+        for one in wanted {
+            guard let history else { break }
+            let normalizedType = Self.normalized(one.characteristic)
+            var object: [String: JSONValue] = ["type": .string(one.characteristic.replacingOccurrences(of: " ", with: "")), "kind": .string(one.kind.rawValue)]
+            if !one.service.isEmpty { object["service"] = .string(one.service) }
+            if let unit = one.unit { object["unit"] = .string(unit) }
+            if one.kind == .number {
+                var points: [(time: Double, value: Double)]
+                if raw {
+                    let found = changes[one.id] ?? (nil, [])
+                    points = found.points.compactMap { point in point.value.doubleValue.map { (time: point.time.timeIntervalSince1970, value: $0) } }
+                    // The value held at the start counts from the start.
+                    if let before = found.before?.value.doubleValue { points.insert((time: from.timeIntervalSince1970, value: before), at: 0) }
+                } else {
+                    points = history.hours(of: one, from: from, to: to).map { (time: $0.start.timeIntervalSince1970, value: $0.mean) }
+                }
+                // Before the History starts, the Eve history's readings.
+                let eve = evePoints(one.characteristic).filter { $0.time < (points.first?.time ?? .infinity) }
+                if !eve.isEmpty { object["eveUntil"] = .string(Self.minute(points.first?.time ?? to.timeIntervalSince1970)) }
+                points = eve + points
+                guard !points.isEmpty else { continue }
+                object.merge(Self.summarize(points, to: to.timeIntervalSince1970)) { _, new in new }
+                object["points"] = .array(Self.downsample(points, to: max(2, maxPoints)).map { [.string(Self.minute($0.time)), .number(Self.round($0.value))] })
+            } else {
+                let found = changes[one.id] ?? (nil, [])
+                guard found.before != nil || !found.points.isEmpty else { continue }
+                if let before = found.before { object["atStart"] = JSONValue(before.value) }
+                object["count"] = .number(Double(found.points.count))
+                object["points"] = .array(found.points.suffix(max(2, maxPoints)).map { [.string(Self.minute($0.time.timeIntervalSince1970)), JSONValue($0.value)] })
+                if found.points.count > maxPoints { object["note"] = .string("The newest \(maxPoints) of \(found.points.count) changes") }
+            }
+            seen.insert(normalizedType)
+            series.append(.object(object))
+        }
+        // What only the Eve history has.
         for field in Self.historyFields {
-            guard type.map({ Self.normalized($0) == Self.normalized(field.type) }) ?? true, !seen.contains(field.type) else { continue }
-            let points = entries.compactMap { entry in entry[keyPath: field.key].map { (time: Double(entry.time), value: $0) } }
+            guard type.map({ Self.normalized($0) == Self.normalized(field.type) }) ?? true, !seen.contains(Self.normalized(field.type)) else { continue }
+            let points = evePoints(field.type)
             guard !points.isEmpty else { continue }
-            seen.insert(field.type)
+            seen.insert(Self.normalized(field.type))
             var object = Self.summarize(points, to: to.timeIntervalSince1970)
             object["type"] = .string(field.type)
+            object["kind"] = "number"
+            object["source"] = "eve"
             if let unit = field.unit { object["unit"] = .string(unit) }
             object["points"] = .array(Self.downsample(points, to: max(2, maxPoints)).map { [.string(Self.minute($0.time)), .number(Self.round($0.value))] })
             series.append(.object(object))
@@ -576,14 +627,16 @@ extension HomeswiftCatalog {
             ) { call in .json(try catalog.resetPairings(bridge: call.optionalString("bridge"))) },
             MCPTool(
                 name: "get_accessory_history", title: "Accessory history",
-                description: "Recorded values of an accessory over time, from the Eve history its plugin keeps: temperature, humidity, air quality, power, light level, contact, motion. "
-                    + "Per characteristic: min and max (with when), the time-weighted average, the last value and the points averaged down to maxPoints. Times are UTC. "
+                description: "Recorded values of an accessory over time, from the History of every characteristic (each change for the bridge's retention, 14 days by default, "
+                    + "hourly figures for years), with the Eve history its plugin keeps where that goes further back. A number (temperature, humidity, power, brightness): "
+                    + "min and max (with when), the time-weighted average, the last value and the points averaged down to maxPoints. A state (on, contact, motion, a mode): "
+                    + "its changes and the value it held at the start. Times are UTC. get_logbook says who made each change. "
                     + "For questions like \"why was the living room cold last night\". list_accessories gives the id.",
                 inputSchema: ["type": "object", "required": ["id"], "properties": [
                     "id": ["type": "string", "description": "The accessory id, from list_accessories"],
                     "hours": ["type": "number", "exclusiveMinimum": 0, "maximum": 8760, "description": "How far back, in hours (default 24)"],
-                    "type": ["type": "string", "maxLength": 64, "description": "Only this characteristic, e.g. CurrentTemperature, CurrentRelativeHumidity, CurrentConsumption"],
-                    "maxPoints": ["type": "integer", "minimum": 2, "maximum": 500, "description": "Points per series after averaging (default 48); the summary uses every value"],
+                    "type": ["type": "string", "maxLength": 64, "description": "Only this characteristic, e.g. CurrentTemperature, CurrentRelativeHumidity, CurrentConsumption, On"],
+                    "maxPoints": ["type": "integer", "minimum": 2, "maximum": 500, "description": "Points per number after averaging, changes per state (default 48); the summary uses every value"],
                 ]],
                 outputSchema: Output.history, scope: .read, idempotent: true
             ) { call in

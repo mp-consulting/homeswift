@@ -226,6 +226,20 @@ A Bridge Setting: what the home pays per kWh of electricity, or per m³ of gas o
 it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
 _Avoid_: Price, rate, contract, cost settings
 
+## History
+
+**History**:
+The values an accessory's characteristics took over time: each change for recent days, hourly figures for years.
+_Avoid_: Recorder, log, statistics
+
+**Logbook**:
+The list of what changed in the home, each entry with its Change Source.
+_Avoid_: Activity, events, audit log
+
+**Change Source**:
+Who or what made a change: the Home app, a Homeswift user, an MCP client, an Automation or Scene, or the Device itself.
+_Avoid_: Origin, actor, context, initiator
+
 ## Support
 
 **Diagnostics**:

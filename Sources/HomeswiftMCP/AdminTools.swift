@@ -225,7 +225,7 @@ extension HomeswiftCatalog {
 
     /// The keys of config.json's `bridge` block a form may change. `username`, the HomeKit identity, is not one:
     /// a new one is a new bridge to the Home app.
-    public static let bridgeSettingKeys = ["name", "port", "pin", "manufacturer", "model", "firmwareRevision"]
+    public static let bridgeSettingKeys = ["name", "port", "pin", "manufacturer", "model", "firmwareRevision", "historyDays", "historyYears"]
 
     /// The bridge block as config.json has it, with what runs: the port the server listens on and how it advertises.
     public func bridgeSettingsJSON() throws -> JSONValue {
@@ -252,6 +252,12 @@ extension HomeswiftCatalog {
         guard unknown.isEmpty else { throw CatalogError("Not a bridge setting here: \(unknown.joined(separator: ", ")) (the device ID stays; reset_pairings starts the pairing over)") }
         if let name = settings["name"], name.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty != false { throw CatalogError("The bridge needs a name") }
         if let port = settings["port"], !port.isNull, port.portValue == nil { throw CatalogError("port must be a port number, or null for an automatic one") }
+        for (key, range) in [("historyDays", HistoryRetention.days), ("historyYears", HistoryRetention.years)] {
+            guard let value = settings[key], !value.isNull else { continue }
+            guard let number = value.doubleValue, let whole = Int(exactly: number), range.contains(whole) else {
+                throw CatalogError("\(key) must be a whole number from \(range.lowerBound) to \(range.upperBound), or null for the default")
+            }
+        }
         return try await updateBridgeBlock(dryRun: dryRun) { bridge in
             for (key, value) in settings {
                 if value.isNull || value.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == true { bridge.removeValue(forKey: key) } else { bridge[key] = value }
@@ -311,12 +317,14 @@ extension HomeswiftCatalog {
             },
             MCPTool(
                 name: "update_bridge_settings", title: "Change the bridge settings",
-                description: "Changes config.json's bridge block: name, port (null for an automatic one), pin (the setup code, XXX-XX-XXX), manufacturer, model, firmwareRevision. "
+                description: "Changes config.json's bridge block: name, port (null for an automatic one), pin (the setup code, XXX-XX-XXX), manufacturer, model, firmwareRevision, "
+                    + "historyDays (how long the History keeps each change and the Logbook its entries, 1 to 90, 14 by default) and historyYears (the History's hourly figures, 1 to 20, 10 by default). "
                     + "The device ID stays. homeswift restarts to apply it; every connection drops for a few seconds. dryRun previews.",
                 inputSchema: ["type": "object", "required": ["settings"], "properties": [
                     "settings": ["type": "object", "additionalProperties": false, "properties": [
                         "name": ["type": "string", "minLength": 1], "port": ["type": ["integer", "null"], "minimum": 1, "maximum": 65535],
                         "pin": ["type": "string", "pattern": "^\\d{3}-\\d{2}-\\d{3}$"], "manufacturer": ["type": "string"], "model": ["type": "string"], "firmwareRevision": ["type": "string"],
+                        "historyDays": ["type": ["integer", "null"], "minimum": 1, "maximum": 90], "historyYears": ["type": ["integer", "null"], "minimum": 1, "maximum": 20],
                     ]],
                 ]],
                 scope: .admin, destructive: true, supportsDryRun: true
