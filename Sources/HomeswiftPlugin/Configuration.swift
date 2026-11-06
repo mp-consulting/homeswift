@@ -22,7 +22,7 @@ import Homeswift
 /// them on the web UI's wall, and `notInHome` keeps them out of HomeKit (the web UI, the MCP server and Matter still have
 /// them); those four apply without reloading the plugin. `_hiddenFromHomeKit`, a list of accessory ids, is the older
 /// form of `notInHome`: read, and moved into `_accessories` by the next write of the block's settings.
-/// `bridge.roomSync` is Room Sync (GLOSSARY.md), which needs no restart. `accessories` blocks (Homebridge's accessory
+/// `bridge.roomSync`, the retired Room Sync, is ignored: the Rooms follow Apple Home through the Home Link. `accessories` blocks (Homebridge's accessory
 /// plugins) run in the block of their platform, in its `accessories` list (`AccessoryAdoption`), when its plugin runs
 /// them (`HomeswiftPlugin.runsAccessoryBlocks`).
 public struct HomeswiftConfiguration: Sendable {
@@ -118,6 +118,8 @@ public struct HomeswiftConfiguration: Sendable {
         public var accessoryRooms: [String: String] = [:]
         /// The keys of `_accessories` that are Hidden: off the web UI's wall. Not in `json`.
         public var hiddenOnWall: Set<String> = []
+        /// The keys of `_accessories` whose Functions are separated (`separateFunctions`). Not in `json`.
+        public var separatedFunctions: Set<String> = []
         /// The Energy Roles given in `_accessories`, by key, then by Meter (`AccessorySettings.energyRoles`). Not in `json`.
         public var energyRoles: [String: [String: EnergyRole?]] = [:]
         /// `_accessories`: Accessory Settings by Device Id (`AccessorySettings`), without the live ones (`liveKeys`), which
@@ -160,9 +162,6 @@ public struct HomeswiftConfiguration: Sendable {
     /// How many of the `accessories` blocks (Homebridge's accessory plugins) are malformed and left out (no
     /// `accessory`, a `_bridge` that is not one); the others run in their platform's block (`AccessoryAdoption`).
     public var ignoredAccessoryBlocks = 0
-    /// `bridge.roomSync`, Room Sync (GLOSSARY.md); nil when the bridge block does not say. Not part of `bridge`: changing
-    /// it needs no restart.
-    public var roomSync: Bool?
     /// `bridge.tariffs`, the Tariffs (GLOSSARY.md), oldest first. Not part of `bridge`: changing them needs no restart.
     public var tariffs: [Tariff] = []
 
@@ -228,6 +227,7 @@ public struct HomeswiftConfiguration: Sendable {
         var names: [String: String] = [:]
         var rooms: [String: String] = [:]
         var hiddenOnWall: Set<String> = []
+        var separated: Set<String> = []
         var energyRoles: [String: [String: EnergyRole?]] = [:]
         // The devices whose entry holds live settings only: out of the plugin's JSON (a rename reloads nothing), but still
         // among its Accessory Settings (`context.allAccessorySettings`), as a device set up with a Name only.
@@ -255,10 +255,11 @@ public struct HomeswiftConfiguration: Sendable {
                     }
                     energyRoles[deviceID] = AccessorySettings.energyRoles(from: JSONValue.object(roles.compactMapValues { ($0 as? String).map(JSONValue.string) }))
                 }
-                for key in ["hidden", "notInHome"] {
+                for key in ["hidden", "notInHome", "separateFunctions"] {
                     guard let given = fields[key] else { continue }
                     guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).\(key)", expected: "true or false") }
                     if flag, key == "hidden" { hiddenOnWall.insert(deviceID) }
+                    if flag, key == "separateFunctions" { separated.insert(deviceID) }
                     if flag, key == "notInHome", !hidden.contains("\(platform):\(deviceID)") { hidden.append("\(platform):\(deviceID)") }
                 }
                 let rest = fields.filter { !AccessorySettings.liveKeys.contains($0.key) }
@@ -272,6 +273,7 @@ public struct HomeswiftConfiguration: Sendable {
         entry.accessoryNames = names
         entry.accessoryRooms = rooms
         entry.hiddenOnWall = hiddenOnWall
+        entry.separatedFunctions = separated
         entry.energyRoles = energyRoles
         // The live settings as they are now, for a plugin that reads them (a device's Name for its own list): they
         // changed without reloading it, so the runtime keeps its context's copy in step (`PluginHost.apply`).
@@ -279,6 +281,7 @@ public struct HomeswiftConfiguration: Sendable {
         for (deviceID, name) in names { entry.accessorySettings[deviceID]?.name = name }
         for (deviceID, room) in rooms { entry.accessorySettings[deviceID]?.room = room }
         for deviceID in hiddenOnWall { entry.accessorySettings[deviceID]?.hidden = true }
+        for deviceID in separated { entry.accessorySettings[deviceID]?.separateFunctions = true }
         for (deviceID, roles) in energyRoles { entry.accessorySettings[deviceID]?.energyRoles = roles }
         for id in hidden where id.hasPrefix("\(platform):") { entry.accessorySettings[String(id.dropFirst(platform.count + 1))]?.notInHome = true }
         return entry
@@ -301,10 +304,6 @@ public struct HomeswiftConfiguration: Sendable {
         if let bridge = root["bridge"] {
             guard bridge is [String: Any] else { throw ConfigurationError.invalidValue(key: "bridge", expected: "an object") }
             configuration.bridge = try decoder.decode(Bridge.self, from: JSONSerialization.data(withJSONObject: bridge))
-            if let sync = (bridge as? [String: Any])?["roomSync"] {
-                guard let on = sync as? Bool else { throw ConfigurationError.invalidValue(key: "bridge.roomSync", expected: "true or false") }
-                configuration.roomSync = on
-            }
             if let tariffs = (bridge as? [String: Any])?["tariffs"] {
                 guard let list = try? decoder.decode([Tariff].self, from: JSONSerialization.data(withJSONObject: tariffs)) else {
                     throw ConfigurationError.invalidValue(key: "bridge.tariffs", expected: "a list of Tariffs (start, currency, periods)")

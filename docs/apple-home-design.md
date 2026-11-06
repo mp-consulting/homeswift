@@ -166,28 +166,24 @@ The plugin reads `/info`'s `features` when a link connects; without `structure` 
 the last `/scenes` and `/automations` it read, read again on a `scenes` or `automations` event, at each refresh, and
 after each edit it makes.
 
-**Rooms** (`PluginRooms`): `rooms()` answers each home's rooms from `/homes` (`WingmanAPI.Home` gains `id` and `rooms`),
-`id` the HomeKit room id, `place` the home's name (and the Wingman's when several are paired). `renameRoom` posts
-`/rooms/rename` through the link that has that room. The host already renames, when the room layout's `syncRoomNames`
-is on, every hub room named as the Homeswift room was: Apple Home becomes one of those hubs. The UI's text "Rooms of
-this name on your Philips Hue, IKEA and eWeLink hubs are renamed too" becomes "… on your hubs and in Apple Home …",
-in the four languages. The mirrored accessories take the new room from the `homes` event that follows.
+**Rooms, Zones and Groups: the Home Link** (`HomeLink.swift`; docs/adr/0005-apple-home-owns-rooms-zones-and-groups.md,
+docs/home-link-plan.md). A Wingman with `/info`'s `home-link` feature is the Home Link: the plugin answers
+`homeLinkState()`, `homeSnapshot()` and `applyHomeChange(_:)` (`Structure.swift`'s hooks), and calls
+`PluginContext.homeChanged()` when the Home it gives changed. The Home is the home whose accessories include
+Homeswift's bridge (its Serial Number is the bridge's device ID); its snapshot has the rooms, zones and service groups
+by HomeKit id, and where each of Homeswift's accessories is (a mirror by its HomeKit id, one of Homeswift's own by its
+serial number behind its bridge, or among those Homeswift publishes on their own), `nil` in the Default Room. A change
+goes to Wingman by id (`rooms/create`, `accessories/room` with `roomID`, `zones/…`, `groups/…`, the `home` in the
+create bodies); a move is put in the plugin's copy at once, anything else reads the homes again, so the next snapshot
+has it. Of several Wingmen that see the Home, the first connected one by id is the link, and another takes over when
+it goes down. The plugin mirrors that home's accessories only, unless `homes` names others.
 
-Accessories move both ways with the same switch. Moved to another room in Homeswift (`updateAccessorySettings` sees the
-room change and calls every plugin's `moveAccessory(id:toRoom:)`, answering `hubMoves`), the Wingman plugin finds it in
-Apple Home, a mirror by its HomeKit id, one of Homeswift's own by its serial number (`/homes` lists Homeswift's bridged
-and published accessories with their Accessory Information), and posts `/accessories/room`. Moved in the Home app, the
-next read of the homes shows its room changed; the plugin tells Homeswift by Homeswift's id
-(`PluginContext.hubAccessoryMoved`) and the catalog moves it in the layout, to no hub. A mirror with no room in the layout
-keeps following its `suggestedRoom`. A move or rename the link asked for itself is remembered until the read that shows
-it, and not said back. An accessory taken out of every room in Homeswift is not moved in Apple Home, where every
-accessory has a room.
-
-The other way, a room renamed in the Home app: on each read of the homes the link compares the rooms' names by HomeKit
-id with the last read, and tells Homeswift of each change (`PluginContext.hubRoomRenamed(from:to:)`). With
-`syncRoomNames` on, the catalog renames its room of the old name as the web UI does, which renames the other hubs' too;
-the Apple Home room has the new name already, so nothing goes back. A rename the link asked for itself is remembered
-until the read that shows it, and not said back.
+The catalog (`HomeLinkSync.swift`) keeps the bridge's copy linked to the Home's ids in `home.json` and follows the
+snapshots one after the other, by id: a rename is never read as moves. A change made in Homeswift reaches Apple Home
+at once while the link is up, is kept as a Pending Change while it is down, and is refused while Apple Home does not
+let the bridge edit. A bridge with rooms of its own waits for a person to confirm its first link (`get_home_link`'s
+`comparison`, `confirm_home_link`, the Accessories page's review). Other hubs' rooms (Philips Hue, DIRIGERA,
+eWeLink) only follow a Room's renames, by name (`HubRooms.swift`).
 
 **Scenes** (`PluginScenes`): `scenes()` answers each action set:
 
@@ -301,7 +297,7 @@ The Wingman plugin maps `/automations` onto it: `trigger` and `endEvents` onto `
 
 `FakeWingman` gains rooms with ids on its home, `/scenes` and `/automations` answered from in-memory state, the edit
 endpoints applying to it (with `structure`, the owner's setting and `editable` switchable), and `scenes` and
-`automations` events. The tests cover: rooms listed and renamed through the host's `renameRoom` with `syncRoomNames`;
+`automations` events. The tests cover: the Home Link's snapshot, its changes by id and its state (`StructureTests`);
 scenes listed with their capabilities, run, renamed, updated from lights (other actions kept), created and deleted;
 automations listed with each trigger and condition kind, enabled, given a new time and new scenes, and deleted; the cache read again on
 events; an older Wingman without `structure` giving none of it; Wingman's `403` reported as the error the UI shows.

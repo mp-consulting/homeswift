@@ -454,11 +454,14 @@ struct LogFilterTests {
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
-        #expect(try await browser.get("/api/layout").json == ["order": [], "sizes": [:], "defaults": [:], "grouping": "none"])
+        // The Groups are the Home's (home.json): the page gets them with the wall, the wall's file keeps none.
+        #expect(try await browser.get("/api/layout").json == ["order": [], "sizes": [:], "defaults": [:], "grouping": "none", "groups": []])
         let layout: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock", "Lamps:lamp"], "sizes": ["Lamps:lamp": "xlarge", "Lamps:lock": "large"], "defaults": ["light": "small", "climate": "xlarge"], "grouping": "plugin", "extra": true]
         let kept: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock"], "sizes": ["Lamps:lamp": "xlarge", "Lamps:lock": "large"], "defaults": ["light": "small", "climate": "xlarge"], "grouping": "plugin"]
-        #expect(try await browser.put("/api/layout", layout).json == kept)
-        #expect(try await browser.get("/api/layout").json == kept)
+        var answered = kept.objectValue ?? [:]
+        answered["groups"] = []
+        #expect(try await browser.put("/api/layout", layout).json == .object(answered))
+        #expect(try await browser.get("/api/layout").json == .object(answered))
         let file = environment.directory.appendingPathComponent("ui-layout.json")
         #expect(try JSONValue(data: Data(contentsOf: file)) == kept)
         #if !os(Windows)
@@ -468,7 +471,7 @@ struct LogFilterTests {
         #expect(try await browser.put("/api/layout", ["grouping": "floor"]).status == 400)
         #expect(try await browser.put("/api/layout", ["defaults": ["Light!": "small"]]).status == 400)
         #expect(try await browser.put("/api/layout", ["order": [1, 2]]).status == 400)
-        #expect(try await browser.get("/api/layout").json == kept)
+        #expect(try await browser.get("/api/layout").json == .object(answered))
     }
 
     /// A light with Adaptive Lighting says so; on needs a schedule the Home app sent (409, with what to do), off

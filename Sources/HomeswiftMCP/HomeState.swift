@@ -53,6 +53,14 @@ public final class JSONFileStore<Value: Codable & Sendable>: Sendable {
 /// automations and the notification sources.
 public final class HomeState: Sendable {
     public let layout: JSONFileStore<AccessoryLayout>
+    /// What links the Rooms, Zones and Groups to the Home's (`home.json`), and the Pending Changes.
+    public let homeLink: JSONFileStore<HomeLinkFile>
+    /// The Home Link's work, one piece after the other.
+    let homeLinkWork = SerialTasks()
+    /// Whether a follow of the Home waits behind the one running: another call then makes none (`followHome`).
+    let followQueued = NIOLockedValueBox(false)
+    /// What the Home Link last said.
+    let lastHome = NIOLockedValueBox<LastHome?>(nil)
     /// The Accessories page's wall: order, sizes, grouping (`ui-layout.json`).
     public let wall: WallLayout
     /// Who follows changes to the rooms and the wall, from any writer (the pages, the chat, an MCP client).
@@ -81,6 +89,7 @@ public final class HomeState: Sendable {
 
     public init(directory: URL) {
         layout = JSONFileStore(url: directory.appendingPathComponent("accessory-layout.json")) { AccessoryLayout() }
+        homeLink = JSONFileStore(url: directory.appendingPathComponent("home.json")) { HomeLinkFile() }
         let observers = layoutObservers
         wall = WallLayout(url: directory.appendingPathComponent("ui-layout.json")) { Self.notify(observers) }
         scenes = JSONFileStore(url: directory.appendingPathComponent("scenes.json")) { SceneFile() }

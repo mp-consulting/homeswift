@@ -443,8 +443,9 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "cameras" { return .read }
             if route.count == 3, route[0] == "accessories", route[2] == "history" { return .read }
             if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
-            // The rooms, scenes and Quick Controls the Accessories and Status pages show; this browser's Web Push.
-            if [["layout"], ["rooms"], ["scenes"], ["scenes", "templates"], ["notifications", "push"]].contains(route) { return .read }
+            // The rooms, zones, scenes and Quick Controls the Accessories and Status pages show, and whether the rooms are
+            // Apple Home's; this browser's Web Push.
+            if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["notifications", "push"]].contains(route) { return .read }
             if route == ["assistant", "chat"] { return .control }
             // Today's digest, as the Status page's widget shows it (writing one is an administrator's); each user's
             // own conversations and appearance.
@@ -832,7 +833,7 @@ public final class UIServer: Sendable {
                     ?? request.query["bridge"].flatMap { $0 == "all" ? nil : "bridge:\($0)" } ?? Metrics.allSeries
                 return .json(Self.metricsJSON(metrics.history(from: from, to: to, series: series), latest: metrics.latest))
             case ["layout"]:
-                return .json(layout.load())
+                return .json(catalog.wallLayout())
             case ["logs", "settings"]:
                 // Whether lines go to disk with their payloads; `available` false without a log on disk (tests, a library).
                 let archive = catalog.logs.archive
@@ -869,7 +870,7 @@ public final class UIServer: Sendable {
         case .PUT:
             if route == ["layout"] {
                 // The Accessories page's order and sizes, the same for every user of the bridge.
-                do { return .json(try layout.save(body)) } catch let error as WallLayout.Invalid { return .error(400, error.description) }
+                do { return .json(try await catalog.saveWall(body)) } catch let error as CatalogError { return .error(400, error.description) }
             }
             if route == ["logs", "settings"] {
                 guard let save = body["saveDetails"]?.boolValue else { return .error(400, "saveDetails (true or false) is required") }

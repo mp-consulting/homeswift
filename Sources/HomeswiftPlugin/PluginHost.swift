@@ -130,7 +130,7 @@ public final class PluginHost: @unchecked Sendable {
         var described: PlatformInstance {
             PlatformInstance(
                 name: context.name, platform: context.platform, pluginName: entry.name, bridge: context.bridge,
-                accessoryIDs: context.accessories.map(\.id), paused: block.paused)
+                accessoryIDs: context.accessories.map(\.id) + context.separatedFunctionIDs, paused: block.paused)
         }
 
         init(entry: PluginRegistry.Entry, block: HomeswiftConfiguration.Platform, context: PluginContext) {
@@ -220,9 +220,11 @@ public final class PluginHost: @unchecked Sendable {
     /// Each plugin's latest energy import report, by plugin key.
     private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
     private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)
-    private let hubRoomChangeHandler = NIOLockedValueBox<(@Sendable (PlatformInstance, HubRoomChange) async -> Void)?>(nil)
+    private let homeChangeHandler = NIOLockedValueBox<(@Sendable () async -> Void)?>(nil)
     // The tail of the reloads, so two quick saves apply one after the other.
-    let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
+    let reloads = SerialTasks()
+    /// The key of the instance that last answered as the Home Link, asked first (`homeLink()`).
+    let homeLinkKey = NIOLockedValueBox<String?>(nil)
 
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
     /// until `start()`.
@@ -318,7 +320,7 @@ public final class PluginHost: @unchecked Sendable {
     /// Stops the plugins, saves the accessory caches, and stops the bridges. A plugin whose `stop()` takes
     /// longer than `pluginStopWait` is left to finish on its own.
     public func stop() async {
-        _ = await reloadTail.withLockedValue({ $0 })?.value
+        await reloads.idle()
         await withTaskGroup(of: Void.self) { group in
             for instance in instances {
                 group.addTask {
@@ -549,6 +551,7 @@ public final class PluginHost: @unchecked Sendable {
                 report.started.append(block.name)
             }
         }
+        applySeparations(next)
         applyHomeKitVisibility(next)
         applyAccessoryNames(next)
         logApplied(report)
@@ -572,6 +575,15 @@ public final class PluginHost: @unchecked Sendable {
         }
     }
 
+    /// Separates the Functions of the accessories each block's `_accessories` asks it for, and joins the others' back
+    /// (`Separation`), without reloading its plugin.
+    private func applySeparations(_ configuration: HomeswiftConfiguration) {
+        for instance in instances {
+            let block = configuration.platforms.first { $0.platform == instance.block.platform && $0.name == instance.block.name }
+            instance.context.applySeparations(block?.separatedFunctions ?? [])
+        }
+    }
+
     /// Puts the names of each block's `_accessories` on its accessories, in HomeKit too (`AccessoryNaming`), without
     /// reloading its plugin.
     private func applyAccessoryNames(_ configuration: HomeswiftConfiguration) {
@@ -588,11 +600,10 @@ public final class PluginHost: @unchecked Sendable {
         renameHandler.withLockedValue { $0 = handler }
     }
 
-    /// Calls `handler` with the instance and the change when a plugin says a room of its hub was renamed there, or one
-    /// of Homeswift's accessories moved there (`PluginContext.hubRoomRenamed`, `hubAccessoryMoved`); the MCP catalog
-    /// follows it in the layout. One handler; nil removes it.
-    public func handleHubRoomChanges(_ handler: (@Sendable (_ instance: PlatformInstance, _ change: HubRoomChange) async -> Void)?) {
-        hubRoomChangeHandler.withLockedValue { $0 = handler }
+    /// Calls `handler` when the Home Link says its snapshot or state changed (`PluginContext.homeChanged()`); the MCP
+    /// catalog follows the Home. One handler; nil removes it.
+    public func handleHomeChanges(_ handler: (@Sendable () async -> Void)?) {
+        homeChangeHandler.withLockedValue { $0 = handler }
     }
 
     /// The name the plugin gave an accessory renamed in `_accessories`; nil for one that was not.
@@ -712,19 +723,20 @@ public final class PluginHost: @unchecked Sendable {
             bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
         }
         let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, meterReadings: meterReadings, assistantBackground: entry.assistantBackground)
-        context.publishedAccessories = { [weak self] in self?.bridges.flatMap(\.server.accessories) ?? [] }
+        context.publishedServers = { [weak self] in
+            self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
+        }
         context.logs = options.logs
         context.naming.setNames(block.accessoryNames)
+        context.applySeparations(block.separatedFunctions)
         context.naming.onRenamed { [weak self, logger = context.logger] id, name in
             guard let handler = self?.renameHandler.withLockedValue({ $0 }) else { return }
             logger.info("Renamed in HomeKit: \(id) is now \(name)")
             Task { await handler(id, name) }
         }
-        context.onHubRoomChange = { [weak self, platform = block.platform, name = block.name] change in
-            guard let self, let handler = self.hubRoomChangeHandler.withLockedValue({ $0 }),
-                  let instance = self.runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name })?.instance.described
-            else { return }
-            Task { await handler(instance, change) }
+        context.onHomeChanged = { [weak self] in
+            guard let handler = self?.homeChangeHandler.withLockedValue({ $0 }) else { return }
+            Task { await handler() }
         }
         context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
         context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }
@@ -820,6 +832,9 @@ public final class PluginHost: @unchecked Sendable {
         var serverOptions = HAPServer.Options(port: settings.port, advertise: options.advertise, logger: serverLogger)
         serverOptions.advertiser = options.advertiser
         serverOptions.interfaces = options.interfaces
+        // The Home app's other controllers (Wingman) know Homeswift's accessories by serial number: two a plugin gave
+        // the same one (a device's channels) would be neither.
+        serverOptions.uniqueSerialNumbers = true
         if let pin = settings.pin {
             guard let code = SetupCode(pin) else { throw ConfigurationError.invalidSetupCode(pin) }
             serverOptions.setupCode = code

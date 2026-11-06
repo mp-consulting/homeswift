@@ -39,8 +39,8 @@
   /// What a write did, in a few words for a field's state.
   function savedWords(result, instance) {
     if ((result.reloaded ?? []).length) return t("Saved · {plugin} reloads", { plugin: instance });
-    const failed = (result.hubMoves ?? []).find((move) => move.error);
-    if (failed) return t("Saved; the hub said: {error}", { error: HomeswiftI18n.message(failed.error) });
+    const refused = (result.appleHomeRefused ?? [])[0];
+    if (refused) return t("Saved; Apple Home refused: {reason}", { reason: HomeswiftI18n.message(refused.reason) });
     return t("Saved");
   }
 
@@ -142,7 +142,7 @@
     async function load() {
       let answer, rooms, schemaFile;
       try {
-        [answer, rooms] = await Promise.all([api(accessoryPath(accessoryID, instance)), api("/api/rooms").catch(() => ({ rooms: [], syncRoomNames: false }))]);
+        [answer, rooms] = await Promise.all([api(accessoryPath(accessoryID, instance)), api("/api/rooms").catch(() => ({ rooms: [] }))]);
         // The plugin's words for its own fields (its schema's `i18n`), when it declares some.
         schemaFile = Object.values(answer.fields ?? {}).some((field) => !field.core)
           ? await api(`/api/plugins/${enc(answer.platform)}/schema`, { raw: true }).then(JSON.parse).catch(() => null) : null;
@@ -211,7 +211,7 @@
       // Room: a pop-up menu of the rooms, the current one ticked, with No room and New room… (which adds one).
       const roomState = stateNode();
       const roomNames = (home.rooms ?? []).map((one) => one.name);
-      const homeFollows = mirrored || home.syncRoomNames === true;
+      const homeFollows = mirrored || home.homeLink?.linked === true;
       const room = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu" });
       const showRoom = () => {
         room.textContent = settings.room || t("No room");
@@ -227,8 +227,8 @@
       showRoom();
       const roomTitle = el("span", { text: t("Room") });
       const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
-        : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
-          : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") });
+        : homeFollows ? t("Also moves it in the Home app.")
+          : t("Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.") });
       describe(room, roomTitle, roomHelp, roomState);
       const roomField = el("div", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, roomHelp);
 
@@ -243,6 +243,20 @@
             confirmLabel: t("Take it out"), confirmIcon: "house" })) { input.checked = false; return; }
           if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
         } });
+
+      // Separate Functions: each thing it does an accessory of its own, which Apple Home can group and put in a room.
+      const functions = answer.functions ?? [];
+      const separate = functions.length > 1 && !mirrored ? switchRow({ title: t("Separate Functions"),
+        help: t("In Apple Home, each thing it does becomes an accessory of its own: {functions}.", { functions: functions.join(", ") }),
+        checked: settings.separateFunctions === true,
+        onChange: async (on, state, input) => {
+          if (!await confirmAction({ title: on ? t("Separate the Functions of {name}?", { name: answer.name ?? id }) : t("Join the Functions of {name} back?", { name: answer.name ?? id }),
+            text: on ? t("Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.")
+              : t("The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve."),
+            confirmLabel: on ? t("Separate") : t("Join back"), confirmIcon: "group" })) { input.checked = !on; return; }
+          if (!await save({ separateFunctions: on || null }, state, "separateFunctions")) input.checked = !on;
+        } }) : null;
+      const functionOf = answer.functionOf ? el("p", { class: "help", text: t("A Function of {name}: its other settings are there.", { name: answer.functionOf.name }) }) : null;
 
       // Energy: what each of its meters measures in the home's energy. Applies at once; the plugin keeps running.
       const roleNames = { solar: t("Solar production"), home: t("The home's use"), grid: t("The grid connection"), battery: t("A battery"), none: t("This device alone") };
@@ -343,7 +357,7 @@
       node.replaceChildren(...[
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
-        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
         energySection,
         partsSection,
         pluginSection,

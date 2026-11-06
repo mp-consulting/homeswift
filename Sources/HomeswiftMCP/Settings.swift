@@ -35,6 +35,7 @@ extension HomeswiftCatalog {
         "hidden": ["type": "boolean", "description": "Hidden: in Apple Home, but off the web UI's wall"],
         "notInHome": ["type": "boolean", "description": "Not in Home: on the bridge and the wall, but left out of Apple Home, which loses its room, scenes and automations"],
         "excluded": ["type": "boolean", "description": "Excluded: its plugin does not make the device into an accessory at all; the plugin reloads"],
+        "separateFunctions": ["type": "boolean", "description": "Separate Functions: each thing it does (a light, a sensor) an accessory of its own in Apple Home, with its own Name, Room and Group; it keeps its main Function. Apple Home's scenes and automations on the separated Functions need redoing, both ways"],
         "parts": ["type": "object", "additionalProperties": ["type": "boolean"], "description": "The Parts of the device included (true) or left out (false), by the plugin's part id; the plugin reloads"],
         "energyRoles": ["type": "object", "additionalProperties": ["type": ["string", "null"], "enum": ["solar", "home", "grid", "battery", "none", .null]],
                         "description": "The Energy Role of each of its Meters in the Home Energy, by the Meter's key (get_settings' meters): solar, home, grid, battery, or none for a single device's use; null gives back its plugin's suggestion"],
@@ -250,6 +251,19 @@ extension HomeswiftCatalog {
         ]
         if let located = target.located { answer["name"] = .string(located.accessory.name) }
         if let source = target.located?.accessory.mirroredFrom { answer["mirroredFrom"] = .string(source) }
+        // Separate Functions: offered for an accessory doing several things; a separated Function names its accessory.
+        if let located = target.located {
+            let own = located.device
+            if located.isSeparatedFunction {
+                answer["functionOf"] = ["id": .string(own.id), "name": .string(own.name)]
+            } else if let groups = Separation.groups(of: own) {
+                answer["functions"] = .array(groups.map { group in .string(Separation.name(of: group[0], in: own)) })
+            }
+        }
+        if answer["functions"] == nil, (answer["settings"]?["separateFunctions"]).map({ $0.isNull }) ?? true {
+            fields.removeValue(forKey: "separateFunctions")
+            answer["fields"] = .object(fields)
+        }
         // Its Meters, for `energyRoles`: each one's key, its own name on a device with several, and its plugin's suggestion.
         let meters = metrics?.meters.meters(of: target.accessoryID) ?? []
         // Energy Roles only for an accessory with Meters (one that has a role saved keeps the field, to clear it).
@@ -316,7 +330,7 @@ extension HomeswiftCatalog {
     /// Accessory Settings left out). A write that changes what some plugin reads keeps a backup of config.json, which is
     /// what a person restores after a change of Plugin Settings, an Exclude, Parts or the first canonical shape of a
     /// block in Homebridge's shape; one that changes only live settings (a Name, a room, Hidden, Not in Home: a Home app
-    /// rename, Room Sync's move) keeps none, so those never push the restorable ones out of the last 20. A block whose
+    /// rename, a move Apple Home made) keeps none, so those never push the restorable ones out of the last 20. A block whose
     /// plugin would read only its canonical shape anew keeps its plugin running (`PluginHost.CanonicalMove`).
     struct BlockWrite {
         let platform: String
@@ -350,7 +364,7 @@ extension HomeswiftCatalog {
     }
 
     /// The flags of the Core Accessory Settings, whose default (false) the canonical shape leaves out.
-    static let flagKeys: Set<String> = ["hidden", "notInHome", "excluded"]
+    static let flagKeys: Set<String> = ["hidden", "notInHome", "excluded", "separateFunctions"]
 
     /// Runs a settings writer again when config.json changed between its read and its write (`ConfigChanged`, from
     /// `writeConfig(expecting:)`): a concurrent save (a Home app rename, a hub's move, another page) is read again and
@@ -388,24 +402,29 @@ extension HomeswiftCatalog {
     /// config.json. Each block written is first put in its plugin's canonical shape and has its `_hiddenFromHomeKit` moved
     /// into `_accessories`; each accessory's legacy room and Hidden move from the layout into its settings, and its legacy
     /// display name goes when its Name is set. A new room is added to the layout's rooms. Name, room, Hidden and Not in
-    /// Home apply live; Excluded, Parts and the plugin's own settings reload the plugin. An accessory that moved to a room
-    /// moves on the hubs that keep it in rooms (`moveOnHubs`) when Room Sync is on, and a mirrored one (Wingman's) always;
-    /// its Name is read-only. A write that changes only live settings keeps no backup of config.json (`BlockWrite`), and
+    /// Home apply live; Excluded, Parts and the plugin's own settings reload the plugin. An accessory moved to a Room, or
+    /// to none, moves in Apple Home too, through the Home Link (`fromHome` for a move Apple Home made), and a new
+    /// Room is made there: at once while the link is up, as a Pending Change while it is down, refused while it may not
+    /// edit. A mirrored accessory's Name is read-only. A write that changes only live settings keeps no backup of config.json (`BlockWrite`), and
     /// the block's canonical shape alone reloads nothing. Answers each accessory's settings and the keys that changed,
     /// and what the write reloaded.
     @discardableResult
     public func updateAccessorySettings(
-        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String? = nil, dryRun: Bool = false, moveOnHubs: Bool = true,
+        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String? = nil, dryRun: Bool = false, fromHome: Bool = false,
         by writer: ConfigWriter = .person, who: String = "web UI"
     ) async throws -> JSONValue {
         guard !changes.isEmpty else { throw CatalogError("No accessory to change") }
+        if !fromHome, !dryRun, changes.contains(where: { $0.settings["room"] != nil && isInHome($0.accessoryID) != false }),
+           let refusal = await homeLinkRefusal() {
+            throw CatalogError(refusal)
+        }
         return try await retryingWhenConfigChanges {
-            try await writeAccessorySettings(changes, instance: instance, dryRun: dryRun, moveOnHubs: moveOnHubs, by: writer, who: who)
+            try await writeAccessorySettings(changes, instance: instance, dryRun: dryRun, fromHome: fromHome, by: writer, who: who)
         }
     }
 
     private func writeAccessorySettings(
-        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String?, dryRun: Bool, moveOnHubs: Bool, by writer: ConfigWriter, who: String
+        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String?, dryRun: Bool, fromHome: Bool, by writer: ConfigWriter, who: String
     ) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
@@ -426,6 +445,18 @@ extension HomeswiftCatalog {
                     throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): its Name is read-only, rename it there")
                 }
                 if let text = name.stringValue { clean["name"] = AccessoryNaming.cleaned(text).map(JSONValue.string) ?? .null }
+            }
+            if settings["separateFunctions"]?.boolValue == true {
+                guard !target.isMirrored else {
+                    throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): it is published there, not by the bridge")
+                }
+                guard let own = target.located?.device, Separation.groups(of: own) != nil else {
+                    throw CatalogError("\(target.displayName) has nothing to separate: it does one thing, or what it does stays together (a camera, a doorbell, a television)")
+                }
+            }
+            if let located = target.located, located.isSeparatedFunction,
+               let other = settings.keys.first(where: { !AccessorySettings.liveKeys.contains($0) || $0 == "separateFunctions" }) {
+                throw CatalogError("\(target.displayName) is a Function of \(located.device.name): set \(other) on \(located.device.name)")
             }
             if target.isMirrored, settings["notInHome"]?.boolValue == true {
                 throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): HomeKit has it there")
@@ -496,7 +527,7 @@ extension HomeswiftCatalog {
         let next = JSONValue.object(root)
 
         var results: [JSONValue] = []
-        var moves: [(accessoryID: String, room: String)] = []
+        var moves: [HomeLinkFile.PendingChange] = []
         var seen: Set<String> = []
         for (target, _) in planned where seen.insert(target.accessoryID).inserted {
             guard let index = Self.blockIndex(of: target, in: platforms) else { continue }
@@ -504,10 +535,10 @@ extension HomeswiftCatalog {
             let old = before[target.accessoryID] ?? [:]
             let changedKeys = Set(old.keys).union(after.keys).filter { old[$0] != after[$0] }.sorted()
             results.append(["accessory": .string(target.accessoryID), "settings": .object(after), "changed": .array(changedKeys.map(JSONValue.string))])
-            // Moved to a room it was not in: the hubs follow (Room Sync, or a mirrored accessory's own hub).
-            if moveOnHubs, changedKeys.contains("room"), let room = after["room"]?.stringValue, !room.isEmpty,
-               target.located?.room.map({ !Self.sameRoomName($0, room) }) ?? true, roomSync || target.isMirrored {
-                moves.append((target.accessoryID, room))
+            // Moved to a Room it was not in, or to none: Apple Home follows.
+            let room = after["room"]?.stringValue ?? ""
+            if !fromHome, changedKeys.contains("room"), !Self.sameRoomName(target.located?.room ?? "", room) {
+                moves.append(.moveAccessory(accessory: target.accessoryID, room: room))
             }
         }
         var answer: [String: JSONValue] = ["accessories": .array(results)]
@@ -554,14 +585,10 @@ extension HomeswiftCatalog {
             (result["changed"]?.arrayValue ?? []).contains { $0.stringValue.map(AccessorySettings.liveKeys.contains) == true }
         }
         if !newRooms.isEmpty || legacyLeft || (liveChanged && next != current) { home.layoutChanged() }
-        if !moves.isEmpty { answer["hubMoves"] = .array(await self.moveOnHubs(moves, by: who)) }
+        if !fromHome { await recordForHome(newRooms.map { .createRoom(name: $0) } + moves, into: &answer) }
         return .object(answer)
     }
 
-    /// Whether Room Sync is on: the bridge block's `roomSync`, else what the layout kept (`syncRoomNames`).
-    public var roomSync: Bool {
-        host.configuration.roomSync ?? (home.layout.value.syncRoomNames == true)
-    }
 
     /// Writes Plugin Settings: `settings` merged into the block (`merged`: a null clears a key), the runtime's `_` keys and
     /// `platform` out of reach, each key one the plugin's schema declares (a null may clear one it does not), the block put
@@ -614,14 +641,6 @@ extension HomeswiftCatalog {
             next, dryRun: dryRun, current: current, checkSchemas: true, expecting: current, by: writer, backup: backup, canonicalMoves: moves, beforeWrite: effects.run)
         Self.copyApplied(applied, into: &answer)
         return .object(answer)
-    }
-
-    /// Turns Room Sync on or off in the bridge block (`bridge.roomSync`, no restart), the layout's old `syncRoomNames`
-    /// cleared.
-    func setRoomSync(_ on: Bool, in root: inout [String: JSONValue]) {
-        var bridge = root["bridge"]?.objectValue ?? [:]
-        if on { bridge["roomSync"] = true } else { bridge.removeValue(forKey: "roomSync") }
-        root["bridge"] = .object(bridge)
     }
 
     // MARK: Confirmations
@@ -797,7 +816,8 @@ extension HomeswiftCatalog {
                     + "and a null clears a key (the default again). Every key must be one get_settings lists. "
                     + "An accessory's name (in Apple Home too), room (a new name adds the room; \"\" for none), hidden (off the web UI's wall) and notInHome (out of Apple Home, "
                     + "which loses its room, scenes and automations) apply at once; excluded, parts and the plugin's own settings reload the plugin, as Plugin Settings do. "
-                    + "A mirrored accessory's name is read-only. With Room Sync on, an accessory moved to a room moves on the hubs that keep rooms (hubMoves); a mirrored one always does. "
+                    + "A mirrored accessory's name is read-only. Once the bridge is linked to Apple Home (get_home_link), an accessory moved to a room, or to none, moves in Apple Home too "
+                    + "(appleHomeRefused lists what it refused); separateFunctions makes each thing it does an accessory of its own there, so it can be grouped. "
                     + "accessories, an object of settings by Accessory Id, changes several accessories in one write. Answers each accessory's settings and the keys that changed, "
                     + "and what reloaded. dryRun previews.",
                 inputSchema: ["type": "object", "properties": .object(address.merging([

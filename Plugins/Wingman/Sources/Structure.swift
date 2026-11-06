@@ -11,6 +11,9 @@ struct Structure: Sendable {
         var name: String
         var editable: Bool
         var rooms: [WingmanAPI.Room]
+        var defaultRoom: WingmanAPI.Room? = nil
+        var zones: [WingmanAPI.Zone] = []
+        var serviceGroups: [WingmanAPI.ServiceGroup] = []
     }
 
     /// An accessory of the homes, mirrored or not: what an action names it by.
@@ -21,12 +24,31 @@ struct Structure: Sendable {
         /// Its writable characteristics' HomeKit ids, by type.
         var writable: [HAPUUID: String]
         var serialNumber: String? = nil
-        /// Behind a Homeswift bridge: one of Homeswift's own.
-        var onHomeswiftBridge = false
+        /// Where it is, if it is one of Homeswift's own.
+        var homeswift: Homeswift? = nil
+        /// Its room's id, nil in the Default Room (a Wingman with "home-link").
+        var roomID: String? = nil
+        /// Its services' HomeKit ids, the one doing its main thing first: what a service group holds.
+        var services: [String] = []
+    }
+
+    /// Where one of Homeswift's own accessories is in the homes.
+    enum Homeswift: Sendable, Equatable {
+        /// Behind the Homeswift bridge with this Serial Number (its HAP device ID).
+        case bridge(String)
+        /// Published on its own (a television, a camera): not behind a bridge.
+        case own
+        /// Behind a bridge that says it is Homeswift's (its manufacturer or model) that Wingman does not name: an
+        /// older Wingman, or one of another Homeswift.
+        case unnamedBridge
     }
 
     /// Whether Wingman's owner lets bridges edit now.
     var allowed: Bool
+    /// Whether Wingman gives rooms, zones and groups by id and edits them ("home-link"): it can be the Home Link.
+    var servesHomeLink = false
+    /// The home Homeswift's bridge is in: the Home (GLOSSARY.md), whose rooms are Homeswift's.
+    var bridgeHome: String?
     var homes: [Home]
     var devices: [String: Device]
     /// The accessories Homeswift mirrors, by HomeKit id.
@@ -34,11 +56,24 @@ struct Structure: Sendable {
     var scenes: [WingmanAPI.Scene] = []
     var automations: [WingmanAPI.Automation] = []
 
-    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>) {
+    /// `bridges` are the Serial Numbers of Homeswift's bridges (`PluginContext.homeswiftBridgeSerialNumbers`), `own` those of
+    /// the accessories Homeswift publishes on their own servers.
+    /// `bridgeHome` when the caller worked it out already (`bridgeHome(of:bridges:)`).
+    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>, bridges: Set<String> = [], bridgeHome: String?? = nil, own: Set<String> = [], homeLink: Bool = false) {
         self.allowed = allowed
         self.mirrored = mirrored
+        servesHomeLink = homeLink
         self.homes = homes.compactMap { home in
-            home.id.map { Home(id: $0, name: home.name, editable: home.editable == true, rooms: home.rooms ?? []) }
+            home.id.map {
+                Home(id: $0, name: home.name, editable: home.editable == true, rooms: home.rooms ?? [], defaultRoom: home.defaultRoom,
+                     zones: home.zones ?? [], serviceGroups: home.serviceGroups ?? [])
+            }
+        }
+        self.bridgeHome = bridgeHome ?? Self.bridgeHome(of: homes, bridges: bridges)
+        // The accessories of the homes that are Homeswift's bridges, by HomeKit id: their Serial Number is their device ID.
+        var homeswiftBridges: [String: String] = [:]
+        for accessory in homes.flatMap(\.accessories) {
+            if let serial = accessory.serialNumber?.uppercased(), bridges.contains(serial) { homeswiftBridges[accessory.id] = serial }
         }
         var devices: [String: Device] = [:]
         for home in homes {
@@ -50,10 +85,25 @@ struct Structure: Sendable {
                         if let id = item.id, writable[HAPUUID(item.type)] == nil { writable[HAPUUID(item.type)] = id }
                     }
                 }
-                let bridge = accessory.bridge
+                let homeswift: Homeswift?
+                if mirrored.contains(accessory.id) {
+                    homeswift = nil
+                } else if let bridge = accessory.bridge {
+                    if let id = bridge.id, let serial = homeswiftBridges[id] {
+                        homeswift = .bridge(serial)
+                    } else if bridge.id == nil, bridge.manufacturer == "Homeswift" || bridge.model == "Homeswift" {
+                        homeswift = .unnamedBridge
+                    } else {
+                        homeswift = nil
+                    }
+                } else {
+                    homeswift = accessory.serialNumber.map(own.contains) == true ? .own : nil
+                }
+                let information = ServiceType.accessoryInformation.uuid
+                let main = accessory.services.filter { HAPUUID($0.type) != information }.sorted { ($0.primary == true ? 0 : 1) < ($1.primary == true ? 0 : 1) }
                 devices[accessory.id] = Device(
                     name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber,
-                    onHomeswiftBridge: bridge?.manufacturer == "Homeswift" || bridge?.model == "Homeswift")
+                    homeswift: homeswift, roomID: accessory.roomID, services: main.compactMap(\.id))
             }
         }
         self.devices = devices
@@ -61,42 +111,73 @@ struct Structure: Sendable {
 
     func home(_ id: String) -> Home? { homes.first { $0.id == id } }
 
-    /// The accessories whose room changed between two reads, by HomeKit id, with their home's name: none on the first.
-    static func movedAccessories(from old: Structure?, to new: Structure) -> [(id: String, home: String, room: String)] {
-        guard let old else { return [] }
-        return new.devices.sorted { $0.key < $1.key }.compactMap { id, device in
-            guard let before = old.devices[id], let room = device.room, before.room != room else { return nil }
-            return (id, new.home(device.home)?.name ?? "", room)
-        }
+    /// The id of the home whose accessories include the bridge with one of these Serial Numbers (Homeswift's).
+    static func bridgeHome(of homes: [WingmanAPI.Home], bridges: Set<String>) -> String? {
+        homes.first { home in home.accessories.contains { $0.serialNumber.map { bridges.contains($0.uppercased()) } == true } }?.id
     }
 
-    /// The HomeKit id of a Homeswift accessory in these homes: a mirror by its id, one of Homeswift's own by its serial
-    /// number (`serialNumber`, its own) when exactly one of Homeswift's has it.
-    func homeKitID(of accessoryID: String, serialNumber: String?) -> String? {
+    // MARK: The Home Link
+
+    /// The Home as Homeswift's Home Link gives it: the bridge's home, with Homeswift's ids for the accessories it has.
+    /// nil when this Wingman cannot be the Home Link, or sees no home with the bridge in it.
+    func homeSnapshot(in context: PluginContext) -> HomeSnapshot? {
+        guard servesHomeLink, let id = bridgeHome, let home = home(id) else { return nil }
+        var placements: [String: String?] = [:]
+        var byService: [String: String] = [:]
+        let index = context.publishedIndex()
+        for (deviceID, device) in devices.sorted(by: { $0.key < $1.key }) where device.home == id {
+            guard let accessoryID = homeswiftID(of: deviceID, in: context, index: index) else { continue }
+            placements[accessoryID] = .some(device.roomID)
+            for service in device.services { byService[service] = accessoryID }
+        }
+        let groups = home.serviceGroups.map { group in
+            var seen: Set<String> = []
+            let members = group.services.compactMap { byService[$0] }.filter { seen.insert($0).inserted }
+            return HomeSnapshot.Group(id: group.id, name: group.name, members: members)
+        }
+        return HomeSnapshot(
+            homeID: home.id, homeName: home.name, rooms: home.rooms.map { HomeSnapshot.Room(id: $0.id, name: $0.name) },
+            zones: home.zones.compactMap { zone in zone.id.map { HomeSnapshot.Zone(id: $0, name: zone.name, rooms: zone.roomIDs ?? []) } },
+            groups: groups, placements: placements)
+    }
+
+    /// The HomeKit id of the service a group holds for one of Homeswift's accessories: the one doing its main thing.
+    func groupService(of accessoryID: String, in context: PluginContext) -> String? {
+        homeKitID(of: accessoryID, place: context.publishedPlace(ofAccessory: accessoryID)).flatMap { devices[$0]?.services.first }
+    }
+
+    /// The HomeKit id of a Homeswift accessory in these homes: a mirror by its id, one of Homeswift's own by where it is
+    /// published (`place`): its Serial Number behind that bridge, or among the accessories on their own. Never a home's
+    /// own accessory of the same serial number, such as the light a hub also brings to Apple Home.
+    func homeKitID(of accessoryID: String, place: PluginContext.PublishedPlace?) -> String? {
         if let id = Self.homeKitID(accessoryID), devices[id] != nil { return id }
-        guard let serialNumber else { return nil }
-        // Not a mirror: those are Apple Home's own accessories, never one of Homeswift's.
-        let matches = devices.filter { !mirrored.contains($0.key) && $0.value.serialNumber == serialNumber }.map(\.key)
+        guard let place else { return nil }
+        let wanted: Homeswift = place.bridge.map(Homeswift.bridge) ?? .own
+        var matches = devices.filter { $0.value.homeswift == wanted && $0.value.serialNumber == place.serialNumber }.map(\.key)
+        // A Wingman that does not name bridges: the bridges that say they are Homeswift's, as before.
+        if matches.isEmpty, place.bridge != nil {
+            matches = devices.filter { $0.value.homeswift == .unnamedBridge && $0.value.serialNumber == place.serialNumber }.map(\.key)
+        }
         return matches.count == 1 ? matches[0] : nil
     }
 
-    /// Homeswift's id of an accessory in these homes: a mirror's, or one of Homeswift's own (`publishedID`, by serial
-    /// number); nil for one Homeswift does not have.
-    func homeswiftID(of id: String, publishedID: (String) -> String?) -> String? {
-        if mirrored.contains(id) { return Self.homeswiftID(id) }
-        return devices[id]?.serialNumber.flatMap(publishedID)
+    /// Homeswift's id of an accessory in these homes: a mirror's, or one of Homeswift's own (by where `context` publishes
+    /// it); nil for one Homeswift does not have.
+    func homeswiftID(of id: String, in context: PluginContext) -> String? {
+        homeswiftID(of: id, in: context, index: context.publishedIndex())
     }
 
-    /// The rooms whose name changed between two reads, by HomeKit id: none on the first read.
-    static func renamedRooms(from old: Structure?, to new: Structure) -> [(id: String, home: String, from: String, to: String)] {
-        guard let old else { return [] }
-        let before = Dictionary(old.homes.flatMap(\.rooms).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        return new.homes.flatMap { home in
-            home.rooms.compactMap { room in
-                guard let name = before[room.id], name != room.name else { return nil }
-                return (room.id, home.name, name, room.name)
-            }
+    /// `homeswiftID(of:in:)` with Homeswift's accessories by where they are published, read once for many lookups.
+    func homeswiftID(of id: String, in context: PluginContext, index: [PluginContext.PublishedPlace: String]) -> String? {
+        if mirrored.contains(id) { return Self.homeswiftID(id) }
+        guard let device = devices[id], let serialNumber = device.serialNumber, let homeswift = device.homeswift else { return nil }
+        let bridge: String?
+        switch homeswift {
+        case .bridge(let serial): bridge = serial
+        case .own: bridge = nil
+        case .unnamedBridge: return context.publishedAccessoryID(serialNumber: serialNumber)
         }
+        return index[.init(bridge: bridge, serialNumber: serialNumber)]
     }
 
     /// Whether an edit of this home would go through: the owner allows it and this Mac's user administers the home.
@@ -329,9 +410,12 @@ extension WingmanPlugin {
         return found
     }
 
+    /// Whether the plugin mirrors this home's accessories: the homes `homes` names when it names some, else the Home (the
+    /// bridge's), else every home while Apple Home has not added the bridge to one.
     nonisolated func includesHome(_ name: String) -> Bool {
-        guard let homes = configuration.homes, !homes.isEmpty else { return true }
-        return homes.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        if let homes = configuration.homes, !homes.isEmpty { return homes.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+        let bridgeHomes = Set(bridgeHomes.withLockedValue { $0.values })
+        return bridgeHomes.isEmpty || bridgeHomes.contains(name)
     }
 
     /// Where a home is, for display: its name, and the Wingman's when several are paired.
@@ -344,40 +428,75 @@ extension WingmanPlugin {
         await structures().first { has($0.structure) }
     }
 
-    // Rooms
+    // The Home Link
 
-    public func rooms() async -> [PluginRoom] {
-        var rooms: [PluginRoom] = []
-        var seen: Set<String> = []
-        for (link, structure) in await structures() {
-            for home in structure.homes where includesHome(home.name) {
-                let place = await place(home, link: link)
-                for room in home.rooms where seen.insert(room.id).inserted {
-                    rooms.append(PluginRoom(id: room.id, name: room.name, place: place))
-                }
+    /// The link that is the Home Link: of those whose Wingman serves it and sees the bridge's home, the first connected
+    /// one by Wingman id, so another takes over when it goes down.
+    private func homeLinkOwner() async -> (link: Link, structure: Structure, home: Structure.Home)? {
+        for (link, structure) in await structures() where structure.servesHomeLink {
+            guard await link.isConnected, let id = structure.bridgeHome, let home = structure.home(id) else { continue }
+            return (link, structure, home)
+        }
+        return nil
+    }
+
+    public func homeLinkState() async -> HomeLinkState? {
+        guard !links.isEmpty else { return .down("No Homeswift Wingman is paired: pair one on Add accessories") }
+        guard let (_, structure, home) = await homeLinkOwner() else {
+            let all = await structures()
+            var connected = false
+            for link in links.values where await link.isConnected { connected = true }
+            if !connected { return .down("Homeswift Wingman is not reachable") }
+            if !all.contains(where: { $0.structure.servesHomeLink }) {
+                return .down("Update Homeswift Wingman: this one cannot keep rooms in step with Apple Home")
+            }
+            return .down("Apple Home has not added this bridge to a home that Homeswift Wingman sees")
+        }
+        guard structure.allowed else { return .readOnly("turn on Let bridges edit rooms, scenes and automations in Homeswift Wingman's settings") }
+        guard home.editable else { return .readOnly("the Mac running Homeswift Wingman is signed in to an account that does not administer \(home.name)") }
+        return .up
+    }
+
+    public func homeSnapshot() async -> HomeSnapshot? {
+        await homeLinkOwner()?.structure.homeSnapshot(in: context)
+    }
+
+    public func applyHomeChange(_ change: HomeChange) async throws -> String? {
+        guard let (link, structure, home) = await homeLinkOwner() else { throw HomeChangeError(.unreachable, "Homeswift Wingman is not reachable") }
+        func accessory(_ id: String) throws -> String {
+            guard let found = structure.homeKitID(of: id, place: context.publishedPlace(ofAccessory: id)), structure.devices[found]?.home == home.id else {
+                throw HomeChangeError(.notFound, "\(id) is not in \(home.name)")
+            }
+            return found
+        }
+        func services(_ ids: [String]) throws -> [JSONValue] {
+            try ids.map { id in
+                guard let service = structure.groupService(of: id, in: context) else { throw HomeChangeError(.notFound, "\(id) is not in \(home.name)") }
+                return .string(service)
             }
         }
-        return rooms
-    }
-
-    public func renameRoom(id: String, name: String) async throws {
-        guard let (link, _) = await owner({ $0.homes.contains { $0.rooms.contains { $0.id == id } } }) else {
-            throw PluginRoomError("Apple Home has no room \(id)")
-        }
-        try await link.renameRoom(id, to: name)
-    }
-
-    /// Moves a mirror or one of Homeswift's own accessories in Apple Home; false for one Apple Home does not have.
-    public func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool {
-        let serialNumber = context.publishedSerialNumber(ofAccessory: accessoryID)
-        for (link, structure) in await structures() {
-            guard let id = structure.homeKitID(of: accessoryID, serialNumber: serialNumber), let device = structure.devices[id],
-                  let home = structure.home(device.home), includesHome(home.name) else { continue }
-            if let current = device.room, current.compare(room, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame { return true }
-            try await link.moveAccessory(id, to: room)
-            return true
-        }
-        return false
+        let strings = { (ids: [String]) in JSONValue.array(ids.map(JSONValue.string)) }
+        let homeID = JSONValue.string(home.id)
+        // Wingman's edit for the change: its path and body, the key of what it creates, and the move to put in the copy.
+        let (path, body, created, moved): (String, JSONValue, String?, (String, String?)?) = try {
+            switch change {
+            case .createRoom(let name): ("rooms/create", ["name": .string(name), "home": homeID], "room", nil)
+            case .renameRoom(let id, let name): ("rooms/rename", ["room": .string(id), "name": .string(name)], nil, nil)
+            case .deleteRoom(let id): ("rooms/delete", ["room": .string(id)], nil, nil)
+            case .moveAccessory(let accessoryID, let roomID):
+                try { let id = try accessory(accessoryID); return ("accessories/room", ["accessory": .string(id), "roomID": roomID.map(JSONValue.string) ?? .null], nil, (id, roomID)) }()
+            case .createZone(let name): ("zones/create", ["name": .string(name), "home": homeID], "zone", nil)
+            case .renameZone(let id, let name): ("zones/rename", ["zone": .string(id), "name": .string(name)], nil, nil)
+            case .deleteZone(let id): ("zones/delete", ["zone": .string(id)], nil, nil)
+            case .setZoneRooms(let id, let add, let remove): ("zones/rooms", ["zone": .string(id), "add": strings(add), "remove": strings(remove)], nil, nil)
+            case .createGroup(let name, let members): ("groups/create", ["name": .string(name), "services": .array(try services(members)), "home": homeID], "group", nil)
+            case .renameGroup(let id, let name): ("groups/rename", ["group": .string(id), "name": .string(name)], nil, nil)
+            case .deleteGroup(let id): ("groups/delete", ["group": .string(id)], nil, nil)
+            case .setGroupMembers(let id, let add, let remove):
+                ("groups/services", ["group": .string(id), "add": .array(try services(add)), "remove": .array(try services(remove))], nil, nil)
+            }
+        }()
+        return try await link.homeEdit(path, body, created: created, moved: moved.map { (accessory: $0.0, roomID: $0.1) })
     }
 
     // Scenes

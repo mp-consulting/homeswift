@@ -53,6 +53,11 @@ public final class HAPServer: @unchecked Sendable {
         /// How long a pair setup may take from M1 before another controller can start one (the ADK's
         /// `kHAPPairing_PairSetupProcedureTimeout`): one that stops halfway would otherwise keep the bridge busy.
         public var pairSetupTimeout: TimeAmount = .seconds(30)
+        /// Gives every bridged accessory a Serial Number no other accessory on this server has: of those that come with
+        /// the same one, the accessory with the lowest aid keeps it and the others get it followed by `-<aid>`. A
+        /// controller that knows the accessories by serial number (Wingman, through the Home app) then tells them
+        /// apart; HomeKit itself keeps rooms and automations by aid, so the change costs nothing there.
+        public var uniqueSerialNumbers = false
         public var logger: Logger
 
         public init(
@@ -109,11 +114,22 @@ public final class HAPServer: @unchecked Sendable {
         /// server's accessories) and `StructureGeneration` (their services).
         var databaseTemplate: DatabaseTemplate?
         var databaseVersion = 0
+        /// With `uniqueSerialNumbers`: the Serial Number each bridged accessory came with, and the one it was given.
+        var serialNumbers: [Int: SerialNumber] = [:]
+        /// The aids that came with each Serial Number, so a change touches only those that share it.
+        var serialNumberAids: [String: Set<Int>] = [:]
 
         /// What HomeKit does not see besides mirrored accessories: those hidden by choice and those over capacity.
         var outOfHomeKit: Set<String> { overCapacity.isEmpty ? hiddenFromHomeKit : hiddenFromHomeKit.union(overCapacity) }
 
         func isOutOfHomeKit(_ id: String) -> Bool { hiddenFromHomeKit.contains(id) || overCapacity.contains(id) }
+    }
+
+    struct SerialNumber {
+        /// The one it came with.
+        var own: String
+        /// The one HomeKit sees.
+        var given: String
     }
 
     /// HomeKit takes at most 150 accessories from a bridge, the bridge included ("A bridge must not expose more than 150
@@ -219,22 +235,27 @@ public final class HAPServer: @unchecked Sendable {
         // configuration number and the advertisement stay as they are: no bump, no write, no new TXT record.
         // Only when it replaces one HomeKit could see under the same id does the database change.
         if accessory.mirroredFrom != nil {
-            let running = state.withLockedValue { state -> Bool in
+            let (running, serials) = state.withLockedValue { state -> (Bool, [SerialNumberUpdate]) in
                 let previous = state.persisted.aids[accessory.id].flatMap { state.accessories[$0] }
                 _ = assign(accessory, aid: nil, in: &state)
-                guard let previous, previous.mirroredFrom == nil else { return false }
-                return refreshIfRunning(&state)
+                let serials = forgetSerialNumber(aid: accessory.aid, in: &state)
+                guard let previous, previous.mirroredFrom == nil else { return (false, serials) }
+                return (refreshIfRunning(&state), serials)
             }
+            apply(serials)
             if running {
                 try persist()
                 updateAdvertisement()
             }
             return
         }
+        var serials: [SerialNumberUpdate] = []
+        defer { apply(serials) }
         let (running, changed) = state.withLockedValue { state -> (Bool, Bool) in
             let before = (state.persisted.configurationNumber, state.persisted.databaseHash)
             let previous = state.persisted.aids[accessory.id].flatMap { state.accessories[$0] }
             let assigned = assign(accessory, aid: nil, in: &state)
+            serials = noteSerialNumber(of: accessory, in: &state)
             let running: Bool
             if state.serverChannel != nil, !assigned, let previous, structure(of: previous) == structure(of: accessory) {
                 // It replaces an accessory of the same shape under the same ids: the database is as it was, and
@@ -286,14 +307,17 @@ public final class HAPServer: @unchecked Sendable {
     /// the whole database N times, under the lock every request takes.
     public func remove(_ accessory: Accessory) throws {
         defer { structureChanged() }
-        state.withLockedValue { state in
-            guard let removed = state.accessories.removeValue(forKey: accessory.aid) else { return }
+        let serials = state.withLockedValue { state -> [SerialNumberUpdate] in
+            guard let removed = state.accessories.removeValue(forKey: accessory.aid) else { return [] }
             structureMoved(&state)
-            guard state.serverChannel != nil, removed.mirroredFrom == nil, !state.isOutOfHomeKit(removed.id) else { return }
+            let serials = forgetSerialNumber(aid: accessory.aid, in: &state)
+            guard state.serverChannel != nil, removed.mirroredFrom == nil, !state.isOutOfHomeKit(removed.id) else { return serials }
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
             state.hashBehind = true
             state.announceBehind = true
+            return serials
         }
+        apply(serials)
         scheduleHashSettle()
     }
 
@@ -512,6 +536,54 @@ public final class HAPServer: @unchecked Sendable {
         return changed
     }
 
+    // MARK: Serial numbers
+
+    typealias SerialNumberUpdate = (characteristic: Characteristic, value: String)
+
+    /// With `uniqueSerialNumbers`, notes the Serial Number a bridged accessory comes with and works out the ones its
+    /// server's accessories get now (`Options.uniqueSerialNumbers`). The values are set by `apply(_:)`, outside the lock
+    /// a value change takes.
+    private func noteSerialNumber(of accessory: Accessory, in state: inout State) -> [SerialNumberUpdate] {
+        guard options.uniqueSerialNumbers, accessory.mirroredFrom == nil, accessory.aid != 1 else { return [] }
+        let current = accessory.information[.serialNumber]?.value.stringValue ?? ""
+        let known = state.serialNumbers[accessory.aid]
+        // Added again as it is (a new name, a restored accessory replaced), it still carries the one it was given.
+        let own = known.flatMap { $0.given == current ? $0.own : nil } ?? current
+        if let old = known?.own, old != own { state.serialNumberAids[old]?.remove(accessory.aid) }
+        state.serialNumbers[accessory.aid] = SerialNumber(own: own, given: current)
+        state.serialNumberAids[own, default: []].insert(accessory.aid)
+        return serialNumberUpdates(sharing: [own, known?.own].compactMap { $0 }, in: &state)
+    }
+
+    /// Forgets the Serial Number of an accessory that left, or that is mirrored now; another with the same one may
+    /// get it back.
+    private func forgetSerialNumber(aid: Int, in state: inout State) -> [SerialNumberUpdate] {
+        guard let removed = state.serialNumbers.removeValue(forKey: aid) else { return [] }
+        state.serialNumberAids[removed.own]?.remove(aid)
+        return serialNumberUpdates(sharing: [removed.own], in: &state)
+    }
+
+    private func serialNumberUpdates(sharing owns: [String], in state: inout State) -> [SerialNumberUpdate] {
+        var updates: [SerialNumberUpdate] = []
+        for own in Set(owns) where !own.isEmpty {
+            let aids = (state.serialNumberAids[own] ?? []).sorted()
+            if aids.isEmpty { state.serialNumberAids.removeValue(forKey: own) }
+            for (index, aid) in aids.enumerated() {
+                let wanted = index == 0 ? own : "\(own)-\(aid)"
+                guard state.serialNumbers[aid]?.given != wanted else { continue }
+                state.serialNumbers[aid]?.given = wanted
+                if let characteristic = state.accessories[aid]?.information[.serialNumber] {
+                    updates.append((characteristic, wanted))
+                }
+            }
+        }
+        return updates
+    }
+
+    private func apply(_ updates: [SerialNumberUpdate]) {
+        for update in updates { update.characteristic.value = .string(update.value) }
+    }
+
     private func refreshConfigurationNumber(in state: inout State) {
         let hash = databaseHash(state)
         // Behind, the stored hash is from before the last adds and cannot tell whether this change changed anything:
@@ -617,8 +689,11 @@ public final class HAPServer: @unchecked Sendable {
         accessories: [Int: Accessory], hidden: Set<String>, includeValues: Bool, holes: inout [Characteristic]?
     ) -> AccessoryDatabase {
         AccessoryDatabase(accessories: accessories.filter { $0.value.mirroredFrom == nil && !hidden.contains($0.value.id) }.sorted { $0.key < $1.key }.map { aid, accessory in
-            AccessoryDatabase.AccessoryJSON(aid: aid, services: accessory.services.map { service in
-                AccessoryDatabase.ServiceJSON(
+            // A link names a service of the same accessory: one moved to another (Separate Functions) is left out.
+            let own = Set(accessory.services.map(ObjectIdentifier.init))
+            return AccessoryDatabase.AccessoryJSON(aid: aid, services: accessory.services.map { service in
+                let linked = service.linked.filter { own.contains(ObjectIdentifier($0)) }
+                return AccessoryDatabase.ServiceJSON(
                     iid: service.iid,
                     type: service.type.uuid.shortForm,
                     characteristics: service.characteristics.map {
@@ -631,7 +706,7 @@ public final class HAPServer: @unchecked Sendable {
                     },
                     primary: service.isPrimary ? true : nil,
                     hidden: service.isHidden ? true : nil,
-                    linked: service.linked.isEmpty ? nil : service.linked.map(\.iid)
+                    linked: linked.isEmpty ? nil : linked.map(\.iid)
                 )
             })
         })

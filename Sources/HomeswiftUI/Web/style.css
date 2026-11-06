@@ -4642,6 +4642,23 @@ select option:disabled { color: var(--muted); }
 }
 
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
+/* The Home Link (homelink.js): the first link's review, the Zones, and the banner while a link waits. */
+.home-link-dialog { width: min(560px, calc(100vw - 32px)); }
+.home-link-dialog form { display: grid; gap: var(--space-12); }
+.home-link-list h3 { margin: 0 0 var(--space-4); font-size: var(--text-sm); color: var(--muted); font-weight: var(--weight-semibold); }
+.home-link-list ul { margin: 0; padding-left: var(--space-20); display: grid; gap: var(--space-4); }
+.home-link-zones { display: grid; gap: var(--space-12); max-height: min(60vh, 520px); overflow: auto; }
+.home-link-zone { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: var(--space-8); }
+.home-link-zone + .home-link-zone { border-top: 1px solid var(--line); padding-top: var(--space-12); }
+.home-link-zone-head { display: flex; gap: var(--space-8); align-items: center; padding: 0; width: 100%; }
+.home-link-zone-head input { min-width: 0; flex: 1; }
+.home-link-zone .choices { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-14); }
+.home-link-banner { display: flex; flex-wrap: wrap; gap: var(--space-10); align-items: center; justify-content: space-between; margin: 0 0 var(--space-14);
+  padding: var(--space-10) var(--space-14); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text);
+  animation: materialize var(--normal) var(--ease-out); }
+.home-link-banner > span { flex: 1 1 16rem; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .home-link-banner { animation: none; } }
+.home-link-list ul { max-height: 12rem; overflow: auto; }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-dialog input:not([type="checkbox"]) { width: 100%; min-width: 0; }
 .message-dialog .toggle { margin: var(--space-4) 0 var(--space-6); }

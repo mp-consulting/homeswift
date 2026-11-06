@@ -27,34 +27,82 @@ struct StructureTests {
         try #require(await plugin.automations().first { $0.id == id })
     }
 
-    // MARK: Rooms
+    // MARK: The Home Link
 
-    @Test func roomsAreListedAndRenamedInAppleHome() async throws {
+    /// Wingman's view of the bridge's home, as the Home Link gives it: rooms, zones and placements by id, Homeswift's ids
+    /// for the accessories (a mirror's, its own plug's by serial number).
+    @Test func theHomeLinkGivesTheBridgesHome() async throws {
         let (host, plugin) = try await start()
-        let rooms = await plugin.rooms()
-        #expect(rooms.map(\.name) == ["Salon", "Bureau", "Cave", "Entrée"])
-        #expect(rooms.first?.place == "Maison")
-        // Through the host, as "Sync rooms with the hubs" does.
-        try await host.renameRoom(platform: "Wingman", name: "Wingman", id: "room-salon", to: "Séjour")
-        #expect(environment.wingman.edits.last == .init(path: "rooms/rename", body: ["room": "room-salon", "name": "Séjour"]))
-        #expect(await plugin.rooms().first?.name == "Séjour")
-        // The "homes" event Wingman makes moves the mirrored light to the renamed room.
-        #expect(await eventually { host.mainBridge.server.accessories.first { $0.id == "Wingman:light-1" }?.suggestedRoom == "Séjour" })
+        try publishPlug(host)
+        #expect(await plugin.homeLinkState() == .up)
+        #expect(await eventually { await plugin.homeSnapshot()?.placements["Meross:plug"] != nil })
+        let home = try #require(await plugin.homeSnapshot())
+        #expect(home.homeID == "home-1")
+        #expect(home.rooms.map(\.name) == ["Salon", "Bureau", "Cave", "Entrée"])
+        #expect(home.placements["Wingman:light-1"] == .some("room-salon"))
+        #expect(home.placements["Meross:plug"] == .some("room-bureau"))
+        #expect(home.zones == [.init(id: "zone-bas", name: "Rez-de-chaussée", rooms: ["room-salon", "room-entree"])])
         await host.stop()
     }
 
-    /// A room renamed in the Home app is said to Homeswift once; one Homeswift renamed is not said back.
-    @Test func aRoomRenamedInAppleHomeIsSaidToHomeswift() async throws {
+    /// Changes the Home Link asks for go to Wingman by id; one Apple Home does not have is not found.
+    @Test func changesGoToAppleHomeByID() async throws {
         let (host, plugin) = try await start()
-        let renames = NIOLockedValueBox<[String]>([])
-        host.handleHubRoomChanges { instance, change in
-            if case .renamed(let from, let to) = change { renames.withLockedValue { $0.append("\(instance.platform) \(from)→\(to)") } }
-        }
-        try await plugin.renameRoom(id: "room-bureau", name: "Atelier")
-        environment.wingman.renameRoomInAppleHome("room-cave", to: "Cellier")
-        #expect(await eventually { renames.withLockedValue { $0 } == ["Wingman Cave→Cellier"] })
-        #expect(await plugin.rooms().map(\.name) == ["Salon", "Atelier", "Cellier", "Entrée"])
+        try publishPlug(host)
+        #expect(await eventually { await plugin.homeSnapshot()?.placements["Meross:plug"] != nil })
+        let garage = try #require(try await plugin.applyHomeChange(.createRoom(name: "Garage")))
+        #expect(environment.wingman.edits.last == .init(path: "rooms/create", body: ["name": "Garage", "home": "home-1"]))
+        _ = try await plugin.applyHomeChange(.moveAccessory(accessoryID: "Meross:plug", roomID: garage))
+        #expect(environment.wingman.edits.last == .init(path: "accessories/room", body: ["accessory": "homeswift-switch", "roomID": .string(garage)]))
+        #expect(await plugin.homeSnapshot()?.placements["Meross:plug"] == .some(garage))
+        _ = try await plugin.applyHomeChange(.moveAccessory(accessoryID: "Wingman:light-1", roomID: nil))
+        #expect(environment.wingman.edits.last == .init(path: "accessories/room", body: ["accessory": "light-1", "roomID": .null]))
+        #expect(environment.wingman.room(of: "light-1") == "Default Room")
+        _ = try await plugin.applyHomeChange(.renameRoom(id: "room-cave", name: "Cellier"))
+        #expect(await plugin.homeSnapshot()?.room("room-cave")?.name == "Cellier")
+        _ = try await plugin.applyHomeChange(.deleteRoom(id: garage))
+        #expect(await plugin.homeSnapshot()?.room(garage) == nil)
+        let zone = try #require(try await plugin.applyHomeChange(.createZone(name: "Étage")))
+        _ = try await plugin.applyHomeChange(.setZoneRooms(id: zone, add: ["room-bureau"], remove: []))
+        #expect(await plugin.homeSnapshot()?.zones.first { $0.id == zone }?.rooms == ["room-bureau"])
+        let group = try #require(try await plugin.applyHomeChange(.createGroup(name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])))
+        #expect(environment.wingman.edits.last == .init(path: "groups/create", body: ["name": "Lampes", "services": ["bulb-1", "switch-1"], "home": "home-1"]))
+        #expect(await plugin.homeSnapshot()?.groups == [.init(id: group, name: "Lampes", members: ["Wingman:light-1", "Meross:plug"])])
+        let error = await #expect(throws: HomeChangeError.self) { try await plugin.applyHomeChange(.moveAccessory(accessoryID: "Elgato:lamp", roomID: nil)) }
+        #expect(error?.kind == .notFound)
         await host.stop()
+    }
+
+    /// A change in the Home app reaches Homeswift as a new snapshot (`PluginContext.homeChanged()`).
+    @Test func aChangeInTheHomeAppIsSaid() async throws {
+        let (host, plugin) = try await start()
+        let said = NIOLockedValueBox(0)
+        host.handleHomeChanges { said.withLockedValue { $0 += 1 } }
+        environment.wingman.renameRoomInAppleHome("room-cave", to: "Cellier")
+        #expect(await eventually { await plugin.homeSnapshot()?.room("room-cave")?.name == "Cellier" })
+        #expect(await eventually { said.withLockedValue { $0 } > 0 })
+        environment.wingman.deleteRoomInAppleHome("room-cave")
+        #expect(await eventually { await plugin.homeSnapshot()?.room("room-cave") == nil })
+        await host.stop()
+    }
+
+    /// Up but not allowed to edit, Apple Home's changes still come; a Wingman from before the Home Link is no link.
+    @Test func theLinksStateSaysWhatToTurnOn() async throws {
+        let (host, plugin) = try await start()
+        environment.wingman.allowStructure(false)
+        #expect(await eventually { if case .readOnly = await plugin.homeLinkState() { true } else { false } })
+        let error = await #expect(throws: HomeChangeError.self) { try await plugin.applyHomeChange(.renameRoom(id: "room-salon", name: "Séjour")) }
+        #expect(error?.kind == .refused)
+        await host.stop()
+
+        environment.wingman.withoutHomeLink()
+        let older = try await environment.start()
+        let plugin2 = try #require(environment.plugin)
+        #expect(await eventually { await !plugin2.automations().isEmpty })
+        guard case .down(let reason) = await plugin2.homeLinkState() else { Issue.record("not down"); return }
+        #expect(reason.contains("Update Homeswift Wingman"))
+        #expect(await plugin2.homeSnapshot() == nil)
+        await older.stop()
     }
 
     /// Homeswift's own plug, as the host publishes it: Apple Home knows it by its serial number.
@@ -63,41 +111,41 @@ struct StructureTests {
             id: "Meross:plug", name: "Plug", serialNumber: "PLUG-SERIAL", category: .outlet, services: [Service(.outlet, isPrimary: true)]))
     }
 
-    /// An accessory moved in Homeswift moves in Apple Home: a mirror by its id, one of Homeswift's own by its serial
-    /// number, to a room Apple Home adds when it has none; one Apple Home does not have is not Wingman's.
-    @Test func anAccessoryMovedInHomeswiftMovesInAppleHome() async throws {
-        let (host, plugin) = try await start()
-        try publishPlug(host)
-        let changes = NIOLockedValueBox<[HubRoomChange]>([])
-        host.handleHubRoomChanges { _, change in changes.withLockedValue { $0.append(change) } }
-
-        #expect(try await plugin.moveAccessory(id: "Wingman:light-1", toRoom: "Bureau"))
-        #expect(environment.wingman.edits.last == .init(path: "accessories/room", body: ["accessory": "light-1", "room": "Bureau"]))
-        #expect(try await plugin.moveAccessory(id: "Meross:plug", toRoom: "Garage"))
-        #expect(environment.wingman.edits.last == .init(path: "accessories/room", body: ["accessory": "homeswift-switch", "room": "Garage"]))
-        #expect(try await !plugin.moveAccessory(id: "Elgato:lamp", toRoom: "Garage"))
-        // Already there: nothing sent.
-        #expect(try await plugin.moveAccessory(id: "Meross:plug", toRoom: "garage"))
-        #expect(environment.wingman.edits.count == 2)
-
-        // Wingman's "homes" event shows both moves; neither is said back.
-        #expect(await eventually { await plugin.rooms().contains { $0.name == "Garage" } })
-        #expect(await eventually { host.mainBridge.server.accessories.first { $0.id == "Wingman:light-1" }?.suggestedRoom == "Bureau" })
-        #expect(changes.withLockedValue { $0 }.isEmpty)
-        await host.stop()
+    func homeAccessory(_ id: String, serialNumber: String, bridge: [String: Any]? = nil) -> [String: Any] {
+        var accessory: [String: Any] = ["id": id, "name": id, "services": [[
+            "type": "0000003E-0000-1000-8000-0026BB765291",
+            "characteristics": [["type": "00000030-0000-1000-8000-0026BB765291", "properties": ["read"], "value": serialNumber]],
+        ]]]
+        if let bridge { accessory["bridge"] = bridge }
+        return accessory
     }
 
-    /// An accessory moved in the Home app is said to Homeswift by Homeswift's id: a mirror's, or its own plug's.
-    @Test func anAccessoryMovedInAppleHomeIsSaidToHomeswift() async throws {
-        let (host, _) = try await start()
-        try publishPlug(host)
-        let changes = NIOLockedValueBox<[HubRoomChange]>([])
-        host.handleHubRoomChanges { _, change in changes.withLockedValue { $0.append(change) } }
-        environment.wingman.moveInAppleHome("homeswift-switch", to: "Cave")
-        #expect(await eventually { changes.withLockedValue { $0 } == [.moved(accessoryID: "Meross:plug", room: "Cave")] })
-        environment.wingman.moveInAppleHome("light-1", to: "Cave")
-        #expect(await eventually { changes.withLockedValue { $0 }.last == .moved(accessoryID: "Wingman:light-1", room: "Cave") })
-        await host.stop()
+    /// One of Homeswift's own accessories is found behind its bridge (the home's accessory whose Serial Number is the
+    /// bridge's device ID), never a home's own accessory with the same serial number, such as the light a hub also brings
+    /// to Apple Home; one published on its own is found among those that are not bridged.
+    @Test func homeswiftsOwnAccessoriesAreFoundBehindItsBridge() throws {
+        let bridge = TestEnvironment.bridgeID
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": [
+            homeAccessory("homeswift-bridge", serialNumber: bridge),
+            homeAccessory("hub-light", serialNumber: "SN", bridge: ["id": "hue-bridge", "name": "Hue Bridge"]),
+            homeAccessory("homeswift-light", serialNumber: "SN", bridge: ["id": "homeswift-bridge", "name": "Homeswift"]),
+            homeAccessory("other-homeswift", serialNumber: "SN", bridge: ["id": "elsewhere", "name": "Homeswift", "manufacturer": "Homeswift"]),
+            homeAccessory("older-wingman", serialNumber: "OLD", bridge: ["name": "Homeswift", "manufacturer": "Homeswift"]),
+            homeAccessory("homeswift-tv", serialNumber: "TV"),
+            homeAccessory("hub-tv", serialNumber: "TV", bridge: ["id": "hue-bridge", "name": "Hue Bridge"]),
+        ]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: ["TV"])
+
+        #expect(structure.homeKitID(of: "Hue:light", place: .init(bridge: bridge, serialNumber: "SN")) == "homeswift-light")
+        #expect(structure.homeKitID(of: "PhilipsAmbilightTV:tv", place: .init(bridge: nil, serialNumber: "TV")) == "homeswift-tv")
+        // A Wingman that does not name bridges: a bridge that says it is Homeswift's.
+        #expect(structure.homeKitID(of: "Old:plug", place: .init(bridge: bridge, serialNumber: "OLD")) == "older-wingman")
+        #expect(structure.homeKitID(of: "Hue:gone", place: .init(bridge: bridge, serialNumber: "NONE")) == nil)
+        // Another Homeswift's bridge, or a hub's, is not this one.
+        #expect(structure.devices["other-homeswift"]?.homeswift == nil)
+        #expect(structure.devices["hub-light"]?.homeswift == nil)
+        #expect(structure.devices["hub-tv"]?.homeswift == nil)
     }
 
     // MARK: Scenes
@@ -245,7 +293,7 @@ struct StructureTests {
         let host = try await environment.start()
         #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == "Wingman:light-1" } })
         let plugin = try #require(environment.plugin)
-        #expect(await plugin.rooms().isEmpty)
+        #expect(await plugin.homeSnapshot() == nil)
         #expect(await plugin.scenes().isEmpty)
         #expect(await plugin.automations().isEmpty)
         #expect(!environment.wingman.requests.contains("scenes"))
@@ -258,9 +306,6 @@ struct StructureTests {
         // The "settings" event: the scenes may only run now.
         #expect(await eventually { (try? await scene(plugin, "scene-evening"))?.capabilities == [.recall] })
         #expect(try await automation(plugin, "auto-sunset").capabilities.isEmpty)
-        // A room rename still asks Wingman, which says why it refuses.
-        let error = await #expect(throws: WingmanError.self) { try await plugin.renameRoom(id: "room-salon", name: "Séjour") }
-        #expect(error?.description == "structural edits are turned off in Wingman's settings")
         environment.wingman.allowStructure(true)
         #expect(await eventually { (try? await scene(plugin, "scene-evening"))?.capabilities.contains(.rename) == true })
         await host.stop()

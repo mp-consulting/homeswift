@@ -148,7 +148,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     public func start() async throws {
         let (changes, continuation) = AsyncStream<(Accessory, Characteristic, HAPValue)>.makeStream()
         // One stream keeps the changes in order (a press after the state it follows).
-        observations.append(source.observeChanges { accessory, characteristic, value in continuation.yield((accessory, characteristic, value)) })
+        observations.append(source.observeDeviceChanges { accessory, characteristic, value in continuation.yield((accessory, characteristic, value)) })
         tasks.append(Task { [weak self] in
             for await (accessory, characteristic, value) in changes { await self?.changed(accessory, characteristic, value) }
         })

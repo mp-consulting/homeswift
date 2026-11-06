@@ -69,7 +69,7 @@ public struct HomeswiftCatalog: Sendable {
         self.logger = logger
         home = HomeState(directory: configURL.deletingLastPathComponent())
         host.handleRenames { [self] id, name in await self.storeHomeRename(of: id, to: name) }
-        host.handleHubRoomChanges { [self] instance, change in await self.followHubRoomChange(on: instance, change) }
+        host.handleHomeChanges { [self] in await self.followHome() }
     }
 
     /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.
@@ -125,11 +125,21 @@ public struct HomeswiftCatalog: Sendable {
         public var layout: AccessoryLayout.Entry?
         /// The bridge keeps the energy of some Meter of it (docs/adr/0004-meters-and-consumption-history.md).
         public var metered = false
+        /// For a separated Function, its device's room (empty for none): where it starts until it is given its own.
+        public var deviceRoom: String?
+
+        /// The device behind it: the plugin's own accessory when this one stands for it in HomeKit with its Functions
+        /// separated, or is one of its Functions; the accessory itself otherwise.
+        public var device: Accessory { accessory.separatedFrom ?? accessory }
+
+        /// Whether it is one of a device's separated Functions rather than the device's own accessory.
+        public var isSeparatedFunction: Bool { device.id != accessory.id }
 
         /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`). An
         /// empty room is the user's "no room", which the suggestion does not override.
         public var room: String? {
             if let room = layout?.room { return room.isEmpty ? nil : room }
+            if let deviceRoom { return deviceRoom.isEmpty ? nil : deviceRoom }
             return accessory.suggestedRoom
         }
     }
@@ -172,8 +182,10 @@ public struct HomeswiftCatalog: Sendable {
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
                 let platform = owners.instance(of: accessory.id, on: bridge)
-                return Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]),
-                               metered: metered.contains(accessory.id))
+                var located = Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]),
+                                      metered: metered.contains(accessory.id))
+                if located.isSeparatedFunction { located.deviceRoom = live.entry(for: located.device.id, platform: platform, legacy: layout[located.device.id])?.room }
+                return located
             }
         }
     }
@@ -186,7 +198,11 @@ public struct HomeswiftCatalog: Sendable {
             // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
             let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
             let layout = LiveSettings.entry(for: id, platform: platform, legacy: home.layout.value.accessories[id], in: host.configuration)
-            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.hasMeters(accessory: id) == true)
+            var located = Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.hasMeters(accessory: id) == true)
+            if located.isSeparatedFunction {
+                located.deviceRoom = LiveSettings.entry(for: located.device.id, platform: platform, legacy: home.layout.value.accessories[located.device.id], in: host.configuration)?.room
+            }
+            return located
         }
         return nil
     }
@@ -239,7 +255,7 @@ public struct HomeswiftCatalog: Sendable {
     /// Stores a rename made in the Home app (a controller's write of Configured Name) as the accessory's Name.
     func storeHomeRename(of accessoryID: String, to name: String) async {
         do {
-            _ = try await updateAccessorySettings([(accessoryID, ["name": .string(name)])], moveOnHubs: false, by: .person)
+            _ = try await updateAccessorySettings([(accessoryID, ["name": .string(name)])], fromHome: true, by: .person)
             logger.info("Kept the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "name": "\(name)"])
         } catch {
             logger.warning("Could not keep the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "error": "\(error)"])
@@ -1049,7 +1065,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "list_accessories", title: "List accessories",
                 description: "Every accessory on every bridge with its services and current values, or those the filters pick (all must match): "
-                    + "platform, room (the web UI's rooms, get_accessory_layout), type (a category or service type), name, manufacturer, excludeManufacturer. "
+                    + "platform, room (the Rooms, get_accessory_layout), zone (a Zone's Rooms, get_zones), type (a category or service type), name, manufacturer, excludeManufacturer. "
                     + "detailed adds each characteristic's format, permissions and range.",
                 inputSchema: ["type": "object", "properties": .object(Self.filterProperties.merging(["detailed": ["type": "boolean"]]) { a, _ in a })],
                 outputSchema: Output.accessories, scope: .read, idempotent: true
@@ -1302,7 +1318,7 @@ public struct HomeswiftCatalog: Sendable {
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
                 return .json(try await catalog.restoreConfigBackup(backup))
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.

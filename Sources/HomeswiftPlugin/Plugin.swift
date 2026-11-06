@@ -141,16 +141,21 @@ public protocol HomeswiftPlugin: Sendable {
     /// Removes a scene from the hub (`delete` capability). Homeswift asks the person first. Defaults to throwing.
     func deleteScene(id: String) async throws
 
-    /// The rooms the plugin's hub or cloud keeps (`PluginRoom`), for Homeswift to rename the one named like a room
-    /// renamed in Homeswift, when `syncRoomNames` is on. Asked only then, so it may ask the hub. Defaults to none.
+    /// The rooms the plugin's hub or cloud keeps (`PluginRoom`), for Homeswift to rename the one named like a Room
+    /// renamed in Homeswift. Asked only then, so it may ask the hub. Defaults to none.
     func rooms() async -> [PluginRoom]
 
     /// Renames one of `rooms()` by its `PluginRoom.id` on the hub. Defaults to throwing.
     func renameRoom(id: String, name: String) async throws
 
-    /// Moves the accessory `accessoryID` (Homeswift's id, the plugin's or not) to the hub's room named `room`, when the
-    /// hub keeps it in rooms (Apple Home keeps Homeswift's): answers false for one it does not have. Defaults to false.
-    func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool
+    /// The Home Link's state when the plugin is the Home Link (`HomeLink.swift`: Wingman); nil, the default, otherwise.
+    func homeLinkState() async -> HomeLinkState?
+
+    /// The Home as the Home Link last saw it. Defaults to nil.
+    func homeSnapshot() async -> HomeSnapshot?
+
+    /// Makes a change in the Home through the Home Link, answering the id of what it created. Defaults to throwing.
+    func applyHomeChange(_ change: HomeChange) async throws -> String?
 
     /// What the instance's account asks before the plugin may use it (Setup, `Setup.swift`): a cloud's login, a
     /// developer portal's keys. Defaults to `.none`: no account, or one whose settings the form takes as they are.
@@ -538,42 +543,103 @@ public final class PluginContext: @unchecked Sendable {
 
     /// Every accessory on the host's servers (the bridges and the external accessories), set by `PluginHost`.
     var publishedAccessories: @Sendable () -> [Accessory] {
+        { [publishedServers] in publishedServers().flatMap(\.accessories) }
+    }
+
+    /// Homeswift's HAP servers and what each publishes: set by `PluginHost`.
+    var publishedServers: @Sendable () -> [PublishedServer] {
         get { publishedBox.withLockedValue { $0 } }
         set { publishedBox.withLockedValue { $0 = newValue } }
     }
-    private let publishedBox = NIOLockedValueBox<@Sendable () -> [Accessory]>({ [] })
+    private let publishedBox = NIOLockedValueBox<@Sendable () -> [PublishedServer]>({ [] })
 
-    /// Tells Homeswift a room of the plugin's hub was renamed there (in the Home app, through Wingman): with the
-    /// layout's `syncRoomNames` on, Homeswift renames its room of the old name too, and the other hubs' (docs/ui.md,
-    /// "Rooms on the hubs"). Say it only for a rename the hub made, not one Homeswift asked for with `renameRoom`.
-    public func hubRoomRenamed(from: String, to: String) {
-        hubRoomChangeBox.withLockedValue { $0 }?(.renamed(from: from, to: to))
+    /// One of Homeswift's HAP servers: a bridge, main or child, or an accessory published on its own.
+    struct PublishedServer: Sendable {
+        /// Its HAP device ID: a bridge's Serial Number in HomeKit.
+        var deviceID: String
+        var isExternal: Bool
+        var accessories: [Accessory]
+
+        /// Its accessories HomeKit has from it, the bridge itself and mirrored ones left out.
+        var published: [Accessory] {
+            accessories.filter { $0.mirroredFrom == nil && (isExternal || $0.aid != 1) }
+        }
     }
 
-    /// Tells Homeswift one of its accessories (`accessoryID`, Homeswift's id) was moved to `room` on the plugin's hub
-    /// (in the Home app, through Wingman): with `syncRoomNames` on, Homeswift moves it to its room of that name. Say it
-    /// only for a move the hub made, not one Homeswift asked for with `moveAccessory`.
-    public func hubAccessoryMoved(accessoryID: String, room: String) {
-        hubRoomChangeBox.withLockedValue { $0 }?(.moved(accessoryID: accessoryID, room: room))
+    /// Where one of Homeswift's own accessories is, as another controller of the home sees it: the Serial Number of the
+    /// bridge it is behind (nil for one published on its own server) and its own.
+    public struct PublishedPlace: Sendable, Hashable {
+        public var bridge: String?
+        public var serialNumber: String
+
+        public init(bridge: String?, serialNumber: String) {
+            self.bridge = bridge
+            self.serialNumber = serialNumber
+        }
+    }
+
+    /// The Serial Numbers HomeKit knows Homeswift's bridges by (their HAP device IDs), main and child.
+    public var homeswiftBridgeSerialNumbers: Set<String> {
+        Set(publishedServers().filter { !$0.isExternal }.map(\.deviceID))
+    }
+
+    /// The Serial Numbers of the accessories Homeswift publishes on their own servers (`publishExternal`).
+    public var ownSerialNumbers: Set<String> {
+        Set(publishedServers().filter(\.isExternal).flatMap(\.published).compactMap { $0.information[.serialNumber]?.value.stringValue })
+    }
+
+    /// Where Homeswift publishes the accessory with this id, mirrored ones left out.
+    public func publishedPlace(ofAccessory id: String) -> PublishedPlace? {
+        for server in publishedServers() {
+            guard let accessory = server.published.first(where: { $0.id == id }),
+                  let serialNumber = accessory.information[.serialNumber]?.value.stringValue else { continue }
+            return PublishedPlace(bridge: server.isExternal ? nil : server.deviceID, serialNumber: serialNumber)
+        }
+        return nil
+    }
+
+    /// Homeswift's own accessories by where they are published, those that share a place left out: `publishedAccessoryID(at:)`
+    /// for many lookups, the servers read once.
+    public func publishedIndex() -> [PublishedPlace: String] {
+        var index: [PublishedPlace: String] = [:], shared: Set<PublishedPlace> = []
+        for server in publishedServers() {
+            for accessory in server.published {
+                guard let serialNumber = accessory.information[.serialNumber]?.value.stringValue else { continue }
+                let place = PublishedPlace(bridge: server.isExternal ? nil : server.deviceID, serialNumber: serialNumber)
+                if index.updateValue(accessory.id, forKey: place) != nil { shared.insert(place) }
+            }
+        }
+        for place in shared { index.removeValue(forKey: place) }
+        return index
+    }
+
+    /// The id of Homeswift's own accessory at this place: on the bridge with that Serial Number, where serial numbers
+    /// are unique, or published on its own when `bridge` is nil; nil when none, or several, are there.
+    public func publishedAccessoryID(at place: PublishedPlace) -> String? {
+        let ids = publishedServers().filter { place.bridge == nil ? $0.isExternal : !$0.isExternal && $0.deviceID == place.bridge }
+            .flatMap(\.published).filter { $0.information[.serialNumber]?.value.stringValue == place.serialNumber }.map(\.id)
+        return ids.count == 1 ? ids[0] : nil
+    }
+
+    /// Tells Homeswift the Home Link's snapshot or state changed (`HomeswiftPlugin.homeSnapshot()`, `homeLinkState()`):
+    /// something changed in the Home app, or the link came up or went down. Homeswift reads the snapshot again and
+    /// follows it. Say it for changes Homeswift asked for too (`applyHomeChange`): they then match, and nothing moves.
+    public func homeChanged() {
+        homeChangeBox.withLockedValue { $0 }?()
     }
 
     /// Set by `PluginHost`.
-    var onHubRoomChange: (@Sendable (HubRoomChange) -> Void)? {
-        get { hubRoomChangeBox.withLockedValue { $0 } }
-        set { hubRoomChangeBox.withLockedValue { $0 = newValue } }
+    var onHomeChanged: (@Sendable () -> Void)? {
+        get { homeChangeBox.withLockedValue { $0 } }
+        set { homeChangeBox.withLockedValue { $0 = newValue } }
     }
-    private let hubRoomChangeBox = NIOLockedValueBox<(@Sendable (HubRoomChange) -> Void)?>(nil)
+    private let homeChangeBox = NIOLockedValueBox<(@Sendable () -> Void)?>(nil)
 
     /// The id of the one accessory Homeswift itself publishes with this serial number (mirrored ones left out); nil
     /// when none or several have it. For a plugin that reads another controller's view of the home (Wingman).
     public func publishedAccessoryID(serialNumber: String) -> String? {
         let ids = publishedAccessories().filter { $0.mirroredFrom == nil && $0.information[.serialNumber]?.value.stringValue == serialNumber }.map(\.id)
         return ids.count == 1 ? ids[0] : nil
-    }
-
-    /// The serial number of an accessory Homeswift itself publishes, by its id.
-    public func publishedSerialNumber(ofAccessory id: String) -> String? {
-        publishedAccessories().first { $0.id == id && $0.mirroredFrom == nil }?.information[.serialNumber]?.value.stringValue
     }
 
     /// The serial numbers of every accessory Homeswift itself publishes to HomeKit, on any bridge or on its own, mirrored
@@ -621,9 +687,84 @@ public final class PluginContext: @unchecked Sendable {
         }
         naming.apply(to: accessory)
         attachEnergyHistory(to: accessory)
-        try bridge.server.add(accessory)
+        try publishOnBridge(accessory)
         list.withLockedValue { $0.put(accessory) }
         scheduleCacheSave()
+    }
+
+    // MARK: Separate Functions
+
+    /// The keys of `_accessories` whose Functions are separated, and what is published now for each accessory separated.
+    private let separations = NIOLockedValueBox<(keys: Set<String>, published: [String: Separation])>(([], [:]))
+
+    /// The ids of what this instance publishes on the bridge besides its own accessories: their separated Functions.
+    public var separatedFunctionIDs: [String] {
+        separations.withLockedValue { $0.published.values.flatMap { $0.parts.map(\.id) } }
+    }
+
+    /// Whether `accessory` is to have its Functions separated: its key in `_accessories` asks for it.
+    private func wantsSeparation(_ accessory: Accessory) -> Bool {
+        let key = AccessoryNaming.deviceID(of: accessory.id, platform: platform)
+        return separations.withLockedValue { $0.keys.contains(key) } && !isExternal(id: accessory.id)
+    }
+
+    /// Puts the plugin's accessory on the bridge: as it is, or its Functions separated (`Separation`), the accessories
+    /// of the Functions it no longer separates taken off.
+    private func publishOnBridge(_ accessory: Accessory) throws {
+        let separation = wantsSeparation(accessory) ? Separation.of(accessory) : nil
+        let previous = separations.withLockedValue { $0.published[accessory.id] }
+        if let separation {
+            for part in separation.parts {
+                try bridge.claim(part.id, for: key, name: name)
+                naming.apply(to: part)
+            }
+            try bridge.server.add(separation.main)
+            accessory.shareAid(of: separation.main)
+            for part in separation.parts { try bridge.server.add(part) }
+        } else {
+            try bridge.server.add(accessory)
+        }
+        let kept = Set(separation?.parts.map(\.id) ?? [])
+        for part in previous?.parts ?? [] where !kept.contains(part.id) {
+            try? bridge.server.remove(part)
+            bridge.release(part.id)
+        }
+        previous?.end()
+        separations.withLockedValue { $0.published[accessory.id] = separation }
+    }
+
+    /// Takes what was published for the accessory with this id off the bridge: its separated Functions, and the
+    /// accessory itself as the server has it.
+    private func unpublishFromBridge(id: String, fallback: Accessory) throws {
+        let separation = separations.withLockedValue { $0.published.removeValue(forKey: id) }
+        for part in separation?.parts ?? [] {
+            try? bridge.server.remove(part)
+            bridge.release(part.id)
+            naming.forget(part.id)
+        }
+        separation?.end()
+        try bridge.server.remove(separation?.main ?? fallback)
+    }
+
+    /// Separates the Functions of the accessories `_accessories` asks it for, by key, and joins those of the others back,
+    /// without reloading the plugin (`PluginHost`, a live Accessory Setting).
+    func applySeparations(_ keys: Set<String>) {
+        let changed = separations.withLockedValue { state in
+            defer { state.keys = keys }
+            return state.keys != keys
+        }
+        guard changed else { return }
+        for accessory in accessories where !isExternal(id: accessory.id) {
+            let wanted = wantsSeparation(accessory)
+            let published = separations.withLockedValue { $0.published[accessory.id] != nil }
+            guard wanted != published else { continue }
+            do {
+                try publishOnBridge(accessory)
+                logger.info(wanted ? "Functions separated: \(accessory.name)" : "Functions joined back: \(accessory.name)")
+            } catch {
+                logger.warning("Could not change how \(accessory.name) is published: \(error)")
+            }
+        }
     }
 
     /// A Lightbulb with Brightness and a writable Color Temperature: what Adaptive Lighting needs.
@@ -645,7 +786,7 @@ public final class PluginContext: @unchecked Sendable {
         }
         try bridge.claim(accessory.id, for: key, name: name)
         if self.accessory(id: accessory.id) != nil, !isExternal(id: accessory.id) {
-            try bridge.server.remove(accessory)
+            try unpublishFromBridge(id: accessory.id, fallback: accessory)
         }
         naming.apply(to: accessory)
         let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
@@ -671,7 +812,7 @@ public final class PluginContext: @unchecked Sendable {
         if isExternal(id: id) {
             await externals.unpublish(id: id, key: key)
         } else {
-            try bridge.server.remove(accessory)
+            try unpublishFromBridge(id: id, fallback: accessory)
         }
         bridge.release(id)
         naming.forget(id)
@@ -724,7 +865,7 @@ public final class PluginContext: @unchecked Sendable {
                     let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
                     if isNew { created.append(published.server) }
                 } else {
-                    try bridge.server.add(accessory)
+                    try publishOnBridge(accessory)
                 }
                 list.withLockedValue { entries in
                     entries.accessories.append(accessory)
@@ -750,7 +891,7 @@ public final class PluginContext: @unchecked Sendable {
             if external.contains(accessory.id) {
                 await externals.unpublish(id: accessory.id, key: key)
             } else {
-                do { try bridge.server.remove(accessory) } catch { logger.warning("Could not remove \(accessory.name): \(error)") }
+                do { try unpublishFromBridge(id: accessory.id, fallback: accessory) } catch { logger.warning("Could not remove \(accessory.name): \(error)") }
             }
             bridge.release(accessory.id)
         }
@@ -776,12 +917,16 @@ public final class PluginContext: @unchecked Sendable {
     /// Name goes on its server again, its aid and iids kept, so controllers see the new characteristic.
     func applyNames(_ names: [String: String]) {
         guard naming.setNames(names) else { return }
-        for accessory in accessories where naming.apply(to: accessory) {
+        // A separated Function's own name, or one its accessory gives it, puts it on the bridge again.
+        // Named outside the lock: a name's write reaches observers that may ask for `separatedFunctionIDs`.
+        let published = separations.withLockedValue { $0.published }
+        let separated = Set(published.filter { $0.value.parts.map { naming.apply(to: $0) }.contains(true) }.keys)
+        for accessory in accessories where naming.apply(to: accessory) || separated.contains(accessory.id) {
             do {
                 if isExternal(id: accessory.id) {
                     try externals.bridge(id: accessory.id, key: key)?.server.replace(primary: accessory)
                 } else {
-                    try bridge.server.add(accessory)
+                    try publishOnBridge(accessory)
                 }
             } catch {
                 logger.warning("Could not give \(accessory.name) its name in HomeKit: \(error)")

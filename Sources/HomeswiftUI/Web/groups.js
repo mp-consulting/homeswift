@@ -107,7 +107,7 @@
       roomSelect.addEventListener('change', applyFilter);
       applyFilter();
       const form = el('form', {}, el('div', { class: 'group-dialog-head' }, HomeswiftCommon.tile('group', 'blue'), el('h2', { text: t('Accessory group') })), el('label', { class: 'group-name-field' }, el('span', { text: t('Name') }), name),
-        setGroupRoom ? el('label', { class: 'group-room-field' }, el('span', { text: t('Room') }), roomSelect, el('span', { class: 'help', text: t('Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.') })) : null,
+        setGroupRoom ? el('label', { class: 'group-room-field' }, el('span', { text: t('Room') }), roomSelect, el('span', { class: 'help', text: t('Moves the selected accessories in the Home app too once this bridge is linked to Apple Home.') })) : null,
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,

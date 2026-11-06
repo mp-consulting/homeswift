@@ -174,16 +174,16 @@ struct LayoutToolTests {
         let lockGroup = try await client.tool("set_wall_layout", ["groups": [["name": "Lock and lamp", "members": ["Devices:lock", "Devices:bulb2"]]]])
         #expect(lockGroup["isError"] == true, "\(lockGroup)")
         let moved = try await client.tool("set_wall_layout", ["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2", "Devices:bulb3"]]]])
-        let groups = environment.catalog.home.wall.load()["groups"]?.arrayValue ?? []
+        let groups = environment.catalog.wallLayout()["groups"]?.arrayValue ?? []
         #expect(groups.map { $0["name"] } == ["Bulbs"])
-        #expect(environment.catalog.home.wall.load()["order"]?.arrayValue?.contains(.string(groupID)) == false)
+        #expect(environment.catalog.wallLayout()["order"]?.arrayValue?.contains(.string(groupID)) == false)
         let bulbs = try #require(groups.first?["id"]?.stringValue)
         #expect(moved["structuredContent"]?["sections"]?[0]?["accessories"]?.arrayValue?.compactMap { $0["id"]?.stringValue } == [bulbs, "Devices:lamp"])
         // A group is renamed by its id, and dissolved.
         _ = try await client.tool("set_wall_layout", ["groups": [["id": .string(bulbs), "name": "All bulbs", "members": ["Devices:bulb1", "Devices:bulb2", "Devices:bulb3"]]]])
-        #expect(environment.catalog.home.wall.load()["groups"]?[0]?["name"] == "All bulbs")
+        #expect(environment.catalog.wallLayout()["groups"]?[0]?["name"] == "All bulbs")
         _ = try await client.tool("set_wall_layout", ["ungroup": [.string(bulbs)]])
-        #expect(environment.catalog.home.wall.load()["groups"] == [])
+        #expect(environment.catalog.wallLayout()["groups"] == [])
 
         let reader = DirectClient(server: environment.server, scope: .read)
         try await reader.initialize()

@@ -73,7 +73,7 @@
       const movable = members.filter((accessory) => accessory?.platform);
       await changeSettings(Object.fromEntries(movable.map((accessory) => [accessory.id, { room: roomSetting(accessory, fields.room) }])));
       await app.route();
-    }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
+    }, t("Moves every member of this group, in the Home app too once this bridge is linked to Apple Home."));
   }
 
   /// The room an accessory is shown in: its own when the Arrangement knows it, else none ("").

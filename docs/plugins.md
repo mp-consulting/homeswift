@@ -284,7 +284,14 @@ does nothing for it, but should not set Name or Configured Name again on its own
 An accessory that shows several services gets a Configured Name, its Name without the accessory's name in front
 (`Desk Candle` on `Desk` gives `Candle`), on each of the others that has none: the Home app names an accessory's other
 services by their Configured Name, inside the accessory, and numbers those without one ("Switch 1", "Switch 2"). A plugin may give one itself; the primary service gets one only with a `name`, as above.
-`bridge.roomSync` is Room Sync (GLOSSARY.md), which needs no restart.
+`bridge.roomSync`, the retired Room Sync, is read and ignored: the Rooms follow Apple Home through the Home Link.
+
+**Separate Functions.** An accessory doing several things (a light with a motion sensor) can be published Function by
+Function when a person asks (`separateFunctions`, a Core Accessory Setting applied live): the runtime keeps the device's
+own accessory with its main Function under its id, and makes each other Function an accessory of its own
+(`<id>:<function>`), the plugin's services moved, so its handlers and events keep working; `context.accessories` and
+the cache keep the plugin's accessory whole. A camera, a doorbell, a television and a remote's buttons stay whole; a
+plugin says which other Functions must stay together with `accessory.keepFunctionsTogether([light, sensor])`.
 `disabledPlugins` lists platform names to skip; their accessories leave HomeKit. Homebridge's `accessories`
 blocks are not supported.
 
@@ -318,7 +325,14 @@ automations use it as any other; the UI marks it with a house badge and filters 
 both survive the accessory cache. `CharacteristicType.known(uuid:)` and `ServiceType.known(uuid:)` find Homeswift's
 own types from a UUID another controller reports, so the widgets and scenes, which know types by name, recognise them.
 `context.publishedSerialNumbers` lists the serial numbers of every accessory Homeswift itself publishes (bridges, child
-bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. Renaming or removing a
+bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. To find one of them
+there, `context.homeswiftBridgeSerialNumbers` are the bridges' (their HAP device IDs, which the Home app lists as the
+bridges' Serial Numbers), `context.publishedPlace(ofAccessory:)` says which bridge an accessory is behind (none for one
+published on its own) with its serial number, and `context.publishedAccessoryID(at:)` goes back: a serial number is
+only unique on its bridge, so a hub's own accessory with the same one, such as a light Apple Home also has from its
+hub, is never taken for Homeswift's. Every bridge gives its accessories serial numbers no other on it has: of those a
+plugin gave the same one (a device's channels), the accessory with the lowest aid keeps it and the others get
+`-<aid>` after it (`HAPServer.Options.uniqueSerialNumbers`). Renaming or removing a
 room the other controller suggests makes it the layout's own; a removed one leaves its accessories with no room.
 `accessory.isUnavailable` set for a device that does not answer shows No Response in the web UI, which follows its
 changes as they happen (a change is announced with an event of an unchanged value). A mirror whose controller reports

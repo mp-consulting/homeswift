@@ -48,6 +48,12 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         var automations: [[String: Any]] = FakeWingman.initialAutomations
         var edits: [Edit] = []
         var created = 0
+        /// Whether it is a Wingman with "home-link" (rooms, zones and service groups by id).
+        var servesHomeLink = true
+        /// Rooms removed in the Home app or through `rooms/delete`.
+        var deletedRooms: Set<String> = []
+        var zones: [[String: Any]] = [["id": "zone-bas", "name": "Rez-de-chaussée", "roomIDs": ["room-salon", "room-entree"]]]
+        var groups: [[String: Any]] = []
     }
 
     /// A structural edit Wingman took (or refused), with its body.
@@ -65,6 +71,37 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
 
     /// An older Wingman, without the structure endpoints.
     func withoutStructure() { state.withLockedValue { $0.servesStructure = false } }
+
+    /// A Wingman from before the Home Link: rooms by name only.
+    func withoutHomeLink() { state.withLockedValue { $0.servesHomeLink = false } }
+
+    var zones: [[String: Any]] { state.withLockedValue { $0.zones } }
+    var groups: [[String: Any]] { state.withLockedValue { $0.groups } }
+
+    /// The room an accessory is in now, by name, as `/homes` gives it.
+    func room(of accessory: String) -> String? {
+        let home = try? JSONSerialization.jsonObject(with: homesBody()) as? [String: Any]
+        let homes = home?["homes"] as? [[String: Any]] ?? []
+        return (homes.first?["accessories"] as? [[String: Any]] ?? []).first { $0["id"] as? String == accessory }?["room"] as? String
+    }
+
+    /// A room removed in the Home app: its accessories go to the Default Room.
+    func deleteRoomInAppleHome(_ id: String) {
+        state.withLockedValue { state in
+            state.deletedRooms.insert(id)
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison"])
+        }
+    }
+
+    /// A zone or service group changed in the Home app: a "homes" event.
+    func changeInAppleHome(_ change: @escaping (inout [[String: Any]], inout [[String: Any]]) -> Void) {
+        state.withLockedValue { state in
+            change(&state.zones, &state.groups)
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison"])
+        }
+    }
 
     /// Its owner turns structural edits off (or on): a "settings" event.
     func allowStructure(_ allowed: Bool) {
@@ -173,7 +210,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
             var info: [String: Any] = ["service": "homeswift-wingman", "api": "1", "id": "wm-1", "version": "0.2.0", "fingerprint": Self.fingerprint, "pairing": true]
             state.withLockedValue { state in
                 if state.servesStructure {
-                    info["features"] = ["structure"]
+                    info["features"] = state.servesHomeLink ? ["structure", "home-link"] : ["structure"]
                     info["structure"] = state.allowStructure
                 }
             }
@@ -188,25 +225,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         guard authorized, state.withLockedValue({ $0.tokenValid }) else { return json(["error": "pair first"], status: 401) }
         switch (request.method, path) {
         case ("GET", "/homes"):
-            let (removed, unreachable, roomNames, administrator, structure, moved, added) = state.withLockedValue {
-                ($0.removed, $0.unreachable, $0.roomNames, $0.administrator, $0.servesStructure, $0.accessoryRooms, $0.addedRooms)
-            }
-            var home = Self.home
-            let rooms = (Self.rooms + added).map { id, name in (id: id, original: name, name: roomNames[id] ?? name) }
-            home["accessories"] = (home["accessories"] as? [[String: Any]] ?? []).compactMap { accessory -> [String: Any]? in
-                let id = accessory["id"] as? String ?? ""
-                guard !removed.contains(id) else { return nil }
-                var accessory = accessory
-                if unreachable.contains(id) { accessory["reachable"] = false }
-                if let room = rooms.first(where: { $0.original == accessory["room"] as? String }) { accessory["room"] = room.name }
-                if let room = moved[id] { accessory["room"] = room }
-                return accessory
-            }
-            if structure {
-                home["editable"] = administrator
-                home["rooms"] = rooms.map { ["id": $0.id, "name": $0.name, "accessories": 1] }
-            }
-            return json(["homes": [home]])
+            return HTTPResponse(status: 200, body: homesBody(), certificateFingerprint: Self.fingerprint)
         case ("GET", "/events"):
             let since = Int(query["since"] ?? "") ?? 0
             let wait = Double(query["wait"] ?? "") ?? 0
@@ -237,7 +256,50 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         }
     }
 
+    static let defaultRoom = ("room-default", "Default Room")
+
+    /// `/homes` as Wingman writes it, with what changed since.
+    func homesBody() -> Data {
+        let (removed, unreachable, roomNames, administrator, structure, moved, added, deleted, homeLink, zones, groups) = state.withLockedValue {
+            ($0.removed, $0.unreachable, $0.roomNames, $0.administrator, $0.servesStructure, $0.accessoryRooms, $0.addedRooms, $0.deletedRooms,
+             $0.servesHomeLink, $0.zones, $0.groups)
+        }
+        var home = Self.home
+        let rooms = (Self.rooms + added).filter { !deleted.contains($0.0) }.map { id, name in (id: id, original: name, name: roomNames[id] ?? name) }
+        let deletedNames = Set((Self.rooms + added).filter { deleted.contains($0.0) }.map(\.1))
+        home["accessories"] = (home["accessories"] as? [[String: Any]] ?? []).compactMap { accessory -> [String: Any]? in
+            let id = accessory["id"] as? String ?? ""
+            guard !removed.contains(id) else { return nil }
+            var accessory = accessory
+            if unreachable.contains(id) { accessory["reachable"] = false }
+            if let room = rooms.first(where: { $0.original == accessory["room"] as? String }) { accessory["room"] = room.name }
+            if let original = accessory["room"] as? String, deletedNames.contains(original) { accessory["room"] = Self.defaultRoom.1 }
+            if let room = moved[id] { accessory["room"] = room }
+            if homeLink {
+                accessory["roomID"] = rooms.first { $0.name == accessory["room"] as? String }?.id ?? NSNull()
+                if accessory["room"] == nil { accessory["room"] = Self.defaultRoom.1 }
+            }
+            return accessory
+        }
+        if structure {
+            home["editable"] = administrator
+            home["rooms"] = rooms.map { ["id": $0.id, "name": $0.name, "accessories": 1] }
+        }
+        if structure, homeLink {
+            home["defaultRoom"] = ["id": Self.defaultRoom.0, "name": Self.defaultRoom.1]
+            home["zones"] = zones.map { zone in
+                var zone = zone
+                zone["roomIDs"] = (zone["roomIDs"] as? [String] ?? []).filter { !deleted.contains($0) }
+                return zone
+            }
+            home["serviceGroups"] = groups
+        }
+        return try! JSONSerialization.data(withJSONObject: ["homes": [home]])
+    }
+
     static let editPaths: Set<String> = [
+        "rooms/create", "rooms/delete", "zones/create", "zones/rename", "zones/delete", "zones/rooms",
+        "groups/create", "groups/rename", "groups/delete", "groups/services",
         "rooms/rename", "accessories/room", "scenes/run", "scenes/rename", "scenes/actions", "scenes/create", "scenes/delete",
         "automations/enable", "automations/rename", "automations/time", "automations/scenes", "automations/actions", "automations/delete",
     ]
@@ -263,6 +325,60 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
                 state.roomNames[id] = name
                 event("homes")
                 return json(["renamed": id])
+            case "rooms/create":
+                guard let name = body["name"] as? String else { break }
+                let rooms = (Self.rooms + state.addedRooms).filter { !state.deletedRooms.contains($0.0) }
+                if let existing = rooms.first(where: { (state.roomNames[$0.0] ?? $0.1).lowercased() == name.lowercased() }) {
+                    return json(["room": ["id": existing.0, "name": state.roomNames[existing.0] ?? existing.1], "added": false])
+                }
+                let id = "room-added-\(state.addedRooms.count + 1)"
+                state.addedRooms.append((id, name))
+                event("homes")
+                return json(["room": ["id": id, "name": name], "added": true])
+            case "rooms/delete":
+                guard let id = body["room"] as? String, (Self.rooms + state.addedRooms).contains(where: { $0.0 == id }), !state.deletedRooms.contains(id) else { break }
+                let name = state.roomNames[id] ?? (Self.rooms + state.addedRooms).first { $0.0 == id }!.1
+                state.deletedRooms.insert(id)
+                for (accessory, room) in state.accessoryRooms where room == name { state.accessoryRooms[accessory] = Self.defaultRoom.1 }
+                event("homes")
+                return json(["room": id])
+            case "accessories/room" where body.keys.contains("roomID"):
+                guard let id = body["accessory"] as? String,
+                      (Self.home["accessories"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == id }) else { break }
+                if let roomID = body["roomID"] as? String {
+                    guard let room = (Self.rooms + state.addedRooms).first(where: { $0.0 == roomID && !state.deletedRooms.contains($0.0) }) else { break }
+                    state.accessoryRooms[id] = state.roomNames[room.0] ?? room.1
+                } else {
+                    state.accessoryRooms[id] = Self.defaultRoom.1
+                }
+                event("homes")
+                return json(["accessory": id, "roomID": body["roomID"] ?? NSNull()])
+            case "zones/create", "groups/create":
+                guard let name = body["name"] as? String else { break }
+                state.created += 1
+                let kind = path == "zones/create" ? "zone" : "group"
+                let id = "\(kind)-new-\(state.created)"
+                if kind == "zone" { state.zones.append(["id": id, "name": name, "roomIDs": [String]()]) }
+                else { state.groups.append(["id": id, "name": name, "services": body["services"] ?? [String]()]) }
+                event("homes")
+                return json([kind: ["id": id, "name": name], "added": true])
+            case "zones/rename", "zones/delete", "zones/rooms", "groups/rename", "groups/delete", "groups/services":
+                let isZone = path.hasPrefix("zones/")
+                let key = isZone ? "zone" : "group", listKey = isZone ? "roomIDs" : "services"
+                var list = isZone ? state.zones : state.groups
+                guard let index = list.firstIndex(where: { $0["id"] as? String == body[key] as? String }) else { break }
+                switch path.split(separator: "/").last {
+                case "rename": list[index]["name"] = body["name"]
+                case "delete": list.remove(at: index)
+                default:
+                    var items = list[index][listKey] as? [String] ?? []
+                    items.removeAll { (body["remove"] as? [String] ?? []).contains($0) }
+                    items += (body["add"] as? [String] ?? []).filter { !items.contains($0) }
+                    list[index][listKey] = items
+                }
+                if isZone { state.zones = list } else { state.groups = list }
+                event("homes")
+                return json([key: body[key] ?? ""])
             case "accessories/room":
                 guard let id = body["accessory"] as? String,
                       (Self.home["accessories"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == id }),
@@ -404,6 +520,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
                         ["id": "light-hue", "type": "00000013-0000-1000-8000-0026BB765291", "properties": ["read", "write", "events"], "value": 30, "format": "float", "min": 0, "max": 360],
                         ["id": "light-saturation", "type": "0000002F-0000-1000-8000-0026BB765291", "properties": ["read", "write", "events"], "value": 80, "format": "float"],
                         ["id": "light-ct", "type": "000000CE-0000-1000-8000-0026BB765291", "properties": ["read", "write", "events"], "value": 300, "format": "int", "min": 153, "max": 454, "step": 1],
+                    ]],
+                ],
+            ],
+            [
+                // The Homeswift bridge itself, its Serial Number its device ID (`TestEnvironment.bridgeID`).
+                "id": "homeswift-bridge", "name": "Homeswift", "reachable": true, "manufacturer": "Homeswift", "model": "Homeswift",
+                "services": [
+                    ["id": "bridge-info", "type": "0000003E-0000-1000-8000-0026BB765291", "characteristics": [
+                        ["id": "bridge-serial", "type": "00000030-0000-1000-8000-0026BB765291", "properties": ["read"], "value": "0E:11:22:33:44:55", "format": "string"],
                     ]],
                 ],
             ],

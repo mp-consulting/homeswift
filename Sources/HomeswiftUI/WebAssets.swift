@@ -4187,7 +4187,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// The Accessories page's views, as tabs: the wall and the graph.
   /// Their search and filters are the address's, which a tab carries to the other view.
   // `by` is the graph's arrangement (by=bridge), kept across the tabs so the graph comes back as it was left.
-  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "online", "hidden", "by"];
+  const accessoryFilterKeys = ["q", "from", "bridge", "type", "zone", "unavailable", "online", "hidden", "by"];
   /// The tabs' row holds `extra` after them (the view's Full screen button), in the same place in both views.
   const accessoryTabs = (current, ...extra) => {
     const nav = HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
@@ -4213,8 +4213,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
     // Again, unless the wall is being arranged.
     onReturn(() => { if (!document.querySelector(".wall.editing")) route(); });
-    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
-      isAdmin() ? loadMatterOwn() : null]);
+    const [list, saved, home, zoneList] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
+      api("/api/zones").then((answer) => answer.zones).catch(() => []), isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
@@ -4237,10 +4237,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))].filter((name) => !ownServer(name));
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
+    const zoneNames = zoneList.map((zone) => zone.name);
     const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
-      type: new Set(params.getAll("type").filter((category) => categories.includes(category))) };
+      type: new Set(params.getAll("type").filter((category) => categories.includes(category))),
+      zone: new Set(params.getAll("zone").filter((name) => zoneNames.includes(name))) };
+    // In a Zone: its room is one of the Zone's.
+    const inZone = (accessory, name) => Boolean(accessory.room) && (zoneList.find((zone) => zone.name === name)?.rooms ?? []).includes(accessory.room);
     const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
-      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category));
+      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category))
+      && (except === "zone" || !chosen.zone.size || [...chosen.zone].some((name) => inZone(accessory, name)));
     const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || !answers(accessory)) && (!online || answers(accessory));
     const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
@@ -4717,11 +4722,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       return [...rooms];
     }
-    // Whether a room renamed here is renamed on the plugins' hubs too (off unless turned on).
-    let syncRoomNames = home.syncRoomNames === true;
+    // The Home Link: whether the Rooms are Apple Home's (HomeswiftHomeLink, homelink.js).
+    const homeLink = home.homeLink ?? { state: "none" };
     async function renameRoom(name) {
       const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
-        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.")}` : ""), name);
+        + `\n\n${homeLink.linked ? t("Renamed in Apple Home too, and the rooms of this name on your Philips Hue, IKEA and eWeLink hubs.")
+          : t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}`, name);
       await applyRoomName(name, answer);
     }
     /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
@@ -4731,7 +4737,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try {
         const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
         const failed = (result.hubRooms || []).filter((room) => !room.renamed);
-        if (failed.length) HomeswiftCommon.showAlert(failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error })).join("\n"));
+        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
+        if (failed.length || refused.length) HomeswiftCommon.showAlert([...refused, ...failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error }))].join("\n"));
         // Drawn again here rather than reloaded, so Edit stays on for the next room.
         rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
         for (const accessory of all) if (accessory.room === name) accessory.room = to;
@@ -4770,12 +4777,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-        { label: t("Sync rooms with the hubs"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
-          try {
-            syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
-          } catch (e) { HomeswiftCommon.showAlert(e.message); }
-          return syncRoomNames;
-        } },
+        { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
+        ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
+        { separator: true },
+        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text },
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
@@ -4861,10 +4866,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size;
-    // A bridge or device type: a toggle in the address, counting what it would add with the other filters as they are.
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size + chosen.zone.size;
+    // A bridge, device type or Zone: a toggle in the address, counting what it would add with the other filters as they are.
+    const matchesChoice = (accessory, key, value) => key === "zone" ? inZone(accessory, value) : (key === "bridge" ? accessory.bridge : accessory.category) === value;
     const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
-      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && (key === "bridge" ? accessory.bridge : accessory.category) === value),
+      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && matchesChoice(accessory, key, value)),
       onSelect: () => {
         const next = new URLSearchParams(location.search);
         const values = new Set(chosen[key]);
@@ -4884,6 +4890,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
       ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
+      ...(zoneNames.length ? [{ separator: true }, ...zoneNames.map((name) => choice("zone", name, name, "grid"))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
@@ -4906,7 +4913,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         save();
         render();
       } }] : []),
-      ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : [])
+      ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
+      // The Zones and where the rooms stand with Apple Home, without going through Edit.
+      ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
+        ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
+        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text }] : []),
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
@@ -5019,6 +5030,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
       accessoryTabs("", accessories.length ? fullScreenButton : null, addButton),
       note,
+      // A first link to Apple Home waits for an administrator to review what it changes.
+      homeLink.waiting && isAdmin() && !fullScreen ? el("p", { class: "home-link-banner", role: "status" },
+        el("span", { text: HomeswiftHomeLink.status(homeLink).text }),
+        el("button", { type: "button", class: "primary", actionIcon: "link", text: t("Review"), onclick: () => HomeswiftHomeLink.review(() => route()) })) : null,
       accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
         !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
   };
@@ -11464,7 +11479,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       roomSelect.addEventListener('change', applyFilter);
       applyFilter();
       const form = el('form', {}, el('div', { class: 'group-dialog-head' }, HomeswiftCommon.tile('group', 'blue'), el('h2', { text: t('Accessory group') })), el('label', { class: 'group-name-field' }, el('span', { text: t('Name') }), name),
-        setGroupRoom ? el('label', { class: 'group-room-field' }, el('span', { text: t('Room') }), roomSelect, el('span', { class: 'help', text: t('Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.') })) : null,
+        setGroupRoom ? el('label', { class: 'group-room-field' }, el('span', { text: t('Room') }), roomSelect, el('span', { class: 'help', text: t('Moves the selected accessories in the Home app too once this bridge is linked to Apple Home.') })) : null,
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
@@ -11711,7 +11726,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const movable = members.filter((accessory) => accessory?.platform);
       await changeSettings(Object.fromEntries(movable.map((accessory) => [accessory.id, { room: roomSetting(accessory, fields.room) }])));
       await app.route();
-    }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
+    }, t("Moves every member of this group, in the Home app too once this bridge is linked to Apple Home."));
   }
 
   /// The room an accessory is shown in: its own when the Arrangement knows it, else none ("").
@@ -13526,6 +13541,146 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 })();
 
 """#),
+        "homelink.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The Home Link on the Accessories page (GLOSSARY.md, "Home Link"): whether the Rooms are Apple Home's, the first
+// link's comparison for a person to confirm, and the Zones, Apple Home's sets of Rooms.
+(() => {
+  const { el, api } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
+
+  /// What the link says, in a sentence, and how it shows (`tone`: "", "warn" or "error").
+  function status(link) {
+    if (!link || link.state === "none") {
+      return { text: t("These rooms are this bridge's own. Pair Homeswift Wingman to share them with Apple Home."), tone: "" };
+    }
+    if (link.waiting || link.comparison) return { text: t("Apple Home is ready to share its rooms with this bridge: review what linking changes."), tone: "warn" };
+    if (link.state === "up") {
+      return link.linked ? { text: t("In step with Apple Home's {home}.", { home: link.home ?? "" }), tone: "" }
+        : { text: t("Linking with Apple Home…"), tone: "" };
+    }
+    if (link.state === "readOnly") return { text: t("Apple Home does not let the bridge change it: {reason}", { reason: link.reason ?? "" }), tone: "warn" };
+    return {
+      text: link.pending ? tn("Apple Home is not reachable: {n} change waits for it.", "Apple Home is not reachable: {n} changes wait for it.", link.pending)
+        : t("Apple Home is not reachable: {reason}", { reason: link.reason ?? "" }),
+      tone: "warn",
+    };
+  }
+
+  function dialogShell(title, ...content) {
+    const previousFocus = document.activeElement;
+    const dialog = el("dialog", { class: "admin-dialog card home-link-dialog", "aria-label": title });
+    const form = el("form", { method: "dialog" }, el("h2", { text: title }), ...content);
+    dialog.append(form);
+    document.body.append(dialog);
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (previousFocus?.isConnected) previousFocus.focus();
+    }, { once: true });
+    return { dialog, form };
+  }
+
+  function list(title, items) {
+    if (!items?.length) return null;
+    return el("section", { class: "home-link-list" }, el("h3", { text: title }), el("ul", {}, items.map((item) => el("li", { text: item }))));
+  }
+
+  /// The first link's comparison, to confirm: what linking the bridge to its home in Apple Home changes. `onLinked`
+  /// runs once it is linked.
+  async function review(onLinked) {
+    let link;
+    try { link = await api("/api/home-link"); } catch (e) { HomeswiftCommon.showAlert(e.message); return; }
+    const comparison = link.comparison;
+    if (!comparison) { onLinked?.(); return; }
+    const message = el("p", { role: "status", class: "error" });
+    const roomName = (room) => room || t("No room");
+    const clashes = comparison.clashes ?? [];
+    const confirm = el("button", { type: "submit", class: "primary", actionIcon: "link", text: t("Link"), disabled: clashes.length > 0 });
+    const { dialog, form } = dialogShell(t("Link with Apple Home"),
+      el("p", { text: t("From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:", { home: comparison.homeName }) }),
+      list(t("Rooms created in Apple Home"), comparison.roomsOnlyHere),
+      list(t("Rooms taken from Apple Home"), comparison.roomsOnlyInHome),
+      list(t("Accessories that move"), (comparison.accessories ?? []).filter((one) => one.result !== one.here)
+        .map((one) => t("{name}: {from} → {to}", { name: one.name, from: roomName(one.here), to: roomName(one.result) }))),
+      list(t("Accessories that keep their room and move in Apple Home"), (comparison.accessories ?? []).filter((one) => one.result === one.here)
+        .map((one) => t("{name}: {room}", { name: one.name, room: roomName(one.here) }))),
+      list(t("Groups created in Apple Home"), (comparison.groupsCreated ?? []).map((group) => group.name)),
+      list(t("Groups Apple Home cannot have, ungrouped"), (comparison.groupsUngrouped ?? []).map((group) => group.name)),
+      clashes.length ? el("p", { class: "error", text: t("Apple Home would take these rooms for one: rename one of each first. {rooms}", { rooms: clashes.map((names) => names.join(" / ")).join(", ") }) }) : null,
+      message,
+      el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close() }), confirm));
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      HomeswiftCommon.busyButton(confirm, async () => {
+        await api("/api/home-link/confirm", { method: "POST", body: {} });
+        dialog.close();
+        onLinked?.();
+      }, { report: (e) => { message.textContent = e.message; } });
+    });
+    dialog.showModal();
+  }
+
+  /// The Zones: each with its name and Rooms, changed as they are edited; `onClose` runs once the dialog closes after
+  /// a change.
+  async function zones(rooms, onClose) {
+    let current;
+    try { current = (await api("/api/zones")).zones; } catch (e) { HomeswiftCommon.showAlert(e.message); return; }
+    const message = el("p", { role: "status", class: "error" });
+    const body = el("div", { class: "home-link-zones" });
+    let changed = false;
+    // One save after the other: a quick second tick must not land before the first and be undone by it.
+    let saving = Promise.resolve();
+    const change = (request) => { saving = saving.then(() => save(request)); return saving; };
+    const save = async (request) => {
+      message.textContent = "";
+      try {
+        const answer = await api("/api/zones", { method: "PUT", body: request });
+        current = answer.zones;
+        const refused = answer.appleHomeRefused ?? [];
+        if (refused.length) message.textContent = refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n");
+        changed = true;
+        draw();
+      } catch (e) { message.textContent = e.message; }
+    };
+    function draw() {
+      body.replaceChildren(...(current.length ? current.map((zone) => {
+        const name = el("input", { type: "text", value: zone.name, maxLength: 64, "aria-label": t("Name of {zone}", { zone: zone.name }) });
+        name.addEventListener("change", () => { if (name.value.trim() && name.value.trim() !== zone.name) change({ zone: zone.id, name: name.value.trim() }); });
+        // Enter keeps the name rather than closing the dialog; Escape puts it back.
+        name.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") { event.preventDefault(); name.blur(); }
+          if (event.key === "Escape") { event.preventDefault(); name.value = zone.name; name.blur(); }
+        });
+        const boxes = rooms.map((room) => {
+          const box = el("input", { type: "checkbox", checked: zone.rooms.includes(room) });
+          box.addEventListener("change", () => change({ zone: zone.id, rooms: boxes.filter((one) => one.box.checked).map((one) => one.room) }));
+          return { room, box };
+        });
+        const remove = el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {zone}", { zone: zone.name }), title: t("Remove {zone}", { zone: zone.name }),
+          onclick: async () => { if (await HomeswiftCommon.confirmDialog(t("Remove the zone {zone}? Its rooms stay.", { zone: zone.name }))) change({ zone: zone.id, delete: true }); } },
+        HomeswiftCommon.icon("trash"));
+        return el("fieldset", { class: "home-link-zone" },
+          el("legend", { class: "home-link-zone-head" }, name, remove),
+          rooms.length ? el("div", { class: "choices" }, boxes.map(({ room, box }) => el("label", { class: "check" }, box, el("span", { text: room }))))
+            : el("p", { class: "muted", text: t("No rooms yet.") }));
+      }) : [el("p", { class: "muted", text: t("No zones yet. A zone gathers rooms, such as Upstairs; a room can be in several.") })]));
+    }
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("New zone"), onclick: async () => {
+      const name = (await HomeswiftCommon.promptDialog(t("A name for the new zone, such as Upstairs."), ""))?.trim();
+      if (name) change({ create: { name, rooms: [] } });
+    } });
+    const { dialog } = dialogShell(t("Zones"),
+      el("p", { class: "muted", text: t("Apple Home's sets of rooms. They change in the Home app too once this bridge is linked to it.") }),
+      body, message,
+      el("div", { class: "actions" }, add, el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Done") })));
+    dialog.addEventListener("close", () => { if (changed) onClose?.(); }, { once: true });
+    draw();
+    dialog.showModal();
+  }
+
+  window.HomeswiftHomeLink = { status, review, zones };
+})();
+
+"""#),
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
@@ -13845,7 +14000,6 @@ HomeswiftI18n.add("es", {
   "No modified options match the current search.": "Ninguna opción modificada coincide con la búsqueda actual.",
 
   "Keep current rooms": "Mantener las habitaciones actuales",
-  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Mueve los accesorios seleccionados solo en Homeswift. Las habitaciones de HomeKit no cambian.",
   "Release to group": "Suelta para agrupar",
   "Reset room order": "Restablecer el orden de las habitaciones",
   "Rooms": "Habitaciones",
@@ -13853,9 +14007,7 @@ HomeswiftI18n.add("es", {
   "Name of {room}": "Nombre de {room}",
   "Rename the room": "Cambiar el nombre de la habitación",
   "Pack the widgets together": "Agrupar los widgets",
-  "Sync rooms with the hubs": "Sincronizar las habitaciones con los hubs",
   "A new name for {room}.": "Un nombre nuevo para {room}.",
-  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.": "Las habitaciones con este nombre en tus hubs de Philips Hue, IKEA y eWeLink y en Apple Home también cambian de nombre.",
   "Not renamed on {hub}: {error}": "Sin cambiar el nombre en {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Borrar filtros",
@@ -13866,7 +14018,6 @@ HomeswiftI18n.add("es", {
   "Check for updates": "Buscar actualizaciones",
   "Could not check for updates. Try again.": "No se pudieron buscar actualizaciones. Inténtalo de nuevo.",
   "Move to room…": "Mover a una habitación…",
-  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Mueve todos los miembros de este grupo solo en Homeswift. Las habitaciones de HomeKit no cambian.",
 
   "Sign-in": "Inicio de sesión",
   "Increase port": "Aumentar el puerto",
@@ -16337,13 +16488,11 @@ HomeswiftI18n.add("es", {
   "Change the settings of one accessory?": "¿Cambiar los ajustes de un accesorio?",
   "Change the settings of {n} accessories?": "¿Cambiar los ajustes de {n} accesorios?",
   "Saved · {plugin} reloads": "Guardado · {plugin} se recarga",
-  "Saved; the hub said: {error}": "Guardado; el hub respondió: {error}",
+  "Saved; Apple Home refused: {reason}": "Guardado; Apple Home lo rechazó: {reason}",
   "The name its plugin gives it": "El nombre que le da su plugin",
   "Named in {source}: rename it there.": "Su nombre viene de {source}: cámbialo allí.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "También en la app Casa. Vacío, recupera el nombre que le da su plugin.",
   "Also moves it in {source}.": "También lo mueve en {source}.",
-  "Also moves it in the Home app (Room Sync is on).": "También lo mueve en la app Casa (la sincronización de habitaciones está activada).",
-  "On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.": "Solo en las páginas de Homeswift: la app Casa mantiene su propia habitación. La sincronización de habitaciones, en el menú Habitaciones de la página Accesorios, también lo mueve allí.",
   "Hidden": "Oculto",
   "Off the wall; still in the Home app.": "Fuera del muro; sigue en la app Casa.",
   "Not in Home": "Fuera de Casa",
@@ -16518,6 +16667,53 @@ HomeswiftI18n.add("es", {
   "Details…": "Detalles…",
   "It changes a lock, a door or an alarm": "Cambia una cerradura, una puerta o una alarma",
   "All sources": "Todos los orígenes",
+  "Link": "Vincular",
+  "These rooms are this bridge's own. Pair Homeswift Wingman to share them with Apple Home.": "Estas habitaciones son solo de este puente. Empareja Homeswift Wingman para compartirlas con Apple Home.",
+  "Apple Home is ready to share its rooms with this bridge: review what linking changes.": "Apple Home está listo para compartir sus habitaciones con este puente: revisa lo que cambia al vincularlo.",
+  "In step with Apple Home's {home}.": "Sincronizado con {home} en Apple Home.",
+  "Linking with Apple Home…": "Vinculando con Apple Home…",
+  "Apple Home does not let the bridge change it: {reason}": "Apple Home no deja que el puente lo cambie: {reason}",
+  "Apple Home is not reachable: {n} change waits for it.": "Apple Home no está disponible: {n} cambio lo espera.",
+  "Apple Home is not reachable: {n} changes wait for it.": "Apple Home no está disponible: {n} cambios lo esperan.",
+  "Apple Home is not reachable: {reason}": "Apple Home no está disponible: {reason}",
+  "Link with Apple Home": "Vincular con Apple Home",
+  "From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:": "A partir de ahora, este puente y {home} en Apple Home guardan sus habitaciones, zonas y grupos en un solo lugar. Al vincularlos cambia esto:",
+  "Rooms created in Apple Home": "Habitaciones creadas en Apple Home",
+  "Rooms taken from Apple Home": "Habitaciones tomadas de Apple Home",
+  "Accessories that move": "Accesorios que cambian de habitación",
+  "{name}: {from} → {to}": "{name}: {from} → {to}",
+  "Accessories that keep their room and move in Apple Home": "Accesorios que mantienen su habitación y se mueven en Apple Home",
+  "{name}: {room}": "{name}: {room}",
+  "Groups created in Apple Home": "Grupos creados en Apple Home",
+  "Groups Apple Home cannot have, ungrouped": "Grupos que Apple Home no admite, deshechos",
+  "Apple Home would take these rooms for one: rename one of each first. {rooms}": "Apple Home confundiría estas habitaciones: cambia antes el nombre de una de cada par. {rooms}",
+  "Apple Home refused: {reason}": "Apple Home lo rechazó: {reason}",
+  "Name of {zone}": "Nombre de {zone}",
+  "Remove {zone}": "Eliminar {zone}",
+  "Remove the zone {zone}? Its rooms stay.": "¿Eliminar la zona {zone}? Sus habitaciones se mantienen.",
+  "No rooms yet.": "Aún no hay habitaciones.",
+  "No zones yet. A zone gathers rooms, such as Upstairs; a room can be in several.": "Aún no hay zonas. Una zona reúne habitaciones, como Planta alta; una habitación puede estar en varias.",
+  "New zone": "Nueva zona",
+  "A name for the new zone, such as Upstairs.": "Un nombre para la nueva zona, como Planta alta.",
+  "Zones": "Zonas",
+  "Apple Home's sets of rooms. They change in the Home app too once this bridge is linked to it.": "Los conjuntos de habitaciones de Apple Home. También cambian en la app Casa una vez vinculado este puente.",
+  "Renamed in Apple Home too, and the rooms of this name on your Philips Hue, IKEA and eWeLink hubs.": "También se cambia en Apple Home, y las habitaciones con este nombre en tus hubs Philips Hue, IKEA y eWeLink.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Las habitaciones con este nombre en tus hubs Philips Hue, IKEA y eWeLink también cambian de nombre.",
+  "Zones…": "Zonas…",
+  "Link with Apple Home…": "Vincular con Apple Home…",
+  "Moves the selected accessories in the Home app too once this bridge is linked to Apple Home.": "También mueve los accesorios seleccionados en la app Casa una vez vinculado este puente a Apple Home.",
+  "Moves every member of this group, in the Home app too once this bridge is linked to Apple Home.": "Mueve cada miembro de este grupo, también en la app Casa una vez vinculado este puente a Apple Home.",
+  "Also moves it in the Home app.": "También lo mueve en la app Casa.",
+  "Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.": "También lo mueve en la app Casa una vez vinculado este puente a Apple Home mediante Homeswift Wingman.",
+  "Separate Functions": "Separar funciones",
+  "In Apple Home, each thing it does becomes an accessory of its own: {functions}.": "En Apple Home, cada cosa que hace pasa a ser un accesorio propio: {functions}.",
+  "Separate the Functions of {name}?": "¿Separar las funciones de {name}?",
+  "Join the Functions of {name} back?": "¿Volver a unir las funciones de {name}?",
+  "Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.": "Hay que rehacer las escenas y automatizaciones de Apple Home que usan lo que se mueve. Cada accesorio nuevo puede tener su propio nombre, habitación y grupo.",
+  "The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve.": "Los accesorios separados salen de Apple Home, con sus escenas y automatizaciones, y los grupos en los que estaban pueden deshacerse.",
+  "Separate": "Separar",
+  "Join back": "Volver a unir",
+  "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
 });
 
 """#),
@@ -16840,7 +17036,6 @@ HomeswiftI18n.add("fr", {
   "No modified options match the current search.": "Aucune option modifiée ne correspond à la recherche actuelle.",
 
   "Keep current rooms": "Conserver les pièces actuelles",
-  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Déplace les accessoires sélectionnés dans Homeswift uniquement. Les pièces HomeKit restent inchangées.",
   "Release to group": "Relâchez pour grouper",
   "Reset room order": "Réinitialiser l’ordre des pièces",
   "Rooms": "Pièces",
@@ -16848,9 +17043,7 @@ HomeswiftI18n.add("fr", {
   "Name of {room}": "Nom de {room}",
   "Rename the room": "Renommer la pièce",
   "Pack the widgets together": "Regrouper les widgets",
-  "Sync rooms with the hubs": "Synchroniser les pièces avec les hubs",
   "A new name for {room}.": "Un nouveau nom pour {room}.",
-  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.": "Les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink et dans Apple Home sont renommées aussi.",
   "Not renamed on {hub}: {error}": "Non renommée sur {hub} : {error}",
   "Show hidden": "Afficher les accessoires masqués",
   "Clear filters": "Effacer les filtres",
@@ -16861,7 +17054,6 @@ HomeswiftI18n.add("fr", {
   "Check for updates": "Rechercher des mises à jour",
   "Could not check for updates. Try again.": "Impossible de rechercher des mises à jour. Réessayez.",
   "Move to room…": "Déplacer dans une pièce…",
-  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Déplace tous les membres de ce groupe uniquement dans Homeswift. Les pièces HomeKit restent inchangées.",
 
   "Sign-in": "Connexion",
   "Increase port": "Augmenter le port",
@@ -19332,13 +19524,11 @@ HomeswiftI18n.add("fr", {
   "Change the settings of one accessory?": "Modifier les réglages d'un accessoire ?",
   "Change the settings of {n} accessories?": "Modifier les réglages de {n} accessoires ?",
   "Saved · {plugin} reloads": "Enregistré · {plugin} redémarre",
-  "Saved; the hub said: {error}": "Enregistré ; le hub a répondu : {error}",
+  "Saved; Apple Home refused: {reason}": "Enregistré ; Apple Home a refusé : {reason}",
   "The name its plugin gives it": "Le nom que lui donne son plugin",
   "Named in {source}: rename it there.": "Nommé dans {source} : renommez-le là-bas.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "Dans l'app Maison aussi. Vide, il reprend le nom que lui donne son plugin.",
   "Also moves it in {source}.": "Le déplace aussi dans {source}.",
-  "Also moves it in the Home app (Room Sync is on).": "Le déplace aussi dans l'app Maison (la synchronisation des pièces est activée).",
-  "On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.": "Sur les pages de Homeswift seulement : l'app Maison garde sa propre pièce. La synchronisation des pièces, dans le menu Pièces de la page Accessoires, l'y déplace aussi.",
   "Hidden": "Masqué",
   "Off the wall; still in the Home app.": "Absent du mur ; toujours dans l'app Maison.",
   "Not in Home": "Hors de Maison",
@@ -19513,6 +19703,53 @@ HomeswiftI18n.add("fr", {
   "Details…": "Détails…",
   "It changes a lock, a door or an alarm": "Elle change une serrure, une porte ou une alarme",
   "All sources": "Toutes les sources",
+  "Link": "Lier",
+  "These rooms are this bridge's own. Pair Homeswift Wingman to share them with Apple Home.": "Ces pièces sont propres à ce pont. Jumelez Homeswift Wingman pour les partager avec Apple Home.",
+  "Apple Home is ready to share its rooms with this bridge: review what linking changes.": "Apple Home est prêt à partager ses pièces avec ce pont : vérifiez ce que la liaison change.",
+  "In step with Apple Home's {home}.": "Synchronisé avec {home} dans Apple Home.",
+  "Linking with Apple Home…": "Liaison avec Apple Home…",
+  "Apple Home does not let the bridge change it: {reason}": "Apple Home ne laisse pas le pont le modifier : {reason}",
+  "Apple Home is not reachable: {n} change waits for it.": "Apple Home est injoignable : {n} modification l'attend.",
+  "Apple Home is not reachable: {n} changes wait for it.": "Apple Home est injoignable : {n} modifications l'attendent.",
+  "Apple Home is not reachable: {reason}": "Apple Home est injoignable : {reason}",
+  "Link with Apple Home": "Lier à Apple Home",
+  "From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:": "Désormais, ce pont et {home} dans Apple Home gardent leurs pièces, zones et groupes au même endroit. La liaison change ceci :",
+  "Rooms created in Apple Home": "Pièces créées dans Apple Home",
+  "Rooms taken from Apple Home": "Pièces reprises d'Apple Home",
+  "Accessories that move": "Accessoires déplacés",
+  "{name}: {from} → {to}": "{name} : {from} → {to}",
+  "Accessories that keep their room and move in Apple Home": "Accessoires qui gardent leur pièce et sont déplacés dans Apple Home",
+  "{name}: {room}": "{name} : {room}",
+  "Groups created in Apple Home": "Groupes créés dans Apple Home",
+  "Groups Apple Home cannot have, ungrouped": "Groupes qu'Apple Home ne peut pas avoir, dissous",
+  "Apple Home would take these rooms for one: rename one of each first. {rooms}": "Apple Home confondrait ces pièces : renommez d'abord l'une de chaque paire. {rooms}",
+  "Apple Home refused: {reason}": "Apple Home a refusé : {reason}",
+  "Name of {zone}": "Nom de {zone}",
+  "Remove {zone}": "Supprimer {zone}",
+  "Remove the zone {zone}? Its rooms stay.": "Supprimer la zone {zone} ? Ses pièces restent.",
+  "No rooms yet.": "Pas encore de pièce.",
+  "No zones yet. A zone gathers rooms, such as Upstairs; a room can be in several.": "Pas encore de zone. Une zone réunit des pièces, comme Étage ; une pièce peut être dans plusieurs.",
+  "New zone": "Nouvelle zone",
+  "A name for the new zone, such as Upstairs.": "Un nom pour la nouvelle zone, comme Étage.",
+  "Zones": "Zones",
+  "Apple Home's sets of rooms. They change in the Home app too once this bridge is linked to it.": "Les ensembles de pièces d'Apple Home. Ils changent aussi dans l'app Maison une fois ce pont lié à Apple Home.",
+  "Renamed in Apple Home too, and the rooms of this name on your Philips Hue, IKEA and eWeLink hubs.": "Renommée aussi dans Apple Home, ainsi que les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink sont renommées aussi.",
+  "Zones…": "Zones…",
+  "Link with Apple Home…": "Lier à Apple Home…",
+  "Moves the selected accessories in the Home app too once this bridge is linked to Apple Home.": "Déplace aussi les accessoires sélectionnés dans l'app Maison une fois ce pont lié à Apple Home.",
+  "Moves every member of this group, in the Home app too once this bridge is linked to Apple Home.": "Déplace chaque membre de ce groupe, aussi dans l'app Maison une fois ce pont lié à Apple Home.",
+  "Also moves it in the Home app.": "Le déplace aussi dans l'app Maison.",
+  "Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.": "Le déplace aussi dans l'app Maison une fois ce pont lié à Apple Home par Homeswift Wingman.",
+  "Separate Functions": "Séparer les fonctions",
+  "In Apple Home, each thing it does becomes an accessory of its own: {functions}.": "Dans Apple Home, chaque chose qu'il fait devient un accessoire à part entière : {functions}.",
+  "Separate the Functions of {name}?": "Séparer les fonctions de {name} ?",
+  "Join the Functions of {name} back?": "Réunir les fonctions de {name} ?",
+  "Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.": "Les scènes et automatisations d'Apple Home qui utilisent ce qui est déplacé sont à refaire. Chaque nouvel accessoire peut avoir son nom, sa pièce et son groupe.",
+  "The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve.": "Les accessoires séparés quittent Apple Home, avec leurs scènes et automatisations, et les groupes dont ils faisaient partie peuvent disparaître.",
+  "Separate": "Séparer",
+  "Join back": "Réunir",
+  "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
 });
 
 """#),
@@ -19835,7 +20072,6 @@ HomeswiftI18n.add("pt", {
   "No modified options match the current search.": "Nenhuma opção modificada corresponde à pesquisa atual.",
 
   "Keep current rooms": "Manter as divisões atuais",
-  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Move os acessórios selecionados apenas no Homeswift. As divisões do HomeKit não são alteradas.",
   "Release to group": "Solte para agrupar",
   "Reset room order": "Repor a ordem das divisões",
   "Rooms": "Divisões",
@@ -19843,9 +20079,7 @@ HomeswiftI18n.add("pt", {
   "Name of {room}": "Nome de {room}",
   "Rename the room": "Mudar o nome da divisão",
   "Pack the widgets together": "Juntar os widgets",
-  "Sync rooms with the hubs": "Sincronizar as divisões com os hubs",
   "A new name for {room}.": "Um novo nome para {room}.",
-  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink e na Apple Home também mudam de nome.",
   "Not renamed on {hub}: {error}": "Nome não mudado em {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Limpar filtros",
@@ -19856,7 +20090,6 @@ HomeswiftI18n.add("pt", {
   "Check for updates": "Procurar atualizações",
   "Could not check for updates. Try again.": "Não foi possível procurar atualizações. Tente novamente.",
   "Move to room…": "Mover para uma divisão…",
-  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Move todos os membros deste grupo apenas no Homeswift. As divisões do HomeKit mantêm-se inalteradas.",
 
   "Sign-in": "Início de sessão",
   "Increase port": "Aumentar a porta",
@@ -22327,13 +22560,11 @@ HomeswiftI18n.add("pt", {
   "Change the settings of one accessory?": "Alterar as definições de um acessório?",
   "Change the settings of {n} accessories?": "Alterar as definições de {n} acessórios?",
   "Saved · {plugin} reloads": "Guardado · {plugin} é recarregado",
-  "Saved; the hub said: {error}": "Guardado; o hub respondeu: {error}",
+  "Saved; Apple Home refused: {reason}": "Guardado; o Apple Home recusou: {reason}",
   "The name its plugin gives it": "O nome que o plugin lhe dá",
   "Named in {source}: rename it there.": "O nome vem de {source}: mude-o lá.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "Também na app Casa. Vazio, volta ao nome que o plugin lhe dá.",
   "Also moves it in {source}.": "Também o move em {source}.",
-  "Also moves it in the Home app (Room Sync is on).": "Também o move na app Casa (a sincronização das divisões está ativada).",
-  "On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.": "Só nas páginas do Homeswift: a app Casa mantém a sua própria divisão. A sincronização das divisões, no menu Divisões da página Acessórios, também o move lá.",
   "Hidden": "Oculto",
   "Off the wall; still in the Home app.": "Fora do mural; continua na app Casa.",
   "Not in Home": "Fora da Casa",
@@ -22508,6 +22739,53 @@ HomeswiftI18n.add("pt", {
   "Details…": "Detalhes…",
   "It changes a lock, a door or an alarm": "Altera uma fechadura, uma porta ou um alarme",
   "All sources": "Todas as origens",
+  "Link": "Ligar",
+  "These rooms are this bridge's own. Pair Homeswift Wingman to share them with Apple Home.": "Estas divisões são apenas desta ponte. Emparelhe o Homeswift Wingman para as partilhar com o Apple Home.",
+  "Apple Home is ready to share its rooms with this bridge: review what linking changes.": "O Apple Home está pronto para partilhar as suas divisões com esta ponte: reveja o que a ligação altera.",
+  "In step with Apple Home's {home}.": "Sincronizado com {home} no Apple Home.",
+  "Linking with Apple Home…": "A ligar ao Apple Home…",
+  "Apple Home does not let the bridge change it: {reason}": "O Apple Home não deixa a ponte alterá-lo: {reason}",
+  "Apple Home is not reachable: {n} change waits for it.": "O Apple Home não está acessível: {n} alteração aguarda-o.",
+  "Apple Home is not reachable: {n} changes wait for it.": "O Apple Home não está acessível: {n} alterações aguardam-no.",
+  "Apple Home is not reachable: {reason}": "O Apple Home não está acessível: {reason}",
+  "Link with Apple Home": "Ligar ao Apple Home",
+  "From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:": "A partir de agora, esta ponte e {home} no Apple Home guardam as suas divisões, zonas e grupos num só lugar. A ligação altera o seguinte:",
+  "Rooms created in Apple Home": "Divisões criadas no Apple Home",
+  "Rooms taken from Apple Home": "Divisões trazidas do Apple Home",
+  "Accessories that move": "Acessórios que mudam de divisão",
+  "{name}: {from} → {to}": "{name}: {from} → {to}",
+  "Accessories that keep their room and move in Apple Home": "Acessórios que mantêm a divisão e mudam no Apple Home",
+  "{name}: {room}": "{name}: {room}",
+  "Groups created in Apple Home": "Grupos criados no Apple Home",
+  "Groups Apple Home cannot have, ungrouped": "Grupos que o Apple Home não admite, desfeitos",
+  "Apple Home would take these rooms for one: rename one of each first. {rooms}": "O Apple Home confundiria estas divisões: mude primeiro o nome de uma de cada par. {rooms}",
+  "Apple Home refused: {reason}": "O Apple Home recusou: {reason}",
+  "Name of {zone}": "Nome de {zone}",
+  "Remove {zone}": "Remover {zone}",
+  "Remove the zone {zone}? Its rooms stay.": "Remover a zona {zone}? As suas divisões mantêm-se.",
+  "No rooms yet.": "Ainda não há divisões.",
+  "No zones yet. A zone gathers rooms, such as Upstairs; a room can be in several.": "Ainda não há zonas. Uma zona reúne divisões, como Piso de cima; uma divisão pode estar em várias.",
+  "New zone": "Nova zona",
+  "A name for the new zone, such as Upstairs.": "Um nome para a nova zona, como Piso de cima.",
+  "Zones": "Zonas",
+  "Apple Home's sets of rooms. They change in the Home app too once this bridge is linked to it.": "Os conjuntos de divisões do Apple Home. Também mudam na app Casa depois de esta ponte estar ligada.",
+  "Renamed in Apple Home too, and the rooms of this name on your Philips Hue, IKEA and eWeLink hubs.": "Também muda no Apple Home, tal como as divisões com este nome nos hubs Philips Hue, IKEA e eWeLink.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "As divisões com este nome nos hubs Philips Hue, IKEA e eWeLink também mudam de nome.",
+  "Zones…": "Zonas…",
+  "Link with Apple Home…": "Ligar ao Apple Home…",
+  "Moves the selected accessories in the Home app too once this bridge is linked to Apple Home.": "Também move os acessórios selecionados na app Casa depois de esta ponte estar ligada ao Apple Home.",
+  "Moves every member of this group, in the Home app too once this bridge is linked to Apple Home.": "Move cada membro deste grupo, também na app Casa depois de esta ponte estar ligada ao Apple Home.",
+  "Also moves it in the Home app.": "Também o move na app Casa.",
+  "Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.": "Também o move na app Casa depois de esta ponte estar ligada ao Apple Home através do Homeswift Wingman.",
+  "Separate Functions": "Separar funções",
+  "In Apple Home, each thing it does becomes an accessory of its own: {functions}.": "No Apple Home, cada coisa que faz passa a ser um acessório próprio: {functions}.",
+  "Separate the Functions of {name}?": "Separar as funções de {name}?",
+  "Join the Functions of {name} back?": "Voltar a juntar as funções de {name}?",
+  "Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.": "As cenas e automatizações do Apple Home que usam o que muda têm de ser refeitas. Cada acessório novo pode ter o seu nome, divisão e grupo.",
+  "The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve.": "Os acessórios separados saem do Apple Home, com as suas cenas e automatizações, e os grupos em que estavam podem desfazer-se.",
+  "Separate": "Separar",
+  "Join back": "Voltar a juntar",
+  "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
 });
 
 """#),
@@ -23254,6 +23532,7 @@ HomeswiftI18n.add("pt", {
 <script src="/camera.js"></script>
 <script src="/widgets.js"></script>
 <script src="/groups.js"></script>
+<script src="/homelink.js"></script>
 <script src="/charts.js"></script>
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
@@ -24561,8 +24840,8 @@ HomeswiftI18n.add("pt", {
   /// What a write did, in a few words for a field's state.
   function savedWords(result, instance) {
     if ((result.reloaded ?? []).length) return t("Saved · {plugin} reloads", { plugin: instance });
-    const failed = (result.hubMoves ?? []).find((move) => move.error);
-    if (failed) return t("Saved; the hub said: {error}", { error: HomeswiftI18n.message(failed.error) });
+    const refused = (result.appleHomeRefused ?? [])[0];
+    if (refused) return t("Saved; Apple Home refused: {reason}", { reason: HomeswiftI18n.message(refused.reason) });
     return t("Saved");
   }
 
@@ -24664,7 +24943,7 @@ HomeswiftI18n.add("pt", {
     async function load() {
       let answer, rooms, schemaFile;
       try {
-        [answer, rooms] = await Promise.all([api(accessoryPath(accessoryID, instance)), api("/api/rooms").catch(() => ({ rooms: [], syncRoomNames: false }))]);
+        [answer, rooms] = await Promise.all([api(accessoryPath(accessoryID, instance)), api("/api/rooms").catch(() => ({ rooms: [] }))]);
         // The plugin's words for its own fields (its schema's `i18n`), when it declares some.
         schemaFile = Object.values(answer.fields ?? {}).some((field) => !field.core)
           ? await api(`/api/plugins/${enc(answer.platform)}/schema`, { raw: true }).then(JSON.parse).catch(() => null) : null;
@@ -24733,7 +25012,7 @@ HomeswiftI18n.add("pt", {
       // Room: a pop-up menu of the rooms, the current one ticked, with No room and New room… (which adds one).
       const roomState = stateNode();
       const roomNames = (home.rooms ?? []).map((one) => one.name);
-      const homeFollows = mirrored || home.syncRoomNames === true;
+      const homeFollows = mirrored || home.homeLink?.linked === true;
       const room = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu" });
       const showRoom = () => {
         room.textContent = settings.room || t("No room");
@@ -24749,8 +25028,8 @@ HomeswiftI18n.add("pt", {
       showRoom();
       const roomTitle = el("span", { text: t("Room") });
       const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
-        : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
-          : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") });
+        : homeFollows ? t("Also moves it in the Home app.")
+          : t("Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.") });
       describe(room, roomTitle, roomHelp, roomState);
       const roomField = el("div", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, roomHelp);
 
@@ -24765,6 +25044,20 @@ HomeswiftI18n.add("pt", {
             confirmLabel: t("Take it out"), confirmIcon: "house" })) { input.checked = false; return; }
           if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
         } });
+
+      // Separate Functions: each thing it does an accessory of its own, which Apple Home can group and put in a room.
+      const functions = answer.functions ?? [];
+      const separate = functions.length > 1 && !mirrored ? switchRow({ title: t("Separate Functions"),
+        help: t("In Apple Home, each thing it does becomes an accessory of its own: {functions}.", { functions: functions.join(", ") }),
+        checked: settings.separateFunctions === true,
+        onChange: async (on, state, input) => {
+          if (!await confirmAction({ title: on ? t("Separate the Functions of {name}?", { name: answer.name ?? id }) : t("Join the Functions of {name} back?", { name: answer.name ?? id }),
+            text: on ? t("Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.")
+              : t("The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve."),
+            confirmLabel: on ? t("Separate") : t("Join back"), confirmIcon: "group" })) { input.checked = !on; return; }
+          if (!await save({ separateFunctions: on || null }, state, "separateFunctions")) input.checked = !on;
+        } }) : null;
+      const functionOf = answer.functionOf ? el("p", { class: "help", text: t("A Function of {name}: its other settings are there.", { name: answer.functionOf.name }) }) : null;
 
       // Energy: what each of its meters measures in the home's energy. Applies at once; the plugin keeps running.
       const roleNames = { solar: t("Solar production"), home: t("The home's use"), grid: t("The grid connection"), battery: t("A battery"), none: t("This device alone") };
@@ -24865,7 +25158,7 @@ HomeswiftI18n.add("pt", {
       node.replaceChildren(...[
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
-        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
         energySection,
         partsSection,
         pluginSection,
@@ -30522,6 +30815,23 @@ select option:disabled { color: var(--muted); }
 }
 
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
+/* The Home Link (homelink.js): the first link's review, the Zones, and the banner while a link waits. */
+.home-link-dialog { width: min(560px, calc(100vw - 32px)); }
+.home-link-dialog form { display: grid; gap: var(--space-12); }
+.home-link-list h3 { margin: 0 0 var(--space-4); font-size: var(--text-sm); color: var(--muted); font-weight: var(--weight-semibold); }
+.home-link-list ul { margin: 0; padding-left: var(--space-20); display: grid; gap: var(--space-4); }
+.home-link-zones { display: grid; gap: var(--space-12); max-height: min(60vh, 520px); overflow: auto; }
+.home-link-zone { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: var(--space-8); }
+.home-link-zone + .home-link-zone { border-top: 1px solid var(--line); padding-top: var(--space-12); }
+.home-link-zone-head { display: flex; gap: var(--space-8); align-items: center; padding: 0; width: 100%; }
+.home-link-zone-head input { min-width: 0; flex: 1; }
+.home-link-zone .choices { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-14); }
+.home-link-banner { display: flex; flex-wrap: wrap; gap: var(--space-10); align-items: center; justify-content: space-between; margin: 0 0 var(--space-14);
+  padding: var(--space-10) var(--space-14); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text);
+  animation: materialize var(--normal) var(--ease-out); }
+.home-link-banner > span { flex: 1 1 16rem; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .home-link-banner { animation: none; } }
+.home-link-list ul { max-height: 12rem; overflow: auto; }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-dialog input:not([type="checkbox"]) { width: 100%; min-width: 0; }
 .message-dialog .toggle { margin: var(--space-4) 0 var(--space-6); }

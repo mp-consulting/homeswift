@@ -282,7 +282,10 @@ let package = Package(
         ),
         .target(
             name: "HomeswiftWingman",
-            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+            ],
             path: "Plugins/Wingman/Sources"
         ),
         .target(

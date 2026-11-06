@@ -35,10 +35,12 @@ public struct AccessorySettings: Sendable, Equatable {
     /// The Energy Role a person gave each of its Meters, by the Meter's key: a role, or none (`.some(nil)`) where its
     /// plugin suggested one. A Meter left out has its plugin's suggestion (docs/adr/0004-meters-and-consumption-history.md).
     public var energyRoles: [String: EnergyRole?]
+    /// Separate Functions: each of its Functions an accessory of its own (`Separation`), applied by the runtime.
+    public var separateFunctions: Bool
 
-    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts", "energyRoles"]
+    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts", "energyRoles", "separateFunctions"]
     /// The Core Accessory Settings that apply without reloading the plugin: they never reach it.
-    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome", "energyRoles"]
+    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome", "energyRoles", "separateFunctions"]
     /// What `energyRoles` holds for a Meter: a power role's name, or `none`.
     public static let energyRoleChoices = ["solar", "home", "grid", "battery", "none"]
 
@@ -54,9 +56,11 @@ public struct AccessorySettings: Sendable, Equatable {
 
     public init(
         excluded: Bool = false, name: String? = nil, parts: [String: Bool] = [:], plugin: [String: JSONValue] = [:],
-        room: String? = nil, hidden: Bool = false, notInHome: Bool = false, energyRoles: [String: EnergyRole?] = [:]
+        room: String? = nil, hidden: Bool = false, notInHome: Bool = false, energyRoles: [String: EnergyRole?] = [:],
+        separateFunctions: Bool = false
     ) {
         self.energyRoles = energyRoles
+        self.separateFunctions = separateFunctions
         self.excluded = excluded
         self.name = name
         self.room = room
@@ -75,6 +79,7 @@ public struct AccessorySettings: Sendable, Equatable {
         notInHome = fields["notInHome"]?.boolValue ?? false
         parts = (fields["parts"]?.objectValue ?? [:]).compactMapValues(\.boolValue)
         energyRoles = Self.energyRoles(from: fields["energyRoles"])
+        separateFunctions = fields["separateFunctions"]?.boolValue ?? false
         plugin = fields.filter { !Self.coreKeys.contains($0.key) }
     }
 
@@ -87,6 +92,7 @@ public struct AccessorySettings: Sendable, Equatable {
         if notInHome { fields["notInHome"] = true }
         if !parts.isEmpty { fields["parts"] = .object(parts.mapValues(JSONValue.bool)) }
         if !energyRoles.isEmpty { fields["energyRoles"] = .object(energyRoles.mapValues { .string($0?.rawValue ?? "none") }) }
+        if separateFunctions { fields["separateFunctions"] = true }
         return .object(fields)
     }
 
