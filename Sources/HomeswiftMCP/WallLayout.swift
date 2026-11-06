@@ -146,24 +146,33 @@ public final class WallLayout: Sendable {
     }
 }
 
-/// An accessory group on the wall: one widget whose controls drive its members.
-struct WallGroup {
+/// A Group (GLOSSARY.md, "Group"): accessories shown and controlled as one, one widget on the wall whose controls drive
+/// its members, and the same group in Apple Home once linked (`homeKitID`).
+struct WallGroup: Equatable {
     var id: String
     var name: String
     var members: [String]
+    /// The Home's id of the group, once the Home Link made or found it there.
+    var homeKitID: String?
 
-    init(id: String, name: String, members: [String]) {
-        (self.id, self.name, self.members) = (id, name, members)
+    init(id: String, name: String, members: [String], homeKitID: String? = nil) {
+        (self.id, self.name, self.members, self.homeKitID) = (id, name, members, homeKitID)
     }
 
     init?(_ json: JSONValue) {
         guard let id = json["id"]?.stringValue, let name = json["name"]?.stringValue, let members = json["members"]?.arrayValue else { return nil }
         let ids = members.compactMap(\.stringValue)
         guard ids.count == members.count else { return nil }
-        self.init(id: id, name: name, members: ids)
+        let homeKitID = json["homeKitID"]?.stringValue
+        if let homeKitID, homeKitID.isEmpty || homeKitID.utf8.count > 128 { return nil }
+        self.init(id: id, name: name, members: ids, homeKitID: homeKitID)
     }
 
-    var json: JSONValue { ["id": .string(id), "name": .string(name), "members": .array(members.map(JSONValue.string))] }
+    var json: JSONValue {
+        var object: [String: JSONValue] = ["id": .string(id), "name": .string(name), "members": .array(members.map(JSONValue.string))]
+        if let homeKitID { object["homeKitID"] = .string(homeKitID) }
+        return .object(object)
+    }
 }
 
 /// A change to the wall in the making: every widget in its place (the running accessories the saved order does not
@@ -189,13 +198,13 @@ private struct WallEdit {
 
     /// Makes a group (no id) or changes one. Its members leave the other groups; one left with fewer than two is
     /// dissolved. A new group takes the place of its first member.
-    mutating func group(id existing: String?, name: String, members: [String]) throws {
+    mutating func group(id existing: String?, name: String, members: [String], homeKitID: String? = nil) throws {
         if let existing, index(of: existing) == nil { throw CatalogError("No group with id \(existing)") }
         let id = existing ?? "group:\(UUID().uuidString.lowercased())"
         let joining = Set(members)
         for index in groups.indices where groups[index].id != id { groups[index].members.removeAll(where: joining.contains) }
         remove(Set(groups.filter { $0.members.count < 2 }.map(\.id)))
-        let group = WallGroup(id: id, name: name, members: members)
+        let group = WallGroup(id: id, name: name, members: members, homeKitID: homeKitID)
         if let index = index(of: id) {
             groups[index] = group
         } else {
@@ -347,8 +356,10 @@ extension HomeswiftCatalog {
     /// `defaults`, a size by kind of widget, null for the kind's own; `grouping`; `positions`, a cell by accessory or group
     /// id (`[column, row]` or `{column, row}`, null to let it flow) for the grouping the wall has after this change;
     /// `clearPositions`, every widget of that grouping back to flowing in the order. Answers `wallJSON()`.
-    public func updateWall(_ body: JSONValue) throws -> JSONValue {
+    public func updateWall(_ body: JSONValue) async throws -> JSONValue {
         let all = located()
+        let groupsBefore = Self.groups(of: home.wall.load())
+        if body["groups"] != nil || body["ungroup"] != nil, let refusal = await homeLinkRefusal() { throw CatalogError(refusal) }
         let byID = Dictionary(all.map { ($0.accessory.id, $0.accessory) }, uniquingKeysWith: { first, _ in first })
         let layout: JSONValue
         do {
@@ -372,7 +383,9 @@ extension HomeswiftCatalog {
                     guard Self.canGroup(accessories) else {
                         throw CatalogError("The group \(name) has no control its members share: a group turns lights, switches, outlets or fans on and off, or moves blinds")
                     }
-                    try edit.group(id: change["id"]?.stringValue, name: name, members: members)
+                    if let problem = groupProblem(members: members) { throw CatalogError("Apple Home cannot group \(name): \(problem)") }
+                    let homeKitID = change["id"]?.stringValue.flatMap { id in groupsBefore.first { $0.id == id }?.homeKitID }
+                    try edit.group(id: change["id"]?.stringValue, name: name, members: members, homeKitID: homeKitID)
                 }
                 let known = Set(edit.order).union(edit.groups.map(\.id))
                 func check(_ id: String) throws {
@@ -411,7 +424,59 @@ extension HomeswiftCatalog {
         } catch let error as WallLayout.Invalid {
             throw CatalogError(error.description)
         }
-        return wallJSON(layout: layout, all: all)
+        var answer = wallJSON(layout: layout, all: all).objectValue ?? [:]
+        let refused = await recordGroupChanges(from: groupsBefore, to: Self.groups(of: layout))
+        if !refused.isEmpty { answer["appleHomeRefused"] = .array(refused) }
+        return .object(answer)
+    }
+
+    /// Keeps the wall as the Accessories page sends it (`PUT /api/layout`): its groups keep their link to Apple Home, a
+    /// group made or changed must be one Apple Home can have (`groupProblem`), and what changed in them is made in Apple
+    /// Home through the Home Link. Answers what was kept, with `appleHomeRefused` when Apple Home refused some.
+    public func saveWall(_ body: JSONValue) async throws -> JSONValue {
+        let before = Self.groups(of: home.wall.load())
+        var object = body.objectValue ?? [:]
+        if let sent = body["groups"]?.arrayValue {
+            // The page sends the groups as it shows them: the links are the bridge's.
+            let groups = sent.compactMap(WallGroup.init).map { group in
+                var group = group
+                group.homeKitID = before.first { $0.id == group.id }?.homeKitID
+                return group
+            }
+            for group in groups where before.first(where: { $0.id == group.id })?.members != group.members {
+                if let problem = groupProblem(members: group.members) { throw CatalogError("Apple Home cannot group \(group.name): \(problem)") }
+            }
+            if groups.map(\.id) != before.map(\.id) || groups != before, let refusal = await homeLinkRefusal() { throw CatalogError(refusal) }
+            object["groups"] = .array(groups.map(\.json))
+        }
+        let saved: JSONValue
+        do { saved = try home.wall.save(.object(object)) } catch let error as WallLayout.Invalid { throw CatalogError(error.description) }
+        let refused = await recordGroupChanges(from: before, to: Self.groups(of: saved))
+        guard !refused.isEmpty, var answer = saved.objectValue else { return saved }
+        answer["appleHomeRefused"] = .array(refused)
+        return .object(answer)
+    }
+
+    static func groups(of layout: JSONValue) -> [WallGroup] {
+        layout["groups"]?.arrayValue?.compactMap(WallGroup.init) ?? []
+    }
+
+    /// The changes to the Groups between two walls, for Apple Home (`homeLinkRecord`).
+    private func recordGroupChanges(from before: [WallGroup], to after: [WallGroup]) async -> [JSONValue] {
+        var changes: [HomeLinkFile.PendingChange] = []
+        for group in before where !after.contains(where: { $0.id == group.id }) {
+            if let id = group.homeKitID { changes.append(.init(.deleteGroup, group: group.id, homeKitID: id)) }
+        }
+        for group in after {
+            guard let old = before.first(where: { $0.id == group.id }) else {
+                changes.append(.init(.createGroup, group: group.id))
+                continue
+            }
+            if old.name != group.name { changes.append(.init(.renameGroup, name: group.name, group: group.id)) }
+            let add = group.members.filter { !old.members.contains($0) }, remove = old.members.filter { !group.members.contains($0) }
+            if !add.isEmpty || !remove.isEmpty { changes.append(.init(.setGroupMembers, group: group.id, add: add, remove: remove)) }
+        }
+        return await homeLinkRecord(changes)
     }
 
     var wallTools: [MCPTool] {
@@ -431,11 +496,13 @@ extension HomeswiftCatalog {
             ) { _ in .json(catalog.wallJSON()) },
             MCPTool(
                 name: "set_wall_layout", title: "Arrange the accessories wall",
-                description: "Arranges the web UI's Accessories wall (the same for every user; HomeKit and the Home app are not changed). "
-                    + "groups: accessories that go together as one widget whose controls drive them all (the lights of a room, its blinds, "
-                    + "a pair of lamps); without an id a group is made, with one it is changed; an accessory is in one group at most, and "
-                    + "joining a group takes it out of another. Only groupable accessories (lights, switches, outlets, fans, blinds) "
-                    + "sharing an on/off or a position make a group: never mix blinds with lights. ungroup: group ids to dissolve. "
+                description: "Arranges the web UI's Accessories wall (the same for every user). "
+                    + "groups: Groups, accessories that go together as one widget whose controls drive them all (the lights of a room, its blinds, "
+                    + "a pair of lamps), the same groups as in Apple Home once the bridge is linked to it (get_home_link); without an id a group is made, with one it is changed; "
+                    + "an accessory is in one group at most, and joining a group takes it out of another. Only groupable accessories (lights, switches, outlets, fans, blinds) "
+                    + "sharing an on/off or a position make a group, and as the Home app allows: of one kind, each doing one thing (separate an accessory's Functions with "
+                    + "update_settings separateFunctions to group it), all in Apple Home; never mix blinds with lights. ungroup: group ids to dissolve. appleHomeRefused lists "
+                    + "what Apple Home refused. "
                     + "order: accessory and group ids in the order to show them; they take the places they hold together now, so the ids of "
                     + "one room sort that room and leave the rest, and every id sorts the whole wall. sizes: a size by accessory id (null: its kind's). "
                     + "defaults: a size by kind of widget (null: the kind's own); the kinds and their own sizes: \(kinds); a group is large unless sized (sizes takes group ids too). "
@@ -482,7 +549,7 @@ extension HomeswiftCatalog {
                     ],
                 ],
                 outputSchema: output, scope: .admin
-            ) { call in .json(try catalog.updateWall(call.arguments)) },
+            ) { call in .json(try await catalog.updateWall(call.arguments)) },
         ]
     }
 }

@@ -15,6 +15,8 @@ enum WingmanAPI {
         var structure: Bool? = nil
 
         var servesStructure: Bool { features?.contains("structure") == true }
+        /// "home-link": it gives rooms, zones and service groups by id and edits them (docs/home-link-plan.md, phase 3).
+        var servesHomeLink: Bool { features?.contains("home-link") == true }
     }
 
     struct Paired: Decodable, Sendable {
@@ -32,12 +34,29 @@ enum WingmanAPI {
         /// Whether this Mac's user administers the home: HomeKit refuses structural edits otherwise.
         var editable: Bool? = nil
         var rooms: [Room]? = nil
+        /// Apple Home's Default Room (`roomForEntireHome`), which `rooms` leaves out: a Wingman with "home-link".
+        var defaultRoom: Room? = nil
+        var zones: [Zone]? = nil
+        var serviceGroups: [ServiceGroup]? = nil
         var accessories: [Accessory]
     }
 
     struct Room: Decodable, Sendable, Equatable {
         var id: String
         var name: String
+    }
+
+    struct Zone: Decodable, Sendable, Equatable {
+        /// With "home-link".
+        var id: String? = nil
+        var name: String
+        var roomIDs: [String]? = nil
+    }
+
+    struct ServiceGroup: Decodable, Sendable, Equatable {
+        var id: String
+        var name: String
+        var services: [String]
     }
 
     struct Scenes: Decodable, Sendable {
@@ -147,6 +166,8 @@ enum WingmanAPI {
         var id: String
         var name: String
         var room: String?
+        /// Its room's id; nil in the Default Room (a Wingman with "home-link").
+        var roomID: String? = nil
         var reachable: Bool?
         var supportsIdentify: Bool? = nil
         var bridge: Bridge?

@@ -141,16 +141,21 @@ public protocol HomeswiftPlugin: Sendable {
     /// Removes a scene from the hub (`delete` capability). Homeswift asks the person first. Defaults to throwing.
     func deleteScene(id: String) async throws
 
-    /// The rooms the plugin's hub or cloud keeps (`PluginRoom`), for Homeswift to rename the one named like a room
-    /// renamed in Homeswift, when `syncRoomNames` is on. Asked only then, so it may ask the hub. Defaults to none.
+    /// The rooms the plugin's hub or cloud keeps (`PluginRoom`), for Homeswift to rename the one named like a Room
+    /// renamed in Homeswift. Asked only then, so it may ask the hub. Defaults to none.
     func rooms() async -> [PluginRoom]
 
     /// Renames one of `rooms()` by its `PluginRoom.id` on the hub. Defaults to throwing.
     func renameRoom(id: String, name: String) async throws
 
-    /// Moves the accessory `accessoryID` (Homeswift's id, the plugin's or not) to the hub's room named `room`, when the
-    /// hub keeps it in rooms (Apple Home keeps Homeswift's): answers false for one it does not have. Defaults to false.
-    func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool
+    /// The Home Link's state when the plugin is the Home Link (`HomeLink.swift`: Wingman); nil, the default, otherwise.
+    func homeLinkState() async -> HomeLinkState?
+
+    /// The Home as the Home Link last saw it. Defaults to nil.
+    func homeSnapshot() async -> HomeSnapshot?
+
+    /// Makes a change in the Home through the Home Link, answering the id of what it created. Defaults to throwing.
+    func applyHomeChange(_ change: HomeChange) async throws -> String?
 
     /// What the instance's account asks before the plugin may use it (Setup, `Setup.swift`): a cloud's login, a
     /// developer portal's keys. Defaults to `.none`: no account, or one whose settings the form takes as they are.
@@ -601,26 +606,19 @@ public final class PluginContext: @unchecked Sendable {
         return ids.count == 1 ? ids[0] : nil
     }
 
-    /// Tells Homeswift a room of the plugin's hub was renamed there (in the Home app, through Wingman): with the
-    /// layout's `syncRoomNames` on, Homeswift renames its room of the old name too, and the other hubs' (docs/ui.md,
-    /// "Rooms on the hubs"). Say it only for a rename the hub made, not one Homeswift asked for with `renameRoom`.
-    public func hubRoomRenamed(from: String, to: String) {
-        hubRoomChangeBox.withLockedValue { $0 }?(.renamed(from: from, to: to))
-    }
-
-    /// Tells Homeswift one of its accessories (`accessoryID`, Homeswift's id) was moved to `room` on the plugin's hub
-    /// (in the Home app, through Wingman): with `syncRoomNames` on, Homeswift moves it to its room of that name. Say it
-    /// only for a move the hub made, not one Homeswift asked for with `moveAccessory`.
-    public func hubAccessoryMoved(accessoryID: String, room: String) {
-        hubRoomChangeBox.withLockedValue { $0 }?(.moved(accessoryID: accessoryID, room: room))
+    /// Tells Homeswift the Home Link's snapshot or state changed (`HomeswiftPlugin.homeSnapshot()`, `homeLinkState()`):
+    /// something changed in the Home app, or the link came up or went down. Homeswift reads the snapshot again and
+    /// follows it. Say it for changes Homeswift asked for too (`applyHomeChange`): they then match, and nothing moves.
+    public func homeChanged() {
+        homeChangeBox.withLockedValue { $0 }?()
     }
 
     /// Set by `PluginHost`.
-    var onHubRoomChange: (@Sendable (HubRoomChange) -> Void)? {
-        get { hubRoomChangeBox.withLockedValue { $0 } }
-        set { hubRoomChangeBox.withLockedValue { $0 = newValue } }
+    var onHomeChanged: (@Sendable () -> Void)? {
+        get { homeChangeBox.withLockedValue { $0 } }
+        set { homeChangeBox.withLockedValue { $0 = newValue } }
     }
-    private let hubRoomChangeBox = NIOLockedValueBox<(@Sendable (HubRoomChange) -> Void)?>(nil)
+    private let homeChangeBox = NIOLockedValueBox<(@Sendable () -> Void)?>(nil)
 
     /// The id of the one accessory Homeswift itself publishes with this serial number (mirrored ones left out); nil
     /// when none or several have it. For a plugin that reads another controller's view of the home (Wingman).

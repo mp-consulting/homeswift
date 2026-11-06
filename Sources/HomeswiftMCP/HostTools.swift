@@ -353,6 +353,10 @@ extension HomeswiftCatalog {
         public var platform: String?
         /// A room of the web UI's layout, case aside.
         public var room: String?
+        /// A Zone, by name (case and accents aside): its Rooms' accessories.
+        public var zone: String?
+        /// The Rooms of `zone`, filled in by `located(matching:)`.
+        var zoneRooms: [String]?
         /// The category (lightbulb, outlet…) or a service type (Lightbulb, Switch, Thermostat…).
         public var type: String?
         /// Part of the accessory's name or of one of its services' names.
@@ -360,9 +364,13 @@ extension HomeswiftCatalog {
         public var manufacturer: String?
         public var excludeManufacturer: String?
 
-        public init(platform: String? = nil, room: String? = nil, type: String? = nil, name: String? = nil, manufacturer: String? = nil, excludeManufacturer: String? = nil) {
+        public init(
+            platform: String? = nil, room: String? = nil, zone: String? = nil, type: String? = nil, name: String? = nil, manufacturer: String? = nil,
+            excludeManufacturer: String? = nil
+        ) {
             self.platform = platform
             self.room = room
+            self.zone = zone
             self.type = type
             self.name = name
             self.manufacturer = manufacturer
@@ -371,15 +379,20 @@ extension HomeswiftCatalog {
 
         init(_ json: JSONValue?) {
             func string(_ key: String) -> String? { json?[key]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty }
-            self.init(platform: string("platform"), room: string("room"), type: string("type"), name: string("name"), manufacturer: string("manufacturer"), excludeManufacturer: string("excludeManufacturer"))
+            self.init(
+                platform: string("platform"), room: string("room"), zone: string("zone"), type: string("type"), name: string("name"),
+                manufacturer: string("manufacturer"), excludeManufacturer: string("excludeManufacturer"))
         }
 
-        public var isEmpty: Bool { platform == nil && room == nil && type == nil && name == nil && manufacturer == nil && excludeManufacturer == nil }
+        public var isEmpty: Bool { platform == nil && room == nil && zone == nil && type == nil && name == nil && manufacturer == nil && excludeManufacturer == nil }
 
         public func matches(_ located: Located) -> Bool {
             let accessory = located.accessory
             if let platform, located.platform?.platform != platform { return false }
             if let room, located.room?.caseInsensitiveCompare(room) != .orderedSame { return false }
+            if zone != nil {
+                guard let room = located.room, (zoneRooms ?? []).contains(where: { HomeswiftCatalog.sameRoomName($0, room) }) else { return false }
+            }
             if let type {
                 let wanted = HomeswiftCatalog.normalized(type)
                 let services = accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }
@@ -397,12 +410,17 @@ extension HomeswiftCatalog {
     }
 
     public func located(matching filter: AccessoryFilter) -> [Located] {
-        located().filter(filter.matches)
+        var filter = filter
+        if let zone = filter.zone {
+            filter.zoneRooms = home.homeLink.value.zones.first { Self.sameRoomName($0.name, zone) }?.rooms ?? []
+        }
+        return located().filter(filter.matches)
     }
 
     static let filterProperties: [String: JSONValue] = [
         "platform": ["type": "string", "description": "Only this platform"],
-        "room": ["type": "string", "description": "Only this room of the web UI's layout (get_accessory_layout), case aside"],
+        "room": ["type": "string", "description": "Only this Room (get_accessory_layout), case aside"],
+        "zone": ["type": "string", "description": "Only the Rooms of this Zone (get_zones), case and accents aside"],
         "type": ["type": "string", "description": "A category (lightbulb, outlet, thermostat…) or a service type (Lightbulb, Switch…)"],
         "name": ["type": "string", "description": "Part of the accessory's or a service's name, case aside"],
         "manufacturer": ["type": "string", "description": "Part of the manufacturer, case aside"],

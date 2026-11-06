@@ -2022,7 +2022,7 @@
   /// The Accessories page's views, as tabs: the wall and the graph.
   /// Their search and filters are the address's, which a tab carries to the other view.
   // `by` is the graph's arrangement (by=bridge), kept across the tabs so the graph comes back as it was left.
-  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "online", "hidden", "by"];
+  const accessoryFilterKeys = ["q", "from", "bridge", "type", "zone", "unavailable", "online", "hidden", "by"];
   /// The tabs' row holds `extra` after them (the view's Full screen button), in the same place in both views.
   const accessoryTabs = (current, ...extra) => {
     const nav = HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
@@ -2048,8 +2048,8 @@
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
     // Again, unless the wall is being arranged.
     onReturn(() => { if (!document.querySelector(".wall.editing")) route(); });
-    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
-      isAdmin() ? loadMatterOwn() : null]);
+    const [list, saved, home, zoneList] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
+      api("/api/zones").then((answer) => answer.zones).catch(() => []), isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
@@ -2072,10 +2072,15 @@
     const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))].filter((name) => !ownServer(name));
     const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
       .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
+    const zoneNames = zoneList.map((zone) => zone.name);
     const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
-      type: new Set(params.getAll("type").filter((category) => categories.includes(category))) };
+      type: new Set(params.getAll("type").filter((category) => categories.includes(category))),
+      zone: new Set(params.getAll("zone").filter((name) => zoneNames.includes(name))) };
+    // In a Zone: its room is one of the Zone's.
+    const inZone = (accessory, name) => Boolean(accessory.room) && (zoneList.find((zone) => zone.name === name)?.rooms ?? []).includes(accessory.room);
     const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
-      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category));
+      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category))
+      && (except === "zone" || !chosen.zone.size || [...chosen.zone].some((name) => inZone(accessory, name)));
     const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || !answers(accessory)) && (!online || answers(accessory));
     const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
@@ -2552,11 +2557,12 @@
       }
       return [...rooms];
     }
-    // Whether a room renamed here is renamed on the plugins' hubs too (off unless turned on).
-    let syncRoomNames = home.syncRoomNames === true;
+    // The Home Link: whether the Rooms are Apple Home's (HomeswiftHomeLink, homelink.js).
+    const homeLink = home.homeLink ?? { state: "none" };
     async function renameRoom(name) {
       const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
-        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.")}` : ""), name);
+        + `\n\n${homeLink.linked ? t("Renamed in Apple Home too, and the rooms of this name on your Philips Hue, IKEA and eWeLink hubs.")
+          : t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}`, name);
       await applyRoomName(name, answer);
     }
     /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
@@ -2566,7 +2572,8 @@
       try {
         const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
         const failed = (result.hubRooms || []).filter((room) => !room.renamed);
-        if (failed.length) HomeswiftCommon.showAlert(failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error })).join("\n"));
+        const refused = (result.appleHomeRefused || []).map((one) => t("Apple Home refused: {reason}", { reason: one.reason }));
+        if (failed.length || refused.length) HomeswiftCommon.showAlert([...refused, ...failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error }))].join("\n"));
         // Drawn again here rather than reloaded, so Edit stays on for the next room.
         rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
         for (const accessory of all) if (accessory.room === name) accessory.room = to;
@@ -2605,12 +2612,10 @@
         ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-        { label: t("Sync rooms with the hubs"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
-          try {
-            syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
-          } catch (e) { HomeswiftCommon.showAlert(e.message); }
-          return syncRoomNames;
-        } },
+        { label: t("Zones…"), icon: "room", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
+        ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
+        { separator: true },
+        { heading: t("Apple Home"), detail: HomeswiftHomeLink.status(homeLink).text },
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
@@ -2696,10 +2701,11 @@
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size;
-    // A bridge or device type: a toggle in the address, counting what it would add with the other filters as they are.
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size + chosen.zone.size;
+    // A bridge, device type or Zone: a toggle in the address, counting what it would add with the other filters as they are.
+    const matchesChoice = (accessory, key, value) => key === "zone" ? inZone(accessory, value) : (key === "bridge" ? accessory.bridge : accessory.category) === value;
     const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
-      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && (key === "bridge" ? accessory.bridge : accessory.category) === value),
+      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && matchesChoice(accessory, key, value)),
       onSelect: () => {
         const next = new URLSearchParams(location.search);
         const values = new Set(chosen[key]);
@@ -2719,6 +2725,7 @@
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
       ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
+      ...(zoneNames.length ? [{ separator: true }, ...zoneNames.map((name) => choice("zone", name, name, "room"))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
@@ -2854,6 +2861,10 @@
         el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
       accessoryTabs("", accessories.length ? fullScreenButton : null, addButton),
       note,
+      // A first link to Apple Home waits for an administrator to review what it changes.
+      homeLink.waiting && isAdmin() && !fullScreen ? el("p", { class: "home-link-banner", role: "status" },
+        el("span", { text: HomeswiftHomeLink.status(homeLink).text }),
+        el("button", { type: "button", class: "primary", actionIcon: "link", text: t("Review"), onclick: () => HomeswiftHomeLink.review(() => route()) })) : null,
       accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
         !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
   };

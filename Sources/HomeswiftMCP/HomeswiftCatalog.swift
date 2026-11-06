@@ -69,7 +69,7 @@ public struct HomeswiftCatalog: Sendable {
         self.logger = logger
         home = HomeState(directory: configURL.deletingLastPathComponent())
         host.handleRenames { [self] id, name in await self.storeHomeRename(of: id, to: name) }
-        host.handleHubRoomChanges { [self] instance, change in await self.followHubRoomChange(on: instance, change) }
+        host.handleHomeChanges { [self] in await self.followHome() }
     }
 
     /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.
@@ -1049,7 +1049,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "list_accessories", title: "List accessories",
                 description: "Every accessory on every bridge with its services and current values, or those the filters pick (all must match): "
-                    + "platform, room (the web UI's rooms, get_accessory_layout), type (a category or service type), name, manufacturer, excludeManufacturer. "
+                    + "platform, room (the Rooms, get_accessory_layout), zone (a Zone's Rooms, get_zones), type (a category or service type), name, manufacturer, excludeManufacturer. "
                     + "detailed adds each characteristic's format, permissions and range.",
                 inputSchema: ["type": "object", "properties": .object(Self.filterProperties.merging(["detailed": ["type": "boolean"]]) { a, _ in a })],
                 outputSchema: Output.accessories, scope: .read, idempotent: true
@@ -1302,7 +1302,7 @@ public struct HomeswiftCatalog: Sendable {
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
                 return .json(try await catalog.restoreConfigBackup(backup))
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.

@@ -142,7 +142,7 @@
     async function load() {
       let answer, rooms, schemaFile;
       try {
-        [answer, rooms] = await Promise.all([api(accessoryPath(accessoryID, instance)), api("/api/rooms").catch(() => ({ rooms: [], syncRoomNames: false }))]);
+        [answer, rooms] = await Promise.all([api(accessoryPath(accessoryID, instance)), api("/api/rooms").catch(() => ({ rooms: [] }))]);
         // The plugin's words for its own fields (its schema's `i18n`), when it declares some.
         schemaFile = Object.values(answer.fields ?? {}).some((field) => !field.core)
           ? await api(`/api/plugins/${enc(answer.platform)}/schema`, { raw: true }).then(JSON.parse).catch(() => null) : null;
@@ -211,7 +211,7 @@
       // Room: a pop-up menu of the rooms, the current one ticked, with No room and New room… (which adds one).
       const roomState = stateNode();
       const roomNames = (home.rooms ?? []).map((one) => one.name);
-      const homeFollows = mirrored || home.syncRoomNames === true;
+      const homeFollows = mirrored || home.homeLink?.linked === true;
       const room = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu" });
       const showRoom = () => {
         room.textContent = settings.room || t("No room");
@@ -227,8 +227,8 @@
       showRoom();
       const roomTitle = el("span", { text: t("Room") });
       const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
-        : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
-          : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") });
+        : homeFollows ? t("Also moves it in the Home app.")
+          : t("Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.") });
       describe(room, roomTitle, roomHelp, roomState);
       const roomField = el("div", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, roomHelp);
 

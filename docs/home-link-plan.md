@@ -111,32 +111,37 @@ This phase is independent of the rest and fixes the existing room moves on eWeLi
 ### 3. Wingman API for the Home Link (homeswift-wingman)
 
 This phase adds the feature string `home-link` to `/info.features`. Old bridges ignore it, and the existing endpoints
-stay.
+stay. The bridge's Serial Number needs nothing new: `/homes` already lists the bridge accessory itself, with its
+Accessory Information, and every bridged accessory's `bridge.id` (phase 2 uses them).
 
-**`/homes` additions**
-- `defaultRoom {id, name}`.
-- Every accessory's `roomID`, null in the Default Room.
-- `zones [{id, name, rooms: [roomID]}]`.
-- `serviceGroups [{id, name, services: [serviceID]}]`.
-- The bridge's `serialNumber`.
+**`/homes` additions** (each home; old bridges ignore unknown keys, so nothing existing changes shape)
+- `defaultRoom: {id, name}`: `roomForEntireHome()`, which `rooms` still leaves out.
+- Every accessory's `roomID`: its room's `uniqueIdentifier`, or `null` in the Default Room. `room` (the name) stays.
+- Every zone gains `id` and `roomIDs: [roomID]`; `name` and `rooms` (names) stay.
+- `serviceGroups: [{id, name, services: [serviceID]}]`, the service ids being those `services[].id` already gives.
 
-**New edits**
-- **Rooms:**
-  - `rooms/create {name}` → `{room}`;
-  - `rooms/delete {room}`.
-- **Accessories:** `accessories/room {accessory, roomID|null}`, by id, where null means the Default Room. The
-  by-name form stays for old bridges.
-- **Zones:**
-  - `zones/create {name}`, `zones/rename {zone, name}`, `zones/delete {zone}`;
-  - `zones/rooms {zone, add: [roomID], remove: [roomID]}`.
-- **Service groups:**
-  - `groups/create {name, services}`, `groups/rename {group, name}`, `groups/delete {group}`;
-  - `groups/services {group, add, remove}`.
+**New edits** (all `POST`, structural: `allowChanges`, `allowStructure` and an administrator; answers as `StoreAnswer`)
+
+| Path | Body | Answer |
+|---|---|---|
+| `rooms/create` | `{name}` | `{room: {id, name}, added: Bool}`: a room already named so (case and accents ignored) is answered with `added: false` |
+| `rooms/delete` | `{room: id}` | `{room: id}`; its accessories go to the Default Room |
+| `accessories/room` | `{accessory: id, roomID: id \| null}` | `{accessory, roomID}`; `null` is the Default Room; the by-name form (`room`) stays |
+| `zones/create` | `{name}` | `{zone: {id, name}, added: Bool}` |
+| `zones/rename` | `{zone: id, name}` | `{zone: id, name}` |
+| `zones/delete` | `{zone: id}` | `{zone: id}` |
+| `zones/rooms` | `{zone: id, add: [roomID], remove: [roomID]}` | `{zone: id, roomIDs: [roomID]}` |
+| `groups/create` | `{name, services: [serviceID]}` | `{group: {id, name}}` |
+| `groups/rename` | `{group: id, name}` | `{group: id, name}` |
+| `groups/delete` | `{group: id}` | `{group: id}` |
+| `groups/services` | `{group: id, add: [serviceID], remove: [serviceID]}` | `{group: id, services: [serviceID]}` |
+
+An unknown id is 404, a name already taken by another zone or group 422, an empty or over-64-character name 400.
 
 **Events**
 - The `HMHomeDelegate` zone and service-group callbacks, and `didUpdateNameFor service`, emit `homes`.
 - Toggling `allowChanges` emits `settings`.
-- `structureChanged` coalesces per (kind, home).
+- `structureChanged` coalesces per (kind, home), so two homes changing in one second make two events.
 
 **Permissions**
 - The new edits are structural: they need `allowChanges` and `allowStructure`, and an administrator.

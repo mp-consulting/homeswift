@@ -9,6 +9,10 @@ import NIOHTTP1
 //   GET    /api/rooms                        rooms with their accessories
 //   PUT    /api/rooms                        rooms, hidden, display names, Quick Controls (HomeswiftCatalog.updateLayout)
 //   POST   /api/rooms/suggest                the Assistant's rooms and names, to review
+//   GET    /api/home-link                    the Home Link: state, link, Pending Changes, the first link's comparison
+//   POST   /api/home-link/confirm            links the bridge to its home as the comparison says (HomeswiftCatalog.confirmHomeLink)
+//   GET    /api/zones                        the Zones with their Rooms
+//   PUT    /api/zones                        create, change, remove or order zones (HomeswiftCatalog.updateZones)
 //   GET    /api/scenes                        scenes, the plugins' hubs' scenes, location, next sunrise and sunset
 //   POST   /api/scenes                        a new scene
 //   POST   /api/scenes/targets            {"ids"}: the hubs that could keep a scene of these lights
@@ -34,7 +38,7 @@ import NIOHTTP1
 //   DELETE /api/notifications/push/subscriptions/<id>
 extension UIServer {
     func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String, language: String? = nil) async throws -> Reply? {
-        guard let first = route.first, ["rooms", "scenes", "notifications"].contains(first) else { return nil }
+        guard let first = route.first, ["rooms", "home-link", "zones", "scenes", "notifications"].contains(first) else { return nil }
         do {
             return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
@@ -52,6 +56,16 @@ extension UIServer {
             let result = try await catalog.updateLayout(body, by: "web UI \(username)")
             logger.info("Web UI changed the accessory layout", metadata: ["user": "\(username)"])
             return .json(result)
+        case (.GET, ["home-link"]):
+            return .json(await catalog.homeLinkJSON())
+        case (.POST, ["home-link", "confirm"]):
+            let result = try await catalog.confirmHomeLink(by: "web UI \(username)")
+            logger.info("Web UI linked the bridge to Apple Home", metadata: ["user": "\(username)"])
+            return .json(result)
+        case (.GET, ["zones"]):
+            return .json(catalog.zonesJSON())
+        case (.PUT, ["zones"]):
+            return .json(try await catalog.updateZones(body, by: "web UI \(username)"))
         case (.POST, ["rooms", "suggest"]):
             guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
             do {

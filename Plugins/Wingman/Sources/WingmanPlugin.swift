@@ -3,6 +3,7 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 
 /// The Home app's accessories in Homeswift, through Homeswift Wingman: a menu bar app on a Mac that reads Apple Home
 /// with HomeKit and serves it over TLS to the bridges paired with it (github.com/mp-consulting/homeswift-wingman).
@@ -88,6 +89,8 @@ public actor WingmanPlugin: HomeswiftPlugin {
     /// Whether Bonjour browses all the time (the plugin started), so `announced` is what the network has.
     private(set) var isBrowsing = false
     private var linkTasks: [String: Task<Void, Never>] = [:]
+    /// The homes Homeswift's bridge is in, by name, as the links last read them: the accessories mirrored are theirs.
+    nonisolated let bridgeHomes = NIOLockedValueBox<Set<String>>([])
     nonisolated var logger: Logger { context.logger }
     nonisolated var refreshInterval: Duration { .seconds(60 * max(configuration.refreshMinutes ?? 10, 1)) }
 
@@ -182,7 +185,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
     /// discovery lists, Excluded or not.
     nonisolated func isCandidate(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>) -> Bool {
         if let serial = accessory.serialNumber, homeswift.contains(serial) { return false }
-        if let homes = configuration.homes, !homes.isEmpty, !homes.contains(where: { $0.caseInsensitiveCompare(home.name) == .orderedSame }) { return false }
+        if !includesHome(home.name) { return false }
         if let bridge = accessory.bridge, bridge.manufacturer == "Homeswift" || bridge.model == "Homeswift" { return false }
         return true
     }
@@ -269,11 +272,8 @@ actor Link {
     private var lastContact: Date?
     /// Apple Home's rooms, scenes and automations; nil when this Wingman does not serve them.
     private(set) var structure: Structure?
-    /// Rooms Homeswift renamed through this Wingman, by HomeKit id: the read that shows the new name is not a rename
-    /// made in the Home app.
-    private var ownRoomRenames: [String: String] = [:]
-    /// Accessories Homeswift moved through this Wingman, by HomeKit id, likewise.
-    private var ownMoves: [String: String] = [:]
+    /// The Home as the last read gave it to the Home Link: Homeswift hears of it when it changes.
+    private var lastHome: HomeSnapshot?
 
     init(device: WingmanPlugin.Configuration.Device, token: String, plugin: WingmanPlugin) {
         self.device = device
@@ -293,6 +293,7 @@ actor Link {
     /// The accessories of the last read of the homes; nil before the first.
     var loadedIDs: Set<String>? { snapshot.map { Set($0.mirrors.values.map(\.accessory.id)) } }
     var name: String { device.name ?? device.id }
+    var isConnected: Bool { phase == .connected }
 
     /// Bonjour announced Wingman at another address: the next request goes there.
     func moved(to host: String, port: Int) {
@@ -336,6 +337,9 @@ actor Link {
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
         let homes = try await client.homes()
         let homeswift = plugin.context.publishedSerialNumbers
+        if let id = Structure.bridgeHome(of: homes, bridges: plugin.context.homeswiftBridgeSerialNumbers), let home = homes.first(where: { $0.id == id }) {
+            plugin.bridgeHomes.withLockedValue { $0.insert(home.name) }
+        }
         let write: @Sendable (String, String, JSONValue) async throws -> Void = { [weak self] accessoryID, characteristicID, value in
             guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
             do {
@@ -377,44 +381,28 @@ actor Link {
         if info.servesStructure {
             var structure = Structure(
                 allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys),
-                bridges: plugin.context.homeswiftBridgeSerialNumbers, own: plugin.context.ownSerialNumbers)
+                bridges: plugin.context.homeswiftBridgeSerialNumbers, own: plugin.context.ownSerialNumbers, homeLink: info.servesHomeLink)
             // What the last read gave, until this one's scenes and automations come.
             structure.scenes = self.structure?.scenes ?? []
             structure.automations = self.structure?.automations ?? []
-            let renamed = Structure.renamedRooms(from: self.structure, to: structure)
-            let moved = Structure.movedAccessories(from: self.structure, to: structure)
             self.structure = structure
-            // Renamed in the Home app: Homeswift follows. A rename Homeswift asked for is not said back.
-            for (id, home, from, to) in renamed {
-                if ownRoomRenames[id] == to {
-                    ownRoomRenames[id] = nil
-                    continue
-                }
-                guard plugin.includesHome(home) else { continue }
-                logger.info("Room renamed in Apple Home", metadata: ["wingman": "\(name)", "from": "\(from)", "to": "\(to)"])
-                plugin.context.hubRoomRenamed(from: from, to: to)
-            }
-            // Moved in the Home app: Homeswift follows, for the accessories it has.
-            for (id, home, room) in moved {
-                if ownMoves[id] == room {
-                    ownMoves[id] = nil
-                    continue
-                }
-                guard plugin.includesHome(home),
-                      let accessoryID = structure.homeswiftID(of: id, in: plugin.context) else { continue }
-                logger.info("Accessory moved in Apple Home", metadata: ["wingman": "\(name)", "accessory": "\(accessoryID)", "room": "\(room)"])
-                plugin.context.hubAccessoryMoved(accessoryID: accessoryID, room: room)
-            }
-            // Those Apple Home now shows are done.
-            let current = Dictionary(structure.homes.flatMap(\.rooms).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-            ownRoomRenames = ownRoomRenames.filter { current[$0.key] != $0.value }
-            ownMoves = ownMoves.filter { structure.devices[$0.key]?.room != $0.value }
             await reload(scenes: true, automations: true)
         } else {
             structure = nil
         }
         for mirror in changed { plugin.publish(mirror.accessory) }
         await plugin.prune()
+        homeMayHaveChanged()
+    }
+
+    /// Tells Homeswift when the Home the Home Link gives changed: a room, a zone, a group or a placement, made in the Home
+    /// app or by Homeswift, or the link going up or down.
+    private func homeMayHaveChanged() {
+        guard let plugin else { return }
+        let home = phase == .connected ? structure?.homeSnapshot(in: plugin.context) : nil
+        guard home != lastHome else { return }
+        lastHome = home
+        plugin.context.homeChanged()
     }
 
     /// The accessory answered (a value change, a write Wingman took): No Response ends until a read says otherwise.
@@ -491,37 +479,29 @@ actor Link {
         }
     }
 
-    /// Renames a room in Apple Home; listed so until the "homes" event's read, which is not said back to Homeswift.
-    func renameRoom(_ id: String, to name: String) async throws {
-        ownRoomRenames[id] = name
+    /// A change the Home Link asks for (`WingmanPlugin.applyHomeChange`): Wingman's refusal as Apple Home's, the homes
+    /// read again so the next snapshot shows it (a move is put in the copy at once). Answers the id of what `created`
+    /// names in Wingman's answer.
+    func homeEdit(_ path: String, _ body: JSONValue, created: String? = nil, moved: (accessory: String, roomID: String?)? = nil) async throws -> String? {
+        let answer: JSONValue
         do {
-            try await edit("rooms/rename", ["room": .string(id), "name": .string(name)])
+            answer = try await client.edit(path, body)
+        } catch WingmanError.refused(let status, let message) {
+            logger.warning("Wingman refused \(path): \(message)", metadata: ["wingman": "\(name)"])
+            throw HomeChangeError(status == 404 ? .notFound : .refused, message)
         } catch {
-            ownRoomRenames[id] = nil
-            throw error
+            lost(error)
+            throw HomeChangeError(.unreachable, "\(error)")
         }
-        renamedRoom(id, to: name)
-    }
-
-    /// Moves an accessory to the room of that name in its home (Wingman adds the room when there is none); the read
-    /// that shows it is not said back to Homeswift.
-    func moveAccessory(_ id: String, to room: String) async throws {
-        ownMoves[id] = room
-        do {
-            try await edit("accessories/room", ["accessory": .string(id), "room": .string(room)])
-        } catch {
-            ownMoves[id] = nil
-            throw error
+        if let moved {
+            structure?.devices[moved.accessory]?.roomID = moved.roomID
+            let home = structure?.devices[moved.accessory].flatMap { structure?.home($0.home) }
+            structure?.devices[moved.accessory]?.room = moved.roomID.flatMap { id in home?.rooms.first { $0.id == id }?.name } ?? home?.defaultRoom?.name
+            lastHome = plugin.flatMap { structure?.homeSnapshot(in: $0.context) }
+        } else {
+            do { try await refresh() } catch { lost(error) }
         }
-        structure?.devices[id]?.room = room
-    }
-
-    private func renamedRoom(_ id: String, to name: String) {
-        guard var structure else { return }
-        for index in structure.homes.indices {
-            if let room = structure.homes[index].rooms.firstIndex(where: { $0.id == id }) { structure.homes[index].rooms[room].name = name }
-        }
-        self.structure = structure
+        return created.flatMap { answer[$0]?["id"]?.stringValue }
     }
 
     private func lost(_ error: any Error) {
@@ -529,6 +509,7 @@ actor Link {
         let next: Phase = if case WingmanError.unauthorized = error { .unpaired(message) } else { .unreachable(message) }
         if next != phase { logger.warning("Wingman: \(message)", metadata: ["wingman": "\(name)"]) }
         phase = next
+        homeMayHaveChanged()
     }
 
     func status() -> JSONValue {

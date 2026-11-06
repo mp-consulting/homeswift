@@ -220,7 +220,7 @@ public final class PluginHost: @unchecked Sendable {
     /// Each plugin's latest energy import report, by plugin key.
     private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
     private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)
-    private let hubRoomChangeHandler = NIOLockedValueBox<(@Sendable (PlatformInstance, HubRoomChange) async -> Void)?>(nil)
+    private let homeChangeHandler = NIOLockedValueBox<(@Sendable () async -> Void)?>(nil)
     // The tail of the reloads, so two quick saves apply one after the other.
     let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
@@ -588,11 +588,10 @@ public final class PluginHost: @unchecked Sendable {
         renameHandler.withLockedValue { $0 = handler }
     }
 
-    /// Calls `handler` with the instance and the change when a plugin says a room of its hub was renamed there, or one
-    /// of Homeswift's accessories moved there (`PluginContext.hubRoomRenamed`, `hubAccessoryMoved`); the MCP catalog
-    /// follows it in the layout. One handler; nil removes it.
-    public func handleHubRoomChanges(_ handler: (@Sendable (_ instance: PlatformInstance, _ change: HubRoomChange) async -> Void)?) {
-        hubRoomChangeHandler.withLockedValue { $0 = handler }
+    /// Calls `handler` when the Home Link says its snapshot or state changed (`PluginContext.homeChanged()`); the MCP
+    /// catalog follows the Home. One handler; nil removes it.
+    public func handleHomeChanges(_ handler: (@Sendable () async -> Void)?) {
+        homeChangeHandler.withLockedValue { $0 = handler }
     }
 
     /// The name the plugin gave an accessory renamed in `_accessories`; nil for one that was not.
@@ -722,11 +721,9 @@ public final class PluginHost: @unchecked Sendable {
             logger.info("Renamed in HomeKit: \(id) is now \(name)")
             Task { await handler(id, name) }
         }
-        context.onHubRoomChange = { [weak self, platform = block.platform, name = block.name] change in
-            guard let self, let handler = self.hubRoomChangeHandler.withLockedValue({ $0 }),
-                  let instance = self.runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name })?.instance.described
-            else { return }
-            Task { await handler(instance, change) }
+        context.onHomeChanged = { [weak self] in
+            guard let handler = self?.homeChangeHandler.withLockedValue({ $0 }) else { return }
+            Task { await handler() }
         }
         context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
         context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }

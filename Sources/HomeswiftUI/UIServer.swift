@@ -869,7 +869,7 @@ public final class UIServer: Sendable {
         case .PUT:
             if route == ["layout"] {
                 // The Accessories page's order and sizes, the same for every user of the bridge.
-                do { return .json(try layout.save(body)) } catch let error as WallLayout.Invalid { return .error(400, error.description) }
+                do { return .json(try await catalog.saveWall(body)) } catch let error as CatalogError { return .error(400, error.description) }
             }
             if route == ["logs", "settings"] {
                 guard let save = body["saveDetails"]?.boolValue else { return .error(400, "saveDetails (true or false) is required") }

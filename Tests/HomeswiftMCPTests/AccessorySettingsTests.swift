@@ -239,7 +239,6 @@ struct AccessorySettingsTests {
     @Test func onlyRestorableWritesKeepABackup() async throws {
         let environment = try await environment()
         let catalog = environment.catalog
-        _ = try await catalog.updateLayout(["syncRoomNames": true], by: "test")
         let before = Set(catalog.backups())
 
         let live = try await update(environment, "Devices:lamp", ["name": "Desk", "room": "Office", "hidden": true, "notInHome": true])
@@ -247,8 +246,8 @@ struct AccessorySettingsTests {
         let lamp = try #require(catalog.find(id: "Devices:lamp")).accessory
         try await #require(lamp[.lightbulb]?[.configuredName]).write(.string("Reading Lamp"))
         #expect(await eventually { (try? block(environment)?["_accessories"]?["lamp"]?["name"]) == "Reading Lamp" })
-        let instance = try #require(await environment.host.pluginRooms().first?.instance)
-        await catalog.followHubRoomChange(on: instance, .moved(accessoryID: "Devices:lamp", room: "Kitchen"))
+        // A move Apple Home made, as the Home Link follows it.
+        _ = try await catalog.updateAccessorySettings([("Devices:lamp", ["room": "Kitchen"])], moveOnHubs: false, who: "Apple Home")
         #expect(try block(environment)?["_accessories"]?["lamp"]?["room"] == "Kitchen")
         #expect(Set(catalog.backups()) == before)
 
@@ -315,39 +314,23 @@ struct AccessorySettingsTests {
         await environment.stop()
     }
 
-    /// Room Sync is a Bridge Setting: read from the layout's old place while the bridge block says nothing, written to
-    /// the bridge block, and applied without a restart.
-    @Test func roomSyncIsABridgeSettingWithoutRestart() async throws {
+    /// The retired Room Sync: what the layout kept is ignored and dropped by its next write.
+    @Test func roomSyncIsRetired() async throws {
         let environment = try await environment()
         try environment.catalog.home.layout.update { $0.syncRoomNames = true }
-        #expect(environment.catalog.roomSync)
-
-        _ = try await environment.catalog.updateLayout(["syncRoomNames": false], by: "test")
-        #expect(!environment.catalog.roomSync)
+        let answer = try await environment.catalog.updateLayout(["rooms": ["Office"]], by: "test")
+        #expect(answer["syncRoomNames"] == nil && answer["homeLink"]?["state"] == "none")
         #expect(environment.catalog.home.layout.value.syncRoomNames == nil)
-        let on = try await environment.catalog.updateLayout(["syncRoomNames": true], by: "test")
-        #expect(on["syncRoomNames"] == true)
-        #expect(try config(environment)["bridge"]?["roomSync"] == true)
-        #expect(environment.catalog.host.configuration.roomSync == true)
-        #expect(environment.catalog.restartNeeded.withLockedValue { $0 } == false)
-
-        let report = await environment.host.apply(try HomeswiftConfiguration.decode(Data(Self.config().replacingOccurrences(of: #""port": 0 }"#, with: #""port": 0, "roomSync": false }"#).utf8)))
-        #expect(report.needsRestart.isEmpty)
         await environment.stop()
     }
 
-    /// A mirrored accessory (Wingman's): its Name is read-only, it cannot leave Apple Home here, and moving it moves it on
-    /// its hub whether Room Sync is on or not.
+    /// A mirrored accessory (Wingman's): its Name is read-only and it cannot leave Apple Home here; it moves as any other.
     @Test func mirroredAccessoryRules() async throws {
         let environment = try await environment()
-        #expect(!environment.catalog.roomSync)
         await #expect(throws: CatalogError.self) { try await update(environment, "Devices:mirrored", ["name": "Ceiling"]) }
         await #expect(throws: CatalogError.self) { try await update(environment, "Devices:mirrored", ["notInHome": true]) }
-        let moved = try await update(environment, "Devices:mirrored", ["room": "Kitchen"])
-        #expect(moved["hubMoves"] == [["hub": "Devices:Devices", "name": "Devices", "accessory": "Devices:mirrored", "room": "Kitchen", "moved": true]])
-        #expect(environment.hubMoves.withLockedValue { $0 }["Devices:mirrored"] == "Kitchen")
-        // The lamp is not mirrored: with Room Sync off it moves in Homeswift only.
-        #expect(try await update(environment, "Devices:lamp", ["room": "Kitchen"])["hubMoves"] == nil)
+        _ = try await update(environment, "Devices:mirrored", ["room": "Kitchen"])
+        #expect(environment.catalog.find(id: "Devices:mirrored")?.room == "Kitchen")
         let read = try await environment.catalog.accessorySettingsJSON(accessoryID: "Devices:mirrored")
         #expect(read["fields"]?["name"]?["readOnly"] == true && read["mirroredFrom"] == "Apple Home")
         await environment.stop()

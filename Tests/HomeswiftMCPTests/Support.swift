@@ -47,7 +47,7 @@ actor DevicesPlugin: HomeswiftPlugin {
          slowWrites: NIOLockedValueBox<(now: Int, most: Int)>,
          hubScenes: NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]> = NIOLockedValueBox([:]),
          hubRooms: NIOLockedValueBox<[String: String]> = NIOLockedValueBox([:]),
-         hubMoves: NIOLockedValueBox<[String: String]> = NIOLockedValueBox([:]),
+         homeLink: FakeHomeLink = FakeHomeLink(),
          hubAutomations: NIOLockedValueBox<[String: PluginAutomation]> = NIOLockedValueBox([:])) {
         self.configuration = configuration
         self.context = context
@@ -55,7 +55,7 @@ actor DevicesPlugin: HomeswiftPlugin {
         self.slowWrites = slowWrites
         self.hubScenes = hubScenes
         self.hubRooms = hubRooms
-        self.hubMoves = hubMoves
+        self.homeLink = homeLink
         self.hubAutomations = hubAutomations
     }
 
@@ -175,17 +175,12 @@ actor DevicesPlugin: HomeswiftPlugin {
         }
     }
 
-    /// The rooms the hub put Homeswift's accessories in, by accessory id.
-    let hubMoves: NIOLockedValueBox<[String: String]>
+    /// Apple Home, as Wingman would be its Home Link, once a test turns it on (`FakeHomeLink.enabled`).
+    let homeLink: FakeHomeLink
 
-    /// The hub keeps the desk lamp in a room, and the mirrored bulb (Apple Home's, as Wingman's are), and refuses the room
-    /// "Attic".
-    func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool {
-        guard accessoryID == "Devices:lamp" || accessoryID == "Devices:mirrored" else { return false }
-        guard room != "Attic" else { throw PluginRoomError("that name is taken") }
-        hubMoves.withLockedValue { $0[accessoryID] = room }
-        return true
-    }
+    func homeLinkState() async -> HomeLinkState? { homeLink.box.withLockedValue { $0.enabled ? $0.state : nil } }
+    func homeSnapshot() async -> HomeSnapshot? { homeLink.box.withLockedValue { $0.enabled && $0.state.isUp ? $0.home : nil } }
+    func applyHomeChange(_ change: HomeChange) async throws -> String? { try homeLink.apply(change) }
 
     /// The lamp is a light, the lock a lock; the others say nothing.
     func deviceKind(of deviceID: String) async -> String? {
@@ -326,8 +321,8 @@ final class MCPTestEnvironment: @unchecked Sendable {
     let hubScenes = NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]>([:])
     /// The devices' hub's rooms, by id.
     let hubRooms = NIOLockedValueBox<[String: String]>(["r1": "Séjour", "r2": "Kitchen", "r3": "Bedroom"])
-    /// The rooms the devices' hub put Homeswift's accessories in.
-    let hubMoves = NIOLockedValueBox<[String: String]>([:])
+    /// Apple Home, through the devices plugin as its Home Link, off until a test turns it on.
+    let homeLink = FakeHomeLink()
     /// The devices' hub's automations: "Evening" turns the desk lamp on at sunset on weekdays.
     let hubAutomations = NIOLockedValueBox<[String: PluginAutomation]>(["evening": PluginAutomation(
         id: "evening", name: "Evening", enabled: true, triggers: [.time(PluginAutomationTime(solarEvent: .sunset, offsetMinutes: -15, weekdays: [2, 3, 4, 5, 6]))],
@@ -358,9 +353,9 @@ final class MCPTestEnvironment: @unchecked Sendable {
             """
         try Data(config.utf8).write(to: configURL)
         var registry = PluginRegistry()
-        let writes = self.writes, slowWrites = self.slowWrites, hubScenes = self.hubScenes, hubRooms = self.hubRooms, hubMoves = self.hubMoves, hubAutomations = self.hubAutomations
+        let writes = self.writes, slowWrites = self.slowWrites, hubScenes = self.hubScenes, hubRooms = self.hubRooms, homeLink = self.homeLink, hubAutomations = self.hubAutomations
         registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, configurationSchemaJSON: schema, assistantActions: DevicesPlugin.assistantActions) { json, context in
-            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes, slowWrites: slowWrites, hubScenes: hubScenes, hubRooms: hubRooms, hubMoves: hubMoves, hubAutomations: hubAutomations)
+            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes, slowWrites: slowWrites, hubScenes: hubScenes, hubRooms: hubRooms, homeLink: homeLink, hubAutomations: hubAutomations)
         }
         var hostOptions = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         hostOptions.aiTransport = aiTransport
@@ -445,4 +440,89 @@ func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () asyn
         try? await Task.sleep(for: .milliseconds(50))
     }
     return await condition()
+}
+
+/// Apple Home in memory, as the Home Link gives it (Wingman's part): its rooms, zones, groups and where Homeswift's
+/// accessories are, and the changes Homeswift asked for. It refuses a room or a zone named "Attic".
+final class FakeHomeLink: @unchecked Sendable {
+    struct State {
+        var enabled = false
+        var state: HomeLinkState = .up
+        var home = HomeSnapshot(homeID: "home-1", homeName: "Maison", rooms: [], placements: [:])
+        var applied: [HomeChange] = []
+        var next = 0
+    }
+
+    let box = NIOLockedValueBox(State())
+
+    var applied: [HomeChange] { box.withLockedValue { $0.applied } }
+    var home: HomeSnapshot { box.withLockedValue { $0.home } }
+
+    func set(_ change: (inout State) -> Void) { box.withLockedValue(change) }
+
+    /// Turns it on with these rooms (id, name) and placements.
+    func turnOn(rooms: [(String, String)] = [], placements: [String: String?] = [:]) {
+        set { state in
+            state.enabled = true
+            state.home.rooms = rooms.map { HomeSnapshot.Room(id: $0.0, name: $0.1) }
+            state.home.placements = placements
+        }
+    }
+
+    func apply(_ change: HomeChange) throws -> String? {
+        try box.withLockedValue { state in
+            guard state.state.isUp else { throw HomeChangeError(.unreachable, "Wingman is not reachable") }
+            guard state.state.canEdit else { throw HomeChangeError(.refused, "edits are turned off") }
+            func newID(_ kind: String) -> String {
+                state.next += 1
+                return "hk-\(kind)-\(state.next)"
+            }
+            func refuse(_ name: String) throws { if name == "Attic" { throw HomeChangeError(.refused, "that name is taken") } }
+            state.applied.append(change)
+            switch change {
+            case .createRoom(let name):
+                try refuse(name)
+                if let room = state.home.rooms.first(where: { $0.name.lowercased() == name.lowercased() }) { return room.id }
+                let id = newID("room")
+                state.home.rooms.append(.init(id: id, name: name))
+                return id
+            case .renameRoom(let id, let name):
+                try refuse(name)
+                guard let index = state.home.rooms.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no room") }
+                state.home.rooms[index].name = name
+            case .deleteRoom(let id):
+                state.home.rooms.removeAll { $0.id == id }
+                for (accessory, room) in state.home.placements where room == id { state.home.placements[accessory] = .some(nil) }
+            case .moveAccessory(let accessory, let roomID):
+                guard state.home.placements[accessory] != nil else { throw HomeChangeError(.notFound, "\(accessory) is not in the home") }
+                state.home.placements[accessory] = .some(roomID)
+            case .createZone(let name):
+                try refuse(name)
+                let id = newID("zone")
+                state.home.zones.append(.init(id: id, name: name, rooms: []))
+                return id
+            case .renameZone(let id, let name):
+                guard let index = state.home.zones.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no zone") }
+                state.home.zones[index].name = name
+            case .deleteZone(let id):
+                state.home.zones.removeAll { $0.id == id }
+            case .setZoneRooms(let id, let add, let remove):
+                guard let index = state.home.zones.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no zone") }
+                state.home.zones[index].rooms = state.home.zones[index].rooms.filter { !remove.contains($0) } + add
+            case .createGroup(let name, let members):
+                let id = newID("group")
+                state.home.groups.append(.init(id: id, name: name, members: members))
+                return id
+            case .renameGroup(let id, let name):
+                guard let index = state.home.groups.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no group") }
+                state.home.groups[index].name = name
+            case .deleteGroup(let id):
+                state.home.groups.removeAll { $0.id == id }
+            case .setGroupMembers(let id, let add, let remove):
+                guard let index = state.home.groups.firstIndex(where: { $0.id == id }) else { throw HomeChangeError(.notFound, "no group") }
+                state.home.groups[index].members = state.home.groups[index].members.filter { !remove.contains($0) } + add
+            }
+            return nil
+        }
+    }
 }
