@@ -15,6 +15,7 @@ All notable changes to this project are documented here. The format follows
 - Web UI on a phone: the Plugins page lists your plugins and the catalog as rows of one list, not a card each: a row
   opens the plugin (its page, else its settings), its state and ⋯ at the end, a note only when it is not running as it
   should and Set up when its account waits; a catalog row ends with a round Add.
+- Web UI: the Assistant's block (HomeswiftAiKit) is named Homeswift Ai Kit on the pages, as the web UI's is Homeswift UI.
 - Web UI: Settings › Assistant has the Assistant's whole form (the provider, model and key, the MCP server), saved from
   there, under its test, usage and budgets, rather than a link to the block's page.
 - Web UI on a phone: the Assistant's button floats just above the sections' button at the bottom right, rather than in
