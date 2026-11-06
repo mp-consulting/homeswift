@@ -152,8 +152,8 @@ screenshots, and what a plugin does to get good ones.
   that carry keys (a camera's Setup Endpoints) are not shown, nor what only HomeKit uses.
 - **A widget's ⋯ menu** (a right click on a tile): its size or its kind's, **All controls** (every control in a sheet,
   the rest under More), Identify, its log, ask the Assistant about it, add to the Quick Controls, **Settings…** and its
-  plugin's Settings (administrators), resume a paused plugin, and **History**, which opens the sheet on its History
-  tab.
+  plugin's Settings and **Download diagnostics** ([Diagnostics](#diagnostics); administrators), resume a paused plugin,
+  and **History**, which opens the sheet on its History tab.
 - **An accessory's sheet** has two tabs: **Controls** and **History** ([History and Logbook](#history-and-logbook)): a
   chart per characteristic over **24 hours**, a **Week** or a **Year**. A number (a temperature, a brightness, a
   power) is a line, each change held until the next over 24 hours, its hourly highest, average and lowest over a week,
@@ -487,7 +487,8 @@ pairing** or **Needs keys**, in orange, and its card leads with **Set up** (**Se
 opens the Setup sheet over the list; an optional account left alone needs no one. One whose every accessory shows No
 Response says **Not responding**. Sorted by **Needs attention first**, they come first.
 
-- **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, and removes it; its name
+- **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, downloads its
+  [Diagnostics](#diagnostics), and removes it; its name
   opens its page (its Settings when it has none). Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
   there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
 - **Pause** (also at the top right of a plugin's page) stops the plugin's calls to its devices, for when an app sharing
@@ -520,6 +521,20 @@ Response says **Not responding**. Sorted by **Needs attention first**, they come
 
   The runtime's own blocks (`HomeswiftUI`, `HomeswiftAiKit`: the web UI, the Assistant and the MCP server) keep their form
   at `/plugins/<slug>`, saved whole, as a new block's (`/plugins/add/<platform>`) is.
+
+#### Diagnostics
+
+**Download diagnostics**, in a plugin's ⋯ menu and an accessory's (administrators), saves one JSON file
+(`homeswift-diagnostics-<name>-<day>.json`) to attach to an issue. It holds homeswift's version and platform (not the
+machine's name), the plugin's state (running, paused, why it did not start, its account), its Plugin Settings and
+Accessory Settings, the accessories' services and current values, the plugin's last 1,000 log lines and how many
+errors and warnings it logged over the last week, with its last error. Secrets are masked through `Redaction`:
+values under secret-named keys, sealed values, and in every other text (settings and log lines alike) what the log
+masks, with each URL's credentials: a password before the host, secret-named query values (`?pwd=…`, `?token=…`), and
+the whole path and query of an RTSP URL (a UniFi Protect stream alias). A `vault:` reference keeps its name. Names and rooms are kept, because they are what lets a helper find their way; read
+the file before sharing it. An accessory's file has that accessory alone and its own Accessory Settings. `GET
+/api/diagnostics/plugins/<platform>/<name>` and `GET /api/diagnostics/accessories/<id>` serve it, and MCP clients get
+the same bundle from `get_diagnostics` (administrators only).
 
 ![A plugin's Settings: its Plugin Settings, its devices](images/ui/plugin-settings.png)
 
