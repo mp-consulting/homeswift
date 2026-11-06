@@ -132,6 +132,21 @@ struct HistoryTests {
         #expect(entries.first?.write == true)
     }
 
+    /// A write to a lock's target is the Home app's; the current state the lock then reports is the Device's.
+    @Test func aCurrentStateIsTheDevicesEvenAfterAWrite() throws {
+        let clock = Clock(start)
+        let store = HistoryStore(directory: nil, now: { clock.now })
+        let lock = Service(.lockMechanism, name: "Front Door")
+        let accessory = Accessory(id: "Test:door", name: "Front Door", category: .doorLock, services: [lock])
+        let source = ChangeSource.homeApp(pairing: "5C1F0A93")
+        store.recordChange(of: lock.characteristic(.lockTargetState), in: accessory, value: .int(1), source: source)
+        store.recordWrite(of: lock.characteristic(.lockTargetState), in: accessory, value: .int(1), source: source)
+        store.recordChange(of: lock.characteristic(.lockCurrentState), in: accessory, value: .int(1), source: source)
+        let entries = store.logbook(LogbookQuery())
+        #expect(entries.map(\.characteristic) == ["Lock Current State", "Lock Target State"])
+        #expect(entries.map(\.source) == [.device, source])
+    }
+
     @Test func aDeviceThatStopsAnsweringStopsItsHours() throws {
         let clock = Clock(start)
         let store = HistoryStore(directory: nil, now: { clock.now })

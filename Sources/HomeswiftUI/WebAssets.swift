@@ -12341,7 +12341,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("time", { datetime: entry.time, text: timeFormat.format(date) }),
         el("span", { class: "tile", "aria-hidden": "true" }, HomeswiftCommon.icon(icons.get(entry.accessory) ?? "accessory")),
         el("div", { class: "who" }, el("strong", { text: entry.name }), el("span", { class: "muted", text: [what, entry.room].filter(Boolean).join(" · ") })),
-        el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : null },
+        el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : sourceText(entry.source) },
           HomeswiftCommon.icon(sourceIcons[entry.source.kind] ?? "accessory"), el("span", { text: sourceText(entry.source) })));
     }
     reload();
@@ -32139,19 +32139,21 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .logbook.loading { opacity: 0.6; }
 .logbook-day h3 { font-size: var(--text-sm); color: var(--muted); font-weight: var(--weight-semibold); margin: var(--space-18) 0 var(--space-6); }
 .logbook-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); overflow: hidden; }
-.logbook-entry { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: var(--space-10); align-items: center; padding: var(--space-8) var(--space-14); }
+.logbook-entry { display: grid; grid-template-columns: auto auto minmax(0, 1fr) minmax(0, max-content); gap: var(--space-10); align-items: center; padding: var(--space-8) var(--space-14); }
 .logbook-entry + .logbook-entry { border-top: 1px solid var(--line); }
 .logbook-entry time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--text-sm); }
 .logbook-entry .tile { width: 28px; height: 28px; }
 .logbook-entry .who { display: grid; min-width: 0; }
 .logbook-entry .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.logbook-entry .source { display: inline-flex; align-items: center; gap: var(--space-4); max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A whole pill, its name cut with an ellipsis inside it; the full name is its tooltip. */
+.logbook-entry .source { display: inline-flex; align-items: center; gap: var(--space-4); max-width: min(18em, 100%); min-width: 0; box-sizing: border-box; }
+.logbook-entry .source > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logbook-entry .source::before { content: none; }
 .logbook-entry .source svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 640px) {
   .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-10) var(--space-12); }
   .logbook-entry .tile { display: none; }
-  .logbook-entry .source { grid-column: 2; justify-self: start; }
+  .logbook-entry .source { grid-column: 2; justify-self: start; max-width: 100%; }
   .logbook-filters select { flex: 1 1 calc(50% - var(--space-8)); }
 }
 
