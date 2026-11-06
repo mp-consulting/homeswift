@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
+  each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,
+  average, highest) for years. The Logbook lists state changes, targets set and every write, each with its Change
+  Source: the Home app (by pairing), a Homeswift user, an MCP client, an Automation or Scene, or the device itself.
+  Retention is a Bridge Setting (`historyDays`, 14 by default; `historyYears`, 10).
+- Web UI: an accessory's sheet has a **History** tab beside its controls, a chart per characteristic over 24 hours, a
+  week or a year (a state as a band of its values); a **Logbook** page (`/logbook`) filtered by room, accessory and
+  Change Source.
+- MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
+  goes further back.
+
 ## [0.23.0] - 2026-11-06
 
 ### Added

@@ -35,8 +35,92 @@ writeFileSync(join(storage, "config.json"), JSON.stringify({
     // A demonstration key, for the Vault page's secrets still in config.json.
     { platform: "Govee", name: "Govee", apiKey: "demo-govee-api-key", _paused: true },
     { platform: "DysonPureCool", name: "Dyson", _paused: true },
+    // Accessories that exist only on the bridge, for the History and the Logbook: nothing reaches a device.
+    { platform: "HomebridgeDummy", name: "Demo", accessories: [
+      { id: "thermostat", name: "Living Room", type: "Thermostat" },
+      { id: "lamp", name: "Desk Lamp", type: "Lightbulb", isDimmer: true },
+      { id: "door", name: "Front Door", type: "LockMechanism" },
+      { id: "motion", name: "Hallway Motion", type: "MotionSensor" },
+    ] },
   ],
 }, null, 2));
+writeHistory(join(storage, "history"));
+/// A day of the demonstration accessories' History and Logbook (HistoryStore's files), and a week of hours: the room's
+/// temperature, its target by the time of day, the lamp, the door and the motion sensor, with who changed what.
+function writeHistory(directory) {
+  const now = Date.now(), hour = 3_600_000, day = 24 * hour;
+  const series = [
+    ["thermostat", "4A", "11", "Living Room", "Current Temperature", "number", "celsius"],
+    ["thermostat", "4A", "35", "Living Room", "Target Temperature", "number", "celsius"],
+    ["thermostat", "4A", "F", "Living Room", "Current Heating Cooling State", "state", null, [0, 1, 2]],
+    ["lamp", "43", "25", "Desk Lamp", "On", "state"],
+    ["lamp", "43", "8", "Desk Lamp", "Brightness", "number", "percentage"],
+    ["door", "45", "1D", "Front Door", "Lock Current State", "state", null, [0, 1, 2, 3]],
+    ["motion", "85", "22", "Hallway Motion", "Motion Detected", "state"],
+  ].map(([id, service, type, name, characteristic, kind, unit, validValues], index) => ({ id: index + 1, key: `HomebridgeDummy:${id}|${service}||${type}`,
+    accessory: `HomebridgeDummy:${id}`, accessoryName: name, service: "", characteristic, kind, ...(unit ? { unit } : {}), ...(validValues ? { validValues } : {}) }));
+  const byName = (name) => series.find((one) => one.characteristic === name);
+  const changes = new Map(), logbook = new Map(), hours = new Map();
+  const dayOf = (time) => new Date(time).toISOString().slice(0, 10);
+  const add = (map, file, line) => { if (!map.has(file)) map.set(file, []); map.get(file).push(line); };
+  const change = (name, time, value) => {
+    const one = byName(name);
+    one.last = value;
+    one.lastAt = time / 1000 - 978_307_200;
+    add(changes, `changes/${dayOf(time)}.tsv`, `${Math.round(time)}\t${one.id}\t${JSON.stringify(value)}`);
+  };
+  const log = (name, time, value, kind, sourceName) => {
+    const one = byName(name);
+    add(logbook, `logbook/${dayOf(time)}.jsonl`, JSON.stringify({ t: Math.round(time), a: one.accessory, n: one.accessoryName, c: name, v: value,
+      src: sourceName ? { kind, name: sourceName } : { kind }, ...(kind === "device" ? {} : { w: true }) }));
+  };
+  // The time `h` hours into the day before now, on the hour of the local clock.
+  const start = new Date(now - day);
+  start.setMinutes(0, 0, 0);
+  const at = (h) => start.getTime() + h * hour;
+  const target = (time) => { const h = new Date(time).getHours(); return h >= 7 && h < 23 ? 21 : 19; };
+  const temperature = (time) => { const h = new Date(time).getHours() + new Date(time).getMinutes() / 60; return Math.round((19.6 + 1.6 * Math.max(0, Math.sin((h - 6) / 17 * Math.PI)) + 0.15 * Math.sin(time / 1e6)) * 10) / 10; };
+  // A reading every ten minutes; a target held between its changes.
+  for (let time = at(0); time <= now; time += 600_000) change("Current Temperature", time, temperature(time));
+  let lastTarget = null;
+  for (let time = at(0); time <= now; time += 600_000) {
+    if (target(time) !== lastTarget) {
+      lastTarget = target(time);
+      change("Target Temperature", time, lastTarget);
+      if (time > at(0)) log("Target Temperature", time, lastTarget, "automation", lastTarget === 21 ? "Morning" : "Night");
+      change("Current Heating Cooling State", time + 60_000, lastTarget === 21 ? 1 : 0);
+      if (time > at(0)) log("Current Heating Cooling State", time + 60_000, lastTarget === 21 ? 1 : 0, "device");
+    }
+  }
+  const dated = (h) => { const next = new Date(start); next.setHours(next.getHours() + h); return next.getTime(); };
+  const events = [];
+  // The lamp: on in the morning from the Home app, in the evening by an automation, dimmed by a person.
+  for (const [h, value, kind, who] of [[0, false, null], [7.2, true, "homeApp", "5C1F0A93"], [8.1, false, "homeApp", "5C1F0A93"], [18.5, true, "automation", "Evening"], [23.3, false, "scene", "Good Night"]]) {
+    events.push([dated(0) + h * hour, "On", value, kind, who]);
+  }
+  events.push([dated(0) + 18.5 * hour + 2_000, "Brightness", 80, "automation", "Evening"], [dated(0) + 21 * hour, "Brightness", 40, "user", "alex"]);
+  // The door: opened at the door, locked from the Home app.
+  for (const [h, value, kind, who] of [[0, 1, null], [8.2, 0, "device"], [8.25, 1, "homeApp", "5C1F0A93"], [17.9, 0, "device"], [18, 1, "homeApp", "A2E77B10"]]) events.push([dated(0) + h * hour, "Lock Current State", value, kind, who]);
+  // Motion in the hallway now and then.
+  events.push([dated(0), "Motion Detected", false, null]);
+  for (const h of [7.1, 7.6, 8.15, 12.4, 17.95, 18.6, 19.3, 22.8]) events.push([dated(0) + h * hour, "Motion Detected", true, "device"], [dated(0) + h * hour + 120_000, "Motion Detected", false, "device"]);
+  for (const [time, name, value, kind, who] of events.filter(([time]) => time <= now).sort((a, b) => a[0] - b[0])) {
+    change(name, time, value);
+    if (kind) log(name, time, value, kind, who);
+  }
+  // A week of hours of the numbers: their lowest, average and highest.
+  for (let time = Math.floor((now - 8 * day) / hour) * hour; time < Math.floor(now / hour) * hour; time += hour) {
+    const samples = [0, 1, 2, 3, 4, 5].map((step) => temperature(time + step * 600_000));
+    add(hours, `hours/${byName("Current Temperature").id}/${new Date(time).getUTCFullYear()}.tsv`,
+      `${time / 1000}\t${Math.min(...samples)}\t${Math.round(samples.reduce((a, b) => a + b, 0) / samples.length * 100) / 100}\t${Math.max(...samples)}`);
+    add(hours, `hours/${byName("Target Temperature").id}/${new Date(time).getUTCFullYear()}.tsv`, `${time / 1000}\t${target(time)}\t${target(time)}\t${target(time)}`);
+  }
+  for (const [file, lines] of [...changes, ...logbook, ...hours]) {
+    mkdirSync(join(directory, file, ".."), { recursive: true });
+    writeFileSync(join(directory, file), lines.join("\n") + "\n");
+  }
+  writeFileSync(join(directory, "series.json"), JSON.stringify({ version: 1, series }));
+}
 const bridge = spawn(binary, ["-U", storage], { stdio: "ignore" });
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 /// Stops the bridge and, once it has exited (it writes on its way out), removes its folder.
@@ -188,6 +272,14 @@ try {
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 1300 });
   await shot("backups", "/settings/backups", { ready: ".drop-zone", tall: 1000 });
   await shot("vault", "/settings/vault", { ready: ".vault-move", tall: 800 });
+  // An accessory's History tab, and the Logbook (the demonstration's day, from writeHistory).
+  await shot("history", "/accessories", { ready: ".widget", height: 1100, prepare: `
+    const list = await fetch("/api/accessories").then((r) => r.json());
+    HomeswiftAdmin.history(list.find((one) => one.name === "Living Room"));
+    for (let i = 0; i < 40 && !document.querySelector(".history-full .chart-card"); i++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 600));` });
+  await shot("logbook", "/logbook", { ready: ".logbook-entry", tall: 1000 });
+  await shot("logbook-phone", "/logbook", { width: 390, height: 844, mobile: true, ready: ".logbook-entry" });
 } finally {
   socket.close();
   const exited = new Promise((done) => chrome.once("exit", done));

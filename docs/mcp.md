@@ -200,7 +200,7 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `get_logbook`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection`, `update_tariffs` (with `dryRun`) |
 
@@ -344,11 +344,18 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
 - **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
   `webhook`, `ntfy`, `pushover`, `telegram`, `browser`) and answers per channel, 5 a minute at most. The channels
   are set up on the web UI's Notifications page, in a file of their own that no tool reads.
-- **History.** `get_accessory_history` reads the Eve history a plugin keeps for an accessory (`EveHistory`:
-  temperature, humidity, air quality, power, light level, contact, motion; ten-minute averages for four
-  weeks): per characteristic the min and max with when, the time-weighted average, the last value and the
-  points averaged down to `maxPoints`, over `hours` (24 by default). Accessories without such a history
-  answer with a note.
+- **History and Logbook** (GLOSSARY.md, "History"; [docs/ui.md](ui.md#history-and-logbook)). `get_accessory_history`
+  reads the History of every characteristic of an accessory over `hours` (24 by default): a number gets the min and max
+  with when, the time-weighted average, the last value and the points averaged down to `maxPoints`, from each change
+  within the bridge's History days (14 by default) and from its hourly figures beyond; a state gets its changes (the
+  newest `maxPoints`) and the value it held at the start. Where a plugin keeps an Eve history (`EveHistory`:
+  temperature, humidity, air quality, power, light level, contact, motion; ten-minute averages for four weeks), its
+  readings fill in before the History starts (`eveUntil`) or for a type the History lacks (`source: "eve"`).
+  `get_logbook` lists what changed, newest first: state changes, targets and every write, each with its Change Source
+  (`source.kind`: `homeApp` with the pairing's first characters, `user`, `mcp`, `automation`, `scene`, `device`; and
+  its `name`), the accessory's room as it is now; filtered by `room`, `accessory`, `source`, `sourceName`, `since` and
+  `until`. Its names came from devices and clients: the answer is wrapped in `<untrusted-data>`. The changes an MCP
+  client's tools make are its own in the Logbook (the web UI's chat's: its user's).
 - **Consumption** (GLOSSARY.md, "Energy"; docs/adr/0004-meters-and-consumption-history.md). `get_consumption` gives
   the energy each Meter measured, in kWh, whatever its plugin: its Consumption and Returned over the span, a bar per
   hour, day or month (each with `hours` known and `recordedHours` the bridge measured itself, imports and estimates
