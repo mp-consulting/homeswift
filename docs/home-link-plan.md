@@ -12,7 +12,7 @@ Built, on branch `feat/home-link` (homeswift) and `feat/home-link` (homeswift-wi
 | Phase | State |
 |---|---|
 | 0. Clean the Wingman checkout | Left to a person: the phase 3 work is in its own worktree, the conflicted checkout untouched |
-| 1. Spike on a real home | **Not run.** Every HomeKit behaviour below is written to the API's documentation, not yet tried on a home |
+| 1. Spike on a real home | **Half run:** what a real home holds was read (below, "What a real home showed"); the edits (names, the Default Room, deleting a room, groups) wait for a run with **Let bridges edit rooms, scenes and automations** on |
 | 2. Unique serials, the bridge by its serial | Done |
 | 3. Wingman's `home-link` API | Done (DemoStore and loopback tests; the app builds unsigned). Create edits take a `home` |
 | 4. The linked copy | Done: each Room in `accessory-layout.json` has its own id and its Home id; the Zones (by Room id) and Groups are in `home.json` |
@@ -103,6 +103,21 @@ This phase is facts only, gathered on a real home with the Home app open, before
 - **Zones:** whether the Home app shows zones that were made through the API.
 
 The results go in this document and settle the exact Group rule that `canGroup` will enforce.
+
+#### What a real home showed (read only, 2026-11-06)
+
+Read through Wingman's `/homes` on a home of 151 accessories, 143 of them behind a Homeswift bridge:
+
+- **Rooms and the Default Room:** every accessory has a room id, the five in the Default Room included, and the home's
+  `defaultRoom` is listed with the 19 rooms, so No Room maps to an id Homeswift can keep.
+- **Zones:** both of the home's zones come with ids and their rooms' ids.
+- **The bridge:** each of the 143 bridged accessories names its bridge by id, so matching by bridge and serial works.
+- **Service groups keep living empty.** Of 40 groups, 39 have no services: their accessories were removed, or added
+  again under new ids, and the groups stayed. Several share a name ("Spots Salon" four times), so HomeKit does not keep
+  group names unique among empty groups. Two consequences, both built:
+  - Homeswift adopts only a group with at least two of its accessories, so empty groups never reach it.
+  - Wingman lets a name held only by empty groups be used again (homeswift-wingman `521fced`); it refused it before.
+- **The one live group** holds two lights of one kind in one room, which says nothing yet about mixed kinds or rooms.
 
 ### 2. Unique serials and a sure way to find the bridge (homeswift)
 
@@ -394,4 +409,5 @@ Phase 1 settles these:
 - The Home app's exact grouping rule: which kinds group together, whether members can be in different rooms, and what
   an API-made group that breaks the rule looks like.
 - Whether HomeKit's own name uniqueness folds case and accents the way Homeswift will.
-- What happens to service groups when a member accessory is removed, or moved to another bridge.
+- What happens to service groups when a member accessory moves to another bridge. (When it is removed, the group stays,
+  empty: see phase 1's results.)
