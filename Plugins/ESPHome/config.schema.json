@@ -71,6 +71,19 @@
         },
         "description": "Entity names to leave out, exactly as ESPHome names them"
       },
+      "bluetooth": {
+        "title": "Bluetooth sensors",
+        "type": "boolean",
+        "default": true,
+        "description": "Listen to the Bluetooth LE advertisements ESPHome's Bluetooth proxies hear, for the sensors set up in Add accessories"
+      },
+      "bluetoothTimeout": {
+        "title": "Bluetooth timeout (minutes)",
+        "type": "integer",
+        "minimum": 1,
+        "placeholder": 30,
+        "description": "Minutes without an advertisement before a Bluetooth sensor shows No Response; 30 by default"
+      },
       "debug": {
         "title": "Debug",
         "type": "boolean",
@@ -84,21 +97,58 @@
       "host": {
         "title": "Host",
         "type": "string",
-        "description": "The device's host name or IP address"
+        "description": "The device's host name or IP address",
+        "x-kinds": [
+          "device"
+        ]
       },
       "port": {
         "title": "Port",
         "type": "integer",
         "minimum": 1,
         "maximum": 65535,
-        "description": "The native API's port; 6053 by default"
+        "description": "The native API's port; 6053 by default",
+        "x-kinds": [
+          "device"
+        ]
       },
       "retryAfter": {
         "title": "Retry after (milliseconds)",
         "type": "integer",
         "minimum": 1000,
         "description": "The longest wait between attempts to reach this device; empty takes the plugin's setting",
-        "x-default": "retryAfter"
+        "x-default": "retryAfter",
+        "x-kinds": [
+          "device"
+        ]
+      },
+      "format": {
+        "title": "Advertisement format",
+        "type": "string",
+        "description": "How the Bluetooth sensor's advertisements are read; Setup finds it",
+        "oneOf": [
+          {
+            "title": "BTHome",
+            "enum": [
+              "bthome"
+            ]
+          },
+          {
+            "title": "Xiaomi MiBeacon",
+            "enum": [
+              "xiaomi"
+            ]
+          },
+          {
+            "title": "Govee",
+            "enum": [
+              "govee"
+            ]
+          }
+        ],
+        "x-kinds": [
+          "sensor"
+        ]
       }
     }
   },
@@ -124,7 +174,16 @@
       "Entity names to leave out, exactly as ESPHome names them": "Noms d'entités à laisser de côté, exactement comme ESPHome les nomme",
       "Debug": "Débogage",
       "Log each device's entities and the ones left out at the info level": "Journaliser au niveau info les entités de chaque appareil et celles laissées de côté",
-      "The device's host name or IP address": "Le nom d'hôte ou l'adresse IP de l'appareil"
+      "The device's host name or IP address": "Le nom d'hôte ou l'adresse IP de l'appareil",
+      "Bluetooth sensors": "Capteurs Bluetooth",
+      "Listen to the Bluetooth LE advertisements ESPHome's Bluetooth proxies hear, for the sensors set up in Add accessories": "Écouter les annonces Bluetooth LE que reçoivent les proxys Bluetooth d'ESPHome, pour les capteurs configurés dans Ajouter des accessoires",
+      "Bluetooth timeout (minutes)": "Délai Bluetooth (minutes)",
+      "Minutes without an advertisement before a Bluetooth sensor shows No Response; 30 by default": "Minutes sans annonce avant qu'un capteur Bluetooth s'affiche Ne répond pas ; 30 par défaut",
+      "Advertisement format": "Format des annonces",
+      "How the Bluetooth sensor's advertisements are read; Setup finds it": "Comment les annonces du capteur Bluetooth sont lues ; la configuration le trouve",
+      "BTHome": "BTHome",
+      "Xiaomi MiBeacon": "Xiaomi MiBeacon",
+      "Govee": "Govee"
     },
     "es": {
       "Name": "Nombre",
@@ -147,7 +206,16 @@
       "Entity names to leave out, exactly as ESPHome names them": "Nombres de entidades que se dejan fuera, exactamente como ESPHome los nombra",
       "Debug": "Depuración",
       "Log each device's entities and the ones left out at the info level": "Registrar en el nivel info las entidades de cada dispositivo y las que se dejan fuera",
-      "The device's host name or IP address": "El nombre de host o la dirección IP del dispositivo"
+      "The device's host name or IP address": "El nombre de host o la dirección IP del dispositivo",
+      "Bluetooth sensors": "Sensores Bluetooth",
+      "Listen to the Bluetooth LE advertisements ESPHome's Bluetooth proxies hear, for the sensors set up in Add accessories": "Escuchar los anuncios Bluetooth LE que reciben los proxies Bluetooth de ESPHome, para los sensores configurados en Añadir accesorios",
+      "Bluetooth timeout (minutes)": "Tiempo de espera Bluetooth (minutos)",
+      "Minutes without an advertisement before a Bluetooth sensor shows No Response; 30 by default": "Minutos sin anuncios antes de que un sensor Bluetooth aparezca como Sin respuesta; 30 por defecto",
+      "Advertisement format": "Formato de los anuncios",
+      "How the Bluetooth sensor's advertisements are read; Setup finds it": "Cómo se leen los anuncios del sensor Bluetooth; la configuración lo encuentra",
+      "BTHome": "BTHome",
+      "Xiaomi MiBeacon": "Xiaomi MiBeacon",
+      "Govee": "Govee"
     },
     "pt": {
       "Name": "Nome",
@@ -170,7 +238,16 @@
       "Entity names to leave out, exactly as ESPHome names them": "Nomes de entidades a deixar de fora, exatamente como o ESPHome os nomeia",
       "Debug": "Depuração",
       "Log each device's entities and the ones left out at the info level": "Registar no nível info as entidades de cada dispositivo e as que ficam de fora",
-      "The device's host name or IP address": "O nome do host ou o endereço IP do dispositivo"
+      "The device's host name or IP address": "O nome do host ou o endereço IP do dispositivo",
+      "Bluetooth sensors": "Sensores Bluetooth",
+      "Listen to the Bluetooth LE advertisements ESPHome's Bluetooth proxies hear, for the sensors set up in Add accessories": "Ouvir os anúncios Bluetooth LE que os proxies Bluetooth do ESPHome recebem, para os sensores configurados em Adicionar acessórios",
+      "Bluetooth timeout (minutes)": "Tempo limite Bluetooth (minutos)",
+      "Minutes without an advertisement before a Bluetooth sensor shows No Response; 30 by default": "Minutos sem anúncios antes de um sensor Bluetooth aparecer como Sem resposta; 30 por predefinição",
+      "Advertisement format": "Formato dos anúncios",
+      "How the Bluetooth sensor's advertisements are read; Setup finds it": "Como são lidos os anúncios do sensor Bluetooth; a configuração encontra-o",
+      "BTHome": "BTHome",
+      "Xiaomi MiBeacon": "Xiaomi MiBeacon",
+      "Govee": "Govee"
     }
   }
 }
