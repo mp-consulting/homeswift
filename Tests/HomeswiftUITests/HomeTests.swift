@@ -126,6 +126,10 @@ struct HomeTests {
         #expect(try await browser.get("/api/moods").status == 404)
 
         #expect(UIServer.requiredScope(.GET, ["scenes", "templates"]) == .read)
+        // The zones and the Home Link's state are read by anyone signed in; changing them, or confirming the first
+        // link, is an administrator's.
+        #expect(UIServer.requiredScope(.GET, ["zones"]) == .read && UIServer.requiredScope(.GET, ["home-link"]) == .read)
+        #expect(UIServer.requiredScope(.PUT, ["zones"]) == .admin && UIServer.requiredScope(.POST, ["home-link", "confirm"]) == .admin)
         #expect(UIServer.requiredScope(.POST, ["scenes", "try"]) == .control)
         #expect(UIServer.requiredScope(.POST, ["scenes", "abc", "stop"]) == .control)
         #expect(UIServer.requiredScope(.POST, ["scenes"]) == .admin)

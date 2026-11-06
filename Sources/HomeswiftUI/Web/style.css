@@ -4654,7 +4654,11 @@ select option:disabled { color: var(--muted); }
 .home-link-zone-head input { min-width: 0; flex: 1; }
 .home-link-zone .choices { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-14); }
 .home-link-banner { display: flex; flex-wrap: wrap; gap: var(--space-10); align-items: center; justify-content: space-between; margin: 0 0 var(--space-14);
-  padding: var(--space-10) var(--space-14); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text); }
+  padding: var(--space-10) var(--space-14); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text);
+  animation: materialize var(--normal) var(--ease-out); }
+.home-link-banner > span { flex: 1 1 16rem; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .home-link-banner { animation: none; } }
+.home-link-list ul { max-height: 12rem; overflow: auto; }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-dialog input:not([type="checkbox"]) { width: 100%; min-width: 0; }
 .message-dialog .toggle { margin: var(--space-4) 0 var(--space-6); }

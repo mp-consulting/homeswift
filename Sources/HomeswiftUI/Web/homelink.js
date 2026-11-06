@@ -83,7 +83,10 @@
     const message = el("p", { role: "status", class: "error" });
     const body = el("div", { class: "home-link-zones" });
     let changed = false;
-    const change = async (request) => {
+    // One save after the other: a quick second tick must not land before the first and be undone by it.
+    let saving = Promise.resolve();
+    const change = (request) => { saving = saving.then(() => save(request)); return saving; };
+    const save = async (request) => {
       message.textContent = "";
       try {
         const answer = await api("/api/zones", { method: "PUT", body: request });
@@ -98,6 +101,11 @@
       body.replaceChildren(...(current.length ? current.map((zone) => {
         const name = el("input", { type: "text", value: zone.name, maxLength: 64, "aria-label": t("Name of {zone}", { zone: zone.name }) });
         name.addEventListener("change", () => { if (name.value.trim() && name.value.trim() !== zone.name) change({ zone: zone.id, name: name.value.trim() }); });
+        // Enter keeps the name rather than closing the dialog; Escape puts it back.
+        name.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") { event.preventDefault(); name.blur(); }
+          if (event.key === "Escape") { event.preventDefault(); name.value = zone.name; name.blur(); }
+        });
         const boxes = rooms.map((room) => {
           const box = el("input", { type: "checkbox", checked: zone.rooms.includes(room) });
           box.addEventListener("change", () => change({ zone: zone.id, rooms: boxes.filter((one) => one.box.checked).map((one) => one.room) }));
