@@ -164,6 +164,16 @@ struct WeatherTests {
     @Test func aMinimalBlockDecodes() throws {
         let configuration = try JSONDecoder().decode(WeatherPlugin.Configuration.self, from: Data(#"{"platform":"Weather"}"#.utf8))
         #expect(configuration.name == nil)
+        #expect(configuration.server == nil)
+    }
+
+    /// A self-hosted Open-Meteo: its forecast endpoint, whatever path it was given with; anything but http(s) is refused.
+    @Test func aServerOfItsOwn() throws {
+        #expect(OpenMeteo.forecast(at: URL(string: "http://192.168.1.5:8080")!) == "http://192.168.1.5:8080/v1/forecast")
+        #expect(OpenMeteo.forecast(at: URL(string: "http://meteo.lan/v1/forecast/")!) == "http://meteo.lan/v1/forecast")
+        let url = try #require(OpenMeteo(http: CannedHTTP(body: "{}"), base: OpenMeteo.forecast(at: URL(string: "http://127.0.0.1:18791")!)).url(for: paris))
+        #expect(url.absoluteString.hasPrefix("http://127.0.0.1:18791/v1/forecast?latitude=48.86"))
+        #expect(throws: (any Error).self) { try JSONDecoder().decode(WeatherPlugin.Configuration.self, from: Data(#"{"server":"file:///etc"}"#.utf8)).validated() }
     }
 
     @Test func theWeatherBecomesOneAccessory() async throws {
@@ -176,11 +186,11 @@ struct WeatherTests {
         let temperature = try #require(accessory.service(.temperatureSensor))
         #expect(temperature.isPrimary)
         #expect(temperature[.currentTemperature]?.value.doubleValue == 18.4)
-        #expect(temperature[Eve.airPressure]?.value.doubleValue == 1013.2)
-        #expect(temperature[Eve.condition]?.value == .string("Partly cloudy"))
-        #expect(temperature[Eve.windSpeed]?.value.doubleValue == 12.6)
-        #expect(temperature[Eve.rainLastHour]?.value.intValue == 0)
-        #expect(temperature[Eve.uvIndex]?.value.intValue == 3)
+        #expect(temperature[EveCharacteristic.airPressure]?.value.intValue == 1013)
+        #expect(temperature[EveCharacteristic.weatherCondition]?.value == .string("Partly cloudy"))
+        #expect(temperature[EveCharacteristic.windSpeed]?.value.doubleValue == 12.6)
+        #expect(temperature[EveCharacteristic.rainLastHour]?.value.intValue == 0)
+        #expect(temperature[EveCharacteristic.uvIndex]?.value.intValue == 3)
         #expect(accessory.service(.humiditySensor)?[.currentRelativeHumidity]?.value.doubleValue == 71)
         let raining = try #require(accessory.service(.occupancySensor))
         #expect(raining[.name]?.value == .string("Is raining"))
@@ -200,8 +210,8 @@ struct WeatherTests {
         // A report 15 minutes later: the clock moves rather than the test waiting.
         await plugin.update(now: .now + .seconds(3601))
         #expect(accessory.service(.occupancySensor)?[.occupancyDetected]?.value.intValue == 1)
-        #expect(accessory.service(.temperatureSensor)?[Eve.condition]?.value == .string("Rain"))
-        #expect(accessory.service(.temperatureSensor)?[Eve.rainLastHour]?.value.intValue == 5)
+        #expect(accessory.service(.temperatureSensor)?[EveCharacteristic.weatherCondition]?.value == .string("Rain"))
+        #expect(accessory.service(.temperatureSensor)?[EveCharacteristic.rainLastHour]?.value.intValue == 5)
         #expect(accessory.service(.temperatureSensor)?[.currentTemperature]?.value.doubleValue == 10)
     }
 
@@ -210,6 +220,11 @@ struct WeatherTests {
         defer { Task { await host.stop() } }
         #expect(await eventually { await environment.api.asked.count == 1 })
         // Ticks every 20 ms; the interval is an hour.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await environment.api.asked.count == 1)
+
+        // A new name for the same place asks nothing.
+        await host.apply(try environment.configuration(location: Location(latitude: paris.latitude, longitude: paris.longitude, name: "Renamed")))
         try await Task.sleep(for: .milliseconds(200))
         #expect(await environment.api.asked.count == 1)
 
@@ -228,9 +243,10 @@ struct WeatherTests {
 
         // Setup waits for the Location, and goes on once it is set.
         let device = try #require(try await plugin.discover().first)
-        #expect(device.deviceID == "home" && !device.isSetUp)
+        #expect(device.deviceID == "home" && !device.isSetUp && device.authorization == .bridgeSetting)
         guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .device(device))) else { Issue.record("Setup did not wait"); return }
         #expect(prompt.waitSeconds != nil && prompt.message.contains("Settings, Bridge"))
+        #expect(prompt.page == "/settings#location")
 
         await host.apply(try environment.configuration(location: paris))
         #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == accessoryID } })
@@ -258,6 +274,16 @@ struct WeatherTests {
         await environment.api.setDown(false)
         await plugin.update(now: later + .seconds(3601))
         #expect(!accessory.isUnavailable)
+    }
+
+    /// Every condition word the plugin sets is one the web UI's weather widget translates and gives a sky to.
+    @Test func theWidgetKnowsEveryCondition() throws {
+        let widgets = try String(contentsOf: Self.root.appendingPathComponent("../../Sources/HomeswiftUI/Web/widgets.js").standardizedFileURL, encoding: .utf8)
+        let block = try #require(widgets.range(of: "const weatherConditions = {").map { String(widgets[$0.upperBound...].prefix(2000)) })
+        for code in [0, 1, 2, 3, 45, 51, 56, 61, 66, 71, 80, 85, 95, 96] {
+            let word = WeatherCode.condition(code)
+            #expect(block.contains("\"\(word)\": [t(\"\(word)\")") || block.contains("\(word): [t(\"\(word)\")"), "widgets.js has no \(word)")
+        }
     }
 
     /// The plugin's directory, from this file's.

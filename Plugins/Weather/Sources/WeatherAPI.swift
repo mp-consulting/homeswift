@@ -68,6 +68,13 @@ struct OpenMeteo: WeatherAPI {
     var http: any HTTPSending = HTTPClient(tls: .system)
     var base = "https://api.open-meteo.com/v1/forecast"
 
+    /// A server's forecast endpoint: `<server>/v1/forecast`, whatever path the server was given with.
+    static func forecast(at server: URL) -> String {
+        var text = server.absoluteString
+        while text.hasSuffix("/") { text.removeLast() }
+        return text.hasSuffix("/v1/forecast") ? text : text + "/v1/forecast"
+    }
+
     static let currentFields = [
         "temperature_2m", "relative_humidity_2m", "rain", "showers", "weather_code", "pressure_msl", "wind_speed_10m", "uv_index",
     ]

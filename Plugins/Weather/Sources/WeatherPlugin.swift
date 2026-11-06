@@ -1,6 +1,5 @@
 import Foundation
 import Homeswift
-import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 
@@ -14,6 +13,18 @@ import Logging
 public actor WeatherPlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
         public var name: String?
+        /// A self-hosted Open-Meteo (it is open source), such as `http://192.168.1.5:8080`; open-meteo.com's own when
+        /// left out.
+        public var server: String?
+
+        /// The server's forecast endpoint, or nil for open-meteo.com's; anything but an http or https address is refused.
+        func validated() throws -> String? {
+            guard let server = server?.trimmingCharacters(in: .whitespaces), !server.isEmpty else { return nil }
+            guard let url = URL(string: server), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+                throw OpenMeteo.Failure(description: "server must be an http or https address, such as http://192.168.1.5:8080")
+            }
+            return OpenMeteo.forecast(at: url)
+        }
     }
 
     /// What the plugin uses, and its timings; tests swap in a fake and shorter ones.
@@ -25,14 +36,6 @@ public actor WeatherPlugin: HomeswiftPlugin {
         var retry: Duration = .seconds(5 * 60)
         /// How often the plugin looks whether a report is due or the Location moved.
         var tick: Duration = .seconds(60)
-    }
-
-    /// The accessory's services.
-    struct WeatherServices {
-        let accessory: Accessory
-        let temperature: Service
-        let humidity: Service
-        let raining: Service
     }
 
     public static let platform = "Weather"
@@ -49,19 +52,18 @@ public actor WeatherPlugin: HomeswiftPlugin {
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
-    private var services: WeatherServices?
-    /// Where and when the last report came from, or when to try again.
-    private var reportedAt: (location: Location, at: ContinuousClock.Instant)?
-    /// After a failure: where it failed and when to ask again (at once for another Location).
-    private var retry: (location: Location, at: ContinuousClock.Instant)?
-    /// The last report, for Setup's and the log's words.
-    private(set) var lastReport: WeatherReport?
+    /// The accessory, once added.
+    private var accessory: Accessory?
+    /// When to ask next, and for where: after a report the interval, after a failure the retry; nil asks at once.
+    private var next: (location: Location, at: ContinuousClock.Instant)?
     /// What the log said last, so an outage or a missing Location is said once.
     private var lastProblem: String?
     private var logger: Logger { context.logger }
 
-    public init(configuration: Configuration, context: PluginContext) {
-        self.init(configuration: configuration, context: context, dependencies: Dependencies())
+    public init(configuration: Configuration, context: PluginContext) throws {
+        var dependencies = Dependencies()
+        if let base = try configuration.validated() { dependencies.api = OpenMeteo(base: base) }
+        self.init(configuration: configuration, context: context, dependencies: dependencies)
     }
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
@@ -73,8 +75,9 @@ public actor WeatherPlugin: HomeswiftPlugin {
     public func start() async throws {
         let tick = dependencies.tick
         tasks.add { [weak self] in
-            while !Task.isCancelled {
-                await self?.update()
+            // Ends with the plugin, stopped or gone.
+            while !Task.isCancelled, let plugin = self {
+                await plugin.update()
                 try? await Task.sleep(for: tick)
             }
         }
@@ -89,8 +92,10 @@ public actor WeatherPlugin: HomeswiftPlugin {
     /// The weather at the Location: set up once there is a Location.
     public func discover() async throws -> [DiscoveredDevice] {
         let location = context.location
+        // Without a Location it Needs setup: its step points at the Location under Settings and waits for it.
         var device = DiscoveredDevice(
-            deviceID: Self.deviceID, name: Self.accessoryName, model: "Open-Meteo", isSetUp: location != nil, kind: Self.deviceKind)
+            deviceID: Self.deviceID, name: Self.accessoryName, model: "Open-Meteo", authorization: location == nil ? .bridgeSetting : .none,
+            isSetUp: location != nil, kind: Self.deviceKind)
         device.isReachable = location == nil || lastProblem == nil
         return [device]
     }
@@ -98,7 +103,9 @@ public actor WeatherPlugin: HomeswiftPlugin {
     /// Nothing to sign in to: the step waits for the Location, which the person sets under Settings, Bridge.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         guard context.location != nil else {
-            return .ask(SetupPrompt(message: "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.", waitSeconds: 900, retryAfter: 5))
+            return .ask(SetupPrompt(
+                message: "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.",
+                page: "/settings#location", waitSeconds: 900, retryAfter: 5))
         }
         return .done(SetupOutcome())
     }
@@ -109,27 +116,25 @@ public actor WeatherPlugin: HomeswiftPlugin {
 
     static let accessoryName = "Weather"
 
-    /// Asks for a report when one is due or the Location moved; without a Location, the accessory answers No Response.
+    /// Asks for a report when one is due or the Location moved (noticed within a `tick`); without a Location, the
+    /// accessory answers No Response.
     func update(now: ContinuousClock.Instant = .now) async {
         guard let location = context.location else {
             say("No Location: set it under Settings, Bridge, for the weather to show", level: .warning)
             context.accessory(id: Self.accessoryID)?.isUnavailable = true
-            reportedAt = nil
+            next = nil
             return
         }
         guard !context.isExcluded(Self.deviceID) else { return }
-        if let reportedAt, reportedAt.location == location, now < reportedAt.at + dependencies.interval { return }
-        if let retry, retry.location == location, now < retry.at { return }
+        // The same place, whatever its name: a renamed Location asks nothing.
+        if let next, next.location.latitude == location.latitude, next.location.longitude == location.longitude, now < next.at { return }
         do {
-            let report = try await dependencies.api.current(at: location)
-            try show(report)
-            reportedAt = (location, now)
-            retry = nil
-            lastReport = report
+            try show(try await dependencies.api.current(at: location))
+            next = (location, now + dependencies.interval)
             if lastProblem != nil { logger.info("The weather answers again") }
             lastProblem = nil
         } catch {
-            retry = (location, now + dependencies.retry)
+            next = (location, now + dependencies.retry)
             say("Could not get the weather: \(error)", level: .warning)
             context.accessory(id: Self.accessoryID)?.isUnavailable = true
         }
@@ -144,56 +149,45 @@ public actor WeatherPlugin: HomeswiftPlugin {
 
     /// Sets the characteristics from a report, adding the accessory the first time; HomeKit hears of what changed.
     func show(_ report: WeatherReport) throws {
-        let services = try self.services ?? add()
-        services.accessory.isUnavailable = false
-        services.temperature.characteristic(.currentTemperature).value = .double(Self.clamped(report.temperature, -270, 100, step: 0.1))
-        services.temperature.characteristic(Eve.airPressure).value = .double(Self.clamped(report.pressure, 700, 1100, step: 0.1))
-        services.temperature.characteristic(Eve.condition).value = .string(report.condition)
-        services.temperature.characteristic(Eve.windSpeed).value = .double(Self.clamped(report.windSpeed, 0, 150, step: 0.1))
-        services.temperature.characteristic(Eve.rainLastHour).value = .int(Int(Self.clamped(report.rainLastHour, 0, 200, step: 1)))
-        services.temperature.characteristic(Eve.uvIndex).value = .int(Int(Self.clamped(report.uvIndex, 0, 16, step: 1)))
-        services.humidity.characteristic(.currentRelativeHumidity).value = .double(Self.clamped(report.humidity, 0, 100, step: 1))
-        services.raining.characteristic(.occupancyDetected).value = .int(report.isRaining ? 1 : 0)
+        let accessory = try self.accessory ?? add()
+        accessory.isUnavailable = false
+        let temperature = accessory.service(.temperatureSensor)
+        set(temperature, .currentTemperature, report.temperature)
+        set(temperature, EveCharacteristic.airPressure, report.pressure)
+        temperature?.characteristic(EveCharacteristic.weatherCondition).value = .string(report.condition)
+        set(temperature, EveCharacteristic.windSpeed, report.windSpeed)
+        set(temperature, EveCharacteristic.rainLastHour, report.rainLastHour)
+        set(temperature, EveCharacteristic.uvIndex, report.uvIndex)
+        set(accessory.service(.humiditySensor), .currentRelativeHumidity, report.humidity)
+        accessory.service(.occupancySensor)?.characteristic(.occupancyDetected).value = .int(report.isRaining ? 1 : 0)
     }
 
-    static func clamped(_ value: Double, _ low: Double, _ high: Double, step: Double) -> Double {
-        guard value.isFinite else { return low }
-        let scale = 1 / step
-        return min(high, max(low, (value * scale).rounded() / scale))
+    /// A reading within its characteristic's bounds (a value off the scale is the end of it, one not a number the
+    /// least) and to its step, in its format.
+    func set(_ service: Service?, _ type: CharacteristicType, _ value: Double) {
+        guard let service else { return }
+        let low = type.minValue ?? -.greatestFiniteMagnitude, high = type.maxValue ?? .greatestFiniteMagnitude
+        var fitted = value.isFinite ? min(high, max(low, value)) : low
+        // To the nearest step (a whole number for an integer format), as people round: 9.95 °C is 10.
+        let step = type.format == .float ? (type.minStep ?? 0) : 1
+        if step > 0 { let scale = 1 / step; fitted = (fitted * scale).rounded() / scale }
+        if let coerced = type.coerce(.double(fitted)) { service.characteristic(type).value = coerced }
     }
 
-    private func add() throws -> WeatherServices {
+    private func add() throws -> Accessory {
         let humidity = Service(.humiditySensor, name: "Humidity", subtype: "humidity")
         let raining = Service(.occupancySensor, name: "Is raining", subtype: "raining")
         let temperature = Service(
             .temperatureSensor, name: Self.accessoryName,
-            optional: [Eve.airPressure, Eve.condition, Eve.windSpeed, Eve.rainLastHour, Eve.uvIndex],
+            optional: [EveCharacteristic.airPressure, EveCharacteristic.weatherCondition, EveCharacteristic.windSpeed, EveCharacteristic.rainLastHour, EveCharacteristic.uvIndex],
             linked: [humidity, raining], isPrimary: true)
         // Without a MAC or a serial of its own, the serial is the device's id (CLAUDE.md).
-        let accessory = Accessory(
+        try context.add(Accessory(
             id: Self.accessoryID, name: Self.accessoryName, manufacturer: "Open-Meteo", model: "Weather",
-            serialNumber: Self.deviceID, firmwareRevision: PluginHost.version, category: .sensor, services: [temperature, humidity, raining])
-        try context.add(accessory)
-        // The accessory the bridge publishes: the one added, or the cached one it keeps for its aids and iids.
-        let published = context.accessory(id: Self.accessoryID) ?? accessory
-        let shown = WeatherServices(
-            accessory: published, temperature: published.service(.temperatureSensor) ?? temperature,
-            humidity: published.service(.humiditySensor) ?? humidity, raining: published.service(.occupancySensor) ?? raining)
-        services = shown
-        return shown
+            serialNumber: Self.deviceID, firmwareRevision: PluginHost.version, category: .sensor, services: [temperature, humidity, raining]))
+        // The accessory the bridge publishes.
+        guard let published = context.accessory(id: Self.accessoryID) else { throw OpenMeteo.Failure(description: "the weather accessory was not added") }
+        accessory = published
+        return published
     }
-}
-
-/// Eve's weather characteristics, as Eve and homebridge-lib name them (the UUIDs MQTTThing's weather station uses).
-enum Eve {
-    static let readEvents: Set<CharacteristicPermission> = [.pairedRead, .events]
-    static let airPressure = CharacteristicType(
-        name: "Air Pressure", uuid: HAPUUID("E863F10F-079E-48FF-8F27-9C2605A29F52"), format: .float, permissions: readEvents, minValue: 700, maxValue: 1100, minStep: 0.1)
-    static let condition = CharacteristicType(name: "Condition", uuid: HAPUUID("CD65A9AB-85AD-494A-B2BD-2F380084134D"), format: .string, permissions: readEvents)
-    static let windSpeed = CharacteristicType(
-        name: "Wind Speed", uuid: HAPUUID("49C8AE5A-A3A5-41AB-BF1F-12D5654F9F41"), format: .float, permissions: readEvents, minValue: 0, maxValue: 150, minStep: 0.1)
-    static let rainLastHour = CharacteristicType(
-        name: "Rain Last Hour", uuid: HAPUUID("10C88F40-7EC4-478C-8D5A-BD0C3CCE14B7"), format: .uint16, permissions: readEvents, minValue: 0, maxValue: 200, minStep: 1)
-    static let uvIndex = CharacteristicType(
-        name: "UV Index", uuid: HAPUUID("05BA0FE0-B848-4226-906D-5B64272E05CE"), format: .uint8, permissions: readEvents, minValue: 0, maxValue: 16, minStep: 1)
 }

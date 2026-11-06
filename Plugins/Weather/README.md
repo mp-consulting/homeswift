@@ -31,7 +31,8 @@ the accessory also answers No Response, and the plugin asks again 5 minutes late
 ## Setting it up
 
 On **Add accessories**, add Weather. Its one device, the weather at home, is set up once there is a Location. Until
-then the Setup step waits and goes on by itself as soon as the Location is set under Settings, Bridge.
+then it **Needs setup** (a Bridge Setting): its step links to the Location under Settings, Bridge, in a tab of its
+own, and goes on by itself as soon as the Location is set.
 
 ```json
 {
@@ -44,11 +45,15 @@ then the Setup step waits and goes on by itself as soon as the Location is set u
 }
 ```
 
-There are no options. Its Name, room and Excluded are its Accessory Settings, as for any accessory.
+| Option | Default | |
+|---|---|---|
+| `server` | open-meteo.com | A self-hosted [Open-Meteo](https://github.com/open-meteo/open-meteo), such as `http://192.168.1.5:8080` |
+
+Its Name, room and Excluded are its Accessory Settings, as for any accessory.
 
 ## Privacy
 
-Every 15 minutes the request to `api.open-meteo.com` carries the Location's coordinates, rounded to two decimals
+Every 15 minutes the request to `api.open-meteo.com` (or the `server` set) carries the Location's coordinates, rounded to two decimals
 (about a kilometre), and nothing else. The Location's name never leaves the bridge. Weather data comes from
 Open-Meteo.com under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 

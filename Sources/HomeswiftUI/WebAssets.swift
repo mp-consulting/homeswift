@@ -16761,11 +16761,14 @@ HomeswiftI18n.add("es", {
   "Thunderstorm with hail": "Tormenta con granizo",
   "Raining": "Llueve",
   "Wind": "Viento",
-  "Rain, last hour": "Lluvia, última hora",
+  "Rain, 1 h": "Lluvia, 1 h",
   "Pressure": "Presión",
   "UV index": "Índice UV",
   "The weather where the home is, from Open-Meteo: temperature, humidity, rain, wind and UV": "El tiempo donde está la casa, de Open-Meteo: temperatura, humedad, lluvia, viento y UV",
   "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.": "El tiempo es el de donde está la casa: define la ubicación en Ajustes, Puente. Este paso continúa por sí solo cuando esté definida.",
+  "Open the setting": "Abrir el ajuste",
+  "Needs a Bridge Setting": "Necesita un ajuste del puente",
+  "Waiting for it…": "Esperando…",
 });
 
 """#),
@@ -19822,11 +19825,14 @@ HomeswiftI18n.add("fr", {
   "Thunderstorm with hail": "Orage avec grêle",
   "Raining": "Il pleut",
   "Wind": "Vent",
-  "Rain, last hour": "Pluie, dernière heure",
+  "Rain, 1 h": "Pluie, 1 h",
   "Pressure": "Pression",
   "UV index": "Indice UV",
   "The weather where the home is, from Open-Meteo: temperature, humidity, rain, wind and UV": "La météo là où se trouve la maison, par Open-Meteo : température, humidité, pluie, vent et UV",
   "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.": "La météo est celle de l'endroit où se trouve la maison : définissez la position dans Réglages, Pont. Cette étape continue d'elle-même une fois qu'elle l'est.",
+  "Open the setting": "Ouvrir le réglage",
+  "Needs a Bridge Setting": "Demande un réglage du pont",
+  "Waiting for it…": "Ça attend…",
 });
 
 """#),
@@ -22883,11 +22889,14 @@ HomeswiftI18n.add("pt", {
   "Thunderstorm with hail": "Trovoada com granizo",
   "Raining": "Está a chover",
   "Wind": "Vento",
-  "Rain, last hour": "Chuva, última hora",
+  "Rain, 1 h": "Chuva, 1 h",
   "Pressure": "Pressão",
   "UV index": "Índice UV",
   "The weather where the home is, from Open-Meteo: temperature, humidity, rain, wind and UV": "A meteorologia onde fica a casa, da Open-Meteo: temperatura, humidade, chuva, vento e UV",
   "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.": "A meteorologia é a de onde fica a casa: defina a localização em Definições, Ponte. Este passo continua sozinho assim que estiver definida.",
+  "Open the setting": "Abrir a definição",
+  "Needs a Bridge Setting": "Precisa de uma definição da ponte",
+  "Waiting for it…": "À espera…",
 });
 
 """#),
@@ -25662,6 +25671,7 @@ HomeswiftI18n.add("pt", {
     accountLogin: [() => t("Sign in"), "user"],
     browserRedirect: [() => t("Sign in with a browser"), "browser"],
     apiKey: [() => t("Enter keys"), "key"],
+    bridgeSetting: [() => t("Needs a Bridge Setting"), "gear"],
   };
   /// What the account's button says, by its Authorization Method.
   const accountActions = {
@@ -25999,7 +26009,7 @@ HomeswiftI18n.add("pt", {
   }
 
   /// A wait with nothing to type or open: a button to press on the device.
-  const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
+  const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url && !prompt.page;
 
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
@@ -26155,7 +26165,8 @@ HomeswiftI18n.add("pt", {
           left = el("p", { class: "muted setup-countdown" });
           const tick = () => {
             const seconds = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-            left.textContent = seconds ? (pressing(prompt) ? t("Waiting for the button… {seconds} s left.", { seconds }) : t("Waiting… {seconds} s left.", { seconds }))
+            // A setting to fill in is the person's own pace: no seconds counted down for it.
+            left.textContent = seconds ? (pressing(prompt) ? t("Waiting for the button… {seconds} s left.", { seconds }) : prompt.page ? t("Waiting for it…") : t("Waiting… {seconds} s left.", { seconds }))
               : t("Time is up. Try again when you are ready.");
             if (!seconds) stop();
           };
@@ -26208,7 +26219,9 @@ HomeswiftI18n.add("pt", {
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         const link = /^https?:\/\//i.test(prompt.url ?? "")
-          ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null;
+          ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") })
+          // A page of this UI the step waits on (the Location under Settings): in a tab of its own, the Setup waiting here.
+          : /^\/[^/]/.test(prompt.page ?? "") ? el("a", { class: "button primary", href: prompt.page, target: "_blank", rel: "noopener", actionIcon: "open", text: t("Open the setting") }) : null;
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
@@ -32844,27 +32857,30 @@ self.addEventListener("notificationclick", (event) => {
     icon: (ctx, primary) => weatherOf(ctx.char(primary, "Condition")?.value)[1],
     match: (ctx, primary) => !!ctx.char(primary, "Condition"),
     build(ctx, primary, size) {
-      const temperature = ctx.take(primary, "Current Temperature"), condition = ctx.take(primary, "Condition");
+      const condition = ctx.take(primary, "Condition");
       const wind = ctx.take(primary, "Wind Speed"), rain = ctx.take(primary, "Rain Last Hour");
       const pressure = ctx.take(primary, "Air Pressure"), uv = ctx.take(primary, "UV Index");
-      const humidity = ctx.take(ctx.find("HumiditySensor"), "Current Relative Humidity");
-      const raining = ctx.take(ctx.find("OccupancySensor"), "Occupancy Detected");
+      // The temperature and the humidity as the sensor widget writes them (the unit chosen, a decimal comma); the rain
+      // sensor by its subtype (Weather's "raining"), not any occupancy sensor.
+      const humiditySensor = ctx.find("HumiditySensor");
+      const temperature = reading(ctx, primary), humidity = humiditySensor && reading(ctx, humiditySensor);
+      const rainingService = ctx.services.find((service) => service.subtype === "raining");
+      const raining = ctx.take(rainingService, "Occupancy Detected");
       const number = (c, digits = 0) => typeof c?.value === "number" ? c.value.toFixed(digits).replace(".", decimal) : "–";
-      const degreesNow = () => typeof temperature?.value === "number" ? HomeswiftCommon.temperature(temperature.value).value.toFixed(1).replace(".", decimal) : "–";
-      const unit = HomeswiftCommon.temperature(0).unit;
+      const degrees = () => temperature?.value() ?? { text: "–", unit: "" };
       const words = () => weatherOf(condition?.value)[0] || (raining?.value === 1 ? t("Raining") : "");
       const built = {
         on: () => false,
-        hero: () => el("span", {}, degreesNow(), el("small", { text: unit })),
+        hero: () => el("span", {}, degrees().text, el("small", { text: degrees().unit })),
         // A compact tile has no hero: the temperature goes before the condition.
-        status: () => [size !== "small" || ctx.tall ? words() : [`${degreesNow()} ${unit}`, words()].filter(Boolean).join(" · "), ""],
+        status: () => [size !== "small" || ctx.tall ? words() : [`${degrees().text} ${degrees().unit}`, words()].filter(Boolean).join(" · "), ""],
       };
       if (size === "small") return built;
       const values = [
-        [t("Temperature"), degreesNow, unit],
-        humidity && [t("Humidity"), () => number(humidity), "%"],
-        wind && [t("Wind"), () => number(wind), "km/h"],
-        rain && [t("Rain, last hour"), () => number(rain), "mm"],
+        [t("Temperature"), () => degrees().text, degrees().unit],
+        humidity && [t("Humidity"), () => humidity.value().text, "%"],
+        wind && [t("Wind"), () => number(wind, 1), "km/h"],
+        rain && [t("Rain, 1 h"), () => number(rain), "mm"],
         pressure && [t("Pressure"), () => number(pressure), "hPa"],
         uv && [t("UV index"), () => number(uv), ""],
       ].filter(Boolean);
@@ -32874,7 +32890,7 @@ self.addEventListener("notificationclick", (event) => {
         return control.node;
       });
       built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, shown)];
-      if (size === "full") built.facets = facets(ctx, ctx.services);
+      if (size === "full") built.facets = facets(ctx, [primary, humiditySensor, rainingService].filter(Boolean));
       return built;
     },
   });
@@ -33043,7 +33059,7 @@ self.addEventListener("notificationclick", (event) => {
   /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
   const kindIcons = {
     camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
-    wingman: "bridge", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
+    wingman: "bridge", weather: "cloud", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
     multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
     climatecontrol: "thermo", domestichotwatertank: "thermo", kettle: "thermo", ac: "thermo", airconditioner: "thermo",
     airpurifier: "wind", aerotower: "wind", humidifier: "wind", scene: "sparkle", robot: "poolRobot",

@@ -1601,27 +1601,30 @@
     icon: (ctx, primary) => weatherOf(ctx.char(primary, "Condition")?.value)[1],
     match: (ctx, primary) => !!ctx.char(primary, "Condition"),
     build(ctx, primary, size) {
-      const temperature = ctx.take(primary, "Current Temperature"), condition = ctx.take(primary, "Condition");
+      const condition = ctx.take(primary, "Condition");
       const wind = ctx.take(primary, "Wind Speed"), rain = ctx.take(primary, "Rain Last Hour");
       const pressure = ctx.take(primary, "Air Pressure"), uv = ctx.take(primary, "UV Index");
-      const humidity = ctx.take(ctx.find("HumiditySensor"), "Current Relative Humidity");
-      const raining = ctx.take(ctx.find("OccupancySensor"), "Occupancy Detected");
+      // The temperature and the humidity as the sensor widget writes them (the unit chosen, a decimal comma); the rain
+      // sensor by its subtype (Weather's "raining"), not any occupancy sensor.
+      const humiditySensor = ctx.find("HumiditySensor");
+      const temperature = reading(ctx, primary), humidity = humiditySensor && reading(ctx, humiditySensor);
+      const rainingService = ctx.services.find((service) => service.subtype === "raining");
+      const raining = ctx.take(rainingService, "Occupancy Detected");
       const number = (c, digits = 0) => typeof c?.value === "number" ? c.value.toFixed(digits).replace(".", decimal) : "–";
-      const degreesNow = () => typeof temperature?.value === "number" ? HomeswiftCommon.temperature(temperature.value).value.toFixed(1).replace(".", decimal) : "–";
-      const unit = HomeswiftCommon.temperature(0).unit;
+      const degrees = () => temperature?.value() ?? { text: "–", unit: "" };
       const words = () => weatherOf(condition?.value)[0] || (raining?.value === 1 ? t("Raining") : "");
       const built = {
         on: () => false,
-        hero: () => el("span", {}, degreesNow(), el("small", { text: unit })),
+        hero: () => el("span", {}, degrees().text, el("small", { text: degrees().unit })),
         // A compact tile has no hero: the temperature goes before the condition.
-        status: () => [size !== "small" || ctx.tall ? words() : [`${degreesNow()} ${unit}`, words()].filter(Boolean).join(" · "), ""],
+        status: () => [size !== "small" || ctx.tall ? words() : [`${degrees().text} ${degrees().unit}`, words()].filter(Boolean).join(" · "), ""],
       };
       if (size === "small") return built;
       const values = [
-        [t("Temperature"), degreesNow, unit],
-        humidity && [t("Humidity"), () => number(humidity), "%"],
-        wind && [t("Wind"), () => number(wind), "km/h"],
-        rain && [t("Rain, last hour"), () => number(rain), "mm"],
+        [t("Temperature"), () => degrees().text, degrees().unit],
+        humidity && [t("Humidity"), () => humidity.value().text, "%"],
+        wind && [t("Wind"), () => number(wind, 1), "km/h"],
+        rain && [t("Rain, 1 h"), () => number(rain), "mm"],
         pressure && [t("Pressure"), () => number(pressure), "hPa"],
         uv && [t("UV index"), () => number(uv), ""],
       ].filter(Boolean);
@@ -1631,7 +1634,7 @@
         return control.node;
       });
       built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, shown)];
-      if (size === "full") built.facets = facets(ctx, ctx.services);
+      if (size === "full") built.facets = facets(ctx, [primary, humiditySensor, rainingService].filter(Boolean));
       return built;
     },
   });
@@ -1800,7 +1803,7 @@
   /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
   const kindIcons = {
     camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
-    wingman: "bridge", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
+    wingman: "bridge", weather: "cloud", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
     multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
     climatecontrol: "thermo", domestichotwatertank: "thermo", kettle: "thermo", ac: "thermo", airconditioner: "thermo",
     airpurifier: "wind", aerotower: "wind", humidifier: "wind", scene: "sparkle", robot: "poolRobot",

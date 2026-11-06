@@ -3050,9 +3050,12 @@ HomeswiftI18n.add("pt", {
   "Thunderstorm with hail": "Trovoada com granizo",
   "Raining": "Está a chover",
   "Wind": "Vento",
-  "Rain, last hour": "Chuva, última hora",
+  "Rain, 1 h": "Chuva, 1 h",
   "Pressure": "Pressão",
   "UV index": "Índice UV",
   "The weather where the home is, from Open-Meteo: temperature, humidity, rain, wind and UV": "A meteorologia onde fica a casa, da Open-Meteo: temperatura, humidade, chuva, vento e UV",
   "The weather is for where the home is: set the Location under Settings, Bridge. This step goes on by itself once it is set.": "A meteorologia é a de onde fica a casa: defina a localização em Definições, Ponte. Este passo continua sozinho assim que estiver definida.",
+  "Open the setting": "Abrir a definição",
+  "Needs a Bridge Setting": "Precisa de uma definição da ponte",
+  "Waiting for it…": "À espera…",
 });
