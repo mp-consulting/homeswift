@@ -276,6 +276,32 @@ struct WeatherTests {
         #expect(!accessory.isUnavailable)
     }
 
+    /// Open-Meteo down at boot: the accessory the cache kept stays on the bridge, answering No Response, and is never
+    /// removed (HomeKit would lose its room and automations); the first report fills it again under the same id.
+    @Test func aCachedAccessoryStaysThroughAnOutageAtBoot() async throws {
+        let first = try await environment.start()
+        #expect(await eventually { first.mainBridge.server.accessories.contains { $0.id == accessoryID } })
+        await first.stop()
+
+        await environment.api.setDown(true)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        #expect(await eventually { await environment.api.asked.count >= 2 })
+        let cached = try #require(host.mainBridge.server.accessories.first { $0.id == accessoryID })
+        #expect(await eventually { cached.isUnavailable })
+        // Ticks go by in the outage: it stays.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(host.mainBridge.server.accessories.contains { $0.id == accessoryID })
+
+        await environment.api.setDown(false)
+        let plugin = try #require(environment.plugin)
+        await plugin.update(now: .now + .seconds(3601))
+        let back = try #require(host.mainBridge.server.accessories.first { $0.id == accessoryID })
+        #expect(!back.isUnavailable)
+        #expect(back.service(.temperatureSensor)?[.currentTemperature]?.value.doubleValue == 18.4)
+        #expect(host.mainBridge.server.accessories.filter { $0.id == accessoryID }.count == 1)
+    }
+
     /// Every condition word the plugin sets is one the web UI's weather widget translates and gives a sky to.
     @Test func theWidgetKnowsEveryCondition() throws {
         let widgets = try String(contentsOf: Self.root.appendingPathComponent("../../Sources/HomeswiftUI/Web/widgets.js").standardizedFileURL, encoding: .utf8)
