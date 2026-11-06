@@ -547,6 +547,7 @@ extension HomeswiftCatalog {
             "from": string, "to": string, "step": string,
             "meters": ["type": "array", "items": object([
                 "accessory": string, "meter": string, "name": string, "label": string, "consumption": nullableNumber, "returned": nullableNumber,
+                "kind": ["type": "string", "enum": ["electricity", "gas", "water"]], "unit": ["type": "string", "enum": ["kWh", "m³"]],
                 "role": ["type": ["string", "null"], "enum": ["grid", "home", "solar", "battery", .null]],
                 "bars": ["type": "array"],
             ], required: ["accessory", "meter", "name", "bars"])],
@@ -645,29 +646,33 @@ extension HomeswiftCatalog {
             },
             MCPTool(
                 name: "get_tariffs", title: "Energy tariffs",
-                description: "What the home pays per kWh: every Tariff (from its first day, in a currency, by period of the day and week, and what a kWh sent back is paid), "
-                    + "oldest first, and the one in force now (current, its start). get_consumption prices each Meter's energy by them.",
-                outputSchema: Output.object(["tariffs": ["type": "array"], "current": ["type": ["string", "null"]]], required: ["tariffs"]), scope: .read, idempotent: true
+                description: "What the home pays per kWh of electricity, or per m³ of gas or water: every Tariff (its kind, null for electricity; from its first day, in a currency, "
+                    + "by period of the day and week, and what a kWh sent back is paid), oldest first, electricity's Tariff in force now (current, its start) "
+                    + "and each kind's (currentByKind). get_consumption prices each Meter by the Tariffs of its kind.",
+                outputSchema: Output.object(["tariffs": ["type": "array"], "current": ["type": ["string", "null"]], "currentByKind": ["type": "object"]], required: ["tariffs"]), scope: .read, idempotent: true
             ) { _ in .json(try catalog.tariffsJSON()) },
             MCPTool(
                 name: "update_tariffs", title: "Change the energy tariffs",
-                description: "Replaces the Tariffs with tariffs (the whole list). A new price is a new Tariff from the day it starts, the earlier ones kept as they were, "
-                    + "so past costs stay right. Each Tariff's periods must cover the week once (no gap, no overlap). No restart. dryRun previews.",
+                description: "Replaces the Tariffs with tariffs (the whole list, every kind). A new price is a new Tariff from the day it starts, the earlier ones kept as they were, "
+                    + "so past costs stay right. Each Tariff's periods must cover the week once (no gap, no overlap). kind gas or water prices by the m³ (no exportPrice); "
+                    + "left out, electricity by the kWh. No restart. dryRun previews.",
                 inputSchema: ["type": "object", "required": ["tariffs"], "properties": ["tariffs": ["type": "array", "description": "Every Tariff, oldest first; a change of price is a new Tariff from its day, the past ones kept", "items": ["type": "object", "required": ["start", "currency", "periods"], "properties": [
                         "start": ["type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Its first day, YYYY-MM-DD"],
                         "currency": ["type": "string", "pattern": "^[A-Z]{3}$", "description": "ISO 4217: EUR, USD, GBP…"],
                         "exportPrice": ["type": "number", "minimum": 0, "description": "What a kWh sent back to the grid is paid"],
+                        "kind": ["type": "string", "enum": ["electricity", "gas", "water"], "description": "What it prices (default electricity): gas and water by the m³"],
                         "periods": ["type": "array", "minItems": 1, "description": "Parts of the week at one price, covering the week once", "items": ["type": "object", "required": ["from", "to", "price"], "properties": [
                             "name": ["type": "string", "maxLength": 40], "from": ["type": "string", "description": "HH:mm"], "to": ["type": "string", "description": "HH:mm, 24:00 for midnight; before from runs past midnight"],
                             "days": ["type": "array", "items": ["type": "integer", "minimum": 1, "maximum": 7], "description": "1 Monday to 7 Sunday; every day when left out"],
-                            "price": ["type": "number", "minimum": 0, "description": "Per kWh"],
+                            "price": ["type": "number", "minimum": 0, "description": "Per kWh, or per m³ for gas and water"],
                         ]]],
                     ]]]]],
                 scope: .admin, supportsDryRun: true, idempotent: true
             ) { call in .json(try await catalog.updateTariffs(call.arguments["tariffs"] ?? .null, dryRun: call.isDryRun)) },
             MCPTool(
                 name: "get_consumption", title: "Energy consumption",
-                description: "The energy each Meter measured, in kWh: an accessory's plug, relay channel or energy meter, the bridge records whatever its plugin. "
+                description: "What each Meter measured: electricity in kWh (an accessory's plug, relay channel or energy meter, the bridge records whatever its plugin), "
+                    + "gas and water in m³ (the Meters plugins declare; kind and unit say which, and kind filters). "
                     + "Per Meter: its Consumption (drawn) and Returned (sent back to the grid, or produced) over the span, and a bar per hour, day or month, "
                     + "the Meters that drew the most first, each with its Energy Role (a grid or home meter measures the whole home, devices included; null is one device). For questions like \"what used the most energy last month\" or \"how much did the dishwasher use this week\". "
                     + "Either hours (the last N hours; hourly bars up to 48) or period (week: the 8 days to date; month; year, by month) with date. "
@@ -678,12 +683,14 @@ extension HomeswiftCatalog {
                     "date": ["type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "A day of the period, YYYY-MM-DD (default today)"],
                     "hours": ["type": "number", "exclusiveMinimum": 0, "maximum": 8784, "description": "The last N hours instead of a period"],
                     "timeZone": ["type": "string", "maxLength": 64, "description": "An IANA time zone for days and months (default the bridge's)"],
+                    "kind": ["type": "string", "enum": ["electricity", "gas", "water"], "description": "Only the Meters of this kind"],
                 ]],
                 outputSchema: Output.consumption, scope: .read, idempotent: true
             ) { call in
                 let timeZone = call.optionalString("timeZone").flatMap(TimeZone.init(identifier:)) ?? .current
                 return .json(try catalog.consumptionJSON(period: call.optionalString("period"), date: call.optionalString("date"),
-                                                         hours: call.arguments["hours"]?.doubleValue, timeZone: timeZone, accessory: call.optionalString("accessory")))
+                                                         hours: call.arguments["hours"]?.doubleValue, timeZone: timeZone, accessory: call.optionalString("accessory"),
+                                                         kind: call.optionalString("kind").flatMap(MeterKind.init(rawValue:))))
             },
         ]
     }

@@ -201,4 +201,41 @@ struct MetricsTests {
         metrics.stop()
         await host.stop()
     }
+
+    /// A gas Meter a plugin declares: read in m³ and kept in litres, its kind kept; never in the Home Energy, whatever
+    /// role was suggested, and no power.
+    @Test func aGasMeterIsKeptInCubicMetresApartFromTheHomeEnergy() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs", "gasMeter": true }] }"#)
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        metrics.start(following: host)
+        try await host.start()
+        let plugin = try #require(environment.createdPlugins.last)
+        let boiler = MeterID(accessory: "Recording:boiler", meter: "gas")
+
+        await plugin.recordGas(1_234.5)
+        #expect(await meterEventually { metrics.meters.kind(of: boiler) == .gas })
+        await plugin.recordGasWatts(900)
+        // A litre a tenth of a second later: a gain the archive finds plausible (it bounds a gain by the time it took).
+        try await Task.sleep(for: .milliseconds(100))
+        await plugin.recordGas(1_234.501)
+        #expect(await meterEventually {
+            metrics.meters.hours(of: boiler, from: Date().addingTimeInterval(-86_400), to: Date().addingTimeInterval(86_400)).compactMap(\.consumption).reduce(0, +) > 0.999
+        })
+        #expect(abs(metrics.meters.hours(of: boiler, from: Date().addingTimeInterval(-86_400), to: Date().addingTimeInterval(86_400)).compactMap(\.consumption).reduce(0, +) - 1) < 0.001)
+        #expect(metrics.meterDescription(of: boiler) == nil)
+        #expect(metrics.energyTags.isEmpty)
+        metrics.stop()
+        await host.stop()
+    }
+}
+
+/// A ceiling, not a wait: a loaded machine can take seconds to pass a reading on.
+private func meterEventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() { return true }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+    return await condition()
 }
