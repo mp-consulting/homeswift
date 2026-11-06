@@ -22,6 +22,8 @@ public enum AuthorizationMethod: String, Sendable, Codable, CaseIterable {
     case browserRedirect
     /// Keys from a developer portal.
     case apiKey
+    /// A Bridge Setting the bridge needs first, such as the Location: the step points at its page and waits.
+    case bridgeSetting
 }
 
 /// Whether a plugin's devices depend on its account (`HomeswiftPlugin.accountRequirement`), for a plugin whose
@@ -242,12 +244,16 @@ public struct SetupPrompt: Sendable, Codable, Equatable {
     public var fields: [SetupField]
     /// A Browser Redirect's page to open.
     public var url: String?
+    /// A page of the web UI the step needs a person to visit, by its path (`/settings#location` for the Location):
+    /// drawn as a link beside the message, never as a Button Press.
+    public var page: String?
     /// A Button Press: how long the device waits for it, in seconds. The step is sent again, with no answers, every
     /// `retryAfter` seconds until the plugin is done or the time is up.
     public var waitSeconds: Int?
     public var retryAfter: Int?
 
-    public init(message: String, values: [String: String] = [:], fields: [SetupField] = [], url: String? = nil, waitSeconds: Int? = nil, retryAfter: Int? = nil) {
+    public init(message: String, values: [String: String] = [:], fields: [SetupField] = [], url: String? = nil, page: String? = nil, waitSeconds: Int? = nil, retryAfter: Int? = nil) {
+        self.page = page
         self.message = message
         self.values = values
         self.fields = fields
