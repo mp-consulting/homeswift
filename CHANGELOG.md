@@ -12,6 +12,13 @@ All notable changes to this project are documented here. The format follows
   them; `standalone: true` on a device keeps each lens on a HAP server of its own, added in the Home app one by one. A
   camera added before shows as a new accessory on the bridge: remove its old one from the Home app.
 
+### Added
+
+- TP-Link Tapo: a battery camera's lenses each have a Battery service (Battery Level, Charging State, Status Low
+  Battery), read from the camera's control API a few seconds after a live view wakes it, at most every five minutes and
+  never on its own, kept in `battery.json` between views; the TP-Link cloud's low-battery and battery-empty notifications
+  mark it low at once (a clean-room implementation of docs/clean-room/TapoBattery.md).
+
 ## [0.22.0] - 2026-11-05
 
 ### Added

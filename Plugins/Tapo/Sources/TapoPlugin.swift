@@ -70,6 +70,9 @@ public actor TapoPlugin: HomeswiftPlugin {
     var ptzProbeFailures: [String: ContinuousClock.Instant] = [:]
     /// When each camera's presets were last read.
     var presetsReadAt: [String: ContinuousClock.Instant] = [:]
+    /// What each camera last said of its battery (`battery.json`), read once, and when it was last asked (TapoBattery.swift).
+    var batteryReadings: [String: TapoBatteryReading]?
+    var batteryReadAt: [String: ContinuousClock.Instant] = [:]
     /// The account's sign-in to the TP-Link cloud, and the watch of its cameras' notifications.
     let cloud: TapoCloud
     let motionWatcher: TapoMotionWatcher

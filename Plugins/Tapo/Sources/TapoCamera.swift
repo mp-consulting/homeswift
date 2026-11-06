@@ -56,14 +56,19 @@ final class TapoCamera: Sendable {
     let controller: CameraController
     let streamer: TapoCameraStreamer
     let motion: Service?
+    /// The camera's battery (TapoBattery.swift).
+    let battery: Service?
     private let hold: Duration
     private let reset = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
-    init(id: String, name: String, model: String, serial: String, streamer: TapoCameraStreamer, motion hasMotion: Bool, hold: Duration, log: Logger) throws {
+    init(id: String, name: String, model: String, serial: String, streamer: TapoCameraStreamer, motion hasMotion: Bool, battery hasBattery: Bool = true,
+         hold: Duration, log: Logger) throws {
         self.streamer = streamer
         self.hold = hold
         let motion = hasMotion ? Service(.motionSensor, name: "\(name) Motion", subtype: "motion") : nil
         self.motion = motion
+        let battery = hasBattery ? Self.batteryService(name: name) : nil
+        self.battery = battery
         let streaming = CameraStreamingOptions(
             supportedCryptoSuites: [.aesCM128HMACSHA1_80],
             video: VideoStreamingOptions(codec: H264CodecParameters(profiles: [.baseline, .main, .high], levels: [.level3_1, .level3_2, .level4_0]),
@@ -73,7 +78,7 @@ final class TapoCamera: Sendable {
             CameraControllerOptions(cameraStreamCount: 2, delegate: streamer, streamingOptions: streaming, sensors: motion.map { CameraSensorOptions(motion: .service($0)) }),
             logger: log)
         accessory = Accessory(
-            id: id, name: name, manufacturer: "TP-Link", model: model, serialNumber: serial, category: .ipCamera, services: [motion].compactMap { $0 },
+            id: id, name: name, manufacturer: "TP-Link", model: model, serialNumber: serial, category: .ipCamera, services: [motion, battery].compactMap { $0 },
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
         motion?.characteristic(.motionDetected).value = false
@@ -160,7 +165,8 @@ extension TapoPlugin {
             handshakeTimeout: scaled(20), silenceTimeout: scaled(10), logger: logger)
         let snapshotTargets = zip(lenses, stores).map { ($0.videoIndex, $1) }
         let log = logger
-        let feed = TapoCameraFeed(name: name, client: client, resolution: resolution, timing: dependencies.cameraTiming, logger: logger) { sample in
+        let feed = TapoCameraFeed(name: name, client: client, resolution: resolution, timing: dependencies.cameraTiming, logger: logger,
+                                  onAwake: { [weak self] in await self?.readBattery(deviceID: deviceID) }) { sample in
             for (index, store) in snapshotTargets {
                 if let image = await TapoCameraStreamer.snapshot(from: sample, videoIndex: index, ffmpeg: ffmpeg) {
                     store.update(image)
@@ -177,6 +183,7 @@ extension TapoPlugin {
                 name: lensName, videoIndex: lens.videoIndex, feed: feed, snapshots: store, ffmpeg: ffmpeg, ports: dependencies.ports, inputFps: 15, log: logger)
             let camera = try TapoCamera(id: id, name: lensName, model: kind.model, serial: id, streamer: streamer, motion: device.motion ?? true,
                                         hold: dependencies.motionHold, log: logger)
+            if let kept = keptBattery(deviceID) { camera.apply(kept) }
             await camera.start()
             if device.standalone ?? false {
                 try await context.publishExternal(camera.accessory)
@@ -194,8 +201,12 @@ extension TapoPlugin {
             let labels = lenses.map { lens in lenses.count > 1 ? lens.suffix ?? "Wide" : nil }
             await motionWatcher.add(TapoMotionWatcher.Camera(
                 name: name, cloudID: device.cloudId?.trimmingCharacters(in: .whitespaces).nonEmpty, host: host, model: kind == .dualLens ? "C675D" : nil,
-                onMotion: { [cameras] _ in
-                    for camera in cameras { camera.motionDetected() }
+                onMotion: { [weak self, cameras] type in
+                    if Self.batteryNotifications.contains(type) {
+                        Task { await self?.batteryReportedLow(deviceID: deviceID) }
+                    } else {
+                        for camera in cameras { camera.motionDetected() }
+                    }
                 },
                 onMatched: { [cameras] found in
                     for (camera, label) in zip(cameras, labels) { camera.identify(as: found, lens: label) }
