@@ -287,15 +287,28 @@ header nav a svg { display: none; }
 .tariff-card input, .tariff-card select { box-sizing: border-box; height: 42px; }
 .tariff-card .actions.start { justify-content: flex-start; }
 .tariff-earlier { margin: var(--space-8) 0 0; padding-left: var(--space-18); color: var(--muted); font-size: var(--text-sm); }
+/* A control and its small name (its column's head says it where there are heads), and a price's unit inside its field. */
+.tariff-cell { position: relative; display: block; min-width: 0; margin: 0; }
+.tariff-cell > :is(input, select) { width: 100%; }
+.tariff-cell-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tariff-cell.with-unit > input { padding-right: 5.5em; }
+.tariff-unit { position: absolute; right: var(--space-14); bottom: 0; height: 42px; display: flex; align-items: center; color: var(--muted); font-size: var(--text-sm); pointer-events: none; font-variant-numeric: tabular-nums; }
+/* iOS draws a date or time field at its own width and height, past its column and over its neighbour: plain fields
+   that fill their cell, their value at the start as the other fields'. */
+@media (pointer: coarse) {
+  .tariff-card input:is([type="date"], [type="time"]) { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-width: 0; text-align: start; }
+  .tariff-card input:is([type="date"], [type="time"])::-webkit-date-and-time-value { text-align: start; margin: 0; }
+}
 @media (max-width: 640px) {
-  /* Three lines a period: its name, then its times, then its days and price. */
-  .tariff-period { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px; padding-bottom: var(--space-8); border-bottom: 1px solid var(--line); }
-  .tariff-period > :nth-child(1) { grid-column: 1 / 3; grid-row: 1; }
-  .tariff-period > :nth-child(2) { grid-column: 1; grid-row: 2; }
-  .tariff-period > :nth-child(3) { grid-column: 2; grid-row: 2; }
-  .tariff-period > :nth-child(4) { grid-column: 1; grid-row: 3; }
-  .tariff-period > :nth-child(5) { grid-column: 2; grid-row: 3; }
-  .tariff-period .icon-button { grid-column: 3; grid-row: 1; width: 40px; min-width: 40px; height: 40px; min-height: 40px; }
+  /* A period as a small group of its own: its name (Remove in the corner), its times side by side, its days and price
+     side by side, each with its small name over it. */
+  .tariff-periods { gap: var(--space-10); }
+  .tariff-period { position: relative; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-10) var(--space-10); padding: var(--space-12);
+    border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
+  .tariff-period > .tariff-cell:nth-child(1) { grid-column: 1 / -1; margin-right: 48px; }
+  .tariff-period .tariff-cell-label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; display: block; margin: 0 0 var(--space-4); font-size: var(--text-xs); line-height: 1.25; font-weight: var(--weight-semibold); color: var(--muted); }
+  /* Remove level with the name's field: the period's padding and border, the name's small name, then 1px into its 42. */
+  .tariff-period > .icon-button { position: absolute; top: calc(var(--space-12) + 1px + 0.9375rem + var(--space-4) + 1px); right: var(--space-12); width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 0; }
   .tariff-period-head { display: none; }
 }
 .page-note { display: flex; align-items: center; gap: var(--space-14); justify-content: space-between; margin: 0 0 var(--space-14); padding: var(--space-12) var(--space-16) var(--space-12) var(--space-18); }
@@ -693,11 +706,18 @@ label > input, label > select { margin-top: 5px; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .scenes-empty > .button { margin-top: var(--space-12); }
+/* Under the hubs' scenes, apart from their last row. */
+.hub-scenes ~ .scenes-empty { margin-top: var(--space-16); }
 .scenes-empty.compact { display: flex; align-items: center; gap: var(--space-14); padding: var(--space-14) var(--space-18); text-align: left; }
 .scenes-empty.compact > .button { margin: 0 0 0 auto; flex: none; }
 .card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
 .scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
-@media (max-width: 640px) { .scenes-empty.compact { flex-wrap: wrap; } .scenes-empty.compact > .button { margin-left: 0; } }
+/* A phone: the glyph beside the words, the button under them, rather than the words squeezed between the two. */
+@media (max-width: 640px) {
+  .scenes-empty.compact { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: start; column-gap: var(--space-14); row-gap: var(--space-12); padding: var(--space-16); }
+  .card.empty.scenes-empty.compact > p { font-size: var(--text-base); line-height: 1.4; }
+  .scenes-empty.compact > .button { grid-column: 2; justify-self: start; margin: 0; }
+}
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -1518,6 +1538,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .range-control.more-before { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
 .range-control.more-before.more-after { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 .range-control .range-custom { font-variant-numeric: tabular-nums; }
+/* Each choice keeps its words' width, so where they outgrow the row they scroll rather than squeeze into each other
+   (a phone's buttons may shrink to nothing otherwise: min-width 0). */
+.range-control > button { flex: none; }
 .range-popover {
   position: fixed; z-index: var(--layer-menu); width: min(320px, calc(100vw - 16px)); padding: var(--space-14); display: grid; gap: var(--space-12); border-radius: var(--radius);
   background-color: var(--material-thick); background-image: var(--sheen);
@@ -1674,14 +1697,26 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer-value small { font-size: var(--text-2xs); color: var(--muted); text-align: end; }
 .consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
 .consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The sources apart from the home (the grid, solar, batteries): a rule above the first. */
+.consumers > li.sources-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
 @media (max-width: 640px) {
-  /* The name over its bar, the figure beside them. */
-  .consumer.action-with-icon, .consumer.rest { grid-template-columns: minmax(0, 1fr) 7.5rem auto; grid-template-areas: "name value icon" "track value icon"; row-gap: var(--space-6); }
-  .consumer-spacer { grid-area: icon; }
-  .consumer-name { grid-area: name; }
-  .consumer-track { grid-area: track; }
-  .consumer-value { grid-area: value; }
-  .consumer.action-with-icon::before { grid-area: icon; }
+  /* A phone: the name and its figure on the first line, its role and cost under them, the bar across the whole row
+     under both, so a name keeps its width and the bars still read against one another. */
+  .consumer.action-with-icon, .consumer.rest { grid-template-columns: auto minmax(0, 1fr) auto 16px;
+    grid-template-areas: "name name value icon" "caption note note icon" "track track track track";
+    align-items: baseline; column-gap: var(--space-12); row-gap: 2px; padding: var(--space-10) var(--space-8); }
+  .consumer-name, .consumer-value { display: contents; }
+  .consumer-name > span { grid-area: name; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  .consumer-name > small { grid-area: caption; }
+  .consumer-value > b { grid-area: value; justify-self: end; }
+  .consumer-value > small { grid-area: note; justify-self: end; }
+  .consumer-name > small, .consumer-value > small { font-size: var(--text-xs); }
+  .consumer-track { grid-area: track; align-self: center; margin-top: var(--space-8); }
+  .consumer-spacer, .consumer.action-with-icon::before { grid-area: icon; align-self: center; }
+  .consumer.nested .consumer-name { padding-left: 0; }
+  .consumer.nested .consumer-name > * { padding-left: var(--space-16); }
+  /* The rule beside a device's words, stopping above its bar. */
+  .consumer.nested::after { left: calc(var(--space-8) + 3px); top: var(--space-10); bottom: calc(var(--space-10) + 8px + var(--space-8)); }
 }
 .energy-days .chart-table thead th.time { text-align: left; }
 /* The History sheet's note under its charts, apart from them. */
@@ -2029,10 +2064,20 @@ dd { margin: 0; }
 .chat-head { position: relative; display: flex; align-items: center; gap: var(--space-10); padding: var(--space-14) var(--space-12) var(--space-10) var(--space-14); border-bottom: 1px solid var(--line); }
 .chat-badge { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--control); box-shadow: var(--shadow-control); }
 .chat-head .chat-badge .sparkle { width: 20px; height: 20px; }
-.chat-who { display: grid; min-width: 0; line-height: 1.2; }
+.chat-who { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; line-height: 1.2; }
 .chat-head strong { font-size: var(--text-lg); letter-spacing: -0.01em; }
-.chat-model { color: var(--muted); font-size: var(--text-xs); letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-model:empty { display: none; }
+/* The model under the title: a quiet menu button, its chevron after the name. */
+.chat-model.action-with-icon { justify-self: start; min-width: 0; min-height: 0; margin: 1px 0 0 calc(var(--space-6) * -1); padding: 2px var(--space-6); gap: 3px; border: 0; border-radius: var(--radius-sm);
+  background: none; box-shadow: none; color: var(--muted); font: inherit; font-size: var(--text-xs); letter-spacing: 0.01em; }
+.chat-model.action-with-icon::before { order: 1; width: 12px; height: 12px; }
+.chat-model-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-model:empty, .chat-model:has(> .chat-model-label:empty) { display: none; }
+@media (hover: hover) and (pointer: fine) { .chat-model:hover { color: var(--text); background: var(--material-thin); } }
+.chat-model[aria-expanded="true"] { color: var(--text); background: var(--material-thin); }
+/* A phone: the sparkle beside the title goes (the header's button has it), so the model's name has the room. */
+@media (max-width: 640px) { .chat-badge { display: none; } }
+/* A finger gets a taller target than the line it sits on. */
+@media (pointer: coarse) { .chat-model.action-with-icon { padding-block: 7px; margin-block: -5px; } }
 /* A wider window with a mouse: the head is a handle the panel moves by (chat.js). */
 @media (min-width: 641px) and (pointer: fine) {
   .chat-head { cursor: grab; }
@@ -2608,7 +2653,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   color: #fff; background: rgba(0, 0, 0, 0.28); border: 0; box-shadow: none; }
 .hub-scene-actions > button svg { width: 16px; height: 16px; }
 .hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
-.hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.hub-scene-tile:not(.compact):has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 /* On a touch screen each takes a 44-point-tall tap around its 30-point disc, so a near miss opens it rather than the
    scene; only 2 points wider, so Stop and the menu, 4 apart, do not take each other's taps. */
 @media (pointer: coarse) {
@@ -3210,9 +3255,23 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-scope-row label { gap: 0; margin: 0; }
   .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: var(--space-8); }
+  /* Three rows rather than four, so the log starts higher: the levels, then the search and what the lines are about
+     side by side (Clear filters after them while there is something to clear), then the time range. */
+  .log-filter-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem);
+    grid-template-areas: "levels levels" "search source" "range range"; column-gap: var(--space-8); }
+  .log-filter-panel:has(.clear-filters:not(:disabled)) { grid-template-columns: minmax(0, 1fr) minmax(0, 9.5rem) auto;
+    grid-template-areas: "levels levels levels" "search source clear" "range range range"; }
+  .log-filter-panel > :is(.log-level-row, .log-scope-row) { display: contents; }
+  .log-level-row > .group { grid-area: levels; }
+  .log-level-row .search { grid-area: search; }
+  .log-level-row .clear-filters { grid-area: clear; }
+  .log-scope-row > label { grid-area: source; min-width: 0; }
+  .log-scope-row > .log-time { grid-area: range; min-width: 0; }
   /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
   .log-card .log-action-bar { padding: var(--space-8) var(--space-12); gap: var(--space-8); }
   .log-card .log-action-bar > .count { flex: 1 1 auto; }
+  /* The count may take two short lines rather than lose its end ("15 of 15 li…"). */
+  .log-card > .log-action-bar > .count { white-space: normal; overflow: visible; text-overflow: clip; font-size: var(--text-xs); line-height: 1.2; }
   .log-card .log-action-bar > button.action-with-icon { width: 40px; height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; }
 }
 }
@@ -3281,6 +3340,53 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .finder-status { display: flex; align-items: center; gap: var(--space-10); margin: -4px 0 var(--space-14); padding: 0 var(--space-6); font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
 .finder-status:empty { display: none; }
 .plugin-catalog { gap: var(--space-14); }
+/* A phone: your plugins and the catalog each one list on one surface, a row per plugin under a hairline, rather than a
+   card each. A row of yours opens what its name opens (its page, else its settings), all of it a target that lights up
+   when pressed; its state at the end, then its ⋯. Only what needs doing stands out: a note when it is not running as it
+   should, and Set up when its account waits. A catalog row ends with its Add. */
+@media (max-width: 640px) {
+  .grid.plugin-instances, .grid.plugin-catalog { display: block; overflow: hidden; border-radius: var(--radius-lg);
+    background-color: var(--material); background-image: var(--sheen); border: 1px solid var(--edge); box-shadow: var(--shadow), inset 0 1px 0 var(--edge-light);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+    animation: fade var(--normal) var(--ease-out); }
+  /* The list arrives as one surface, by its opacity, rather than each row materializing on its own. */
+  .grid:is(.plugin-instances, .plugin-catalog) > .card { animation: none; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card {
+    position: relative; display: grid; align-items: center; column-gap: var(--space-12); row-gap: 2px; margin: 0; padding: var(--space-12) var(--space-14);
+    border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+    transition: background-color 120ms var(--ease-out);
+  }
+  /* The hairline starts at the names, as a list's does. */
+  .grid:is(.plugin-instances, .plugin-catalog) > .card + .card::before { content: ""; position: absolute; top: 0; right: 0; left: calc(var(--space-14) + 36px + var(--space-12)); height: 1px; background: var(--line); }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card :is(.server-head, .card-foot, .plugin-card-actions) { display: contents; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .tile { grid-area: tile; align-self: start; width: 36px; height: 36px; border-radius: var(--radius-sm); }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .tile svg { width: 19px; height: 19px; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .who { grid-area: who; min-width: 0; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card .who strong { font-size: var(--text-base); font-weight: var(--weight-semibold); letter-spacing: 0; }
+  .grid:is(.plugin-instances, .plugin-catalog) > .card :is(.status-dot, .pill.status) { grid-area: status; justify-self: end; }
+
+  .grid.plugin-instances > .card { grid-template-columns: 36px minmax(0, 1fr) auto auto;
+    grid-template-areas: "tile who status menu" "tile meta meta menu" ". note note note" ". setup setup setup"; }
+  .grid.plugin-instances > .card .meta { grid-area: meta; gap: 2px var(--space-12); font-size: var(--text-xs); }
+  .grid.plugin-instances > .card .meta svg { width: 13px; height: 13px; }
+  .grid.plugin-instances > .card .card-foot > .muted { grid-area: note; font-size: var(--text-xs); }
+  .grid.plugin-instances > .card .card-foot > .muted:empty { display: none; }
+  /* Open its page (or Settings) is the row itself, and the first item of its ⋯. */
+  .grid.plugin-instances > .card .plugin-card-actions > a.button { display: none; }
+  .grid.plugin-instances > .card .plugin-card-actions > button.primary { grid-area: setup; justify-self: start; margin-top: var(--space-6); position: relative; z-index: 1; }
+  .grid.plugin-instances > .card .menu-button { grid-area: menu; position: relative; z-index: 1; color: var(--muted); background: none; box-shadow: none; border-color: transparent; }
+  .grid.plugin-instances > .card .card-title::after { content: ""; position: absolute; inset: 0; }
+  .grid.plugin-instances > .card:has(.card-title:active) { background: var(--material-thin); }
+  .grid.plugin-instances > .card .card-title { -webkit-touch-callout: none; touch-action: manipulation; }
+
+  /* The name and what it brings get the width: In use under them, Add a round + (its words stay its name). */
+  .grid.plugin-catalog > .card { grid-template-columns: 36px minmax(0, 1fr) auto; grid-template-areas: "tile who add" "tile status add"; }
+  .grid.plugin-catalog > .card .pill.status { justify-self: start; margin: var(--space-4) 0 0; font-size: var(--text-2xs); }
+  .grid.plugin-catalog > .card .actions { grid-area: add; display: block; margin: 0; }
+  .grid.plugin-catalog > .card .actions > :is(button, a.button) { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px;
+    padding: 0; gap: 0; border-radius: 50%; font-size: 0; }
+  .grid.plugin-catalog > .card .actions > .action-with-icon::before { width: 18px; height: 18px; }
+}
 .plugin-catalog .catalog { padding: var(--space-20); }
 .plugin-catalog .server-head { margin-bottom: var(--space-20); }
 .plugin-catalog .actions { justify-content: flex-end; }
@@ -3358,6 +3464,21 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .hub-scene-tile.compact:has(> .scene-run:active:not(:disabled)) { transform: scale(0.97); }
 .hub-scene-tile.compact > .scene-run:active:not(:disabled) { transform: none; }
 @media (prefers-reduced-motion: reduce) { .hub-scene-tile.compact:has(> .scene-run:active) { transform: none; } }
+/* A phone: the scenes run by name as one list, a row each with its ⋯ at the end, rather than capsules that each
+   take a line of their own at a different width. A row lights up when pressed, as a list's rows do. */
+@media (max-width: 640px) {
+  .scene-around > .chips { display: grid; gap: 0; overflow: hidden; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow-control); }
+  .scene-around .hub-scene-tile.compact { max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none; transition: background-color 120ms var(--ease-out); }
+  .scene-around .hub-scene-tile.compact + .hub-scene-tile.compact::before { content: ""; position: absolute; top: 0; right: 0; left: 42px; height: 1px; background: var(--line); }
+  .scene-around .hub-scene-tile.compact > .scene-run { flex: 1; min-height: 50px; padding: 0 var(--space-14); justify-content: flex-start; border-radius: 0; font-size: var(--text-base); text-align: left; }
+  .scene-around .hub-scene-tile.compact .quick-scene-label { display: flex; align-items: center; gap: var(--space-12); min-width: 0; }
+  .scene-around .hub-scene-tile.compact .quick-scene-label > span { min-width: 0; flex-wrap: wrap; column-gap: var(--space-6); }
+  .scene-around .hub-scene-tile.compact .quick-scene-label > svg { width: 16px; height: 16px; flex: none; }
+  .scene-around .hub-scene-tile.compact > .hub-scene-actions { padding-right: var(--space-8); }
+  .scene-around .hub-scene-tile.compact .hub-scene-actions > button { --round-target: 36px; width: 36px; height: 36px; min-height: 36px; }
+  .scene-around .hub-scene-tile.compact > .scene-run.active { box-shadow: inset 3px 0 0 var(--accent); }
+  .scene-around .hub-scene-tile.compact:has(> .scene-run:active:not(:disabled)) { transform: none; background: var(--material-thin); }
+}
 .hub-scenes > p.muted { margin-top: calc(var(--space-8) * -1); }
 .templates { margin-top: var(--space-18); }
 .templates > summary { cursor: pointer; display: grid; gap: var(--space-4); list-style: none; }
@@ -3527,6 +3648,67 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 /* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
 @media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
+/* The Accessories page's tools (accessoriesBar): the toolbar over the views, as far apart as when the toolbar sat in the
+   page's head. Its search button is a phone's. */
+.page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
+.accessories-bar { display: grid; row-gap: var(--space-14); margin: 0 0 var(--space-18); }
+.accessories-bar > .accessories-views { margin: 0; }
+.accessories-bar .accessories-search-toggle { display: none; }
+/* A phone: one bar of glass along the bottom, within the thumb's reach, beside the sections' button (54px at 14px from
+   the right): the views first, then round buttons (the search, Filters with its count, Edit, the options). Full screen and
+   Add are in the options' menu on the wall. The search opens over the row, and the bar rises with the keyboard. */
+@media (max-width: 600px) {
+  main:has(> .accessories-bar) { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .accessories-bar {
+    position: fixed; z-index: var(--layer-header); left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 62px);
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--keyboard, 0px));
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); margin: 0; padding: var(--space-6);
+    border-radius: var(--radius-xl); background-color: var(--material-chrome); background-image: var(--sheen);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+  }
+  .page-head:has(+ .accessories-bar) { margin-bottom: var(--space-16); }
+  .accessories-bar > .accessories-toolbar, .accessories-bar > .accessories-views { display: contents; }
+  /* The views as two glyphs, their names for assistive technology. */
+  .accessories-bar .subnav { order: 0; flex: none; width: auto; margin: 0 auto 0 0; padding: 2px; display: flex; overflow: visible; mask-image: none; -webkit-mask-image: none; }
+  .accessories-bar .subnav a { display: grid; place-items: center; width: 40px; min-width: 40px; height: 36px; padding: 0; border-radius: var(--radius-pill); }
+  .accessories-bar .subnav a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .accessories-bar .subnav svg { width: 20px; height: 20px; }
+  /* Anything else of the toolbar (the Rooms button of Edit by room) after Edit. */
+  .accessories-bar .accessories-toolbar > * { order: 4; }
+  .accessories-bar .accessories-search-toggle { display: grid; order: 1; }
+  .accessories-bar .accessories-filters { order: 2; }
+  .accessories-bar .accessories-edit { order: 3; }
+  .accessories-bar .accessory-options-button.menu-button { order: 5; }
+  .accessories-bar .accessories-full-screen { order: 6; }
+  .accessories-bar .accessories-add { order: 7; }
+  .accessories-bar .in-menu-on-phone { display: none; }
+  /* Every button a 40px circle, as round buttons are at phone width, its glyph in the middle; Filters keeps its count
+     as a badge. (Above the toolbar's own button rule, which lays a glyph and its words side by side.) */
+  .accessories-bar .accessories-toolbar > :is(button, a).accessories-search-toggle, .accessories-bar .accessories-toolbar > :is(button, a).accessories-filters,
+  .accessories-bar .accessories-toolbar > :is(button, a).accessories-edit, .accessories-bar .accessories-toolbar > :is(button, a)[aria-label],
+  .accessories-bar .accessories-toolbar > .accessory-options-button, .accessories-bar .accessories-views > :is(button, a):not(.subnav) {
+    position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; gap: 0; border-radius: 50%; font-size: 0; flex: none;
+  }
+  .accessories-bar .accessories-toolbar > :is(button, a).hidden, .accessories-bar .accessories-views > :is(button, a).in-menu-on-phone { display: none; }
+  .accessories-bar .accessories-filters .toolbar-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .accessories-bar .accessories-filters .toolbar-count { position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px; padding: 0 var(--space-4); border-radius: var(--radius-pill); font-size: var(--text-2xs); }
+  .accessories-bar .accessories-toolbar button > svg, .accessories-bar .accessory-options-button svg { width: 18px; height: 18px; margin: 0; color: currentColor; opacity: 1; }
+  .accessories-bar .accessories-edit.action-with-icon::before, .accessories-bar .accessories-add.action-with-icon::before { width: 18px; height: 18px; margin: 0; }
+  .accessories-bar .search { order: -1; flex: 1 1 100%; width: 100%; display: none; }
+  /* The field rises out of the row it opens from, briefly; reduced motion shows it at once. */
+  .accessories-bar.searching .search { display: block; animation: accessories-search-in 180ms var(--ease-out); }
+  /* Its buttons are controls: a long press neither selects their names nor opens a callout. */
+  .accessories-bar :is(button, a) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+}
+@keyframes accessories-search-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .accessories-bar.searching .search { animation: none; } }
+/* A narrow phone: the buttons a little smaller, so the row still fits beside the sections' button. */
+@media (max-width: 359px) {
+  .accessories-bar { gap: var(--space-4); padding: var(--space-4); }
+  .accessories-bar .accessories-toolbar > :is(button, a, .accessory-options-button), .accessories-bar .accessories-views > :is(button, a):not(.subnav) { width: 36px; height: 36px; min-width: 36px; min-height: 36px; }
+  .accessories-bar .subnav a { width: 36px; min-width: 36px; }
+}
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
 .accessories-toolbar .accessory-options-button svg {
@@ -3540,7 +3722,11 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .local-ui-settings .view-switch { margin-bottom: var(--space-20); }
 .local-ui-settings .group-box { border: 1px solid var(--line); border-radius: var(--radius-md); margin: 0 0 var(--space-14); background: var(--material-thin); overflow: hidden; }
 .local-ui-settings .group-box > summary { padding: var(--space-16) var(--space-18); font-size: var(--text-base); font-weight: var(--weight-semibold); cursor: pointer; }
-.local-ui-settings .group-box > .fields { padding: var(--space-4) var(--space-18) var(--space-18); }
+/* Its groups are sections of the card (the one-surface rules below): their settings across the whole width, under the
+   heading, as on a plugin's settings page. */
+.local-ui-settings .group-box > .fields { width: 100%; padding: var(--space-4) 0 var(--space-10); }
+/* A list first in its section needs no rule of its own under the section's heading. */
+.local-ui-settings .group-box > .fields > fieldset:first-child { border-top: 0; margin-top: 0; padding-top: var(--space-4); }
 .local-ui-settings .help { max-width: 680px; line-height: 1.55; }
 .local-ui-settings input:not([type=checkbox]), .local-ui-settings select { max-width: 560px; }
 .local-ui-settings .drop-zone { padding: var(--space-16); margin-bottom: var(--space-18); border-radius: var(--radius-sm); }
@@ -3603,6 +3789,16 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .restart-overlay.restart-leaving, .restart-overlay.restart-leaving::backdrop { animation: none; }
 }
 
+/* A phone: the Assistant's button above the sections' button, the same 54px circle, in the thumb's reach (chat.js
+   moves it to this dock). Hidden while the app is (the sign-in screen). */
+.chat-dock { display: none; }
+@media (max-width: 640px) {
+  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); display: block; }
+  body:has(#app.hidden) .chat-dock { display: none; }
+  .chat-dock .chat-open { width: 54px; height: 54px; min-width: 54px; min-height: 54px; background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+    -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); }
+  .chat-dock .chat-open .sparkle { width: 26px; height: 26px; }
+}
 /* Compact mobile navigation, anchored within thumb reach. */
 @media (max-width: 640px) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -4850,33 +5046,33 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 /* A plugin's Settings page: its account, its form and its save bar, its devices, in one card. */
 .plugin-settings { padding-top: var(--space-20); padding-bottom: var(--space-20); }
 .plugin-settings .settings-bar { margin-top: var(--space-16); }
-/* One surface (the settings page's card, an accessory's sheet): a group of settings, a list, a nested object is a
+/* One surface (a plugin's settings page and Homeswift UI's own, an accessory's sheet): a group of settings, a list, a nested object is a
    section of it, its heading over a hairline, rather than a box in the card; an expandable group's heading has a
    chevron, and a list's entries are rows between hairlines. */
-:is(.plugin-settings, .accessory-settings-sheet) :is(.group-box, fieldset) {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) :is(.group-box, fieldset) {
   border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none;
   padding: var(--space-12) 0 var(--space-4); margin: var(--space-14) 0 0;
 }
-:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) fieldset > legend {
   float: left; width: 100%; padding: 0; margin: 0 0 var(--space-6); color: var(--text); font-weight: var(--weight-semibold);
 }
-:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend + * { clear: both; }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) fieldset > legend + * { clear: both; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary {
   list-style: none; display: flex; align-items: center; gap: var(--space-8); cursor: pointer; padding: 0 0 var(--space-6);
 }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::-webkit-details-marker { display: none; }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary::-webkit-details-marker { display: none; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary::before {
   content: ""; width: 7px; height: 7px; flex: none; margin: 0 2px 0 1px; border: solid var(--muted); border-width: 0 2px 2px 0;
   transform: rotate(-45deg); transition: transform var(--fast) var(--ease-out);
 }
-:is(.plugin-settings, .accessory-settings-sheet) .group-box[open] > summary::before { transform: rotate(45deg); }
-:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry, .item) {
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box[open] > summary::before { transform: rotate(45deg); }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) :is(details.entry, .item) {
   border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; margin: 0;
 }
-:is(.plugin-settings, .accessory-settings-sheet) details.entry > summary { padding-inline: 0; }
-:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
-:is(.plugin-settings, .accessory-settings-sheet) .item { padding-inline: 0; }
-@media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before { transition: none; } }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) details.entry > summary { padding-inline: 0; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
+:is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .item { padding-inline: 0; }
+@media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet, .local-ui-settings) .group-box > summary::before { transition: none; } }
 /* A closed group's count of settings, quiet at the end of its heading; a group's own words under it; a group in a
    group, a heading over its fields. */
 .group-box > summary > .group-count { float: right; margin-left: auto; padding-left: var(--space-12); font-size: var(--text-sm); font-weight: var(--weight-regular); color: var(--muted); }
