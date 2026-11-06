@@ -152,7 +152,7 @@ screenshots, and what a plugin does to get good ones.
   that carry keys (a camera's Setup Endpoints) are not shown, nor what only HomeKit uses.
 - **A widget's ⋯ menu** (a right click on a tile): its size or its kind's, **All controls** (every control in a sheet,
   the rest under More), Identify, its log, ask the Assistant about it, add to the Quick Controls, **Settings…** and its
-  plugin's Settings (administrators), resume a paused plugin, and **History** for an accessory whose plugin records an
+  plugin's Settings and **Download diagnostics** ([Diagnostics](#diagnostics); administrators), resume a paused plugin, and **History** for an accessory whose plugin records an
   Eve history (temperature, humidity, power…) or that has a Meter: a day, a week or four weeks. A Meter's
   **Consumption** comes first, a chart per Meter (named by its service on a device with several): bars of what it drew,
   and what it returned below the line, by hour over a day and by day beyond, with the range's kWh and, with a Tariff,
@@ -280,8 +280,8 @@ a page to keep on a phone's home screen.
   change (the motion sensor turns on), or a cron expression (`30 7 * * 1-5`; five fields, or six with seconds, which are
   ignored). Automations run on the minute; a characteristic trigger runs a scene at most once per 5 seconds.
 - **Conditions** hold an automatic run back: a time window (`sunset` to `23:00`, across midnight too) or a
-  characteristic's value. A run by hand ignores them. Sunrise and sunset come from Glass UI's equation for the location
-  set on the page (typed, or this device's position).
+  characteristic's value. A run by hand ignores them. Sunrise and sunset come from Glass UI's equation for the
+  Location, a Bridge Setting under [Settings](#settings) (an older `scenes.json`'s location moves there at startup).
 - **Add an accessory as it is now** fills the actions from its current values.
 - **Locks, garage doors and alarms** keep Homeswift's rule that a person confirms them: the page asks before running a
   scene that has them, the MCP server's `run_scene` refuses such a scene (as homebridge-mcp-server's does), and
@@ -381,17 +381,6 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 
 ![Template photographs](images/ui/template-photographs.png)
 
-The sunrise/sunset location includes a map: click a point or finish dragging to place the pin and save coordinates immediately. Arrow keys can also position the pin for review.
-**Use this device's location** asks the browser for permission and centres the map; **Save** keeps the reviewed
-position. Coordinates remain editable. Visible map tiles are requested directly from OpenStreetMap when the
-location section is open; manual coordinates still work without the map service.
-
-![Location map](images/ui/scene-location.png)
-
-Address suggestions appear after three characters, with a short typing delay and a loading spinner. Select a result to centre the map and save its coordinates. Search queries go directly to [Photon](https://github.com/komoot/photon); the existing home name stays unchanged. Repeated searches are cached for this page, and map/manual entry remain available if search is unavailable.
-
-![Address suggestions](images/ui/scene-address-search.png)
-
 ### Notifications
 
 ![Notification channels and event switches](images/notifications.png)
@@ -430,7 +419,8 @@ pairing** or **Needs keys**, in orange, and its card leads with **Set up** (**Se
 opens the Setup sheet over the list; an optional account left alone needs no one. One whose every accessory shows No
 Response says **Not responding**. Sorted by **Needs attention first**, they come first.
 
-- **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, and removes it; its name
+- **A card's ⋯** opens the plugin's page, its Settings or config.json, pauses or resumes it, downloads its
+  [Diagnostics](#diagnostics), and removes it; its name
   opens its page (its Settings when it has none). Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
   there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
 - **Pause** (also at the top right of a plugin's page) stops the plugin's calls to its devices, for when an app sharing
@@ -463,6 +453,20 @@ Response says **Not responding**. Sorted by **Needs attention first**, they come
 
   The runtime's own blocks (`HomeswiftUI`, `HomeswiftAiKit`: the web UI, the Assistant and the MCP server) keep their form
   at `/plugins/<slug>`, saved whole, as a new block's (`/plugins/add/<platform>`) is.
+
+#### Diagnostics
+
+**Download diagnostics**, in a plugin's ⋯ menu and an accessory's (administrators), saves one JSON file
+(`homeswift-diagnostics-<name>-<day>.json`) to attach to an issue. It holds homeswift's version and platform (not the
+machine's name), the plugin's state (running, paused, why it did not start, its account), its Plugin Settings and
+Accessory Settings, the accessories' services and current values, the plugin's last 1,000 log lines and how many
+errors and warnings it logged over the last week, with its last error. Secrets are masked through `Redaction`:
+values under secret-named keys, sealed values, and in every other text (settings and log lines alike) what the log
+masks, with each URL's credentials: a password before the host, secret-named query values (`?pwd=…`, `?token=…`), and
+the whole path and query of an RTSP URL (a UniFi Protect stream alias). A `vault:` reference keeps its name. Names and rooms are kept, because they are what lets a helper find their way; read
+the file before sharing it. An accessory's file has that accessory alone and its own Accessory Settings. `GET
+/api/diagnostics/plugins/<platform>/<name>` and `GET /api/diagnostics/accessories/<id>` serve it, and MCP clients get
+the same bundle from `get_diagnostics` (administrators only).
 
 ![A plugin's Settings: its Plugin Settings, its devices](images/ui/plugin-settings.png)
 
@@ -600,7 +604,22 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   the HomeswiftUI block. A HomeKit port is checked before it is saved; an empty one picks a free port. Homeswift listens
   and advertises on every interface with the system's mDNS (Bonjour, or Avahi on Linux): there is no interface to bind
   or advertiser to choose, as Homebridge's `bind` and `advertiser` settings do, and no Node-specific setting
-  (environment, debug mode, keep orphans). **Energy tariff**, under the form: what the home pays per kWh, for the costs
+  (environment, debug mode, keep orphans). **Location**, under the form: where the home is, for scenes' sunrise and
+  sunset and for plugins such as Weather (GLOSSARY.md). It is folded under its head, which names the place
+  (`/settings#location` opens it), so no map tile loads until it is opened. Click the map or finish dragging to place the pin and save the
+  coordinates (clicks in a row send one save, the last); arrow keys move the pin for review. **Use this device's location** asks the browser and centres
+  the map; **Save** keeps the reviewed position, and the coordinates stay editable. Visible map tiles come straight from
+  OpenStreetMap while the section is open; the coordinates work without the map service. Address suggestions appear
+  after three characters, with a short typing delay and a spinner; a result centres the map and saves its coordinates.
+  Searches go straight to [Photon](https://github.com/komoot/photon) and are cached for the page. No restart
+  (`bridge.location` in config.json, `{latitude, longitude, name}`; `GET` and `PUT /api/settings/location`,
+  `get_settings` and `update_settings` with `bridge: true` over MCP).
+
+  ![Location map](images/ui/location.png)
+
+  ![Address suggestions](images/ui/location-address-search.png)
+
+  **Energy tariff**, under it: what the home pays per kWh, for the costs
   on the Status page. It edits the latest Tariff (GLOSSARY.md): the day it applies from, the currency, the export price (empty when a
   kWh sent back is not paid) and the prices, a row per period (a name, from, to, every day, weekdays or weekends, a
   price per kWh), which must cover each part of the week once; a period ending before it starts runs past midnight.

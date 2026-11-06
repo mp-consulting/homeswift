@@ -160,6 +160,10 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   ```
   A power reading with an `EnergyTag` is better declared as a Meter (below), which keeps its energy for years and lets a
   person change its Energy Role; `EnergyTag` stays for a battery's level.
+- **Location** (GLOSSARY.md). `context.location` is where the home is (`latitude`, `longitude`, an optional `name`),
+  the Bridge Setting a person sets under Settings, Bridge (`bridge.location` in config.json), or nil while none is set.
+  It changes without a restart or a reload, so read it at each use rather than once at `start()`; a plugin that needs
+  it (Weather) says so in its log and its Setup until it is set. Never send its `name` anywhere.
 - **Meters** (GLOSSARY.md, "Energy"; docs/adr/0004-meters-and-consumption-history.md). The bridge keeps each Meter's
   Consumption and Returned by the hour, for years (`MeterArchive`, under `metrics/meters/`), whatever its plugin. Most
   plugins need do nothing: every service with Eve's Total Consumption (kWh) or Current Consumption (watts) is a Meter on

@@ -95,7 +95,7 @@ public struct HomeswiftCatalog: Sendable {
     /// log, the cached accessories, the pairings, the child bridges' health, and writing the digest. Hidden from the
     /// principals of users who are not administrators (the web UI's chat, the apps they connect).
     public static let administratorOnly: Set<String> = [
-        "get_config", "get_settings", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
+        "get_config", "get_settings", "get_diagnostics", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
         "homeswift://logs/recent", "homeswift://child-bridge/{id}", "diagnose-logs", "audit-config", digestRefresh,
     ]
 
@@ -1320,7 +1320,7 @@ public struct HomeswiftCatalog: Sendable {
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
                 return .json(try await catalog.restoreConfigBackup(backup))
             },
-        ] + hostTools + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + diagnosticsTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
