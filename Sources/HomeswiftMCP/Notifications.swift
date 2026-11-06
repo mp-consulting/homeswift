@@ -30,6 +30,8 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
     case backupSucceeded
     /// dailyDigest: the Assistant's digest of the day, at `dailyDigestTime`.
     case dailyDigest
+    /// An Automation's Notify Step.
+    case automationMessage
     case test
 
     /// What the settings page calls it.
@@ -43,6 +45,7 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
         case .backupFailed: "The scheduled backup failed"
         case .backupSucceeded: "The scheduled backup was saved"
         case .dailyDigest: "Daily digest from the Assistant"
+        case .automationMessage: "A message from an automation"
         case .test: "Test"
         }
     }
@@ -102,6 +105,9 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
     /// Generated the first time a browser asks; never shown.
     public var webPushKeys: WebPush.Keys?
     public var subscriptions: [WebPush.Subscription] = []
+    /// The web UI's address the links of notifications use (a tap, a button), when the one it starts on is not the one
+    /// a phone reaches (a reverse proxy, a tunnel).
+    public var address: String?
 
     public init() {}
 
@@ -150,8 +156,10 @@ public struct NotificationMessage: Sendable {
     public var message: String
     /// Higher priority for outages (ntfy, Pushover, Web Push).
     public var urgent = false
-    /// The web UI page it is about, for channels that can open it.
+    /// The web UI page it is about, for channels that can open it: a tap opens it.
     public var path: String?
+    /// An Automation's buttons (`NotificationActions.swift`).
+    var buttons: [DeliveredButton] = []
 }
 
 enum NotificationRules {
@@ -208,6 +216,7 @@ extension HomeswiftCatalog {
             "channels": .object(channels),
             "events": .array(NotificationEvent.configurable.map { ["name": .string($0.rawValue), "label": .string($0.label), "enabled": .bool(settings.isOn($0))] }),
             "dailyDigestTime": .string(settings.dailyDigestTime),
+            "address": .string(settings.address ?? ""), "defaultAddress": home.uiAddress.withLockedValue { $0 }.map(JSONValue.string) ?? .null,
             "subscriptions": .array(settings.subscriptions.map(Self.subscriptionJSON)),
             "assistant": .bool(host.assistant != nil),
         ]
@@ -258,6 +267,10 @@ extension HomeswiftCatalog {
                 for (name, value) in events where NotificationEvent(rawValue: name) != nil && name != "test" { if let flag = value.boolValue { settings.events[name] = flag } }
             } else if let events = body["events"]?.arrayValue {
                 for event in events { if let name = event["name"]?.stringValue, NotificationEvent(rawValue: name) != nil, let flag = event["enabled"]?.boolValue { settings.events[name] = flag } }
+            }
+            if let address = body["address"]?.stringValue?.trimmingCharacters(in: .whitespaces) {
+                guard address.isEmpty || (NotificationRules.isHTTPURL(address) && URL(string: address)?.query == nil) else { throw CatalogError("The address must be an http(s) URL, such as https://home.example.com") }
+                settings.address = address.isEmpty ? nil : address
             }
             if let time = body["dailyDigestTime"]?.stringValue {
                 guard SceneRules.isTime(time) else { throw CatalogError("The digest time must be HH:mm") }
@@ -358,10 +371,21 @@ extension HomeswiftCatalog {
         let settings = home.notifications.value
         let targets = settings.subscriptions.filter { endpoint == nil || $0.endpoint == endpoint }
         guard let keys = settings.webPushKeys, keys.isValid, !targets.isEmpty else { throw CatalogError(endpoint != nil ? "This browser is not subscribed" : "No browser is subscribed") }
-        let payload: JSONValue = [
+        var fields: [String: JSONValue] = [
             "title": .string("\(instanceName): \(message.title)"), "body": .string(NotificationRules.truncate(message.message, NotificationRules.pushBodyMax)),
             "tag": .string(message.event.rawValue), "path": .string(WebPush.localPath(message.path)), "urgent": .bool(message.urgent),
         ]
+        // Buttons where the browser shows them (Chromium): each acts with its token, or opens its page.
+        if !message.buttons.isEmpty {
+            fields["tag"] = .string("\(message.event.rawValue)-\(UUID().uuidString.prefix(8))")
+            fields["actions"] = .array(message.buttons.enumerated().map { index, button in
+                var object: [String: JSONValue] = ["action": .string("b\(index)"), "title": .string(button.label)]
+                if let token = button.token { object["act"] = .string("/notify/act/\(token)") }
+                if let path = button.path { object["path"] = .string(WebPush.localPath(path)) }
+                return .object(object)
+            })
+        }
+        let payload = JSONValue.object(fields)
         let http = home.http
         var gone: [String] = [], errors: [String] = []
         var sent = 0
@@ -397,10 +421,24 @@ extension HomeswiftCatalog {
             // The body may echo the request, a token with it: the status only.
             guard (200..<300).contains(response.status) else { throw CatalogError("HTTP \(response.status)") }
         }
+        // Where a tap and each button lead, as addresses a phone opens; nil without a known address.
+        let address = notificationAddress
+        let link = { (path: String?) -> String? in path.flatMap { path in address.map { $0 + WebPush.localPath(path) } } }
+        let act = { (token: String) -> String? in address.map { "\($0)/notify/act/\(token)" } }
         switch channel {
         case .webhook:
-            let body: JSONValue = ["event": .string(message.event.rawValue), "title": .string(title), "message": .string(message.message),
-                                   "instance": .string(instanceName), "timestamp": .string(SceneRules.now())]
+            var fields: [String: JSONValue] = ["event": .string(message.event.rawValue), "title": .string(title), "message": .string(message.message),
+                                             "instance": .string(instanceName), "timestamp": .string(SceneRules.now())]
+            if let url = link(message.path) { fields["url"] = .string(url) }
+            if !message.buttons.isEmpty {
+                fields["buttons"] = .array(message.buttons.map { button in
+                    var object: [String: JSONValue] = ["label": .string(button.label)]
+                    if let token = button.token, let url = act(token) { object["post"] = .string(url) }
+                    if let url = link(button.path) { object["url"] = .string(url) }
+                    return .object(object)
+                })
+            }
+            let body = JSONValue.object(fields)
             let hook = settings.channels.webhook
             var headers = [("Content-Type", "application/json")] + hook.headers.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
             if let authorization = hook.authorization { headers.append(("Authorization", authorization)) }
@@ -411,18 +449,51 @@ extension HomeswiftCatalog {
             var headers = [("Title", String(title.map { $0.isASCII && !$0.isNewline ? $0 : "?" })), ("Priority", message.urgent ? "high" : "default"), ("Tags", "homeswift")]
             if !ntfy.token.isEmpty { headers.append(("Authorization", "Bearer \(ntfy.token)")) }
             let server = ntfy.server.hasSuffix("/") ? String(ntfy.server.dropLast()) : ntfy.server
+            // Buttons: ntfy's JSON publishing, which keeps their labels in any language.
+            if !message.buttons.isEmpty {
+                var body: [String: JSONValue] = ["topic": .string(ntfy.topic), "title": .string(title), "message": .string(NotificationRules.truncate(message.message, 4096, bytes: true)),
+                                                 "priority": .number(message.urgent ? 4 : 3), "tags": ["homeswift"]]
+                if let url = link(message.path) { body["click"] = .string(url) }
+                body["actions"] = .array(message.buttons.compactMap { button -> JSONValue? in
+                    if let token = button.token, let url = act(token) {
+                        return ["action": "http", "label": .string(button.label), "url": .string(url), "method": "POST", "clear": true]
+                    }
+                    guard let url = link(button.path) else { return nil }
+                    return ["action": "view", "label": .string(button.label), "url": .string(url), "clear": true]
+                })
+                try await post(server, headers: headers.filter { $0.0 == "Authorization" } + [("Content-Type", "application/json")], body: JSONValue.object(body).encoded())
+                return
+            }
+            if let url = link(message.path), url.allSatisfy(\.isASCII) { headers.append(("Click", url)) }
             try await post("\(server)/\(ntfy.topic)", headers: headers, body: Data(NotificationRules.truncate(message.message, 4096, bytes: true).utf8))
         case .pushover:
             let fields = [
                 ("token", settings.channels.pushover.appToken), ("user", settings.channels.pushover.userKey), ("title", NotificationRules.truncate(title, 250)),
                 ("message", NotificationRules.truncate(message.message, 1024)), ("priority", message.urgent ? "1" : "0"),
-            ]
+            ] + (link(message.path).map { [("url", $0), ("url_title", message.buttons.isEmpty ? "Open in Homeswift" : "Choose in Homeswift")] } ?? [])
             let form = URLEncoding.form(fields)
             try await post("https://api.pushover.net/1/messages.json", headers: [("Content-Type", "application/x-www-form-urlencoded")], body: Data(form.utf8))
         case .telegram:
-            let body: JSONValue = ["chat_id": .string(settings.channels.telegram.chatId), "text": .string(NotificationRules.truncate("\(title)\n\(message.message)", 4096)),
-                                   "disable_web_page_preview": true]
-            try await post("https://api.telegram.org/bot\(settings.channels.telegram.botToken)/sendMessage", headers: [("Content-Type", "application/json")], body: body.encoded())
+            var fields: [String: JSONValue] = ["chat_id": .string(settings.channels.telegram.chatId), "text": .string(NotificationRules.truncate("\(title)\n\(message.message)", 4096)),
+                                             "disable_web_page_preview": true]
+            // A row per button: a callback the bridge reads, or a link to a page (Telegram wants an http(s) one).
+            let rows: [JSONValue] = message.buttons.compactMap { button in
+                if let token = button.token { return [["text": .string(button.label), "callback_data": .string("hs:\(token)")]] }
+                guard let url = link(button.path) else { return nil }
+                return [["text": .string(button.label), "url": .string(url)]]
+            }
+            if !rows.isEmpty { fields["reply_markup"] = ["inline_keyboard": .array(rows)] }
+            let body = JSONValue.object(fields)
+            let url = "https://api.telegram.org/bot\(settings.channels.telegram.botToken)/sendMessage"
+            do {
+                try await post(url, headers: [("Content-Type", "application/json")], body: body.encoded())
+            } catch where rows.contains(where: { $0[0]?["url"] != nil }) {
+                // Telegram refuses a link it finds invalid (an address on the home network): the message goes with its
+                // callbacks only, the confirmation page left to the other channels.
+                fields["reply_markup"] = ["inline_keyboard": .array(rows.filter { $0[0]?["url"] == nil })]
+                if rows.allSatisfy({ $0[0]?["url"] != nil }) { fields.removeValue(forKey: "reply_markup") }
+                try await post(url, headers: [("Content-Type", "application/json")], body: JSONValue.object(fields).encoded())
+            }
         case .browser:
             _ = try await sendPush(message)
         }
@@ -457,11 +528,19 @@ extension HomeswiftCatalog {
     /// about the same thing at most once per 15 minutes, 12 notifications an hour. nil when nothing went out.
     @discardableResult
     public func notify(_ event: NotificationEvent, title: String, message: String, urgent: Bool = false, path: String? = nil, subject: String = "", now: Date = Date()) async -> [JSONValue]? {
+        await notify(NotificationMessage(event: event, title: title, message: message, urgent: urgent, path: path), subject: subject, now: now)
+    }
+
+    @discardableResult
+    func notify(_ message: NotificationMessage, subject: String = "", now: Date = Date()) async -> [JSONValue]? {
+        let event = message.event
         let settings = home.notifications.value
         guard settings.isOn(event), NotificationChannel.allCases.contains(where: { settings.isEnabled($0) && settings.isConfigured($0) }) else { return nil }
         let key = "\(event.rawValue):\(subject)"
         let allowed = home.dispatch.withLockedValue { state -> Bool in
             if let last = state.lastSent[key], now.timeIntervalSince(last) < NotificationRules.cooldown { return false }
+            // Past their cooldown, the keys are forgotten: an Automation's message has a new one each time.
+            state.lastSent = state.lastSent.filter { now.timeIntervalSince($0.value) < NotificationRules.cooldown }
             state.sent = state.sent.filter { now.timeIntervalSince($0) < 3600 }
             guard state.sent.count < NotificationRules.maxPerHour else { return false }
             state.lastSent[key] = now
@@ -472,7 +551,7 @@ extension HomeswiftCatalog {
             logger.debug("Notification \(key) held back by its limits")
             return nil
         }
-        return await sendAll(NotificationMessage(event: event, title: title, message: message, urgent: urgent, path: path))
+        return await sendAll(message)
     }
 
     /// "Send test": to one channel, or every one that is on, whatever the events. 5 a minute.
@@ -561,7 +640,9 @@ extension HomeswiftCatalog {
     /// homeswift made itself). `stopHome` ends them.
     public func startHome(restarted: Bool = false) {
         guard home.running.withLockedValue({ $0 == nil }) else { return }
+        migrateSceneAutomations()
         seedWatchedValues()
+        seedStaysTimers()
         restoreHeldLights()
         syncSceneSwitches()
         let catalog = self
@@ -592,7 +673,7 @@ extension HomeswiftCatalog {
             return true
         }
         guard fresh else { return }
-        await runDueScenes(at: minute)
+        runDueAutomations(at: minute)
         await checkNotificationSources(now: now)
     }
 
@@ -602,6 +683,7 @@ extension HomeswiftCatalog {
         guard let running = home.running.withLockedValue({ state -> RunningHome? in defer { state = nil }; return state }) else { return }
         running.ticker.cancel()
         running.observations.forEach { $0.cancel() }
+        stopAutomations()
         guard !restarting else { return }
         await notify(.bridgeStopped, title: "Homeswift stopped", message: "Homeswift is shutting down; its accessories show No Response until it is back.", urgent: true)
     }

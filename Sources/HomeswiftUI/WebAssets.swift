@@ -2906,7 +2906,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       [name, args] = ["status", []];
     }
     for (const link of document.querySelectorAll("nav a")) {
-      const current = link.getAttribute("href") === `/${name}`;
+      // Automations are a tab of Scenes.
+      const current = link.getAttribute("href") === `/${name === "automations" ? "scenes" : name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
@@ -7779,6 +7780,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
+  views.automations = (main, args) => window.HomeswiftAutomations.view(main, args);
+  views.notify = (main, [id] = []) => window.HomeswiftAutomations.confirmView(main, id);
   views.import = (main) => window.HomeswiftImport.view(main);
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
@@ -8141,6 +8144,404 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   });
 
   start();
+})();
+
+"""#),
+        "automations.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The Automations page (/automations, beside Scenes): what the bridge does on its own, a Trigger, Conditions and Steps
+// run in order (GLOSSARY.md). Its list with each one's triggers, last run, On and Run; the Assistant's draft from a
+// sentence, opened in the editor to review; the editor (/automations/<id>, /automations/new).
+(() => {
+  "use strict";
+
+  const { t, tn } = HomeswiftI18n;
+  const { el, api } = HomeswiftCommon;
+  const app = () => window.HomeswiftApp;
+  const home = () => window.HomeswiftHome.editor;
+
+  /// What the editor opens with next, instead of an empty Automation: the Assistant's draft, or a Scene to apply.
+  let pending = null;
+  /// Opens the editor on a new Automation filled with `draft`.
+  function draft(value) {
+    pending = value;
+    app().navigate("/automations/new");
+  }
+
+  const stepKinds = [["scene", t("Apply a scene"), "play"], ["set", t("Set a value"), "sliders"], ["wait", t("Wait"), "history"],
+    ["waitUntil", t("Wait until"), "sensor"], ["notify", t("Notify"), "bell"], ["tool", t("Plugin action"), "plugin"]];
+
+  async function view(main, [id] = []) {
+    if (id) return editor(main, id);
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories").catch(() => [])]);
+    const names = new Map(accessories.map((one) => [one.id, window.HomeswiftHome.displayName(one)]));
+    const admin = app().isAdmin();
+    const newButton = admin ? el("a", { class: "button primary", href: "/automations/new", actionIcon: "plus", text: t("New automation") }) : null;
+    const cards = data.automations.map((automation) => card(automation, names, admin));
+    const empty = el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("workflow")),
+      el("p", { class: "muted", text: t("No automation yet. One turns the hall light on when there is motion, then off five minutes later; or closes the blinds at sunset on weekdays.") }), newButton);
+    app().show(main,
+      app().pageHead(t("Automations"), t("What the bridge does on its own: when a trigger fires and the conditions hold, its steps run in order. Locks, garage doors and alarms are never changed by an automation."),
+        cards.length ? newButton : null),
+      window.HomeswiftHome.scenesTabs("automations"),
+      admin && data.assistant ? draftCard() : null,
+      cards.length ? el("div", { class: "automation-list" }, cards) : empty);
+  }
+
+  /// A sentence for the Assistant, whose draft opens in the editor: nothing is saved before the person does.
+  function draftCard() {
+    const sentence = el("input", { type: "text", maxLength: 500, required: true, placeholder: t("When the front door opens after sunset, turn the hall light on for five minutes"),
+      "aria-label": t("What should happen") });
+    const line = home().statusLine();
+    const ask = el("button", { type: "submit", actionIcon: "sparkle", text: t("Draft it") });
+    return el("form", { class: "card automation-draft", onsubmit: async (event) => {
+      event.preventDefault();
+      await HomeswiftCommon.busyButton(ask, async () => {
+        home().say(line, t("The Assistant is writing it…"));
+        const answer = await api("/api/automations/draft", { method: "POST", body: { sentence: sentence.value.trim() } });
+        draft({ ...(answer.automation ?? answer.draft), problem: answer.problem });
+      }, { report: (e) => home().say(line, e.message, "error") });
+    } },
+      el("div", { class: "who" }, el("strong", { text: t("Describe it") }), el("p", { class: "muted", text: t("The Assistant drafts the automation; you review it before saving.") })),
+      el("div", { class: "automation-draft-row" }, sentence, ask), line);
+  }
+
+  /// The scenes' wording of a last run (or a skip), with what the run noted.
+  function lastRun(automation) {
+    const text = home().lastRun(automation);
+    const shown = automation.lastSkipped && (!automation.lastRun || automation.lastSkipped.at > automation.lastRun.at);
+    return !shown && automation.lastRun?.reason ? `${text} · ${HomeswiftI18n.message(automation.lastRun.reason)}` : text;
+  }
+
+  function card(automation, names, admin) {
+    const { describeTrigger, triggerIcons } = home();
+    const first = automation.triggers[0];
+    const status = el("p", { class: "muted automation-last-run", text: lastRun(automation) });
+    const enabled = el("input", { type: "checkbox", role: "switch", checked: automation.enabled, disabled: !admin, "aria-label": t("{name}: on", { name: automation.name }) });
+    enabled.addEventListener("change", async () => {
+      try { await api(`/api/automations/${encodeURIComponent(automation.id)}`, { method: "PUT", body: { name: automation.name, enabled: enabled.checked } }); }
+      catch (e) { enabled.checked = !enabled.checked; HomeswiftCommon.showAlert(e.message); }
+    });
+    const run = el("button", { type: "button", actionIcon: "play", text: t("Run now"), onclick: async () => {
+      await HomeswiftCommon.busyButton(run, async () => {
+        const answer = await api(`/api/automations/${encodeURIComponent(automation.id)}/run`, { method: "POST", body: {} });
+        if (answer.lastRun) status.textContent = lastRun({ ...automation, lastRun: answer.lastRun, lastSkipped: null });
+      }, { report: (e) => HomeswiftCommon.showAlert(e.message) });
+    } });
+    return el("article", { class: "card automation-card" },
+      el("div", { class: "automation-head" },
+        el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(triggerIcons[first?.type] ?? "workflow")),
+        el("div", { class: "who" }, el("strong", { text: automation.name }),
+          el("span", { class: "muted", text: [automation.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · "),
+            tn("{n} step", "{n} steps", automation.steps.length), automation.mode === "single" ? t("Single") : null,
+            automation.homeKit ? t("In the Home app") : null].filter(Boolean).join(" · ") })),
+        el("label", { class: "toggle compact" }, el("span", { class: "switch" }, enabled, el("span")))),
+      automation.security ? el("p", { class: "muted note" }, HomeswiftCommon.icon("lock"), el("span", { text: t("It watches or names a lock, a door or an alarm: those are never changed by it.") })) : null,
+      status,
+      el("div", { class: "actions start" }, run, admin ? el("a", { class: "button", href: `/automations/${encodeURIComponent(automation.id)}`, actionIcon: "edit", text: t("Edit") }) : null));
+  }
+
+  // ---- The editor
+
+  async function editor(main, id) {
+    const isNew = id === "new";
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories")]);
+    const scenes = { scenes: data.scenes ?? [] };
+    const fromDraft = isNew ? pending : null;
+    pending = null;
+    const automation = isNew ? { name: "", triggers: [{ type: "time", at: "07:00" }], conditions: [], steps: [], mode: "restart", enabled: true, ...(fromDraft ?? {}) }
+      : data.automations.find((one) => one.id === id);
+    if (!automation) { app().show(main, el("p", { class: "error", text: t("No such automation.") })); return; }
+    const { triggerRow, conditionRow, field, statusLine, say } = home();
+    const remove = (row, label, list) => el("button", { type: "button", class: "danger scene-condition-remove", actionIcon: "trash", text: label, onclick: () => { list.delete(row); row.remove(); } });
+
+    const name = el("input", { type: "text", value: automation.name ?? "", maxLength: 64, required: true, placeholder: t("Hall light on motion") });
+    const enabled = el("input", { type: "checkbox", checked: automation.enabled !== false });
+    const homeKit = el("input", { type: "checkbox", checked: Boolean(automation.homeKit) });
+    const mode = el("select", {}, el("option", { value: "restart", text: t("Restart: a new trigger starts it again") }), el("option", { value: "single", text: t("Single: a new trigger is ignored while it runs") }));
+    mode.value = automation.mode || "restart";
+    const toggle = (input, title, help) => el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
+      el("span", {}, el("span", { class: "field-title", text: title }), el("p", { class: "help", text: help })));
+
+    const triggers = new Set(), conditions = new Set(), steps = [];
+    const triggerList = el("div", { class: "editor-list" }), conditionList = el("div", { class: "editor-list" }), stepList = el("ol", { class: "editor-list automation-steps" });
+    const addTrigger = (value) => {
+      const row = triggerRow(accessories, value, (row, label) => remove(row, label, triggers));
+      triggers.add(row);
+      triggerList.append(row);
+    };
+    const addCondition = (value) => {
+      const row = conditionRow(accessories, value, (row, label) => remove(row, label, conditions));
+      conditions.add(row);
+      conditionList.append(row);
+    };
+    const redraw = () => stepList.replaceChildren(...steps);
+    const addStep = (value = { type: "set" }) => {
+      const row = stepRow(value, { accessories, scenes: scenes.scenes ?? [], tools: data.tools ?? [] });
+      const move = (by) => {
+        const at = steps.indexOf(row), to = at + by;
+        if (to < 0 || to >= steps.length) return;
+        steps.splice(at, 1);
+        steps.splice(to, 0, row);
+        redraw();
+        row.querySelector(by < 0 ? ".step-up" : ".step-down")?.focus();
+      };
+      row.append(el("div", { class: "step-tools" },
+        el("button", { type: "button", class: "icon-button step-up", title: t("Move up"), "aria-label": t("Move up"), onclick: () => move(-1) }, HomeswiftCommon.icon("up")),
+        el("button", { type: "button", class: "icon-button step-down", title: t("Move down"), "aria-label": t("Move down"), onclick: () => move(1) }, HomeswiftCommon.icon("down")),
+        el("button", { type: "button", class: "danger scene-condition-remove", actionIcon: "trash", text: t("Delete step"), onclick: () => { steps.splice(steps.indexOf(row), 1); redraw(); } })));
+      steps.push(row);
+      redraw();
+    };
+    automation.triggers.forEach(addTrigger);
+    (automation.conditions ?? []).forEach(addCondition);
+    (automation.steps ?? []).forEach(addStep);
+
+    // The Location is a Bridge Setting: without one, the Triggers' help links to its card under Settings.
+    const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.latitude}, ${data.location.longitude}` })
+      : t("Sunrise and sunset need the home's Location, which is not set yet.");
+    const setLocation = data.location ? null : el("a", { href: "/settings/bridge#location", text: t("Set the Location in Settings") });
+    const section = (title, glyph, help, ...content) => el("section", { class: "card automation-section" },
+      el("div", { class: "automation-section-head" }, el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(glyph)),
+        el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted" }, ...[].concat(help).filter(Boolean)))), ...content);
+    const line = statusLine();
+    const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the automation") : t("Save") });
+    const read = () => ({ name: name.value.trim(), enabled: enabled.checked, homeKit: homeKit.checked, mode: mode.value,
+      triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), steps: steps.map((row) => row.read()) });
+    const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
+    const initial = isNew && fromDraft ? null : snapshot();
+    let saved = false;
+    app().setLeaveGuard(async () => saved || snapshot() === initial || HomeswiftCommon.confirmDialog(t("Leave without saving the automation?")));
+    const form = el("form", { class: "automation-editor", onsubmit: async (event) => {
+      event.preventDefault();
+      await HomeswiftCommon.busyButton(save, async () => {
+        const body = read();
+        await api(isNew ? "/api/automations" : `/api/automations/${encodeURIComponent(automation.id)}`, { method: isNew ? "POST" : "PUT", body });
+        saved = true;
+        app().navigate("/automations");
+      }, { report: (e) => say(line, e.message, "error") });
+    } },
+      fromDraft ? el("p", { class: `card note ${fromDraft.problem ? "error" : ""}`, text: fromDraft.problem ? t("The Assistant's draft needs a change before it saves: {problem}", { problem: fromDraft.problem })
+        : t("The Assistant's draft: check each part, then save it.") }) : null,
+      el("div", { class: "card form-card" }, el("div", { class: "fields" }, field(t("Name"), name), field(t("Mode"), mode)),
+        toggle(enabled, t("On"), t("Off, its triggers do nothing; Run now still runs it.")),
+        toggle(homeKit, t("A switch in the Home app"), t("On the Homeswift Scenes accessory: the switch turns the automation on and off."))),
+      section(t("Triggers"), "play", [t("Any of these starts it. {place}", { place }), setLocation && " ", setLocation], triggerList,
+        el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
+      section(t("Conditions"), "shield", t("A trigger's run goes ahead only when all of these hold. Run now ignores them."), conditionList,
+        el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition({ type: "time", after: "sunset", before: "23:00" }) })),
+      section(t("Steps"), "workflow", t("Run in order. Locks, garage doors and alarms are left out: the last run says so."), stepList,
+        el("button", { actionIcon: "plus", type: "button", text: t("Add a step"), onclick: () => addStep() })),
+      el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/automations", text: t("Cancel") }),
+        isNew ? null : el("span", { class: "spacer" }),
+        isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
+          if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the automation {name}?", { name: automation.name }), text: t("It stops running, and its switch leaves the Home app. Its scenes stay."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+          try { await api(`/api/automations/${encodeURIComponent(automation.id)}`, { method: "DELETE" }); saved = true; app().navigate("/automations"); } catch (e) { say(line, e.message, "error"); }
+        } })),
+      line);
+    app().show(main, app().breadcrumb([t("Automations"), "/automations"], [isNew ? t("New automation") : automation.name]), form);
+  }
+
+  /// One Step: its kind and its fields. `.read()` gives what to save.
+  function stepRow(step, { accessories, scenes, tools }) {
+    const { characteristicPicker, readable, writable, operators, field } = home();
+    const type = el("select", { "aria-label": t("Step") }, stepKinds.map(([value, text]) => el("option", { value, text })));
+    type.value = step.type;
+    const body = el("div", { class: "group-inline grow automation-step-fields" });
+    const row = el("li", { class: "editor-row automation-step" }, field(t("Step"), type), body);
+    const draw = (shown) => {
+      switch (shown.type) {
+        case "scene": {
+          const scene = el("select", { "aria-label": t("Scene") }, scenes.map((one) => el("option", { value: one.id, text: one.name })));
+          if (shown.scene && !scenes.some((one) => one.id === shown.scene)) scene.prepend(el("option", { value: shown.scene, text: t("{name} (gone)", { name: shown.name || shown.scene }) }));
+          if (shown.scene) scene.value = shown.scene;
+          body.replaceChildren(...[field(t("Scene"), scene), scenes.length ? null : el("p", { class: "muted", text: t("No scene yet: make one on the Scenes page.") })].filter(Boolean));
+          row.readBody = () => ({ scene: scene.value });
+          break;
+        }
+        case "set": {
+          const pick = {};
+          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable });
+          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
+          row.readBody = () => ({ ...pick.read(), value: pick.value.read() });
+          break;
+        }
+        case "wait": {
+          const [amount, unit] = duration(shown.seconds ?? 300);
+          body.replaceChildren(field(t("For"), amount), field(t("Unit"), unit));
+          row.readBody = () => ({ seconds: Math.max(1, Math.round(Number(amount.value) || 1)) * Number(unit.value) });
+          break;
+        }
+        case "waitUntil": {
+          const pick = {};
+          const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
+          operator.value = shown.operator || "eq";
+          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: readable });
+          const minutes = el("input", { type: "number", min: 1, max: 1440, step: 1, value: Math.max(1, Math.round((shown.seconds ?? 3600) / 60)), "aria-label": t("At most (minutes)") });
+          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("At most (minutes)"), minutes));
+          row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), seconds: Math.max(1, Math.round(Number(minutes.value) || 1)) * 60 });
+          break;
+        }
+        case "notify": {
+          const title = el("input", { type: "text", maxLength: 80, value: shown.title ?? "", placeholder: t("The automation's name") });
+          const message = el("textarea", { rows: 2, maxLength: 500, required: true, value: shown.message ?? "" });
+          const buttons = buttonsEditor(shown.buttons ?? [], { accessories, scenes });
+          body.replaceChildren(field(t("Title"), title), field(t("Message"), message, t("Sent through the channels on the Notifications page.")), buttons);
+          row.readBody = () => ({ ...(title.value.trim() ? { title: title.value.trim() } : {}), message: message.value.trim(), ...(buttons.read().length ? { buttons: buttons.read() } : {}) });
+          break;
+        }
+        case "tool": {
+          const tool = el("select", { "aria-label": t("Plugin action") }, tools.map((one) => el("option", { value: one.name, text: `${one.title} · ${one.plugin}` })));
+          if (shown.tool && !tools.some((one) => one.name === shown.tool)) tool.prepend(el("option", { value: shown.tool, text: t("{name} (gone)", { name: shown.tool }) }));
+          if (shown.tool) tool.value = shown.tool;
+          const fields = el("div", { class: "fields automation-tool-fields" });
+          let readArguments = () => ({});
+          const fill = (values = {}) => {
+            const chosen = tools.find((one) => one.name === tool.value);
+            const built = chosen ? schemaFields(chosen.inputSchema, values) : { nodes: [], read: () => values };
+            fields.replaceChildren(...(chosen ? [el("p", { class: "help", text: chosen.description })] : []), ...built.nodes);
+            readArguments = built.read;
+          };
+          tool.addEventListener("change", () => fill());
+          fill(shown.arguments ?? {});
+          body.replaceChildren(tools.length ? field(t("Plugin action"), tool) : el("p", { class: "muted", text: t("No running plugin offers an action an automation may call.") }), fields);
+          row.readBody = () => ({ tool: tool.value, arguments: readArguments() });
+          break;
+        }
+      }
+    };
+    draw(step);
+    type.addEventListener("change", () => draw({ type: type.value }));
+    row.read = () => ({ type: type.value, ...row.readBody() });
+    return row;
+  }
+
+  /// A Notify Step's buttons, three at most: each applies a scene, sets a value or opens a page. `.read()` gives them.
+  function buttonsEditor(initial, { accessories, scenes }) {
+    const { characteristicPicker, writable, field } = home();
+    const rows = [];
+    const list = el("div", { class: "notify-buttons" });
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a button") });
+    const refresh = () => { list.replaceChildren(...rows); add.hidden = rows.length >= 3; };
+    const addRow = (button = { type: "scene", label: "" }) => {
+      const label = el("input", { type: "text", maxLength: 40, required: true, value: button.label ?? "", placeholder: t("Turn it off") });
+      const type = el("select", { "aria-label": t("Button") }, el("option", { value: "scene", text: t("Apply a scene") }), el("option", { value: "set", text: t("Set a value") }),
+        el("option", { value: "open", text: t("Open a page") }));
+      type.value = button.type;
+      const fields = el("div", { class: "group-inline grow" });
+      const row = el("div", { class: "notify-button" }, field(t("Button label"), label), field(t("Button"), type), fields,
+        el("button", { type: "button", class: "danger scene-condition-remove", actionIcon: "trash", text: t("Delete button"), onclick: () => { rows.splice(rows.indexOf(row), 1); refresh(); } }));
+      const draw = (shown) => {
+        if (shown.type === "scene") {
+          const scene = el("select", { "aria-label": t("Scene") }, scenes.map((one) => el("option", { value: one.id, text: one.name })));
+          if (shown.scene) scene.value = shown.scene;
+          fields.replaceChildren(field(t("Scene"), scene));
+          row.readBody = () => ({ scene: scene.value });
+        } else if (shown.type === "set") {
+          const pick = {};
+          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable });
+          fields.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
+          row.readBody = () => ({ ...pick.read(), value: pick.value.read() });
+        } else {
+          const path = el("select", { "aria-label": t("Page") }, [["/accessories", t("Accessories")], ["/scenes", t("Scenes")], ["/automations", t("Automations")], ["/logbook", t("Logbook")], ["/status", t("Status")]]
+            .map(([value, text]) => el("option", { value, text })));
+          if (shown.path) { if (![...path.options].some((option) => option.value === shown.path)) path.append(el("option", { value: shown.path, text: shown.path })); path.value = shown.path; }
+          fields.replaceChildren(field(t("Page"), path));
+          row.readBody = () => ({ path: path.value });
+        }
+      };
+      draw(button);
+      type.addEventListener("change", () => draw({ type: type.value }));
+      row.read = () => ({ label: label.value.trim(), type: type.value, ...row.readBody() });
+      rows.push(row);
+      refresh();
+    };
+    add.addEventListener("click", () => addRow());
+    initial.forEach(addRow);
+    refresh();
+    const node = el("div", { class: "field notify-buttons-field" }, el("span", { class: "field-title", text: t("Buttons") }),
+      el("span", { class: "help", text: t("Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.") }), list, add);
+    node.read = () => rows.map((row) => row.read());
+    return node;
+  }
+
+  /// A number of seconds as an amount and a unit (seconds, minutes, hours).
+  function duration(seconds) {
+    const unit = el("select", { "aria-label": t("Unit") }, el("option", { value: 1, text: t("seconds") }), el("option", { value: 60, text: t("minutes") }), el("option", { value: 3600, text: t("hours") }));
+    const size = seconds % 3600 === 0 ? 3600 : seconds % 60 === 0 ? 60 : 1;
+    unit.value = String(size);
+    const amount = el("input", { type: "number", min: 1, max: 86400, step: 1, value: seconds / size, "aria-label": t("For") });
+    return [amount, unit];
+  }
+
+  /// A field per property of a plugin action's input schema: a menu for an enum, a switch for a boolean, a number, else
+  /// text. `read()` leaves out what is empty.
+  function schemaFields(schema = {}, values = {}) {
+    const properties = Object.entries(schema.properties ?? {});
+    const required = new Set(schema.required ?? []);
+    const readers = [];
+    const nodes = properties.map(([key, property]) => {
+      let input;
+      const value = values[key];
+      if (Array.isArray(property.enum)) {
+        input = el("select", {}, [...(required.has(key) ? [] : [el("option", { value: "", text: "—" })]), ...property.enum.map((choice) => el("option", { value: JSON.stringify(choice), text: String(choice) }))]);
+        input.value = value === undefined ? (required.has(key) ? JSON.stringify(property.enum[0]) : "") : JSON.stringify(value);
+        readers.push(() => input.value === "" ? undefined : JSON.parse(input.value));
+      } else if (property.type === "boolean") {
+        input = el("input", { type: "checkbox", role: "switch", checked: value === true });
+        readers.push(() => input.checked);
+      } else if (property.type === "number" || property.type === "integer") {
+        input = el("input", { type: "number", step: property.type === "integer" ? 1 : "any", min: property.minimum, max: property.maximum, value: value ?? "" });
+        readers.push(() => input.value === "" ? undefined : Number(input.value));
+      } else {
+        input = el("input", { type: "text", value: value ?? "", required: required.has(key), maxLength: property.maxLength });
+        readers.push(() => input.value.trim() === "" ? undefined : input.value.trim());
+      }
+      return home().field(key, input, property.description);
+    });
+    const read = () => Object.fromEntries(properties.map(([key], index) => [key, readers[index]()]).filter(([, value]) => value !== undefined));
+    return { nodes, read };
+  }
+
+  /// A notification's buttons (/notify/<id>), behind sign-in: where a tap leads on iOS and Safari and on channels
+  /// without buttons, and where a button on a lock, a door or an alarm is confirmed. Each works once, within 15 minutes.
+  async function confirmView(main, id) {
+    const { statusLine, say } = home();
+    let data;
+    try { data = await api(`/api/notifications/actions/${encodeURIComponent(id ?? "")}`); }
+    catch (e) {
+      app().show(main, app().pageHead(t("Notification"), ""), el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bell")),
+        el("p", { class: "muted", text: e.status === 404 ? t("These buttons are gone: a notification's buttons last 15 minutes.") : e.message }),
+        el("a", { class: "button", href: "/automations", actionIcon: "workflow", text: t("Automations") })));
+      return;
+    }
+    const line = statusLine();
+    const until = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
+    const stateText = { used: t("Already used"), expired: t("Expired") };
+    const buttons = data.buttons.map((button) => {
+      // What acts is the primary choice; a page to open, a quieter one.
+      const node = el("button", { type: "button", class: button.state === "ready" && button.type !== "open" ? "primary" : "", disabled: button.state !== "ready" && button.type !== "open",
+        actionIcon: button.type === "open" ? "open" : button.security ? "lock" : button.type === "scene" ? "play" : "check", text: button.label });
+      node.addEventListener("click", async () => {
+        if (button.type === "open" && button.state !== "ready") { app().navigate(button.path || "/"); return; }
+        if (button.security && !(await HomeswiftAdmin.confirmAction({ title: t("{label}?", { label: button.label }), text: t("It changes a lock, a door or an alarm."),
+          danger: false, confirmLabel: button.label, confirmIcon: "lock" }))) return;
+        await HomeswiftCommon.busyButton(node, async () => {
+          const answer = await api(`/api/notifications/actions/${encodeURIComponent(id)}/${button.index}`, { method: "POST", body: { confirmSecurity: button.security } });
+          if (button.type === "open") { app().navigate(answer.path || button.path || "/"); return; }
+          say(line, t("Done: {label}", { label: button.label }), "ok");
+          node.disabled = true;
+          node.classList.remove("primary");
+        }, { report: (e) => say(line, e.message, "error") });
+      });
+      return el("div", { class: "notify-choice" }, node, button.state === "ready" ? null : el("span", { class: "muted", text: stateText[button.state] ?? "" }));
+    });
+    app().show(main, app().pageHead(data.title, data.message),
+      el("section", { class: "card notify-confirm" },
+        el("p", { class: "muted", text: t("From the automation {name}. Each button works once, until {time}.", { name: data.automation, time: until }) }),
+        el("div", { class: "notify-choices" }, buttons), line));
+  }
+
+  window.HomeswiftAutomations = { view, draft, confirmView };
 })();
 
 """#),
@@ -12846,14 +13247,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function hubSceneButton(scene, options = {}) {
     const { label = scene.name, detail = scene.source.pluginName, compact = false } = options;
     const runnable = canRecall(scene);
-    // A Homeswift scene that recalls it, to give it triggers and conditions.
+    // A Homeswift scene that recalls it, which an automation can then apply.
     let automating = false;
     const automate = async () => {
       if (automating) return;
       automating = true;
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
-        app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
+        // An automation that applies it, for its triggers to be chosen.
+        HomeswiftAutomations.draft({ name: scene.name.slice(0, 64), steps: [{ type: "scene", scene: saved.id }] });
       } catch (e) { HomeswiftCommon.showAlert(e.message); automating = false; }
     };
     let button;
@@ -13309,6 +13711,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (minutes < 0) return sunrise ? t("{minutes} min before sunrise {days}", vars) : t("{minutes} min before sunset {days}", vars);
     return sunrise ? t("{minutes} min after sunrise {days}", vars) : t("{minutes} min after sunset {days}", vars);
   }
+  /// "90 s", "5 min", "2 h".
+  function describeSeconds(seconds = 0) {
+    if (seconds >= 3600 && seconds % 3600 === 0) return t("{n} h", { n: seconds / 3600 });
+    if (seconds >= 60 && seconds % 60 === 0) return t("{n} min", { n: seconds / 60 });
+    return t("{n} s", { n: seconds });
+  }
+  /// A trigger's value as the controls word it: Motion, Unsecured, On rather than true or 0.
+  const worded = (trigger) => window.HomeswiftWidgets?.valueText ? HomeswiftWidgets.valueText({ type: trigger.characteristic, value: trigger.value }) : String(trigger.value);
   function describeTrigger(trigger, names) {
     const text = (() => {
       switch (trigger.type) {
@@ -13319,7 +13729,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic };
           if (trigger.operator === "changes") return t("When {who} {characteristic} changes", vars);
           const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
-          return t("When {who} {characteristic} {comparison} {value}", { ...vars, comparison, value: String(trigger.value) });
+          return t("When {who} {characteristic} {comparison} {value}", { ...vars, comparison, value: worded(trigger) });
+        }
+        case "stays": {
+          const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
+          return t("When {who} {characteristic} {comparison} {value} for {duration}", { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic,
+            comparison, value: worded(trigger), duration: describeSeconds(trigger.forSeconds) });
+        }
+        case "threshold": {
+          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic, value: String(trigger.value) };
+          return trigger.direction === "below" ? t("When {who} {characteristic} falls below {value}", vars) : t("When {who} {characteristic} rises above {value}", vars);
         }
         default: return trigger.type;
       }
@@ -13327,13 +13746,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return trigger.enabled === false ? t("{trigger} (off)", { trigger: text }) : text;
   }
 
-  /// What starts a scene of Homeswift's: its triggers, or by hand.
-  const sceneStarts = (scene, names) => scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand");
-  /// What a scene of Homeswift's is, in a line: its room, the Home app, its animation, what starts it.
-  function sceneSummary(scene, names) {
+  /// The Scenes and Automations pages, as tabs.
+  const scenesTabs = (current) => HomeswiftCommon.subnav(t("Scenes and automations"), "", [["scenes", t("Scenes"), "play"], ["automations", t("Automations"), "workflow"]], current);
+  /// What a scene of Homeswift's is, in a line: its room, the Home app, its animation.
+  function sceneSummary(scene) {
     return [scene.room, scene.homeKit ? t("In the Home app") : null,
-      scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null,
-      sceneStarts(scene, names)].filter(Boolean).join(" · ");
+      scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null].filter(Boolean).join(" · ");
   }
   /// Its last run, or why its last automatic run was skipped when that came after.
   function sceneLastRun(scene) {
@@ -13344,8 +13762,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const vars = { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger };
     return scene.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
   }
-  /// What a trigger shows as on a tile: a clock for a time or a cron, the sun, a sensor for an accessory's change.
-  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor" };
+  /// What a trigger shows as: a clock for a time or a cron, the sun, a sensor for an accessory's value.
+  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor", stays: "sensor", threshold: "sensor" };
 
   /// A scene's details in a sheet, from its tile's menu: what it is, each action, its locks and doors, its last run,
   /// and Edit.
@@ -13369,10 +13787,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A scene of Homeswift's as a picture tile, as the hubs' scenes are: a tap runs it; marks for the Home app, what
   /// starts it and a lock it changes; Stop while it can; its ⋯ for Details, Edit, its picture and Delete.
   function ownSceneTile(scene, names) {
-    const firstTrigger = scene.triggers.find((trigger) => trigger.enabled !== false);
     const marks = [
       scene.homeKit ? ["house", t("In the Home app")] : null,
-      firstTrigger ? [triggerIcons[firstTrigger.type] || "history", describeTrigger(firstTrigger, names)] : null,
       scene.security ? ["lock", t("It changes a lock, a door or an alarm")] : null,
     ].filter(Boolean);
     let button;
@@ -13381,11 +13797,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
       ...pictureMenu(scene, button),
       { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
-        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene; automations that apply it skip it. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
         try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } },
     ]);
-    const shell = sceneTileShell({ scene, label: scene.name, detail: sceneStarts(scene, names), className: "own-scene",
+    const shell = sceneTileShell({ scene, label: scene.name, detail: sceneSummary(scene) || t("Run by hand"), className: "own-scene",
       extra: marks.length ? el("span", { class: "scene-marks" }, marks.map(([glyph, label]) => el("span", { title: label, "aria-label": label, role: "img" }, HomeswiftCommon.icon(glyph)))) : null,
       actions: [stopButton(scene), menu], attributes: { title: t("Run {name}", { name: scene.name }) }, onClick: (pressed) => runFromTile(scene, pressed) });
     button = shell.button;
@@ -13447,12 +13863,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // With no scene of its own, a short line says what one is for: under the hubs' scenes, which are what there is to
     // run, or alone at the top.
     const empty = own.length ? null : el("div", { class: `card empty scenes-empty${hubScenes.node ? " compact" : ""}` }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")),
-      el("p", { class: "muted", text: hubScenes.node ? t("None of your own yet: a scene of yours sets several accessories at once, and can run a hub's scene at sunset or when a door opens.") : t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }),
+      el("p", { class: "muted", text: hubScenes.node ? t("None of your own yet: a scene of yours sets several accessories at once, and an automation can apply it at sunset or when a door opens.") : t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }),
       newScene());
     const sections = hubScenes.node ? [ownSection, noMatches, hubScenes.node, empty] : [empty, ownSection, noMatches];
     app.show(main,
-      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
+      app.pageHead(t("Scenes"), t("Accessory values set together, by hand, from the Home app or by an automation. Homeswift keeps them; one you choose is also a switch in the Home app."),
         ideasButton, anything ? newScene() : null),
+      scenesTabs("scenes"),
       anything ? el("div", { class: "scene-filters" }, search, clear, places.length > 1 ? placeChips.node : null) : null,
       ...sections, ideas);
     hubScenes.source?.addEventListener("change", filter);
@@ -13603,10 +14020,109 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return node;
   }
 
+  /// A Trigger in an Automation's editor: its kind, its fields and On; `remove(row)` makes its delete button.
+  /// `.read()` gives what to save.
+  function triggerRow(accessories, trigger = { type: "time", at: "18:00" }, remove) {
+    const type = el("select", { "aria-label": t("Trigger") },
+      el("option", { value: "time", text: t("At a time") }), el("option", { value: "sun", text: t("Sunrise or sunset") }),
+      el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "stays", text: t("When a value stays for a while") }),
+      el("option", { value: "threshold", text: t("When a number crosses a threshold") }), el("option", { value: "cron", text: t("Cron") }));
+    type.value = trigger.type;
+    // Whether the trigger counts, in the row's head with its kind: apart from a Value switch in its fields.
+    const enabled = el("input", { type: "checkbox", role: "switch", checked: trigger.enabled !== false });
+    const body = el("span", { class: "group-inline grow" });
+    const row = rowShell(el("div", { class: "trigger-head" }, type,
+      el("label", { class: "toggle compact trigger-enabled" }, el("span", { class: "switch" }, enabled, el("span")), el("span", { text: t("Enabled") }))), body);
+    const draw = (shown) => {
+      if (shown.type === "time") {
+        const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
+        const days = daysPicker(shown.days);
+        body.replaceChildren(at, days);
+        row.readBody = () => ({ at: at.value, days: days.read() });
+      } else if (shown.type === "sun") {
+        const event = el("select", { "aria-label": t("Event") }, el("option", { value: "sunrise", text: t("Sunrise") }), el("option", { value: "sunset", text: t("Sunset") }));
+        event.value = shown.event || "sunset";
+        const offset = el("input", { type: "number", min: -720, max: 720, step: 1, value: shown.offsetMinutes ?? 0, "aria-label": t("Minutes after (negative: before)"), title: t("Minutes after; negative for before") });
+        const days = daysPicker(shown.days);
+        body.replaceChildren(event, offset, el("span", { class: "muted", text: "min" }), days);
+        row.readBody = () => ({ event: event.value, offsetMinutes: Number(offset.value) || 0, days: days.read() });
+      } else if (shown.type === "characteristic") {
+        const pick = {};
+        const operator = el("select", { "aria-label": t("Condition") }, el("option", { value: "changes", text: t("changes") }), operators.map(([value, text]) => el("option", { value, text })));
+        operator.value = shown.operator || "changes";
+        const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
+        holder.classList.toggle("hidden", operator.value === "changes");
+        operator.addEventListener("change", () => holder.classList.toggle("hidden", operator.value === "changes"));
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder));
+        row.readBody = () => ({ ...pick.read(), operator: operator.value, ...(operator.value === "changes" ? {} : { value: pick.value.read() }) });
+      } else if (shown.type === "stays") {
+        const pick = {};
+        const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
+        operator.value = shown.operator || "eq";
+        const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
+        // The duration in the unit it was saved in: 90 seconds stays 90 seconds.
+        const seconds = shown.forSeconds ?? 300;
+        const size = seconds % 3600 === 0 ? 3600 : seconds % 60 === 0 ? 60 : 1;
+        const amount = el("input", { type: "number", min: 1, max: 86400, step: 1, value: seconds / size, "aria-label": t("For") });
+        const unit = el("select", { "aria-label": t("Unit") }, el("option", { value: 1, text: t("seconds") }), el("option", { value: 60, text: t("minutes") }), el("option", { value: 3600, text: t("hours") }));
+        unit.value = String(size);
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("For"), amount), field(t("Unit"), unit));
+        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), forSeconds: Math.min(86400, Math.max(1, Math.round(Number(amount.value) || 1)) * Number(unit.value)) });
+      } else if (shown.type === "threshold") {
+        const pick = {};
+        const numeric = (accessory) => readable(accessory).filter((c) => ["float", "int", "uint8", "uint16", "uint32", "uint64"].includes(c.format) && !c.validValues);
+        const direction = el("select", { "aria-label": t("Direction") }, el("option", { value: "above", text: t("rises above") }), el("option", { value: "below", text: t("falls below") }));
+        direction.value = shown.direction || "above";
+        const [accessory, kind] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, withValue: false, list: numeric });
+        const value = el("input", { type: "number", step: "any", value: shown.value ?? 0, "aria-label": t("Value") });
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Direction"), direction), field(t("Value"), value));
+        row.readBody = () => ({ ...pick.read(), direction: direction.value, value: Number(value.value) });
+      } else {
+        const cron = el("input", { type: "text", value: shown.cron || "0 7 * * 1-5", placeholder: "0 7 * * 1-5", "aria-label": t("Cron expression"), class: "mono" });
+        body.replaceChildren(cron);
+        row.readBody = () => ({ cron: cron.value });
+      }
+    };
+    draw(trigger);
+    type.addEventListener("change", () => draw({ type: type.value }));
+    row.read = () => ({ type: type.value, ...(enabled.checked ? {} : { enabled: false }), ...row.readBody() });
+    row.append(remove(row, t("Delete trigger")));
+    return row;
+  }
+  /// A Condition in an Automation's editor: a time window, or an accessory's value. `.read()` gives what to save.
+  function conditionRow(accessories, condition = { type: "time", after: "sunset", before: "23:00" }, remove) {
+    const type = el("select", { "aria-label": t("Condition") }, el("option", { value: "time", text: t("Between") }), el("option", { value: "characteristic", text: t("Only if") }));
+    type.value = condition.type;
+    const body = el("span", { class: "group-inline grow" });
+    const row = rowShell(field(t("Condition"), type), body);
+    body.classList.add("scene-condition-fields");
+    const draw = (c) => {
+      if (c.type === "time") {
+        const after = timeOfDay(c.after || "sunset"), before = timeOfDay(c.before || "23:00");
+        body.replaceChildren(
+          el("div", { class: "condition-time-point", role: "group", "aria-label": t("Start time") }, el("span", { class: "field-title", text: t("Start time") }), after),
+          el("div", { class: "condition-time-point", role: "group", "aria-label": t("End time") }, el("span", { class: "field-title", text: t("End time") }), before));
+        row.readBody = () => ({ after: after.read(), before: before.read() });
+      } else {
+        const pick = {};
+        const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
+        operator.value = c.operator || "eq";
+        const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: c.id, characteristic: c.characteristic, value: c.value, list: readable });
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder));
+        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read() });
+      }
+    };
+    draw(condition);
+    type.addEventListener("change", () => draw({ type: type.value }));
+    row.read = () => ({ type: type.value, ...row.readBody() });
+    row.append(remove(row, t("Delete condition")));
+    return row;
+  }
+
   async function sceneEditor(main, id) {
     const isNew = id === "new";
     const [data, accessories] = await Promise.all([app.api("/api/scenes"), app.api("/api/accessories")]);
-    const scene = isNew ? { name: "", actions: [], triggers: [], conditions: [] } : data.scenes.find((s) => s.id === id);
+    const scene = isNew ? { name: "", actions: [] } : data.scenes.find((s) => s.id === id);
     if (!scene) { app.show(main, el("p", { class: "error", text: t("No such scene.") })); return; }
     const choices = accessories.filter((a) => !a.hidden || scene.actions.some((x) => x.id === a.id));
 
@@ -13633,10 +14149,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const clearArtwork = el("button", { type: "button", actionIcon: "close", text: t("No image"), onclick: () => selectArtwork(null) });
     const artworkPicker = el("details", { class: "artwork-picker" }, el("summary", { text: t("Scene image") }), clearArtwork,
       themedArtwork(data.artworks || [], themes, makeArtworkButton));
-    const actions = new Set(), triggers = new Set(), conditions = new Set();
-    const actionList = el("div", { class: "editor-list" }), triggerList = el("div", { class: "editor-list" }), conditionList = el("div", { class: "editor-list" });
+    const actions = new Set();
+    const actionList = el("div", { class: "editor-list" });
 
-    // A labelled remove button for an action, trigger or condition.
+    // A labelled remove button for an action.
     const deleteButton = (row, list, label) => {
       const remove = removeButton(row, list);
       remove.className = "danger scene-condition-remove";
@@ -13691,78 +14207,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       actions.add(row);
       actionList.append(row);
     };
-    const addTrigger = (trigger = { type: "time", at: "18:00" }) => {
-      const type = el("select", { "aria-label": t("Trigger") },
-        el("option", { value: "time", text: t("At a time") }), el("option", { value: "sun", text: t("Sunrise or sunset") }),
-        el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "cron", text: t("Cron") }));
-      type.value = trigger.type;
-      const enabled = el("input", { type: "checkbox", checked: trigger.enabled !== false, "aria-label": t("On [setting]") });
-      const body = el("span", { class: "group-inline grow" });
-      const row = rowShell(type, body, el("label", { class: "toggle compact" }, enabled, el("span", { text: t("On [setting]") })));
-      const draw = (shown) => {
-        if (shown.type === "time") {
-          const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
-          const days = daysPicker(shown.days);
-          body.replaceChildren(at, days);
-          row.readBody = () => ({ at: at.value, days: days.read() });
-        } else if (shown.type === "sun") {
-          const event = el("select", { "aria-label": t("Event") }, el("option", { value: "sunrise", text: t("Sunrise") }), el("option", { value: "sunset", text: t("Sunset") }));
-          event.value = shown.event || "sunset";
-          const offset = el("input", { type: "number", min: -720, max: 720, step: 1, value: shown.offsetMinutes ?? 0, "aria-label": t("Minutes after (negative: before)"), title: t("Minutes after; negative for before") });
-          const days = daysPicker(shown.days);
-          body.replaceChildren(event, offset, el("span", { class: "muted", text: "min" }), days);
-          row.readBody = () => ({ event: event.value, offsetMinutes: Number(offset.value) || 0, days: days.read() });
-        } else if (shown.type === "characteristic") {
-          const pick = {};
-          const operator = el("select", { "aria-label": t("Condition") }, el("option", { value: "changes", text: t("changes") }), operators.map(([value, text]) => el("option", { value, text })));
-          operator.value = shown.operator || "changes";
-          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
-          holder.classList.toggle("hidden", operator.value === "changes");
-          operator.addEventListener("change", () => holder.classList.toggle("hidden", operator.value === "changes"));
-          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder));
-          row.readBody = () => ({ ...pick.read(), operator: operator.value, ...(operator.value === "changes" ? {} : { value: pick.value.read() }) });
-        } else {
-          const cron = el("input", { type: "text", value: shown.cron || "0 7 * * 1-5", placeholder: "0 7 * * 1-5", "aria-label": t("Cron expression"), class: "mono" });
-          body.replaceChildren(cron);
-          row.readBody = () => ({ cron: cron.value });
-        }
-      };
-      draw(trigger);
-      type.addEventListener("change", () => draw({ type: type.value }));
-      row.read = () => ({ type: type.value, ...(enabled.checked ? {} : { enabled: false }), ...row.readBody() });
-      row.append(deleteButton(row, triggers, t("Delete trigger")));
-      triggers.add(row);
-      triggerList.append(row);
-    };
-    const addCondition = (condition = { type: "time", after: "sunset", before: "23:00" }) => {
-      const type = el("select", { "aria-label": t("Condition") }, el("option", { value: "time", text: t("Between") }), el("option", { value: "characteristic", text: t("Only if") }));
-      type.value = condition.type;
-      const body = el("span", { class: "group-inline grow" });
-      const row = rowShell(field(t("Condition"), type), body);
-      body.classList.add("scene-condition-fields");
-      const draw = (c) => {
-        if (c.type === "time") {
-          const after = timeOfDay(c.after || "sunset"), before = timeOfDay(c.before || "23:00");
-          body.replaceChildren(
-            el("div", { class: "condition-time-point", role: "group", "aria-label": t("Start time") }, el("span", { class: "field-title", text: t("Start time") }), after),
-            el("div", { class: "condition-time-point", role: "group", "aria-label": t("End time") }, el("span", { class: "field-title", text: t("End time") }), before));
-          row.readBody = () => ({ after: after.read(), before: before.read() });
-        } else {
-          const pick = {};
-          const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
-          operator.value = c.operator || "eq";
-          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: c.id, characteristic: c.characteristic, value: c.value, list: readable });
-          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder));
-          row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read() });
-        }
-      };
-      draw(condition);
-      type.addEventListener("change", () => draw({ type: type.value }));
-      row.read = () => ({ type: type.value, ...row.readBody() });
-      row.append(deleteButton(row, conditions, t("Delete condition")));
-      conditions.add(row);
-      conditionList.append(row);
-    };
     const paired = new Set();
     scene.actions.forEach((action, index) => {
       if (paired.has(index)) return;
@@ -13772,8 +14216,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         addAction({ ...action, characteristic: "Light color", value: { hue: action.characteristic === "Hue" ? action.value : scene.actions[other].value, saturation: action.characteristic === "Saturation" ? action.value : scene.actions[other].value } });
       } else addAction(action);
     });
-    scene.triggers.forEach(addTrigger);
-    scene.conditions.forEach(addCondition);
     if (isNew && choices.length) addAction();
 
     // A whole accessory's current state at once, as save_scene captures it.
@@ -13882,10 +14324,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       stepEntries.push(entry); navigation.append(nav); inspector.append(panel);
       canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")), card);
     };
-    node(t("Triggers"), "play", "trigger", data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.latitude}, ${data.location.longitude}` }) : t("Run it automatically. Sunrise and sunset need the Location: set it under Settings, Bridge."), triggers,
-      [triggerList, el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
-    node(t("Conditions"), "shield", "condition", t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them."), conditions,
-      [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
     node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
       [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), recallPicker, capture]);
     node(t("Animation"), "sparkle", "action", t("Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back."), animationRows,
@@ -13907,7 +14345,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
-    // A new scene of lights only, without triggers or an animation, can be kept on the hub that has them all instead.
+    // A new scene of lights only, without an animation, can be kept on the hub that has them all instead.
     const hubLight = new Set(["on", "brightness", "hue", "saturation", "colortemperature"]);
     const keepOn = el("select", { "aria-label": t("Keep it on"), hidden: true });
     let targetsAsked = "";
@@ -13917,7 +14355,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A row still being filled in has nothing to read yet.
       try { read = [...actions].flatMap((row) => row.read()); } catch { return; }
       const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
-        && ![...triggers].length && !animation.read() && !homeKit.checked;
+        && !animation.read() && !homeKit.checked;
       const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];
       const key = ids.join("|");
       if (key === targetsAsked) return;
@@ -13930,7 +14368,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
       keepOn.hidden = !targets.length;
     };
-    const read = () => ({ name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() });
+    const read = () => ({ name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), animation: animation.read() });
     // What the editor holds, to tell unsaved changes: a row still being filled in reads as a change.
     const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
     let initial, saved = false;
@@ -13951,14 +14389,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const answer = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         initial = snapshot();
         saved = isNew;
-        const security = answer.actions.some((a) => a.security);
-        if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
-          say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
-          // Save stays off until its page opens: a second click would make another scene.
-          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(answer.id)}`, { replace: true }), 1500); return; }
-        } else {
-          app.navigate("/scenes");
-        }
+        if (answer.id) app.navigate("/scenes");
       } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     } },
@@ -13967,7 +14398,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "save-bar" }, save, keepOn, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
-          if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+          if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene; automations that apply it skip it. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); saved = true; app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
@@ -14102,6 +14533,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     });
     const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
+    // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
+    const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
     const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
@@ -14111,7 +14544,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
         }
       } catch (error) { say(line, error.message, "error"); return; }
-      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value };
+      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
       save.disabled = true;
       try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
@@ -14127,6 +14560,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
           el("div", { class: "notification-event-list" }, events),
           el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
+          el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
+            t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
           el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
       el("div", { class: "save-bar notification-save" }, line,
         el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
@@ -14200,6 +14635,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
     },
     layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
+    /// For the Automations page (automations.js): its triggers, conditions and the pickers they are made of.
+    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
   };
 })();
 
@@ -17480,10 +17917,97 @@ HomeswiftI18n.add("es", {
   "{n} entry · kept {days} days": "{n} entrada · guardadas {days} días",
   "{title}: {n} change": "{title}: {n} cambio",
   "{title}: {n} changes": "{title}: {n} cambios",
+  "A trigger's run goes ahead only when all of these hold. Run now ignores them.": "Una ejecución por disparador solo sigue si se cumplen todas. «Ejecutar ahora» las ignora.",
+  "Accessory values set together, by hand, from the Home app or by an automation. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de accesorios aplicados a la vez, a mano, desde la app Casa o por una automatización. Homeswift los guarda; la que elijas también es un interruptor en la app Casa.",
+  "Add a step": "Añadir un paso",
+  "Any of these starts it. {place}": "Cualquiera de ellos la inicia. {place}",
+  "Apply a scene": "Aplicar una escena",
+  "At most (minutes)": "Como máximo (minutos)",
+  "Create the automation": "Crear la automatización",
+  "Delete step": "Eliminar el paso",
+  "Delete the automation {name}?": "¿Eliminar la automatización {name}?",
+  "Describe it": "Descríbela",
+  "Draft it": "Redactar",
+  "For": "Durante",
+  "For (minutes)": "Durante (minutos)",
+  "Hall light on motion": "Luz del pasillo con movimiento",
+  "It stops running, and its switch leaves the Home app. Its scenes stay.": "Deja de ejecutarse y su interruptor sale de la app Casa. Sus escenas se quedan.",
+  "It watches or names a lock, a door or an alarm: those are never changed by it.": "Vigila o nombra una cerradura, una puerta o una alarma: nunca las cambia.",
+  "Leave without saving the automation?": "¿Salir sin guardar la automatización?",
+  "New automation": "Nueva automatización",
+  "No automation yet. One turns the hall light on when there is motion, then off five minutes later; or closes the blinds at sunset on weekdays.": "Aún no hay automatizaciones. Una enciende la luz del pasillo al detectar movimiento y la apaga cinco minutos después; o baja las persianas al atardecer entre semana.",
+  "No running plugin offers an action an automation may call.": "Ningún plugin en marcha ofrece una acción que una automatización pueda llamar.",
+  "No scene yet: make one on the Scenes page.": "Aún no hay escenas: crea una en la página Escenas.",
+  "No such automation.": "Esa automatización no existe.",
+  "None of your own yet: a scene of yours sets several accessories at once, and an automation can apply it at sunset or when a door opens.": "Ninguna propia todavía: una escena tuya ajusta varios accesorios a la vez, y una automatización puede aplicarla al atardecer o cuando se abre una puerta.",
+  "Notify": "Notificar",
+  "Off, its triggers do nothing; Run now still runs it.": "Desactivada, sus disparadores no hacen nada; «Ejecutar ahora» la ejecuta igualmente.",
+  "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "En el accesorio Homeswift Scenes: el interruptor activa y desactiva la automatización.",
+  "Plugin action": "Acción de un plugin",
+  "Restart: a new trigger starts it again": "Reiniciar: un nuevo disparador la vuelve a empezar",
+  "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Se ejecutan en orden. Cerraduras, puertas de garaje y alarmas se dejan fuera: la última ejecución lo indica.",
+  "Run now": "Ejecutar ahora",
+  "Scene": "Escena",
+  "Scenes and automations": "Escenas y automatizaciones",
+  "Sent through the channels on the Notifications page.": "Se envía por los canales de la página Notificaciones.",
+  "Set a value": "Ajustar un valor",
+  "Single": "Única",
+  "Single: a new trigger is ignored while it runs": "Única: un nuevo disparador se ignora mientras se ejecuta",
+  "Step": "Paso",
+  "Sunrise and sunset are for {place}.": "El amanecer y el atardecer son los de {place}.",
+  "Sunrise and sunset need a location: set it on the Scenes page.": "El amanecer y el atardecer necesitan una ubicación: indícala en la página Escenas.",
+  "The Assistant drafts the automation; you review it before saving.": "El Asistente redacta la automatización; la revisas antes de guardarla.",
+  "The Assistant is writing it…": "El Asistente la está redactando…",
+  "The Assistant's draft needs a change before it saves: {problem}": "El borrador del Asistente necesita un cambio antes de guardarse: {problem}",
+  "The Assistant's draft: check each part, then save it.": "El borrador del Asistente: revisa cada parte y guárdalo.",
+  "The automation's name": "El nombre de la automatización",
+  "This removes the scene; automations that apply it skip it. This cannot be undone.": "Esto elimina la escena; las automatizaciones que la aplican la omiten. No se puede deshacer.",
+  "Title": "Título",
+  "Unit": "Unidad",
+  "Wait": "Esperar",
+  "Wait until": "Esperar hasta",
+  "What should happen": "Lo que debe ocurrir",
+  "What the bridge does on its own: when a trigger fires and the conditions hold, its steps run in order. Locks, garage doors and alarms are never changed by an automation.": "Lo que el puente hace por sí solo: cuando salta un disparador y se cumplen las condiciones, sus pasos se ejecutan en orden. Una automatización nunca cambia cerraduras, puertas de garaje ni alarmas.",
+  "When a number crosses a threshold": "Cuando un número cruza un umbral",
+  "When a value stays for a while": "Cuando un valor se mantiene un rato",
+  "When the front door opens after sunset, turn the hall light on for five minutes": "Cuando la puerta principal se abra después del atardecer, encender la luz del pasillo cinco minutos",
+  "When {who} {characteristic} falls below {value}": "Cuando {characteristic} de {who} baja de {value}",
+  "When {who} {characteristic} rises above {value}": "Cuando {characteristic} de {who} supera {value}",
+  "When {who} {characteristic} {comparison} {value} for {duration}": "Cuando {characteristic} de {who} {comparison} {value} durante {duration}",
+  "falls below": "baja de",
+  "hours": "horas",
+  "minutes": "minutos",
+  "rises above": "supera",
+  "seconds": "segundos",
+  "{n} h": "{n} h",
+  "{n} s": "{n} s",
+  "{n} step": "{n} paso",
+  "{n} steps": "{n} pasos",
+  "A message from an automation": "Un mensaje de una automatización",
+  "Add a button": "Añadir un botón",
+  "Address in notifications": "Dirección en las notificaciones",
+  "Already used": "Ya usado",
+  "Button label": "Texto del botón",
+  "Buttons": "Botones",
+  "Delete button": "Eliminar el botón",
+  "Done: {label}": "Hecho: {label}",
+  "From the automation {name}. Each button works once, until {time}.": "De la automatización {name}. Cada botón funciona una vez, hasta las {time}.",
+  "It changes a lock, a door or an alarm.": "Cambia una cerradura, una puerta o una alarma.",
+  "Notification": "Notificación",
+  "Open a page": "Abrir una página",
+  "Page": "Página",
+  "These buttons are gone: a notification's buttons last 15 minutes.": "Estos botones ya no están: los botones de una notificación duran 15 minutos.",
+  "Turn it off": "Apagarlo",
+  "Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.": "Hasta tres, cada uno funciona una vez durante 15 minutos. Uno sobre una cerradura, una puerta o una alarma abre una página donde lo confirmas.",
+  "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "Lo que abren un toque y los botones de una automatización: la interfaz web tal como la alcanza tu teléfono. Vacío: {address}.",
+  "this machine's address": "la dirección de esta máquina",
+  "{label}?": "¿{label}?",
   "A Homeswift user": "Un usuario de Homeswift",
   "An MCP client": "Un cliente MCP",
   "Download diagnostics": "Descargar diagnósticos",
   "Forgotten.": "Olvidada.",
+  "Sunrise and sunset need the home's Location, which is not set yet.": "El amanecer y el atardecer necesitan la ubicación de la casa, que aún no está indicada.",
+  "Set the Location in Settings": "Indicar la ubicación en Ajustes",
   "Clear sky": "Cielo despejado",
   "Mainly clear": "Mayormente despejado",
   "Partly cloudy": "Parcialmente nublado",
@@ -20647,10 +21171,97 @@ HomeswiftI18n.add("fr", {
   "{n} entry · kept {days} days": "{n} entrée · gardées {days} jours",
   "{title}: {n} change": "{title} : {n} changement",
   "{title}: {n} changes": "{title} : {n} changements",
+  "A trigger's run goes ahead only when all of these hold. Run now ignores them.": "Un déclenchement ne s'exécute que si toutes ces conditions sont remplies. « Exécuter maintenant » les ignore.",
+  "Accessory values set together, by hand, from the Home app or by an automation. Homeswift keeps them; one you choose is also a switch in the Home app.": "Des valeurs d'accessoires appliquées ensemble, à la main, depuis l'app Maison ou par une automatisation. Homeswift les garde ; celle que vous choisissez est aussi un interrupteur dans l'app Maison.",
+  "Add a step": "Ajouter une étape",
+  "Any of these starts it. {place}": "N'importe lequel la lance. {place}",
+  "Apply a scene": "Appliquer une scène",
+  "At most (minutes)": "Au plus (minutes)",
+  "Create the automation": "Créer l'automatisation",
+  "Delete step": "Supprimer l'étape",
+  "Delete the automation {name}?": "Supprimer l'automatisation {name} ?",
+  "Describe it": "Décrivez-la",
+  "Draft it": "Rédiger",
+  "For": "Pendant",
+  "For (minutes)": "Pendant (minutes)",
+  "Hall light on motion": "Lumière de l'entrée au mouvement",
+  "It stops running, and its switch leaves the Home app. Its scenes stay.": "Elle ne s'exécute plus, et son interrupteur quitte l'app Maison. Ses scènes restent.",
+  "It watches or names a lock, a door or an alarm: those are never changed by it.": "Elle surveille ou nomme une serrure, une porte ou une alarme : elle ne les change jamais.",
+  "Leave without saving the automation?": "Partir sans enregistrer l'automatisation ?",
+  "New automation": "Nouvelle automatisation",
+  "No automation yet. One turns the hall light on when there is motion, then off five minutes later; or closes the blinds at sunset on weekdays.": "Aucune automatisation pour l'instant. Une automatisation allume la lumière de l'entrée au mouvement, puis l'éteint cinq minutes plus tard ; ou ferme les stores au coucher du soleil en semaine.",
+  "No running plugin offers an action an automation may call.": "Aucun plugin en marche n'offre d'action qu'une automatisation peut appeler.",
+  "No scene yet: make one on the Scenes page.": "Aucune scène pour l'instant : créez-en une sur la page Scènes.",
+  "No such automation.": "Cette automatisation n'existe pas.",
+  "None of your own yet: a scene of yours sets several accessories at once, and an automation can apply it at sunset or when a door opens.": "Aucune à vous pour l'instant : une scène à vous règle plusieurs accessoires à la fois, et une automatisation peut l'appliquer au coucher du soleil ou à l'ouverture d'une porte.",
+  "Notify": "Notifier",
+  "Off, its triggers do nothing; Run now still runs it.": "Désactivée, ses déclencheurs ne font rien ; « Exécuter maintenant » la lance quand même.",
+  "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "Sur l'accessoire Homeswift Scenes : l'interrupteur active et désactive l'automatisation.",
+  "Plugin action": "Action d'un plugin",
+  "Restart: a new trigger starts it again": "Redémarrer : un nouveau déclenchement la relance",
+  "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Exécutées dans l'ordre. Serrures, portes de garage et alarmes sont laissées de côté : la dernière exécution le dit.",
+  "Run now": "Exécuter maintenant",
+  "Scene": "Scène",
+  "Scenes and automations": "Scènes et automatisations",
+  "Sent through the channels on the Notifications page.": "Envoyé par les canaux de la page Notifications.",
+  "Set a value": "Régler une valeur",
+  "Single": "Unique",
+  "Single: a new trigger is ignored while it runs": "Unique : un nouveau déclenchement est ignoré pendant qu'elle s'exécute",
+  "Step": "Étape",
+  "Sunrise and sunset are for {place}.": "Le lever et le coucher du soleil sont ceux de {place}.",
+  "Sunrise and sunset need a location: set it on the Scenes page.": "Le lever et le coucher du soleil demandent un lieu : indiquez-le sur la page Scènes.",
+  "The Assistant drafts the automation; you review it before saving.": "L'Assistant rédige l'automatisation ; vous la relisez avant de l'enregistrer.",
+  "The Assistant is writing it…": "L'Assistant la rédige…",
+  "The Assistant's draft needs a change before it saves: {problem}": "Le brouillon de l'Assistant demande une correction avant d'être enregistré : {problem}",
+  "The Assistant's draft: check each part, then save it.": "Le brouillon de l'Assistant : vérifiez chaque partie, puis enregistrez-le.",
+  "The automation's name": "Le nom de l'automatisation",
+  "This removes the scene; automations that apply it skip it. This cannot be undone.": "Cela supprime la scène ; les automatisations qui l'appliquent la sautent. C'est définitif.",
+  "Title": "Titre",
+  "Unit": "Unité",
+  "Wait": "Attendre",
+  "Wait until": "Attendre que",
+  "What should happen": "Ce qui doit se passer",
+  "What the bridge does on its own: when a trigger fires and the conditions hold, its steps run in order. Locks, garage doors and alarms are never changed by an automation.": "Ce que le pont fait de lui-même : quand un déclencheur se produit et que les conditions sont remplies, ses étapes s'exécutent dans l'ordre. Une automatisation ne change jamais les serrures, portes de garage et alarmes.",
+  "When a number crosses a threshold": "Quand un nombre franchit un seuil",
+  "When a value stays for a while": "Quand une valeur reste un moment",
+  "When the front door opens after sunset, turn the hall light on for five minutes": "Quand la porte d'entrée s'ouvre après le coucher du soleil, allumer la lumière de l'entrée pendant cinq minutes",
+  "When {who} {characteristic} falls below {value}": "Quand {characteristic} de {who} passe sous {value}",
+  "When {who} {characteristic} rises above {value}": "Quand {characteristic} de {who} dépasse {value}",
+  "When {who} {characteristic} {comparison} {value} for {duration}": "Quand {characteristic} de {who} {comparison} {value} pendant {duration}",
+  "falls below": "passe sous",
+  "hours": "heures",
+  "minutes": "minutes",
+  "rises above": "dépasse",
+  "seconds": "secondes",
+  "{n} h": "{n} h",
+  "{n} s": "{n} s",
+  "{n} step": "{n} étape",
+  "{n} steps": "{n} étapes",
+  "A message from an automation": "Un message d'une automatisation",
+  "Add a button": "Ajouter un bouton",
+  "Address in notifications": "Adresse dans les notifications",
+  "Already used": "Déjà utilisé",
+  "Button label": "Texte du bouton",
+  "Buttons": "Boutons",
+  "Delete button": "Supprimer le bouton",
+  "Done: {label}": "Fait : {label}",
+  "From the automation {name}. Each button works once, until {time}.": "De l'automatisation {name}. Chaque bouton sert une fois, jusqu'à {time}.",
+  "It changes a lock, a door or an alarm.": "Il change une serrure, une porte ou une alarme.",
+  "Notification": "Notification",
+  "Open a page": "Ouvrir une page",
+  "Page": "Page",
+  "These buttons are gone: a notification's buttons last 15 minutes.": "Ces boutons ont disparu : les boutons d'une notification durent 15 minutes.",
+  "Turn it off": "L'éteindre",
+  "Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.": "Jusqu'à trois, chacun servant une fois pendant 15 minutes. Celui d'une serrure, d'une porte ou d'une alarme ouvre une page où vous le confirmez.",
+  "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "Ce qu'ouvrent un appui et les boutons d'une automatisation : l'interface web telle que votre téléphone l'atteint. Vide : {address}.",
+  "this machine's address": "l'adresse de cette machine",
+  "{label}?": "{label} ?",
   "A Homeswift user": "Un utilisateur de Homeswift",
   "An MCP client": "Un client MCP",
   "Download diagnostics": "Télécharger les diagnostics",
   "Forgotten.": "Oubliée.",
+  "Sunrise and sunset need the home's Location, which is not set yet.": "Le lever et le coucher du soleil demandent la position de la maison, qui n'est pas encore indiquée.",
+  "Set the Location in Settings": "Indiquer la position dans les réglages",
   "Clear sky": "Ciel dégagé",
   "Mainly clear": "Plutôt dégagé",
   "Partly cloudy": "Partiellement nuageux",
@@ -23814,10 +24425,97 @@ HomeswiftI18n.add("pt", {
   "{n} entry · kept {days} days": "{n} entrada · guardadas {days} dias",
   "{title}: {n} change": "{title}: {n} alteração",
   "{title}: {n} changes": "{title}: {n} alterações",
+  "A trigger's run goes ahead only when all of these hold. Run now ignores them.": "Uma execução por acionador só avança quando todas se cumprem. «Executar agora» ignora-as.",
+  "Accessory values set together, by hand, from the Home app or by an automation. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de acessórios aplicados em conjunto, à mão, a partir da app Casa ou por uma automação. O Homeswift guarda-os; a que escolher é também um interruptor na app Casa.",
+  "Add a step": "Adicionar um passo",
+  "Any of these starts it. {place}": "Qualquer um deles a inicia. {place}",
+  "Apply a scene": "Aplicar uma cena",
+  "At most (minutes)": "No máximo (minutos)",
+  "Create the automation": "Criar a automação",
+  "Delete step": "Eliminar o passo",
+  "Delete the automation {name}?": "Eliminar a automação {name}?",
+  "Describe it": "Descreva-a",
+  "Draft it": "Redigir",
+  "For": "Durante",
+  "For (minutes)": "Durante (minutos)",
+  "Hall light on motion": "Luz do corredor com movimento",
+  "It stops running, and its switch leaves the Home app. Its scenes stay.": "Deixa de ser executada e o seu interruptor sai da app Casa. As suas cenas ficam.",
+  "It watches or names a lock, a door or an alarm: those are never changed by it.": "Vigia ou nomeia uma fechadura, uma porta ou um alarme: nunca os altera.",
+  "Leave without saving the automation?": "Sair sem guardar a automação?",
+  "New automation": "Nova automação",
+  "No automation yet. One turns the hall light on when there is motion, then off five minutes later; or closes the blinds at sunset on weekdays.": "Ainda não há automações. Uma acende a luz do corredor quando há movimento e apaga-a cinco minutos depois; ou fecha os estores ao pôr do sol nos dias úteis.",
+  "No running plugin offers an action an automation may call.": "Nenhum plugin em execução oferece uma ação que uma automação possa chamar.",
+  "No scene yet: make one on the Scenes page.": "Ainda não há cenas: crie uma na página Cenas.",
+  "No such automation.": "Essa automação não existe.",
+  "None of your own yet: a scene of yours sets several accessories at once, and an automation can apply it at sunset or when a door opens.": "Ainda nenhuma sua: uma cena sua ajusta vários acessórios de uma vez, e uma automação pode aplicá-la ao pôr do sol ou quando uma porta abre.",
+  "Notify": "Notificar",
+  "Off, its triggers do nothing; Run now still runs it.": "Desativada, os seus acionadores não fazem nada; «Executar agora» executa-a na mesma.",
+  "On the Homeswift Scenes accessory: the switch turns the automation on and off.": "No acessório Homeswift Scenes: o interruptor ativa e desativa a automação.",
+  "Plugin action": "Ação de um plugin",
+  "Restart: a new trigger starts it again": "Reiniciar: um novo acionador recomeça-a",
+  "Run in order. Locks, garage doors and alarms are left out: the last run says so.": "Executados por ordem. Fechaduras, portas de garagem e alarmes ficam de fora: a última execução indica-o.",
+  "Run now": "Executar agora",
+  "Scene": "Cena",
+  "Scenes and automations": "Cenas e automações",
+  "Sent through the channels on the Notifications page.": "Enviada pelos canais da página Notificações.",
+  "Set a value": "Definir um valor",
+  "Single": "Única",
+  "Single: a new trigger is ignored while it runs": "Única: um novo acionador é ignorado enquanto é executada",
+  "Step": "Passo",
+  "Sunrise and sunset are for {place}.": "O nascer e o pôr do sol são os de {place}.",
+  "Sunrise and sunset need a location: set it on the Scenes page.": "O nascer e o pôr do sol precisam de uma localização: defina-a na página Cenas.",
+  "The Assistant drafts the automation; you review it before saving.": "O Assistente redige a automação; reveja-a antes de a guardar.",
+  "The Assistant is writing it…": "O Assistente está a redigi-la…",
+  "The Assistant's draft needs a change before it saves: {problem}": "O rascunho do Assistente precisa de uma alteração antes de ser guardado: {problem}",
+  "The Assistant's draft: check each part, then save it.": "O rascunho do Assistente: verifique cada parte e depois guarde-o.",
+  "The automation's name": "O nome da automação",
+  "This removes the scene; automations that apply it skip it. This cannot be undone.": "Isto remove a cena; as automações que a aplicam ignoram-na. Não pode ser anulado.",
+  "Title": "Título",
+  "Unit": "Unidade",
+  "Wait": "Aguardar",
+  "Wait until": "Aguardar até",
+  "What should happen": "O que deve acontecer",
+  "What the bridge does on its own: when a trigger fires and the conditions hold, its steps run in order. Locks, garage doors and alarms are never changed by an automation.": "O que a ponte faz sozinha: quando um acionador dispara e as condições se cumprem, os seus passos são executados por ordem. Uma automação nunca altera fechaduras, portas de garagem nem alarmes.",
+  "When a number crosses a threshold": "Quando um número atravessa um limiar",
+  "When a value stays for a while": "Quando um valor se mantém durante algum tempo",
+  "When the front door opens after sunset, turn the hall light on for five minutes": "Quando a porta da entrada abrir depois do pôr do sol, acender a luz do corredor durante cinco minutos",
+  "When {who} {characteristic} falls below {value}": "Quando {characteristic} de {who} desce abaixo de {value}",
+  "When {who} {characteristic} rises above {value}": "Quando {characteristic} de {who} ultrapassa {value}",
+  "When {who} {characteristic} {comparison} {value} for {duration}": "Quando {characteristic} de {who} {comparison} {value} durante {duration}",
+  "falls below": "desce abaixo de",
+  "hours": "horas",
+  "minutes": "minutos",
+  "rises above": "ultrapassa",
+  "seconds": "segundos",
+  "{n} h": "{n} h",
+  "{n} s": "{n} s",
+  "{n} step": "{n} passo",
+  "{n} steps": "{n} passos",
+  "A message from an automation": "Uma mensagem de uma automação",
+  "Add a button": "Adicionar um botão",
+  "Address in notifications": "Endereço nas notificações",
+  "Already used": "Já usado",
+  "Button label": "Texto do botão",
+  "Buttons": "Botões",
+  "Delete button": "Eliminar o botão",
+  "Done: {label}": "Feito: {label}",
+  "From the automation {name}. Each button works once, until {time}.": "Da automação {name}. Cada botão funciona uma vez, até às {time}.",
+  "It changes a lock, a door or an alarm.": "Altera uma fechadura, uma porta ou um alarme.",
+  "Notification": "Notificação",
+  "Open a page": "Abrir uma página",
+  "Page": "Página",
+  "These buttons are gone: a notification's buttons last 15 minutes.": "Estes botões já não existem: os botões de uma notificação duram 15 minutos.",
+  "Turn it off": "Desligá-lo",
+  "Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.": "Até três, cada um funciona uma vez durante 15 minutos. Um sobre uma fechadura, uma porta ou um alarme abre uma página onde o confirma.",
+  "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "O que um toque e os botões de uma automação abrem: a interface web tal como o seu telemóvel a alcança. Vazio: {address}.",
+  "this machine's address": "o endereço desta máquina",
+  "{label}?": "{label}?",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
   "Download diagnostics": "Transferir diagnósticos",
   "Forgotten.": "Esquecida.",
+  "Sunrise and sunset need the home's Location, which is not set yet.": "O nascer e o pôr do sol precisam da localização da casa, que ainda não foi definida.",
+  "Set the Location in Settings": "Definir a localização nas Definições",
   "Clear sky": "Céu limpo",
   "Mainly clear": "Pouco nublado",
   "Partly cloudy": "Parcialmente nublado",
@@ -24594,6 +25292,7 @@ HomeswiftI18n.add("pt", {
 <script src="/history.js"></script>
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
+<script src="/automations.js"></script>
 <script src="/admin.js"></script>
 <script src="/import.js"></script>
 <script src="/setup.js"></script>
@@ -32413,31 +33112,98 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
   .logbook-filters select { flex: 1 1 calc(50% - var(--space-8)); }
 }
 
+/* Automations: a card per Automation, the Assistant's draft, the editor's sections and ordered steps. */
+.automation-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: var(--space-14); }
+.automation-card { display: grid; gap: var(--space-10); align-content: start; margin: 0; }
+.automation-head, .automation-section-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
+.automation-section-head { grid-template-columns: auto minmax(0, 1fr); margin-bottom: var(--space-10); }
+.automation-head .who, .automation-section-head .who { display: grid; gap: 2px; min-width: 0; }
+.automation-section-head h3 { margin: 0; }
+.automation-section-head p { margin: 0; }
+.automation-section-head p a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .automation-section-head p a:hover { text-decoration: underline; } }
+.automation-card .note { display: flex; gap: var(--space-6); align-items: center; margin: 0; }
+.automation-card .note svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.automation-last-run { margin: 0; }
+.automation-draft { display: grid; gap: var(--space-10); margin-bottom: var(--space-14); }
+.automation-draft .who p { margin: 2px 0 0; }
+.automation-draft-row { display: flex; gap: var(--space-8); align-items: center; }
+.automation-draft-row input { flex: 1 1 auto; min-width: 0; }
+.automation-editor { display: grid; gap: var(--space-14); }
+.automation-editor > .card { margin: 0; }
+.automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
+.automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
+.automation-step .step-tools { align-self: start; margin-top: 26px; }
+.automation-step textarea { font: inherit; height: 5em; min-height: 0; flex: none; resize: vertical; }
+.automation-step .field { align-self: start; }
+.automation-step::before { content: counter(step); position: absolute; left: 0; top: var(--space-12); width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font-size: var(--text-xs); font-weight: var(--weight-semibold); background: var(--material-thick); border: 1px solid var(--edge); }
+.automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
+.automation-step .step-tools .icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; }
+.automation-tool-fields { width: 100%; }
+@media (max-width: 640px) {
+  .automation-draft-row { flex-direction: column; align-items: stretch; }
+  .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }
+}
+.automation-draft-row button { white-space: nowrap; flex: none; }
+.automation-draft .status-line:empty { display: none; }
+
+/* A Notify Step's buttons, and a notification's confirmation page. */
+.notify-buttons-field { width: 100%; }
+.notify-buttons { display: grid; gap: var(--space-8); margin: var(--space-6) 0; }
+.notify-button { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: end; padding: var(--space-10); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--material-thin); }
+.notify-confirm { display: grid; gap: var(--space-14); max-width: 560px; }
+.notify-choices { display: grid; gap: var(--space-10); }
+.notify-choice { display: flex; gap: var(--space-10); align-items: center; }
+.notify-choice button { flex: 1 1 auto; min-height: 48px; justify-content: center; }
+
+/* A trigger's head: its kind, and whether it is enabled, above its fields. */
+.editor-row .trigger-head { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
+.trigger-enabled { gap: var(--space-8); }
+
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI's service worker: it only shows the bridge's push notifications (Notifications page, "this browser")
-// and opens the page one is about. It caches nothing and answers no request.
+// and opens the page one is about. It caches nothing and answers no request. An Automation's buttons are the
+// notification's actions where the browser shows them (Chromium): one acts with its single-use token, or opens its
+// page; elsewhere (Safari, iOS) a tap opens the page listing them.
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : "" }; }
+  const actions = Array.isArray(data.actions) ? data.actions : [];
   event.waitUntil(self.registration.showNotification(data.title || "Homeswift", {
-    body: data.body || "", tag: data.tag, icon: "/icon.svg", requireInteraction: !!data.urgent, data: { path: data.path || "/" },
+    body: data.body || "", tag: data.tag, icon: "/icon.svg", requireInteraction: !!data.urgent || actions.length > 0, data: { path: data.path || "/", actions },
+    actions: actions.slice(0, 3).map((action) => ({ action: action.action, title: action.title })),
   }));
 });
 
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  const path = (event.notification.data && event.notification.data.path) || "/";
-  // A path on this origin only: "//host" and "/\host" would leave it.
-  const target = new URL(/^\/(?![/\\])/.test(path) ? path : "/", self.location.origin).href;
-  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+/// A path on this origin only: "//host" and "/\host" would leave it.
+// No control character either: a URL parser drops a tab, so "/\t/host" would read as "//host".
+const local = (path) => new URL(/^\/(?![/\\])/.test(path || "") && !/[\u0000-\u001f\u007f]/.test(path) ? path : "/", self.location.origin).href;
+
+function open(path) {
+  const target = local(path);
+  return self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
     for (const client of windows) {
       if (new URL(client.url).origin === self.location.origin && "focus" in client) {
         return client.focus().then((focused) => (focused && "navigate" in focused ? focused.navigate(target) : focused));
       }
     }
     return self.clients.openWindow(target);
-  }));
+  });
+}
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const action = (data.actions || []).find((one) => one.action === event.action);
+  if (action && action.act) {
+    // Pressed in the notification: the button acts at once; if it cannot (used, expired), the page says why.
+    event.waitUntil(fetch(local(action.act), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", credentials: "omit" })
+      .then((response) => (response.ok ? null : open(data.path))).catch(() => open(data.path)));
+    return;
+  }
+  event.waitUntil(open(action && action.path ? action.path : data.path));
 });
 
 """#),

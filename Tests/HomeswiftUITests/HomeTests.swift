@@ -45,6 +45,47 @@ struct HomeTests {
         #expect(try await browser.post("/api/layout/suggest", [:]).status == 404)
     }
 
+    /// A notification's button: its token route takes no cookie and only POST; its confirmation page's API needs a
+    /// sign-in.
+    @Test func notificationButtonsNeedTheirTokenOrASignIn() async throws {
+        let environment = try UITestEnvironment(auth: .form)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        #expect(try await browser.post("/notify/act/unknown", [:]).status == 410)
+        #expect(try await browser.get("/notify/act/unknown").status == 405)
+        #expect(try await browser.get("/api/notifications/actions/unknown").status == 401)
+    }
+
+    /// Automations over the page's API: made, listed, run by hand (the lock left out), refused when wrong, deleted.
+    @Test func automationsAreSavedRunAndDeleted() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+
+        let created = try await browser.post("/api/automations", [
+            "name": "Night", "triggers": [["type": "time", "at": "23:00"]],
+            "steps": [["type": "set", "id": "Lamps:lamp", "characteristic": "Brightness", "value": 5], ["type": "set", "id": "Lamps:lock", "characteristic": "Lock Target State", "value": 1]],
+        ])
+        #expect(created.status == 201)
+        let id = try #require(created.json?["id"]?.stringValue)
+        #expect(created.json?["security"] == true)
+        #expect(try await browser.get("/api/automations").json?["automations"]?.arrayValue?.count == 1)
+        let run = try await browser.post("/api/automations/\(id)/run", [:])
+        #expect(run.status == 200)
+        #expect(run.json?["lastRun"]?["steps"]?[1]?["note"]?.stringValue?.contains("automations do not change them") == true)
+        let writes = environment.writes.withLockedValue { $0 }
+        #expect(writes.contains { $0.0 == "brightness" && $0.1 == .int(5) })
+        #expect(!writes.contains { $0.0 == "lock" })
+        #expect(try await browser.put("/api/automations/\(id)", ["name": "Night", "triggers": [["type": "time", "at": "25:00"]]]).status == 400)
+        #expect(try await browser.put("/api/automations/nope", ["name": "Night"]).status == 404)
+        // Without the Assistant, no draft.
+        #expect(try await browser.post("/api/automations/draft", ["sentence": "Lights off at midnight"]).status == 404)
+        #expect(try await browser.send("DELETE", "/api/automations/\(id)").status == 200)
+        #expect(try await browser.get("/api/automations").json?["automations"]?.arrayValue?.isEmpty == true)
+    }
+
     @Test func scenesRunAndAskBeforeALock() async throws {
         let environment = try UITestEnvironment(auth: .none)
         let base = try await environment.start()
@@ -53,13 +94,14 @@ struct HomeTests {
 
         let created = try await browser.post("/api/scenes", [
             "name": "Night", "actions": [["id": "Lamps:lamp", "characteristic": "Brightness", "value": 5], ["id": "Lamps:lock", "characteristic": "Lock Target State", "value": 1]],
-            "triggers": [["type": "time", "at": "23:00", "days": [0, 1, 2, 3, 4, 5, 6]], ["type": "sun", "event": "sunset", "offsetMinutes": -15]],
         ])
         #expect(created.status == 201)
         let scene = try #require(created.json)
         let id = try #require(scene["id"]?.stringValue)
         #expect(scene["security"] == true)
-        #expect(scene["triggers"]?[0]?["days"] == nil)   // every day reads as no days
+        // Triggers are an Automation's now.
+        #expect(try await browser.post("/api/scenes", ["name": "Timed", "actions": [["id": "Lamps:lamp", "characteristic": "On", "value": true]],
+                                                        "triggers": [["type": "time", "at": "23:00"]]]).status == 400)
         #expect(scene["actions"]?[1]?["security"] == true)
 
         // The page must say the person agreed to the lock.
@@ -83,7 +125,6 @@ struct HomeTests {
 
         let changed = try await browser.put("/api/scenes/\(id)", ["name": "Late night", "actions": [["id": "Lamps:lamp", "characteristic": "On", "value": false]]])
         #expect(changed.json?["name"] == "Late night")
-        #expect(changed.json?["triggers"]?.arrayValue?.count == 2)   // kept when left out
         #expect(try await browser.send("DELETE", "/api/scenes/\(id)").status == 200)
         #expect(try await browser.post("/api/scenes/\(id)/run", [:]).status == 404)
         #expect(try await browser.get("/api/scenes").json?["scenes"]?.arrayValue?.isEmpty == true)

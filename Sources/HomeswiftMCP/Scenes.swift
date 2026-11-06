@@ -37,7 +37,7 @@ struct SceneUndo: Codable, Sendable {
     var expected: [SceneAction]
 }
 
-/// What runs a scene. `time`: `at` (HH:mm) on `days` (0 Sunday to 6; every day when empty); `cron`; `sun`:
+/// What runs an Automation (`Automations.swift`; scenes had them before). `time`: `at` (HH:mm) on `days` (0 Sunday to 6; every day when empty); `cron`; `sun`:
 /// `event` (sunrise or sunset) with `offsetMinutes` (-720 to 720) on `days`; `characteristic`: when `characteristic`
 /// of accessory `id` changes (`operator` `changes`) or starts to compare with `value` (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`).
 public struct SceneTrigger: Codable, Sendable, Equatable {
@@ -53,6 +53,10 @@ public struct SceneTrigger: Codable, Sendable, Equatable {
     public var characteristic: String?
     public var `operator`: String?
     public var value: JSONValue?
+    /// `stays`: how long the value compares so before it fires.
+    public var forSeconds: Int?
+    /// `threshold`: `above` or `below` the number in `value`.
+    public var direction: String?
 
     public var isEnabled: Bool { enabled != false }
 }
@@ -112,18 +116,16 @@ public struct SceneFile: Codable, Sendable, Equatable {
 }
 
 public enum SceneRunTrigger: String, Sendable {
-    /// `homeKit`: its switch in the Home app, which a person turned on.
-    case manual, schedule, sun, characteristic, homeKit
-
-    /// Run by a trigger rather than a person: conditions apply, and a failure is notified.
-    var isAutomatic: Bool { self == .schedule || self == .sun || self == .characteristic }
+    /// `homeKit`: its switch in the Home app, which a person turned on; `automation`: an Automation's Step, which
+    /// keeps the Automation's conditions, its notification of a failure and its Change Source.
+    case manual, homeKit, automation
 
     /// Why a lock, a door or an alarm in the scene was left as it was, run this way without a person's confirmation.
     var securitySkipReason: String {
         switch self {
         case .manual: "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)"
         case .homeKit: "a lock, door or alarm: the Home app's scene switch leaves them out"
-        case .schedule, .sun, .characteristic: "a lock, door or alarm: automations do not change them"
+        case .automation: "a lock, door or alarm: automations do not change them"
         }
     }
 }
@@ -335,14 +337,11 @@ enum SceneRules {
         guard let actions = object["actions"]?.arrayValue ?? (animation != nil ? [] : nil), !actions.isEmpty || animation != nil, actions.count <= maxActions else {
             throw CatalogError("A scene needs 1 to \(maxActions) actions, or an animation")
         }
-        let triggers = try object["triggers"].map { value -> [SceneTrigger] in
-            guard let list = value.arrayValue, list.count <= maxTriggers else { throw CatalogError("At most \(maxTriggers) triggers") }
-            return try list.enumerated().map { try trigger($1, index: $0) }
-        } ?? existing?.triggers ?? []
-        let conditions = try object["conditions"].map { value -> [SceneCondition] in
-            guard let list = value.arrayValue, list.count <= maxConditions else { throw CatalogError("At most \(maxConditions) conditions") }
-            return try list.enumerated().map { try condition($1, index: $0) }
-        } ?? existing?.conditions ?? []
+        // A Scene is only its values (docs/adr/0007-scenes-and-automations-are-separate.md).
+        for key in ["triggers", "conditions"] where object[key]?.arrayValue?.isEmpty == false {
+            throw CatalogError("A scene has no \(key) of its own: make an automation that applies it (save_automation, or the Automations page)")
+        }
+        let triggers: [SceneTrigger] = [], conditions: [SceneCondition] = []
         let artworkId: String?
         if let value = object["artworkId"] {
             if value.isNull { artworkId = nil }
@@ -551,19 +550,14 @@ extension HomeswiftCatalog {
     /// Runs a scene, saved or not (a plan: `runPlan`). Its changes are kept for `LightShowRules.undoSeconds` under its id,
     /// so `stopScene` puts them back.
     func run(_ scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
-        // Its changes are the scene's in the Logbook, or its automation's when a trigger ran it.
-        let source: ChangeSource = trigger.isAutomatic ? .automation(scene.name) : .scene(scene.name)
-        return try await source.run { try await runSteps(of: scene, trigger: trigger, allowSecurity: allowSecurity) }
+        // Its changes are the scene's in the Logbook; an Automation's Step keeps them the Automation's.
+        if trigger == .automation { return try await runSteps(of: scene, trigger: trigger, allowSecurity: allowSecurity) }
+        return try await ChangeSource.scene(scene.name).run { try await runSteps(of: scene, trigger: trigger, allowSecurity: allowSecurity) }
     }
 
     private func runSteps(of scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
         guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
         defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
-        if trigger.isAutomatic, let reason = conditionsFail(scene.conditions) {
-            logger.info("Scene \"\(scene.name)\" not run (\(trigger.rawValue)): \(reason)")
-            record(scene.id) { $0.lastSkipped = SceneRunRecord(at: SceneRules.now(), ok: true, trigger: trigger.rawValue, reason: reason) }
-            return ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": true, "results": [], "skipped": .string(reason)]
-        }
         // Light snapshots include color mode, power and Adaptive Lighting, and inherit the baseline of a show they replace.
         let located = Set(scene.actions.map(\.id)).compactMap { find(id: $0) }
         let lights = Self.lights(of: located).filter { light in
@@ -656,9 +650,6 @@ extension HomeswiftCatalog {
         let ok = failed == 0
         let note = held > 0 ? "\(held) security action(s) not run" : nil
         record(scene.id) { $0.lastRun = SceneRunRecord(at: SceneRules.now(), ok: ok, trigger: trigger.rawValue, reason: note) }
-        if trigger.isAutomatic, !ok {
-            await notify(.sceneFailed, title: "Scene \(scene.name) failed", message: "\(failed) of \(scene.actions.count) actions failed when the \(trigger.rawValue) trigger ran it.", path: "/scenes", subject: scene.id)
-        }
         var answer: [String: JSONValue] = ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": .bool(ok), "results": .array(results)]
         if let note { answer["note"] = .string(note) }
         if let animated { answer["animation"] = animated }
@@ -740,26 +731,14 @@ extension HomeswiftCatalog {
 
     // MARK: Automations
 
-    /// Runs the timed triggers due at this minute.
-    func runDueScenes(at now: Date, calendar: Calendar = .current) async {
-        let file = home.scenes.value
-        let location = host.configuration.location
-        for scene in file.scenes {
-            guard let trigger = scene.triggers.first(where: { SceneRules.due($0, at: now, location: location, calendar: calendar) }) else { continue }
-            let kind: SceneRunTrigger = trigger.type == "sun" ? .sun : .schedule
-            logger.info("Running scene \"\(scene.name)\" (\(trigger.type == "sun" ? trigger.event?.rawValue ?? "sun" : "schedule"))")
-            do { _ = try await runScene(scene.id, trigger: kind) } catch { logger.warning("Scene \"\(scene.name)\" (\(kind.rawValue)) failed: \(error)") }
-        }
-    }
-
     static func watchKey(_ id: String, _ characteristic: String) -> String { "\(id)|\(normalized(characteristic))" }
 
-    /// Reads the current value of every characteristic a trigger watches, so its first change has something to
-    /// compare with.
+    /// Reads the current value of every characteristic an Automation's trigger watches, so its first change has
+    /// something to compare with.
     func seedWatchedValues() {
         var values: [String: HAPValue] = [:]
-        for scene in home.scenes.value.scenes {
-            for trigger in scene.triggers where trigger.type == "characteristic" && trigger.isEnabled {
+        for automation in home.automations.value.automations {
+            for trigger in automation.triggers where ["characteristic", "stays", "threshold"].contains(trigger.type) && trigger.isEnabled {
                 guard let id = trigger.id, let name = trigger.characteristic, let found = find(id: id),
                       let target = try? characteristic(in: found, service: trigger.service, characteristic: name) else { continue }
                 values[Self.watchKey(id, target.type.name)] = target.value
@@ -770,36 +749,19 @@ extension HomeswiftCatalog {
         }
     }
 
-    /// A characteristic changed: runs the scenes whose triggers fire, each at most once per 5 seconds.
+    /// A characteristic changed: the Automations that watch it hear of it, with the value it had before.
     func characteristicChanged(_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue, now: Date = Date()) {
         // Every change of every accessory comes here: the accessory's id first, the names only for its triggers.
-        let scenes = home.scenes.value.scenes
-        guard scenes.contains(where: { $0.triggers.contains { $0.type == "characteristic" && $0.id == accessory.id } }) else { return }
+        let automations = home.automations.value.automations
+        guard automations.contains(where: { $0.triggers.contains { $0.id == accessory.id } }) else { return }
         let name = Self.normalized(characteristic.type.name)
-        let watching = scenes.contains { $0.triggers.contains { $0.type == "characteristic" && $0.id == accessory.id && Self.normalized($0.characteristic ?? "") == name } }
-        guard watching else { return }
+        guard automations.contains(where: { $0.triggers.contains { $0.id == accessory.id && Self.normalized($0.characteristic ?? "") == name } }) else { return }
         let key = Self.watchKey(accessory.id, characteristic.type.name)
         let previous = home.watched.withLockedValue { watched -> HAPValue? in
             defer { watched.values[key] = value }
             return watched.values[key]
         }
-        for scene in scenes {
-            for trigger in scene.triggers where trigger.type == "characteristic" && trigger.isEnabled && trigger.id == accessory.id
-                && Self.normalized(trigger.characteristic ?? "") == name {
-                guard SceneRules.fires(trigger, previous: previous.map(Self.json), next: Self.json(value)) else { continue }
-                let cooldownKey = "\(scene.id)|\(key)"
-                let allowed = home.watched.withLockedValue { watched -> Bool in
-                    if let last = watched.fired[cooldownKey], now.timeIntervalSince(last) < SceneRules.cooldown { return false }
-                    watched.fired[cooldownKey] = now
-                    return true
-                }
-                guard allowed else { continue }
-                logger.info("Running scene \"\(scene.name)\": \(characteristic.type.name) of \(accessory.name) changed to \(Self.json(value).text())")
-                let catalog = self
-                Task { do { _ = try await catalog.runScene(scene.id, trigger: .characteristic) } catch { catalog.logger.warning("Scene \"\(scene.name)\" failed: \(error)") } }
-                break
-            }
-        }
+        automationCharacteristicChanged(accessory, characteristic, value, previous: previous, now: now)
     }
 
     // MARK: Tools
@@ -810,7 +772,7 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "list_scenes", title: "List scenes",
                 description: "The scenes: scenes kept by Homeswift, named sets of accessory values applied together, with their room, whether they are active now, their actions "
-                    + "(security: true marks a lock, door or alarm), triggers (time of day and days, cron, sunrise or sunset with an offset, a characteristic change), conditions and last run; "
+                    + "(security: true marks a lock, door or alarm) and last run; what runs them on their own is an Automation's (list_automations); "
                     + "and pluginScenes, the scenes plugins' hubs keep (a Hue Bridge's, an IKEA hub's, a Govee light's, Apple Home's through Wingman), with their room, source and whether the hub reports them active. "
                     + "run_scene runs either kind by id.",
                 outputSchema: Output.object(["scenes": ["type": "array"], "pluginScenes": ["type": "array"]], required: ["scenes"]),

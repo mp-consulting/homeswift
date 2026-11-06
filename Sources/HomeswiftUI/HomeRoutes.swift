@@ -32,12 +32,20 @@ import NIOHTTP1
 //   POST   /api/notifications/test            {"channel"?}
 //   GET    /api/notifications/push            the VAPID public key and the subscribed browsers
 //   POST   /api/notifications/push/subscribe  this browser's PushSubscription.toJSON() and a label
+//   GET    /api/automations                   the Automations, and the plugins' actions a Step may call
+//   POST   /api/automations                   a new Automation (administrators)
+//   PUT    /api/automations/<id>              an Automation changed (administrators)
+//   DELETE /api/automations/<id>              (administrators)
+//   POST   /api/automations/<id>/run          its Steps now, whatever its triggers and conditions
+//   POST   /api/automations/draft             {"sentence"}: the Assistant's draft, not saved
+//   GET    /api/notifications/actions/<id>    a notification's buttons, for its confirmation page
+//   POST   /api/notifications/actions/<id>/<n> {"confirmSecurity"?}: presses one, once
 //   POST   /api/notifications/push/unsubscribe {"endpoint"}
 //   POST   /api/notifications/push/test       {"endpoint"?}
 //   DELETE /api/notifications/push/subscriptions/<id>
 extension UIServer {
     func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String, language: String? = nil) async throws -> Reply? {
-        guard let first = route.first, ["rooms", "home-link", "zones", "scenes", "notifications"].contains(first) else { return nil }
+        guard let first = route.first, ["rooms", "home-link", "zones", "scenes", "automations", "notifications"].contains(first) else { return nil }
         do {
             return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
@@ -74,6 +82,47 @@ extension UIServer {
             } catch {
                 return .error(502, "the Assistant did not answer: \(error)")
             }
+
+        case (.GET, let path) where path.count == 3 && path[0] == "notifications" && path[1] == "actions":
+            return .json(try catalog.notificationActionsJSON(path[2]))
+        case (.POST, let path) where path.count == 4 && path[0] == "notifications" && path[1] == "actions":
+            guard let index = Int(path[3]) else { return .error(400, "no such button") }
+            let result = try await catalog.pressNotificationButton(path[2], index: index, by: username, confirmSecurity: body["confirmSecurity"]?.boolValue == true)
+            logger.info("Web UI pressed a notification's button", metadata: ["user": "\(username)", "button": "\(result["done"]?.stringValue ?? "")"])
+            return .json(result)
+        case (.GET, ["automations"]):
+            var answer = catalog.automationsJSON().objectValue ?? [:]
+            answer["tools"] = catalog.automationToolsJSON()["tools"]
+            answer["assistant"] = .bool(catalog.host.assistant != nil)
+            // The editor's scenes: Homeswift's own, without asking every hub for its own.
+            answer["scenes"] = .array(catalog.home.scenes.value.scenes.map { ["id": .string($0.id), "name": .string($0.name)] })
+            return .json(.object(answer))
+        case (.POST, ["automations", "draft"]):
+            guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
+            let draft = try await catalog.draftAutomation(body["sentence"]?.stringValue ?? "", language: language)
+            logger.info("Web UI asked the Assistant for an automation", metadata: ["user": "\(username)"])
+            return .json(draft)
+        case (.POST, ["automations"]):
+            var fields = body.objectValue ?? [:]
+            fields.removeValue(forKey: "id")
+            let saved = try catalog.saveAutomation(.object(fields))
+            logger.info("Web UI created an automation", metadata: ["user": "\(username)", "automation": "\(saved["name"]?.stringValue ?? "")"])
+            return .json(saved, status: 201)
+        case (.PUT, let path) where path.count == 2 && path[0] == "automations":
+            guard catalog.savedAutomation(reference: path[1])?.id == path[1] else { return .error(404, "no automation \(path[1])") }
+            var fields = body.objectValue ?? [:]
+            fields["id"] = .string(path[1])
+            let saved = try catalog.saveAutomation(.object(fields))
+            logger.info("Web UI changed an automation", metadata: ["user": "\(username)", "automation": "\(saved["name"]?.stringValue ?? "")"])
+            return .json(saved)
+        case (.DELETE, let path) where path.count == 2 && path[0] == "automations":
+            let removed = try catalog.deleteAutomation(path[1])
+            logger.info("Web UI deleted an automation", metadata: ["user": "\(username)", "automation": "\(removed["name"]?.stringValue ?? "")"])
+            return .json(removed)
+        case (.POST, let path) where path.count == 3 && path[0] == "automations" && path[2] == "run":
+            let result = try await catalog.runAutomation(path[1])
+            logger.info("Web UI ran an automation", metadata: ["user": "\(username)", "automation": "\(result["name"]?.stringValue ?? "")"])
+            return .json(result)
 
         case (.GET, ["scenes"]):
             return .json(await catalog.allScenesJSON())

@@ -546,7 +546,8 @@
       [name, args] = ["status", []];
     }
     for (const link of document.querySelectorAll("nav a")) {
-      const current = link.getAttribute("href") === `/${name}`;
+      // Automations are a tab of Scenes.
+      const current = link.getAttribute("href") === `/${name === "automations" ? "scenes" : name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
@@ -5419,6 +5420,8 @@
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
+  views.automations = (main, args) => window.HomeswiftAutomations.view(main, args);
+  views.notify = (main, [id] = []) => window.HomeswiftAutomations.confirmView(main, id);
   views.import = (main) => window.HomeswiftImport.view(main);
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
