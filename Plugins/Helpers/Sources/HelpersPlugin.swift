@@ -12,14 +12,13 @@ import Logging
 /// plugin reads the sources on the host's servers and follows their changes; a source missing or No Response makes the
 /// Helper No Response. A change of its settings reloads the plugin.
 public actor HelpersPlugin: HomeswiftPlugin {
-    public struct Configuration: Decodable, Sendable {
-        public var name: String?
-    }
+    /// Nothing of its own: each Helper is an entry of the block's `_accessories`.
+    public struct Configuration: Decodable, Sendable {}
 
     /// What tests shorten: how long a minute is (a Stays' duration), and how a new Helper's Device Id is made.
     struct Dependencies: Sendable {
         var minute: Duration = .seconds(60)
-        var newID: @Sendable () -> String = { String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased() }
+        var newID: @Sendable () -> String = { Secrets.hex(Secrets.randomBytes(4)) }
     }
 
     public static let platform = "Helpers"
@@ -86,8 +85,11 @@ public actor HelpersPlugin: HomeswiftPlugin {
         // Only the sources' changes reach the actor: the rest of the bridge's never wait on it, nor push one out.
         let (stream, continuation) = AsyncStream<String?>.makeStream()
         wake = continuation
-        let watched = Set(readers.keys)
-        if let changes = context.observeHostChanges({ accessory, _, _ in if watched.contains(accessory.id) { continuation.yield(accessory.id) } }) {
+        // The characteristics read, not their accessories': a light's brightness never wakes a Helper reading its power.
+        let watched = Set(helpers.values.flatMap(\.rule.sources))
+        if let changes = context.observeHostChanges({ accessory, characteristic, _ in
+            if watched.contains(SourceRef(accessoryID: accessory.id, iid: characteristic.iid)) { continuation.yield(accessory.id) }
+        }) {
             observations.append(changes)
         }
         if let structure = context.observeHostStructure({ continuation.yield(nil) }) { observations.append(structure) }
@@ -129,14 +131,9 @@ public actor HelpersPlugin: HomeswiftPlugin {
             output = service.characteristic(.occupancyDetected)
             output.value = .int(0)
         case .combine(let measure, _, _):
-            if measure == .power {
-                let consumption = Characteristic(EveCharacteristic.currentConsumption, value: .int(0))
-                service = Service(measure.service, name: name, extra: [consumption], isPrimary: true)
-                watts = consumption
-            } else {
-                service = Service(measure.service, name: name, isPrimary: true)
-            }
-            output = service.characteristic(measure.service == .lightSensor ? .currentAmbientLightLevel : measure.characteristic)
+            watts = measure == .power ? Characteristic(EveCharacteristic.currentConsumption, value: .int(0)) : nil
+            service = Service(measure.service, name: name, extra: watts.map { [$0] } ?? [], isPrimary: true)
+            output = service.characteristic(measure.shown)
         }
         let accessory = Accessory(
             id: Self.accessoryID(deviceID: deviceID), name: name, manufacturer: "Homeswift", model: "\(rule.kind.title) Helper",
@@ -150,11 +147,8 @@ public actor HelpersPlugin: HomeswiftPlugin {
 
     /// A source's reading now; nil when its accessory is gone, No Response, or has no such characteristic or number.
     private func read(_ source: SourceRef) -> Double? {
-        guard let accessory = context.hostAccessory(id: source.accessoryID), !accessory.showsNoResponse else { return nil }
-        for service in accessory.services {
-            if let characteristic = service.characteristics.first(where: { $0.iid == source.iid }) { return characteristic.value.doubleValue }
-        }
-        return nil
+        guard let (accessory, characteristic) = context.sourceCharacteristic(source), !accessory.showsNoResponse else { return nil }
+        return characteristic.value.doubleValue
     }
 
     /// Works out a Helper's state from its sources' readings and shows it.

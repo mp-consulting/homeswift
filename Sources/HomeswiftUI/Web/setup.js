@@ -104,11 +104,11 @@
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  /// How a plugin connects, in a few words: a sign-in, a button on a hub, nothing.
   /// What adding a device the plugin does not find is called: its own words ("Add a Helper…"), else Add by address.
   const addLabel = (plugin) => plugin?.addLabel ? t(plugin.addLabel) : t("Add by address…");
   /// What an instance that adds its devices that way says before it has any.
   const noneAdded = (plugin) => plugin?.addLabel ? t("None added yet.") : t("No devices found yet: add one by its address.");
+  /// How a plugin connects, in a few words: a sign-in, a button on a hub, nothing.
   const howItConnects = (plugin) => plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : methods[plugin.accountAuthorization][0]();
 
   /// A search over a list of plugins: hides those that do not match every word, and says when none does.
@@ -348,34 +348,22 @@
       ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
   }
 
-  /// Several of a list (a Helper's sources): its options as checkboxes, those the block has ticked. It reads as an input
-  /// does: `value`, the options ticked one per line, and `focus()`.
-  function choices(field) {
-    const picked = new Set((field.value ?? "").split("\n"));
-    const boxes = field.options.map((option) => el("input", { type: "checkbox", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
-    const node = el("fieldset", { class: "field setup-choice setup-choices", id: `setup-${field.key}` },
-      el("legend", { class: "field-title", text: t(field.label) }),
-      el("div", { class: "setup-choices-list" }, ...field.options.map((option, index) => el("label", { class: "setup-option" }, boxes[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)))));
-    Object.defineProperty(node, "value", { get: () => boxes.filter((box) => box.checked).map((box) => box.value).join("\n") });
-    node.focus = () => (boxes.find((box) => box.checked) ?? boxes[0])?.focus();
-    return node;
-  }
-
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
-  /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
-  /// "", and `focus()`.
-  function choice(field) {
-    if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
-    const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
-    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+  /// picked; a long one without meanings to read is a menu. `multiple` (a `choices` field, a Helper's sources): checkboxes,
+  /// those the block has ticked. It reads as an input does: `value`, the option picked or "" (those ticked, one per line),
+  /// and `focus()`.
+  function choice(field, { multiple = false } = {}) {
+    if (!multiple && field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
+    const picked = new Set(multiple ? (field.value ?? "").split("\n") : [field.value]);
+    const inputs = field.options.map((option) => el("input", { type: multiple ? "checkbox" : "radio", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
+    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, inputs[index],
       el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)));
-    // A long list (a Helper's sources) scrolls on its own, so the fields after it stay in reach.
+    // A long list scrolls on its own, so the fields after it stay in reach.
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
       ...(options.length > 6 ? [el("div", { class: "setup-choices-list" }, ...options)] : options));
-    Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
-    node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
+    Object.defineProperty(node, "value", { get: () => inputs.filter((input) => input.checked).map((input) => input.value).join("\n") });
+    node.focus = () => (inputs.find((input) => input.checked) ?? inputs[0])?.focus();
     return node;
   }
 
@@ -569,7 +557,7 @@
         // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
-          if (field.kind === "choices") return [field, choices(field)];
+          if (field.kind === "choices") return [field, choice(field, { multiple: true })];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
             class: field.kind === "code" ? "setup-code" : "",

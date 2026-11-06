@@ -3069,5 +3069,4 @@ HomeswiftI18n.add("fr", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Saisissez les minutes, un nombre de 0 à 10080 (une semaine)",
   "Give the Helper a name": "Donnez un nom à l’auxiliaire",
   "Pick one of the accessories listed": "Choisissez l’un des accessoires de la liste",
-  "No leak": "Pas de fuite",
 });

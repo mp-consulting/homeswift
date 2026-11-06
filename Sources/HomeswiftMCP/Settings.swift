@@ -65,7 +65,7 @@ extension HomeswiftCatalog {
     static func withChoices(_ field: JSONValue, _ choices: [SetupOption]) -> JSONValue {
         guard var object = field.objectValue else { return field }
         let oneOf = JSONValue.array(choices.map { choice in
-            // Words the web UI's catalogs translate, as a Setup prompt's: the editor shows "title · detail".
+            // The title as it is (an accessory's name), the detail words the web UI's catalogs translate: "title · detail".
             var option: [String: JSONValue] = ["enum": [.string(choice.value)], "title": .string(choice.label), "x-catalog": true]
             if let detail = choice.detail { option["x-detail"] = .string(detail) }
             return .object(option)
@@ -144,6 +144,10 @@ extension HomeswiftCatalog {
             default:
                 guard let field = fields[key] else {
                     if strict { problems.append(.init(path: at, message: "is not an Accessory Setting the plugin declares (its schema's accessorySchema)")) }
+                    continue
+                }
+                if strict, field["readOnly"]?.boolValue == true {
+                    problems.append(.init(path: at, message: "is set when the accessory is added and cannot change"))
                     continue
                 }
                 if strict, let kind, let kinds = kinds(of: field), !kinds.contains(kind) {

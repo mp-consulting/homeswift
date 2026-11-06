@@ -38,6 +38,9 @@ enum Measure: String, Sendable, CaseIterable {
         }
     }
 
+    /// What the Helper shows it with: power as a light level (the watts), the others as their own characteristic.
+    var shown: CharacteristicType { self == .power ? .currentAmbientLightLevel : characteristic }
+
     /// The sensor it is published as. HomeKit has no power sensor: power is a light sensor whose level is the watts, with
     /// Eve's Current Consumption beside it, as the APsystems ECU's solar power is.
     var service: ServiceType {
@@ -93,6 +96,12 @@ enum HelperRule: Sendable, Equatable {
     enum Kind: String, Sendable, CaseIterable {
         case threshold, combine, stays
 
+        /// The kind a Helper's Accessory Settings name (`rule`).
+        init?(settings: [String: JSONValue]) {
+            guard let kind = settings["rule"]?.stringValue.flatMap(Kind.init(rawValue:)) else { return nil }
+            self = kind
+        }
+
         var title: String {
             switch self {
             case .threshold: "Threshold"
@@ -127,7 +136,7 @@ enum HelperRule: Sendable, Equatable {
 
     /// The rule of a Helper's Accessory Settings; throws what is wrong, for its log line.
     init(settings: [String: JSONValue]) throws {
-        guard let kind = settings["rule"]?.stringValue.flatMap(Kind.init(rawValue:)) else { throw RuleError("has no rule (threshold, combine or stays)") }
+        guard let kind = Kind(settings: settings) else { throw RuleError("has no rule (threshold, combine or stays)") }
         func source(_ key: String = "source") throws -> SourceRef {
             guard let source = settings[key]?.stringValue.flatMap(SourceRef.init) else { throw RuleError("has no source") }
             return source
@@ -155,7 +164,7 @@ enum HelperRule: Sendable, Equatable {
 
     /// A number as a person types it: a comma for the decimal point taken too.
     static func number(_ text: String) -> Double? {
-        Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")).flatMap { $0.isFinite ? $0 : nil }
+        Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")).flatMap(\.finite)
     }
 
     /// The off value must be on the far side of the on value, or the Helper would never turn off.

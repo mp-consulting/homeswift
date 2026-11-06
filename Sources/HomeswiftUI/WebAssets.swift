@@ -5831,9 +5831,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
-    /// A choice's title: the schema's words, or for one the plugin gives from the home (`x-catalog`, an accessory and what
-    /// it reads) the web UI's catalogs', its detail after it.
-    const choiceTitle = (o) => o["x-catalog"] ? [o.title, o["x-detail"]].filter(Boolean).map((text) => t(text)).join(" · ") : tr(o.title) ?? String(o.enum[0]);
+    /// A choice's title: the schema's words, or for one the plugin gives from the home (`x-catalog`) its title as it is (an
+    /// accessory's name) and its detail in the web UI's catalogs' words (what it reads, a state).
+    const choiceTitle = (o) => o["x-catalog"] ? [o.title, o["x-detail"] && t(o["x-detail"])].filter(Boolean).join(" · ") : tr(o.title) ?? String(o.enum[0]);
     const schema = root.schema || root;
     const properties = schema.properties || {};
     const requiredTop = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -5849,6 +5849,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const field = (key, property, current, required, index, fallback) => {
       const made = makeField(key, property, current, required, index, fallback);
+      // Shown, not changed (`readOnly`: a Helper's kind, set when it was added).
+      if (property.readOnly) for (const control of made.element.querySelectorAll("input, select, textarea, button")) control.disabled = true;
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
@@ -16869,7 +16871,6 @@ HomeswiftI18n.add("es", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Escribe los minutos, un número de 0 a 10080 (una semana)",
   "Give the Helper a name": "Pon un nombre al ayudante",
   "Pick one of the accessories listed": "Elige uno de los accesorios de la lista",
-  "No leak": "Sin fugas",
 });
 
 """#),
@@ -19945,7 +19946,6 @@ HomeswiftI18n.add("fr", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Saisissez les minutes, un nombre de 0 à 10080 (une semaine)",
   "Give the Helper a name": "Donnez un nom à l’auxiliaire",
   "Pick one of the accessories listed": "Choisissez l’un des accessoires de la liste",
-  "No leak": "Pas de fuite",
 });
 
 """#),
@@ -23021,7 +23021,6 @@ HomeswiftI18n.add("pt", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Introduza os minutos, um número de 0 a 10080 (uma semana)",
   "Give the Helper a name": "Dê um nome ao auxiliar",
   "Pick one of the accessories listed": "Escolha um dos acessórios da lista",
-  "No leak": "Sem fugas",
 });
 
 """#),
@@ -25880,11 +25879,11 @@ HomeswiftI18n.add("pt", {
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  /// How a plugin connects, in a few words: a sign-in, a button on a hub, nothing.
   /// What adding a device the plugin does not find is called: its own words ("Add a Helper…"), else Add by address.
   const addLabel = (plugin) => plugin?.addLabel ? t(plugin.addLabel) : t("Add by address…");
   /// What an instance that adds its devices that way says before it has any.
   const noneAdded = (plugin) => plugin?.addLabel ? t("None added yet.") : t("No devices found yet: add one by its address.");
+  /// How a plugin connects, in a few words: a sign-in, a button on a hub, nothing.
   const howItConnects = (plugin) => plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : methods[plugin.accountAuthorization][0]();
 
   /// A search over a list of plugins: hides those that do not match every word, and says when none does.
@@ -26124,34 +26123,22 @@ HomeswiftI18n.add("pt", {
       ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
   }
 
-  /// Several of a list (a Helper's sources): its options as checkboxes, those the block has ticked. It reads as an input
-  /// does: `value`, the options ticked one per line, and `focus()`.
-  function choices(field) {
-    const picked = new Set((field.value ?? "").split("\n"));
-    const boxes = field.options.map((option) => el("input", { type: "checkbox", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
-    const node = el("fieldset", { class: "field setup-choice setup-choices", id: `setup-${field.key}` },
-      el("legend", { class: "field-title", text: t(field.label) }),
-      el("div", { class: "setup-choices-list" }, ...field.options.map((option, index) => el("label", { class: "setup-option" }, boxes[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)))));
-    Object.defineProperty(node, "value", { get: () => boxes.filter((box) => box.checked).map((box) => box.value).join("\n") });
-    node.focus = () => (boxes.find((box) => box.checked) ?? boxes[0])?.focus();
-    return node;
-  }
-
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
-  /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
-  /// "", and `focus()`.
-  function choice(field) {
-    if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
-    const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
-    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+  /// picked; a long one without meanings to read is a menu. `multiple` (a `choices` field, a Helper's sources): checkboxes,
+  /// those the block has ticked. It reads as an input does: `value`, the option picked or "" (those ticked, one per line),
+  /// and `focus()`.
+  function choice(field, { multiple = false } = {}) {
+    if (!multiple && field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
+    const picked = new Set(multiple ? (field.value ?? "").split("\n") : [field.value]);
+    const inputs = field.options.map((option) => el("input", { type: multiple ? "checkbox" : "radio", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
+    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, inputs[index],
       el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)));
-    // A long list (a Helper's sources) scrolls on its own, so the fields after it stay in reach.
+    // A long list scrolls on its own, so the fields after it stay in reach.
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
       ...(options.length > 6 ? [el("div", { class: "setup-choices-list" }, ...options)] : options));
-    Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
-    node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
+    Object.defineProperty(node, "value", { get: () => inputs.filter((input) => input.checked).map((input) => input.value).join("\n") });
+    node.focus = () => (inputs.find((input) => input.checked) ?? inputs[0])?.focus();
     return node;
   }
 
@@ -26345,7 +26332,7 @@ HomeswiftI18n.add("pt", {
         // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
-          if (field.kind === "choices") return [field, choices(field)];
+          if (field.kind === "choices") return [field, choice(field, { multiple: true })];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
             class: field.kind === "code" ? "setup-code" : "",
@@ -30510,9 +30497,10 @@ select option:disabled { color: var(--muted); }
 .setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }
-.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); background: none; }
 .setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
-.setup-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-step .setup-choice:not(:first-child) { margin-top: var(--space-14); }
+.setup-option { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
 .setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }

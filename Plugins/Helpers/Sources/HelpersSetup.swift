@@ -9,7 +9,7 @@ import HomeswiftPlugin
 extension HelpersPlugin {
     public func discover() async throws -> [DiscoveredDevice] {
         context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { deviceID, settings in
-            guard let kind = settings.plugin["rule"]?.stringValue.flatMap(HelperRule.Kind.init(rawValue:)) else { return nil }
+            guard let kind = HelperRule.Kind(settings: settings.plugin) else { return nil }
             // Its accessory's name: a rename is live, the settings are as the plugin was launched.
             let name = helperName(deviceID) ?? settings.name ?? "Helper"
             var device = DiscoveredDevice(deviceID: deviceID, name: name, model: "\(kind.title) Helper", isSetUp: true, kind: kind.rawValue)
@@ -24,10 +24,12 @@ extension HelpersPlugin {
     }
 
     public func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]? {
+        guard ["source", "sources", "state"].contains(key) else { return nil }
         let settings = context.accessorySettings(for: deviceID).plugin
-        guard let kind = settings["rule"]?.stringValue.flatMap(HelperRule.Kind.init(rawValue:)) else { return nil }
+        guard let kind = HelperRule.Kind(settings: settings) else { return nil }
         let own = Self.accessoryID(deviceID: deviceID)
-        let accessories = context.hostAccessories
+        // Read only for the fields that list the home's accessories.
+        var accessories: [Accessory] { context.hostAccessories }
         switch (key, kind) {
         case ("source", .threshold):
             return Self.withCurrent(settings[key], accessories.sourceCandidates(except: own) { $0.isReading }.map(\.option))
@@ -39,9 +41,10 @@ extension HelpersPlugin {
             for value in settings[key]?.arrayValue ?? [] { options = Self.withCurrent(value, options) }
             return options
         case ("state", .stays):
-            guard let source = settings["source"]?.stringValue.flatMap(SourceRef.init), let type = context.sourceType(source),
+            guard let source = settings["source"]?.stringValue.flatMap(SourceRef.init), let type = context.sourceCharacteristic(source)?.1.type,
                   let states = SourceStates.states(of: type) else { return nil }
-            return states.map { SetupOption(String($0.value), label: $0.label) }
+            // A state's name is the web UI's words: the detail, which the editor translates.
+            return states.map { SetupOption(String($0.value), label: "", detail: $0.label) }
         default:
             return nil
         }
@@ -84,7 +87,7 @@ extension HelpersPlugin {
                     SetupField("name", label: "Name"),
                 ]))
             }
-            let source = try Self.source(known["source"], among: candidates)
+            let source = try Self.candidate(known["source"], among: candidates).ref
             guard let on = known["on"]?.stringValue.flatMap(HelperRule.number) else { throw SetupError("Enter a number for the on value") }
             let off: Double
             if let text = known["off"]?.stringValue {
@@ -103,7 +106,8 @@ extension HelpersPlugin {
 
         case .combine:
             guard let measure = known["measure"]?.stringValue.flatMap(Measure.init(rawValue:)) else {
-                let offered = Measure.allCases.filter { measure in !accessories.sourceCandidates { $0.measure == measure }.isEmpty }
+                let found = Set(accessories.sourceCandidates { $0.measure != nil }.compactMap(\.type.measure))
+                let offered = Measure.allCases.filter(found.contains)
                 guard !offered.isEmpty else { throw SetupError("No accessory has a temperature, humidity, light level or power to combine yet") }
                 return ask(SetupPrompt(message: "What should the Helper combine?", fields: [
                     .choice("measure", label: "Measure", options: offered.map { SetupOption($0.rawValue, label: $0.title) }),
@@ -117,7 +121,7 @@ extension HelpersPlugin {
                     SetupField("name", label: "Name"),
                 ]))
             }
-            let sources = try (known["sources"]?.arrayValue ?? []).map { try Self.source($0, among: candidates) }
+            let sources = try (known["sources"]?.arrayValue ?? []).map { try Self.candidate($0, among: candidates).ref }
             guard !sources.isEmpty else { throw SetupError("Pick at least one sensor") }
             let function = known["function"]?.stringValue.flatMap(Function.init(rawValue:)) ?? .average
             return try done(kind, name: known, settings: [
@@ -162,10 +166,6 @@ extension HelpersPlugin {
     }
 
     /// The source picked, which must be one of those offered.
-    static func source(_ value: JSONValue?, among candidates: [SourceCandidate]) throws -> SourceRef {
-        try candidate(value, among: candidates).ref
-    }
-
     static func candidate(_ value: JSONValue?, among candidates: [SourceCandidate]) throws -> SourceCandidate {
         guard let ref = value?.stringValue.flatMap(SourceRef.init), let found = candidates.first(where: { $0.ref == ref }) else {
             throw SetupError("Pick one of the accessories listed")

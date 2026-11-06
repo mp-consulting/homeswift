@@ -296,7 +296,7 @@ struct HelpersTests {
         #expect(sources.contains { $0.label == "Front door" && $0.detail == "Contact Sensor State" })
         // A Helper never reads itself.
         #expect(!sources.contains { $0.value.hasPrefix("Helpers:open#") })
-        #expect(await plugin.accessorySettingChoices("state", deviceID: "open")?.map(\.label) == ["Open", "Closed"])
+        #expect(await plugin.accessorySettingChoices("state", deviceID: "open")?.map(\.detail) == ["Open", "Closed"])
         let found = try await plugin.discover()
         #expect(found.map(\.deviceID) == ["open"])
         #expect(found.first?.kind == "stays")

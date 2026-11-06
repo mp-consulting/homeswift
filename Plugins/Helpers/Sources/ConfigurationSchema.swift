@@ -26,12 +26,12 @@ extension HelpersPlugin {
         "type": "string",
         "title": "Kind of Helper",
         "description": "Set when the Helper is added: add another Helper for another kind",
+        "readOnly": true,
         "oneOf": [
           { "title": "Threshold", "enum": ["threshold"] },
           { "title": "Combine", "enum": ["combine"] },
           { "title": "Stays", "enum": ["stays"] }
-        ],
-        "x-kinds": []
+        ]
       },
       "measure": {
         "type": "string",
@@ -43,7 +43,8 @@ extension HelpersPlugin {
           { "title": "Light level", "enum": ["lightLevel"] },
           { "title": "Power", "enum": ["power"] }
         ],
-        "x-kinds": []
+        "readOnly": true,
+        "x-kinds": ["combine"]
       },
       "source": {
         "type": "string",

@@ -28,6 +28,14 @@ struct AccessorySettingsTests {
         #expect(list["items"]?["type"] == "string")
     }
 
+    /// A field the schema marks `readOnly` (a Helper's kind) is shown, but the settings writers refuse to change it.
+    @Test func aReadOnlyAccessorySettingIsRefused() {
+        let fields: [String: JSONValue] = ["rule": ["type": "string", "readOnly": true], "on": ["type": "number"]]
+        #expect(HomeswiftCatalog.settingsProblems(["on": 24], fields: fields, kind: nil, strict: true).isEmpty)
+        let problems = HomeswiftCatalog.settingsProblems(["rule": "stays"], fields: fields, kind: nil, strict: true)
+        #expect(problems.map(\.message) == ["is set when the accessory is added and cannot change"])
+    }
+
     /// The devices plugin's schema: a Plugin Setting that is a plugin-wide default, and three Plugin Accessory Settings,
     /// one only for cameras.
     static let schema = """

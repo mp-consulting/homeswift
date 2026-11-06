@@ -24,7 +24,7 @@ settings). The sheet asks which kind, then:
   The gap between them (hysteresis) keeps a reading hovering at the line from turning the Helper on and off; left empty,
   the off value is the on value. A number may have a decimal point or a comma.
 - **Combine**: the measure, then the sensors, and whether to show the lowest, the highest or the average.
-- **Stays**: the accessory and its state (a contact sensor's Open, a switch's On, a lock's Unlocked, a garage door's
+- **Stays**: the accessory and its state (a contact sensor's Open, a switch's On, a lock's Unsecured, a garage door's
   Open…), and for longer than how many minutes.
 
 Each asks a name. Once added, the Helper's settings sheet (from its tile or the plugin's devices) changes its sources and

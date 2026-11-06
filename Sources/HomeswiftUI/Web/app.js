@@ -3661,9 +3661,9 @@
   function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
-    /// A choice's title: the schema's words, or for one the plugin gives from the home (`x-catalog`, an accessory and what
-    /// it reads) the web UI's catalogs', its detail after it.
-    const choiceTitle = (o) => o["x-catalog"] ? [o.title, o["x-detail"]].filter(Boolean).map((text) => t(text)).join(" · ") : tr(o.title) ?? String(o.enum[0]);
+    /// A choice's title: the schema's words, or for one the plugin gives from the home (`x-catalog`) its title as it is (an
+    /// accessory's name) and its detail in the web UI's catalogs' words (what it reads, a state).
+    const choiceTitle = (o) => o["x-catalog"] ? [o.title, o["x-detail"] && t(o["x-detail"])].filter(Boolean).join(" · ") : tr(o.title) ?? String(o.enum[0]);
     const schema = root.schema || root;
     const properties = schema.properties || {};
     const requiredTop = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -3679,6 +3679,8 @@
 
     const field = (key, property, current, required, index, fallback) => {
       const made = makeField(key, property, current, required, index, fallback);
+      // Shown, not changed (`readOnly`: a Helper's kind, set when it was added).
+      if (property.readOnly) for (const control of made.element.querySelectorAll("input, select, textarea, button")) control.disabled = true;
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.

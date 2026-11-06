@@ -14,7 +14,8 @@ struct SourceCandidate: Sendable {
 }
 
 /// The states a Stays Helper can wait on, for the characteristics that have named ones; the others' states are their
-/// valid values (a flag's 1 and 0). In English, as Setup's words are; the web UI's catalogs translate them.
+/// valid values (a flag's 1 and 0). In English, as Setup's words are; the web UI's catalogs translate them. The wall's words
+/// (widgets.js's `enumLabels`), but a contact sensor's: Open and Closed say what a door does better than Contact.
 enum SourceStates {
     static let named: [HAPUUID: [(value: Int, label: String)]] = [
         CharacteristicType.contactSensorState.uuid: [(1, "Open"), (0, "Closed")],
@@ -22,10 +23,10 @@ enum SourceStates {
         CharacteristicType.active.uuid: [(1, "Active"), (0, "Inactive")],
         CharacteristicType.motionDetected.uuid: [(1, "Motion"), (0, "No motion")],
         CharacteristicType.occupancyDetected.uuid: [(1, "Occupied"), (0, "Not occupied")],
-        CharacteristicType.leakDetected.uuid: [(1, "Leak"), (0, "No leak")],
+        CharacteristicType.leakDetected.uuid: [(1, "Leak"), (0, "Dry")],
         CharacteristicType.outletInUse.uuid: [(1, "In use"), (0, "Not in use")],
         CharacteristicType.currentDoorState.uuid: [(0, "Open"), (1, "Closed"), (2, "Opening"), (3, "Closing"), (4, "Stopped")],
-        CharacteristicType.lockCurrentState.uuid: [(0, "Unlocked"), (1, "Locked"), (2, "Jammed"), (3, "Unknown")],
+        CharacteristicType.lockCurrentState.uuid: [(0, "Unsecured"), (1, "Secured"), (2, "Jammed"), (3, "Unknown")],
     ]
 
     /// The states of a characteristic, its named ones first; nil for one without discrete states (a temperature).
@@ -45,15 +46,21 @@ extension Array where Element == Accessory {
     func sourceCandidates(except excluded: String? = nil, matching test: (CharacteristicType) -> Bool) -> [SourceCandidate] {
         var found: [SourceCandidate] = []
         for accessory in self where accessory.id != excluded {
+            var counts: [HAPUUID: Int] = [:]
+            for service in accessory.services { counts[service.type.uuid, default: 0] += 1 }
             for service in accessory.services where service.type.uuid != ServiceType.accessoryInformation.uuid {
-                let twins = accessory.services.filter { $0.type.uuid == service.type.uuid }.count > 1
+                var label: String?
                 for characteristic in service.characteristics where characteristic.iid > 0 {
                     let type = characteristic.type
                     guard type.permissions.contains(.pairedRead), type.permissions.contains(.events),
                           type.uuid != CharacteristicType.programmableSwitchEvent.uuid, test(type) else { continue }
-                    let serviceName = twins ? (service[.configuredName] ?? service[.name])?.value.stringValue.flatMap { $0.isEmpty ? nil : $0 } : nil
-                    let label = [accessory.name, serviceName].compactMap { $0 }.joined(separator: " · ")
-                    found.append(SourceCandidate(ref: SourceRef(accessoryID: accessory.id, iid: characteristic.iid), label: label, type: type))
+                    // The service's own name too when the accessory has several of its kind (a two-gang switch's).
+                    label = label ?? {
+                        let serviceName = counts[service.type.uuid, default: 0] > 1
+                            ? (service[.configuredName] ?? service[.name])?.value.stringValue.flatMap { $0.isEmpty ? nil : $0 } : nil
+                        return [accessory.name, serviceName].compactMap { $0 }.joined(separator: " · ")
+                    }()
+                    found.append(SourceCandidate(ref: SourceRef(accessoryID: accessory.id, iid: characteristic.iid), label: label!, type: type))
                 }
             }
         }
@@ -65,9 +72,11 @@ extension Array where Element == Accessory {
 }
 
 extension PluginContext {
-    /// The type of a source's characteristic, when its accessory is on the bridge.
-    func sourceType(_ source: SourceRef) -> CharacteristicType? {
-        hostAccessory(id: source.accessoryID)?.services.lazy.flatMap(\.characteristics).first { $0.iid == source.iid }?.type
+    /// A source's characteristic and its accessory, when the accessory is on the bridge and has it.
+    func sourceCharacteristic(_ source: SourceRef) -> (Accessory, Characteristic)? {
+        guard let accessory = hostAccessory(id: source.accessoryID),
+              let characteristic = accessory.services.lazy.flatMap(\.characteristics).first(where: { $0.iid == source.iid }) else { return nil }
+        return (accessory, characteristic)
     }
 }
 
