@@ -27867,6 +27867,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 }
 .energy .chart-table { margin-top: var(--space-12); }
 .chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: var(--space-14); }
+/* Gas and water under them, apart by the same space as every row of the section. */
+.chart-grid.energy-utilities { margin-top: var(--space-14); }
 /* The history's period: Week, Month or Year on the left, the period with its arrows on the right. */
 .energy-history-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
 .energy-period-nav { display: flex; align-items: center; gap: var(--space-6); }
