@@ -95,7 +95,7 @@ extension HomeswiftCatalog {
                             sourceName: String? = nil, limit: Int = 200, people: Bool = true) throws -> JSONValue {
         guard let history else { throw CatalogError("This homeswift keeps no Logbook") }
         let located = located()
-        let rooms = Dictionary(located.map { ($0.accessory.id, $0.room) }, uniquingKeysWith: { first, _ in first })
+        let byID = Dictionary(located.map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
         var ids: Set<String>?
         if let room {
             ids = Set(located.filter { $0.room.map { Self.normalized($0) == Self.normalized(room) } ?? false }.map(\.accessory.id))
@@ -107,18 +107,17 @@ extension HomeswiftCatalog {
         let nameFilter = people || !(sourceKind == "user" || sourceKind == "mcp") ? sourceName : nil
         let query = LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: nameFilter, limit: min(max(limit, 1), 1000))
         let entries = history.logbook(query)
-        let names = Dictionary(located.map { ($0.accessory.id, $0.accessory.name) }, uniquingKeysWith: { first, _ in first })
         return [
             "days": .number(Double(history.retention.days)),
             "entries": .array(entries.map { entry in
                 var object: [String: JSONValue] = [
                     "time": .string(Timestamp.iso8601(entry.time)), "accessory": .string(entry.accessory),
-                    "name": .string(names[entry.accessory] ?? entry.accessoryName), "characteristic": .string(entry.characteristic),
+                    "name": .string(byID[entry.accessory]?.accessory.name ?? entry.accessoryName), "characteristic": .string(entry.characteristic),
                     "value": JSONValue(entry.value), "source": Self.sourceJSON(entry.source, people: people),
                 ]
                 if let service = entry.service { object["service"] = .string(service) }
                 if entry.write { object["write"] = true }
-                if let room = rooms[entry.accessory] ?? nil { object["room"] = .string(room) }
+                if let room = byID[entry.accessory]?.room { object["room"] = .string(room) }
                 return .object(object)
             }),
         ]
