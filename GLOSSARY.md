@@ -9,6 +9,10 @@ its plugins and their accessories from the web UI, the command line and AI agent
 What a person sets for the bridge itself: its name, port, setup code and identity.
 _Avoid_: Global settings, server settings
 
+**Location**:
+A Bridge Setting: where the home is, for the times of the sun and the weather.
+_Avoid_: Coordinates, position, scene location
+
 **Plugin Settings**:
 What a person sets for one plugin instance as a whole, such as a host or a polling interval. Its account's
 credentials are not Plugin Settings: they come from Authorization, and change only by setting it up again.
@@ -221,3 +225,10 @@ _Avoid_: Other, remainder, unknown
 A Bridge Setting: what the home pays per kWh of electricity, or per m³ of gas or water, from a start date, by period of the day and week, and optionally what
 it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
 _Avoid_: Price, rate, contract, cost settings
+
+## Support
+
+**Diagnostics**:
+One file a person downloads for a plugin instance or an accessory, to review and attach to an issue: the versions, the
+settings with their secrets masked, the accessories' values and the plugin's recent log, redacted. Names stay in it.
+_Avoid_: Debug dump, support bundle, report
