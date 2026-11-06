@@ -170,12 +170,11 @@ extension UIServer {
     func diagnosticsFile(_ target: HomeswiftCatalog.DiagnosticsTarget) async throws -> Reply {
         let bundle = try await catalog.diagnosticsJSON(target)
         let name = HomeswiftCatalog.diagnosticsFileName(target)
-        return .data(status: 200, contentType: "application/json; charset=utf-8", body: Data(bundle.text(pretty: true).utf8),
-                     headers: ["Content-Disposition": "attachment; filename=\"\(name)\""])
+        return Self.download(Data(bundle.text(pretty: true).utf8), name: name, contentType: "application/json; charset=utf-8")
     }
 
-    static func download(_ data: Data, name: String) -> Reply {
-        .data(status: 200, contentType: "application/x-tar", body: data, headers: ["Content-Disposition": "attachment; filename=\"\(name)\""])
+    static func download(_ data: Data, name: String, contentType: String = "application/x-tar") -> Reply {
+        .data(status: 200, contentType: contentType, body: data, headers: ["Content-Disposition": "attachment; filename=\"\(name)\""])
     }
 
     /// The child bridges with their health, and, for one not paired yet, its setup code and the index of its QR code

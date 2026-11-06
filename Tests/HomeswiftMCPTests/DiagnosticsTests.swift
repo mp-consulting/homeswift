@@ -14,7 +14,7 @@ struct DiagnosticsTests {
         {
           "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:56", "pin": "031-45-154", "port": 0 },
           "platforms": [
-            { "platform": "Devices", "name": "Devices", "token": "secret-token", "applicationKey": "hub-application-key", "host": "http://admin:hunter2@192.0.2.10/",
+            { "platform": "Devices", "name": "Devices", "token": "secret-token", "host": "http://admin:hunter2@192.0.2.10/",
               "_accessories": { "lamp": { "room": "Office", "password": "lamp-password" }, "lock": { "name": "Front" } } },
             { "platform": "HomeswiftAiKit", "mcp": { "http": { "enabled": false, "token": "mcp-token" } } }
           ]
@@ -42,7 +42,7 @@ struct DiagnosticsTests {
         #expect(bundle["plugin"]?["running"] == true)
         #expect(bundle["plugin"]?["name"] == "Devices")
         // Secrets are masked wherever they are: a secret-named key, a credential in a URL, an Accessory Setting.
-        for secret in ["hub-application-key", "secret-token", "hunter2", "lamp-password", "031-45-154", "abc123def456", "mcp-token"] { #expect(!text.contains(secret), "\(secret) leaked") }
+        for secret in ["secret-token", "hunter2", "lamp-password", "031-45-154", "abc123def456", "mcp-token"] { #expect(!text.contains(secret), "\(secret) leaked") }
         #expect(bundle["pluginSettings"]?["token"] == .string(Redaction.placeholder))
         #expect(bundle["pluginSettings"]?["_accessories"] == nil)
         #expect(bundle["accessorySettings"]?["lamp"]?["room"] == "Office")
@@ -92,6 +92,12 @@ struct DiagnosticsTests {
         #expect(result["structuredContent"]?["accessory"] == "Devices:lamp")
         #expect(result["content"]?[0]?["text"]?.stringValue?.hasPrefix("<untrusted-data source=\"diagnostics\">") == true)
         #expect(try await client.tool("get_diagnostics", [:])["isError"] == true)
+        // URLs in settings that are not secret-named keep their host, never what can be a credential.
+        #expect(Redaction.maskingURLCredentials("-rtsp_transport tcp -i rtsps://192.168.1.1:7441/AbCdEf123?enableSrtp") == "-rtsp_transport tcp -i rtsps://192.168.1.1:7441/<redacted>?enableSrtp")
+        #expect(Redaction.maskingURLCredentials("-i http://cam:88/cgi-bin/CGIProxy.fcgi?cmd=snapPicture2&usr=admin&pwd=hunter2") == "-i http://cam:88/cgi-bin/CGIProxy.fcgi?cmd=snapPicture2&usr=admin&pwd=***")
+        #expect(Redaction.maskingURLCredentials("-i rtsp://cam/a -i http://u:p@ss@host/b") == "-i rtsp://cam/<redacted> -i http://u:***@host/b")
+        #expect(Redaction.maskingURLCredentials("http://192.168.1.20") == "http://192.168.1.20")
+        #expect(Redaction.maskingURLCredentials("rtsp://cam:554/user=admin&password=x&channel=1") == "rtsp://cam:554/<redacted>")
         #expect(HomeswiftCatalog.diagnosticsFileName(.plugin(platform: "Devices", name: "Desk Lights"), now: Date(timeIntervalSince1970: 1_800_000_000))
             == "homeswift-diagnostics-desk-lights-2027-01-15.json")
     }

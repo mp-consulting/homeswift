@@ -24,66 +24,65 @@ extension HomeswiftCatalog {
 
     /// The Diagnostics of a plugin instance or an accessory, as one JSON object.
     public func diagnosticsJSON(_ target: DiagnosticsTarget, now: Date = Date()) async throws -> JSONValue {
-        let platforms = try readConfig()["platforms"]?.arrayValue ?? []
-        let platform: String, instance: String
+        // The blocks as the settings tools read them: an accessory plugin's `accessories` blocks too.
+        let platforms = AccessoryAdoption.platformBlocks(of: try readConfig())
+        let platform: String, instance: String, block: JSONValue
         var accessories: [Located]
-        var deviceKeys: [String]?
+        var deviceKeys: Set<String>?
+        var subject: [String: JSONValue]
         switch target {
         case .plugin(let wanted, let name):
             let found = try Self.uniqueBlock(platform: wanted, instance: name, in: platforms)
-            platform = wanted
+            (platform, block) = (wanted, found.block)
             instance = found.block["name"]?.stringValue ?? wanted
             accessories = located().filter { $0.platform?.platform == platform && $0.platform?.name == instance }
+            subject = ["about": "plugin"]
         case .accessory(let id):
             let settings = try settingsTarget(id, platforms: platforms)
-            platform = settings.platform
-            instance = settings.instance
+            (platform, instance) = (settings.platform, settings.instance)
+            block = Self.blockIndex(of: settings, in: platforms).map { platforms[$0] } ?? [:]
             accessories = settings.located.map { [$0] } ?? []
-            deviceKeys = Array(Set([settings.key, settings.deviceKey])).sorted()
+            deviceKeys = [settings.key, settings.deviceKey]
+            subject = ["about": "accessory", "accessory": .string(id)]
         }
-        let block = platforms.first { $0["platform"]?.stringValue == platform && ($0["name"]?.stringValue ?? platform) == instance } ?? [:]
         accessories.sort { $0.accessory.id < $1.accessory.id }
 
-        var answer: [String: JSONValue] = [
+        var answer: [String: JSONValue] = subject.merging([
             "diagnostics": 1,
             "generated": .string(Timestamp.iso8601(now)),
-            "about": .string(target.isPlugin ? "plugin" : "accessory"),
             "note": "Secrets are masked and the log is redacted; names are kept. Read it before sharing it.",
             "homeswift": Self.diagnosticsSystem(),
             "plugin": await diagnosticsPlugin(platform: platform, instance: instance),
             "pluginSettings": Self.diagnosticsPluginSettings(block),
             "accessorySettings": Self.diagnosticsAccessorySettings(block, keys: deviceKeys),
             "accessories": .array(accessories.map { Self.redactingSecrets(Self.accessoryJSON($0, detailed: true)) }),
-        ]
-        if case .accessory(let id) = target { answer["accessory"] = .string(id) }
-        let (log, counts) = diagnosticsLog(instance: instance, now: now)
+        ]) { $1 }
+        // The archive is read off the concurrency pool, as the log routes read it.
+        let logs = logs
+        let (log, counts) = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: Self.diagnosticsLog(logs, instance: instance, now: now)) }
+        }
         answer["log"] = log
         answer["errors"] = counts
         return .object(answer)
     }
 
-    /// The versions and the platform; not the machine's name, which says nothing about a fault.
+    /// The versions and the platform (`get_system_info`'s facts), with the architecture and the MCP protocol; not the
+    /// machine's name, which says nothing about a fault.
     static func diagnosticsSystem() -> JSONValue {
-        let process = ProcessInfo.processInfo
-        #if os(macOS)
-        let platform = "macOS"
-        #elseif os(Linux)
-        let platform = "Linux"
-        #else
-        let platform = "other"
-        #endif
+        var info = systemJSON().objectValue ?? [:]
+        info.removeValue(forKey: "hostname")
+        info.removeValue(forKey: "systemUptimeSeconds")
         #if arch(arm64)
-        let architecture = "arm64"
+        info["architecture"] = "arm64"
         #elseif arch(x86_64)
-        let architecture = "x86_64"
+        info["architecture"] = "x86_64"
         #else
-        let architecture = "other"
+        info["architecture"] = "other"
         #endif
-        return [
-            "version": .string(PluginHost.version), "mcpProtocol": .string(MCPServer.protocolVersion), "platform": .string(platform),
-            "os": .string(process.operatingSystemVersionString), "architecture": .string(architecture),
-            "cpus": .number(Double(process.processorCount)), "memoryBytes": .number(Double(process.physicalMemory)),
-        ]
+        info["version"] = info.removeValue(forKey: "homeswift") ?? .string(PluginHost.version)
+        info["mcpProtocol"] = .string(MCPServer.protocolVersion)
+        return .object(info)
     }
 
     /// The instance as it runs: its plugin, bridge, whether it is paused or started, why it did not start, its account.
@@ -104,65 +103,55 @@ extension HomeswiftCatalog {
         return .object(answer)
     }
 
-    /// The Plugin Settings: the block without its Accessory Settings, every secret masked (secret-named keys, sealed
-    /// values, the MCP tokens of the Assistant's block).
+    /// The Plugin Settings: the block without its Accessory Settings, every secret masked.
     static func diagnosticsPluginSettings(_ block: JSONValue) -> JSONValue {
         var settings = block.objectValue ?? [:]
         settings.removeValue(forKey: "_accessories")
-        return redactingSecrets(redactingMCPTokens(inSettings: ["settings": .object(settings)])["settings"] ?? .object(settings))
+        return redactingSecrets(.object(settings))
     }
 
     /// The Accessory Settings by Device Id, every secret masked; only `keys` when given (one accessory's).
-    static func diagnosticsAccessorySettings(_ block: JSONValue, keys: [String]?) -> JSONValue {
+    static func diagnosticsAccessorySettings(_ block: JSONValue, keys: Set<String>?) -> JSONValue {
         var entries = block["_accessories"]?.objectValue ?? [:]
         if let keys { entries = entries.filter { keys.contains($0.key) } }
         return redactingSecrets(.object(entries))
     }
 
-    /// Masks what a secret-named key holds (`Redaction`'s, and for Diagnostics any key ending in "key", such as a hub's
-    /// `applicationKey` or a device's `localKey`: masking too much is the safe side), and any value that is a secret on
-    /// its own (a sealed `enc:` value, a credential in a URL), wherever it is.
+    /// `Redaction.redactSecrets` (what secret-named keys hold; a reference keeps its name), then every other text as the
+    /// log's: free text redacted, sealed values hidden, and each URL's credentials masked (`Redaction.maskingURLCredentials`).
     static func redactingSecrets(_ value: JSONValue) -> JSONValue {
-        func walk(_ value: JSONValue, secret: Bool) -> JSONValue {
+        func text(_ value: JSONValue) -> JSONValue {
             switch value {
-            case .object(let object):
-                return .object(object.reduce(into: [:]) { result, entry in
-                    result[entry.key] = walk(entry.value, secret: secret || isDiagnosticsSecret(key: entry.key, value: entry.value))
-                })
-            case .array(let items):
-                return .array(items.map { walk($0, secret: secret) })
-            case .string(let text):
-                return secret || text.hasPrefix(SecretBox.prefix) || Redaction.isCredentialURL(text) ? .string(Redaction.placeholder) : value
-            case .number, .bool:
-                return secret ? .string(Redaction.placeholder) : value
-            default:
-                return value
+            case .object(let object): return .object(object.mapValues(text))
+            case .array(let items): return .array(items.map(text))
+            case .string(let string) where string != Redaction.placeholder:
+                if string.hasPrefix(Redaction.sealedPrefix) { return .string(Redaction.placeholder) }
+                return .string(Redaction.maskingURLCredentials(Redaction.redactText(string)))
+            default: return value
             }
         }
-        return walk(value, secret: false)
+        return text(Redaction.redactSecrets(value))
     }
 
-    static func isDiagnosticsSecret(key: String, value: JSONValue) -> Bool {
-        Redaction.isSecret(key: key, value: value) || key.range(of: #"keys?$"#, options: [.regularExpression, .caseInsensitive]) != nil
-    }
-
-    /// The instance's last lines (`diagnosticsLogLines`, oldest first, each redacted) and its errors and warnings over
-    /// the last week of the log the bridge keeps.
-    func diagnosticsLog(instance: String, now: Date) -> (log: JSONValue, counts: JSONValue) {
-        let mine = { (line: LogBuffer.Line) in line.label == instance }
-        let lines = logs.lines(from: .distantPast, to: now, limit: Self.diagnosticsLogLines, matching: mine)
-        let since = now.addingTimeInterval(-Self.diagnosticsErrorWindow)
-        let serious = logs.lines(from: since, to: now, limit: 100_000, matching: { mine($0) && $0.level >= .warning })
-        let errors = serious.filter { $0.level >= .error }
+    /// The instance's last lines (`diagnosticsLogLines`, oldest first) and its errors and warnings over the week the log
+    /// keeps, in one pass; each line as get_recent_logs gives it (`logText`: redacted, confirmation codes hidden, long
+    /// payloads cut) with its URLs' credentials masked.
+    static func diagnosticsLog(_ logs: LogBuffer, instance: String, now: Date) -> (log: JSONValue, counts: JSONValue) {
+        let since = now.addingTimeInterval(-diagnosticsErrorWindow)
+        let week = logs.lines(from: since, to: now, limit: 100_000, matching: { $0.label == instance })
+        let lines = week.suffix(diagnosticsLogLines)
+        let errors = week.filter { $0.level >= .error }
+        let warnings = week.lazy.filter { $0.level == .warning }.count
+        let shown = { (text: String) in JSONValue.string(Redaction.maskingURLCredentials(text)) }
         let log: JSONValue = [
-            "lines": .array(lines.map { .string(Redaction.redactText($0.formattedWithDetails)) }),
-            "count": .number(Double(lines.count)), "limit": .number(Double(Self.diagnosticsLogLines)),
+            "lines": .array(lines.map { shown(logText($0, details: true)) }),
+            "count": .number(Double(lines.count)), "limit": .number(Double(diagnosticsLogLines)),
             "from": lines.first.map { .string(Timestamp.iso8601($0.date)) } ?? .null,
         ]
         let counts: JSONValue = [
             "since": .string(Timestamp.iso8601(since)),
-            "errors": .number(Double(errors.count)), "warnings": .number(Double(serious.count - errors.count)),
-            "lastError": errors.last.map { .object(["date": .string(Timestamp.iso8601($0.date)), "text": .string(Redaction.redactText($0.text))]) } ?? .null,
+            "errors": .number(Double(errors.count)), "warnings": .number(Double(warnings)),
+            "lastError": errors.last.map { .object(["date": .string(Timestamp.iso8601($0.date)), "text": shown(safe($0.text))]) } ?? .null,
         ]
         return (log, counts)
     }
@@ -212,8 +201,4 @@ extension HomeswiftCatalog {
             },
         ]
     }
-}
-
-extension HomeswiftCatalog.DiagnosticsTarget {
-    var isPlugin: Bool { if case .plugin = self { true } else { false } }
 }

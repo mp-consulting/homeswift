@@ -471,9 +471,10 @@ Response says **Not responding**. Sorted by **Needs attention first**, they come
 (`homeswift-diagnostics-<name>-<day>.json`) to attach to an issue. It holds homeswift's version and platform (not the
 machine's name), the plugin's state (running, paused, why it did not start, its account), its Plugin Settings and
 Accessory Settings, the accessories' services and current values, the plugin's last 1,000 log lines and how many
-errors and warnings it logged over the last week, with its last error. Secrets are masked through `Redaction`: values
-under secret-named keys and any key ending in "key" (a hub's `applicationKey`), sealed values, credentials in URLs and the Assistant's MCP tokens, and the log lines are
-redacted as the Assistant's are. Names and rooms are kept, because they are what lets a helper find their way; read
+errors and warnings it logged over the last week, with its last error. Secrets are masked through `Redaction`:
+values under secret-named keys, sealed values, and in every other text (settings and log lines alike) what the log
+masks, with each URL's credentials: a password before the host, secret-named query values (`?pwd=…`, `?token=…`), and
+the whole path and query of an RTSP URL (a UniFi Protect stream alias). A `vault:` reference keeps its name. Names and rooms are kept, because they are what lets a helper find their way; read
 the file before sharing it. An accessory's file has that accessory alone and its own Accessory Settings. `GET
 /api/diagnostics/plugins/<platform>/<name>` and `GET /api/diagnostics/accessories/<id>` serve it, and MCP clients get
 the same bundle from `get_diagnostics` (administrators only).
