@@ -30500,7 +30500,9 @@ select option:disabled { color: var(--muted); }
 .setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); background: none; }
 .setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
 .setup-step .setup-choice:not(:first-child) { margin-top: var(--space-14); }
-.setup-option { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-option { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 160ms var(--ease-out); }
+.setup-option:active { transform: scale(0.98); }
+@media (prefers-reduced-motion: reduce) { .setup-option:active { transform: none; } }
 .setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }
