@@ -5,6 +5,8 @@ const G=(c)=>({...c,group:true});
 const S=(type,characteristics,extra={})=>({type,characteristics,primary:true,...extra});
 const A=(id,name,category,services,extra={})=>({id,name,category,services,manufacturer:'Homeswift Demo',model:'Demo',bridge:'Demo Bridge',platform:'Demo',platformName:'Demo',...extra});
 const light=(id,name,on=true)=>A(id,name,'lightbulb',[S('Lightbulb',[C('On',on,'bool'),C('Brightness',75,'int',{minValue:0,maxValue:100,minStep:1}),C('Hue',35,'float',{minValue:0,maxValue:360,minStep:1}),C('Saturation',65,'float',{minValue:0,maxValue:100,minStep:1}),C('Color Temperature',250,'uint32',{minValue:140,maxValue:500,minStep:1})].map(G))]);
+// The Weather plugin's accessory: a temperature with Eve's weather characteristics, humidity, and Is raining.
+const weather=A('weather','Weather','sensor',[S('TemperatureSensor',[C('Current Temperature',17.4,'float',{unit:'celsius'}),C('Condition','Rain showers','string'),C('Wind Speed',14.2,'float'),C('Rain Last Hour',2,'uint16'),C('Air Pressure',1008.6,'float'),C('UV Index',2,'uint8')]),S('HumiditySensor',[C('Current Relative Humidity',82,'float',{unit:'percentage'})],{primary:false,name:'Humidity'}),S('OccupancySensor',[C('Occupancy Detected',1)],{primary:false,name:'Is raining'})],{manufacturer:'Open-Meteo',model:'Weather',platform:'Weather',platformName:'Weather'});
 const gate=A('gate','Garden Gate','garageDoorOpener',[S('GarageDoorOpener',[C('Current Door State',1),C('Target Door State',1,'uint8',{security:true}),C('Obstruction Detected',false,'bool')])]);
 const lock=A('lock','Front Door','doorLock',[S('LockMechanism',[C('Lock Current State',0),C('Lock Target State',0,'uint8',{security:true})])]);
 const plug=A('plug','Reading Lamp','outlet',[S('Outlet',[G(C('On',false,'bool')),C('Outlet In Use',false,'bool')])]);
@@ -62,6 +64,8 @@ window.preview=(mode='wall')=>{
   // Each at its default size, then the remote at each size; ?press= presses a button (its number) for the shot.
   const wall=e('div',{class:'wall sensors'});main.append(wall);for(const a of [motion,leak,air,remote])add(a,undefined,wall);
   const sizes=e('div',{class:'wall remote-sizes'});main.append(sizes);for(const size of ['small','medium','large'])add(remote,size,sizes);
+ }else if(mode==='weather'){
+  const wall=e('div',{class:'wall weather-sizes'});main.append(wall);for(const size of ['small','medium','large','xlarge'])add(weather,size,wall);
  }else if(mode==='battery'){
   for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`});main.append(wall);add(battery,size,wall);}
  }else if(mode==='sizes'||mode==='sizes-more'){

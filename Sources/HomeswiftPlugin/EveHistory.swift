@@ -48,6 +48,17 @@ public enum EveCharacteristic {
     public static let airPressure = CharacteristicType(
         name: "Air Pressure", uuid: eve("F10F"), format: .uint16, permissions: [.pairedRead, .events], minValue: 700, maxValue: 1100, minStep: 1
     )
+    /// Eve's weather characteristics (homebridge-lib's UUIDs, the ones Eve Weather and weather plugins use): the
+    /// condition in words, the wind in km/h, the last hour's rain in mm, the UV index.
+    public static let weatherCondition = CharacteristicType(
+        name: "Condition", uuid: HAPUUID("CD65A9AB-85AD-494A-B2BD-2F380084134D"), format: .string, permissions: [.pairedRead, .events])
+    public static let windSpeed = CharacteristicType(
+        name: "Wind Speed", uuid: HAPUUID("49C8AE5A-A3A5-41AB-BF1F-12D5654F9F41"), format: .float, permissions: [.pairedRead, .events], minValue: 0, maxValue: 150, minStep: 0.1)
+    public static let rainLastHour = CharacteristicType(
+        name: "Rain Last Hour", uuid: HAPUUID("10C88F40-7EC4-478C-8D5A-BD0C3CCE14B7"), format: .uint16, permissions: [.pairedRead, .events], minValue: 0, maxValue: 200, minStep: 1)
+    public static let uvIndex = CharacteristicType(
+        name: "UV Index", uuid: HAPUUID("05BA0FE0-B848-4226-906D-5B64272E05CE"), format: .uint8, permissions: [.pairedRead, .events], minValue: 0, maxValue: 16, minStep: 1)
+
     /// ppm.
     public static let airQuality = CharacteristicType(
         name: "Air Quality PPM", uuid: eve("F10B"), format: .uint16, permissions: [.pairedRead, .events], minValue: 0, maxValue: 5000, minStep: 1
