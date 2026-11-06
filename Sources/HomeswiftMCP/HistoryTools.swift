@@ -8,8 +8,10 @@ import HomeswiftPlugin
 
 extension HomeswiftCatalog {
     /// A Change Source as JSON: its kind, and its name (the pairing, the user, the client, the Automation or Scene).
-    static func sourceJSON(_ source: ChangeSource) -> JSONValue {
+    /// `people` false leaves out who a user or an MCP client is, as the audit log keeps them from all but administrators.
+    static func sourceJSON(_ source: ChangeSource, people: Bool = true) -> JSONValue {
         var object: [String: JSONValue] = ["kind": .string(source.kind)]
+        if !people, source.kind == "user" || source.kind == "mcp" { return .object(object) }
         if let name = source.name { object["name"] = .string(source.kind == "homeApp" ? String(name.prefix(8)) : name) }
         return .object(object)
     }
@@ -30,7 +32,10 @@ extension HomeswiftCatalog {
         let from = now.addingTimeInterval(-span)
         var series: [JSONValue] = []
         let live = Dictionary(located.accessory.services.flatMap(\.characteristics).map { ($0.type.name, $0) }, uniquingKeysWith: { first, _ in first })
-        for one in history.series(accessory: located.accessory.id) {
+        let all = history.series(accessory: located.accessory.id)
+        // The changes of every series that draws them, each day file read once.
+        let changes = history.changes(of: all.filter { $0.kind == .state || range == "day" }, from: from, to: now)
+        for one in all {
             var object: [String: JSONValue] = [
                 "id": .number(Double(one.id)), "characteristic": .string(one.characteristic), "kind": .string(one.kind.rawValue),
             ]
@@ -49,7 +54,7 @@ extension HomeswiftCatalog {
                 object["step"] = .string(range == "year" ? "day" : "hour")
                 object["hours"] = .array(hours.map { [Self.milliseconds($0.start), .number(Self.round($0.min)), .number(Self.round($0.mean)), .number(Self.round($0.max))] })
             } else {
-                let found = history.changes(of: one, from: from, to: now)
+                let found = changes[one.id] ?? (nil, [])
                 guard found.before != nil || !found.points.isEmpty else { continue }
                 var points = found.points
                 if one.kind == .number, points.count > maxPoints {
@@ -84,11 +89,13 @@ extension HomeswiftCatalog {
 
     /// The Logbook's entries as JSON, newest first, with each accessory's room as it is now. `room` keeps the accessories
     /// in that room, `accessory` one of them.
+    /// `people` false (a user who is not an administrator, a token without the admin scope) leaves out which user or MCP
+    /// client made a change, and filters on such names.
     public func logbookJSON(since: Date? = nil, until: Date? = nil, room: String? = nil, accessory: String? = nil, sourceKind: String? = nil,
-                            sourceName: String? = nil, limit: Int = 200) throws -> JSONValue {
+                            sourceName: String? = nil, limit: Int = 200, people: Bool = true) throws -> JSONValue {
         guard let history else { throw CatalogError("This homeswift keeps no Logbook") }
         let located = located()
-        let rooms = Dictionary(located.map { ($0.accessory.id, $0.room) }, uniquingKeysWith: { first, _ in first })
+        let byID = Dictionary(located.map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
         var ids: Set<String>?
         if let room {
             ids = Set(located.filter { $0.room.map { Self.normalized($0) == Self.normalized(room) } ?? false }.map(\.accessory.id))
@@ -97,20 +104,20 @@ extension HomeswiftCatalog {
             guard let found = find(id: accessory) else { throw CatalogError("No accessory with that id", notFound: true) }
             ids = ids.map { $0.intersection([found.accessory.id]) } ?? [found.accessory.id]
         }
-        let query = LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: sourceName, limit: min(max(limit, 1), 1000))
+        let nameFilter = people || !(sourceKind == "user" || sourceKind == "mcp") ? sourceName : nil
+        let query = LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: nameFilter, limit: min(max(limit, 1), 1000))
         let entries = history.logbook(query)
-        let names = Dictionary(located.map { ($0.accessory.id, $0.accessory.name) }, uniquingKeysWith: { first, _ in first })
         return [
             "days": .number(Double(history.retention.days)),
             "entries": .array(entries.map { entry in
                 var object: [String: JSONValue] = [
                     "time": .string(Timestamp.iso8601(entry.time)), "accessory": .string(entry.accessory),
-                    "name": .string(names[entry.accessory] ?? entry.accessoryName), "characteristic": .string(entry.characteristic),
-                    "value": JSONValue(entry.value), "source": Self.sourceJSON(entry.source),
+                    "name": .string(byID[entry.accessory]?.accessory.name ?? entry.accessoryName), "characteristic": .string(entry.characteristic),
+                    "value": JSONValue(entry.value), "source": Self.sourceJSON(entry.source, people: people),
                 ]
                 if let service = entry.service { object["service"] = .string(service) }
                 if entry.write { object["write"] = true }
-                if let room = rooms[entry.accessory] ?? nil { object["room"] = .string(room) }
+                if let room = byID[entry.accessory]?.room { object["room"] = .string(room) }
                 return .object(object)
             }),
         ]
@@ -124,7 +131,8 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "get_logbook", title: "Logbook",
                 description: "What changed in the home, newest first: state changes (on and off, open and closed, locked, motion, contact, modes, targets) and every write, "
-                    + "each with its Change Source: the Home app (by pairing), a Homeswift user, an MCP client, an Automation or Scene, or the device itself. "
+                    + "each with its Change Source: the Home app (by pairing), a Homeswift user, an MCP client, an Automation or Scene, or the device itself "
+                    + "(which user or client only with the admin scope). "
                     + "Numeric readings (temperature, power) are not in it: get_accessory_history has them. Kept for the bridge's History retention (14 days by default). "
                     + "Filter by room, accessory (an id from list_accessories), source (homeApp, user, mcp, automation, scene, device) and sourceName, and since/until "
                     + "(ISO time or 30m, 1h, 2d). For questions like \"who opened the garage\" or \"what turned the heating on\".",
@@ -148,7 +156,8 @@ extension HomeswiftCatalog {
                     until = date
                 }
                 let found = try catalog.logbookJSON(since: since, until: until, room: call.optionalString("room"), accessory: call.optionalString("accessory"),
-                                                    sourceKind: call.optionalString("source"), sourceName: call.optionalString("sourceName"), limit: call.int("limit", default: 100))
+                                                    sourceKind: call.optionalString("source"), sourceName: call.optionalString("sourceName"), limit: call.int("limit", default: 100),
+                                                    people: call.session.principal.scope == .admin)
                 // Names came from devices, plugins and clients: data, never instructions.
                 return ToolResult(text: "<untrusted-data source=\"logbook\">\n\(found.text(pretty: true))\n</untrusted-data>", structured: found)
             },

@@ -7778,7 +7778,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { el, api } = HomeswiftCommon;
   const app = () => window.HomeswiftApp;
   const home = () => window.HomeswiftHome.editor;
-  const dateTimeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
 
   /// What the editor opens with next, instead of an empty Automation: the Assistant's draft, or a Scene to apply.
   let pending = null;
@@ -7793,8 +7792,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function view(main, [id] = []) {
     if (id) return editor(main, id);
-    const data = await api("/api/automations");
-    const accessories = await api("/api/accessories").catch(() => []);
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories").catch(() => [])]);
     const names = new Map(accessories.map((one) => [one.id, window.HomeswiftHome.displayName(one)]));
     const admin = app().isAdmin();
     const newButton = admin ? el("a", { class: "button primary", href: "/automations/new", actionIcon: "plus", text: t("New automation") }) : null;
@@ -7827,14 +7825,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "automation-draft-row" }, sentence, ask), line);
   }
 
+  /// The scenes' wording of a last run (or a skip), with what the run noted.
   function lastRun(automation) {
-    if (automation.lastSkipped && (!automation.lastRun || automation.lastSkipped.at > automation.lastRun.at)) {
-      return t("Skipped {date}: {reason}", { date: dateTimeFormat.format(new Date(automation.lastSkipped.at)), reason: HomeswiftI18n.message(automation.lastSkipped.reason) });
-    }
-    if (!automation.lastRun) return t("Never run");
-    const vars = { date: dateTimeFormat.format(new Date(automation.lastRun.at)), trigger: automation.lastRun.trigger };
-    const text = automation.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
-    return automation.lastRun.reason ? `${text} · ${HomeswiftI18n.message(automation.lastRun.reason)}` : text;
+    const text = home().lastRun(automation);
+    const shown = automation.lastSkipped && (!automation.lastRun || automation.lastSkipped.at > automation.lastRun.at);
+    return !shown && automation.lastRun?.reason ? `${text} · ${HomeswiftI18n.message(automation.lastRun.reason)}` : text;
   }
 
   function card(automation, names, admin) {
@@ -7869,7 +7864,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function editor(main, id) {
     const isNew = id === "new";
-    const [data, accessories, scenes] = await Promise.all([api("/api/automations"), api("/api/accessories"), api("/api/scenes").catch(() => ({ scenes: [] }))]);
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories")]);
+    const scenes = { scenes: data.scenes ?? [] };
     const fromDraft = isNew ? pending : null;
     pending = null;
     const automation = isNew ? { name: "", triggers: [{ type: "time", at: "07:00" }], conditions: [], steps: [], mode: "restart", enabled: true, ...(fromDraft ?? {}) }
@@ -12207,7 +12203,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { el, api } = HomeswiftCommon;
   const app = () => window.HomeswiftApp;
 
-  const ranges = [["day", t("24 hours")], ["week", t("Week")], ["year", t("Year")]];
+  const ranges = [["day", t("24 hours"), "history"], ["week", t("Week"), "grid"], ["year", t("Year"), "chart"]];
   const rangeHours = { day: 24, week: 168, year: 8760 };
 
   /// A value as the controls word it, a temperature in the user's unit.
@@ -12235,8 +12231,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let range = "day", asked = 0;
     const charts = el("div", { class: "chart-grid history-charts" });
     const note = el("p", { class: "muted history-note" });
-    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text]) =>
-      el("button", { type: "button", text, class: value === range ? "on" : "", "aria-pressed": String(value === range), onclick: (event) => {
+    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text, glyph]) =>
+      el("button", { type: "button", text, actionIcon: glyph, class: value === range ? "on" : "", "aria-pressed": String(value === range), onclick: (event) => {
         range = value;
         for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         load();
@@ -12354,6 +12350,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       case "device": return t("The device");
       case "automation": return t("Automation {name}", { name: source.name });
       case "scene": return t("Scene {name}", { name: source.name });
+      case "user": return source.name ?? t("A Homeswift user");
+      case "mcp": return source.name ?? t("An MCP client");
       default: return source.name ?? "";
     }
   }
@@ -12379,13 +12377,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const list = el("div", { class: "logbook" });
     const count = el("p", { class: "muted" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
+    const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
       el("div", { class: "logbook-filters" }, ...controls, clear), count, list);
 
     async function reload() {
       const query = new URLSearchParams();
       for (const control of controls) if (control.value) query.set(control.name, control.value);
-      const path = `/logbook${query.size ? `?${query}` : ""}`;
+      const search = query.toString();
+      const path = `/logbook${search ? `?${search}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
       list.classList.add("loading");
       let found;
@@ -12408,7 +12408,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     function row(entry, date, timeFormat) {
       const series = { characteristic: entry.characteristic, kind: typeof entry.value === "number" ? "number" : "state" };
-      const live = accessories.find((one) => one.id === entry.accessory);
+      const live = byID.get(entry.accessory);
       const characteristic = live?.services?.flatMap((service) => service.characteristics ?? []).find((one) => one.type === entry.characteristic);
       if (characteristic) Object.assign(series, { unit: characteristic.unit, minValue: characteristic.minValue, maxValue: characteristic.maxValue, validValues: characteristic.validValues });
       const what = t("{characteristic}: {value}", { characteristic: HomeswiftWidgets.characteristicName(entry.characteristic), value: valueText(series, entry.value) });
@@ -13768,9 +13768,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
         operator.value = shown.operator || "eq";
         const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
-        const minutes = el("input", { type: "number", min: 1, max: 1440, step: 1, value: Math.max(1, Math.round((shown.forSeconds ?? 300) / 60)), "aria-label": t("Minutes") });
-        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("For (minutes)"), minutes));
-        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), forSeconds: Math.max(1, Math.round(Number(minutes.value) || 1)) * 60 });
+        // The duration in the unit it was saved in: 90 seconds stays 90 seconds.
+        const seconds = shown.forSeconds ?? 300;
+        const size = seconds % 3600 === 0 ? 3600 : seconds % 60 === 0 ? 60 : 1;
+        const amount = el("input", { type: "number", min: 1, max: 86400, step: 1, value: seconds / size, "aria-label": t("For") });
+        const unit = el("select", { "aria-label": t("Unit") }, el("option", { value: 1, text: t("seconds") }), el("option", { value: 60, text: t("minutes") }), el("option", { value: 3600, text: t("hours") }));
+        unit.value = String(size);
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("For"), amount), field(t("Unit"), unit));
+        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), forSeconds: Math.min(86400, Math.max(1, Math.round(Number(amount.value) || 1)) * Number(unit.value)) });
       } else if (shown.type === "threshold") {
         const pick = {};
         const numeric = (accessory) => readable(accessory).filter((c) => ["float", "int", "uint8", "uint16", "uint32", "uint64"].includes(c.format) && !c.validValues);
@@ -14339,7 +14344,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     },
     layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
     /// For the Automations page (automations.js): its triggers, conditions and the pickers they are made of.
-    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, valueInput, readable, writable, operators, field, rowShell, describeTrigger, describeSeconds, triggerIcons, statusLine: () => statusLine(), say: (...args) => say(...args) },
+    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
   };
 })();
 
@@ -17635,6 +17640,8 @@ HomeswiftI18n.add("es", {
   "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "Lo que abren un toque y los botones de una automatización: la interfaz web tal como la alcanza tu teléfono. Vacío: {address}.",
   "this machine's address": "la dirección de esta máquina",
   "{label}?": "¿{label}?",
+  "A Homeswift user": "Un usuario de Homeswift",
+  "An MCP client": "Un cliente MCP",
 });
 
 """#),
@@ -20789,6 +20796,8 @@ HomeswiftI18n.add("fr", {
   "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "Ce qu'ouvrent un appui et les boutons d'une automatisation : l'interface web telle que votre téléphone l'atteint. Vide : {address}.",
   "this machine's address": "l'adresse de cette machine",
   "{label}?": "{label} ?",
+  "A Homeswift user": "Un utilisateur de Homeswift",
+  "An MCP client": "Un client MCP",
 });
 
 """#),
@@ -23943,6 +23952,8 @@ HomeswiftI18n.add("pt", {
   "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "O que um toque e os botões de uma automação abrem: a interface web tal como o seu telemóvel a alcança. Vazio: {address}.",
   "this machine's address": "o endereço desta máquina",
   "{label}?": "{label}?",
+  "A Homeswift user": "Um utilizador do Homeswift",
+  "An MCP client": "Um cliente MCP",
 });
 
 """#),
@@ -32334,7 +32345,8 @@ self.addEventListener("push", (event) => {
 });
 
 /// A path on this origin only: "//host" and "/\host" would leave it.
-const local = (path) => new URL(/^\/(?![/\\])/.test(path || "") ? path : "/", self.location.origin).href;
+// No control character either: a URL parser drops a tab, so "/\t/host" would read as "//host".
+const local = (path) => new URL(/^\/(?![/\\])/.test(path || "") && !/[\u0000-\u001f\u007f]/.test(path) ? path : "/", self.location.origin).href;
 
 function open(path) {
   const target = local(path);

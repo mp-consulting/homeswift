@@ -8,7 +8,6 @@
   const { el, api } = HomeswiftCommon;
   const app = () => window.HomeswiftApp;
   const home = () => window.HomeswiftHome.editor;
-  const dateTimeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
 
   /// What the editor opens with next, instead of an empty Automation: the Assistant's draft, or a Scene to apply.
   let pending = null;
@@ -23,8 +22,7 @@
 
   async function view(main, [id] = []) {
     if (id) return editor(main, id);
-    const data = await api("/api/automations");
-    const accessories = await api("/api/accessories").catch(() => []);
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories").catch(() => [])]);
     const names = new Map(accessories.map((one) => [one.id, window.HomeswiftHome.displayName(one)]));
     const admin = app().isAdmin();
     const newButton = admin ? el("a", { class: "button primary", href: "/automations/new", actionIcon: "plus", text: t("New automation") }) : null;
@@ -57,14 +55,11 @@
       el("div", { class: "automation-draft-row" }, sentence, ask), line);
   }
 
+  /// The scenes' wording of a last run (or a skip), with what the run noted.
   function lastRun(automation) {
-    if (automation.lastSkipped && (!automation.lastRun || automation.lastSkipped.at > automation.lastRun.at)) {
-      return t("Skipped {date}: {reason}", { date: dateTimeFormat.format(new Date(automation.lastSkipped.at)), reason: HomeswiftI18n.message(automation.lastSkipped.reason) });
-    }
-    if (!automation.lastRun) return t("Never run");
-    const vars = { date: dateTimeFormat.format(new Date(automation.lastRun.at)), trigger: automation.lastRun.trigger };
-    const text = automation.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
-    return automation.lastRun.reason ? `${text} · ${HomeswiftI18n.message(automation.lastRun.reason)}` : text;
+    const text = home().lastRun(automation);
+    const shown = automation.lastSkipped && (!automation.lastRun || automation.lastSkipped.at > automation.lastRun.at);
+    return !shown && automation.lastRun?.reason ? `${text} · ${HomeswiftI18n.message(automation.lastRun.reason)}` : text;
   }
 
   function card(automation, names, admin) {
@@ -99,7 +94,8 @@
 
   async function editor(main, id) {
     const isNew = id === "new";
-    const [data, accessories, scenes] = await Promise.all([api("/api/automations"), api("/api/accessories"), api("/api/scenes").catch(() => ({ scenes: [] }))]);
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories")]);
+    const scenes = { scenes: data.scenes ?? [] };
     const fromDraft = isNew ? pending : null;
     pending = null;
     const automation = isNew ? { name: "", triggers: [{ type: "time", at: "07:00" }], conditions: [], steps: [], mode: "restart", enabled: true, ...(fromDraft ?? {}) }

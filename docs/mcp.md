@@ -362,7 +362,7 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   readings fill in before the History starts (`eveUntil`) or for a type the History lacks (`source: "eve"`).
   `get_logbook` lists what changed, newest first: state changes, targets and every write, each with its Change Source
   (`source.kind`: `homeApp` with the pairing's first characters, `user`, `mcp`, `automation`, `scene`, `device`; and
-  its `name`), the accessory's room as it is now; filtered by `room`, `accessory`, `source`, `sourceName`, `since` and
+  its `name`, which for a user or an MCP client only a token with the admin scope sees), the accessory's room as it is now; filtered by `room`, `accessory`, `source`, `sourceName`, `since` and
   `until`. Its names came from devices and clients: the answer is wrapped in `<untrusted-data>`. The changes an MCP
   client's tools make are its own in the Logbook (the web UI's chat's: its user's).
 - **Consumption** (GLOSSARY.md, "Energy"; docs/adr/0004-meters-and-consumption-history.md). `get_consumption` gives

@@ -1390,14 +1390,26 @@ public struct HomeswiftCatalog: Sendable {
 
     /// The plugins' `assistantActions`, as `<platform>_<action>` tools on a running instance. Their answers
     /// reach the client with secrets as handles of the session's vault.
+    /// A plugin action's arguments, with `instance` for a platform run in several blocks.
+    static func actionInputSchema(_ action: AssistantAction, platform: String) -> JSONValue {
+        var schema = action.inputSchema.objectValue ?? ["type": "object"]
+        var properties = schema["properties"]?.objectValue ?? [:]
+        properties["instance"] = ["type": "string", "description": .string("The block's name, when \(platform) has several")]
+        schema["properties"] = .object(properties)
+        return .object(schema)
+    }
+
+    /// The block a plugin action runs on: the one named, else the only one; nil with the running ones to choose from.
+    func actionInstance(platform: String, wanted: String?) -> (instance: PluginHost.PlatformInstance?, running: [PluginHost.PlatformInstance]) {
+        let instances = host.platforms.filter { $0.platform == platform }
+        return (wanted.map { name in instances.first { $0.name == name } } ?? (instances.count == 1 ? instances.first : nil), instances)
+    }
+
     var pluginActionTools: [MCPTool] {
         let catalog = self
         return host.registry.entries.flatMap { entry in
             entry.assistantActions.map { action in
-                var schema = action.inputSchema.objectValue ?? ["type": "object"]
-                var properties = schema["properties"]?.objectValue ?? [:]
-                properties["instance"] = ["type": "string", "description": .string("The block's name, when \(entry.platform) has several")]
-                schema["properties"] = .object(properties)
+                let schema = Self.actionInputSchema(action, platform: entry.platform)
                 let scope: Scope = switch action.access {
                 case .read: .read
                 case .control: .control
@@ -1405,11 +1417,10 @@ public struct HomeswiftCatalog: Sendable {
                 }
                 return MCPTool(
                     name: Self.actionToolName(platform: entry.platform, action: action.name), title: action.title, description: "\(entry.name): \(action.description)",
-                    inputSchema: .object(schema), scope: scope, readOnly: action.access == .read, destructive: action.confirm
+                    inputSchema: schema, scope: scope, readOnly: action.access == .read, destructive: action.confirm
                 ) { call in
-                    let instances = catalog.host.platforms.filter { $0.platform == entry.platform }
-                    let wanted = call.optionalString("instance")
-                    guard let instance = wanted.map({ name in instances.first { $0.name == name } }) ?? (instances.count == 1 ? instances.first : nil) else {
+                    let (found, instances) = catalog.actionInstance(platform: entry.platform, wanted: call.optionalString("instance"))
+                    guard let instance = found else {
                         return .error(instances.isEmpty
                             ? "No \(entry.name) block is running: add one first (patch_config with platform \(entry.platform))."
                             : "Say which instance: \(instances.map(\.name).joined(separator: ", ")).")

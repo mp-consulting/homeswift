@@ -54,6 +54,8 @@ public enum AutomationMode: String, Codable, Sendable {
 public struct AutomationStepResult: Codable, Sendable, Equatable {
     public var step: Int
     public var ok: Bool
+    /// Left out: a lock, a garage door or an alarm, which automations never set.
+    public var skipped: Bool?
     /// What it did or why not: skipped, timed out, an error.
     public var note: String?
 }
@@ -260,12 +262,8 @@ extension HomeswiftCatalog {
         var tools: [String: AssistantToolInfo] = [:]
         for entry in host.registry.entries {
             for action in entry.assistantActions where !action.confirm && action.access != .configure {
-                var schema = action.inputSchema.objectValue ?? ["type": "object"]
-                var properties = schema["properties"]?.objectValue ?? [:]
-                properties["instance"] = ["type": "string", "description": .string("The block's name, when \(entry.platform) has several")]
-                schema["properties"] = .object(properties)
                 let name = Self.actionToolName(platform: entry.platform, action: action.name)
-                tools[name] = AssistantToolInfo(name: name, platform: entry.platform, pluginName: entry.name, action: action, inputSchema: .object(schema))
+                tools[name] = AssistantToolInfo(name: name, platform: entry.platform, pluginName: entry.name, action: action, inputSchema: Self.actionInputSchema(action, platform: entry.platform))
             }
         }
         return tools
@@ -344,6 +342,7 @@ extension HomeswiftCatalog {
         let tools = automationTools
         let id = body["id"]?.stringValue?.nonEmpty
         let existing = id.flatMap { id in home.automations.value.automations.first { $0.id == id } }
+        if let id, existing == nil { throw CatalogError("No automation \(id): leave id out to make a new one", notFound: true) }
         let automation = try AutomationRules.automation(from: body, id: existing?.id ?? SceneRules.newID(), existing: existing, tools: tools)
         if dryRun { return ["dryRun": true, "automation": automationJSON(automation)] }
         try home.automations.update { file in
@@ -354,7 +353,7 @@ extension HomeswiftCatalog {
                 file.automations.append(automation)
             }
         }
-        automationsChanged()
+        automationsChanged(automation.id)
         return automationJSON(automation)
     }
 
@@ -362,7 +361,7 @@ extension HomeswiftCatalog {
         let found = try automation(reference)
         try home.automations.update { $0.automations.removeAll { $0.id == found.id } }
         cancelAutomation(found.id)
-        automationsChanged()
+        automationsChanged(found.id)
         return ["deleted": .string(found.id), "name": .string(found.name)]
     }
 
@@ -373,16 +372,19 @@ extension HomeswiftCatalog {
             file.automations[index].enabled = on ? nil : false
         }
         if !on { cancelAutomation(id) }
-        automationsChanged()
+        automationsChanged(id)
     }
 
-    /// After a change: the watched values, the stays timers and the switches follow.
-    func automationsChanged() {
+    /// After a change to one Automation: the watched values, its stays timers (the others count on) and the switches follow.
+    func automationsChanged(_ id: String) {
         seedWatchedValues()
         home.staysTimers.withLockedValue { timers in
-            for timer in timers.values { timer.cancel() }
-            timers = [:]
+            for (key, timer) in timers where key.hasPrefix("\(id)|") {
+                timer.cancel()
+                timers.removeValue(forKey: key)
+            }
         }
+        seedStaysTimers()
         syncSceneSwitches()
     }
 
@@ -439,7 +441,7 @@ extension HomeswiftCatalog {
             guard automation.isEnabled else { return nil }
             if let reason = conditionsFail(automation.conditions) {
                 logger.info("Automation \"\(automation.name)\" not run (\(trigger)): \(reason)")
-                recordAutomation(automation.id) { $0.lastSkipped = AutomationRunRecord(at: SceneRules.now(), ok: true, trigger: trigger, reason: reason) }
+                noteSkip(automation, trigger: trigger, reason: reason)
                 return nil
             }
         }
@@ -458,11 +460,10 @@ extension HomeswiftCatalog {
         }
         guard started else {
             task.cancel()
-            recordAutomation(automation.id) { $0.lastSkipped = AutomationRunRecord(at: SceneRules.now(), ok: true, trigger: trigger, reason: "already running (single mode)") }
+            noteSkip(automation, trigger: trigger, reason: "already running (single mode)")
             return nil
         }
         logger.info("Running automation \"\(automation.name)\" (\(trigger))")
-        refreshSceneSwitches()
         return task
     }
 
@@ -477,18 +478,18 @@ extension HomeswiftCatalog {
         var results: [AutomationStepResult] = []
         // Cancelled by a restart: the run that replaced it records its own.
         defer {
-            let mine = home.automationRuns.withLockedValue { runs -> Bool in
-                guard runs[automation.id]?.run == run else { return false }
-                runs.removeValue(forKey: automation.id)
-                return true
+            home.automationRuns.withLockedValue { runs in
+                if runs[automation.id]?.run == run { runs.removeValue(forKey: automation.id) }
             }
-            if mine { refreshSceneSwitches() }
         }
         for (index, step) in automation.steps.enumerated() {
             if Task.isCancelled { break }
             var result = AutomationStepResult(step: index + 1, ok: true)
             do {
-                result.note = try await perform(step, of: automation)
+                // Stamped again for each Step: a Step after a long wait is still the Automation's in the Logbook.
+                let done = try await ChangeSource.automation(automation.name).run { try await perform(step, of: automation) }
+                result.note = done.note
+                result.skipped = done.skipped ? true : nil
             } catch is CancellationError {
                 break
             } catch {
@@ -499,7 +500,7 @@ extension HomeswiftCatalog {
         }
         if Task.isCancelled, home.automationRuns.withLockedValue({ $0[automation.id]?.run != run }) { return }
         let ok = results.allSatisfy(\.ok)
-        let skipped = results.filter { $0.note?.contains("automations do not change them") == true }.count
+        let skipped = results.filter { $0.skipped == true }.count
         recordAutomation(automation.id) {
             $0.lastRun = AutomationRunRecord(at: SceneRules.now(), ok: ok, trigger: trigger, reason: skipped > 0 ? "\(skipped) step(s) on a lock, door or alarm not run" : nil, steps: results)
         }
@@ -510,38 +511,39 @@ extension HomeswiftCatalog {
     }
 
     /// Does one Step; answers what to note in the run (nil when there is nothing to say).
-    private func perform(_ step: AutomationStep, of automation: Automation) async throws -> String? {
+    private func perform(_ step: AutomationStep, of automation: Automation) async throws -> (note: String?, skipped: Bool) {
         let scale = automationTimeScale
         switch step.type {
         case "scene":
             guard let id = step.scene, let scene = home.scenes.value.scenes.first(where: { $0.id == id }) else { throw CatalogError("the scene is gone") }
             let answer = try await run(scene, trigger: .automation, allowSecurity: false)
             if answer["ok"] == false { throw CatalogError("some of \(scene.name)'s actions failed") }
-            return answer["note"]?.stringValue.map { _ in "\(scene.name): its locks, doors and alarms were left out: automations do not change them" }
+            let held = answer["note"] != nil
+            return (held ? "\(scene.name): its locks, doors and alarms were left out: automations do not change them" : nil, held)
         case "set":
             guard let found = find(id: step.id ?? "") else { throw CatalogError("the accessory is gone") }
             let target = try characteristic(in: found, service: step.service, characteristic: step.characteristic ?? "")
-            if target.isSecurityControl { return "\(found.accessory.name) \(target.type.name): a lock, door or alarm: automations do not change them" }
+            if target.isSecurityControl { return ("\(found.accessory.name) \(target.type.name): a lock, door or alarm: automations do not change them", true) }
             _ = try await write(found, service: step.service, characteristic: step.characteristic ?? "", value: step.value ?? .null, allowSecurity: false)
-            return nil
+            return (nil, false)
         case "wait":
             try await Task.sleep(for: .seconds((step.seconds ?? 0) * scale))
-            return nil
+            return (nil, false)
         case "waitUntil":
             let deadline = ContinuousClock.now + .seconds((step.seconds ?? 3600) * scale)
+            // The characteristic is a live reference: found once, read each second.
+            guard let found = find(id: step.id ?? "") else { throw CatalogError("the accessory is gone") }
+            let target = try characteristic(in: found, service: step.service, characteristic: step.characteristic ?? "")
             while ContinuousClock.now < deadline {
-                if let found = find(id: step.id ?? ""), let target = try? characteristic(in: found, service: step.service, characteristic: step.characteristic ?? ""),
-                   SceneRules.compare(Self.json(target.value), step.operator ?? "eq", step.value) {
-                    return nil
-                }
+                if SceneRules.compare(Self.json(target.value), step.operator ?? "eq", step.value) { return (nil, false) }
                 try await Task.sleep(for: .seconds(min(1, max(0.01, scale))))
             }
-            return "timed out: went on"
+            return ("timed out: went on", false)
         case "notify":
             let sent = await notifyWithButtons(step.buttons ?? [], title: step.title ?? automation.name, message: step.message ?? "", automation: automation)
-            return sent == nil ? "no notification channel is on, or the limit was reached" : nil
+            return (sent == nil ? "no notification channel is on, or the limit was reached" : nil, false)
         case "tool":
-            return try await callPluginAction(step.tool ?? "", arguments: step.arguments ?? [:], by: automation.name)
+            return (try await callPluginAction(step.tool ?? "", arguments: step.arguments ?? [:], by: automation.name), false)
         default:
             throw CatalogError("unknown step \(step.type)")
         }
@@ -550,17 +552,34 @@ extension HomeswiftCatalog {
     /// Calls a plugin's action as its MCP tool does, for an Automation.
     func callPluginAction(_ name: String, arguments: JSONValue, by automation: String) async throws -> String? {
         guard let tool = automationTools[name] else { throw CatalogError("\(name) is gone, or needs a person's confirmation") }
-        let instances = host.platforms.filter { $0.platform == tool.platform }
-        let wanted = arguments["instance"]?.stringValue
-        guard let instance = wanted.map({ name in instances.first { $0.name == name } }) ?? (instances.count == 1 ? instances.first : nil) else {
+        let (found, instances) = actionInstance(platform: tool.platform, wanted: arguments["instance"]?.stringValue)
+        guard let instance = found else {
             throw CatalogError(instances.isEmpty ? "no \(tool.pluginName) block is running" : "say which instance: \(instances.map(\.name).joined(separator: ", "))")
         }
         var bare = arguments.objectValue ?? [:]
         bare.removeValue(forKey: "instance")
         let request = tool.action.request(arguments: .object(bare), user: "automation \(automation)")
-        guard let response = try await host.handleWebRequest(platform: tool.platform, name: instance.name, request) else { throw CatalogError("\(instance.name) is not running") }
+        var sent: PluginWebResponse?
+        let send = { () async throws -> Bool in
+            sent = try await self.host.handleWebRequest(platform: tool.platform, name: instance.name, request)
+            return (sent?.status ?? 500) < 400
+        }
+        // A scene recalled on the plugin's own hub: what its lights were is kept, as after any scene, for stop_scene.
+        if tool.action.changesLights {
+            _ = try await holdLightChanges("\(tool.pluginName): \(tool.action.title)", id: Self.showID(of: "action-" + SceneRules.newID()), platform: instance, by: "automation \(automation)", during: send)
+        } else {
+            _ = try await send()
+        }
+        guard let response = sent else { throw CatalogError("\(instance.name) is not running") }
         guard response.status < 400 else { throw CatalogError(response.json["error"]?.stringValue ?? "HTTP \(response.status)") }
         return nil
+    }
+
+    /// Why a trigger's run did not go ahead: written when the reason changes, else at most once a minute, so a flapping
+    /// sensor does not rewrite automations.json at each change.
+    func noteSkip(_ automation: Automation, trigger: String, reason: String) {
+        if let last = automation.lastSkipped, last.reason == reason, let at = ISO8601DateFormatter().date(from: last.at), Date().timeIntervalSince(at) < 60 { return }
+        recordAutomation(automation.id) { $0.lastSkipped = AutomationRunRecord(at: SceneRules.now(), ok: true, trigger: trigger, reason: reason) }
     }
 
     func recordAutomation(_ id: String, _ change: (inout Automation) -> Void) {

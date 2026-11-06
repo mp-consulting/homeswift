@@ -95,6 +95,8 @@ extension UIServer {
             var answer = catalog.automationsJSON().objectValue ?? [:]
             answer["tools"] = catalog.automationToolsJSON()["tools"]
             answer["assistant"] = .bool(catalog.host.assistant != nil)
+            // The editor's scenes: Homeswift's own, without asking every hub for its own.
+            answer["scenes"] = .array(catalog.home.scenes.value.scenes.map { ["id": .string($0.id), "name": .string($0.name)] })
             return .json(.object(answer))
         case (.POST, ["automations", "draft"]):
             guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }

@@ -3148,4 +3148,6 @@ HomeswiftI18n.add("fr", {
   "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "Ce qu'ouvrent un appui et les boutons d'une automatisation : l'interface web telle que votre téléphone l'atteint. Vide : {address}.",
   "this machine's address": "l'adresse de cette machine",
   "{label}?": "{label} ?",
+  "A Homeswift user": "Un utilisateur de Homeswift",
+  "An MCP client": "Un client MCP",
 });

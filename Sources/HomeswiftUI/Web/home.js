@@ -1339,9 +1339,14 @@
         const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
         operator.value = shown.operator || "eq";
         const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
-        const minutes = el("input", { type: "number", min: 1, max: 1440, step: 1, value: Math.max(1, Math.round((shown.forSeconds ?? 300) / 60)), "aria-label": t("Minutes") });
-        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("For (minutes)"), minutes));
-        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), forSeconds: Math.max(1, Math.round(Number(minutes.value) || 1)) * 60 });
+        // The duration in the unit it was saved in: 90 seconds stays 90 seconds.
+        const seconds = shown.forSeconds ?? 300;
+        const size = seconds % 3600 === 0 ? 3600 : seconds % 60 === 0 ? 60 : 1;
+        const amount = el("input", { type: "number", min: 1, max: 86400, step: 1, value: seconds / size, "aria-label": t("For") });
+        const unit = el("select", { "aria-label": t("Unit") }, el("option", { value: 1, text: t("seconds") }), el("option", { value: 60, text: t("minutes") }), el("option", { value: 3600, text: t("hours") }));
+        unit.value = String(size);
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("For"), amount), field(t("Unit"), unit));
+        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), forSeconds: Math.min(86400, Math.max(1, Math.round(Number(amount.value) || 1)) * Number(unit.value)) });
       } else if (shown.type === "threshold") {
         const pick = {};
         const numeric = (accessory) => readable(accessory).filter((c) => ["float", "int", "uint8", "uint16", "uint32", "uint64"].includes(c.format) && !c.validValues);
@@ -1910,6 +1915,6 @@
     },
     layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
     /// For the Automations page (automations.js): its triggers, conditions and the pickers they are made of.
-    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, valueInput, readable, writable, operators, field, rowShell, describeTrigger, describeSeconds, triggerIcons, statusLine: () => statusLine(), say: (...args) => say(...args) },
+    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
   };
 })();

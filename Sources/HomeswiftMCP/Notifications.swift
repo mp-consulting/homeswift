@@ -539,6 +539,8 @@ extension HomeswiftCatalog {
         let key = "\(event.rawValue):\(subject)"
         let allowed = home.dispatch.withLockedValue { state -> Bool in
             if let last = state.lastSent[key], now.timeIntervalSince(last) < NotificationRules.cooldown { return false }
+            // Past their cooldown, the keys are forgotten: an Automation's message has a new one each time.
+            state.lastSent = state.lastSent.filter { now.timeIntervalSince($0.value) < NotificationRules.cooldown }
             state.sent = state.sent.filter { now.timeIntervalSince($0) < 3600 }
             guard state.sent.count < NotificationRules.maxPerHour else { return false }
             state.lastSent[key] = now

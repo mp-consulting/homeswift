@@ -288,7 +288,9 @@ config.json, owner-only:
   an MCP client (by the name it gave), an Automation or a Scene (by name), or the device itself (changed at the device,
   by its hub, or by its plugin). Numeric readings (a temperature, a power) are left out: the History has them. Filter
   by room, accessory, Change Source and time; the filters are the address's (`/logbook?room=Kitchen&source=homeApp`).
-  It is kept as long as the History's changes.
+  It is kept as long as the History's changes. Which user or MCP client made a change is shown to administrators;
+  others see "a Homeswift user" or "an MCP client". An accessory answering No Response holds no value: its hourly
+  figures stop until it reports again.
 
 ![An accessory's History tab: a line per number, a band per state](images/ui/history.png)
 
