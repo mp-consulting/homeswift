@@ -11,6 +11,10 @@ All notable changes to this project are documented here. The format follows
 - Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
   values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
   Step applies it. A Scene saved with `triggers` or `conditions` is refused.
+- The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
+  (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
+  `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
+  The location an older `scenes.json` kept moves there at startup.
 
 ### Added
 
@@ -31,13 +35,6 @@ All notable changes to this project are documented here. The format follows
   Change Source.
 - MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
   goes further back.
-
-### Changed
-
-- The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
-  (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
-  `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
-  The location an older `scenes.json` kept moves there at startup.
 
 ### Fixed
 
