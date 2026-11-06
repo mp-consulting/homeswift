@@ -1110,6 +1110,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
+    // A tap beside it closes it too (on a phone, Done may be below the fold until the history is scrolled).
+    dialog.addEventListener("click", (event) => {
+      const box = dialog.getBoundingClientRect();
+      if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) dialog.close();
+    });
     dialog.addEventListener("close", () => dialog.remove());
     document.body.append(dialog);
     dialog.showModal();
@@ -4287,7 +4292,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }, 300);
     };
 
-    const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
+    const groupingControls = HomeswiftGroups.mount({ all, layout, rooms, sizeChoices: (group) => sizeChoices(group),
+      // A paused plugin's members do nothing until it runs again: Resume, once per plugin, as on one of them.
+      resumeChoices: (members) => !isAdmin() ? [] : [...new Map(members.filter((a) => a.paused).map((a) => [`${a.platform}/${a.platformName}`, a])).values()]
+        .map((a) => ({ label: t("Resume {name}", { name: a.platformName }), icon: "play", onSelect: async () => {
+          try { await setPaused(a.platform, a.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        } })),
       setGroupRoom: isAdmin() ? async (ids, room) => {
         // A plugin's accessories only (another kind has no Accessory Settings); none is "" for a mirrored one, so it
         // leaves the room its controller suggests.
@@ -4301,11 +4311,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
+    /// The ⋯ menu's sizes for a widget (an accessory's, a group's).
+    const sizeChoices = (accessory) => {
+      const size = sizeOf(accessory);
+      return { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
+        badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) };
+    };
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
       return accessoryActions(accessory, [
-        { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
-          badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) },
+        sizeChoices(accessory),
         { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "grid", onSelect: () => resizeKind(kind, size) },
       ]);
     };
@@ -4561,7 +4576,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
       let groupTarget = null;
-      const touchDrag = event.pointerType === "touch" || matchMedia("(max-width: 640px)").matches;
+      // A pending reorder over the edge of a tile it could group with (below).
+      let reorderTimer = null;
+      const cancelReorder = () => { clearTimeout(reorderTimer); reorderTimer = null; };
       const clearGroupTarget = () => {
         groupTarget?.classList.remove("group-drop-target");
         groupTarget?.removeAttribute("data-drop-label");
@@ -4598,23 +4615,43 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           wall.append(slot);
           slide(left, () => arrange(left), node);
         }
-        const under = stack
-          .map((element) => element.closest(".wall > .widget"))
-          .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
-        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); placeSlot(); return; }
+        // By the boxes, not what the page reports under the pointer (the lifted widget is over them).
+        const within = (candidate, reach = 0) => {
+          const box = candidate.getBoundingClientRect();
+          return pointer.clientX > box.left - reach && pointer.clientX < box.right + reach && pointer.clientY > box.top - reach && pointer.clientY < box.bottom + reach;
+        };
+        const overSlot = slot.parentElement === wall && within(slot);
+        // Over a tile, or in the gap beside it, its edge: moving the slot from there would push the tile the pointer is
+        // heading for out of the way (the slot follows the widget's corner, which reaches the next cell first).
+        const tiles = overSlot ? [] : [...wall.children].filter((candidate) => candidate !== node && candidate !== slot && candidate.classList.contains("widget"));
+        const under = tiles.find((candidate) => within(candidate)) ?? tiles.find((candidate) => within(candidate, 16));
+        if (!under || under === slot || under.parentElement !== wall) {
+          cancelReorder(); clearGroupTarget();
+          // Over its own slot the wall stays as it is: the slot follows the widget's corner, and moving it there would
+          // push the tile the pointer is heading for (to group with it) out of the way before the pointer reaches it.
+          if (!overSlot) placeSlot();
+          return;
+        }
         const box = under.getBoundingClientRect();
-        // On compact/touch layouts leave only a narrow edge for reordering. Otherwise a
-        // small tile moves away before the finger can reach its old central drop zone.
-        const insetX = touchDrag ? Math.min(8, box.width * .08) : box.width * .2;
-        const insetY = touchDrag ? Math.min(6, box.height * .08) : box.height * .15;
+        // The middle half of a tile groups; the band around it reorders once the pointer rests there (below).
+        const insetX = box.width * .25, insetY = box.height * .25;
         const center = pointer.clientX > box.left + insetX && pointer.clientX < box.right - insetX && pointer.clientY > box.top + insetY && pointer.clientY < box.bottom - insetY;
-        if (center && groupingControls.canJoin(node.dataset.id, under.dataset.id)) {
+        const joinable = groupingControls.canJoin(node.dataset.id, under.dataset.id);
+        if (center && joinable) {
+          cancelReorder();
           if (groupTarget !== under) { clearGroupTarget(); groupTarget = under; }
           under.classList.add("group-drop-target");
           under.dataset.dropLabel = t("Release to group");
           return;
         }
         clearGroupTarget();
+        // On the edge of a tile it could group with, the wall reorders only once the pointer rests there: crossing the
+        // edge on the way to the centre would otherwise slide the tile away from under it.
+        if (joinable) {
+          reorderTimer ??= setTimeout(() => { reorderTimer = null; placeSlot(); }, 300);
+          return;
+        }
+        cancelReorder();
         placeSlot();
       };
       /// The slot on the cell under the widget's top-left corner.
@@ -4655,6 +4692,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
         if (ended.type === "pointerup" && slot) { pointer = ended; hover(); }
+        // Let go on an edge before the reorder came: it happens now, as resting there would have made it.
+        if (reorderTimer) { cancelReorder(); if (ended.type === "pointerup" && slot?.isConnected) placeSlot(); }
         const joinTarget = ended.type === "pointerup" && groupTarget ? groupTarget.dataset.id : null;
         clearGroupTarget();
         if (!slot || !slot.isConnected) return;
@@ -11396,7 +11435,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     return -1;
   }
-  function mount({ all, layout, persist, refresh, moveToRoom, rooms = [], setGroupRoom }) {
+  function mount({ all, layout, persist, refresh, moveToRoom, rooms = [], setGroupRoom, sizeChoices, resumeChoices }) {
     layout.groups ||= [];
     const byID = new Map(all.map((a) => [a.id, a]));
     const members = (id) => layout.groups.find((g) => g.id === id)?.members || [id];
@@ -11507,10 +11546,84 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
     }
     const cards = new Set();
+    // The service type every shared control of the members sits on (a light's Lightbulb), else null: the members then
+    // differ too much to look like one of them.
+    function mergedKind(present) {
+      const kinds = new Set(present.flatMap((a) => shared(present).map((type) => {
+        const key = controls(a).get(type).service;
+        return groupable(a).find((s) => (s.subtype || s.type) === key)?.type;
+      })));
+      return present.length && kinds.size === 1 ? [...kinds][0] : null;
+    }
+    const isOn = (c) => Number(c?.value) > 0;
+    /// A group whose members are alike (lights, switches) as one of them: the same widget, its controls those the
+    /// members share and within the range they all take, its state theirs (on when one is; the values of the first
+    /// that is on), and a change sent to each of them.
+    function mergedCard(group, people, present, kind) {
+      const types = shared(present);
+      const power = types.find((type) => type === 'On' || type === 'Active');
+      const characteristics = types.map((type) => {
+        const each = present.map((a) => controls(a).get(type).c);
+        const one = { ...each[0], permissions: [...new Set(each.flatMap((c) => c.permissions || []))].filter((p) => each.every((c) => c.permissions?.includes(p))) };
+        const mins = each.map((c) => c.minValue).filter((v) => v != null), maxes = each.map((c) => c.maxValue).filter((v) => v != null);
+        if (mins.length) one.minValue = Math.max(...mins);
+        if (maxes.length) one.maxValue = Math.min(...maxes);
+        const steps = each.map((c) => c.minStep).filter((v) => v != null);
+        if (steps.length) one.minStep = Math.max(...steps);
+        return one;
+      });
+      const service = { type: kind, characteristics };
+      const merged = { id: group.id, name: group.name, displayName: group.name, members: group.members, category: present[0].category, services: [service] };
+      // The members' state on the merged one: on when one is; every other value from the first member that is on.
+      const follow = () => {
+        const lit = present.find((a) => !power || isOn(controls(a).get(power).c)) || present[0];
+        for (const c of characteristics) {
+          c.value = c.type === power
+            ? (present.some((a) => isOn(controls(a).get(power).c)) ? (c.format === 'bool' ? true : 1) : (c.format === 'bool' ? false : 0))
+            : controls(lit).get(c.type).c.value;
+        }
+        merged.paused = present.every((a) => a.paused);
+        merged.unavailable = !merged.paused && present.every((a) => a.unavailable || a.paused);
+      };
+      follow();
+      const views = new Set();
+      const write = async (_, characteristic, value) => {
+        const outcomes = await Promise.allSettled(present.map((a) => {
+          const target = controls(a).get(characteristic.type);
+          return api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: target.service, characteristic: characteristic.type, value } })
+            .then(() => { target.c.value = value; });
+        }));
+        const failed = present.filter((_, i) => outcomes[i].status === 'rejected');
+        if (failed.length) throw new Error(t('Could not update: {names}', { names: failed.map((a) => a.displayName || a.name).join(', ') }));
+      };
+      const draw = () => {
+        follow();
+        for (const ctx of views) {
+          if (ctx.node && !ctx.node.isConnected && Date.now() - ctx.born > 2000) views.delete(ctx); else ctx.paint();
+        }
+      };
+      const actions = () => [
+        ...((resume) => resume.length ? [...resume, { separator: true }] : [])(resumeChoices?.(present) ?? []),
+        ...(sizeChoices ? [sizeChoices(group), { separator: true }] : []),
+        ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: () => moveToRoom(group).catch((error) => HomeswiftCommon.showAlert(error.message)) }] : []),
+        { label: t('Edit group'), icon: 'edit', onSelect: () => edit([], group) },
+        { label: t('Ungroup'), icon: 'ungroup', onSelect: async () => {
+          const before = layout.groups; layout.groups = before.filter((g) => g !== group);
+          try { await persist(); refresh(); } catch (error) { layout.groups = before; HomeswiftCommon.showAlert(error.message); }
+        } },
+      ];
+      const node = HomeswiftWidgets.card(merged, { size: layout.sizes?.[group.id] || 'large', actions, group: { write, attach: (ctx) => views.add(ctx) } });
+      node.classList.add('accessory-group', 'merged');
+      node.dataset.search = [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase();
+      cards.add({ node, draw, members: new Set(group.members) });
+      return node;
+    }
     function card(group, editing) {
       const people = group.members.map((id) => byID.get(id));
       // A member that is gone (its plugin removed or not loaded) leaves the others controllable.
       const present = people.filter(Boolean);
+      const kind = mergedKind(present);
+      if (kind) return mergedCard(group, people, present, kind);
       const memberTypes = people.map((accessory) => accessory ? deviceType(accessory) : null);
       const matchingType = memberTypes[0]?.[0] && memberTypes.every((type) => type?.[0] === memberTypes[0][0]);
       const groupIcon = matchingType ? memberTypes[0][1] : 'group';
@@ -28912,7 +29025,7 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
-.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
 /* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
 .admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
 .admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
@@ -29597,7 +29710,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; }
 
 /* Accessory groups and their member picker. */
-.accessory-group { padding: var(--space-16); overflow: auto; min-height: 200px; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.accessory-group:not(.merged) { padding: var(--space-16); overflow: auto; min-height: 200px; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .accessory-group .server-head .who { min-width: 0; }
 .accessory-group .group-controls { display: grid; gap: var(--space-10); margin-top: var(--space-16); }
 .group-controls label { display: flex; align-items: center; gap: var(--space-10); font-size: var(--text-sm); }
@@ -31356,8 +31469,10 @@ self.addEventListener("notificationclick", (event) => {
     };
     /// A write with no value to keep (a remote's key): its failure is the caller's to show.
     ctx.send = (service, characteristic, value) => put(service, characteristic, value);
-    const put = (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
-      method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
+    // A group's merged accessory (groups.js) writes to each of its members instead.
+    const put = options.group ? (service, characteristic, value) => options.group.write(service, characteristic, value)
+      : (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
+        method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
     ctx.flashing = null;
     ctx.flash = (text) => {
       clearTimeout(ctx.flashTimer);
@@ -31365,6 +31480,8 @@ self.addEventListener("notificationclick", (event) => {
       ctx.paint();
       ctx.flashTimer = setTimeout(() => { ctx.flashing = null; ctx.paint(); }, 5000);
     };
+    // A group repaints its cards when a member changes.
+    options.group?.attach(ctx);
     return ctx;
   }
 
@@ -31419,7 +31536,8 @@ self.addEventListener("notificationclick", (event) => {
     sweep();
     const byID = new Map(accessories.map(a => [a.id, a]));
     for (const ctx of cards) {
-      if (!ctx.node?.isConnected) continue;
+      // A group's merged accessory is not on the bridge: groups.js follows its members.
+      if (!ctx.node?.isConnected || ctx.options?.group) continue;
       reconcileAccessory(ctx.accessory, byID.get(ctx.accessory.id));
       ctx.paint();
     }

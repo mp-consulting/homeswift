@@ -44,7 +44,8 @@ for (const language of ['fr', 'es', 'pt']) {
   vm.createContext(rendering);
   vm.runInContext(readFileSync(`Sources/HomeswiftUI/Web/i18n-${language}.js`,'utf8'),rendering);
   vm.runInContext(readFileSync('Sources/HomeswiftUI/Web/groups.js','utf8'),rendering);
-  const devices=['one','two'].map(id=>({id,name:id,...accessory('Lightbulb',['On','Brightness','Color Temperature'])}));
+  // Members of two kinds keep the group's own form (alike ones are drawn as one of them, below).
+  const devices=[['one','Lightbulb'],['two','Switch']].map(([id,type])=>({id,name:id,...accessory(type,['On','Brightness','Color Temperature'])}));
   const group={id:'group:test',name:'Lights',members:['one','two']};
   rendering.window.HomeswiftGroups.mount({all:devices,layout:{groups:[group]},persist(){},refresh(){}}).card(group,false);
   for (const key of ['Brightness','Color Temperature']) {
@@ -54,6 +55,36 @@ for (const language of ['fr', 'es', 'pt']) {
   }
 }
 console.log('Passed: French, Spanish and Portuguese group-control labels and accessible names.');
+
+// Alike members (two lights) are drawn as one light by the widgets: the controls they share, within the range they
+// all take, on when one is, and a change sent to each.
+{
+  const requests = [];
+  let drawn;
+  const merging = { window: {}, document: { activeElement: null }, HomeswiftI18n: { t: (key, values) => key.replace('{names}', values?.names ?? ''), message: (key) => key },
+    HomeswiftCommon: { el: () => ({}), tile: () => ({}), menuButton: () => null,
+      api: async (path, options) => { requests.push({ path, ...options }); if (path.includes('two') && options.body.characteristic === 'Hue') throw new Error('offline'); } },
+    HomeswiftWidgets: { card: (merged, options) => { drawn = { merged, options }; return { classList: { add() {} }, dataset: {} }; } } };
+  vm.runInNewContext(readFileSync('Sources/HomeswiftUI/Web/groups.js', 'utf8'), merging);
+  const lamp = (id, on, hue, max) => ({ id, name: id, category: 5, services: [{ type: 'Lightbulb', characteristics: [
+    { type: 'On', format: 'bool', value: on, permissions: ['pr', 'pw'], group: true },
+    { type: 'Brightness', value: 50, minValue: 0, maxValue: max, permissions: ['pr', 'pw'], group: true },
+    { type: 'Hue', value: hue, minValue: 0, maxValue: 360, permissions: ['pr', 'pw'], group: true }] }] });
+  const lamps = [lamp('one', false, 10, 100), lamp('two', true, 200, 80)];
+  const group = { id: 'group:lamps', name: 'Lamps', members: ['one', 'two'] };
+  merging.window.HomeswiftGroups.mount({ all: lamps, layout: { groups: [group] }, persist() {}, refresh() {} }).card(group, false);
+  const [service] = drawn.merged.services;
+  assert.equal(service.type, 'Lightbulb');
+  const char = (type) => service.characteristics.find((c) => c.type === type);
+  assert.equal(char('On').value, true);
+  assert.equal(char('Hue').value, 200, 'the first member that is on');
+  assert.equal(char('Brightness').maxValue, 80, 'the range every member takes');
+  await drawn.options.group.write(service, char('Brightness'), 30);
+  assert.deepEqual(requests.map((r) => [r.path, r.body.characteristic, r.body.value]), [['/api/accessories/one', 'Brightness', 30], ['/api/accessories/two', 'Brightness', 30]]);
+  await assert.rejects(drawn.options.group.write(service, char('Hue'), 90), /two/);
+  assert.equal(lamps[0].services[0].characteristics[2].value, 90);
+}
+console.log('Passed: alike members drawn as one accessory, their shared range, and writes sent to each.');
 
 // Groups must follow their lights rather than jump to the first room/plugin wall.
 const { sectionIndex } = context.window.HomeswiftGroups;
