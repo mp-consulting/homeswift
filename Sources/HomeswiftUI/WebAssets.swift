@@ -8359,7 +8359,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
   /// of it. With `latest`, the legend writes each series' last value beside its name (a battery's level), so the
   /// chart needs no separate line of them. Returns `update(points, from, to, step)`.
-  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false }) {
+  /// With `fit`, the axis spans the values (a room's 19 to 22 °C) rather than starting at zero.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false, fit = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -8393,7 +8394,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
       // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
       let top = niceMax(highest, unit(highest)), bottom = 0, ticks = [0, 1, 2, 3, 4].map((i) => top / 4 * i);
-      if (lowest < 0) {
+      const fitted = values.length ? [Math.min(...values), Math.max(...values)] : null;
+      if (fit && fitted) {
+        const [low, high] = fitted;
+        const span = Math.max(high - low, Math.abs(high) * 0.02, unit(Math.abs(high)) || 1);
+        const step = niceStep(span / 4, unit(span));
+        bottom = Math.floor(low / step) * step;
+        top = Math.max(bottom + step, Math.ceil(high / step) * step);
+        ticks = [];
+        for (let value = bottom; value <= top + step / 2; value += step) ticks.push(Math.round(value / step) * step);
+      } else if (lowest < 0) {
         const size = Math.max(highest, -lowest);
         const step = niceStep((highest - lowest) / 4, unit(size));
         top = Math.max(step, Math.ceil(highest / step) * step);
@@ -8439,7 +8449,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const run of runs(one)) {
           const line = run.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
           if (series.length === 1 && run.length > 1) {
-            const base = y(0).toFixed(1);
+            const base = y(Math.max(bottom, Math.min(0, top))).toFixed(1);
             root.append(svg("path", { d: `${line}L${run.at(-1)[0].toFixed(1)},${base}L${run[0][0].toFixed(1)},${base}Z`, class: `area tone-${one.tone}` }));
           }
           root.append(svg("path", { d: line, class: `line tone-${one.tone}` }));
@@ -11820,8 +11830,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const name = HomeswiftWidgets.characteristicName(series.characteristic);
     return series.service && series.service !== accessory.name && !accessory.name.endsWith(series.service) && !accessory.name.startsWith(series.service) ? `${name} · ${series.service}` : name;
   };
-  /// The colour slot of a state: by its place among the values it may take (false before true).
+  /// The colour slot of a state: by its place among the values it may take; off, false or an enumeration's first (Off,
+  /// Inactive, Unsecured is not first) in a neutral grey, as a switch that is off.
   const toneOf = (series, value) => {
+    if (value === false) return "off";
+    // A number's first value when it reads as off (Off, Inactive, Idle), as a switch that is off.
+    if (value === 0 && [t("Off"), t("Off [setting]"), t("Inactive"), t("Idle")].includes(valueText(series, 0))) return "off";
     const order = typeof value === "boolean" ? Number(value) : series.validValues?.indexOf(value) ?? -1;
     if (order >= 0) return (order % 7) + 1;
     return (Math.abs([...String(value)].reduce((hash, char) => hash * 31 + char.charCodeAt(0) | 0, 7)) % 7) + 1;
@@ -11884,7 +11898,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const lowest = Math.min(...points.map((point) => point.min)), highest = Math.max(...points.map((point) => point.max));
         const [node, body] = card(series, figure, t("Lowest {min} · highest {max} · average {average}", { min: format(lowest), max: format(highest),
           average: format(points.reduce((sum, point) => sum + point.mean, 0) / points.length) }));
-        HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: series.step === "day" ? 86_400_000 : 3_600_000,
+        HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: series.step === "day" ? 86_400_000 : 3_600_000, fit: true,
           series: [{ label: t("Highest"), tone: 4, value: (point) => point.max }, { label: t("Average"), tone: 1, value: (point) => point.mean },
             { label: t("Lowest"), tone: 3, value: (point) => point.min }] });
         return node;
@@ -11902,7 +11916,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const values = points.map((point) => point.value);
       const [node, body] = card(series, figure, t("Lowest {min} · highest {max} · average {average}", { min: format(Math.min(...values)), max: format(Math.max(...values)),
         average: format(weightedMean(points)) }));
-      HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: found.to - found.from,
+      HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: found.to - found.from, fit: series.unit !== "percentage",
         series: [{ label, tone: 1, value: (point) => point.value }] });
       return node;
     }
@@ -31565,6 +31579,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .chart .timeline-span.tone-5 { fill: var(--series-5); }
 .chart .timeline-span.tone-6 { fill: var(--series-6); }
 .chart .timeline-span.tone-7 { fill: var(--series-7); }
+.chart .timeline-span.tone-off, .key.tone-off { fill: var(--muted); background: var(--muted); opacity: 0.45; }
 .chart .timeline-span.chosen { stroke: var(--text); stroke-width: 1.5; }
 
 /* An accessory's sheet: its Controls and History tabs on the left of the bar, Done on the right. */
