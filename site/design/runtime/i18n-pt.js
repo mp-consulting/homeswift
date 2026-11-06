@@ -3132,4 +3132,5 @@ HomeswiftI18n.add("pt", {
   "A message from an automation": "Uma mensagem de uma automação",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
+  "Sunrise and sunset need the home's location, which is not set yet.": "O nascer e o pôr do sol precisam da localização da casa, que ainda não foi definida.",
 });

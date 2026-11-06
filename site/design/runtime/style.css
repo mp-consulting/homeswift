@@ -4976,3 +4976,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 .automation-draft-row button { white-space: nowrap; flex: none; }
 .automation-draft .status-line:empty { display: none; }
+
+/* A trigger's head: its kind, and whether it is enabled, above its fields. */
+.editor-row .trigger-head { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
+.trigger-enabled { gap: var(--space-8); }

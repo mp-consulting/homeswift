@@ -7916,7 +7916,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     (automation.steps ?? []).forEach(addStep);
 
     const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` })
-      : t("Sunrise and sunset need a location: set it on the Scenes page.");
+      : t("Sunrise and sunset need the home's location, which is not set yet.");
     const section = (title, glyph, help, ...content) => el("section", { class: "card automation-section" },
       el("div", { class: "automation-section-head" }, el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(glyph)),
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted", text: help }))), ...content);
@@ -13665,9 +13665,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "stays", text: t("When a value stays for a while") }),
       el("option", { value: "threshold", text: t("When a number crosses a threshold") }), el("option", { value: "cron", text: t("Cron") }));
     type.value = trigger.type;
-    const enabled = el("input", { type: "checkbox", checked: trigger.enabled !== false, "aria-label": t("On [setting]") });
+    // Whether the trigger counts, in the row's head with its kind: apart from a Value switch in its fields.
+    const enabled = el("input", { type: "checkbox", role: "switch", checked: trigger.enabled !== false });
     const body = el("span", { class: "group-inline grow" });
-    const row = rowShell(type, body, el("label", { class: "toggle compact" }, enabled, el("span", { text: t("On [setting]") })));
+    const row = rowShell(el("div", { class: "trigger-head" }, type,
+      el("label", { class: "toggle compact trigger-enabled" }, el("span", { class: "switch" }, enabled, el("span")), el("span", { text: t("Enabled") }))), body);
     const draw = (shown) => {
       if (shown.type === "time") {
         const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
@@ -17547,6 +17549,7 @@ HomeswiftI18n.add("es", {
   "A message from an automation": "Un mensaje de una automatización",
   "A Homeswift user": "Un usuario de Homeswift",
   "An MCP client": "Un cliente MCP",
+  "Sunrise and sunset need the home's location, which is not set yet.": "El amanecer y el atardecer necesitan la ubicación de la casa, que aún no está indicada.",
 });
 
 """#),
@@ -20685,6 +20688,7 @@ HomeswiftI18n.add("fr", {
   "A message from an automation": "Un message d'une automatisation",
   "A Homeswift user": "Un utilisateur de Homeswift",
   "An MCP client": "Un client MCP",
+  "Sunrise and sunset need the home's location, which is not set yet.": "Le lever et le coucher du soleil demandent le lieu de la maison, qui n'est pas encore indiqué.",
 });
 
 """#),
@@ -23823,6 +23827,7 @@ HomeswiftI18n.add("pt", {
   "A message from an automation": "Uma mensagem de uma automação",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
+  "Sunrise and sunset need the home's location, which is not set yet.": "O nascer e o pôr do sol precisam da localização da casa, que ainda não foi definida.",
 });
 
 """#),
@@ -32189,6 +32194,10 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 .automation-draft-row button { white-space: nowrap; flex: none; }
 .automation-draft .status-line:empty { display: none; }
+
+/* A trigger's head: its kind, and whether it is enabled, above its fields. */
+.editor-row .trigger-head { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
+.trigger-enabled { gap: var(--space-8); }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

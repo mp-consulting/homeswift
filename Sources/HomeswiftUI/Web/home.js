@@ -1311,9 +1311,11 @@
       el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "stays", text: t("When a value stays for a while") }),
       el("option", { value: "threshold", text: t("When a number crosses a threshold") }), el("option", { value: "cron", text: t("Cron") }));
     type.value = trigger.type;
-    const enabled = el("input", { type: "checkbox", checked: trigger.enabled !== false, "aria-label": t("On [setting]") });
+    // Whether the trigger counts, in the row's head with its kind: apart from a Value switch in its fields.
+    const enabled = el("input", { type: "checkbox", role: "switch", checked: trigger.enabled !== false });
     const body = el("span", { class: "group-inline grow" });
-    const row = rowShell(type, body, el("label", { class: "toggle compact" }, enabled, el("span", { text: t("On [setting]") })));
+    const row = rowShell(el("div", { class: "trigger-head" }, type,
+      el("label", { class: "toggle compact trigger-enabled" }, el("span", { class: "switch" }, enabled, el("span")), el("span", { text: t("Enabled") }))), body);
     const draw = (shown) => {
       if (shown.type === "time") {
         const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
