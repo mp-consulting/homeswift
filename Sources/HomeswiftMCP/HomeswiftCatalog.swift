@@ -616,13 +616,15 @@ public struct HomeswiftCatalog: Sendable {
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
             // The Assistant is a runtime block, not a compiled-in plugin, but it can be added, so it is listed as one.
-            "plugins": .array(host.registry.entries.map { entry in
-                [
+            "plugins": .array(host.registry.entries.map { entry -> JSONValue in
+                // Typed apart: the literal below is at the edge of what the type checker takes on Linux.
+                let addLabel: JSONValue = entry.addDeviceLabel.map(JSONValue.string) ?? .null
+                return [
                     "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
                     "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
                     "accountAuthorization": .string(entry.accountAuthorization.rawValue),
                     "accountRequired": .bool(entry.accountRequirement.isRequired), "accountAdds": entry.accountRequirement.adds.map(JSONValue.string) ?? .null,
-                    "addByAddress": .bool(entry.addsDevicesByAddress), "addLabel": entry.addDeviceLabel.map(JSONValue.string) ?? .null,
+                    "addByAddress": .bool(entry.addsDevicesByAddress), "addLabel": addLabel,
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
             } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
