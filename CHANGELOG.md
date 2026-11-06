@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- TP-Link Tapo: the lens on a camera's motor (a C675D's tele lens) gets a "Go to <preset>" switch per pan and tilt
+  preset and Horizontal and Vertical Patrol switches (the camera's sweep along that axis), from the first live view on.
+  Like the web UI's pad, they move the camera only while a live view keeps it awake. `presetSwitches` and
+  `patrolSwitches` (on by default) leave them out. Going to a preset, from a switch, the pad or an MCP client, stops a
+  patrol first.
 - TP-Link Tapo: a battery camera's lenses each have a Battery service (Battery Level, Charging State, Status Low
   Battery), read from the camera's control API a few seconds after a live view wakes it, at most every five minutes and
   never on its own, kept in `battery.json` between views; the TP-Link cloud's low-battery and battery-empty notifications
@@ -15,12 +20,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Web UI: a camera's pan and tilt pad sits at the live view's lower right, under the thumb of the hand holding a phone
+  and beside the button that opens it, its presets on its left.
 - TP-Link Tapo: a battery camera's lenses go on the bridge, as UniFi Protect's cameras do, so pairing the bridge brings
   them; `standalone: true` on a device keeps each lens on a HAP server of its own, added in the Home app one by one. A
   camera added before shows as a new accessory on the bridge: remove its old one from the Home app.
 
 ### Fixed
 
+- The Home app named an accessory's other services by number ("Switch 1", "Switch 2") when a plugin gave them no
+  Configured Name: the runtime now gives each, but the primary one, its Name as Configured Name, without the
+  accessory's name in front ("Candle" on "Desk", not "Desk Candle"), as the Home app shows it inside the accessory.
 - Installing an update from the Status page asks GitHub for the release again first: a NAS that saw a release minutes
   after it was published, before its packages were attached, failed with "the release has no package for x86_64" until
   its next check, 12 hours later.

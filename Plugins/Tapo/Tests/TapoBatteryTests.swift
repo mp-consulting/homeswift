@@ -41,6 +41,8 @@ struct TapoBatteryReadingTests {
 @Suite(.timeLimit(.minutes(1)))
 struct TapoBatteryTests {
     let environment = TestEnvironment()
+    /// Live views over the fake camera: a handshake within 400 ms, which a loaded runner keeps to.
+    static let timeScale = 0.02
     let deviceID = "192.168.1.40Garden"
     let wideID = "TapoP100:192.168.1.40Garden"
     let teleID = "TapoP100:192.168.1.40Garden:tele"
@@ -54,7 +56,10 @@ struct TapoBatteryTests {
     /// A camera whose live view and control API sign in with the account's password.
     func awakeCamera() -> (FakeTapoControlCamera, FakeStreamdCamera) {
         let camera = FakeStreamdCamera()
-        camera.state.withLockedValue { $0.password = "password123" }
+        camera.state.withLockedValue {
+            $0.password = "password123"
+            $0.keepStreaming = .milliseconds(5)
+        }
         return (FakeTapoControlCamera(), camera)
     }
 
@@ -71,7 +76,7 @@ struct TapoBatteryTests {
     @Test func aLiveViewReadsTheBatteryForBothLensesAndKeepsIt() async throws {
         let (control, camera) = awakeCamera()
         // Every live view may ask: the interval is tested on its own.
-        let host = try await environment.start(devices: devices, connect: camera.connect, control: control, batteryInterval: 0)
+        let host = try await environment.start(devices: devices, connect: camera.connect, control: control, timeScale: Self.timeScale, batteryInterval: 0)
         let wide = try await battery(host, wideID)
         let tele = try await battery(host, teleID)
         #expect(wide[.statusLowBattery]?.value == .int(0))
@@ -87,7 +92,7 @@ struct TapoBatteryTests {
         await host.stop()
 
         // A restart shows the kept level before any live view.
-        let again = try await environment.start(devices: devices, connect: camera.connect, control: control)
+        let again = try await environment.start(devices: devices, connect: camera.connect, control: control, timeScale: Self.timeScale)
         let kept = try await battery(again, teleID)
         #expect(kept[.batteryLevel]?.value == .int(65))
         #expect(kept[.chargingState]?.value == .int(1))
@@ -97,7 +102,7 @@ struct TapoBatteryTests {
     @Test func aLiveViewWithinTheIntervalDoesNotAskAgain() async throws {
         let (control, camera) = awakeCamera()
         // 200 seconds here: longer than the test.
-        let host = try await environment.start(devices: devices, connect: camera.connect, control: control, batteryInterval: 100_000)
+        let host = try await environment.start(devices: devices, connect: camera.connect, control: control, timeScale: Self.timeScale, batteryInterval: 100_000)
         let wide = try await battery(host, wideID)
         let feed = try #require(await environment.plugin?.cameraRuntimes[deviceID]?.feed)
         #expect(await watch(feed) { wide[.batteryLevel]?.value == .int(64) })

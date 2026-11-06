@@ -31,13 +31,19 @@ final class TestEnvironment: Sendable {
 
     func start(devices: [[String: Any]], settings: [String: Any] = account, bulbEnergyInterval: Duration = .seconds(600),
                connect: StreamdClient.Connect? = nil, cloud: FakeTapoCloud = FakeTapoCloud(), macAddress: String? = nil,
-               neighbours: FakeNeighbours = FakeNeighbours(), control: FakeTapoControlCamera? = nil, batteryInterval: Double? = nil) async throws -> PluginHost {
+               neighbours: FakeNeighbours = FakeNeighbours(), control: FakeTapoControlCamera? = nil, timeScale: Double = 0.002,
+               batteryInterval: Double? = nil) async throws -> PluginHost {
         var registry = PluginRegistry()
         let network = network
         registry.register(platform: TapoPlugin.platform, name: TapoPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(TapoPlugin.Configuration.self, from: json)
-            var dependencies = TapoPlugin.Dependencies(http: network, timeScale: 0.002, bulbEnergyInterval: bulbEnergyInterval, setupTimeout: .seconds(1))
+            var dependencies = TapoPlugin.Dependencies(http: network, timeScale: timeScale, bulbEnergyInterval: bulbEnergyInterval, setupTimeout: .seconds(1))
             if let connect { dependencies.connect = connect }
+            // A live view outlives its last viewer briefly here, as every other delay.
+            dependencies.cameraTiming.linger = .milliseconds(20)
+            // A loaded runner may let a fake session fall silent past its (scaled) timeout: the view reconnects
+            // rather than giving up, so the camera stays awake for the test.
+            dependencies.cameraTiming.reconnectBudget = 1_000
             dependencies.cloudHTTP = cloud
             dependencies.motionTiming = TapoMotionWatcher.Timing(interval: .milliseconds(20), maximumBackoff: .milliseconds(200))
             dependencies.motionHold = .milliseconds(300)

@@ -83,10 +83,15 @@ extension TapoPlugin {
     /// Reads a camera's battery now that a live view woke it, unless it was read less than `batteryInterval` ago; a
     /// camera that went back to sleep, or does not answer, keeps its last reading.
     func readBattery(deviceID: String) async {
-        try? await Task.sleep(for: scaled(Self.batteryDelay))
         if let last = batteryReadAt[deviceID], ContinuousClock.now - last < scaled(dependencies.batteryInterval) { return }
-        guard let runtime = cameraRuntimes[deviceID], await runtime.feed.isConnected, let control = runtime.control else { return }
+        // Taken before any wait: sessions that open close together (a reconnection) read it once.
         batteryReadAt[deviceID] = .now
+        try? await Task.sleep(for: scaled(Self.batteryDelay))
+        guard let runtime = cameraRuntimes[deviceID], await runtime.feed.isConnected, let control = runtime.control else {
+            // Asleep again before it was asked: the next live view asks.
+            batteryReadAt[deviceID] = nil
+            return
+        }
         let found: TapoBatteryReading?
         do {
             found = try await control.batteryReading(previous: keptBattery(deviceID))
@@ -119,6 +124,9 @@ extension TapoPlugin {
 extension TapoControl {
     /// The camera's battery from its basic information (2.1): nil when it says nothing of one.
     func batteryReading(previous: TapoBatteryReading?) async throws -> TapoBatteryReading? {
+        // In turn with the motor's calls: two logins at once would each break the other's nonce (3.2).
+        await acquire()
+        defer { release() }
         let result = try await call("getDeviceInfo", TapoPlugin.deviceInfoParams)
         let info = ((result["device_info"] as? [String: Any])?["basic_info"] as? [String: Any]) ?? [:]
         return TapoBatteryReading.from(basicInfo: info, previous: previous)
