@@ -302,7 +302,10 @@
       }
 
       // The plugin's own Accessory Settings, by the same renderer as its Plugin Settings.
-      const own = Object.entries(fields).filter(([, field]) => !field.core);
+      // In the order the schema declares them (the answer's object has none of its own).
+      const declaredOrder = Object.keys(schemaFile?.accessorySchema?.properties ?? {});
+      const rank = (key) => { const at = declaredOrder.indexOf(key); return at < 0 ? declaredOrder.length : at; };
+      const own = Object.entries(fields).filter(([, field]) => !field.core).sort(([a], [b]) => rank(a) - rank(b));
       let pluginSection = null;
       if (own.length) {
         const properties = Object.fromEntries(own.map(([key, field]) => [key, field.schema]));
