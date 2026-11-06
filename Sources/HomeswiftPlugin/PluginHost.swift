@@ -185,6 +185,11 @@ public final class PluginHost: @unchecked Sendable {
 
     public var platforms: [PlatformInstance] { instances.map(\.described) }
 
+    /// Why an instance's plugin did not start (its configuration did not decode, `start()` threw), or nil.
+    public func startFailure(platform: String, name: String) -> String? {
+        instances.first { $0.block.platform == platform && $0.block.name == name }?.failure.withLockedValue { $0 }
+    }
+
     /// The instances whose plugin runs (not paused, started), with it.
     func runningPlugins() -> [(instance: Instance, plugin: any HomeswiftPlugin)] {
         instances.compactMap { instance in

@@ -3033,5 +3033,6 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Download diagnostics": "Télécharger les diagnostics",
   "Forgotten.": "Oubliée.",
 });

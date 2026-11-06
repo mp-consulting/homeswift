@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
+  attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
+  masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
+  warnings over the last week. Names are kept. MCP clients get the same bundle from `get_diagnostics`, administrators
+  only.
+
 ### Changed
 
 - The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
