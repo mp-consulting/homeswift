@@ -26,6 +26,9 @@ public enum MeterKind: String, Sendable, Codable, CaseIterable {
 
     /// The unit its figures are shown in.
     public var unit: String { self == .electricity ? "kWh" : "m³" }
+
+    /// Where it comes in a list: electricity, gas, water.
+    public var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
 }
 
 /// Which way a Meter's energy flows: drawn (Consumption) or sent back, or produced (Returned).
@@ -120,7 +123,6 @@ public final class MeterArchive: @unchecked Sendable {
 
     private struct Meter {
         var counters: [MeterDirection: Reading] = [:]
-        var kind: MeterKind = .electricity
         /// The power last read, held until the next reading, and counted up to `at`; this run's only.
         var power: Reading?
         /// When that power was read.
@@ -135,6 +137,8 @@ public final class MeterArchive: @unchecked Sendable {
         var holding: Set<MeterID> = []
         /// The Meters to write: their `meter.json` and the years given.
         var dirty: [MeterID: Set<Int>] = [:]
+        /// The gas and water Meters' kinds, declared or read back; any other Meter is electricity's.
+        var kinds: [MeterID: MeterKind] = [:]
     }
 
     /// The longest time a counter's gain is spread over; a longer one sets the counter's reading again and is lost.
@@ -163,12 +167,17 @@ public final class MeterArchive: @unchecked Sendable {
         started = now()
         guard let directory, let folders = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
         var meters: [MeterID: Meter] = [:]
+        var kinds: [MeterID: MeterKind] = [:]
         for folder in folders {
             guard let data = try? Data(contentsOf: folder.appendingPathComponent("meter.json")),
                   let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.version == Self.version else { continue }
-            meters[stored.id] = Meter(counters: stored.counters, kind: stored.kind ?? .electricity)
+            meters[stored.id] = Meter(counters: stored.counters)
+            if let kind = stored.kind, kind != .electricity { kinds[stored.id] = kind }
         }
-        state.withLockedValue { $0.meters = meters }
+        state.withLockedValue { state in
+            state.meters = meters
+            state.kinds = kinds
+        }
     }
 
     /// Every Meter with a history, by Accessory Id and key.
@@ -178,15 +187,21 @@ public final class MeterArchive: @unchecked Sendable {
 
     /// What a Meter measures; electricity for one never declared otherwise.
     public func kind(of id: MeterID) -> MeterKind {
-        state.withLockedValue { $0.meters[id]?.kind } ?? .electricity
+        state.withLockedValue { $0.kinds[id] } ?? .electricity
+    }
+
+    /// The kinds of the Meters with a history, gas and water first if any: what Settings offers a Tariff for.
+    public var kinds: Set<MeterKind> {
+        state.withLockedValue { state in Set(state.meters.keys.map { state.kinds[$0] ?? .electricity }) }
     }
 
     /// Says what a Meter measures (its plugin declared it so), kept in its `meter.json`.
     public func setKind(_ kind: MeterKind, meter id: MeterID) {
         let changed = state.withLockedValue { state -> Bool in
-            guard state.meters[id]?.kind != kind else { return false }
-            state.meters[id, default: Meter()].kind = kind
-            // Its meter.json, with no year.
+            guard (state.kinds[id] ?? .electricity) != kind else { return false }
+            state.kinds[id] = kind == .electricity ? nil : kind
+            // A Meter with a history writes its meter.json, with no year; one that never read shows nowhere until it does.
+            guard state.meters[id] != nil else { return false }
             state.dirty[id, default: []].formUnion([])
             return true
         }
@@ -286,6 +301,7 @@ public final class MeterArchive: @unchecked Sendable {
             let gone = state.meters.keys.filter { Self.belongs($0, to: accessory) }
             for id in gone {
                 state.meters[id] = nil
+                state.kinds[id] = nil
                 state.holding.remove(id)
                 state.dirty[id] = nil
             }
@@ -479,7 +495,7 @@ public final class MeterArchive: @unchecked Sendable {
             defer { state.dirty = [:] }
             return state.dirty.compactMap { id, years in
                 guard let meter = state.meters[id] else { return nil }
-                return (Stored(version: Self.version, id: id, counters: meter.counters, kind: meter.kind == .electricity ? nil : meter.kind), years.compactMap { year in meter.years[year].map { (year, $0) } })
+                return (Stored(version: Self.version, id: id, counters: meter.counters, kind: state.kinds[id]), years.compactMap { year in meter.years[year].map { (year, $0) } })
             }
         }
         let encoder = JSONEncoder()

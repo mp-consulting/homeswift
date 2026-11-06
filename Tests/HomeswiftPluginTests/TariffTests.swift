@@ -84,7 +84,7 @@ struct TariffTests {
         #expect(TariffSchedule([electricity], kind: .water, timeZone: utc).isEmpty)
         // config.json's shape: kind left out for electricity.
         let decoded = try JSONDecoder().decode(Tariff.self, from: Data(#"{"start":"2027-01-01","currency":"EUR","kind":"water","periods":[{"from":"00:00","to":"24:00","price":3.5}]}"#.utf8))
-        #expect(decoded.meterKind == .water)
+        #expect(decoded.kind == .water)
         #expect(String(decoding: try JSONEncoder().encode(electricity), as: UTF8.self).contains("kind") == false)
     }
 }

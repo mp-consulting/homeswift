@@ -208,4 +208,19 @@ struct MeterArchiveTests {
         #expect(near(after.hours(of: water, from: hour, to: hour).first?.consumption, 180))
         #expect(MeterKind.gas.unit == "m³" && MeterKind.electricity.unit == "kWh")
     }
+
+    /// A declared Meter shows nowhere before its first reading, takes its kind then, and goes back to electricity when
+    /// its plugin says so.
+    @Test func aDeclaredKindWaitsForTheFirstReadingAndCanGoBack() {
+        let archive = MeterArchive(directory: nil, now: { hour })
+        let gas = MeterID(accessory: "Meters:boiler", meter: "gas")
+        archive.setKind(.gas, meter: gas)
+        #expect(archive.meters.isEmpty)
+        #expect(archive.kind(of: gas) == .gas)
+        archive.recordCounter(1_000, meter: gas, at: hour)
+        #expect(archive.meters == [gas])
+        #expect(archive.kind(of: gas) == .gas)
+        archive.setKind(.electricity, meter: gas)
+        #expect(archive.kind(of: gas) == .electricity)
+    }
 }

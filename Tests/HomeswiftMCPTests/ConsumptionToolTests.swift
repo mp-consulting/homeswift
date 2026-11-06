@@ -151,8 +151,11 @@ struct ConsumptionToolTests {
         // No water Tariff: no cost, and electricity's price is never used for it.
         #expect(house["cost"] == nil)
         #expect(meters.first { $0["meter"] == "43/" }?["cost"] == 0.2)
-        #expect(week["currencies"]?["gas"] == "EUR")
-        #expect(week["currencies"]?["water"] == nil)
+        #expect(boiler["currency"] == "EUR")
+        #expect(house["currency"] == nil)
+        // By kind first: kWh and m³ do not compare.
+        #expect(meters.map { $0["kind"] } == ["electricity", "gas", "water"])
+        #expect(try catalog.tariffsJSON(now: hour)["meterKinds"] == ["electricity", "gas", "water"])
 
         let onlyGas = try catalog.consumptionJSON(period: "week", date: "2027-01-15", timeZone: utc, kind: .gas, now: hour)
         #expect(onlyGas["meters"]?.arrayValue?.map { $0["meter"] } == ["gas"])

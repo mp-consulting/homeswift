@@ -1737,25 +1737,19 @@
     input.click();
   }
 
-  /// Kilowatt-hours as every page shows energy: under a kWh in Wh (a plug's few hours, not 0.00 kWh); two decimals
-  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`, its highest) is in
-  /// Wh when the axis stays under a kWh, else in kWh, whole when it is.
-  function kWh(value, top) {
+  /// An amount in a unit and its thousandth (`small`): under one unit in the thousandth (a plug's few hours in Wh, not
+  /// 0.00 kWh; a shower's litres, not 0.06 m³); `digits` decimals under 10, one under 100, whole from there (3,009 kWh,
+  /// not 3,009.0). An axis's tick (with `top`, its highest) is in the thousandth when the axis stays under one unit, else
+  /// in the unit, whole when it is.
+  function measure(value, top, { unit, small, digits }) {
     const size = Math.abs(value);
-    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
-    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} ${small}`;
+    const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? digits : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} ${unit}`;
   }
-
-  /// Cubic metres, as gas and water show: under one in litres (a shower's 60 L, not 0.06 m³); three decimals under
-  /// 10 (a meter's index is read to the litre), one under 100, whole from there. An axis's tick (with `top`, its highest)
-  /// is in litres when the axis stays under a cubic metre.
-  function cubicMetres(value, top) {
-    const size = Math.abs(value);
-    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} L`;
-    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 3 : size < 100 ? 1 : 0;
-    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} m³`;
-  }
+  /// Kilowatt-hours as every page shows energy; cubic metres as gas and water (a meter's index read to the litre).
+  const kWh = (value, top) => measure(value, top, { unit: "kWh", small: "Wh", digits: 2 });
+  const cubicMetres = (value, top) => measure(value, top, { unit: "m³", small: "L", digits: 3 });
 
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.

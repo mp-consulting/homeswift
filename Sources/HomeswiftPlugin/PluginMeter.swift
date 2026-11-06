@@ -20,14 +20,6 @@ public struct PluginMeter: Sendable {
     let description: MeterDescription
     let readings: @Sendable (MeterReading) -> Void
 
-    init(id: MeterID, kind: MeterKind = .electricity, description: MeterDescription, readings: @escaping @Sendable (MeterReading) -> Void) {
-        self.id = id
-        self.kind = kind
-        self.description = description
-        self.readings = readings
-        if kind != .electricity { readings(.kind(id, kind)) }
-    }
-
     /// A power reading, in watts; nothing for a gas or water Meter.
     public func record(watts: Double) {
         guard watts.isFinite, kind == .electricity else { return }
@@ -69,7 +61,7 @@ extension PluginContext {
         let id = MeterID(accessory: accessoryID, meter: "\(service.type.uuid)/\(service.subtype ?? "")")
         meterSink(.claim(id))
         return PluginMeter(
-            id: id,
+            id: id, kind: .electricity,
             description: MeterDescription(device: device, suggestedRole: suggestedRole, shared: shared,
                                           series: self.series(series ?? "\(AccessoryNaming.deviceID(of: accessoryID, platform: platform)):\(id.meter)").name),
             readings: meterSink)
@@ -85,8 +77,11 @@ extension PluginContext {
     /// for, so only plugins feed them; those take no Energy Role.
     public func meter(_ key: String, deviceID: String, device: String, kind: MeterKind = .electricity, suggestedRole: EnergyRole? = nil, shared: String? = nil,
                       series: String? = nil) -> PluginMeter {
-        PluginMeter(
-            id: MeterID(accessory: "\(platform):\(deviceID)", meter: key), kind: kind,
+        let id = MeterID(accessory: "\(platform):\(deviceID)", meter: key)
+        // Every kind, electricity too: a Meter declared otherwise by mistake goes back.
+        meterSink(.kind(id, kind))
+        return PluginMeter(
+            id: id, kind: kind,
             description: MeterDescription(device: device, suggestedRole: kind == .electricity ? suggestedRole : nil, shared: shared,
                                           series: self.series(series ?? "\(deviceID):\(key)").name),
             readings: meterSink)

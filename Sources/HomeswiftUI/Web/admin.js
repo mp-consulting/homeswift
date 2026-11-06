@@ -62,13 +62,12 @@
   // ---- Bridge: its block, the network, pairings, caches, schedules -----------------------------------------
 
   async function bridgePage(main) {
-    const [settings, pairings, caches, plugins, tariffs, metered] = await Promise.all([
+    const [settings, pairings, caches, plugins, tariffs] = await Promise.all([
       api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null),
-      api("/api/settings/tariffs").catch(() => ({ tariffs: [] })),
-      // Which kinds of Meter the bridge has: a gas or water Tariff is offered once one of them, or its Tariff, exists.
-      api(`/api/metrics/consumption?${new URLSearchParams({ hours: 1 })}`).catch(() => ({ meters: [] }))]);
+      api("/api/settings/tariffs").catch(() => ({ tariffs: [] }))]);
     const allTariffs = tariffs.tariffs ?? [];
-    const kinds = new Set([...(metered.meters ?? []).map((one) => one.kind), ...allTariffs.map((one) => one.kind)].filter(Boolean));
+    // A gas or water Tariff is offered once the bridge keeps a Meter of that kind, or has its Tariff.
+    const kinds = new Set(tariffs.meterKinds ?? []);
     const bridge = settings.bridge || {};
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
@@ -1147,8 +1146,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("b", { class: "chart-figure", text: format(meter.consumption ?? 0), title: t("Used in this range") })),
           body,
           el("div", { class: "muted chart-detail", text: [
-            utility && meter.currency && meter.cost != null ? t("{cost} at its tariff, hour by hour", { cost: HomeswiftCommon.money(meter.cost, meter.currency) })
-              : !utility && found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
+            // Its cost in its Tariff's currency: gas and water at their own, electricity at the grid's.
+            meter.currency && meter.cost != null ? t(utility ? "{cost} at its tariff, hour by hour" : "{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, meter.currency) }) : null,
             returns ? t("{value} returned", { value: format(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
         const bars = meter.bars.map((bar, index) => {
           const date = dateOf(bar.date);
@@ -1157,7 +1156,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
         });
         HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
-          segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
+          // Gas in orange, as on its card; water and electricity in blue.
+          segments: [{ label: t("Used"), tone: meter.kind === "gas" ? 2 : 1, value: (values) => values?.consumption ?? null },
             ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
         return card;
       });

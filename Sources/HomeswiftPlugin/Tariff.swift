@@ -36,19 +36,37 @@ public struct Tariff: Sendable, Equatable, Codable {
     public var periods: [Period]
     /// What a kWh sent back to the grid is paid, when the home is; electricity only.
     public var exportPrice: Double?
-    /// What it prices: gas or water, by the m³; nil for electricity, by the kWh. Each kind has its own Tariffs.
-    public var kind: MeterKind?
+    /// What it prices: electricity by the kWh (config.json leaves `kind` out), gas or water by the m³. Each kind has
+    /// its own Tariffs.
+    public var kind: MeterKind
 
-    public init(start: String, currency: String, periods: [Period], exportPrice: Double? = nil, kind: MeterKind? = nil) {
+    public init(start: String, currency: String, periods: [Period], exportPrice: Double? = nil, kind: MeterKind = .electricity) {
         self.start = start
         self.currency = currency
         self.periods = periods
         self.exportPrice = exportPrice
-        self.kind = kind == .electricity ? nil : kind
+        self.kind = kind
     }
 
-    /// What it prices, electricity when it says nothing.
-    public var meterKind: MeterKind { kind ?? .electricity }
+    private enum CodingKeys: String, CodingKey { case start, currency, periods, exportPrice, kind }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        start = try container.decode(String.self, forKey: .start)
+        currency = try container.decode(String.self, forKey: .currency)
+        periods = try container.decode([Period].self, forKey: .periods)
+        exportPrice = try container.decodeIfPresent(Double.self, forKey: .exportPrice)
+        kind = try container.decodeIfPresent(MeterKind.self, forKey: .kind) ?? .electricity
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(start, forKey: .start)
+        try container.encode(currency, forKey: .currency)
+        try container.encode(periods, forKey: .periods)
+        try container.encodeIfPresent(exportPrice, forKey: .exportPrice)
+        if kind != .electricity { try container.encode(kind, forKey: .kind) }
+    }
 
     /// Minutes since midnight of an `HH:mm`, 0 to 1440; nil for anything else.
     static func minutes(_ text: String) -> Int? {
@@ -89,10 +107,10 @@ public struct Tariff: Sendable, Equatable, Codable {
             let at = "tariffs[\(index)]"
             if EnergyCalendar.day(tariff.start) == nil { problems.append("\(at).start must be a day, YYYY-MM-DD") }
             // One Tariff a day for each kind: gas and electricity may change on the same day.
-            if !starts.insert("\(tariff.meterKind.rawValue) \(tariff.start)").inserted {
-                problems.append(tariff.meterKind == .electricity ? "\(at).start: another Tariff starts that day" : "\(at).start: another \(tariff.meterKind.rawValue) Tariff starts that day")
+            if !starts.insert("\(tariff.kind.rawValue) \(tariff.start)").inserted {
+                problems.append(tariff.kind == .electricity ? "\(at).start: another Tariff starts that day" : "\(at).start: another \(tariff.kind.rawValue) Tariff starts that day")
             }
-            if tariff.meterKind != .electricity, tariff.exportPrice != nil { problems.append("\(at).exportPrice: only electricity is sent back") }
+            if tariff.kind != .electricity, tariff.exportPrice != nil { problems.append("\(at).exportPrice: only electricity is sent back") }
             if tariff.currency.count != 3 || !tariff.currency.allSatisfy({ $0.isASCII && $0.isUppercase }) {
                 problems.append("\(at).currency must be a currency code, such as EUR or USD")
             }
@@ -122,12 +140,17 @@ public struct TariffSchedule: Sendable {
     let tariffs: [(start: Date, tariff: Tariff, week: [Int16])]
     let timeZone: TimeZone
 
+    /// One schedule per kind, each built once.
+    public static func byKind(_ tariffs: [Tariff], timeZone: TimeZone = .current) -> [MeterKind: TariffSchedule] {
+        Dictionary(uniqueKeysWithValues: MeterKind.allCases.map { ($0, TariffSchedule(tariffs, kind: $0, timeZone: timeZone)) })
+    }
+
     /// `kind` keeps the Tariffs of what it prices: electricity's unless told.
     public init(_ tariffs: [Tariff], kind: MeterKind = .electricity, timeZone: TimeZone = .current) {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         self.timeZone = timeZone
-        self.tariffs = tariffs.filter { $0.meterKind == kind }.compactMap { tariff in
+        self.tariffs = tariffs.filter { $0.kind == kind }.compactMap { tariff in
             guard let start = EnergyCalendar.day(tariff.start).flatMap({ calendar.date(from: $0) }), let week = tariff.week() else { return nil }
             return (start, tariff, week.periods)
         }.sorted { $0.start < $1.start }
