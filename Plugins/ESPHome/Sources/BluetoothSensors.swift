@@ -320,7 +320,7 @@ final class BluetoothSensor {
         if buttonCount > 0 {
             for number in 1...buttonCount {
                 let button = Service(.statelessProgrammableSwitch, name: buttonCount == 1 ? "Button" : "Button \(number)", subtype: "button\(number)",
-                                     optional: [.serviceLabelIndex], isPrimary: services.isEmpty && number == 1)
+                                     optional: [.serviceLabelIndex], isPrimary: number == 1 && !services.contains(where: \.isPrimary))
                 button[.serviceLabelIndex]?.value = .int(number)
                 services.append(button)
             }

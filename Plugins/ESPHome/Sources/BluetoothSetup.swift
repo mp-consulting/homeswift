@@ -14,7 +14,8 @@ extension ESPHomePlugin {
         for (entry, reachable) in await bluetooth.discovered() {
             var device = DiscoveredDevice(
                 deviceID: entry.mac, name: context.accessorySettings(for: entry.mac).name ?? Self.sensorName(entry.recognition, mac: entry.mac),
-                model: entry.recognition.model, authorization: entry.recognition.encrypted ? .apiKey : .none, kind: Self.sensorKind)
+                model: entry.recognition.model ?? "\(entry.recognition.format.manufacturer) sensor", authorization: entry.recognition.encrypted ? .apiKey : .none,
+                kind: Self.sensorKind)
             device.isReachable = reachable
             found[entry.mac] = device
         }
