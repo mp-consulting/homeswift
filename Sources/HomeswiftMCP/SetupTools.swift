@@ -84,7 +84,7 @@ extension HomeswiftCatalog {
             "accountSetUp": .bool(found.accountState == .none || found.accountState == .setUp),
             "accountState": .string(found.accountState.rawValue), "accountRequired": .bool(requirement.isRequired),
             "accountAdds": requirement.adds.map(JSONValue.string) ?? .null, "needsAuthorization": .bool(found.accountState.needsAuthorization(requirement)),
-            "addByAddress": .bool(entry?.addsDevicesByAddress ?? false),
+            "addByAddress": .bool(entry?.addsDevicesByAddress ?? false), "addLabel": entry?.newDeviceLabel.map(JSONValue.string) ?? .null,
             "devices": .array(found.devices.map { device in
                 let accessoryID = "\(platform):\(device.deviceID)"
                 var json: [String: JSONValue] = [
@@ -145,7 +145,9 @@ extension HomeswiftCatalog {
         let answered = answers.compactMapValues { $0.stringValue }
         let asking = { (error: String) in self.asking(session, error: error, answers: answered) }
         for field in session.prompt.fields {
-            guard let value = answers[field.key], let text = value.stringValue ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
+            // A `choices` field takes a list of values as well as one per line.
+            let list = answers[field.key]?.arrayValue.map { $0.compactMap(\.stringValue).joined(separator: "\n") }
+            guard let value = answers[field.key], let text = list ?? value.stringValue ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
                 guard field.optional || session.prompt.waitSeconds != nil else { return asking("\(field.label) is missing") }
                 continue
             }
@@ -343,7 +345,8 @@ extension HomeswiftCatalog {
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",
-                description: "Answers the prompt of a Setup in progress with its fields' values by key (a PIN, a one-time code, a redirect address). A field "
+                description: "Answers the prompt of a Setup in progress with its fields' values by key (a PIN, a one-time code, a redirect address); a field "
+                    + "of kind choice takes one of its options' values, one of kind choices a list of them. A field "
                     + "of kind secret (a password, a key) takes only a vault: reference, never the secret: ask the person to add it on the Vault page, or to "
                     + "finish in the web UI. Answers the next prompt (with error when an answer did not work), or status done.",
                 inputSchema: ["type": "object", "required": ["session"], "properties": ["session": ["type": "string"], "answers": ["type": "object"]]],

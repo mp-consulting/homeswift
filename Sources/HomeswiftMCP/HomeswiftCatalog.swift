@@ -622,7 +622,7 @@ public struct HomeswiftCatalog: Sendable {
                     "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
                     "accountAuthorization": .string(entry.accountAuthorization.rawValue),
                     "accountRequired": .bool(entry.accountRequirement.isRequired), "accountAdds": entry.accountRequirement.adds.map(JSONValue.string) ?? .null,
-                    "addByAddress": .bool(entry.addsDevicesByAddress),
+                    "addByAddress": .bool(entry.addsDevicesByAddress), "addLabel": entry.newDeviceLabel.map(JSONValue.string) ?? .null,
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
             } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),

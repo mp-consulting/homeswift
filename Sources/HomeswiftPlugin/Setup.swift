@@ -158,6 +158,8 @@ public struct SetupField: Sendable, Codable, Equatable {
         case url
         /// One of `options`, by its value: how to sign in, a region.
         case choice
+        /// Any of `options`, at least one unless optional: the values picked, one per line (`SetupRequest.answers(_:)`).
+        case choices
     }
 
     public var key: String
@@ -177,6 +179,11 @@ public struct SetupField: Sendable, Codable, Equatable {
         self.optional = optional
         self.options = options
         self.value = value
+    }
+
+    /// Several of `options`, those in `values` picked to begin with.
+    public static func choices(_ key: String, label: String, options: [SetupOption], values: [String] = [], optional: Bool = false) -> SetupField {
+        SetupField(key, label: label, kind: .choices, optional: optional, options: options, value: values.isEmpty ? nil : values.joined(separator: "\n"))
     }
 
     /// A choice between `options`, `value` picked to begin with.
@@ -349,6 +356,11 @@ public struct SetupRequest: Sendable {
     public func choice(_ key: String, among values: [String]) -> String? {
         guard let chosen = state[key]?.stringValue ?? answer(key), values.contains(chosen) else { return nil }
         return chosen
+    }
+
+    /// The values picked of a `choices` field, one per line, each trimmed; empty when none.
+    public func answers(_ key: String) -> [String] {
+        (answers[key] ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     /// A secret answer (a password, a key) as typed: never trimmed, only nil when missing or empty.

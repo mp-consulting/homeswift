@@ -4084,6 +4084,7 @@ select option:disabled { color: var(--muted); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }
 .setup-option .muted { font-size: var(--text-sm); }
+.setup-choices-list { display: grid; gap: var(--space-8); max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 /* The sheet's head: what is being set up, and where it stands (a stage per screen: signing in, the devices, done). */
 .setup-sheet-head { display: flex; align-items: center; gap: var(--space-12); margin-bottom: var(--space-12); }
 .admin-dialog.sheet .setup-sheet-head h2 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.015em; }

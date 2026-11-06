@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Helpers, a new core plugin: accessories whose state the bridge derives from other accessories, with no device behind
+  them. A Threshold is on while a reading is above or below a value, with an off value for hysteresis; a Combine shows
+  the lowest, highest or average temperature, humidity, light level or power of several sensors; a Stays is on once
+  something has been in a state for longer than a duration (a door open for more than 10 minutes). Add one with **Add a
+  Helper…** on the Add accessories page, and change its sources and values in its settings. A source missing or not
+  responding makes the Helper No Response.
+- Plugins: `context.hostAccessories`, `observeHostChanges` and `observeHostStructure` read every accessory on the
+  bridge and follow their changes; `newDeviceLabel` names Add by address for devices that have no address;
+  `accessorySettingChoices` gives a Plugin Accessory Setting choices that depend on the home; Setup has a `choices`
+  field, several options picked.
+
 ### Fixed
 
 - Two-way audio: a camera's Talk begins and stays open while HomeKit's return audio keeps coming, however busy the

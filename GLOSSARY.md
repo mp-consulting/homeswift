@@ -89,6 +89,11 @@ One continuous period of Return Audio on a live stream, from its first packet to
 its camera's speaker.
 _Avoid_: Intercom session, talk session
 
+**Helper**:
+An accessory whose state the bridge derives from other accessories, such as a sensor crossing a threshold or the
+average of several. It has no device behind it.
+_Avoid_: Virtual sensor, template, derived accessory, Dummy
+
 ## Home
 
 **Home**:

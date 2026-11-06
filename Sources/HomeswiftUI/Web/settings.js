@@ -674,7 +674,7 @@
       list,
       // A device the plugin does not find, added by its address: the Add accessories page's sheet.
       plugin?.addByAddress ? el("div", { class: "setup-add-address" },
-        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
+        el("button", { type: "button", actionIcon: "plus", text: HomeswiftSetup.addLabel(plugin), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -688,7 +688,7 @@
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
           : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
-            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("No devices found") })]));
+            : plugin?.addByAddress ? HomeswiftSetup.noneAdded(plugin) : t("No devices found") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));

@@ -1,0 +1,214 @@
+{
+  "pluginAlias": "Helpers",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Helpers",
+        "description": "Plugin name as shown in the logs"
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "rule": {
+        "type": "string",
+        "title": "Kind of Helper",
+        "description": "Set when the Helper is added: add another Helper for another kind",
+        "oneOf": [
+          { "title": "Threshold", "enum": ["threshold"] },
+          { "title": "Combine", "enum": ["combine"] },
+          { "title": "Stays", "enum": ["stays"] }
+        ],
+        "x-kinds": []
+      },
+      "measure": {
+        "type": "string",
+        "title": "Measure",
+        "description": "What a Combine Helper shows, set when it is added",
+        "oneOf": [
+          { "title": "Temperature", "enum": ["temperature"] },
+          { "title": "Humidity", "enum": ["humidity"] },
+          { "title": "Light level", "enum": ["lightLevel"] },
+          { "title": "Power", "enum": ["power"] }
+        ],
+        "x-kinds": []
+      },
+      "source": {
+        "type": "string",
+        "title": "Source",
+        "description": "The accessory the Helper reads",
+        "x-kinds": ["threshold", "stays"]
+      },
+      "direction": {
+        "type": "string",
+        "title": "Turns on",
+        "description": "Whether the Helper turns on when the reading goes above the on value or below it",
+        "oneOf": [
+          { "title": "Above the on value", "enum": ["above"] },
+          { "title": "Below the on value", "enum": ["below"] }
+        ],
+        "x-kinds": ["threshold"]
+      },
+      "on": {
+        "type": "number",
+        "title": "On value",
+        "description": "The reading past which the Helper turns on",
+        "x-kinds": ["threshold"]
+      },
+      "off": {
+        "type": "number",
+        "title": "Off value",
+        "description": "The reading back past which it turns off again: a gap from the on value keeps a reading at the line from turning it on and off",
+        "x-kinds": ["threshold"]
+      },
+      "sources": {
+        "type": "array",
+        "title": "Sensors",
+        "description": "The sensors the Helper combines",
+        "items": { "type": "string" },
+        "x-kinds": ["combine"]
+      },
+      "function": {
+        "type": "string",
+        "title": "Show",
+        "description": "Which value of the sensors the Helper shows",
+        "oneOf": [
+          { "title": "Lowest", "enum": ["min"] },
+          { "title": "Highest", "enum": ["max"] },
+          { "title": "Average", "enum": ["average"] }
+        ],
+        "x-kinds": ["combine"]
+      },
+      "state": {
+        "type": "string",
+        "title": "State",
+        "description": "The source's state the Helper waits on",
+        "x-kinds": ["stays"]
+      },
+      "minutes": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10080,
+        "title": "For longer than (minutes)",
+        "description": "How long the source stays in the state before the Helper turns on",
+        "x-kinds": ["stays"]
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "Name": "Nom",
+      "Plugin name as shown in the logs": "Nom du plugin tel qu'il apparaît dans le journal",
+      "Kind of Helper": "Type d'auxiliaire",
+      "Set when the Helper is added: add another Helper for another kind": "Choisi à l'ajout de l'auxiliaire : ajoutez-en un autre pour un autre type",
+      "Threshold": "Seuil",
+      "Combine": "Combinaison",
+      "Stays": "Durée",
+      "Measure": "Mesure",
+      "What a Combine Helper shows, set when it is added": "Ce qu'affiche un auxiliaire Combinaison, choisi à son ajout",
+      "Temperature": "Température",
+      "Humidity": "Humidité",
+      "Light level": "Luminosité",
+      "Power": "Puissance",
+      "Source": "Source",
+      "The accessory the Helper reads": "L'accessoire que lit l'auxiliaire",
+      "Turns on": "S'active",
+      "Whether the Helper turns on when the reading goes above the on value or below it": "Si l'auxiliaire s'active quand la mesure passe au-dessus ou en dessous de la valeur d'activation",
+      "Above the on value": "Au-dessus de la valeur d'activation",
+      "Below the on value": "En dessous de la valeur d'activation",
+      "On value": "Valeur d'activation",
+      "The reading past which the Helper turns on": "La mesure au-delà de laquelle l'auxiliaire s'active",
+      "Off value": "Valeur de désactivation",
+      "The reading back past which it turns off again: a gap from the on value keeps a reading at the line from turning it on and off": "La mesure en deçà de laquelle il se désactive : un écart avec la valeur d'activation évite qu'une mesure proche du seuil l'active et le désactive sans cesse",
+      "Sensors": "Capteurs",
+      "The sensors the Helper combines": "Les capteurs que combine l'auxiliaire",
+      "Show": "Afficher",
+      "Which value of the sensors the Helper shows": "Quelle valeur des capteurs l'auxiliaire affiche",
+      "Lowest": "La plus basse",
+      "Highest": "La plus haute",
+      "Average": "La moyenne",
+      "State": "État",
+      "The source's state the Helper waits on": "L'état de la source qu'attend l'auxiliaire",
+      "For longer than (minutes)": "Pendant plus de (minutes)",
+      "How long the source stays in the state before the Helper turns on": "Combien de temps la source reste dans cet état avant que l'auxiliaire s'active"
+    },
+    "es": {
+      "Name": "Nombre",
+      "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en el registro",
+      "Kind of Helper": "Tipo de ayudante",
+      "Set when the Helper is added: add another Helper for another kind": "Se elige al añadir el ayudante: añade otro para otro tipo",
+      "Threshold": "Umbral",
+      "Combine": "Combinación",
+      "Stays": "Duración",
+      "Measure": "Medida",
+      "What a Combine Helper shows, set when it is added": "Lo que muestra un ayudante Combinación, elegido al añadirlo",
+      "Temperature": "Temperatura",
+      "Humidity": "Humedad",
+      "Light level": "Luminosidad",
+      "Power": "Potencia",
+      "Source": "Origen",
+      "The accessory the Helper reads": "El accesorio que lee el ayudante",
+      "Turns on": "Se activa",
+      "Whether the Helper turns on when the reading goes above the on value or below it": "Si el ayudante se activa cuando la lectura sube por encima del valor de activación o baja por debajo",
+      "Above the on value": "Por encima del valor de activación",
+      "Below the on value": "Por debajo del valor de activación",
+      "On value": "Valor de activación",
+      "The reading past which the Helper turns on": "La lectura a partir de la cual se activa el ayudante",
+      "Off value": "Valor de desactivación",
+      "The reading back past which it turns off again: a gap from the on value keeps a reading at the line from turning it on and off": "La lectura a partir de la cual vuelve a desactivarse: una separación con el valor de activación evita que una lectura cerca del límite lo active y desactive sin parar",
+      "Sensors": "Sensores",
+      "The sensors the Helper combines": "Los sensores que combina el ayudante",
+      "Show": "Mostrar",
+      "Which value of the sensors the Helper shows": "Qué valor de los sensores muestra el ayudante",
+      "Lowest": "El más bajo",
+      "Highest": "El más alto",
+      "Average": "La media",
+      "State": "Estado",
+      "The source's state the Helper waits on": "El estado del origen que espera el ayudante",
+      "For longer than (minutes)": "Durante más de (minutos)",
+      "How long the source stays in the state before the Helper turns on": "Cuánto tiempo permanece el origen en ese estado antes de que se active el ayudante"
+    },
+    "pt": {
+      "Name": "Nome",
+      "Plugin name as shown in the logs": "Nome do plugin tal como aparece no registo",
+      "Kind of Helper": "Tipo de auxiliar",
+      "Set when the Helper is added: add another Helper for another kind": "Escolhido ao adicionar o auxiliar: adicione outro para outro tipo",
+      "Threshold": "Limiar",
+      "Combine": "Combinação",
+      "Stays": "Duração",
+      "Measure": "Medida",
+      "What a Combine Helper shows, set when it is added": "O que um auxiliar Combinação mostra, escolhido ao adicioná-lo",
+      "Temperature": "Temperatura",
+      "Humidity": "Humidade",
+      "Light level": "Luminosidade",
+      "Power": "Potência",
+      "Source": "Origem",
+      "The accessory the Helper reads": "O acessório que o auxiliar lê",
+      "Turns on": "Ativa-se",
+      "Whether the Helper turns on when the reading goes above the on value or below it": "Se o auxiliar se ativa quando a leitura sobe acima do valor de ativação ou desce abaixo dele",
+      "Above the on value": "Acima do valor de ativação",
+      "Below the on value": "Abaixo do valor de ativação",
+      "On value": "Valor de ativação",
+      "The reading past which the Helper turns on": "A leitura a partir da qual o auxiliar se ativa",
+      "Off value": "Valor de desativação",
+      "The reading back past which it turns off again: a gap from the on value keeps a reading at the line from turning it on and off": "A leitura a partir da qual volta a desativar-se: uma margem em relação ao valor de ativação evita que uma leitura junto ao limite o ative e desative sem parar",
+      "Sensors": "Sensores",
+      "The sensors the Helper combines": "Os sensores que o auxiliar combina",
+      "Show": "Mostrar",
+      "Which value of the sensors the Helper shows": "Que valor dos sensores o auxiliar mostra",
+      "Lowest": "O mais baixo",
+      "Highest": "O mais alto",
+      "Average": "A média",
+      "State": "Estado",
+      "The source's state the Helper waits on": "O estado da origem que o auxiliar aguarda",
+      "For longer than (minutes)": "Durante mais de (minutos)",
+      "How long the source stays in the state before the Helper turns on": "Quanto tempo a origem permanece nesse estado antes de o auxiliar se ativar"
+    }
+  }
+}
