@@ -23,13 +23,20 @@ All notable changes to this project are documented here. The format follows
 - Web UI: the Assistant chat's model is a menu under its title, of the provider's models: each user picks their own,
   kept in their preferences, from the next message on (`GET /api/assistant/models` lists them for anyone who may chat).
 
+### Changed
+
+- The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
+  (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
+  `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
+  The location an older `scenes.json` kept moves there at startup.
+
 ### Fixed
 
 - Web UI: the chat's mic on an iPhone or iPad. It started listening on the finger's press, which Safari does not count as
   a tap, and sent only words Safari marked final, which it often never does: it now starts on the tap and sends what was
   heard. When dictation is off or unavailable, the note says what to turn on, rather than blaming the microphone.
 - Web UI on a phone: the Energy section's consumption by device (name and figure over a bar the row's width), the Scenes
-  page's scenes from hubs (one list), its empty card and the location card's buttons, the chat's head (the model's
+  page's scenes from hubs (one list) and its empty card, the chat's head (the model's
   name has the room), and the time ranges of Activity and the Logs page (each choice keeps its width and the row scrolls,
   rather than the words running into each other).
 - Web UI on a phone: the Logs page's filters take three rows rather than four (the search and what the lines are about

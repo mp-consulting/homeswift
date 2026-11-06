@@ -280,8 +280,8 @@ a page to keep on a phone's home screen.
   change (the motion sensor turns on), or a cron expression (`30 7 * * 1-5`; five fields, or six with seconds, which are
   ignored). Automations run on the minute; a characteristic trigger runs a scene at most once per 5 seconds.
 - **Conditions** hold an automatic run back: a time window (`sunset` to `23:00`, across midnight too) or a
-  characteristic's value. A run by hand ignores them. Sunrise and sunset come from Glass UI's equation for the location
-  set on the page (typed, or this device's position).
+  characteristic's value. A run by hand ignores them. Sunrise and sunset come from Glass UI's equation for the
+  Location, a Bridge Setting under [Settings](#settings) (an older `scenes.json`'s location moves there at startup).
 - **Add an accessory as it is now** fills the actions from its current values.
 - **Locks, garage doors and alarms** keep Homeswift's rule that a person confirms them: the page asks before running a
   scene that has them, the MCP server's `run_scene` refuses such a scene (as homebridge-mcp-server's does), and
@@ -380,17 +380,6 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 ![Stop a running scene](images/ui/scene-stop.png)
 
 ![Template photographs](images/ui/template-photographs.png)
-
-The sunrise/sunset location includes a map: click a point or finish dragging to place the pin and save coordinates immediately. Arrow keys can also position the pin for review.
-**Use this device's location** asks the browser for permission and centres the map; **Save** keeps the reviewed
-position. Coordinates remain editable. Visible map tiles are requested directly from OpenStreetMap when the
-location section is open; manual coordinates still work without the map service.
-
-![Location map](images/ui/scene-location.png)
-
-Address suggestions appear after three characters, with a short typing delay and a loading spinner. Select a result to centre the map and save its coordinates. Search queries go directly to [Photon](https://github.com/komoot/photon); the existing home name stays unchanged. Repeated searches are cached for this page, and map/manual entry remain available if search is unavailable.
-
-![Address suggestions](images/ui/scene-address-search.png)
 
 ### Notifications
 
@@ -600,7 +589,22 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   the HomeswiftUI block. A HomeKit port is checked before it is saved; an empty one picks a free port. Homeswift listens
   and advertises on every interface with the system's mDNS (Bonjour, or Avahi on Linux): there is no interface to bind
   or advertiser to choose, as Homebridge's `bind` and `advertiser` settings do, and no Node-specific setting
-  (environment, debug mode, keep orphans). **Energy tariff**, under the form: what the home pays per kWh, for the costs
+  (environment, debug mode, keep orphans). **Location**, under the form: where the home is, for scenes' sunrise and
+  sunset and for plugins such as Weather (GLOSSARY.md). It is folded under its head, which names the place
+  (`/settings#location` opens it), so no map tile loads until it is opened. Click the map or finish dragging to place the pin and save the
+  coordinates (clicks in a row send one save, the last); arrow keys move the pin for review. **Use this device's location** asks the browser and centres
+  the map; **Save** keeps the reviewed position, and the coordinates stay editable. Visible map tiles come straight from
+  OpenStreetMap while the section is open; the coordinates work without the map service. Address suggestions appear
+  after three characters, with a short typing delay and a spinner; a result centres the map and saves its coordinates.
+  Searches go straight to [Photon](https://github.com/komoot/photon) and are cached for the page. No restart
+  (`bridge.location` in config.json, `{latitude, longitude, name}`; `GET` and `PUT /api/settings/location`,
+  `get_settings` and `update_settings` with `bridge: true` over MCP).
+
+  ![Location map](images/ui/location.png)
+
+  ![Address suggestions](images/ui/location-address-search.png)
+
+  **Energy tariff**, under it: what the home pays per kWh, for the costs
   on the Status page. It edits the latest Tariff (GLOSSARY.md): the day it applies from, the currency, the export price (empty when a
   kWh sent back is not paid) and the prices, a row per period (a name, from, to, every day, weekdays or weekends, a
   price per kWh), which must cover each part of the week once; a period ending before it starts runs past midnight.

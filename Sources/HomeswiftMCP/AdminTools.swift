@@ -252,14 +252,23 @@ extension HomeswiftCatalog {
         guard unknown.isEmpty else { throw CatalogError("Not a bridge setting here: \(unknown.joined(separator: ", ")) (the device ID stays; reset_pairings starts the pairing over)") }
         if let name = settings["name"], name.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty != false { throw CatalogError("The bridge needs a name") }
         if let port = settings["port"], !port.isNull, port.portValue == nil { throw CatalogError("port must be a port number, or null for an automatic one") }
+        return try await updateBridgeBlock(dryRun: dryRun) { bridge in
+            for (key, value) in settings {
+                if value.isNull || value.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == true { bridge.removeValue(forKey: key) } else { bridge[key] = value }
+            }
+        }
+    }
+
+    /// config.json's `bridge` block changed by `edit` and applied: the bridge's identity restarts homeswift, the Tariffs
+    /// and the Location do not. A change of the bridge block alone checks no plugin's schema.
+    func updateBridgeBlock(dryRun: Bool, by writer: ConfigWriter = .person, backup: Bool = true,
+                           _ edit: (inout [String: JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         var bridge = root["bridge"]?.objectValue ?? [:]
-        for (key, value) in settings {
-            if value.isNull || value.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == true { bridge.removeValue(forKey: key) } else { bridge[key] = value }
-        }
+        try edit(&bridge)
         root["bridge"] = .object(bridge)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: false, by: writer, backup: backup)
     }
 
     // MARK: Tools
