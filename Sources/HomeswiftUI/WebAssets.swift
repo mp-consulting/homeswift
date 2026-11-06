@@ -13153,6 +13153,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (seconds >= 60 && seconds % 60 === 0) return t("{n} min", { n: seconds / 60 });
     return t("{n} s", { n: seconds });
   }
+  /// A trigger's value as the controls word it: Motion, Unsecured, On rather than true or 0.
+  const worded = (trigger) => window.HomeswiftWidgets?.valueText ? HomeswiftWidgets.valueText({ type: trigger.characteristic, value: trigger.value }) : String(trigger.value);
   function describeTrigger(trigger, names) {
     const text = (() => {
       switch (trigger.type) {
@@ -13163,12 +13165,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic };
           if (trigger.operator === "changes") return t("When {who} {characteristic} changes", vars);
           const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
-          return t("When {who} {characteristic} {comparison} {value}", { ...vars, comparison, value: String(trigger.value) });
+          return t("When {who} {characteristic} {comparison} {value}", { ...vars, comparison, value: worded(trigger) });
         }
         case "stays": {
           const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
           return t("When {who} {characteristic} {comparison} {value} for {duration}", { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic,
-            comparison, value: String(trigger.value), duration: describeSeconds(trigger.forSeconds) });
+            comparison, value: worded(trigger), duration: describeSeconds(trigger.forSeconds) });
         }
         case "threshold": {
           const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic, value: String(trigger.value) };
