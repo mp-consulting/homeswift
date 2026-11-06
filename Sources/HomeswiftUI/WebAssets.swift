@@ -32151,7 +32151,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .logbook-entry .who { display: grid; min-width: 0; }
 .logbook-entry .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A whole pill, its name cut with an ellipsis inside it; the full name is its tooltip. */
-.logbook-entry .source { display: inline-flex; align-items: center; gap: var(--space-4); max-width: min(18em, 100%); min-width: 0; box-sizing: border-box; }
+.logbook-entry .source { display: inline-flex; align-items: center; gap: var(--space-4); max-width: min(18em, 100%); min-width: 0; justify-self: end; box-sizing: border-box; }
 .logbook-entry .source > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logbook-entry .source::before { content: none; }
 .logbook-entry .source svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
