@@ -73,11 +73,12 @@ struct LocationTests {
     @Test func configJSONReadsTheLocation() throws {
         let configuration = try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "name": "Home", "location": { "latitude": 48.8566, "longitude": 2.3522, "name": "Paris" } } }"#.utf8))
         #expect(configuration.location == Location(latitude: 48.8566, longitude: 2.3522, name: "Paris"))
-        #expect(configuration.location?.label == "Paris")
-        #expect(Location(latitude: 1.5, longitude: -2).label == "1.5000, -2.0000")
         #expect(try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": null } }"#.utf8)).location == nil)
-        #expect(throws: (any Error).self) { try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": { "latitude": 91, "longitude": 0 } } }"#.utf8)) }
-        #expect(throws: (any Error).self) { try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": "Paris" } }"#.utf8)) }
+        // A hand-edited Location that is not one is left out at load, so the bridge still starts, and refused at save.
+        let off = try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": { "latitude": 91, "longitude": 0 } } }"#.utf8))
+        #expect(off.location == nil && off.invalidLocation)
+        #expect(throws: (any Error).self) { try off.validate() }
+        #expect(try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": "Paris" } }"#.utf8)).invalidLocation)
     }
 
     @Test func pluginsReadTheLocationAsItChanges() async throws {

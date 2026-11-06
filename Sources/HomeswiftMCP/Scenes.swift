@@ -378,13 +378,7 @@ extension HomeswiftCatalog {
         let file = home.scenes.value
         let pictures = scenePictures.versions()
         var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map { sceneJSON($0, pictures: pictures) }), "artworks": SceneArtwork.catalogueJSON]
-        if let location = host.configuration.location {
-            answer["location"] = (try? JSONValue(encoding: location)) ?? .null
-            answer["nextSunrise"] = Solar.next(.sunrise, latitude: location.latitude, longitude: location.longitude, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
-            answer["nextSunset"] = Solar.next(.sunset, latitude: location.latitude, longitude: location.longitude, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
-        } else {
-            answer["location"] = .null
-        }
+        for (key, value) in locationJSON(now: now).objectValue ?? [:] { answer[key] = value }
         return answer
     }
 

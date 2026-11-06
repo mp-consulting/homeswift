@@ -36,10 +36,10 @@ extension PluginHost {
             let key = Self.uniqueKey(for: draft, taken: Set(instances.map(\.context.key)))
             context = Self.makeContext(
                 block: draft, key: key, bridge: mainBridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox,
-                externals: externals, values: ValueFeed(), energyImports: EnergyImportFeed(), energyProgress: .init([:]), meterReadings: MeterFeed(limit: 0), assistantBackground: entry.assistantBackground)
+                externals: externals, values: ValueFeed(), energyImports: EnergyImportFeed(), energyProgress: .init([:]), meterReadings: MeterFeed(limit: 0), assistantBackground: entry.assistantBackground,
+                location: locationReader)
             context.accessorySettingsBox.withLockedValue { $0 = draft.accessorySettings }
             context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }
-            context.locationSource.withLockedValue { $0 = { [weak self] in self?.configuration.location } }
         }
         let plugin = try await entry.make(json, context)
         do {

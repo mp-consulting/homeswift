@@ -166,6 +166,9 @@ public struct HomeswiftConfiguration: Sendable {
     public var tariffs: [Tariff] = []
     /// `bridge.location`, the Location (GLOSSARY.md). Not part of `bridge`: changing it needs no restart.
     public var location: Location?
+    /// `bridge.location` was there but not a Location (not an object, coordinates off the Earth): left out at load, so a
+    /// hand edit does not stop the bridge, and refused by `validate()` at save.
+    public var invalidLocation = false
 
     public init(bridge: Bridge = Bridge(), platforms: [Platform] = [], disabledPlugins: [String] = []) {
         self.bridge = bridge
@@ -190,6 +193,7 @@ public struct HomeswiftConfiguration: Sendable {
             if let username, !Self.isDeviceID(username) { throw ConfigurationError.invalidUsername(username) }
         }
         try check(pin: bridge.pin, username: bridge.username)
+        if invalidLocation { throw ConfigurationError.invalidValue(key: "bridge.location", expected: "a Location (latitude -90 to 90, longitude -180 to 180, name)") }
         for platform in platforms {
             if let child = platform.childBridge { try check(pin: child.pin, username: child.username) }
         }
@@ -313,10 +317,11 @@ public struct HomeswiftConfiguration: Sendable {
                 configuration.tariffs = list
             }
             if let location = (bridge as? [String: Any])?["location"], !(location is NSNull) {
-                guard location is [String: Any], let decoded = try? decoder.decode(Location.self, from: JSONSerialization.data(withJSONObject: location)), decoded.isValid else {
-                    throw ConfigurationError.invalidValue(key: "bridge.location", expected: "a Location (latitude -90 to 90, longitude -180 to 180, name)")
+                if location is [String: Any], let decoded = try? decoder.decode(Location.self, from: JSONSerialization.data(withJSONObject: location)), decoded.isValid {
+                    configuration.location = decoded
+                } else {
+                    configuration.invalidLocation = true
                 }
-                configuration.location = decoded
             }
         }
         var blocks: [[String: Any]] = []

@@ -590,8 +590,9 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   and advertises on every interface with the system's mDNS (Bonjour, or Avahi on Linux): there is no interface to bind
   or advertiser to choose, as Homebridge's `bind` and `advertiser` settings do, and no Node-specific setting
   (environment, debug mode, keep orphans). **Location**, under the form: where the home is, for scenes' sunrise and
-  sunset and for plugins such as Weather (GLOSSARY.md). Click the map or finish dragging to place the pin and save the
-  coordinates at once; arrow keys move the pin for review. **Use this device's location** asks the browser and centres
+  sunset and for plugins such as Weather (GLOSSARY.md). It is folded under its head, which names the place
+  (`/settings#location` opens it), so no map tile loads until it is opened. Click the map or finish dragging to place the pin and save the
+  coordinates (clicks in a row send one save, the last); arrow keys move the pin for review. **Use this device's location** asks the browser and centres
   the map; **Save** keeps the reviewed position, and the coordinates stay editable. Visible map tiles come straight from
   OpenStreetMap while the section is open; the coordinates work without the map service. Address suggestions appear
   after three characters, with a short typing delay and a spinner; a result centres the map and saves its coordinates.

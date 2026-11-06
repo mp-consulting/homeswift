@@ -785,9 +785,10 @@ extension HomeswiftCatalog {
                 "platform": ["type": "string", "description": "The plugin's platform, as list_plugins gives it"],
                 "name": ["type": "string", "description": "The plugin instance's (block's) name, when the platform has several"],
             ], "description": "A plugin instance: its Plugin Settings; with accessory, the instance the accessory belongs to"],
-            "bridge": ["type": "boolean", "description": "true for the Bridge Settings that change without a restart: location, the Location (where the home is, for sunrise, sunset and the weather)"],
         ]
         let plugin = Self.pluginArgument
+        // get_settings and update_settings also reach the Bridge Settings that change without a restart; forget_device does not.
+        let settingsAddress = address.merging(["bridge": ["type": "boolean", "description": "true for the Bridge Settings that change without a restart: location, the Location (where the home is, for sunrise, sunset and the weather); not with accessory or plugin"]]) { $1 }
         return [
             MCPTool(
                 name: "get_settings", title: "Read settings",
@@ -798,13 +799,14 @@ extension HomeswiftCatalog {
                     + "For a plugin: settings, its Plugin Settings (secrets as __SECRET_…__ handles), its schema and accessorySchema. "
                     + "For the bridge (bridge: true): settings.location, the Location ({latitude, longitude, name} or null), with the next sunrise and sunset there. "
                     + "Change them with update_settings.",
-                inputSchema: ["type": "object", "properties": .object(address)],
+                inputSchema: ["type": "object", "properties": .object(settingsAddress)],
                 // config.json's values, as get_config: hidden from a user who is not an administrator (`administratorOnly`).
                 scope: .read, idempotent: true
             ) { call in
                 let answer: JSONValue
                 if call.arguments["bridge"]?.boolValue == true {
-                    answer = catalog.bridgeLiveSettingsJSON()
+                    guard call.optionalString("accessory") == nil, plugin(call) == nil else { return .error("Pass bridge, accessory or plugin, not several") }
+                    answer = Self.bridgeLiveSettingsJSON(catalog.locationJSON())
                 } else if let id = call.optionalString("accessory") {
                     answer = try await catalog.accessorySettingsJSON(accessoryID: id, instance: plugin(call)?.name)
                 } else if let plugin = plugin(call) {
@@ -828,7 +830,7 @@ extension HomeswiftCatalog {
                     + "accessories, an object of settings by Accessory Id, changes several accessories in one write. Answers each accessory's settings and the keys that changed, "
                     + "and what reloaded. With bridge: true, settings.location sets the Location ({latitude, longitude, name}; null forgets it): scenes' sunrise and sunset "
                     + "and plugins such as Weather use it, with no restart. The bridge's name, port and setup code are update_bridge_settings'. dryRun previews.",
-                inputSchema: ["type": "object", "properties": .object(address.merging([
+                inputSchema: ["type": "object", "properties": .object(settingsAddress.merging([
                     "settings": ["type": "object", "description": "The settings to change, by key; null clears one"],
                     "accessories": ["type": "object", "maxProperties": 500, "additionalProperties": ["type": "object"], "description": "Settings by Accessory Id, for several accessories at once"],
                 ]) { $1 })],
@@ -844,6 +846,7 @@ extension HomeswiftCatalog {
                 }
                 guard let settings = call.arguments["settings"]?.objectValue else { throw JSONRPCError.invalidParams("settings must be an object") }
                 if call.arguments["bridge"]?.boolValue == true {
+                    guard call.optionalString("accessory") == nil, plugin(call) == nil else { return .error("Pass bridge, accessory or plugin, not several") }
                     return .json(try await catalog.updateBridgeLiveSettings(settings, dryRun: call.isDryRun, by: .client))
                 }
                 if let id = call.optionalString("accessory") {

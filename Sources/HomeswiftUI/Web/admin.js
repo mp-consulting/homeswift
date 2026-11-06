@@ -82,10 +82,8 @@
 
   // ---- The Location: a Bridge Setting (bridge.location), for sunrise and sunset and the weather ----------------
 
+  const { statusLine, say, field } = HomeswiftCommon;
   const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
-  const statusLine = () => el("p", { class: "status-line muted", role: "status" });
-  const say = (line, text, kind = "muted") => { line.className = `status-line ${kind}`; line.textContent = text; };
-  const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
 
   /// A small raster map with no third-party scripts. Only visible tiles are requested.
   function locationMap(initial, changed) {
@@ -176,26 +174,38 @@
     const lon = el("input", { type: "number", step: "any", min: -180, max: 180, value: location?.longitude ?? "", "aria-label": t("Longitude") });
     const name = el("input", { type: "text", value: location?.name ?? "", placeholder: t("My home"), maxLength: 64 });
     const line = statusLine();
-    let saves = Promise.resolve();
-    const save = (body, keepMap = false) => {
-      saves = saves.then(async () => {
-        try {
-          const saved = await api("/api/settings/location", { method: "PUT", body: { location: body } });
-          if (!keepMap) { app().route(); return; }
-          summaryValue.textContent = ` · ${place(saved.location)}`;
-          nextInfo.textContent = t("Next sunrise {sunrise}, sunset {sunset}.", {
-            sunrise: saved.nextSunrise ? timeFormat.format(new Date(saved.nextSunrise)) : "—",
-            sunset: saved.nextSunset ? timeFormat.format(new Date(saved.nextSunset)) : "—",
-          });
-          forget.hidden = false;
-          say(line, t("Coordinates saved."), "ok");
-        } catch (e) { say(line, e.message, "error"); }
-      });
-      return saves;
+    // What the card says of a Location answer: where, and the next sunrise and sunset there.
+    const sunLine = (answer) => answer.location ? t("Next sunrise {sunrise}, sunset {sunset}.", {
+      sunrise: answer.nextSunrise ? timeFormat.format(new Date(answer.nextSunrise)) : "—",
+      sunset: answer.nextSunset ? timeFormat.format(new Date(answer.nextSunset)) : "—",
+    }) : t("No location yet: sunrise and sunset triggers and the weather wait for one.");
+    const show = (answer) => {
+      summaryValue.textContent = answer.location ? place(answer.location) : t("not set");
+      nextInfo.textContent = sunLine(answer);
+      forget.hidden = !answer.location;
     };
+    const typed = () => ({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value });
+    // The newest save wins: map clicks in a row send one request, after a short pause, and none waits behind another.
+    let pending = null, timer = null, saving = false;
+    const save = (body, { soon = false } = {}) => {
+      pending = { body };
+      clearTimeout(timer);
+      timer = setTimeout(flush, soon ? 400 : 0);
+    };
+    async function flush() {
+      if (saving || !pending) return;
+      const { body } = pending;
+      pending = null;
+      saving = true;
+      try {
+        show(await api("/api/settings/location", { method: "PUT", body: { location: body } }));
+        if (!pending) say(line, body ? t("Coordinates saved.") : t("Forgotten."), "ok");
+      } catch (e) { say(line, HomeswiftI18n.message(e.message), "error"); }
+      finally { saving = false; if (pending) flush(); }
+    }
     const map = locationMap(location, (latitude, longitude, persist) => {
       lat.value = latitude.toFixed(4); lon.value = longitude.toFixed(4);
-      if (persist) { say(line, t("Saving coordinates…")); save({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value }, true); }
+      if (persist) { say(line, t("Saving coordinates…")); save(typed(), { soon: true }); }
       else say(line, t("Found: save to keep it."));
     });
     const query = el("input", { id: "location-address", type: "search", enterKeyHint: "search", autocomplete: "off", maxLength: 200, required: true, placeholder: t("Street, city or postcode"), "aria-label": t("Search address") });
@@ -241,7 +251,7 @@
             map.set(latitude, longitude);
             results.replaceChildren(); query.value = address; query.focus();
             say(searchStatus, ""); say(line, t("Saving coordinates…"));
-            await save({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value }, true);
+            save(typed());
           } }, el("span", { class: "location-result-copy" }, el("strong", { text: p.name || p.street || address || `${latitude}, ${longitude}` }), el("span", { class: "muted", text: address }))));
         }
       } catch { if (version === searchVersion) say(searchStatus, t("Address search is unavailable. Try again or choose a point on the map."), "error"); }
@@ -272,19 +282,21 @@
         (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); updateMap(); say(line, t("Found: save to keep it.")); },
         (error) => say(line, error.message || t("The browser did not give its location (it needs HTTPS away from localhost)."), "error"));
     } });
-    const next = location ? t("Next sunrise {sunrise}, sunset {sunset}.", { sunrise: data.nextSunrise ? timeFormat.format(new Date(data.nextSunrise)) : "—", sunset: data.nextSunset ? timeFormat.format(new Date(data.nextSunset)) : "—" }) : t("No location yet: sunrise and sunset triggers and the weather wait for one.");
-    const summaryValue = el("span", { class: "muted", text: ` · ${location ? place(location) : t("not set")}` });
-    const nextInfo = el("p", { class: "muted", text: next });
+    const summaryValue = el("div", { class: "muted", text: location ? place(location) : t("not set") });
+    const nextInfo = el("p", { class: "muted", text: sunLine(data) });
     const forget = el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), hidden: !location, onclick: () => save(null) });
-    return el("details", { class: "card location", id: "location", ontoggle: () => map.draw(), open: !location || window.location.hash === "#location" },
-      el("summary", {}, el("strong", { text: t("Location") }), summaryValue),
+    return el("details", { class: "card location", id: "location", ontoggle: () => map.draw(), open: window.location.hash === "#location" },
+      // Its head like its neighbours' (a tile, the title, what it holds), with a chevron for the fold.
+      el("summary", { class: "server-head" }, tile("location", "blue"), el("div", { class: "who" }, el("strong", { text: t("Location") }), summaryValue),
+        el("span", { class: "location-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("down"))),
       el("p", { class: "help", text: t("Where the home is, for scenes' sunrise and sunset and for the weather.") }),
       nextInfo, searchForm, map.node,
       el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
       el("div", { class: "actions" },
         el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => {
           if (lat.value === "" || lon.value === "" || !lat.reportValidity() || !lon.reportValidity()) return say(line, t("Choose a location on the map or enter valid coordinates."), "error");
-          save({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value });
+          say(line, t("Saving coordinates…"));
+          save(typed());
         } }),
         here, forget),
       line);
@@ -321,7 +333,6 @@
     if (!latest) addRow();
     const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
-    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const earlier = tariffs.slice(0, -1).reverse();
     const startDate = (text) => HomeswiftCommon.parseDay(text);
     const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
@@ -368,7 +379,6 @@
       model: input("model", { placeholder: "Homeswift" }),
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
     };
-    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
     // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.

@@ -16,10 +16,8 @@
   const firstWeekday = (weekLocale.getWeekInfo?.() ?? weekLocale.weekInfo)?.firstDay ?? 1;
   const weekdayOrder = Array.from({ length: 7 }, (_, offset) => (firstWeekday + offset) % 7);
   const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
-  const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
   const displayName = (accessory) => accessory.displayName || accessory.name;
-  const statusLine = () => el("p", { class: "status-line muted", role: "status" });
-  const say = (line, text, kind = "muted") => { line.className = `status-line ${kind}`; line.textContent = text; };
+  const { statusLine, say, field } = HomeswiftCommon;
 
   // ---- Rooms, hidden accessories, display names ------------------------------------------------------
 

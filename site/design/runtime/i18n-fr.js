@@ -571,7 +571,9 @@ HomeswiftI18n.add("fr", {
   "a field name is required": "un nom de champ est requis",
   "A faint amber glow to find your way.": "Une faible lueur ambrée pour trouver votre chemin.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON vers une URL de votre choix : event, title, message, instance, timestamp.",
-  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Une position nécessite lat (-90 à 90) et lon (-180 à 180)",
+  "A Location needs latitude (-90 to 90) and longitude (-180 to 180)": "Une position nécessite une latitude (-90 à 90) et une longitude (-180 à 180)",
+  "Not part of a Location: {keys}": "Ne fait pas partie d'une position : {keys}",
+  "A Location is an object: latitude, longitude and a name; null forgets it": "Une position est un objet : latitude, longitude et un nom ; null l'oublie",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "une serrure, une porte ou une alarme : une personne doit confirmer (set_security_accessory, ou l'interface web)",
   "a lock, door or alarm: automations do not change them": "une serrure, une porte ou une alarme : les automatisations n'y touchent pas",
   "a message is required": "un message est requis",
@@ -3031,4 +3033,5 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Forgotten.": "Oubliée.",
 });

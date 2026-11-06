@@ -19,34 +19,41 @@ extension HomeswiftCatalog {
         return ["location": (try? JSONValue(encoding: location)) ?? .null, "nextSunrise": next(.sunrise), "nextSunset": next(.sunset)]
     }
 
-    /// A Location from a request: latitude and longitude (lat and lon too, as the Scenes page sent them), and a name;
-    /// nil for null or an empty object, which forgets it.
+    /// A Location from a request: latitude, longitude and a name; nil for null or an empty object, which forgets it;
+    /// anything else is refused.
     static func location(from value: JSONValue) throws -> Location? {
-        guard !value.isNull, let object = value.objectValue, !object.isEmpty else { return nil }
-        let unknown = object.keys.filter { !["latitude", "longitude", "lat", "lon", "name"].contains($0) }.sorted()
+        if value.isNull { return nil }
+        guard let object = value.objectValue else { throw CatalogError("A Location is an object: latitude, longitude and a name; null forgets it") }
+        if object.isEmpty { return nil }
+        let unknown = object.keys.filter { !["latitude", "longitude", "name"].contains($0) }.sorted()
         guard unknown.isEmpty else { throw CatalogError("Not part of a Location: \(unknown.joined(separator: ", "))") }
-        guard let latitude = (object["latitude"] ?? object["lat"])?.doubleValue, let longitude = (object["longitude"] ?? object["lon"])?.doubleValue else {
-            throw CatalogError("A Location needs latitude (-90 to 90) and longitude (-180 to 180)")
-        }
+        guard let latitude = object["latitude"]?.doubleValue, let longitude = object["longitude"]?.doubleValue else { throw CatalogError(locationRange) }
         let name = object["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty.map { String($0.prefix(Location.nameLimit)) }
-        let location = Location(latitude: latitude, longitude: longitude, name: name)
-        guard location.isValid else { throw CatalogError("A Location needs latitude (-90 to 90) and longitude (-180 to 180)") }
+        return try checked(Location(latitude: latitude, longitude: longitude, name: name))
+    }
+
+    static let locationRange = "A Location needs latitude (-90 to 90) and longitude (-180 to 180)"
+
+    static func checked(_ location: Location) throws -> Location {
+        guard location.isValid else { throw CatalogError(locationRange) }
         return location
     }
 
-    /// Writes the Location (`bridge.location`; nil removes it), with no restart, and answers it as `locationJSON` does
-    /// with what the write did.
+    /// Writes the Location from a request (`location(from:)`) and answers it as `locationJSON` does, with what the
+    /// write did.
     public func updateLocation(_ value: JSONValue, dryRun: Bool = false, by writer: ConfigWriter = .person) async throws -> JSONValue {
-        let location = try Self.location(from: value)
-        let current = try readConfig()
-        var root = current.objectValue ?? [:]
-        var bridge = root["bridge"]?.objectValue ?? [:]
-        if let location { bridge["location"] = try JSONValue(encoding: location) } else { bridge.removeValue(forKey: "location") }
-        root["bridge"] = .object(bridge)
-        let applied = try await applyConfig(.object(root), dryRun: dryRun, current: current, by: writer)
+        try await writeLocation(try Self.location(from: value), dryRun: dryRun, by: writer)
+    }
+
+    /// Writes the Location (`bridge.location`; nil removes it), with no restart. The same Location again writes nothing.
+    /// No config.json backup: the map saves on every click, and the last 20 backups are for changes worth going back to.
+    func writeLocation(_ location: Location?, dryRun: Bool = false, by writer: ConfigWriter = .person) async throws -> JSONValue {
         var answer = Self.locationJSON(location, now: Date()).objectValue ?? [:]
+        guard dryRun || location != host.configuration.location else { return .object(answer) }
+        let applied = try await updateBridgeBlock(dryRun: dryRun, by: writer, backup: false) { bridge in
+            if let location { bridge["location"] = try JSONValue(encoding: location) } else { bridge.removeValue(forKey: "location") }
+        }
         Self.copyApplied(applied, into: &answer)
-        if dryRun { answer["dryRun"] = true }
         return .object(answer)
     }
 
@@ -56,9 +63,7 @@ extension HomeswiftCatalog {
         guard let old = home.scenes.value.location else { return }
         do {
             if host.configuration.location == nil {
-                let moved = Location(latitude: old.lat, longitude: old.lon, name: old.name)
-                guard moved.isValid else { throw CatalogError("its coordinates are not on Earth") }
-                _ = try await updateLocation(try JSONValue(encoding: moved))
+                _ = try await writeLocation(try Self.checked(Location(latitude: old.lat, longitude: old.lon, name: old.name)))
                 logger.info("Moved the scenes' location to the Location, a Bridge Setting (config.json's bridge.location)")
             }
             try home.scenes.update { $0.location = nil }
@@ -69,11 +74,10 @@ extension HomeswiftCatalog {
 
     // MARK: get_settings and update_settings
 
-    /// The Bridge Settings that change without a restart, for get_settings (bridge: true): the Location.
-    func bridgeLiveSettingsJSON(now: Date = Date()) -> JSONValue {
-        let location = locationJSON(now: now)
-        return [
-            "settings": ["location": location["location"] ?? .null],
+    /// The Bridge Settings that change without a restart, for get_settings (bridge: true), from a `locationJSON` answer.
+    static func bridgeLiveSettingsJSON(_ located: JSONValue) -> JSONValue {
+        [
+            "settings": ["location": located["location"] ?? .null],
             "fields": ["location": [
                 "type": ["object", "null"], "title": "Location", "core": true,
                 "description": "Where the home is, for sunrise and sunset and the weather. null when none is set.",
@@ -84,7 +88,7 @@ extension HomeswiftCatalog {
                     "name": ["type": "string", "maxLength": .number(Double(Location.nameLimit))],
                 ],
             ]],
-            "nextSunrise": location["nextSunrise"] ?? .null, "nextSunset": location["nextSunset"] ?? .null,
+            "nextSunrise": located["nextSunrise"] ?? .null, "nextSunset": located["nextSunset"] ?? .null,
         ]
     }
 
@@ -95,10 +99,10 @@ extension HomeswiftCatalog {
         guard unknown.isEmpty else {
             throw CatalogError("Not a Bridge Setting update_settings changes: \(unknown.joined(separator: ", ")) (the name, port and setup code are update_bridge_settings')")
         }
-        guard let location = settings["location"] else { return bridgeLiveSettingsJSON() }
+        guard let location = settings["location"] else { return Self.bridgeLiveSettingsJSON(locationJSON()) }
+        // The written Location, dry run or not, and what the write did.
         let written = try await updateLocation(location, dryRun: dryRun, by: writer)
-        var answer = bridgeLiveSettingsJSON().objectValue ?? [:]
-        if dryRun { answer["settings"] = ["location": written["location"] ?? .null] }
+        var answer = Self.bridgeLiveSettingsJSON(written).objectValue ?? [:]
         Self.copyApplied(written, into: &answer)
         answer["changed"] = ["location"]
         return .object(answer)

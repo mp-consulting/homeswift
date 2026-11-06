@@ -91,10 +91,8 @@ enum WebAssets {
 
   // ---- The Location: a Bridge Setting (bridge.location), for sunrise and sunset and the weather ----------------
 
+  const { statusLine, say, field } = HomeswiftCommon;
   const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
-  const statusLine = () => el("p", { class: "status-line muted", role: "status" });
-  const say = (line, text, kind = "muted") => { line.className = `status-line ${kind}`; line.textContent = text; };
-  const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
 
   /// A small raster map with no third-party scripts. Only visible tiles are requested.
   function locationMap(initial, changed) {
@@ -185,26 +183,38 @@ enum WebAssets {
     const lon = el("input", { type: "number", step: "any", min: -180, max: 180, value: location?.longitude ?? "", "aria-label": t("Longitude") });
     const name = el("input", { type: "text", value: location?.name ?? "", placeholder: t("My home"), maxLength: 64 });
     const line = statusLine();
-    let saves = Promise.resolve();
-    const save = (body, keepMap = false) => {
-      saves = saves.then(async () => {
-        try {
-          const saved = await api("/api/settings/location", { method: "PUT", body: { location: body } });
-          if (!keepMap) { app().route(); return; }
-          summaryValue.textContent = ` · ${place(saved.location)}`;
-          nextInfo.textContent = t("Next sunrise {sunrise}, sunset {sunset}.", {
-            sunrise: saved.nextSunrise ? timeFormat.format(new Date(saved.nextSunrise)) : "—",
-            sunset: saved.nextSunset ? timeFormat.format(new Date(saved.nextSunset)) : "—",
-          });
-          forget.hidden = false;
-          say(line, t("Coordinates saved."), "ok");
-        } catch (e) { say(line, e.message, "error"); }
-      });
-      return saves;
+    // What the card says of a Location answer: where, and the next sunrise and sunset there.
+    const sunLine = (answer) => answer.location ? t("Next sunrise {sunrise}, sunset {sunset}.", {
+      sunrise: answer.nextSunrise ? timeFormat.format(new Date(answer.nextSunrise)) : "—",
+      sunset: answer.nextSunset ? timeFormat.format(new Date(answer.nextSunset)) : "—",
+    }) : t("No location yet: sunrise and sunset triggers and the weather wait for one.");
+    const show = (answer) => {
+      summaryValue.textContent = answer.location ? place(answer.location) : t("not set");
+      nextInfo.textContent = sunLine(answer);
+      forget.hidden = !answer.location;
     };
+    const typed = () => ({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value });
+    // The newest save wins: map clicks in a row send one request, after a short pause, and none waits behind another.
+    let pending = null, timer = null, saving = false;
+    const save = (body, { soon = false } = {}) => {
+      pending = { body };
+      clearTimeout(timer);
+      timer = setTimeout(flush, soon ? 400 : 0);
+    };
+    async function flush() {
+      if (saving || !pending) return;
+      const { body } = pending;
+      pending = null;
+      saving = true;
+      try {
+        show(await api("/api/settings/location", { method: "PUT", body: { location: body } }));
+        if (!pending) say(line, body ? t("Coordinates saved.") : t("Forgotten."), "ok");
+      } catch (e) { say(line, HomeswiftI18n.message(e.message), "error"); }
+      finally { saving = false; if (pending) flush(); }
+    }
     const map = locationMap(location, (latitude, longitude, persist) => {
       lat.value = latitude.toFixed(4); lon.value = longitude.toFixed(4);
-      if (persist) { say(line, t("Saving coordinates…")); save({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value }, true); }
+      if (persist) { say(line, t("Saving coordinates…")); save(typed(), { soon: true }); }
       else say(line, t("Found: save to keep it."));
     });
     const query = el("input", { id: "location-address", type: "search", enterKeyHint: "search", autocomplete: "off", maxLength: 200, required: true, placeholder: t("Street, city or postcode"), "aria-label": t("Search address") });
@@ -250,7 +260,7 @@ enum WebAssets {
             map.set(latitude, longitude);
             results.replaceChildren(); query.value = address; query.focus();
             say(searchStatus, ""); say(line, t("Saving coordinates…"));
-            await save({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value }, true);
+            save(typed());
           } }, el("span", { class: "location-result-copy" }, el("strong", { text: p.name || p.street || address || `${latitude}, ${longitude}` }), el("span", { class: "muted", text: address }))));
         }
       } catch { if (version === searchVersion) say(searchStatus, t("Address search is unavailable. Try again or choose a point on the map."), "error"); }
@@ -281,19 +291,21 @@ enum WebAssets {
         (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); updateMap(); say(line, t("Found: save to keep it.")); },
         (error) => say(line, error.message || t("The browser did not give its location (it needs HTTPS away from localhost)."), "error"));
     } });
-    const next = location ? t("Next sunrise {sunrise}, sunset {sunset}.", { sunrise: data.nextSunrise ? timeFormat.format(new Date(data.nextSunrise)) : "—", sunset: data.nextSunset ? timeFormat.format(new Date(data.nextSunset)) : "—" }) : t("No location yet: sunrise and sunset triggers and the weather wait for one.");
-    const summaryValue = el("span", { class: "muted", text: ` · ${location ? place(location) : t("not set")}` });
-    const nextInfo = el("p", { class: "muted", text: next });
+    const summaryValue = el("div", { class: "muted", text: location ? place(location) : t("not set") });
+    const nextInfo = el("p", { class: "muted", text: sunLine(data) });
     const forget = el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), hidden: !location, onclick: () => save(null) });
-    return el("details", { class: "card location", id: "location", ontoggle: () => map.draw(), open: !location || window.location.hash === "#location" },
-      el("summary", {}, el("strong", { text: t("Location") }), summaryValue),
+    return el("details", { class: "card location", id: "location", ontoggle: () => map.draw(), open: window.location.hash === "#location" },
+      // Its head like its neighbours' (a tile, the title, what it holds), with a chevron for the fold.
+      el("summary", { class: "server-head" }, tile("location", "blue"), el("div", { class: "who" }, el("strong", { text: t("Location") }), summaryValue),
+        el("span", { class: "location-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("down"))),
       el("p", { class: "help", text: t("Where the home is, for scenes' sunrise and sunset and for the weather.") }),
       nextInfo, searchForm, map.node,
       el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
       el("div", { class: "actions" },
         el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => {
           if (lat.value === "" || lon.value === "" || !lat.reportValidity() || !lon.reportValidity()) return say(line, t("Choose a location on the map or enter valid coordinates."), "error");
-          save({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value });
+          say(line, t("Saving coordinates…"));
+          save(typed());
         } }),
         here, forget),
       line);
@@ -330,7 +342,6 @@ enum WebAssets {
     if (!latest) addRow();
     const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
-    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const earlier = tariffs.slice(0, -1).reverse();
     const startDate = (text) => HomeswiftCommon.parseDay(text);
     const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
@@ -377,7 +388,6 @@ enum WebAssets {
       model: input("model", { placeholder: "Homeswift" }),
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
     };
-    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
     // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.
@@ -11495,6 +11505,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
+  /// A form's status line, what it says (`kind`: muted, ok or error), and a labelled field with its help: the pages'
+  /// common pieces.
+  const statusLine = () => el("p", { class: "status-line muted", role: "status" });
+  const say = (line, text, kind = "muted") => { line.className = `status-line ${kind}`; line.textContent = text; };
+  const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
+
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.
   function money(amount, currency) {
@@ -11573,7 +11589,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, isoDay, parseDay, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, statusLine, say, field, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -11880,10 +11896,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const firstWeekday = (weekLocale.getWeekInfo?.() ?? weekLocale.weekInfo)?.firstDay ?? 1;
   const weekdayOrder = Array.from({ length: 7 }, (_, offset) => (firstWeekday + offset) % 7);
   const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
-  const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
   const displayName = (accessory) => accessory.displayName || accessory.name;
-  const statusLine = () => el("p", { class: "status-line muted", role: "status" });
-  const say = (line, text, kind = "muted") => { line.className = `status-line ${kind}`; line.textContent = text; };
+  const { statusLine, say, field } = HomeswiftCommon;
 
   // ---- Rooms, hidden accessories, display names ------------------------------------------------------
 
@@ -14265,7 +14279,9 @@ HomeswiftI18n.add("es", {
   "a field name is required": "se necesita un nombre de campo",
   "A faint amber glow to find your way.": "Un tenue brillo ámbar para orientarte.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON a una URL tuya: event, title, message, instance, timestamp.",
-  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Una ubicación necesita lat (de -90 a 90) y lon (de -180 a 180)",
+  "A Location needs latitude (-90 to 90) and longitude (-180 to 180)": "Una ubicación necesita latitud (de -90 a 90) y longitud (de -180 a 180)",
+  "Not part of a Location: {keys}": "No forma parte de una ubicación: {keys}",
+  "A Location is an object: latitude, longitude and a name; null forgets it": "Una ubicación es un objeto: latitud, longitud y un nombre; null la olvida",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "una cerradura, puerta o alarma: la confirma una persona (set_security_accessory, o la interfaz web)",
   "a lock, door or alarm: automations do not change them": "una cerradura, puerta o alarma: las automatizaciones no las cambian",
   "a message is required": "se necesita un mensaje",
@@ -16725,6 +16741,7 @@ HomeswiftI18n.add("es", {
   "Separate": "Separar",
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
+  "Forgotten.": "Olvidada.",
 });
 
 """#),
@@ -17302,7 +17319,9 @@ HomeswiftI18n.add("fr", {
   "a field name is required": "un nom de champ est requis",
   "A faint amber glow to find your way.": "Une faible lueur ambrée pour trouver votre chemin.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON vers une URL de votre choix : event, title, message, instance, timestamp.",
-  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Une position nécessite lat (-90 à 90) et lon (-180 à 180)",
+  "A Location needs latitude (-90 to 90) and longitude (-180 to 180)": "Une position nécessite une latitude (-90 à 90) et une longitude (-180 à 180)",
+  "Not part of a Location: {keys}": "Ne fait pas partie d'une position : {keys}",
+  "A Location is an object: latitude, longitude and a name; null forgets it": "Une position est un objet : latitude, longitude et un nom ; null l'oublie",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "une serrure, une porte ou une alarme : une personne doit confirmer (set_security_accessory, ou l'interface web)",
   "a lock, door or alarm: automations do not change them": "une serrure, une porte ou une alarme : les automatisations n'y touchent pas",
   "a message is required": "un message est requis",
@@ -19762,6 +19781,7 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Forgotten.": "Oubliée.",
 });
 
 """#),
@@ -20339,7 +20359,9 @@ HomeswiftI18n.add("pt", {
   "a field name is required": "é preciso um nome de campo",
   "A faint amber glow to find your way.": "Um ténue brilho âmbar para encontrar o caminho.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Um POST JSON para um URL seu: event, title, message, instance, timestamp.",
-  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Uma localização precisa de lat (-90 a 90) e lon (-180 a 180)",
+  "A Location needs latitude (-90 to 90) and longitude (-180 to 180)": "Uma localização precisa de latitude (-90 a 90) e longitude (-180 a 180)",
+  "Not part of a Location: {keys}": "Não faz parte de uma localização: {keys}",
+  "A Location is an object: latitude, longitude and a name; null forgets it": "Uma localização é um objeto: latitude, longitude e um nome; null esquece-a",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "uma fechadura, porta ou alarme: uma pessoa tem de confirmar (set_security_accessory, ou a interface web)",
   "a lock, door or alarm: automations do not change them": "uma fechadura, porta ou alarme: as automatizações não lhes tocam",
   "a message is required": "é preciso uma mensagem",
@@ -22799,6 +22821,7 @@ HomeswiftI18n.add("pt", {
   "Separate": "Separar",
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
+  "Forgotten.": "Esquecida.",
 });
 
 """#),
@@ -28847,8 +28870,19 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 }
 @media (pointer: coarse) { .template-describe input { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
-.location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
+/* The Location's fold: a card head (tile, title, the place), the chevron turning as it opens. */
+.location > summary { cursor: pointer; list-style: none; padding: 0; color: inherit; }
+.location > summary::-webkit-details-marker { display: none; }
+.location > summary .who { flex: 1; min-width: 0; }
+.location-chevron { display: inline-flex; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.location-chevron svg { width: 20px; height: 20px; }
+.location[open] > summary { margin-bottom: var(--space-14); }
+.location[open] .location-chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .location-chevron { transition: none; } }
+.location .actions { flex-wrap: wrap; }
+.location .actions button { white-space: nowrap; }
+.location .status-line:empty, .location-search .status-line:empty, .location-search-results:empty { display: none; }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
 .scene-editor h2 + p { margin: 0 0 var(--space-8); font-size: var(--text-md); }
 .editor-list { display: grid; gap: var(--space-8); }
@@ -30788,6 +30822,10 @@ select option:disabled { color: var(--muted); }
 .location-search-input input { width: 100%; padding-right: calc(var(--space-20) * 2); }
 .location-search-input .spinner { position: absolute; right: var(--space-12); top: 50%; margin-top: -9px; pointer-events: none; }
 .location-search-input .spinner[hidden] { display: none; }
+@media (max-width: 520px) {
+  .location-search-bar { flex-wrap: wrap; }
+  .location-search-input { flex: 1 1 100%; }
+}
 .location-search > p { font-size: var(--text-sm); margin-block: var(--space-10); }
 .location-search-results button { border-radius: var(--radius-sm); padding: var(--space-12); box-shadow: none; border: 1px solid var(--line); touch-action: manipulation; }
 .location-result-copy { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }

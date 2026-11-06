@@ -21,12 +21,6 @@ public struct Location: Codable, Sendable, Equatable {
         latitude.isFinite && longitude.isFinite && abs(latitude) <= 90 && abs(longitude) <= 180
     }
 
-    /// How a person reads it: its name, else its coordinates.
-    public var label: String {
-        if let name, !name.isEmpty { return name }
-        return String(format: "%.4f, %.4f", latitude, longitude)
-    }
-
     /// The longest name kept.
     public static let nameLimit = 64
 }

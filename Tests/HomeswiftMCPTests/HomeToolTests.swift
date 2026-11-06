@@ -704,11 +704,20 @@ struct NotificationTests {
         #expect(try catalog.readConfig()["bridge"]?["location"]?["latitude"] == 48.8566)
         #expect(catalog.scenesJSON()["location"]?["name"] == "Paris")
 
-        // The Scenes page's older shape is read too; out-of-range coordinates and unknown keys are refused.
-        _ = try await catalog.updateLocation(["lat": 51.5, "lon": -0.12])
+        // Out-of-range coordinates, unknown keys and the Scenes page's older lat and lon are refused.
+        _ = try await catalog.updateLocation(["latitude": 51.5, "longitude": -0.12])
+        await #expect(throws: CatalogError.self) { try await catalog.updateLocation(["lat": 51.5, "lon": -0.12]) }
+        // The same Location again writes nothing.
+        let again = try await catalog.updateLocation(["latitude": 51.5, "longitude": -0.12])
+        #expect(again["reloaded"] == nil)
         #expect(environment.host.configuration.location?.longitude == -0.12)
         await #expect(throws: CatalogError.self) { try await catalog.updateLocation(["latitude": 95, "longitude": 0]) }
         await #expect(throws: CatalogError.self) { try await catalog.updateLocation(["latitude": 1, "longitude": 0, "altitude": 3]) }
+        // Anything but an object or null is refused, never taken as forgetting it.
+        await #expect(throws: CatalogError.self) { try await catalog.updateLocation("Paris") }
+        #expect(environment.host.configuration.location != nil)
+        // No config.json backup for a Location: the map saves at every click.
+        #expect(written["backup"] == nil)
 
         _ = try await catalog.updateLocation(.null)
         #expect(environment.host.configuration.location == nil)

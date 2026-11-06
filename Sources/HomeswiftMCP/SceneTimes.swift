@@ -57,8 +57,4 @@ public enum Solar {
         }
         return nil
     }
-
-    public static func isValid(latitude: Double, longitude: Double) -> Bool {
-        latitude.isFinite && longitude.isFinite && abs(latitude) <= 90 && abs(longitude) <= 180
-    }
 }
