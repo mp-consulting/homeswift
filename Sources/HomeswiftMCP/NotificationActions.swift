@@ -136,17 +136,9 @@ extension HomeswiftCatalog {
         return sent
     }
 
+    /// The Steps' rule (`touchesSecurity(scene:id:service:characteristic:)`): only a signed-in person confirms one that does.
     func buttonTouchesSecurity(_ button: NotificationButton) -> Bool {
-        switch button.type {
-        case "scene":
-            guard let id = button.scene, let scene = home.scenes.value.scenes.first(where: { $0.id == id }) else { return false }
-            return !securityActions(of: scene).isEmpty
-        case "set":
-            guard let found = find(id: button.id ?? ""), let target = try? characteristic(in: found, service: button.service, characteristic: button.characteristic ?? "") else { return false }
-            return target.isSecurityControl
-        default:
-            return false
-        }
+        button.type != "open" && touchesSecurity(scene: button.scene, id: button.id, service: button.service, characteristic: button.characteristic)
     }
 
     // MARK: Acting
@@ -208,7 +200,9 @@ extension HomeswiftCatalog {
         switch button.type {
         case "scene":
             guard let id = button.scene else { throw CatalogError("No scene") }
-            let answer = try await runScene(id, trigger: .manual, allowSecurity: allowSecurity)
+            // Run as an Automation's Step: the press keeps its own Change Source (the person, or the Automation).
+            guard let scene = home.scenes.value.scenes.first(where: { $0.id == id }) else { throw CatalogError("The scene is gone", notFound: true) }
+            let answer = try await run(scene, trigger: .automation, allowSecurity: allowSecurity)
             return ["done": .string(button.label), "ok": answer["ok"] ?? true]
         case "set":
             guard let found = find(id: button.id ?? "") else { throw CatalogError("The accessory is gone") }
@@ -236,8 +230,7 @@ extension HomeswiftCatalog {
                     var query = "timeout=25&allowed_updates=%5B%22callback_query%22%5D"
                     if let offset { query += "&offset=\(offset)" }
                     do {
-                        guard let url = URL(string: "https://api.telegram.org/bot\(settings.botToken)/getUpdates?\(query)") else { return }
-                        let response = try await catalog.home.http.send(HTTPRequest(url: url, timeout: .seconds(35)))
+                        let response = try await catalog.telegram("getUpdates", query: query, timeout: .seconds(35))
                         guard response.status == 200, let body = try? JSONValue(data: response.body) else { throw CatalogError("HTTP \(response.status)") }
                         failures = 0
                         for update in body["result"]?.arrayValue ?? [] {
@@ -246,7 +239,7 @@ extension HomeswiftCatalog {
                         }
                     } catch {
                         failures += 1
-                        if failures == 1 { catalog.logger.warning("Could not read the Telegram bot's button presses: \(Redaction.redactText("\(error)").replacingOccurrences(of: settings.botToken, with: "********"))") }
+                        if failures == 1 { catalog.logger.warning("Could not read the Telegram bot's button presses: \(catalog.scrubbed("\(error)"))") }
                         try? await Task.sleep(for: .seconds(min(30, 2 * failures)))
                     }
                 }
@@ -277,12 +270,24 @@ extension HomeswiftCatalog {
         } else {
             answer = "Not from this chat"
         }
-        let base = "https://api.telegram.org/bot\(settings.botToken)"
-        _ = try? await home.http.send(HTTPRequest(method: "POST", url: URL(string: "\(base)/answerCallbackQuery")!, headers: [(name: "Content-Type", value: "application/json")],
-                                                  body: (["callback_query_id": .string(queryID), "text": .string(String(answer.prefix(190)))] as JSONValue).encoded()))
+        _ = try? await telegram("answerCallbackQuery", body: ["callback_query_id": .string(queryID), "text": .string(String(answer.prefix(190)))])
         if let message = query["message"]?["message_id"], let chatID = query["message"]?["chat"]?["id"] {
-            _ = try? await home.http.send(HTTPRequest(method: "POST", url: URL(string: "\(base)/editMessageReplyMarkup")!, headers: [(name: "Content-Type", value: "application/json")],
-                                                      body: (["chat_id": chatID, "message_id": message, "reply_markup": ["inline_keyboard": []]] as JSONValue).encoded()))
+            _ = try? await telegram("editMessageReplyMarkup", body: ["chat_id": chatID, "message_id": message, "reply_markup": ["inline_keyboard": []]])
         }
+    }
+
+    /// A call to the Bot API: `body` POSTed as JSON, else a GET with `query`.
+    func telegram(_ method: String, query: String = "", body: JSONValue? = nil, timeout: Duration = .seconds(10)) async throws -> HomeswiftNetwork.HTTPResponse {
+        let token = home.notifications.value.channels.telegram.botToken
+        guard let url = URL(string: "https://api.telegram.org/bot\(token)/\(method)\(query.isEmpty ? "" : "?" + query)") else { throw CatalogError("invalid Telegram request") }
+        return try await home.http.send(HomeswiftNetwork.HTTPRequest(method: body == nil ? "GET" : "POST", url: url, headers: body == nil ? [] : [(name: "Content-Type", value: "application/json")],
+                                                    body: try body?.encoded(), timeout: timeout))
+    }
+
+    /// An error's text with every secret of the notification settings masked, as the channels' errors are.
+    func scrubbed(_ text: String) -> String {
+        var text = text
+        for secret in home.notifications.value.secrets { text = text.replacingOccurrences(of: secret, with: NotificationSettings.placeholder) }
+        return String(Redaction.redactText(text).prefix(300))
     }
 }

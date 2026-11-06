@@ -308,18 +308,22 @@ extension HomeswiftCatalog {
     /// Whether a trigger, a condition or a Step names a lock, a garage door or an alarm, or applies a Scene that changes
     /// one: saving it over MCP asks the person first.
     func touchesSecurity(_ automation: Automation) -> Bool {
-        let isSecurity = { (id: String?, service: String?, name: String?) -> Bool in
-            guard let id, let name, let found = self.find(id: id) else { return false }
-            if (try? self.characteristic(in: found, service: service, characteristic: name).isSecurityControl) == true { return true }
-            return found.accessory.services.contains { $0.characteristics.contains(where: \.isSecurityControl) }
-        }
-        if automation.triggers.contains(where: { isSecurity($0.id, $0.service, $0.characteristic) }) { return true }
-        if automation.conditions.contains(where: { isSecurity($0.id, $0.service, $0.characteristic) }) { return true }
-        let scenes = home.scenes.value.scenes
-        return automation.steps.contains { step in
-            if let id = step.scene, let scene = scenes.first(where: { $0.id == id }) { return !securityActions(of: scene).isEmpty }
-            return isSecurity(step.id, step.service, step.characteristic)
-        }
+        if automation.triggers.contains(where: { isSecurityAccessory($0.id, $0.service, $0.characteristic) }) { return true }
+        if automation.conditions.contains(where: { isSecurityAccessory($0.id, $0.service, $0.characteristic) }) { return true }
+        return automation.steps.contains { touchesSecurity(scene: $0.scene, id: $0.id, service: $0.service, characteristic: $0.characteristic) }
+    }
+
+    /// What a Step or a notification's button would set is a lock, a garage door or an alarm, or an accessory with one,
+    /// or a Scene that changes one: the one rule both follow.
+    func touchesSecurity(scene: String?, id: String?, service: String?, characteristic: String?) -> Bool {
+        if let scene, let found = home.scenes.value.scenes.first(where: { $0.id == scene }) { return !securityActions(of: found).isEmpty }
+        return isSecurityAccessory(id, service, characteristic)
+    }
+
+    func isSecurityAccessory(_ id: String?, _ service: String?, _ name: String?) -> Bool {
+        guard let id, let name, let found = find(id: id) else { return false }
+        if (try? characteristic(in: found, service: service, characteristic: name).isSecurityControl) == true { return true }
+        return found.accessory.services.contains { $0.characteristics.contains(where: \.isSecurityControl) }
     }
 
     public func savedAutomation(reference: String) -> Automation? {

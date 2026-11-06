@@ -8002,7 +8002,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         case "notify": {
           const title = el("input", { type: "text", maxLength: 80, value: shown.title ?? "", placeholder: t("The automation's name") });
           const message = el("textarea", { rows: 2, maxLength: 500, required: true, value: shown.message ?? "" });
-          message.value = shown.message ?? "";
           const buttons = buttonsEditor(shown.buttons ?? [], { accessories, scenes });
           body.replaceChildren(field(t("Title"), title), field(t("Message"), message, t("Sent through the channels on the Notifications page.")), buttons);
           row.readBody = () => ({ ...(title.value.trim() ? { title: title.value.trim() } : {}), message: message.value.trim(), ...(buttons.read().length ? { buttons: buttons.read() } : {}) });

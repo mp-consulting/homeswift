@@ -136,9 +136,7 @@ public final class UIServer: Sendable {
         channel.withLockedValue { $0 = bound }
         // The address notifications' links use unless the Notifications page sets one: this machine's on the network.
         let port = bound.localAddress?.port ?? configuration.port
-        let lan = configuration.host == "0.0.0.0" ? NetworkInterfaces.ipv4().first(where: { $0.address >> 24 != 127 }).map { entry in
-            [24, 16, 8, 0].map { String((entry.address >> UInt32($0)) & 0xff) }.joined(separator: ".")
-        } : configuration.host
+        let lan = configuration.host == "0.0.0.0" ? NetworkInterfaces.ipv4().first(where: { $0.address >> 24 != 127 }).map { IPv4Network.dotted($0.address) } : configuration.host
         catalog.setUIAddress(lan.map { "\(configuration.scheme)://\($0):\(port)" })
         startSchedules()
         logger.info("Web UI listening", metadata: ["url": "\(configuration.scheme)://\(configuration.host):\(bound.localAddress?.port ?? configuration.port)/", "auth": "\(configuration.auth.rawValue)"])
