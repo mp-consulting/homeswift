@@ -101,6 +101,15 @@ public final class AssistantService: Assistant, Sendable {
         AssistantService(provider: provider, maxOutputTokens: maxOutputTokens, systemContext: systemContext, usage: usage, user: user, logger: logger)
     }
 
+    /// The same Assistant (same usage totals, budgets and instructions) on another of the provider's models: the chat's
+    /// model a user chose. `configuration` is the block this Assistant was made from, its key opened.
+    public func withModel(_ model: String, configuration: AIConfiguration, transport: any HTTPTransport) throws -> AssistantService {
+        guard model != provider.model else { return self }
+        var chosen = configuration
+        chosen.model = model
+        return AssistantService(provider: try chosen.makeProvider(transport: transport), maxOutputTokens: maxOutputTokens, systemContext: systemContext, usage: usage, user: user, logger: logger)
+    }
+
     /// Records a finished request for this Assistant's user.
     func record(model: String, usage used: TokenUsage) async {
         await usage.record(model: model, usage: used, user: user)

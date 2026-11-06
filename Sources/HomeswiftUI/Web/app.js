@@ -1112,24 +1112,28 @@
   function digestWidget() {
     const body = el("div", { class: "digest-body", "aria-live": "polite" });
     const note = el("span", { class: "muted" });
+    // Who wrote it and when, and Write it again: only under a digest. Before one, the card's own button writes it, and a
+    // ⋯ alone under a rule would only say the same.
+    const foot = el("div", { class: "card-foot", hidden: true }, note, isAdmin() ? menuButton(t("Digest actions"), () => [{ label: t("Write it again"), icon: sparkle(), onSelect: () => write() }]) : null);
     const card = el("div", { class: "card digest-card" },
       el("div", { class: "server-head" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
         el("div", { class: "who" }, el("strong", { text: t("Daily digest") }), el("div", { class: "muted", text: t("What needs attention today, from the log and the accessories") }))),
       body,
       // Writing one costs the provider's quota: an administrator's (any user reads today's).
-      el("div", { class: "card-foot" }, note, isAdmin() ? menuButton(t("Digest actions"), () => [{ label: t("Write it again"), icon: sparkle(), onSelect: () => write() }]) : null));
+      foot);
     let controller = null;
 
     const shown = (digest) => {
       body.replaceChildren(HomeswiftCommon.markdown(digest.text));
       const when = new Date(digest.generatedAt).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
       note.textContent = digest.model ? t("Written {when} by {model}", { when, model: digest.model }) : t("Written {when}", { when });
+      foot.hidden = false;
     };
-    const offer = () => body.replaceChildren(...[
+    const offer = () => { foot.hidden = true; body.replaceChildren(...[
       el("p", { class: "muted", text: isAdmin() ? t("No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention.")
         : t("No digest yet today: an administrator has the Assistant write it.") }),
-      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: t("Write today's digest") })) : null].filter(Boolean));
+      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: t("Write today's digest") })) : null].filter(Boolean)); };
 
     async function write() {
       controller?.abort();
@@ -1139,6 +1143,7 @@
       body.replaceChildren(live, el("button", { actionIcon: "pause", class: "link", text: t("Stop"), onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
+      foot.hidden = true;
       try {
         shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
@@ -1722,7 +1727,7 @@
       const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
       const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
       const roleNames = { home: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
-      const row = (one, nested) => {
+      const row = (one, nested, first = false) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
         const caption = !one.role ? null : wholes.includes(one) ? t("Whole home") : one.role === "grid" ? t("Grid") : roleNames[one.role];
@@ -1733,7 +1738,7 @@
         // At the grid's price, hour by hour, whatever source covered it.
         const cost = found.currency && one.cost != null ? formatMoney(one.cost, found.currency) : null;
         const note = [cost, returned].filter(Boolean).join(" · ") || null;
-        return el("li", {}, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
+        return el("li", { class: first ? "sources-start" : null }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
           "aria-label": [t("{name}: {value}", { name, value: formatKWh(figure) }), caption, cost, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
@@ -1751,7 +1756,7 @@
           el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
           el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
-        ...sources.map((one) => row(one, false))].filter(Boolean));
+        ...sources.map((one, index) => row(one, false, index === 0 && wholes.length + shown.length > 0))].filter(Boolean));
       consumersMore.hidden = devices.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
         el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
@@ -2106,6 +2111,47 @@
       link.href = `${url.pathname}${kept.size ? `?${kept}` : ""}`;
     }, true);
     return el("div", { class: "accessories-views" }, nav, ...extra.filter(Boolean));
+  };
+  /// The Accessories page's tools as one bar, the same in both views: `toolbar` (the search, Filters and the rest) over
+  /// `views` (the tabs, Full screen, Add). On a phone it is a row of round buttons at the bottom, beside the sections'
+  /// button and within the thumb's reach, the views first, so filtering, arranging and switching views stay at hand; the
+  /// search opens over the row from its own button, rises with the on-screen keyboard, and stays open while it holds a
+  /// search.
+  const accessoriesBar = (toolbar, views) => {
+    const bar = el("div", { class: "accessories-bar" }, toolbar, views);
+    const search = toolbar.querySelector(".search");
+    if (!search) return bar;
+    const toggle = el("button", { type: "button", class: "icon-button accessories-search-toggle", "aria-label": t("Search accessories"), title: t("Search accessories"),
+      "aria-expanded": "false" }, HomeswiftCommon.icon("search"));
+    const open = (on) => {
+      bar.classList.toggle("searching", on);
+      toggle.classList.toggle("on", on);
+      toggle.setAttribute("aria-expanded", String(on));
+    };
+    toggle.addEventListener("click", () => {
+      const on = !bar.classList.contains("searching");
+      open(on);
+      if (on) search.focus(); else if (search.value) { search.value = ""; search.dispatchEvent(new Event("input")); }
+    });
+    // Left empty, it folds away again.
+    search.addEventListener("blur", () => { if (!search.value.trim()) open(false); });
+    open(Boolean(search.value.trim()));
+    search.after(toggle);
+    // Safari keeps a fixed bar's bottom under the on-screen keyboard: the bar sits on the keyboard while the search is
+    // typed in (`--keyboard`, what it covers), as the chat's sheet does.
+    const view = window.visualViewport;
+    if (view) {
+      const fit = () => {
+        if (!bar.isConnected) { view.removeEventListener("resize", fit); view.removeEventListener("scroll", fit); return; }
+        const covered = document.activeElement === search ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
+        bar.style.setProperty("--keyboard", `${covered}px`);
+      };
+      view.addEventListener("resize", fit);
+      view.addEventListener("scroll", fit);
+      search.addEventListener("focus", fit);
+      search.addEventListener("blur", () => bar.style.setProperty("--keyboard", "0px"));
+    }
+    return bar;
   };
   /// The address with `key` set to `value` (removed when empty), the page left as it is: what a search box types.
   const replaceQuery = (key, value) => {
@@ -2787,7 +2833,7 @@
     search.addEventListener("input", () => { filter(); replaceQuery("q", search.value.trim()); });
     const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
     const setGrouping = (value) => { layout.grouping = value; save(); render(); };
-    const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
+    const edit = el("button", { actionIcon: "edit", type: "button", class: "accessories-edit", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
       edit.textContent = editing ? t("Done") : t("Edit");
       edit.classList.toggle("primary", editing);
@@ -2818,8 +2864,8 @@
         for (const one of values) next.append(key, one);
         navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
       } });
-    const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
-      HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
+    const filters = el("button", { type: "button", class: `accessories-filters${activeFilters ? " on" : ""}`, "aria-haspopup": "menu" },
+      HomeswiftCommon.icon("filter"), el("span", { class: "toolbar-label", text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
       ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
@@ -2853,6 +2899,9 @@
         render();
       } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : []),
+      // A phone's bar has no room for Full screen's and Add accessories' own buttons: they are here.
+      ...(matchMedia("(max-width: 600px)").matches && all.length ? [{ separator: true }, { label: t("Full screen"), icon: "expand", onSelect: () => setFullScreen(true) },
+        ...(addButton ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : [])] : []),
       // The Zones and where the rooms stand with Apple Home, without going through Edit.
       ...(isAdmin() && rooms.length ? [{ separator: true }, { label: t("Zones…"), icon: "grid", onSelect: () => HomeswiftHomeLink.zones([...rooms], () => route()) },
         ...(homeLink.waiting ? [{ label: t("Link with Apple Home…"), icon: "link", onSelect: () => HomeswiftHomeLink.review(() => route()) }] : []),
@@ -2871,8 +2920,8 @@
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     // Setup, in view whatever the wall holds; the empty wall has its own, larger.
-    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
-    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
+    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add in-menu-on-phone", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button accessories-full-screen in-menu-on-phone", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
     const chrome = el("div", { class: "wall-full-chrome" });
@@ -2965,9 +3014,9 @@
     show(main,
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
-        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
-      accessoryTabs("", accessories.length ? fullScreenButton : null, addButton),
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })),
+      accessoriesBar(el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more),
+        accessoryTabs("", accessories.length ? fullScreenButton : null, addButton)),
       note,
       // A first link to Apple Home waits for an administrator to review what it changes.
       homeLink.waiting && isAdmin() && !fullScreen ? el("p", { class: "home-link-banner", role: "status" },
@@ -3112,7 +3161,7 @@
   /// A block's state pill: its label and tone.
   /// A block as the pages name it: a built-in block still under its platform's name reads as words ("HomeswiftMatter" is
   /// Homeswift Matter); any other, its own name.
-  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter" };
+  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter", HomeswiftAiKit: "Homeswift Ai Kit" };
   const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
   /// Running is green only when its devices can work: an account that Needs Authorization says what it needs ("Needs
   /// sign-in"), and a plugin none of whose accessories responds says so.
@@ -3152,7 +3201,9 @@
   // config.schema.json (or the runtime's own), JSON when there is none; the save bar stays in view, and leaving with
   // unsaved changes asks first. The whole block as JSON is config.json's editor's (Settings › Config).
 
-  views.settings = async (main, [first, second]) => {
+  /// A block's Settings. `frame` (Settings › Assistant's head and tabs) draws the form in another page instead of under
+  /// the plugin's breadcrumb and head.
+  views.settings = async (main, [first, second], { frame = null } = {}) => {
     // The Expert form and its JSON were here: their addresses open the Settings.
     if (first !== "add" && second === "expert") {
       history.replaceState(null, "", `/plugins/${encodeURIComponent(first)}/settings`);
@@ -3354,14 +3405,14 @@
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : t("Settings")]),
+      ...(frame ?? [breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : blockTitle(block) }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
-        el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
+        el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state })))]),
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -3496,7 +3547,7 @@
   async function assistantPage(main, subnav) {
     const plugins = await api("/api/plugins");
     const entry = plugins.blocks.find((one) => one.platform === "HomeswiftAiKit");
-    const head = pageHead(t("Settings"), t("The Assistant: whether its provider answers, what it costs, and its budgets."));
+    const head = pageHead(t("Settings"), t("The Assistant: its provider, model and key, whether the provider answers, what it costs, and its budgets."));
     if (!entry) {
       show(main, head, subnav, el("section", { class: "card assistant-welcome" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
@@ -3513,9 +3564,8 @@
           jsonView({ platform: "HomeswiftAiKit", provider: "anthropic", apiKey: "…" }))));
       return;
     }
-    const block = await api(`/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`);
-    show(main, head, subnav, assistantSettings({ block }),
-      el("div", { class: "actions" }, el("a", { class: "link", href: settingsLink(entry), text: t("All the Assistant's settings: provider, model, key, MCP server") })));
+    // The block's own form, here: the provider, model and key, the MCP server, its budgets, tested before it is saved.
+    return views.settings(main, [entry.slug, "settings"], { frame: [head, subnav] });
   }
 
   /// Describe your setup: the Assistant writes the block from the plugin's config.schema.json and a sentence
@@ -5374,7 +5424,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { accessoryFilterKeys, api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { accessoryFilterKeys, accessoriesBar, api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();

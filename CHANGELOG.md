@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Web UI on a phone: the Accessories page's tools are one bar at the bottom, beside the sections' button and in reach of
+  the thumb, in both views: Wall and Graph, then round buttons for the search (it opens over the row and rises with the
+  keyboard), Filters with its count, Edit and the options (Full screen and Add accessories are in their menu on the wall).
+  Filters has a funnel and Edit a pencil, apart from the options' sliders.
+- Web UI on a phone: the Plugins page lists your plugins and the catalog as rows of one list, not a card each: a row
+  opens the plugin (its page, else its settings), its state and ⋯ at the end, a note only when it is not running as it
+  should and Set up when its account waits; a catalog row ends with a round Add.
+- Web UI: the Assistant's block (HomeswiftAiKit) is named Homeswift Ai Kit on the pages, as the web UI's is Homeswift UI.
+- Web UI: Settings › Assistant has the Assistant's whole form (the provider, model and key, the MCP server), saved from
+  there, under its test, usage and budgets, rather than a link to the block's page.
+- Web UI on a phone: the Assistant's button floats just above the sections' button at the bottom right, rather than in
+  the header at the top.
+- Web UI: the Assistant chat's model is a menu under its title, of the provider's models: each user picks their own,
+  kept in their preferences, from the next message on (`GET /api/assistant/models` lists them for anyone who may chat).
 - Gas and water Meters: a plugin declares one with a kind (`context.meter(_:deviceID:device:kind: .gas)`), reads it in
   m³ (`record(cubicMetres:)`, `MeterHourImport(start:cubicMetres:)`), and the bridge keeps it by the hour for years, as
   it keeps electricity's. Gas stays in m³, is never converted to kWh and never counts in the Home Energy. Tariffs take
@@ -63,6 +77,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Web UI: the chat's mic on an iPhone or iPad. It started listening on the finger's press, which Safari does not count as
+  a tap, and sent only words Safari marked final, which it often never does: it now starts on the tap and sends what was
+  heard. When dictation is off or unavailable, the note says what to turn on, rather than blaming the microphone.
+- Web UI on a phone: the Energy section's consumption by device (name and figure over a bar the row's width), the Scenes
+  page's scenes from hubs (one list) and its empty card, the chat's head (the model's
+  name has the room), and the time ranges of Activity and the Logs page (each choice keeps its width and the row scrolls,
+  rather than the words running into each other).
+- Web UI on a phone: the Logs page's filters take three rows rather than four (the search and what the lines are about
+  side by side), so the log starts higher, and the count of lines wraps rather than being cut short.
+- Web UI on a phone: an energy tariff's periods are each a small group with their fields named (From, To, Days, the
+  price per kWh or m³) and the price's unit in its field, and on a touch screen a date or time field fills its column rather than
+  running past it.
+- Web UI: Homeswift UI's own settings page is one surface of sections, as a plugin's is, rather than boxes in boxes; on
+  a phone its lists (Trusted reverse proxies) took a narrow column with their title over the box.
+- Web UI: the daily digest's card shows its footer (who wrote it, Write it again) only under a digest, not a lone ⋯
+  under the Write button.
 - Status page: the Energy section's Consumption by device no longer writes "null" under its list when no Meter measures
   the whole home.
 - Two-way audio: a camera's Talk begins and stays open while HomeKit's return audio keeps coming, however busy the
