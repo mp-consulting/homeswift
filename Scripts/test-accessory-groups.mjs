@@ -88,7 +88,8 @@ roomContext.window.HomeswiftHome.install({ views: {}, route: () => { routes++; }
 const moveGroup = () => roomContext.window.HomeswiftHome.moveGroupToRoom(group, lights);
 await moveGroup();
 assert.equal(prompted.value, 'Living room');
-assert.ok(prompted.message.includes('HomeKit rooms stay unchanged.'));
+// Rooms are Apple Home's (docs/adr/0005): the move reaches the Home app once the bridge is linked.
+assert.ok(prompted.message.includes('in the Home app too once this bridge is linked to Apple Home'));
 assert.equal(routes, 1);
 assert.deepEqual(JSON.parse(JSON.stringify(roomRequests)), [
   { path: '/api/rooms' },
