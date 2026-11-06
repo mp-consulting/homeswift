@@ -509,6 +509,8 @@ public final class HAPServer: @unchecked Sendable {
         var changed = state.persisted.aids[accessory.id] != aid
         state.persisted.aids[accessory.id] = aid
         accessory.aidBox.withLockedValue { $0 = aid }
+        // Published in place of the plugin's own accessory (its Functions separated): that one has the aid too.
+        if let original = accessory.separatedFrom, original.id == accessory.id { original.aidBox.withLockedValue { $0 = aid } }
 
         let prefix = "\(aid)/"
         // The next free iid, looked for only when one is needed: every server's iids would be scanned for each

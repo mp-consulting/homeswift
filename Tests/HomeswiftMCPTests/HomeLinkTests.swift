@@ -167,6 +167,25 @@ import Testing
         #expect(lampRoom(environment) == "Bedroom")
     }
 
+    /// A step of following Apple Home that fails (a Room renamed there to a name the bridge's own new Room has) is
+    /// logged, and the rest still follows: an accessory moved there moves here.
+    @Test func oneFailedStepLeavesTheRestFollowed() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        environment.homeLink.turnOn(rooms: [("hk-kitchen", "Kitchen"), ("hk-bed", "Bedroom")], placements: ["Devices:lamp": "hk-kitchen"])
+        await environment.catalog.followHome()
+        environment.homeLink.set { $0.state = .down("asleep") }
+        await environment.catalog.followHome()
+        _ = try await environment.catalog.updateLayout(["rooms": ["Kitchen", "Bedroom", "Cuisine"]], by: "test")
+        environment.homeLink.set { state in
+            state.state = .readOnly("edits are off")
+            state.home.rooms[0].name = "Cuisine"
+            state.home.placements["Devices:lamp"] = .some("hk-bed")
+        }
+        await environment.catalog.followHome()
+        #expect(lampRoom(environment) == "Bedroom")
+    }
+
     /// A change Apple Home refuses is said in the answer and kept for the pages; Apple Home's version stays.
     @Test func aRefusedChangeIsSaid() async throws {
         let environment = try await environment()

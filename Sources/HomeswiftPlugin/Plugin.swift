@@ -562,7 +562,7 @@ public final class PluginContext: @unchecked Sendable {
 
         /// Its accessories HomeKit has from it, the bridge itself and mirrored ones left out.
         var published: [Accessory] {
-            accessories.filter { $0.mirroredFrom == nil && (isExternal || $0.category != .bridge) }
+            accessories.filter { $0.mirroredFrom == nil && (isExternal || $0.aid != 1) }
         }
     }
 
@@ -908,7 +908,9 @@ public final class PluginContext: @unchecked Sendable {
     func applyNames(_ names: [String: String]) {
         guard naming.setNames(names) else { return }
         // A separated Function's own name, or one its accessory gives it, puts it on the bridge again.
-        let separated = Set(separations.withLockedValue { $0.published.filter { $0.value.parts.contains { naming.apply(to: $0) } }.keys })
+        // Named outside the lock: a name's write reaches observers that may ask for `separatedFunctionIDs`.
+        let published = separations.withLockedValue { $0.published }
+        let separated = Set(published.filter { $0.value.parts.map { naming.apply(to: $0) }.contains(true) }.keys)
         for accessory in accessories where naming.apply(to: accessory) || separated.contains(accessory.id) {
             do {
                 if isExternal(id: accessory.id) {

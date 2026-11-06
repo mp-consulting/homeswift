@@ -405,7 +405,7 @@ extension WingmanPlugin {
     /// bridge's), else every home while Apple Home has not added the bridge to one.
     nonisolated func includesHome(_ name: String) -> Bool {
         if let homes = configuration.homes, !homes.isEmpty { return homes.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
-        let bridgeHomes = bridgeHomes.withLockedValue { $0 }
+        let bridgeHomes = Set(bridgeHomes.withLockedValue { $0.values })
         return bridgeHomes.isEmpty || bridgeHomes.contains(name)
     }
 
@@ -435,7 +435,9 @@ extension WingmanPlugin {
         guard !links.isEmpty else { return .down("No Homeswift Wingman is paired: pair one on Add accessories") }
         guard let (_, structure, home) = await homeLinkOwner() else {
             let all = await structures()
-            if all.isEmpty { return .down("Homeswift Wingman is not reachable") }
+            var connected = false
+            for link in links.values where await link.isConnected { connected = true }
+            if !connected { return .down("Homeswift Wingman is not reachable") }
             if !all.contains(where: { $0.structure.servesHomeLink }) {
                 return .down("Update Homeswift Wingman: this one cannot keep rooms in step with Apple Home")
             }

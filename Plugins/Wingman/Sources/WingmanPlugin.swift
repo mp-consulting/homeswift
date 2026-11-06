@@ -89,8 +89,9 @@ public actor WingmanPlugin: HomeswiftPlugin {
     /// Whether Bonjour browses all the time (the plugin started), so `announced` is what the network has.
     private(set) var isBrowsing = false
     private var linkTasks: [String: Task<Void, Never>] = [:]
-    /// The homes Homeswift's bridge is in, by name, as the links last read them: the accessories mirrored are theirs.
-    nonisolated let bridgeHomes = NIOLockedValueBox<Set<String>>([])
+    /// The home Homeswift's bridge is in, by name, as each link (by Wingman id) last read it: the accessories mirrored
+    /// are theirs.
+    nonisolated let bridgeHomes = NIOLockedValueBox<[String: String]>([:])
     nonisolated var logger: Logger { context.logger }
     nonisolated var refreshInterval: Duration { .seconds(60 * max(configuration.refreshMinutes ?? 10, 1)) }
 
@@ -337,9 +338,8 @@ actor Link {
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
         let homes = try await client.homes()
         let homeswift = plugin.context.publishedSerialNumbers
-        if let id = Structure.bridgeHome(of: homes, bridges: plugin.context.homeswiftBridgeSerialNumbers), let home = homes.first(where: { $0.id == id }) {
-            plugin.bridgeHomes.withLockedValue { $0.insert(home.name) }
-        }
+        let bridgeHome = Structure.bridgeHome(of: homes, bridges: plugin.context.homeswiftBridgeSerialNumbers).flatMap { id in homes.first { $0.id == id }?.name }
+        plugin.bridgeHomes.withLockedValue { $0[device.id] = bridgeHome }
         let write: @Sendable (String, String, JSONValue) async throws -> Void = { [weak self] accessoryID, characteristicID, value in
             guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
             do {

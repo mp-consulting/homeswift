@@ -13615,12 +13615,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     dialog.showModal();
   }
 
-  /// The Zones: each with its name and Rooms, changed as they are edited; `onChange` runs after each change.
-  async function zones(rooms, onChange) {
+  /// The Zones: each with its name and Rooms, changed as they are edited; `onClose` runs once the dialog closes after
+  /// a change.
+  async function zones(rooms, onClose) {
     let current;
     try { current = (await api("/api/zones")).zones; } catch (e) { HomeswiftCommon.showAlert(e.message); return; }
     const message = el("p", { role: "status", class: "error" });
     const body = el("div", { class: "home-link-zones" });
+    let changed = false;
     const change = async (request) => {
       message.textContent = "";
       try {
@@ -13628,8 +13630,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         current = answer.zones;
         const refused = answer.appleHomeRefused ?? [];
         if (refused.length) message.textContent = refused.map((one) => t("Apple Home refused: {reason}", { reason: one.reason })).join("\n");
+        changed = true;
         draw();
-        onChange?.();
       } catch (e) { message.textContent = e.message; }
     };
     function draw() {
@@ -13658,6 +13660,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("p", { class: "muted", text: t("Apple Home's sets of rooms. They change in the Home app too once this bridge is linked to it.") }),
       body, message,
       el("div", { class: "actions" }, add, el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Done") })));
+    dialog.addEventListener("close", () => { if (changed) onClose?.(); }, { once: true });
     draw();
     dialog.showModal();
   }

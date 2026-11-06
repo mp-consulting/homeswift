@@ -226,17 +226,26 @@ extension HomeswiftCatalog {
     /// Takes the Home's Rooms, Zones, Groups and placements: a Room renamed or removed there is here, one added there is
     /// added here, an accessory moved there moves here, and the same for Zones and Groups. Nothing goes back.
     private func adopt(_ snapshot: HomeSnapshot) async throws {
+        /// One step of following the Home: one that fails (a name another Room has) is logged, and the others go on.
+        func step(_ what: String, _ body: JSONValue) async -> Bool {
+            do {
+                _ = try await updateLayout(body, by: "Apple Home", fromHome: true)
+                return true
+            } catch {
+                logger.warning("Could not \(what) as in Apple Home: \(error)")
+                return false
+            }
+        }
         var links = home.homeLink.value.rooms
         let homeRooms = Dictionary(snapshot.rooms.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // Linked Rooms renamed or gone in the Home.
         for (name, id) in links.sorted(by: { $0.key < $1.key }) {
             if let room = homeRooms[id] {
-                guard room.name != name else { continue }
-                _ = try await updateLayout(["renameRoom": ["from": .string(name), "to": .string(room.name)]], by: "Apple Home", fromHome: true)
+                guard room.name != name,
+                      await step("rename the room \(name) \(room.name)", ["renameRoom": ["from": .string(name), "to": .string(room.name)]]) else { continue }
                 links.removeValue(forKey: name)
                 links[room.name] = id
-            } else {
-                _ = try await updateLayout(["removeRooms": [.string(name)]], by: "Apple Home", fromHome: true)
+            } else if await step("remove the room \(name)", ["removeRooms": [.string(name)]]) {
                 links.removeValue(forKey: name)
             }
         }
@@ -245,16 +254,16 @@ extension HomeswiftCatalog {
         var added: [String] = []
         for room in snapshot.rooms where !links.values.contains(room.id) {
             if let local = layoutRooms.first(where: { Self.sameRoomName($0, room.name) && links[$0] == nil }) {
-                if local != room.name {
-                    _ = try await updateLayout(["renameRoom": ["from": .string(local), "to": .string(room.name)]], by: "Apple Home", fromHome: true)
+                if local != room.name, !(await step("rename the room \(local) \(room.name)", ["renameRoom": ["from": .string(local), "to": .string(room.name)]])) {
+                    continue
                 }
             } else {
                 added.append(room.name)
             }
             links[room.name] = room.id
         }
-        if !added.isEmpty {
-            _ = try await updateLayout(["rooms": .array((home.layout.value.rooms + added).map(JSONValue.string))], by: "Apple Home", fromHome: true)
+        if !added.isEmpty, !(await step("add the rooms \(added.joined(separator: ", "))", ["rooms": .array((home.layout.value.rooms + added).map(JSONValue.string))])) {
+            for room in added { links.removeValue(forKey: room) }
         }
         try home.homeLink.update { $0.rooms = links }
 
@@ -266,8 +275,12 @@ extension HomeswiftCatalog {
             if !Self.sameRoomName(wanted, found.room ?? "") { moves.append((accessoryID, ["room": .string(wanted)])) }
         }
         if !moves.isEmpty {
-            _ = try await updateAccessorySettings(moves, moveOnHubs: false, by: .person, who: "Apple Home")
-            logger.info("\(moves.count) accessories moved as in Apple Home")
+            do {
+                _ = try await updateAccessorySettings(moves, moveOnHubs: false, by: .person, who: "Apple Home")
+                logger.info("\(moves.count) accessories moved as in Apple Home")
+            } catch {
+                logger.warning("Could not move \(moves.count) accessories as in Apple Home: \(error)")
+            }
         }
         try adoptZones(snapshot, links: links)
         try adoptGroups(snapshot)
@@ -291,7 +304,7 @@ extension HomeswiftCatalog {
     }
 
     private func adoptGroups(_ snapshot: HomeSnapshot) throws {
-        let current = home.wall.load()["groups"]?.arrayValue?.compactMap(WallGroup.init) ?? []
+        let current = Self.groups(of: home.wall.load())
         var groups: [WallGroup] = []
         var taken = Set<String>()
         for group in current {
@@ -348,7 +361,8 @@ extension HomeswiftCatalog {
             } catch let error as HomeChangeError where error.kind == .unreachable {
                 logger.info("Apple Home is not reachable: \(home.homeLink.value.pending.count) changes wait for it")
                 return
-            } catch let error as HomeChangeError where error.kind == .notFound {
+            } catch let error as HomeChangeError where error.kind == .notFound && ![.createGroup, .setGroupMembers].contains(change.kind) {
+                // A move of an accessory Apple Home does not have (Not in Home), a room or zone already gone there.
                 logger.debug("\(Self.describe(change)): no longer in Apple Home")
             } catch {
                 logger.warning("Apple Home refused: \(Self.describe(change)): \(error)")
@@ -375,7 +389,7 @@ extension HomeswiftCatalog {
         }
         func zone(_ id: String?) -> HomeLinkFile.Zone? { file.zones.first { $0.id == id } }
         func groupHomeKitID(_ id: String?) -> String? {
-            (home.wall.load()["groups"]?.arrayValue?.compactMap(WallGroup.init) ?? []).first { $0.id == id }?.homeKitID
+            Self.groups(of: home.wall.load()).first { $0.id == id }?.homeKitID
         }
         switch change.kind {
         case .createRoom:
@@ -421,7 +435,7 @@ extension HomeswiftCatalog {
             let remove = (change.remove ?? []).compactMap(file.homeKitID(ofRoom:))
             _ = try await plugin.applyHomeChange(.setZoneRooms(id: id, add: add, remove: remove))
         case .createGroup:
-            let groups = home.wall.load()["groups"]?.arrayValue?.compactMap(WallGroup.init) ?? []
+            let groups = Self.groups(of: home.wall.load())
             guard let local = groups.first(where: { $0.id == change.group }), local.homeKitID == nil else { return }
             let id = try await plugin.applyHomeChange(.createGroup(name: local.name, members: local.members))
             guard let id else { throw HomeChangeError(.refused, "Apple Home did not create the group \(local.name)") }
@@ -473,7 +487,7 @@ extension HomeswiftCatalog {
             let result = there.isEmpty ? here : there
             placements.append(.init(accessory: accessoryID, name: found.accessory.name, here: here, home: there, result: result))
         }
-        let groups = home.wall.load()["groups"]?.arrayValue?.compactMap(WallGroup.init).filter { $0.homeKitID == nil } ?? []
+        let groups = Self.groups(of: home.wall.load()).filter { $0.homeKitID == nil }
         var ungrouped: [String] = [], created: [String] = []
         for group in groups {
             if groupProblem(members: group.members) == nil { created.append(group.name) } else { ungrouped.append(group.name) }
@@ -517,7 +531,7 @@ extension HomeswiftCatalog {
         }
         changes += comparison.roomsOnlyHere.map { .init(.createRoom, name: $0) }
         changes += comparison.accessories.filter { $0.home.isEmpty }.map { .init(.moveAccessory, accessory: $0.accessory, room: $0.here) }
-        var groups = home.wall.load()["groups"]?.arrayValue?.compactMap(WallGroup.init) ?? []
+        var groups = Self.groups(of: home.wall.load())
         let ungrouped = Set(comparison.groupsUngrouped)
         groups.removeAll { $0.homeKitID == nil && ungrouped.contains($0.name) }
         changes += groups.filter { $0.homeKitID == nil }.map { .init(.createGroup, group: $0.id) }
