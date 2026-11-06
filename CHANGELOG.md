@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Gas and water Meters: a plugin declares one with a kind (`context.meter(_:deviceID:device:kind: .gas)`), reads it in
+  m³ (`record(cubicMetres:)`, `MeterHourImport(start:cubicMetres:)`), and the bridge keeps it by the hour for years, as
+  it keeps electricity's. Gas stays in m³, is never converted to kWh and never counts in the Home Energy. Tariffs take
+  a kind and a price per m³. The Status page's Energy section gets a Gas card and a Water card with Week, Month and
+  Year history, and Settings, Bridge a Gas tariff and a Water tariff. `get_consumption` gives each Meter's `kind` and
+  `unit` and filters by kind; `get_tariffs` gives each kind's Tariff in force.
 - Weather, a plugin: the weather where the home is, from Open-Meteo with no account or key, for the Location set
   under Settings, Bridge. One accessory with a Temperature sensor and Eve's air pressure, condition, wind speed, rain
   in the last hour and UV index, a Humidity sensor, and an Is raining occupancy sensor for automations. It updates
@@ -51,6 +57,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Status page: the Energy section's Consumption by device no longer writes "null" under its list when no Meter measures
+  the whole home.
 - Two-way audio: a camera's Talk begins and stays open while HomeKit's return audio keeps coming, however busy the
   bridge. The receiver timed the idle gap from when it got to each packet rather than from when the packet arrived, and on
   a loaded machine that can be seconds later: audio decoded in time began no Talk, or a Talk under way ended mid-sentence.

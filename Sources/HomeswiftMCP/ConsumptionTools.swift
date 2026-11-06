@@ -6,17 +6,19 @@ extension HomeswiftCatalog {
     /// How a consumption report is cut: by hour (`hours` up to 48), by day, or by month.
     enum ConsumptionStep { case hour, day, month }
 
-    /// Each Meter's Consumption and Returned in kWh over a span, with a bar per hour, day or month, the Meters that drew
+    /// Each Meter's Consumption and Returned over a span, in kWh for electricity and m³ for gas and water (`kind`, `unit`), with a bar per hour, day or month, the Meters that drew
     /// the most first (docs/adr/0004-meters-and-consumption-history.md).
     ///
     /// The span is either the last `hours` (hourly bars up to 48 hours, daily beyond), or a `period` around `date`
     /// (YYYY-MM-DD, today without it): `week` (the 8 days to it, daily), `month` (daily) or `year` (monthly). Days and
     /// months are counted in `timeZone`. `accessory` keeps one accessory's Meters. Each bar has `recordedHours` (the
     /// bridge's own measurement) and `hours` (anything known, imports and estimates included); a bar with nothing known
-    /// has null figures; `role` is its Energy Role (grid, home, solar, battery or null for one device's use). With Tariffs, each Meter and bar has its `cost`: its Consumption hour by hour at that hour's
-    /// price, in `currency` (null where no hour is priced).
+    /// has null figures; `role` is its Energy Role (grid, home, solar, battery or null for one device's use; always null for gas
+    /// and water). With Tariffs of its kind, each Meter and bar has its `cost`: its Consumption hour by hour at that hour's
+    /// price, in the Meter's `currency` (null where no hour is priced); `currency` is electricity's.
+    /// `kind` keeps one kind's Meters.
     public func consumptionJSON(period: String? = nil, date: String? = nil, hours: Double? = nil, timeZone: TimeZone = .current,
-                                accessory: String? = nil, now: Date = Date()) throws -> JSONValue {
+                                accessory: String? = nil, kind: MeterKind? = nil, now: Date = Date()) throws -> JSONValue {
         guard let metrics else { throw CatalogError("This homeswift records no metrics", notFound: true) }
         let from: Date, to: Date, step: ConsumptionStep
         if let hours {
@@ -33,7 +35,8 @@ extension HomeswiftCatalog {
             step = period == "year" ? .month : .day
         }
         let all = metrics.meters.meters
-        let ids = accessory.map { one in all.filter { $0.accessory == one } } ?? all
+        var ids = accessory.map { one in all.filter { $0.accessory == one } } ?? all
+        if let kind { ids = ids.filter { metrics.meters.kind(of: $0) == kind } }
         if let accessory, ids.isEmpty, find(id: accessory) == nil { throw CatalogError("No accessory with that id", notFound: true) }
         let byAccessory = Dictionary(grouping: ids, by: \.accessory)
         // The bars: every hour of the span, so they line up with the clock, or its days or months.
@@ -51,13 +54,16 @@ extension HomeswiftCatalog {
         format.timeZone = timeZone
         format.dateFormat = switch step { case .hour: "yyyy-MM-dd'T'HH:mm"; case .day: "yyyy-MM-dd"; case .month: "yyyy-MM" }
         let dates = starts.map { JSONValue.string(format.string(from: $0)) }
+        // Thousandths of the unit (Wh, litres) to the unit (kWh, m³), to a thousandth.
         let kWh = { (wattHours: Double?) in wattHours.map { JSONValue.number(($0).rounded() / 1000) } ?? .null }
-        // Each hour's Consumption at that hour's grid price (whatever source covered it): devices compare alike.
-        let schedule = TariffSchedule(host.configuration.tariffs, timeZone: timeZone)
+        // Each hour's Consumption at that hour's price of its kind (whatever source covered it): devices compare alike.
+        let schedules = TariffSchedule.byKind(host.configuration.tariffs, timeZone: timeZone)
         let money = { (amount: Double?) in amount.map { JSONValue.number(($0 * 100).rounded() / 100) } ?? .null }
 
-        var meters: [(consumption: Double, json: JSONValue)] = []
+        var meters: [(kind: MeterKind, consumption: Double, json: JSONValue)] = []
         for id in ids {
+            let kind = metrics.meters.kind(of: id)
+            let schedule = schedules[kind]!
             // The Meter's hours, read once, added up by bar.
             let hours = metrics.meters.hours(of: id, from: starts[0], to: end)
             var bars = [(drawn: Double?, back: Double?, recorded: Int, known: Int)](repeating: (nil, nil, 0, 0), count: starts.count)
@@ -73,7 +79,7 @@ extension HomeswiftCatalog {
             let returned = bars.compactMap(\.back).reduce(nil as Double?) { ($0 ?? 0) + $1 }
             let located = find(id: id.accessory)
             var json: [String: JSONValue] = [
-                "accessory": .string(id.accessory), "meter": .string(id.meter),
+                "accessory": .string(id.accessory), "meter": .string(id.meter), "kind": .string(kind.rawValue), "unit": .string(kind.unit),
                 "name": .string(located.map { $0.layout?.name ?? $0.accessory.name } ?? id.accessory),
                 "consumption": kWh(consumption), "returned": kWh(returned),
                 "bars": .array(bars.indices.map { index in
@@ -83,21 +89,26 @@ extension HomeswiftCatalog {
                     return .object(bar)
                 }),
             ]
-            if let costs { json["cost"] = money(costs.total) }
+            if let costs {
+                json["cost"] = money(costs.total)
+                json["currency"] = schedule.currency.map(JSONValue.string) ?? .null
+            }
             // Its Energy Role (the person's, else its plugin's suggestion): a grid or home meter holds the devices measured
             // on their own, which the web UI nests under it with what no meter measures (Unmetered).
-            let role: EnergyRole? = host.energyRole(of: id) ?? metrics.meterDescription(of: id)?.suggestedRole
+            let role: EnergyRole? = kind != .electricity ? nil : host.energyRole(of: id) ?? metrics.meterDescription(of: id)?.suggestedRole
             json["role"] = role.map { .string($0.rawValue) } ?? .null
             // A device with several Meters (a relay's channels): each is named by its service.
             if let located, (byAccessory[id.accessory]?.count ?? 0) > 1 { json["label"] = .string(Self.meterLabel(id, of: located.accessory)) }
-            meters.append((consumption ?? 0, .object(json)))
+            meters.append((kind, consumption ?? 0, .object(json)))
         }
         format.dateFormat = "yyyy-MM-dd"
         return [
             "from": .string(format.string(from: from)), "to": .string(format.string(from: to)),
             "step": .string("\(step)"),
-            "currency": schedule.currency.map(JSONValue.string) ?? .null,
-            "meters": .array(meters.sorted { $0.consumption > $1.consumption }.map(\.json)),
+            // Electricity's; a gas or water Meter has its own with its cost.
+            "currency": schedules[.electricity]?.currency.map(JSONValue.string) ?? .null,
+            // By kind (kWh and m³ do not compare), then the Meters that drew the most first.
+            "meters": .array(meters.sorted { ($0.kind.order, -$0.consumption) < ($1.kind.order, -$1.consumption) }.map(\.json)),
         ]
     }
 
@@ -114,19 +125,26 @@ extension HomeswiftCatalog {
     public func tariffsJSON(now: Date = Date()) throws -> JSONValue {
         let list = try readConfig()["bridge"]?["tariffs"]?.arrayValue ?? []
         let tariffs = (try? JSONValue.array(list).decode([Tariff].self)) ?? []
-        let current = TariffSchedule(tariffs).tariff(at: now)
-        return ["tariffs": .array(list), "current": current.map { .string($0.start) } ?? .null]
+        // Each kind's Tariff in force now, by its first day; `current` is electricity's. `meterKinds`: the kinds of the
+        // Meters the bridge keeps, which Settings offers a Tariff for.
+        let schedules = TariffSchedule.byKind(tariffs)
+        let byKind: [String: JSONValue] = schedules.reduce(into: [:]) { result, entry in
+            if let tariff = entry.value.tariff(at: now) { result[entry.key.rawValue] = .string(tariff.start) }
+        }
+        let kinds = (metrics?.meters.kinds ?? []).union(tariffs.map(\.kind)).sorted { $0.order < $1.order }
+        return ["tariffs": .array(list), "current": byKind[MeterKind.electricity.rawValue] ?? .null, "currentByKind": .object(byKind),
+                "meterKinds": .array(kinds.map { .string($0.rawValue) })]
     }
 
     /// Writes the Tariffs (`bridge.tariffs`, sorted by their first day; an empty list removes them), checked first
     /// (`Tariff.problems`). No restart: the bridge's identity does not change.
     public func updateTariffs(_ tariffs: JSONValue, dryRun: Bool = false) async throws -> JSONValue {
         guard let list = tariffs.arrayValue, let decoded = try? tariffs.decode([Tariff].self) else {
-            throw CatalogError("tariffs must be a list of Tariffs: start (YYYY-MM-DD), currency, periods (from, to, price, days), exportPrice")
+            throw CatalogError("tariffs must be a list of Tariffs: start (YYYY-MM-DD), currency, periods (from, to, price, days), exportPrice, kind (electricity, gas or water)")
         }
         let problems = Tariff.problems(decoded)
         guard problems.isEmpty else { throw CatalogError(problems.joined(separator: "; ")) }
-        let sorted = zip(list, decoded).sorted { $0.1.start < $1.1.start }.map(\.0)
+        let sorted = zip(list, decoded).sorted { ($0.1.start, $0.1.kind.order) < ($1.1.start, $1.1.kind.order) }.map(\.0)
         return try await updateBridgeBlock(dryRun: dryRun) { bridge in
             if sorted.isEmpty { bridge.removeValue(forKey: "tariffs") } else { bridge["tariffs"] = .array(sorted) }
         }
