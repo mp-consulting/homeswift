@@ -119,15 +119,14 @@ struct WebSocketTests {
         await #expect(throws: WebSocketError.invalidURL("http://127.0.0.1/")) {
             _ = try await WebSocket.connect(to: URL(string: "http://127.0.0.1/")!)
         }
-        let closed = try await TestSocketServer(mode: .webSocket)
-        let port = closed.port
-        await closed.stop()
+        // Port 1 on the loopback, where nothing listens (as TCPSocketTests does): a port freed by stopping a server here
+        // could be taken by another test's server running at the same time, which then answers the upgrade.
         do {
-            _ = try await WebSocket.connect(to: URL(string: "ws://127.0.0.1:\(port)/")!)
+            _ = try await WebSocket.connect(to: URL(string: "ws://127.0.0.1:1/")!)
             Issue.record("connected to a closed port")
         } catch let error as WebSocketError {
             guard case .cannotConnect(_, let failedPort, _, _) = error else { throw error }
-            #expect(failedPort == port)
+            #expect(failedPort == 1)
         }
     }
 
