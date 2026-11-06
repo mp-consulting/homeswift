@@ -203,6 +203,40 @@ struct HostToolTests {
         #expect(try await client.tool("get_accessory_history", ["id": "nope"])["isError"] == true)
     }
 
+    /// get_accessory_history reads the History of every characteristic, and get_logbook says who changed what: here
+    /// the MCP client by the name it gave, then the device itself.
+    @Test func readsTheHistoryAndTheLogbook() async throws {
+        let environment = try MCPTestEnvironment(history: HistoryStore(directory: nil))
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server, scope: .control)
+        try await client.initialize()
+
+        #expect(try await client.tool("set_accessory", ["id": "Devices:lamp", "characteristic": "On", "value": true])["isError"] != true)
+        let lamp = try #require(environment.host.mainBridge.server.accessories.first { $0.id == "Devices:lamp" })
+        lamp.service(.lightbulb)?.characteristic(.on).value = .bool(false)
+
+        let logbook = try await client.tool("get_logbook", ["accessory": "Devices:lamp"])["structuredContent"]
+        let entries = logbook?["entries"]?.arrayValue ?? []
+        #expect(entries.compactMap { $0["source"]?["kind"]?.stringValue } == ["device", "mcp"])
+        // Which client: an administrator's to know.
+        #expect(entries.last?["source"]?["name"] == nil)
+        let admin = DirectClient(server: environment.server, scope: .admin)
+        try await admin.initialize()
+        #expect(try await admin.tool("get_logbook", ["accessory": "Devices:lamp"])["structuredContent"]?["entries"]?.arrayValue?.last?["source"]?["name"] == "tests")
+        #expect(entries.last?["value"] == true)
+        #expect(try await client.tool("get_logbook", ["source": "mcp"])["structuredContent"]?["entries"]?.arrayValue?.count == 1)
+        #expect(try await client.tool("get_logbook", ["since": "soon"])["isError"] == true)
+
+        let history = try await client.tool("get_accessory_history", ["id": "Devices:lamp", "type": "On"])["structuredContent"]
+        let on = history?["series"]?.arrayValue?.first
+        #expect(on?["kind"] == "state")
+        // Its value at start, then the two changes.
+        #expect(on?["points"]?.arrayValue?.compactMap { $0.arrayValue?.last } == [false, true, false])
+        let brightness = try await client.tool("get_accessory_history", ["id": "Devices:lamp", "type": "Brightness"])["structuredContent"]?["series"]?.arrayValue?.first
+        #expect(brightness?["last"]?["value"] == 40)
+    }
+
     @Test func historyHelpers() {
         let points = (0..<100).map { (time: Double($0 * 60), value: Double($0)) }
         let down = HomeswiftCatalog.downsample(points, to: 10)

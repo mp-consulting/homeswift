@@ -38,7 +38,7 @@ added on the **Users** page ([Users, roles and API tokens](#users-roles-and-api-
 
 ## The pages
 
-The header has the sections (Status, Accessories, Scenes, Plugins, Logs, Settings), the Assistant's sparkle
+The header has the sections (Status, Accessories, Scenes, Logbook, Plugins, Logs, Settings), the Assistant's sparkle
 when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators),
 **Language**, then apart and in orange **Restart homeswift…** (administrators), and **Sign out**. In a window 1180 px
 wide or more the app sits in one frame of glass and the header becomes the menu down its
@@ -152,11 +152,15 @@ screenshots, and what a plugin does to get good ones.
   that carry keys (a camera's Setup Endpoints) are not shown, nor what only HomeKit uses.
 - **A widget's ⋯ menu** (a right click on a tile): its size or its kind's, **All controls** (every control in a sheet,
   the rest under More), Identify, its log, ask the Assistant about it, add to the Quick Controls, **Settings…** and its
-  plugin's Settings and **Download diagnostics** ([Diagnostics](#diagnostics); administrators), resume a paused plugin, and **History** for an accessory whose plugin records an
-  Eve history (temperature, humidity, power…) or that has a Meter: a day, a week or four weeks. A Meter's
-  **Consumption** comes first, a chart per Meter (named by its service on a device with several): bars of what it drew,
-  and what it returned below the line, by hour over a day and by day beyond, with the range's kWh and, with a Tariff,
-  its cost.
+  plugin's Settings and **Download diagnostics** ([Diagnostics](#diagnostics); administrators), resume a paused plugin, and **History**, which opens the sheet on its History
+  tab.
+- **An accessory's sheet** has two tabs: **Controls** and **History** ([History and Logbook](#history-and-logbook)): a
+  chart per characteristic over **24 hours**, a **Week** or a **Year**. A number (a temperature, a brightness, a
+  power) is a line, each change held until the next over 24 hours, its hourly highest, average and lowest over a week,
+  and its daily ones over a year; a state (on, open, locked, motion, a mode) is a band split where it changed, a
+  colour per value. A Meter's **Consumption** comes first, a chart per Meter (named by its service on a device with
+  several): bars of what it drew, and what it returned below the line, by hour over a day and by day beyond, with the
+  range's kWh and, with a Tariff, its cost. **Logbook** opens the Logbook on that accessory.
 - **Full screen** (the toolbar's last button, or `/accessories?full=1` for a wall tablet's bookmark): the widgets alone,
   in the browser's own full screen where it has one. Grouped by room or by plugin, one group fills the screen at a time
   and the next is a swipe away (the arrow keys, the dots, the side arrows with a mouse); one button opens the toolbar
@@ -266,6 +270,35 @@ in the colour it has by bridge; a room's card lists its plugins, its device type
 screen** (the toolbar's last button, or `/accessories/graph?full=1`): the graph alone filling the window, its zoom at
 the bottom right as a map's and one button in the top corner for the search, the filters and Leave full screen, both
 fading while nothing happens; the cards and their actions work as on the page, a sheet from the bottom on a phone, and Esc leaves.
+
+### History and Logbook
+
+The bridge records every characteristic change of every accessory (GLOSSARY.md, "History"), under `history/` next to
+config.json, owner-only:
+
+- **History**: a state (a boolean, a mode, a string) at each change; a number at most every 10 seconds per
+  characteristic, at once when it moved by more than its step (its `minStep`, or half a percent of its range), else
+  once it settles, so the last value of a burst is always kept. Each change is kept for the bridge's **History kept
+  (days)**, 14 by default; each number's hourly lowest, time-weighted average and highest for **Hourly history kept
+  (years)**, 10 by default. Both are Bridge Settings ([Settings](#settings), `historyDays` and `historyYears` in the
+  bridge block; a change restarts the bridge). There is no opt-out per accessory.
+- **Logbook** (`/logbook`, in the menu): what changed in the home, newest first, by day: state changes (on and off,
+  open and closed, locked, motion, contact, modes), targets set, and every write, even one that changed nothing, each
+  with its **Change Source**: the Home app (by its pairing, the only thing HomeKit says of who wrote), a Homeswift user,
+  an MCP client (by the name it gave), an Automation or a Scene (by name), or the device itself (changed at the device,
+  by its hub, or by its plugin). Numeric readings (a temperature, a power) are left out: the History has them. Filter
+  by room, accessory, Change Source and time; the filters are the address's (`/logbook?room=Kitchen&source=homeApp`).
+  It is kept as long as the History's changes. Which user or MCP client made a change is shown to administrators;
+  others see "a Homeswift user" or "an MCP client". An accessory answering No Response holds no value: its hourly
+  figures stop until it reports again.
+
+![An accessory's History tab: a line per number, a band per state](images/ui/history.png)
+
+![The Logbook: each change with who or what made it](images/ui/logbook.png)
+
+`GET /api/accessories/<id>/history?range=day|week|year&timeZone=…` answers the History tab and `GET /api/logbook`
+(`room`, `accessory`, `source`, `sourceName`, `since`, `limit`) the Logbook, to anyone signed in, as the accessories
+are. Over MCP, `get_accessory_history` and `get_logbook` ([docs/mcp.md](mcp.md)).
 
 ### Quick controls
 
@@ -596,7 +629,8 @@ as an icon (shown when there is something to clear), and the time range and the 
 For administrators, after the Homebridge UI's settings, child bridges, backups and restart pages. Its tabs:
 
 - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup
-  code, manufacturer, model, firmware; saving restarts homeswift; the device ID stays). The setup code shows as the
+  code, manufacturer, model, firmware, and how long the History is kept: **History kept (days)** and **Hourly history
+  kept (years)**; saving restarts homeswift; the device ID stays). The setup code shows as the
   bridge runs with it, whether config.json keeps it sealed or in the vault, with a copy button and the pairing QR code;
   it is written back only when it changes. Then the network (the addresses, the
   advertiser), each server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
@@ -1003,7 +1037,8 @@ node Scripts/ui-screenshots.mjs
 
 It runs the bridge built at `~/Library/Caches/homeswift-build/debug/homeswift` (or the binary given) from a temporary
 folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin blocks with demonstration names, all
-paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
+paused, so nothing reaches a device or a cloud, a Dummy block of accessories that exist only on the bridge with a
+generated day of History and Logbook (`writeHistory`), and two generated images as wallpapers. It renders in headless Chrome in
 light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, answers a plugin's
 discovery with demonstration lights (so a plugin's Settings and an accessory's sheet never show this network's devices),
 and removes the folder when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page's shots that need lights (hubs' scenes,

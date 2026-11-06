@@ -387,6 +387,8 @@ enum WebAssets {
       manufacturer: input("manufacturer", { placeholder: "Homeswift" }),
       model: input("model", { placeholder: "Homeswift" }),
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
+      historyDays: input("historyDays", { type: "number", min: 1, max: 90, step: 1, placeholder: "14" }),
+      historyYears: input("historyYears", { type: "number", min: 1, max: 20, step: 1, placeholder: "10" }),
     };
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
@@ -394,7 +396,7 @@ enum WebAssets {
     const shownPin = fields.pin.value;
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
-      return [key, value === "" ? null : key === "port" ? Number(value) : value];
+      return [key, value === "" ? null : ["port", "historyDays", "historyYears"].includes(key) ? Number(value) : value];
     }).filter(([key, value]) => key !== "pin" || value !== shownPin));
     const copied = el("span", { class: "visually-hidden", role: "status" });
     const copyIcon = HomeswiftCommon.icon("copy"), doneIcon = HomeswiftCommon.icon("check");
@@ -490,7 +492,9 @@ enum WebAssets {
             el("div", { class: "setup-code-field" }, fields.pin, copyPin, copied),
             el("span", { class: "help", text: t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.") }), qrNote),
           qr),
-        field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision)),
+        field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision),
+        field(t("History kept (days)"), fields.historyDays, t("Each change of every accessory, and the Logbook. 14 days when empty.")),
+        field(t("Hourly history kept (years)"), fields.historyYears, t("The hourly lowest, average and highest of numbers. 10 years when empty."))),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
     portStatus.style.display = "block";
@@ -1302,124 +1306,55 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- An accessory's history -----------------------------------------------------------------------------
 
-  const historyUnits = { celsius: "°C", percentage: "%", W: "W", lux: "lx", hPa: "hPa", ppm: "ppm", "µg/m³": "µg/m³" };
-  const historyLabels = {
-    CurrentTemperature: t("Temperature"), TargetTemperature: t("Target temperature"), CurrentRelativeHumidity: t("Humidity"), AirPressure: t("Air pressure"),
-    AirQuality: t("Air quality"), VOCDensity: t("VOC density"), CurrentConsumption: t("Power [watts]"), CurrentAmbientLightLevel: t("Light level"), On: t("On"),
-    ContactSensorState: t("Contact"), MotionDetected: t("Motion"), ValvePosition: t("Valve position"), WaterAmount: t("Water"),
-  };
-
   const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
 
-  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks, and
-  /// first the energy its meters measured (the bridge's own record), by hour over a day and by day beyond.
-  function showHistory(accessory) {
-    const ranges = [[24, t("24 hours")], [168, t("7 days")], [672, t("4 weeks")]];
-    let hours = 24;
-    const charts = el("div", { class: "chart-grid" });
-    const note = el("p", { class: "muted" });
-    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text]) =>
-      el("button", { type: "button", text, class: value === hours ? "on" : "", "aria-pressed": String(value === hours), onclick: (event) => {
-        hours = value;
-        for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
-        load();
-      } })));
-    const close = el("button", { actionIcon: "check", type: "button", text: t("Done"), class: "primary" });
-    const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
-      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }),
-        el("p", { class: "muted", text: accessory.history ? t("Recorded values, as Eve shows them") : t("The energy the bridge measured") })),
-        el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
-      charts, note, el("div", { class: "actions" }, close));
-    close.addEventListener("click", () => dialog.close());
-    // A tap beside it closes it too (on a phone, Done may be below the fold until the history is scrolled).
-    dialog.addEventListener("click", (event) => {
-      const box = dialog.getBoundingClientRect();
-      if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) dialog.close();
-    });
-    dialog.addEventListener("close", () => dialog.remove());
-    document.body.append(dialog);
-    dialog.showModal();
+  /// An accessory's History: its sheet, on the History tab (history.js).
+  /// A Meter's row on Status gives only the accessory's id and name: the sheet needs the whole accessory.
+  async function showHistory(accessory) {
+    let full = accessory;
+    if (!accessory.services) {
+      try { full = (await api("/api/accessories")).find((one) => one.id === accessory.id) ?? accessory; } catch { /* the sheet with what is known */ }
+    }
+    try { HomeswiftWidgets.open({ services: [], ...full, consumption: full.consumption || accessory.consumption }, { tab: "history" }); }
+    catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
 
-    /// The energy each of its meters measured over the range, as bars: drawn above the line, returned below it.
-    async function consumptionCards(asked) {
-      if (!accessory.consumption) return [];
-      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      let found;
-      try { found = await api(`/api/metrics/consumption?${new URLSearchParams({ accessory: accessory.id, hours, timeZone })}`); }
-      catch (e) { return [el("p", { class: "error", text: e.message })]; }
-      if (asked !== hours) return [];
-      const hourly = found.step === "hour";
-      const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-      const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
-      const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
-      const dateOf = (text) => HomeswiftCommon.parseDay(text);
-      return found.meters.map((meter) => {
-        const returns = meter.bars.some((bar) => bar.returned > 0);
-        const body = el("div", { class: "chart-body" });
-        const title = meter.label ? t("Consumption · {meter}", { meter: meter.label }) : t("Consumption");
-        const card = el("div", { class: "card chart-card consumption-card" },
-          el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
-            el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
-          el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
-          body,
-          el("div", { class: "muted chart-detail", text: [
-            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
-            returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
-        const bars = meter.bars.map((bar, index) => {
-          const date = dateOf(bar.date);
-          // Every third hour labelled, every day.
-          const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
-          return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
-        });
-        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
-          segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
-            ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
-        return card;
+  /// The energy each of an accessory's meters measured over the last `hours`, as cards of bars: drawn above the line,
+  /// returned below it; by hour over a day, by day beyond.
+  async function consumptionCards(accessory, hours) {
+    if (!accessory.consumption) return [];
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    let found;
+    try { found = await api(`/api/metrics/consumption?${new URLSearchParams({ accessory: accessory.id, hours, timeZone })}`); }
+    catch (e) { return [el("p", { class: "error", text: e.message })]; }
+    const hourly = found.step === "hour";
+    const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+    const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+    const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+    const dateOf = (text) => HomeswiftCommon.parseDay(text);
+    return found.meters.map((meter) => {
+      const returns = meter.bars.some((bar) => bar.returned > 0);
+      const body = el("div", { class: "chart-body" });
+      const title = meter.label ? t("Consumption · {meter}", { meter: meter.label }) : t("Consumption");
+      const card = el("div", { class: "card chart-card consumption-card" },
+        el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
+          el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
+        el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
+        body,
+        el("div", { class: "muted chart-detail", text: [
+          found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
+          returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
+      const bars = meter.bars.map((bar, index) => {
+        const date = dateOf(bar.date);
+        // Every third hour labelled, every day.
+        const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
+        return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
       });
-    }
-
-    async function load() {
-      // Ranges chosen quickly one after the other: only the last one's answer is drawn.
-      const asked = hours;
-      charts.classList.add("loading");
-      const energy = consumptionCards(asked);
-      if (!accessory.history) {
-        const cards = await energy;
-        if (asked !== hours) return;
-        charts.classList.remove("loading");
-        charts.replaceChildren(...cards);
-        note.className = "muted";
-        note.textContent = t("Measured by the hour, kept for years.");
-        return;
-      }
-      let found;
-      try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?hours=${hours}&points=240`); }
-      catch (e) { if (asked === hours) { charts.classList.remove("loading"); note.className = "error"; note.textContent = e.message; } return; }
-      if (asked !== hours) return;
-      charts.classList.remove("loading");
-      note.className = "muted";
-      note.textContent = found.note != null ? HomeswiftI18n.message(found.note) : t("Ten-minute averages, kept four weeks; each point here averages those in its span.");
-      const from = new Date(found.from).getTime(), to = new Date(found.to).getTime();
-      const energyCards = await energy;
-      if (asked !== hours) return;
-      charts.replaceChildren(...energyCards, ...found.series.map((series) => {
-        const unit = historyUnits[series.unit] ?? series.unit ?? "";
-        const format = (value) => `${Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10}${unit ? ` ${unit}` : ""}`;
-        const points = series.points.map(([time, value]) => ({ time: new Date(time).getTime(), value }));
-        const gaps = points.slice(1).map((point, index) => point.time - points[index].time).sort((a, b) => a - b);
-        const step = Math.max(gaps[Math.floor(gaps.length / 2)] ?? 600000, 600000);
-        const body = el("div", { class: "chart-body" });
-        const card = el("div", { class: "card chart-card" },
-          el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: historyLabels[series.type] ?? series.type }),
-            el("div", { class: "muted", text: t("Lowest {min} · highest {max} · average {average}", { min: format(series.min.value), max: format(series.max.value), average: format(series.avg) }) })),
-          el("b", { class: "chart-figure", text: format(series.last.value), title: t("Last, {date}", { date: when(series.last.at) }) })),
-          body);
-        HomeswiftChart.lineChart(body, { title: historyLabels[series.type] ?? series.type, series: [{ label: historyLabels[series.type] ?? series.type, tone: 1, value: (point) => point.value }],
-          format, points, from, to, step });
-        return card;
-      }));
-    }
-    load();
+      HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
+        segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
+          ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
+      return card;
+    });
   }
 
   // ---- Overview: what homeswift runs, as a radial tree: homeswift at the centre, its bridges on the first ring, their
@@ -2384,7 +2319,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction, categoryName, deviceIcon };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, consumptionCards, confirmAction, categoryName, deviceIcon };
 })();
 
 """#),
@@ -4404,7 +4339,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// plugin. A separator between groups, none around an empty one.
   function accessoryActions(accessory, arrange = []) {
     const use = [
-      accessory.history || accessory.consumption ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) },
       accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
     ];
@@ -7704,6 +7639,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // An accessory's widget at its kind's size, for the Quick Controls.
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
+  views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
   views.import = (main) => window.HomeswiftImport.view(main);
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
@@ -8664,7 +8600,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
   /// of it. With `latest`, the legend writes each series' last value beside its name (a battery's level), so the
   /// chart needs no separate line of them. Returns `update(points, from, to, step)`.
-  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false }) {
+  /// With `fit`, the axis spans the values (a room's 19 to 22 °C) rather than starting at zero.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false, fit = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -8698,7 +8635,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
       // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
       let top = niceMax(highest, unit(highest)), bottom = 0, ticks = [0, 1, 2, 3, 4].map((i) => top / 4 * i);
-      if (lowest < 0) {
+      const fitted = values.length ? [Math.min(...values), Math.max(...values)] : null;
+      if (fit && fitted) {
+        const [low, high] = fitted;
+        const span = Math.max(high - low, Math.abs(high) * 0.02, unit(Math.abs(high)) || 1);
+        const step = niceStep(span / 4, unit(span));
+        bottom = Math.floor(low / step) * step;
+        top = Math.max(bottom + step, Math.ceil(high / step) * step);
+        ticks = [];
+        for (let value = bottom; value <= top + step / 2; value += step) ticks.push(Math.round(value / step) * step);
+      } else if (lowest < 0) {
         const size = Math.max(highest, -lowest);
         const step = niceStep((highest - lowest) / 4, unit(size));
         top = Math.max(step, Math.ceil(highest / step) * step);
@@ -8744,7 +8690,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const run of runs(one)) {
           const line = run.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
           if (series.length === 1 && run.length > 1) {
-            const base = y(0).toFixed(1);
+            const base = y(Math.max(bottom, Math.min(0, top))).toFixed(1);
             root.append(svg("path", { d: `${line}L${run.at(-1)[0].toFixed(1)},${base}L${run[0][0].toFixed(1)},${base}Z`, class: `area tone-${one.tone}` }));
           }
           root.append(svg("path", { d: line, class: `line tone-${one.tone}` }));
@@ -8966,7 +8912,101 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return { update(bars) { state = bars; chosen = null; tooltip.classList.add("hidden"); draw(); } };
   }
 
-  window.HomeswiftChart = { lineChart, stackedBars };
+  /// A state over time in `container` (an accessory's On, a door's state, a mode): a band split where the value
+  /// changed, each value in its colour. `spans` are `{ from, to, value }` (times in ms) in order, `label(value)` words a
+  /// value and `tone(value)` picks its slot (1 to 7); a span with a null value is a time nothing was known. A legend names
+  /// the values, a tooltip says what a span was and when, on hover and with the arrow keys. Returns `update(spans, from, to)`.
+  function stateTimeline(container, { title, spans, from, to, label, tone }) {
+    const band = 26, top = 6, total = top + band + 24;
+    const frame = html("div", "chart-frame");
+    const tooltip = html("div", "chart-tooltip hidden");
+    tooltip.setAttribute("role", "status");
+    frame.append(tooltip);
+    const legend = html("div", "chart-legend");
+    container.append(frame, legend);
+    let state = { spans, from, to };
+    let chosen = null;
+    let drawn = 0;
+
+    function draw() {
+      const width = Math.max(frame.clientWidth, 240);
+      drawn = width;
+      const { spans, from, to } = state;
+      const known = spans.filter((span) => span.value != null);
+      const plotWidth = width - pad.left - pad.right;
+      const x = (time) => pad.left + (Math.min(Math.max(time, from), to) - from) / Math.max(to - from, 1) * plotWidth;
+      const root = svg("svg", { width, height: total, viewBox: `0 0 ${width} ${total}`, class: "chart timeline", role: "img",
+        "aria-label": known.length ? tn("{title}: {n} change", "{title}: {n} changes", Math.max(0, known.length - 1), { title }) : t("{title}, nothing recorded", { title }) });
+      root.setAttribute("tabindex", "0");
+      root.append(svg("rect", { x: pad.left, y: top, width: plotWidth, height: band, rx: 4, class: "timeline-empty" }));
+      const rects = spans.map((span) => {
+        if (span.value == null) return null;
+        const left = x(span.from), right = x(span.to);
+        const rect = svg("rect", { x: left, y: top, width: Math.max(right - left, 1.5), height: band, class: `timeline-span tone-${tone(span.value)}` });
+        root.append(rect);
+        return rect;
+      });
+      for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
+        const text = svg("text", { x: x(tick), y: total - 6, class: "tick", "text-anchor": "middle" });
+        text.textContent = tickLabel(tick);
+        root.append(text);
+      }
+      if (!known.length) {
+        const empty = svg("text", { x: pad.left + plotWidth / 2, y: top + band / 2 + 4, class: "tick", "text-anchor": "middle" });
+        empty.textContent = t("Nothing recorded in this range");
+        root.append(empty);
+      }
+      frame.querySelector("svg")?.remove();
+      frame.prepend(root);
+      const show = (index) => {
+        chosen = index;
+        rects.forEach((rect, i) => rect?.classList.toggle("chosen", i === index));
+        const span = index == null ? null : spans[index];
+        if (!span || span.value == null) { tooltip.classList.add("hidden"); return; }
+        tooltip.replaceChildren(html("div", "chart-time", `${fullTime.format(span.from)} – ${fullTime.format(span.to)}`));
+        const row = html("div", "chart-row");
+        row.append(html("i", `key bar tone-${tone(span.value)}`), html("b", "", label(span.value)));
+        tooltip.append(row);
+        tooltip.classList.remove("hidden");
+        const px = (x(span.from) + x(span.to)) / 2;
+        const left = px + 12 + tooltip.offsetWidth > width ? px - 12 - tooltip.offsetWidth : px + 12;
+        tooltip.style.left = `${Math.max(0, left)}px`;
+      };
+      const at = (clientX) => {
+        const time = from + (clientX - root.getBoundingClientRect().left - pad.left) / plotWidth * (to - from);
+        const index = spans.findIndex((span) => span.from <= time && time < span.to);
+        return index < 0 ? null : index;
+      };
+      root.addEventListener("pointermove", (event) => show(at(event.clientX)));
+      root.addEventListener("pointerleave", () => { if (document.activeElement !== root) show(null); });
+      root.addEventListener("blur", () => show(null));
+      root.addEventListener("focus", () => show(chosen ?? (spans.length ? spans.length - 1 : null)));
+      root.addEventListener("keydown", (event) => {
+        if (!spans.length) return;
+        const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+        if (!(event.key in moves)) return;
+        event.preventDefault();
+        show(Math.min(spans.length - 1, Math.max(0, (chosen ?? spans.length - 1) + moves[event.key])));
+      });
+      // The values it took, in their colours.
+      const values = [];
+      for (const span of known) if (!values.some((value) => value === span.value)) values.push(span.value);
+      legend.replaceChildren(...values.map((value) => {
+        const item = html("span", "", null);
+        item.append(html("i", `key bar tone-${tone(value)}`), document.createTextNode(label(value)));
+        return item;
+      }));
+    }
+    const resize = new ResizeObserver(() => {
+      if (!frame.isConnected) { resize.disconnect(); return; }
+      if (frame.clientWidth && Math.abs(frame.clientWidth - drawn) > 1) draw();
+    });
+    resize.observe(frame);
+    draw();
+    return { update(spans, from, to) { state = { spans, from, to }; chosen = null; tooltip.classList.add("hidden"); draw(); } };
+  }
+
+  window.HomeswiftChart = { lineChart, stackedBars, stateTimeline };
 })();
 
 """#),
@@ -11043,7 +11083,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -12007,6 +12047,244 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     } };
   }
   window.HomeswiftGroups = { mount, sectionIndex };
+})();
+
+"""#),
+        "history.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The History and the Logbook (GLOSSARY.md): an accessory's History tab, on its sheet beside its controls (a chart per
+// characteristic over 24 hours, a week or a year), and the /logbook page, what changed in the home and who changed it,
+// filtered by room, accessory and Change Source.
+(() => {
+  "use strict";
+
+  const { t, tn } = HomeswiftI18n;
+  const { el, api } = HomeswiftCommon;
+  const app = () => window.HomeswiftApp;
+
+  const ranges = [["day", t("24 hours"), "history"], ["week", t("Week"), "grid"], ["year", t("Year"), "chart"]];
+  const rangeHours = { day: 24, week: 168, year: 8760 };
+
+  /// A value as the controls word it, a temperature in the user's unit.
+  const valueText = (series, value) => HomeswiftWidgets.valueText({ type: series.characteristic, value, unit: series.unit, minValue: series.minValue,
+    maxValue: series.maxValue, validValues: series.validValues, format: typeof value === "boolean" ? "bool" : series.kind === "number" && !Number.isInteger(value) ? "float" : undefined });
+  /// A number as charted: a temperature in the user's unit.
+  const chartValue = (series, value) => series.unit === "celsius" ? HomeswiftCommon.temperature(value).value : value;
+  const unitText = (series) => series.unit === "celsius" ? HomeswiftCommon.temperature(0).unit : { percentage: "%", lux: "lx", seconds: "s", arcdegrees: "°" }[series.unit] ?? "";
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const number = (value) => String(Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10).replace(".", decimal);
+  /// A characteristic's title: its name, and its service's when that says more (a second outlet, a sensor of a station).
+  const title = (series, accessory) => {
+    const name = HomeswiftWidgets.characteristicName(series.characteristic);
+    return series.service && series.service !== accessory.name && !accessory.name.endsWith(series.service) && !accessory.name.startsWith(series.service) ? `${name} · ${series.service}` : name;
+  };
+  /// The colour slot of a state: by its place among the values it may take; off, false or an enumeration's first (Off,
+  /// Inactive, Unsecured is not first) in a neutral grey, as a switch that is off.
+  const toneOf = (series, value) => {
+    if (value === false) return "off";
+    // A number's first value when it reads as off (Off, Inactive, Idle), as a switch that is off.
+    if (value === 0 && [t("Off"), t("Off [setting]"), t("Inactive"), t("Idle")].includes(valueText(series, 0))) return "off";
+    const order = typeof value === "boolean" ? Number(value) : series.validValues?.indexOf(value) ?? -1;
+    if (order >= 0) return (order % 7) + 1;
+    return (Math.abs([...String(value)].reduce((hash, char) => hash * 31 + char.charCodeAt(0) | 0, 7)) % 7) + 1;
+  };
+
+  /// The History tab of an accessory's sheet.
+  function panel(accessory) {
+    let range = "day", asked = 0;
+    const charts = el("div", { class: "chart-grid history-charts" });
+    const note = el("p", { class: "muted history-note" });
+    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text, glyph]) =>
+      el("button", { type: "button", text, actionIcon: glyph, class: value === range ? "on" : "", "aria-pressed": String(value === range), onclick: (event) => {
+        range = value;
+        for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
+        load();
+      } })));
+    const logbook = el("a", { class: "button", href: `/logbook?accessory=${encodeURIComponent(accessory.id)}`, actionIcon: "logs", text: t("Logbook"),
+      onclick: () => document.querySelector("dialog.widget-sheet[open]")?.close() });
+    const root = el("article", { class: "card accessory-card widget-full history-full" },
+      el("div", { class: "page-head history-head" },
+        el("div", { class: "who" }, el("h2", { text: accessory.name }), el("p", { class: "muted", text: t("Its values over time. The Logbook says who changed them.") })),
+        el("div", { class: "tools" }, group)),
+      charts, note, el("div", { class: "actions start" }, logbook));
+
+    async function load() {
+      const mine = ++asked;
+      charts.classList.add("loading");
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const energy = accessory.consumption && window.HomeswiftAdmin?.consumptionCards ? HomeswiftAdmin.consumptionCards(accessory, rangeHours[range]) : Promise.resolve([]);
+      let found;
+      try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?${new URLSearchParams({ range, timeZone })}`); }
+      catch (e) { if (mine === asked) { charts.classList.remove("loading"); note.className = "error history-note"; note.textContent = e.message; } return; }
+      const energyCards = await energy;
+      if (mine !== asked) return;
+      charts.classList.remove("loading");
+      note.className = "muted history-note";
+      note.textContent = t("Each change is kept {days} days, and the hourly figures of numbers {years} years.", { days: String(found.days), years: String(found.years) });
+      const cards = found.series.map((series) => series.kind === "number" ? numberCard(series, found) : stateCard(series, found)).filter(Boolean);
+      charts.replaceChildren(...energyCards, ...cards);
+      if (!cards.length && !energyCards.length) charts.append(el("p", { class: "muted", text: t("Nothing recorded in this range") }));
+    }
+
+    function card(series, figure, detail) {
+      const body = el("div", { class: "chart-body" });
+      const node = el("div", { class: "card chart-card" },
+        el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title(series, accessory) }), el("div", { class: "muted", text: detail })),
+          figure != null ? el("b", { class: "chart-figure", text: figure }) : null),
+        body);
+      return [node, body];
+    }
+
+    function numberCard(series, found) {
+      const unit = unitText(series);
+      const format = (value) => `${number(value)}${unit ? (unit === "%" || unit === "°" ? unit : ` ${unit}`) : ""}`;
+      const figure = series.last != null ? valueText(series, series.last) : null;
+      const label = title(series, accessory);
+      if (series.hours) {
+        const points = series.hours.map(([time, min, mean, max]) => ({ time, min: chartValue(series, min), mean: chartValue(series, mean), max: chartValue(series, max) }));
+        if (!points.length) return null;
+        const lowest = Math.min(...points.map((point) => point.min)), highest = Math.max(...points.map((point) => point.max));
+        const [node, body] = card(series, figure, t("Lowest {min} · highest {max} · average {average}", { min: format(lowest), max: format(highest),
+          average: format(points.reduce((sum, point) => sum + point.mean, 0) / points.length) }));
+        HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: series.step === "day" ? 86_400_000 : 3_600_000, fit: true,
+          series: [{ label: t("Highest"), tone: 4, value: (point) => point.max }, { label: t("Average"), tone: 1, value: (point) => point.mean },
+            { label: t("Lowest"), tone: 3, value: (point) => point.min }] });
+        return node;
+      }
+      // Each change holds until the next: drawn as steps, from the value held at the start to now.
+      const changes = series.points.map(([time, value]) => ({ time, value: chartValue(series, value) }));
+      const points = [];
+      if (series.before != null) points.push({ time: found.from, value: chartValue(series, series.before) });
+      for (const change of changes) {
+        if (points.length) points.push({ time: change.time - 1, value: points.at(-1).value });
+        points.push(change);
+      }
+      if (!points.length) return null;
+      points.push({ time: found.to, value: points.at(-1).value });
+      const values = points.map((point) => point.value);
+      const [node, body] = card(series, figure, t("Lowest {min} · highest {max} · average {average}", { min: format(Math.min(...values)), max: format(Math.max(...values)),
+        average: format(weightedMean(points)) }));
+      HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: found.to - found.from, fit: series.unit !== "percentage",
+        series: [{ label, tone: 1, value: (point) => point.value }] });
+      return node;
+    }
+
+    function stateCard(series, found) {
+      const spans = [];
+      let at = found.from, value = series.before ?? null;
+      for (const [time, next] of series.points) {
+        if (time > at) spans.push({ from: at, to: time, value });
+        at = Math.max(at, time);
+        value = next;
+      }
+      spans.push({ from: at, to: found.to, value });
+      if (!spans.some((span) => span.value != null)) return null;
+      const changes = series.points.length;
+      const figure = series.last != null ? valueText(series, series.last) : null;
+      const [node, body] = card(series, figure, tn("{n} change", "{n} changes", changes));
+      HomeswiftChart.stateTimeline(body, { title: title(series, accessory), spans, from: found.from, to: found.to, label: (one) => valueText(series, one), tone: (one) => toneOf(series, one) });
+      return node;
+    }
+
+    load();
+    return root;
+  }
+
+  /// The mean of a line of points, each held until the next.
+  function weightedMean(points) {
+    let sum = 0, span = 0;
+    for (let i = 0; i + 1 < points.length; i++) {
+      const held = points[i + 1].time - points[i].time;
+      sum += points[i].value * held;
+      span += held;
+    }
+    return span > 0 ? sum / span : points[0].value;
+  }
+
+  // ---- The Logbook
+
+  const sourceKinds = [["", t("Everyone and everything")], ["homeApp", t("The Home app")], ["user", t("Homeswift users")], ["mcp", t("MCP clients")],
+    ["automation", t("Automations")], ["scene", t("Scenes")], ["device", t("The devices themselves")]];
+  const sourceIcons = { homeApp: "house", user: "user", mcp: "sparkle", automation: "workflow", scene: "play", device: "accessory" };
+  /// Who made a change, as a person reads it.
+  function sourceText(source) {
+    switch (source.kind) {
+      case "homeApp": return t("Home app");
+      case "device": return t("The device");
+      case "automation": return t("Automation {name}", { name: source.name });
+      case "scene": return t("Scene {name}", { name: source.name });
+      case "user": return source.name ?? t("A Homeswift user");
+      case "mcp": return source.name ?? t("An MCP client");
+      default: return source.name ?? "";
+    }
+  }
+  const sinceChoices = [["24h", t("24 hours")], ["3d", t("3 days")], ["7d", t("7 days")], ["", t("Everything kept")]];
+
+  async function logbookView(main) {
+    const params = new URLSearchParams(location.search);
+    const accessories = await api("/api/accessories").catch(() => []);
+    const rooms = [...new Set(accessories.map((accessory) => accessory.room).filter(Boolean))].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
+    const select = (name, label, choices, value) => {
+      const node = el("select", { name, "aria-label": label }, choices.map(([key, text]) => el("option", { value: key, text, selected: key === value })));
+      node.addEventListener("change", reload);
+      return node;
+    };
+    const room = select("room", t("Room"), [["", t("All rooms")], ...rooms.map((name) => [name, name])], params.get("room") ?? "");
+    const accessory = select("accessory", t("Accessory"), [["", t("All accessories")],
+      ...[...accessories].sort((a, b) => a.name.localeCompare(b.name, HomeswiftI18n.locale)).map((one) => [one.id, one.name])], params.get("accessory") ?? "");
+    const source = select("source", t("Change Source"), sourceKinds, params.get("source") ?? "");
+    const since = select("since", t("Time range"), sinceChoices, params.get("since") ?? "24h");
+    const controls = [room, accessory, source, since];
+    const clear = HomeswiftCommon.clearFilters(controls.map((control) => [control, control === since ? "24h" : ""]),
+      { active: () => controls.some((control) => control.value !== (control === since ? "24h" : "")), events: controls.map((control) => [control, "change"]), reset: reload });
+    const list = el("div", { class: "logbook" });
+    const count = el("p", { class: "muted" });
+    const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
+    const byID = new Map(accessories.map((one) => [one.id, one]));
+    app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
+      el("div", { class: "logbook-filters" }, ...controls, clear), count, list);
+
+    async function reload() {
+      const query = new URLSearchParams();
+      for (const control of controls) if (control.value) query.set(control.name, control.value);
+      const search = query.toString();
+      const path = `/logbook${search ? `?${search}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+      list.classList.add("loading");
+      let found;
+      try { found = await api(`/api/logbook?${query}`); }
+      catch (e) { list.classList.remove("loading"); list.replaceChildren(el("p", { class: "error", text: e.message })); return; }
+      list.classList.remove("loading");
+      count.textContent = tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", found.entries.length, { days: String(found.days) });
+      if (!found.entries.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
+      const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
+      const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const days = new Map();
+      for (const entry of found.entries) {
+        const date = new Date(entry.time);
+        const key = dayFormat.format(date);
+        if (!days.has(key)) days.set(key, []);
+        days.get(key).push(row(entry, date, timeFormat));
+      }
+      list.replaceChildren(...[...days].map(([day, rows]) => el("section", { class: "logbook-day" }, el("h3", { text: day }), el("ul", { class: "logbook-list" }, rows))));
+    }
+
+    function row(entry, date, timeFormat) {
+      const series = { characteristic: entry.characteristic, kind: typeof entry.value === "number" ? "number" : "state" };
+      const live = byID.get(entry.accessory);
+      const characteristic = live?.services?.flatMap((service) => service.characteristics ?? []).find((one) => one.type === entry.characteristic);
+      if (characteristic) Object.assign(series, { unit: characteristic.unit, minValue: characteristic.minValue, maxValue: characteristic.maxValue, validValues: characteristic.validValues });
+      const what = t("{characteristic}: {value}", { characteristic: HomeswiftWidgets.characteristicName(entry.characteristic), value: valueText(series, entry.value) });
+      return el("li", { class: "logbook-entry" },
+        el("time", { datetime: entry.time, text: timeFormat.format(date) }),
+        el("span", { class: "tile", "aria-hidden": "true" }, HomeswiftCommon.icon(icons.get(entry.accessory) ?? "accessory")),
+        el("div", { class: "who" }, el("strong", { text: entry.name }), el("span", { class: "muted", text: [what, entry.room].filter(Boolean).join(" · ") })),
+        el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : sourceText(entry.source) },
+          HomeswiftCommon.icon(sourceIcons[entry.source.kind] ?? "accessory"), el("span", { text: sourceText(entry.source) })));
+    }
+    reload();
+  }
+
+  window.HomeswiftHistory = { panel, logbookView, sourceText };
 })();
 
 """#),
@@ -16888,6 +17166,41 @@ HomeswiftI18n.add("es", {
   "Separate": "Separar",
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
+  "3 days": "3 días",
+  "All accessories": "Todos los accesorios",
+  "Automation {name}": "Automatización {name}",
+  "Automations": "Automatizaciones",
+  "Change Source": "Origen del cambio",
+  "Controls": "Controles",
+  "Each change is kept {days} days, and the hourly figures of numbers {years} years.": "Cada cambio se guarda {days} días, y las cifras por hora de los valores numéricos, {years} años.",
+  "Each change of every accessory, and the Logbook. 14 days when empty.": "Cada cambio de cada accesorio, y la bitácora. 14 días si está vacío.",
+  "Everyone and everything": "Todos y todo",
+  "Highest": "Máximo",
+  "History kept (days)": "Historial guardado (días)",
+  "Homeswift users": "Usuarios de Homeswift",
+  "Hourly history kept (years)": "Historial por hora guardado (años)",
+  "Its values over time. The Logbook says who changed them.": "Sus valores a lo largo del tiempo. La bitácora dice quién los cambió.",
+  "Logbook": "Bitácora",
+  "Lowest": "Mínimo",
+  "MCP clients": "Clientes MCP",
+  "Nothing changed in this range.": "Nada cambió en este periodo.",
+  "Pairing {id}": "Emparejamiento {id}",
+  "Scene {name}": "Escena {name}",
+  "The Home app": "La app Casa",
+  "The device": "El dispositivo",
+  "The devices themselves": "Los propios dispositivos",
+  "The hourly lowest, average and highest of numbers. 10 years when empty.": "El mínimo, la media y el máximo por hora de los valores numéricos. 10 años si está vacío.",
+  "What changed in the home, and who or what changed it.": "Lo que cambió en casa, y quién o qué lo cambió.",
+  "{characteristic}: {value}": "{characteristic}: {value}",
+  "{name}: views": "{name}: vistas",
+  "{n} change": "{n} cambio",
+  "{n} changes": "{n} cambios",
+  "{n} entries · kept {days} days": "{n} entradas · guardadas {days} días",
+  "{n} entry · kept {days} days": "{n} entrada · guardadas {days} días",
+  "{title}: {n} change": "{title}: {n} cambio",
+  "{title}: {n} changes": "{title}: {n} cambios",
+  "A Homeswift user": "Un usuario de Homeswift",
+  "An MCP client": "Un cliente MCP",
   "Download diagnostics": "Descargar diagnósticos",
   "Forgotten.": "Olvidada.",
 });
@@ -19943,6 +20256,41 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "3 days": "3 jours",
+  "All accessories": "Tous les accessoires",
+  "Automation {name}": "Automatisation {name}",
+  "Automations": "Automatisations",
+  "Change Source": "Auteur du changement",
+  "Controls": "Commandes",
+  "Each change is kept {days} days, and the hourly figures of numbers {years} years.": "Chaque changement est gardé {days} jours, et les chiffres horaires des valeurs numériques {years} ans.",
+  "Each change of every accessory, and the Logbook. 14 days when empty.": "Chaque changement de chaque accessoire, et le journal de bord. 14 jours si vide.",
+  "Everyone and everything": "Tout le monde, tout",
+  "Highest": "Maximum",
+  "History kept (days)": "Historique gardé (jours)",
+  "Homeswift users": "Utilisateurs de Homeswift",
+  "Hourly history kept (years)": "Historique horaire gardé (années)",
+  "Its values over time. The Logbook says who changed them.": "Ses valeurs dans le temps. Le journal de bord dit qui les a changées.",
+  "Logbook": "Journal de bord",
+  "Lowest": "Minimum",
+  "MCP clients": "Clients MCP",
+  "Nothing changed in this range.": "Rien n'a changé sur cette période.",
+  "Pairing {id}": "Jumelage {id}",
+  "Scene {name}": "Scène {name}",
+  "The Home app": "L'app Maison",
+  "The device": "L'appareil",
+  "The devices themselves": "Les appareils eux-mêmes",
+  "The hourly lowest, average and highest of numbers. 10 years when empty.": "Le minimum, la moyenne et le maximum horaires des valeurs numériques. 10 ans si vide.",
+  "What changed in the home, and who or what changed it.": "Ce qui a changé dans la maison, et qui ou quoi l'a changé.",
+  "{characteristic}: {value}": "{characteristic} : {value}",
+  "{name}: views": "{name} : vues",
+  "{n} change": "{n} changement",
+  "{n} changes": "{n} changements",
+  "{n} entries · kept {days} days": "{n} entrées · gardées {days} jours",
+  "{n} entry · kept {days} days": "{n} entrée · gardées {days} jours",
+  "{title}: {n} change": "{title} : {n} changement",
+  "{title}: {n} changes": "{title} : {n} changements",
+  "A Homeswift user": "Un utilisateur de Homeswift",
+  "An MCP client": "Un client MCP",
   "Download diagnostics": "Télécharger les diagnostics",
   "Forgotten.": "Oubliée.",
 });
@@ -22998,6 +23346,41 @@ HomeswiftI18n.add("pt", {
   "Separate": "Separar",
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
+  "3 days": "3 dias",
+  "All accessories": "Todos os acessórios",
+  "Automation {name}": "Automação {name}",
+  "Automations": "Automações",
+  "Change Source": "Origem da alteração",
+  "Controls": "Controlos",
+  "Each change is kept {days} days, and the hourly figures of numbers {years} years.": "Cada alteração é guardada {days} dias, e os valores horários dos números {years} anos.",
+  "Each change of every accessory, and the Logbook. 14 days when empty.": "Cada alteração de cada acessório, e o diário de bordo. 14 dias se vazio.",
+  "Everyone and everything": "Todos e tudo",
+  "Highest": "Máximo",
+  "History kept (days)": "Histórico guardado (dias)",
+  "Homeswift users": "Utilizadores do Homeswift",
+  "Hourly history kept (years)": "Histórico horário guardado (anos)",
+  "Its values over time. The Logbook says who changed them.": "Os seus valores ao longo do tempo. O diário de bordo indica quem os alterou.",
+  "Logbook": "Diário de bordo",
+  "Lowest": "Mínimo",
+  "MCP clients": "Clientes MCP",
+  "Nothing changed in this range.": "Nada mudou neste período.",
+  "Pairing {id}": "Emparelhamento {id}",
+  "Scene {name}": "Cena {name}",
+  "The Home app": "A app Casa",
+  "The device": "O dispositivo",
+  "The devices themselves": "Os próprios dispositivos",
+  "The hourly lowest, average and highest of numbers. 10 years when empty.": "O mínimo, a média e o máximo horários dos números. 10 anos se vazio.",
+  "What changed in the home, and who or what changed it.": "O que mudou em casa, e quem ou o quê o alterou.",
+  "{characteristic}: {value}": "{characteristic}: {value}",
+  "{name}: views": "{name}: vistas",
+  "{n} change": "{n} alteração",
+  "{n} changes": "{n} alterações",
+  "{n} entries · kept {days} days": "{n} entradas · guardadas {days} dias",
+  "{n} entry · kept {days} days": "{n} entrada · guardadas {days} dias",
+  "{title}: {n} change": "{title}: {n} alteração",
+  "{title}: {n} changes": "{title}: {n} alterações",
+  "A Homeswift user": "Um utilizador do Homeswift",
+  "An MCP client": "Um cliente MCP",
   "Download diagnostics": "Transferir diagnósticos",
   "Forgotten.": "Esquecida.",
 });
@@ -23725,6 +24108,7 @@ HomeswiftI18n.add("pt", {
       <a href="/status" data-i18n>Status</a>
       <a href="/accessories" data-i18n>Accessories</a>
       <a href="/scenes" data-i18n>Scenes</a>
+      <a href="/logbook" data-i18n>Logbook</a>
       <a href="/plugins" data-i18n>Plugins</a>
       <a href="/logs" data-i18n>Logs</a>
       <a href="/settings" data-i18n>Settings</a>
@@ -23748,6 +24132,7 @@ HomeswiftI18n.add("pt", {
 <script src="/groups.js"></script>
 <script src="/homelink.js"></script>
 <script src="/charts.js"></script>
+<script src="/history.js"></script>
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
 <script src="/admin.js"></script>
@@ -31301,6 +31686,51 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .breadcrumb li { max-width: 100%; }
 .breadcrumb li > a, .breadcrumb li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* The History: a state as a band split where it changed (charts.js's stateTimeline). */
+.chart.timeline .timeline-empty { fill: var(--line); opacity: 0.45; }
+.chart .timeline-span.tone-1 { fill: var(--series-1); }
+.chart .timeline-span.tone-2 { fill: var(--series-2); }
+.chart .timeline-span.tone-3 { fill: var(--series-3); }
+.chart .timeline-span.tone-4 { fill: var(--series-4); }
+.chart .timeline-span.tone-5 { fill: var(--series-5); }
+.chart .timeline-span.tone-6 { fill: var(--series-6); }
+.chart .timeline-span.tone-7 { fill: var(--series-7); }
+.chart .timeline-span.tone-off, .key.tone-off { fill: var(--muted); background: var(--muted); opacity: 0.45; }
+.chart .timeline-span.chosen { stroke: var(--text); stroke-width: 1.5; }
+
+/* An accessory's sheet: its Controls and History tabs on the left of the bar, Done on the right. */
+.sheet-bar.with-tabs { justify-content: space-between; align-items: center; gap: var(--space-10); }
+.sheet-bar .sheet-tabs { margin: 0; background-color: var(--material-thick); -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%); }
+.widget-sheet .history-full { margin: 0; max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); display: grid; gap: var(--space-14); }
+.history-full .history-head { margin: 0; }
+.history-full .history-head h2 { margin: 0; }
+.history-full .chart-grid { grid-template-columns: minmax(0, 1fr); }
+.history-full .history-note { margin: 0; }
+
+/* The Logbook: a day per section, a line per change with who made it. */
+.logbook-filters { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; margin-bottom: var(--space-12); }
+.logbook-filters select { width: auto; min-width: 0; max-width: 100%; }
+.logbook.loading { opacity: 0.6; }
+.logbook-day h3 { font-size: var(--text-sm); color: var(--muted); font-weight: var(--weight-semibold); margin: var(--space-18) 0 var(--space-6); }
+.logbook-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); overflow: hidden; }
+.logbook-entry { display: grid; grid-template-columns: auto auto minmax(0, 1fr) minmax(0, max-content); gap: var(--space-10); align-items: center; padding: var(--space-8) var(--space-14); }
+.logbook-entry + .logbook-entry { border-top: 1px solid var(--line); }
+.logbook-entry time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--text-sm); }
+.logbook-entry .tile { width: 28px; height: 28px; }
+.logbook-entry .who { display: grid; min-width: 0; }
+.logbook-entry .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A whole pill, its name cut with an ellipsis inside it; the full name is its tooltip. */
+.logbook-entry .source { display: inline-flex; align-items: center; gap: var(--space-4); max-width: min(18em, 100%); min-width: 0; justify-self: end; box-sizing: border-box; }
+.logbook-entry .source > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logbook-entry .source::before { content: none; }
+.logbook-entry .source svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 640px) {
+  .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-10) var(--space-12); }
+  .logbook-entry .tile { display: none; }
+  .logbook-entry .source { grid-column: 2; justify-self: start; max-width: 100%; }
+  .logbook-filters select { flex: 1 1 calc(50% - var(--space-8)); }
+}
+
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI's service worker: it only shows the bridge's push notifications (Notifications page, "this browser")
@@ -33205,7 +33635,37 @@ self.addEventListener("notificationclick", (event) => {
     ctx.node = node;
     cards.add(ctx);
     const done = el("button", { actionIcon: "check", type: "button", class: "link", text: t("Done") });
-    const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
+    // Its controls and its History (history.js), as tabs over the card; `options.tab` opens on the History.
+    const views = [["controls", t("Controls"), "sliders"], ["history", t("History"), "chart"]];
+    let tab = "controls", historyPanel = null;
+    const tabButtons = window.HomeswiftHistory ? views.map(([name, label, glyph]) => el("button", {
+      type: "button", role: "tab", id: `sheet-tab-${name}`, "aria-controls": "sheet-panel", "aria-selected": String(name === tab),
+      tabIndex: name === tab ? 0 : -1, class: name === tab ? "on" : "", actionIcon: glyph, text: label, onclick: () => choose(name),
+    })) : [];
+    const panel = el("div", { id: "sheet-panel", class: "sheet-panel", role: tabButtons.length ? "tabpanel" : null, "aria-labelledby": tabButtons.length ? "sheet-tab-controls" : null }, node);
+    function choose(name) {
+      tab = name;
+      for (const [index, button] of tabButtons.entries()) {
+        const on = views[index][0] === name;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-selected", String(on));
+        button.tabIndex = on ? 0 : -1;
+      }
+      panel.setAttribute("aria-labelledby", `sheet-tab-${name}`);
+      if (name === "history") historyPanel ??= HomeswiftHistory.panel(accessory);
+      panel.replaceChildren(name === "history" ? historyPanel : node);
+    }
+    const tabList = tabButtons.length ? el("div", { class: "group view-switch sheet-tabs", role: "tablist", "aria-label": t("{name}: views", { name: accessory.name }), onkeydown: (event) => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+      if (!step && event.key !== "Home" && event.key !== "End") return;
+      event.preventDefault();
+      const at = views.findIndex(([name]) => name === tab);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? views.length - 1 : (at + step + views.length) % views.length;
+      choose(views[next][0]);
+      tabButtons[next].focus();
+    } }, tabButtons) : null;
+    const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: `sheet-bar${tabList ? " with-tabs" : ""}` }, tabList, done), panel);
+    if (options.tab === "history" && tabList) choose("history");
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
     if (matchMedia("(max-width: 640px)").matches) {
@@ -33751,6 +34211,17 @@ self.addEventListener("notificationclick", (event) => {
     /// A camera's picture (camera.js): live while on screen, else snapshots, its name and state over it.
     cameraView: (accessory) => cameraView({ accessory }).element,
     card, open, kindOf, sizes, searchText, valueSections, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
+    /// A value as the rows under All controls word it: an enumerated state by its name, a 0 or 1 switch as On or Off, a
+    /// number with its unit (a temperature in the user's). `one` is `{ type, value, format, unit, minValue, maxValue,
+    /// validValues }`, `type` the characteristic's name; a boolean without a format is one.
+    valueText(one) {
+      const format = one.format ?? (typeof one.value === "boolean" ? "bool" : undefined);
+      if (enumLabels[one.type]) return labelFor(one.type, one.value);
+      if (format !== "float" && typeof one.value === "number" && (one.minValue === 0 && one.maxValue === 1 || String(one.validValues) === "0,1")) return one.value ? t("On [setting]") : t("Off [setting]");
+      return formatValue({ ...one, format });
+    },
+    /// A characteristic's name as the rows under All controls give it.
+    characteristicName: (type) => rowLabels[type] ?? typeName(type),
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
     characteristicRow(accessory, service, characteristic) {
       const ctx = context(accessory);

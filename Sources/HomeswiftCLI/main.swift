@@ -198,6 +198,8 @@ do {
 
 // The Status page's memory, CPU and latency history, a week of it under metrics/.
 let metrics = Metrics(directory: storagePath.appendingPathComponent("metrics"))
+// The History and the Logbook: every change of every accessory, with who made it, under history/.
+let history = HistoryStore(directory: storagePath.appendingPathComponent("history"), retention: HistoryRetention(configuration.bridge))
 let mcpServer = NIOLockedValueBox<MCPHTTPServer?>(nil)
 let uiServer = NIOLockedValueBox<UIServer?>(nil)
 /// The catalog once made: its automations and notifications stop with the rest.
@@ -220,6 +222,7 @@ let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
     await host.stop()
     logger.info("Shutdown: flushing metrics and logs")
     metrics.stop()
+    history.stop()
     logBuffer.archive?.flush()
 }
 let main = Task {
@@ -229,6 +232,7 @@ let main = Task {
         fail("could not start: \(error)")
     }
     metrics.start(following: host)
+    history.start(following: host)
     // The control surface the MCP server and the web UI share; its restart hook execs a fresh copy of this
     // process, and a saved HomeswiftUI or HomeswiftAiKit block restarts the servers it configures in place.
     let catalogBox = NIOLockedValueBox<HomeswiftCatalog?>(nil)
@@ -236,7 +240,7 @@ let main = Task {
     // The web UI's settings as last started, to fall back on when new ones cannot start.
     let uiConfiguration = NIOLockedValueBox(configuration)
     let catalog = HomeswiftCatalog(
-        host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: (ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] ?? ProcessInfo.processInfo.environment["HOMEBRIDGE_ALLOW_SECRETS"]) == "true",
+        host: host, logs: logBuffer, metrics: metrics, history: history, configURL: configURL, allowSecrets: (ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] ?? ProcessInfo.processInfo.environment["HOMEBRIDGE_ALLOW_SECRETS"]) == "true",
         restart: { Task.detached { setenv(restartMarker, "1", 1); await Restart.perform(shutdown: shutdown) } },
         reloadServices: { [mcpServer, uiServer] next, platforms in
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
