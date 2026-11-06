@@ -1164,7 +1164,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
           return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
         });
-        HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
+        HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? (utility ? 0.01 : 0.001) : 1, bars, hourly,
           // Gas in orange, as on its card; water and electricity in blue.
           segments: [{ label: t("Used"), tone: meter.kind === "gas" ? 2 : 1, value: (values) => values?.consumption ?? null },
             ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
@@ -3731,8 +3731,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Gas and water (GLOSSARY.md, "Meter"): the m³ their Meters measured, by day or month, a colour per Meter, with the
     // cost at their own Tariff. Shown when a plugin declares such a Meter.
     const utilities = [
-      { kind: "gas", ...card(t("Gas"), t("What the gas meters measured in this period, in m³"), "flame", "orange") },
-      { kind: "water", ...card(t("Water"), t("What the water meters measured in this period, in m³"), "drop", "blue") },
+      { kind: "gas", ...card(t("Gas"), t("What the gas meters measured in this period"), "flame", "orange") },
+      { kind: "water", ...card(t("Water"), t("What the water meters measured in this period"), "drop", "blue") },
     ];
     for (const one of utilities) one.node.hidden = true;
     consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
@@ -3983,7 +3983,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else {
         utility.body.replaceChildren();
         utility.key = key;
-        utility.view = HomeswiftChart.stackedBars(utility.body, { title: utility.title, segments, bars, format: formatCubicMetres, unit: (max) => max < 1 ? 0.001 : 1 });
+        utility.view = HomeswiftChart.stackedBars(utility.body, { title: utility.title, segments, bars, format: formatCubicMetres, unit: (max) => max < 1 ? 0.01 : 1 });
       }
       const total = meters.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
       utility.figure.textContent = formatCubicMetres(total);
@@ -11355,9 +11355,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? digits : size < 100 ? 1 : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} ${unit}`;
   }
-  /// Kilowatt-hours as every page shows energy; cubic metres as gas and water (a meter's index read to the litre).
+  /// Kilowatt-hours as every page shows energy.
   const kWh = (value, top) => measure(value, top, { unit: "kWh", small: "Wh", digits: 2 });
-  const cubicMetres = (value, top) => measure(value, top, { unit: "m³", small: "L", digits: 3 });
+  /// Cubic metres as gas and water show, the total and the axis alike (never litres): two decimals under 10, one under
+  /// 100, whole from there; an axis's whole ticks without decimals.
+  function cubicMetres(value, top) {
+    const size = Math.abs(value);
+    const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} m³`;
+  }
 
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.
@@ -16790,8 +16796,8 @@ HomeswiftI18n.add("es", {
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
   "Gas": "Gas",
-  "What the gas meters measured in this period, in m³": "Lo que midieron los contadores de gas en este periodo, en m³",
-  "What the water meters measured in this period, in m³": "Lo que midieron los contadores de agua en este periodo, en m³",
+  "What the gas meters measured in this period": "Lo que midieron los contadores de gas en este periodo",
+  "What the water meters measured in this period": "Lo que midieron los contadores de agua en este periodo",
   "{cost} at its tariff, hour by hour": "{cost} a su tarifa, hora a hora",
   "Price per m³": "Precio por m³",
   "Gas tariff": "Tarifa del gas",
@@ -19835,8 +19841,8 @@ HomeswiftI18n.add("fr", {
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
   "Gas": "Gaz",
-  "What the gas meters measured in this period, in m³": "Ce que les compteurs de gaz ont mesuré sur cette période, en m³",
-  "What the water meters measured in this period, in m³": "Ce que les compteurs d'eau ont mesuré sur cette période, en m³",
+  "What the gas meters measured in this period": "Ce que les compteurs de gaz ont mesuré sur cette période",
+  "What the water meters measured in this period": "Ce que les compteurs d'eau ont mesuré sur cette période",
   "{cost} at its tariff, hour by hour": "{cost} à son tarif, heure par heure",
   "Price per m³": "Prix par m³",
   "Gas tariff": "Tarif du gaz",
@@ -22880,8 +22886,8 @@ HomeswiftI18n.add("pt", {
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
   "Gas": "Gás",
-  "What the gas meters measured in this period, in m³": "O que os contadores de gás mediram neste período, em m³",
-  "What the water meters measured in this period, in m³": "O que os contadores de água mediram neste período, em m³",
+  "What the gas meters measured in this period": "O que os contadores de gás mediram neste período",
+  "What the water meters measured in this period": "O que os contadores de água mediram neste período",
   "{cost} at its tariff, hour by hour": "{cost} à sua tarifa, hora a hora",
   "Price per m³": "Preço por m³",
   "Gas tariff": "Tarifa do gás",

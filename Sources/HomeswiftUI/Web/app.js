@@ -1546,8 +1546,8 @@
     // Gas and water (GLOSSARY.md, "Meter"): the m³ their Meters measured, by day or month, a colour per Meter, with the
     // cost at their own Tariff. Shown when a plugin declares such a Meter.
     const utilities = [
-      { kind: "gas", ...card(t("Gas"), t("What the gas meters measured in this period, in m³"), "flame", "orange") },
-      { kind: "water", ...card(t("Water"), t("What the water meters measured in this period, in m³"), "drop", "blue") },
+      { kind: "gas", ...card(t("Gas"), t("What the gas meters measured in this period"), "flame", "orange") },
+      { kind: "water", ...card(t("Water"), t("What the water meters measured in this period"), "drop", "blue") },
     ];
     for (const one of utilities) one.node.hidden = true;
     consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
@@ -1798,7 +1798,7 @@
       else {
         utility.body.replaceChildren();
         utility.key = key;
-        utility.view = HomeswiftChart.stackedBars(utility.body, { title: utility.title, segments, bars, format: formatCubicMetres, unit: (max) => max < 1 ? 0.001 : 1 });
+        utility.view = HomeswiftChart.stackedBars(utility.body, { title: utility.title, segments, bars, format: formatCubicMetres, unit: (max) => max < 1 ? 0.01 : 1 });
       }
       const total = meters.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
       utility.figure.textContent = formatCubicMetres(total);

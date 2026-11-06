@@ -121,8 +121,8 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
   kWh is written in Wh.
 - **Gas** and **Water**: once a plugin declares a gas or water Meter (HAP has no characteristics for them), a card of
   each kind for the same Week, Month or Year: the m³ its Meters measured, a bar per day (per month over a year), a
-  colour per Meter, the period's total and, with a Tariff of that kind, its cost hour by hour at that Tariff. Under a
-  cubic metre it is written in litres. Gas stays in m³; it is never counted in kWh or in the home's energy. A Meter's
+  colour per Meter, the period's total and, with a Tariff of that kind, its cost hour by hour at that Tariff, all in m³
+  (two decimals at most). Gas stays in m³; it is never counted in kWh or in the home's energy. A Meter's
   History (its accessory's ⋯ menu) shows it in m³ too.
 
   ![Gas and water](images/status/energy-gas-water.png)

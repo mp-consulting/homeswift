@@ -1747,9 +1747,15 @@
     const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? digits : size < 100 ? 1 : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} ${unit}`;
   }
-  /// Kilowatt-hours as every page shows energy; cubic metres as gas and water (a meter's index read to the litre).
+  /// Kilowatt-hours as every page shows energy.
   const kWh = (value, top) => measure(value, top, { unit: "kWh", small: "Wh", digits: 2 });
-  const cubicMetres = (value, top) => measure(value, top, { unit: "m³", small: "L", digits: 3 });
+  /// Cubic metres as gas and water show, the total and the axis alike (never litres): two decimals under 10, one under
+  /// 100, whole from there; an axis's whole ticks without decimals.
+  function cubicMetres(value, top) {
+    const size = Math.abs(value);
+    const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} m³`;
+  }
 
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.

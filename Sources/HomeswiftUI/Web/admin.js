@@ -1155,7 +1155,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
           return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
         });
-        HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
+        HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? (utility ? 0.01 : 0.001) : 1, bars, hourly,
           // Gas in orange, as on its card; water and electricity in blue.
           segments: [{ label: t("Used"), tone: meter.kind === "gas" ? 2 : 1, value: (values) => values?.consumption ?? null },
             ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
