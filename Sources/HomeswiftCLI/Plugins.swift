@@ -37,6 +37,7 @@ import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
 import HomeswiftV2CTrydan
 import HomeswiftWingman
+import HomeswiftZWaveJS
 import HomeswiftZigbee2MQTT
 
 /// The plugins compiled into this binary.
@@ -86,5 +87,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(ImouPlugin.self)
     registry.register(ReolinkPlugin.self)
     registry.register(PresencePlugin.self)
+    registry.register(ZWaveJSPlugin.self)
     return registry
 }
