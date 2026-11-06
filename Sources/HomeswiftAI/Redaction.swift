@@ -330,6 +330,22 @@ public enum Redaction {
         remembered.mask(maskURLPasswords(redactText(text, prefilter: true)))
     }
 
+    /// Every URL in `text` with what can be a credential hidden, as the camera log hides it (HomeswiftFFmpeg's
+    /// `redactURLPasswords`): a password before the host (to the last `@`, cameras taking a raw one), the values of its
+    /// secret-named query items (`pwd`, `pass`, `token`, `key`, `auth`, `sig`…), and for an RTSP or RTSPS URL its whole
+    /// path and every query value, which can be the secret itself (UniFi Protect's stream alias). Scheme, host and port stay.
+    public static func maskingURLCredentials(_ text: String) -> String {
+        guard text.contains("://") else { return text }
+        return text.replacing(#/[a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^\s'"]+/#) { match in
+            var url = String(match.output).replacing(#/^([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@]*):[^\/?#]*@/#) { $0.output.1 + ":***@" }
+            if url.range(of: "rtsp://", options: [.caseInsensitive, .anchored]) != nil || url.range(of: "rtsps://", options: [.caseInsensitive, .anchored]) != nil {
+                url = url.replacing(#/^([a-zA-Z]+:\/\/[^\/?#]+)\/[^?#]+/#) { $0.output.1 + "/<redacted>" }
+                return url.replacing(#/([?&;][^=&#;]*=)[^&#;]*/#) { $0.output.1 + "***" }
+            }
+            return url.replacing(#/(?i)([?&;](?:[^=&#;]*(?:pass|pwd|token|secret|key|auth|cred|sig)[^=&#;]*)=)[^&#;]*/#) { $0.output.1 + "***" }
+        }
+    }
+
     /// `scheme://user:password@host` with the password replaced by the placeholder.
     // The password runs to the last `@` before a space: a password may hold `@` or `/` unencoded (cameras accept them so).
     private static let urlPassword = try! NSRegularExpression(pattern: #"([A-Za-z][A-Za-z0-9+.-]*://[^\s/]*?:)\S+(@)"#)

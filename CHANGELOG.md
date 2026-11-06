@@ -6,18 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
-  values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
-  Step applies it. A Scene saved with `triggers` or `conditions` is refused.
-- The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
-  (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
-  `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
-  The location an older `scenes.json` kept moves there at startup.
-
 ### Added
 
+- History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
+  each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,
+  average, highest) for years. The Logbook lists state changes, targets set and every write, each with its Change
+  Source: the Home app (by pairing), a Homeswift user, an MCP client, an Automation or Scene, or the device itself.
+  Retention is a Bridge Setting (`historyDays`, 14 by default; `historyYears`, 10).
+- Web UI: an accessory's sheet has a **History** tab beside its controls, a chart per characteristic over 24 hours, a
+  week or a year (a state as a band of its values); a **Logbook** page (`/logbook`) filtered by room, accessory and
+  Change Source.
+- MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
+  goes further back.
+- Z-Wave JS plugin (experimental): the nodes already on a Z-Wave network, through zwave-js-server's WebSocket API, the
+  server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run. Switches and outlets, dimmers, colour lights, window
+  coverings, door locks, thermostats, motion, contact, leak, smoke and CO sensors, temperature, humidity and light,
+  batteries, Central Scene buttons, and meters that count in the Energy section. The server is found over mDNS or added
+  by its address; a dead node answers No Response. Including and excluding nodes stays in Z-Wave JS UI.
+- Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
+  attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
+  masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
+  warnings over the last week. Names are kept. MCP clients get the same bundle from `get_diagnostics`, administrators
+  only.
 - Automations (`/automations`, beside Scenes): Triggers (a time, the sun, cron, an accessory's change, a value that
   stays so for a while, a number crossing a threshold), Conditions, and Steps run in order (apply a Scene, set a value,
   wait, wait until, notify, a plugin's action that needs no confirmation), in Restart or Single mode. Locks, garage doors
@@ -30,16 +40,15 @@ All notable changes to this project are documented here. The format follows
   confirmation page behind sign-in (`/notify/<id>`). Notifications' taps open their page on ntfy and Pushover too, at the
   new **Address in notifications**.
 
-- History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
-  each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,
-  average, highest) for years. The Logbook lists state changes, targets set and every write, each with its Change
-  Source: the Home app (by pairing), a Homeswift user, an MCP client, an Automation or Scene, or the device itself.
-  Retention is a Bridge Setting (`historyDays`, 14 by default; `historyYears`, 10).
-- Web UI: an accessory's sheet has a **History** tab beside its controls, a chart per characteristic over 24 hours, a
-  week or a year (a state as a band of its values); a **Logbook** page (`/logbook`) filtered by room, accessory and
-  Change Source.
-- MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
-  goes further back.
+### Changed
+
+- Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
+  values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
+  Step applies it. A Scene saved with `triggers` or `conditions` is refused.
+- The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
+  (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
+  `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
+  The location an older `scenes.json` kept moves there at startup.
 
 ### Fixed
 

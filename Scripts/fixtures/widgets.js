@@ -45,6 +45,7 @@ const add=(a,size,wall)=>{
   {separator:true},
   {label:'Show its log',icon:'logs',onSelect:none},
   {label:'Plugin settings',icon:'gear',onSelect:none},
+  {label:'Download diagnostics',icon:'download',onSelect:none},
  ]};
  const node=HomeswiftWidgets.card(structuredClone(a),options);
  wall.append(node);

@@ -4295,6 +4295,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const rememberMatterOwn = (matter) => { matterOwn = new Set([...(matter?.ownDevices || []), ...(matter?.failedDevices || [])].map((device) => device.id)); };
   const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
 
+  /// Downloads a Diagnostics file (Diagnostics.swift): the browser saves it under the name the bridge gives, and the
+  /// page stays where it is; a refusal (the accessory gone, an account that is not an administrator) says why.
+  async function downloadDiagnostics(url) {
+    try {
+      const response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) {
+        const answer = await response.json().catch(() => ({}));
+        throw new Error(answer.error ?? response.statusText);
+      }
+      const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "homeswift-diagnostics.json";
+      const link = el("a", { href: URL.createObjectURL(await response.blob()), download: name, hidden: true });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (e) { HomeswiftCommon.showAlert(HomeswiftI18n.message(e.message)); }
+  }
+
   /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
   function matterActions(accessory) {
     const card = `/status#matter-${slug(accessory.id)}`;
@@ -4339,6 +4357,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         glyph: HomeswiftWidgets.categoryIcon(accessory.category) ?? "accessory" }) } : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "plugin", href: `/plugins/${slug(accessory.platformName || accessory.platform)}/settings` } : null,
+      accessory.platform && isAdmin() ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/accessories/${encodeURIComponent(accessory.id)}`) } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
       .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
@@ -5304,6 +5323,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { label: t("Edit config.json"), icon: "code", href: "/settings/config" },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
         instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
+        plugin ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/plugins/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name ?? block.platform)}`) } : null,
         { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
       ];
     }
@@ -14594,6 +14614,7 @@ HomeswiftI18n.add("es", {
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Aires acondicionados y bombas de calor Altherma a través de la nube Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luces, enchufes, sensores, persianas, purificadores y escenas, en local",
   "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luces, sensores, persianas y mandos Zigbee de Zigbee2MQTT, por MQTT",
+  "Z-Wave lights, switches, sensors, locks and thermostats from Z-Wave JS": "Luces, interruptores, sensores, cerraduras y termostatos Z-Wave de Z-Wave JS",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscina: iniciar y detener la limpieza, temperatura del agua y filtro",
   "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robots aspiradores: limpieza, vuelta a la base, batería, lavado de la mopa, escenas y cepillos",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
@@ -17254,6 +17275,12 @@ HomeswiftI18n.add("es", {
   "No V2C Trydan answered at {address}": "Ningún V2C Trydan respondió en {address}",
   "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Escribe la dirección del ECU: su dirección IP o nombre de host, en tu router, donde suele aparecer como un dispositivo Espressif.",
   "No ECU answered at {address}": "Ningún ECU respondió en {address}",
+  "Enter the address of zwave-js-server: the host running Z-Wave JS UI or Home Assistant's Z-Wave JS add-on, and its WebSocket port (3000 by default).": "Introduce la dirección de zwave-js-server: el host donde se ejecuta Z-Wave JS UI o el complemento Z-Wave JS de Home Assistant, y su puerto WebSocket (3000 por defecto).",
+  "No zwave-js-server answered at {address}": "Ningún zwave-js-server respondió en {address}",
+  "Another Z-Wave network answered at {address}: find the server again": "Otra red Z-Wave respondió en {address}: busca el servidor de nuevo",
+  "The server has no address: add it by its address": "El servidor no tiene dirección: añádelo por su dirección",
+  "zwave-js-server announces itself at {address}: check it is yours, or enter another address.": "zwave-js-server se anuncia en {address}: comprueba que es el tuyo, o introduce otra dirección.",
+  "Z-Wave network {id} is already set up at {address}: change its address in its settings": "La red Z-Wave {id} ya está configurada en {address}: cambia su dirección en sus ajustes",
   "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Escribe la dirección de la cámara: su dirección IP o nombre de host en tu red, en tu router o en IMOU Life.",
   "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Escribe el código de seguridad de la cámara, impreso en su etiqueta (o la contraseña que le diste en IMOU Life).",
   "Safety code": "Código de seguridad",
@@ -17689,6 +17716,7 @@ HomeswiftI18n.add("es", {
   "{label}?": "¿{label}?",
   "A Homeswift user": "Un usuario de Homeswift",
   "An MCP client": "Un cliente MCP",
+  "Download diagnostics": "Descargar diagnósticos",
   "Forgotten.": "Olvidada.",
   "Sunrise and sunset need the home's Location, which is not set yet.": "El amanecer y el atardecer necesitan la ubicación de la casa, que aún no está indicada.",
   "Set the Location in Settings": "Indicar la ubicación en Ajustes",
@@ -17756,6 +17784,7 @@ HomeswiftI18n.add("fr", {
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Climatiseurs et pompes à chaleur Altherma via le cloud Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Lumières, prises, capteurs, stores, purificateurs et scènes, en local",
   "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Lumières, capteurs, stores et télécommandes Zigbee de Zigbee2MQTT, par MQTT",
+  "Z-Wave lights, switches, sensors, locks and thermostats from Z-Wave JS": "Lumières, interrupteurs, capteurs, serrures et thermostats Z-Wave de Z-Wave JS",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscine : lancer et arrêter le nettoyage, température de l'eau et filtre",
   "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robots aspirateurs : nettoyage, retour à la base, batterie, lavage de la serpillière, scènes et brosses",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
@@ -20416,6 +20445,12 @@ HomeswiftI18n.add("fr", {
   "No V2C Trydan answered at {address}": "Aucun V2C Trydan n’a répondu à {address}",
   "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Saisissez l’adresse de l’ECU : son adresse IP ou son nom d’hôte, dans votre routeur, où il apparaît souvent comme un appareil Espressif.",
   "No ECU answered at {address}": "Aucun ECU n’a répondu à {address}",
+  "Enter the address of zwave-js-server: the host running Z-Wave JS UI or Home Assistant's Z-Wave JS add-on, and its WebSocket port (3000 by default).": "Saisissez l’adresse de zwave-js-server : l’hôte où tourne Z-Wave JS UI ou le module Z-Wave JS de Home Assistant, et son port WebSocket (3000 par défaut).",
+  "No zwave-js-server answered at {address}": "Aucun zwave-js-server n’a répondu à {address}",
+  "Another Z-Wave network answered at {address}: find the server again": "Un autre réseau Z-Wave a répondu à {address} : retrouvez le serveur",
+  "The server has no address: add it by its address": "Le serveur n’a pas d’adresse : ajoutez-le par son adresse",
+  "zwave-js-server announces itself at {address}: check it is yours, or enter another address.": "zwave-js-server s’annonce à {address} : vérifiez que c’est le vôtre, ou saisissez une autre adresse.",
+  "Z-Wave network {id} is already set up at {address}: change its address in its settings": "Le réseau Z-Wave {id} est déjà configuré à {address} : changez son adresse dans ses réglages",
   "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Saisissez l’adresse de la caméra : son adresse IP ou son nom d’hôte sur votre réseau, dans votre routeur ou IMOU Life.",
   "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Saisissez le code de sécurité de la caméra, imprimé sur son étiquette (ou le mot de passe que vous lui avez donné dans IMOU Life).",
   "Safety code": "Code de sécurité",
@@ -20851,6 +20886,7 @@ HomeswiftI18n.add("fr", {
   "{label}?": "{label} ?",
   "A Homeswift user": "Un utilisateur de Homeswift",
   "An MCP client": "Un client MCP",
+  "Download diagnostics": "Télécharger les diagnostics",
   "Forgotten.": "Oubliée.",
   "Sunrise and sunset need the home's Location, which is not set yet.": "Le lever et le coucher du soleil demandent la position de la maison, qui n'est pas encore indiquée.",
   "Set the Location in Settings": "Indiquer la position dans les réglages",
@@ -20918,6 +20954,7 @@ HomeswiftI18n.add("pt", {
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Ares condicionados e bombas de calor Altherma através da nuvem Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luzes, tomadas, sensores, estores, purificadores e cenas, localmente",
   "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luzes, sensores, estores e comandos Zigbee do Zigbee2MQTT, por MQTT",
+  "Z-Wave lights, switches, sensors, locks and thermostats from Z-Wave JS": "Luzes, interruptores, sensores, fechaduras e termóstatos Z-Wave do Z-Wave JS",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robôs de piscina: iniciar e parar a limpeza, temperatura da água e filtro",
   "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robôs aspiradores: limpeza, regresso à base, bateria, lavagem da esfregona, cenas e escovas",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
@@ -23578,6 +23615,12 @@ HomeswiftI18n.add("pt", {
   "No V2C Trydan answered at {address}": "Nenhum V2C Trydan respondeu em {address}",
   "Enter the address of the ECU: its IP address or host name, from your router, where it often shows as an Espressif device.": "Introduza o endereço do ECU: o seu endereço IP ou nome de anfitrião, no seu router, onde aparece muitas vezes como um dispositivo Espressif.",
   "No ECU answered at {address}": "Nenhum ECU respondeu em {address}",
+  "Enter the address of zwave-js-server: the host running Z-Wave JS UI or Home Assistant's Z-Wave JS add-on, and its WebSocket port (3000 by default).": "Introduza o endereço do zwave-js-server: o anfitrião onde corre o Z-Wave JS UI ou o suplemento Z-Wave JS do Home Assistant, e a sua porta WebSocket (3000 por omissão).",
+  "No zwave-js-server answered at {address}": "Nenhum zwave-js-server respondeu em {address}",
+  "Another Z-Wave network answered at {address}: find the server again": "Outra rede Z-Wave respondeu em {address}: procure o servidor de novo",
+  "The server has no address: add it by its address": "O servidor não tem endereço: adicione-o pelo seu endereço",
+  "zwave-js-server announces itself at {address}: check it is yours, or enter another address.": "O zwave-js-server anuncia-se em {address}: confirme que é o seu, ou introduza outro endereço.",
+  "Z-Wave network {id} is already set up at {address}: change its address in its settings": "A rede Z-Wave {id} já está configurada em {address}: altere o seu endereço nas suas definições",
   "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Introduza o endereço da câmara: o seu endereço IP ou nome de anfitrião na sua rede, no seu router ou na IMOU Life.",
   "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Introduza o código de segurança da câmara, impresso na sua etiqueta (ou a palavra-passe que lhe deu na IMOU Life).",
   "Safety code": "Código de segurança",
@@ -24013,6 +24056,7 @@ HomeswiftI18n.add("pt", {
   "{label}?": "{label}?",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
+  "Download diagnostics": "Transferir diagnósticos",
   "Forgotten.": "Esquecida.",
   "Sunrise and sunset need the home's Location, which is not set yet.": "O nascer e o pôr do sol precisam da localização da casa, que ainda não foi definida.",
   "Set the Location in Settings": "Definir a localização nas Definições",
