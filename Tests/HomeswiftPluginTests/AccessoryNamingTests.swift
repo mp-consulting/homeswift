@@ -98,6 +98,32 @@ struct AccessoryNamingTests {
         #expect(configuredName.value == .string("Bedside"))
         await host.stop()
     }
+
+    /// An accessory's other services get a Configured Name with their Name, the accessory's left out, so the Home app
+    /// does not number them; the
+    /// primary one, a single service, a hidden one and one with its own are left as they are.
+    @Test func namesTheOtherServicesForTheHomeApp() {
+        let primary = Service(.lightbulb, name: "Desk", isPrimary: true)
+        let effect = Service(.switch, name: "Desk Candle", subtype: "candle")
+        let own = Service(.switch, name: "Desk Fire", subtype: "fire", optional: [.configuredName])
+        own[.configuredName]?.value = .string("Fire")
+        let hidden = Service(.switch, name: "Desk Hidden", subtype: "hidden", isHidden: true)
+        let night = Service(.switch, name: "Night light", subtype: "night")
+        let lamp = Accessory(id: "lamp", name: "Desk", services: [primary, effect, own, hidden, night])
+        #expect(AccessoryNaming.nameOtherServices(of: lamp))
+        // Shown inside the accessory: its name is left out.
+        #expect(effect[.configuredName]?.value == .string("Candle"))
+        #expect(own[.configuredName]?.value == .string("Fire"))
+        #expect(night[.configuredName]?.value == .string("Night light"))
+        #expect(primary[.configuredName] == nil)
+        #expect(hidden[.configuredName] == nil)
+        // Done once.
+        #expect(!AccessoryNaming.nameOtherServices(of: lamp))
+
+        let single = Service(.switch, name: "Plug")
+        #expect(!AccessoryNaming.nameOtherServices(of: Accessory(id: "plug", name: "Plug", services: [single])))
+        #expect(single[.configuredName] == nil)
+    }
 }
 
 /// A ceiling, not a wait: it returns as soon as the condition holds.

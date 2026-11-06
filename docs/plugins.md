@@ -281,6 +281,9 @@ Name if it has none: the Home app keeps its own name for a paired accessory and 
 Configured Name and writes it when someone renames the accessory there, which the bridge keeps in `_accessories` too.
 Aids and iids stay, and a rename does not reload the plugin; without the name, the plugin's names come back. A plugin
 does nothing for it, but should not set Name or Configured Name again on its own after adding an accessory.
+An accessory that shows several services gets a Configured Name, its Name without the accessory's name in front
+(`Desk Candle` on `Desk` gives `Candle`), on each of the others that has none: the Home app names an accessory's other
+services by their Configured Name, inside the accessory, and numbers those without one ("Switch 1", "Switch 2"). A plugin may give one itself; the primary service gets one only with a `name`, as above.
 `bridge.roomSync` is Room Sync (GLOSSARY.md), which needs no restart.
 `disabledPlugins` lists platform names to skip; their accessories leave HomeKit. Homebridge's `accessories`
 blocks are not supported.
