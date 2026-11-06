@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftNetwork
+import NIOConcurrencyHelpers
 
 /// A device seen on the network, for picking a Person's devices: its MAC (`MACAddress.canonical`), where it answers and
 /// what it calls itself when something says (mDNS, the router's DNS from DHCP).
@@ -46,12 +47,21 @@ protocol LocalNetwork: Sendable {
 /// covers it.
 struct NetworkPresenceSource: PresenceSource {
     let network: any LocalNetwork
+    /// The least time between two sweeps of the local networks for missing MACs: while a Person is away their devices
+    /// are missing at every check, and a sweep is a datagram to every address.
+    var sweepEvery: Duration = .seconds(120)
+    private let lastSweep = NIOLockedValueBox<ContinuousClock.Instant?>(nil)
+
+    init(network: any LocalNetwork, sweepEvery: Duration = .seconds(120)) {
+        self.network = network
+        self.sweepEvery = sweepEvery
+    }
 
     func seen(_ macs: Set<String>) async -> Set<String> {
         guard !macs.isEmpty else { return [] }
         var table = Self.addresses(await network.arpEntries(), of: macs)
         let missing = macs.subtracting(table.keys)
-        if !missing.isEmpty {
+        if !missing.isEmpty, sweepDue() {
             await network.resolve(lookingFor: missing)
             table = Self.addresses(await network.arpEntries(), of: macs)
         }
@@ -67,6 +77,16 @@ struct NetworkPresenceSource: PresenceSource {
         // The same pairs once more: an address that answered for another device does not count for this one.
         let after = Self.addresses(await network.arpEntries(), of: macs)
         return Set(after.compactMap { mac, ips in ips.contains { answered.contains(mac + "@" + $0) } ? mac : nil })
+    }
+
+    /// Whether a sweep may run now; notes it when it may.
+    private func sweepDue() -> Bool {
+        let now = ContinuousClock.now
+        return lastSweep.withLockedValue { last in
+            if let last, now - last < sweepEvery { return false }
+            last = now
+            return true
+        }
     }
 
     func devices() async -> [NetworkDevice] {

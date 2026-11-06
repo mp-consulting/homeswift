@@ -40,8 +40,11 @@ public enum PresenceEvent: Sendable, Equatable {
 /// The Persons the Presence plugin follows, for the rest of the bridge (`PluginHost.presence`, `PluginContext.presence`).
 public final class PresenceBoard: Sendable {
     private struct State {
-        /// By id, as the plugin last published them; nil before it published anything.
+        /// By id, as the plugin last published them; nil before it published anything, and once it stopped.
         var persons: [String: PersonPresence]?
+        /// The last ones published, kept when the plugin stops: a reload's first publish is compared with them, so a
+        /// Person who came or went meanwhile is still told.
+        var last: [String: PersonPresence]?
         var observers: [UUID: @Sendable (PresenceEvent) -> Void] = [:]
     }
 
@@ -68,9 +71,10 @@ public final class PresenceBoard: Sendable {
     /// when it changes. A Person new to the board, or one taken off it, is no arrival or departure.
     public func publish(_ persons: [PersonPresence]) {
         let (events, observers) = state.withLockedValue { state -> ([PresenceEvent], [@Sendable (PresenceEvent) -> Void]) in
-            let before = state.persons
+            let before = state.persons ?? state.last
             let after = Dictionary(persons.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             state.persons = after
+            state.last = after
             guard let before else { return ([], []) }
             var events: [PresenceEvent] = []
             for person in persons {
@@ -86,7 +90,8 @@ public final class PresenceBoard: Sendable {
         }
     }
 
-    /// Takes the plugin's Persons off the board: it stopped.
+    /// Takes the plugin's Persons off the board: it stopped. The next publish (the plugin reloaded) is still compared with
+    /// them.
     public func clear() {
         state.withLockedValue { $0.persons = nil }
     }

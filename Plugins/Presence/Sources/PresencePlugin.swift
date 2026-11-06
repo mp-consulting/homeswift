@@ -64,6 +64,8 @@ public actor PresencePlugin: HomeswiftPlugin {
     private let stateFile: JSONFile<[String: PersonState]>
     private var lastSave = Date.distantPast
     private var started = false
+    /// Set by `stop()`: a check that was probing when it came publishes nothing.
+    private var stopped = false
     /// The occupancy sensors, by Device Id.
     private var sensors: [String: Characteristic] = [:]
     var logger: Logger { context.logger }
@@ -119,6 +121,7 @@ public actor PresencePlugin: HomeswiftPlugin {
 
     public func stop() async {
         tasks.cancelAll()
+        stopped = true
         guard started else { return }
         save(at: dependencies.now())
         context.presence.clear()
@@ -128,6 +131,7 @@ public actor PresencePlugin: HomeswiftPlugin {
     func check() async {
         let persons = persons
         let seen = await dependencies.source.seen(persons.reduce(into: Set<String>()) { $0.formUnion($1.devices) })
+        guard !stopped else { return }
         let now = dependencies.now()
         let (changed, dirty) = tracker.update(persons, seen: seen, at: now)
         show(persons, changed: changed)

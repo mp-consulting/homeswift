@@ -4355,7 +4355,7 @@
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
           "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) }),
-        presenceLines(presence) ? el("div", { class: "account-presence" }, presenceLines(presence)) : null),
+        ((lines) => lines ? el("div", { class: "account-presence" }, lines) : null)(presenceLines(presence))),
       el("button", { actionIcon: "logout", text: t("Sign out"), onclick: signOut }));
     show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),

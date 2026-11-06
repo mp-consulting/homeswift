@@ -251,6 +251,23 @@ struct PresenceTests {
     }
 }
 
+@Suite struct PresenceBoardTests {
+    @Test func aChangeAcrossAReloadIsStillTold() {
+        let board = PresenceBoard()
+        let events = BoardEvents()
+        let observation = board.observe { event in events.events.withLockedValue { $0.append(event) } }
+        defer { observation.cancel() }
+        board.publish([PersonPresence(id: "Presence:person-1", name: "Alex", isHome: true)])
+        #expect(events.all.isEmpty)
+        board.clear()
+        #expect(board.anyoneHome == nil && board.persons.isEmpty)
+        board.publish([PersonPresence(id: "Presence:person-1", name: "Alex", isHome: false)])
+        #expect(events.all.count == 2)
+        if case .left(let person) = events.all.first { #expect(person.name == "Alex") } else { Issue.record("no departure: \(events.all)") }
+        #expect(events.all.last == .anyoneHome(false))
+    }
+}
+
 @Suite struct PresenceTrackerTests {
     let start = Date(timeIntervalSince1970: 1_800_000_000)
     let alex = Person(id: "person-1", name: "Alex", devices: [phone], user: nil)
@@ -328,6 +345,14 @@ final class FakeNetwork: LocalNetwork {
         network.afterProbe.withLockedValue { $0 = [("192.168.1.20", laptop)] }
         network.reachable.withLockedValue { $0 = ["192.168.1.20"] }
         #expect(await NetworkPresenceSource(network: network).seen([phone]).isEmpty)
+    }
+
+    @Test func theNetworksAreSweptAtMostSoOften() async {
+        let network = FakeNetwork()
+        let source = NetworkPresenceSource(network: network, sweepEvery: .seconds(3600))
+        #expect(await source.seen([phone]).isEmpty)
+        #expect(await source.seen([phone]).isEmpty)
+        #expect(network.resolves.withLockedValue { $0 } == 1)
     }
 
     @Test func devicesAreListedNamedFirst() async {

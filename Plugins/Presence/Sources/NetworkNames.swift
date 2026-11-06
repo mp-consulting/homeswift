@@ -12,8 +12,9 @@ enum NetworkNames {
     /// The mDNS services whose instance names are a device's own name.
     static let services = ["_companion-link._tcp.local", "_device-info._tcp.local"]
     static let mdnsWindow: Duration = .milliseconds(1500)
-    /// How long the reverse lookups may take in all.
+    /// How long the reverse lookups may take in all, and how many run at once (`getnameinfo` holds a thread each).
     static let dnsWindow: Duration = .seconds(2)
+    static let dnsLookupsAtOnce = 8
 
     static func lookUp(_ ips: [String]) async -> [String: String] {
         guard !ips.isEmpty else { return [:] }
@@ -59,7 +60,9 @@ enum NetworkNames {
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 await withTaskGroup(of: Void.self) { lookups in
-                    for ip in ips {
+                    for (index, ip) in ips.enumerated() {
+                        if index >= dnsLookupsAtOnce { await lookups.next() }
+                        guard !Task.isCancelled else { return }
                         lookups.addTask {
                             if let name = await reverseName(ip) { found.set(ip, name) }
                         }

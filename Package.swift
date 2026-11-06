@@ -528,7 +528,10 @@ let package = Package(
         ),
         .target(
             name: "HomeswiftPresence",
-            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"), .product(name: "Logging", package: "swift-log"),
+            ],
             path: "Plugins/Presence/Sources"
         ),
         // The `homeswift` bridge: reads config.json and runs the plugins compiled in (Plugins.swift lists them).

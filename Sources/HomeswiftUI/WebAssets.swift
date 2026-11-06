@@ -6525,7 +6525,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
           "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) }),
-        presenceLines(presence) ? el("div", { class: "account-presence" }, presenceLines(presence)) : null),
+        ((lines) => lines ? el("div", { class: "account-presence" }, lines) : null)(presenceLines(presence))),
       el("button", { actionIcon: "logout", text: t("Sign out"), onclick: signOut }));
     show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
@@ -26110,10 +26110,12 @@ HomeswiftI18n.add("pt", {
   /// "", and `focus()`.
   function choice(field) {
     if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
-    const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
+    // An optional choice can be left unmade: Not chosen comes first.
+    const options = field.optional ? [{ value: "", label: "Not chosen" }, ...field.options] : field.options;
+    const radios = options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === (field.value ?? (field.optional ? "" : undefined)) }));
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
-      ...field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+      ...options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
         el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
     Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
     node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
