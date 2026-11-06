@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
   bridge and follow their changes; `newDeviceLabel` names Add by address for devices that have no address;
   `accessorySettingChoices` gives a Plugin Accessory Setting choices that depend on the home; Setup has a `choices`
   field, several options picked.
+- Weather, a plugin: the weather where the home is, from Open-Meteo with no account or key, for the Location set
+  under Settings, Bridge. One accessory with a Temperature sensor and Eve's air pressure, condition, wind speed, rain
+  in the last hour and UV index, a Humidity sensor, and an Is raining occupancy sensor for automations. It updates
+  every 15 minutes and at once when the Location moves, and appears as a Weather widget on the Accessories wall.
 - History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
   each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,
   average, highest) for years. The Logbook lists state changes, targets set and every write, each with its Change

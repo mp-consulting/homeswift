@@ -1591,6 +1591,59 @@
     },
   });
 
+  // The weather (the Weather plugin, or any Temperature sensor with Eve's Condition): the temperature and the sky's
+  // icon, the condition in words; from medium up the humidity, the wind and the last hour's rain, then the pressure
+  // and the UV index. Conditions are Open-Meteo's words in English, translated here.
+  const weatherConditions = {
+    "Clear sky": [t("Clear sky"), "sun"], "Mainly clear": [t("Mainly clear"), "sun"], "Partly cloudy": [t("Partly cloudy"), "cloud"],
+    Overcast: [t("Overcast"), "cloud"], Fog: [t("Fog"), "cloud"], Drizzle: [t("Drizzle"), "rain"], "Freezing drizzle": [t("Freezing drizzle"), "rain"],
+    Rain: [t("Rain"), "rain"], "Freezing rain": [t("Freezing rain"), "rain"], Snow: [t("Snow"), "snow"], "Rain showers": [t("Rain showers"), "rain"],
+    "Snow showers": [t("Snow showers"), "snow"], Thunderstorm: [t("Thunderstorm"), "rain"], "Thunderstorm with hail": [t("Thunderstorm with hail"), "rain"],
+  };
+  const weatherOf = (value) => weatherConditions[value] ?? [typeof value === "string" && value !== "Unknown" ? value : "", "cloud"];
+  register({
+    name: "weather", types: ["TemperatureSensor"], tone: "blue", size: "large",
+    icon: (ctx, primary) => weatherOf(ctx.char(primary, "Condition")?.value)[1],
+    match: (ctx, primary) => !!ctx.char(primary, "Condition"),
+    build(ctx, primary, size) {
+      const condition = ctx.take(primary, "Condition");
+      const wind = ctx.take(primary, "Wind Speed"), rain = ctx.take(primary, "Rain Last Hour");
+      const pressure = ctx.take(primary, "Air Pressure"), uv = ctx.take(primary, "UV Index");
+      // The temperature and the humidity as the sensor widget writes them (the unit chosen, a decimal comma); the rain
+      // sensor by its subtype (Weather's "raining"), not any occupancy sensor.
+      const humiditySensor = ctx.find("HumiditySensor");
+      const temperature = reading(ctx, primary), humidity = humiditySensor && reading(ctx, humiditySensor);
+      const rainingService = ctx.services.find((service) => service.subtype === "raining");
+      const raining = ctx.take(rainingService, "Occupancy Detected");
+      const number = (c, digits = 0) => typeof c?.value === "number" ? c.value.toFixed(digits).replace(".", decimal) : "–";
+      const degrees = () => temperature?.value() ?? { text: "–", unit: "" };
+      const words = () => weatherOf(condition?.value)[0] || (raining?.value === 1 ? t("Raining") : "");
+      const built = {
+        on: () => false,
+        hero: () => el("span", {}, degrees().text, el("small", { text: degrees().unit })),
+        // A compact tile has no hero: the temperature goes before the condition.
+        status: () => [size !== "small" || ctx.tall ? words() : [`${degrees().text} ${degrees().unit}`, words()].filter(Boolean).join(" · "), ""],
+      };
+      if (size === "small") return built;
+      const values = [
+        [t("Temperature"), () => degrees().text, degrees().unit],
+        humidity && [t("Humidity"), () => humidity.value().text, "%"],
+        wind && [t("Wind"), () => number(wind, 1), "km/h"],
+        rain && [t("Rain, 1 h"), () => number(rain), "mm"],
+        pressure && [t("Pressure"), () => number(pressure), "hPa"],
+        uv && [t("UV index"), () => number(uv), ""],
+      ].filter(Boolean);
+      const shown = (size === "medium" ? values.slice(0, 3) : values).map(([label, text, suffix]) => {
+        const control = readout(label);
+        ctx.watch(() => control.set(text(), suffix));
+        return control.node;
+      });
+      built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, shown)];
+      if (size === "full") built.facets = facets(ctx, [primary, humiditySensor, rainingService].filter(Boolean));
+      return built;
+    },
+  });
+
   register({
     name: "sensor", types: Object.keys(readings), icon: (ctx, primary) => readings[primary.type][1], tone: "teal", size: "small",
     build(ctx, primary, size) {
@@ -1755,7 +1808,7 @@
   /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
   const kindIcons = {
     camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
-    wingman: "bridge", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
+    wingman: "bridge", weather: "cloud", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
     multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
     climatecontrol: "thermo", domestichotwatertank: "thermo", kettle: "thermo", ac: "thermo", airconditioner: "thermo",
     airpurifier: "wind", aerotower: "wind", humidifier: "wind", scene: "sparkle", robot: "poolRobot",
