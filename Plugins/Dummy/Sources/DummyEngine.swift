@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 

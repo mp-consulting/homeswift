@@ -2859,6 +2859,38 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Status --------------------------------------------------------------
 
+  /// When a Person was last seen arriving or leaving: a time today, else a day and a time.
+  function presenceSince(iso) {
+    if (!iso) return "";
+    const date = new Date(iso);
+    const today = new Date().toDateString() === date.toDateString();
+    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return format.format(date);
+  }
+
+  /// "You are home" for the Persons the user is (Presence, `/api/presence`): a line each, lit while home, and whether
+  /// someone else is when they are away. Nothing when the user is no Person.
+  function presenceLines(presence) {
+    const you = presence?.you ?? [];
+    if (!you.length) return null;
+    const several = you.length > 1;
+    return you.map((person) => {
+      const since = presenceSince(person.since);
+      const title = person.home ? (several ? t("{name} is home", { name: person.name }) : t("You are home")) : (several ? t("{name} is away", { name: person.name }) : t("You are away"));
+      const detail = [since ? (person.home ? t("Since {time}", { time: since }) : t("Left at {time}", { time: since })) : null,
+        !person.home ? (presence.anyoneHome ? t("Someone is home") : t("Nobody is home")) : null].filter(Boolean).join(" · ");
+      return el("div", { class: `presence-line ${person.home ? "is-home" : "is-away"}` },
+        tile(person.home ? "house" : "user", person.home ? "teal" : "grey"),
+        el("div", { class: "who" }, el("strong", { text: title }), detail ? el("span", { class: "muted", text: detail }) : null));
+    });
+  }
+
+  /// The Status page's card of `presenceLines`.
+  const presenceCard = (presence) => {
+    const lines = presenceLines(presence);
+    return lines ? el("div", { class: "card presence-card", role: "status" }, lines) : null;
+  };
+
   /// A page's title, one line on what it is for, and its tools (search, filters) on the right.
   const pageHead = (title, subtitle, ...tools) => el("div", { class: "page-head" },
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
@@ -2918,10 +2950,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.status = async (main) => {
     // Its values were frozen while the tab was hidden.
     onReturn(() => route());
-    const [status, accessories, firstMatter] = await Promise.all([
+    const [status, accessories, firstMatter, presence] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/matter").catch(() => null),
+      api("/api/presence").catch(() => null),
     ]);
     let matter = firstMatter;
     rememberMatterOwn(matter);
@@ -3141,6 +3174,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "stat", title: t("Home app controllers") }, tile("users", "teal"), el("b", { text: main0 ? main0.controllers : 0 }),
           el("span", { class: "long", text: t("Home app controllers") }), el("span", { class: "short", "aria-hidden": "true", text: t("Controllers") })),
         el("div", { class: "stat" }, tile("history", "violet"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
+      presence: () => presenceCard(presence),
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       // Nothing in the vault and nothing to move into it: no section until there is.
@@ -3213,7 +3247,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
-  const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+  const dashboardWidgets = [["presence", t("You are home"), t("Whether you are home, from your phone on the network")], ["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
     ["vault", t("Vault"), t("Passwords, keys and tokens, and what needs attention")],
     ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
@@ -3221,7 +3255,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function dashboardLayout() {
     const saved = HomeswiftCommon.preferences().dashboard || {};
     const known = dashboardWidgets.map(([id]) => id);
-    const order = [...(saved.order || []).filter((id) => known.includes(id)), ...known.filter((id) => !(saved.order || []).includes(id))];
+    // New widgets go last, but "you are home", which reads first.
+    const fresh = known.filter((id) => !(saved.order || []).includes(id));
+    const order = [...fresh.filter((id) => id === "presence"), ...(saved.order || []).filter((id) => known.includes(id)), ...fresh.filter((id) => id !== "presence")];
     return { order, hidden: (saved.hidden || []).filter((id) => known.includes(id)) };
   }
 
@@ -6439,7 +6475,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Account ---------------------------------------------------------------
 
   views.account = async (main) => {
-    const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
+    const [state, apps, presence] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null), api("/api/presence").catch(() => null)]);
     if (state.mode !== "form") {
       const plugins = await api("/api/plugins");
       const ui = plugins.blocks.find((block) => block.platform === "HomeswiftUI");
@@ -6488,7 +6524,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "account-who" },
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
-          "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) })),
+          "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) }),
+        presenceLines(presence) ? el("div", { class: "account-presence" }, presenceLines(presence)) : null),
       el("button", { actionIcon: "logout", text: t("Sign out"), onclick: signOut }));
     show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
@@ -16827,6 +16864,32 @@ HomeswiftI18n.add("es", {
   "Separate": "Separar",
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
+  "Who is home, from the phones on the network": "Quién está en casa, según los teléfonos de la red",
+  "Add a Person": "Añadir una Persona",
+  "{n} picked": "{n} elegido",
+  "{n} picked [plural]": "{n} elegidos",
+  "Private address": "Dirección privada",
+  "Someone home": "Alguien en casa",
+  "Nobody home": "Nadie en casa",
+  "Home [presence]": "En casa",
+  "Away [presence]": "Fuera",
+  "Anyone Home": "Alguien en casa",
+  "Person": "Persona",
+  "You are home": "Estás en casa",
+  "You are away": "Estás fuera",
+  "Whether you are home, from your phone on the network": "Si estás en casa, según tu teléfono en la red",
+  "{name} is home": "{name} está en casa",
+  "{name} is away": "{name} está fuera",
+  "Left at {time}": "Salió a las {time}",
+  "Someone is home": "Alguien está en casa",
+  "Nobody is home": "Nadie está en casa",
+  "Who is this Person? Linked to a web UI user, their pages say when they are home.": "¿Quién es esta Persona? Vinculada a un usuario de la interfaz web, sus páginas dicen cuándo está en casa.",
+  "Web UI user": "Usuario de la interfaz web",
+  "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Elige los dispositivos de {name}: los que lleva consigo, como su teléfono o su reloj.",
+  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Un teléfono con la dirección Wi-Fi privada en Rotación la cambia de vez en cuando, y Presence lo pierde: en los ajustes Wi-Fi del teléfono para esta red, pon Dirección Wi-Fi privada en Fija (iPhone) o usa la MAC del dispositivo (Android), y elígelo aquí.",
+  "The name is too long: 64 characters at most": "El nombre es demasiado largo: 64 caracteres como máximo",
+  "There is no web UI user {user}": "No hay ningún usuario {user} en la interfaz web",
+  "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Ningún dispositivo respondió en la red: comprueba que el puente funciona en la misma red que los teléfonos (en Docker, con la red del host)",
 });
 
 """#),
@@ -19863,6 +19926,32 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Who is home, from the phones on the network": "Qui est à la maison, d'après les téléphones sur le réseau",
+  "Add a Person": "Ajouter une Personne",
+  "{n} picked": "{n} choisi",
+  "{n} picked [plural]": "{n} choisis",
+  "Private address": "Adresse privée",
+  "Someone home": "Quelqu'un est là",
+  "Nobody home": "Personne n'est là",
+  "Home [presence]": "À la maison",
+  "Away [presence]": "Absent",
+  "Anyone Home": "Quelqu'un à la maison",
+  "Person": "Personne",
+  "You are home": "Vous êtes à la maison",
+  "You are away": "Vous êtes absent",
+  "Whether you are home, from your phone on the network": "Si vous êtes à la maison, d'après votre téléphone sur le réseau",
+  "{name} is home": "{name} est à la maison",
+  "{name} is away": "{name} est absent",
+  "Left at {time}": "Parti à {time}",
+  "Someone is home": "Quelqu'un est à la maison",
+  "Nobody is home": "Personne n'est à la maison",
+  "Who is this Person? Linked to a web UI user, their pages say when they are home.": "Qui est cette Personne ? Liée à un utilisateur de l'interface web, ses pages disent quand elle est à la maison.",
+  "Web UI user": "Utilisateur de l'interface web",
+  "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Choisissez les appareils de {name} : ceux que cette Personne porte sur elle, comme son téléphone ou sa montre.",
+  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Un téléphone dont l'adresse Wi-Fi privée est en Rotation en change de temps en temps, et Presence le perd : dans les réglages Wi-Fi du téléphone pour ce réseau, réglez Adresse Wi-Fi privée sur Fixe (iPhone) ou utilisez la MAC de l'appareil (Android), puis choisissez-le ici.",
+  "The name is too long: 64 characters at most": "Le nom est trop long : 64 caractères au plus",
+  "There is no web UI user {user}": "Il n'y a pas d'utilisateur {user} dans l'interface web",
+  "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Aucun appareil n'a répondu sur le réseau : vérifiez que le pont tourne sur le même réseau que les téléphones (dans Docker, avec le réseau de l'hôte)",
 });
 
 """#),
@@ -22899,6 +22988,32 @@ HomeswiftI18n.add("pt", {
   "Separate": "Separar",
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
+  "Who is home, from the phones on the network": "Quem está em casa, segundo os telemóveis na rede",
+  "Add a Person": "Adicionar uma Pessoa",
+  "{n} picked": "{n} escolhido",
+  "{n} picked [plural]": "{n} escolhidos",
+  "Private address": "Endereço privado",
+  "Someone home": "Alguém em casa",
+  "Nobody home": "Ninguém em casa",
+  "Home [presence]": "Em casa",
+  "Away [presence]": "Fora",
+  "Anyone Home": "Alguém em casa",
+  "Person": "Pessoa",
+  "You are home": "Está em casa",
+  "You are away": "Está fora",
+  "Whether you are home, from your phone on the network": "Se está em casa, segundo o seu telemóvel na rede",
+  "{name} is home": "{name} está em casa",
+  "{name} is away": "{name} está fora",
+  "Left at {time}": "Saiu às {time}",
+  "Someone is home": "Alguém está em casa",
+  "Nobody is home": "Ninguém está em casa",
+  "Who is this Person? Linked to a web UI user, their pages say when they are home.": "Quem é esta Pessoa? Ligada a um utilizador da interface web, as suas páginas dizem quando está em casa.",
+  "Web UI user": "Utilizador da interface web",
+  "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Escolha os dispositivos de {name}: os que traz consigo, como o telemóvel ou o relógio.",
+  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Um telemóvel com o endereço Wi-Fi privado em Rotativo muda-o de vez em quando, e o Presence perde-o: nas definições Wi-Fi do telemóvel para esta rede, defina Endereço Wi-Fi privado como Fixo (iPhone) ou use o MAC do dispositivo (Android) e escolha-o aqui.",
+  "The name is too long: 64 characters at most": "O nome é demasiado longo: 64 caracteres no máximo",
+  "There is no web UI user {user}": "Não há nenhum utilizador {user} na interface web",
+  "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Nenhum dispositivo respondeu na rede: verifique que a ponte corre na mesma rede que os telemóveis (no Docker, com a rede do anfitrião)",
 });
 
 """#),
@@ -25817,14 +25932,16 @@ HomeswiftI18n.add("pt", {
     // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
     // work: an optional account left alone needs no one.
     let accountState = "notSetUp", needsAccount = false;
-    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
+    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs. A
+    // plugin may call it otherwise ("Add a Person").
     const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    const addLabel = plugin.addLabel ? `${t(plugin.addLabel)}…` : t("Add by address…");
     // The account's Setup: its sign-in the first time, again once it is set up.
     const openAccount = (trigger = null) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger, after: load });
     // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
+      plugin.addByAddress ? { label: addLabel, icon: "plus", onSelect: () => addByAddress() } : null,
       action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => openAccount() } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
@@ -25877,11 +25994,11 @@ HomeswiftI18n.add("pt", {
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress && !plugin.addLabel ? t("No devices found yet: add one by its address.")
           : t("No devices found") }));
         // Under its devices, a way to add one the plugin does not find.
         if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
-          el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
+          el("button", { type: "button", actionIcon: "plus", text: addLabel, onclick: (event) => addByAddress(event.currentTarget) })));
         list.replaceChildren(...rows);
         const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
@@ -26009,6 +26126,27 @@ HomeswiftI18n.add("pt", {
     return node;
   }
 
+  /// Several to pick (a Person's devices): a checkbox per option, with what it is beneath, those the plugin picked
+  /// ticked. It reads as an input does: `value`, the options picked separated by commas, and `focus()`.
+  function choices(field) {
+    const picked = new Set((field.value ?? "").split(",").filter(Boolean));
+    const boxes = field.options.map((option) => el("input", { type: "checkbox", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
+    const count = el("span", { class: "muted setup-choices-count", "aria-live": "polite" });
+    const counted = () => { const n = boxes.filter((box) => box.checked).length; count.textContent = n ? tn("{n} picked", "{n} picked [plural]", n) : ""; };
+    boxes.forEach((box) => box.addEventListener("change", counted));
+    counted();
+    const node = el("fieldset", { class: "field setup-choice setup-choices", id: `setup-${field.key}` },
+      el("legend", { class: "field-title" }, el("span", { text: t(field.label) }), count),
+      el("div", { class: "setup-choices-list" }, ...field.options.map((option, index) => el("label", { class: "setup-option" }, boxes[index],
+        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: option.detail.split(" · ").map((part) => t(part)).join(" · ") }) : null)))));
+    Object.defineProperty(node, "value", { get: () => boxes.filter((box) => box.checked).map((box) => box.value).join(",") });
+    node.focus = () => (boxes.find((box) => box.checked) ?? boxes[0])?.focus();
+    return node;
+  }
+
+  /// A word of caution beside a step's message: what to do first for it to work.
+  const warning = (text, values) => el("div", { class: "setup-warning", role: "note" }, HomeswiftCommon.icon("warning"), el("p", { text: t(text, values ?? {}) }));
+
   /// A wait with nothing to type or open: a button to press on the device.
   const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
 
@@ -26018,7 +26156,7 @@ HomeswiftI18n.add("pt", {
   /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
   /// whatever else the plugin needs, then ends on the device's settings as any device's does.
   function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? (adding ? t("Add by address") : block.name);
+    const title = device?.name ?? (adding ? (plugin?.addLabel ? t(plugin.addLabel) : t("Add by address")) : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
@@ -26199,6 +26337,7 @@ HomeswiftI18n.add("pt", {
         // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
+          if (field.kind === "choices") return [field, choices(field)];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
             class: field.kind === "code" ? "setup-code" : "",
@@ -26222,6 +26361,7 @@ HomeswiftI18n.add("pt", {
           ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null;
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
+          prompt.warning ? warning(prompt.warning, prompt.values) : null,
           link,
           ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
             : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title" }, t(field.label),
@@ -26230,7 +26370,7 @@ HomeswiftI18n.add("pt", {
           error,
           el("div", { class: "actions" }, cancel, submit));
         // After an error, the first field, its text selected to type it again; else the first one left to fill.
-        const first = answer.error ? inputs.find(([field]) => field.kind !== "choice")?.[1] : null;
+        const first = answer.error ? inputs.find(([field]) => !["choice", "choices"].includes(field.kind))?.[1] : null;
         if (first) { first.focus(); first.select(); }
         else (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }
@@ -26728,6 +26868,15 @@ button.busy::after {
 .account-who { flex: 1; min-width: 0; }
 .account-who p { margin: 3px 0 0; }
 .account-lead { margin: var(--space-4) 0 0; }
+/* "You are home" (Presence): on the Status page a card, under the account's name a line. */
+.presence-card { display: grid; gap: var(--space-12); }
+.presence-line { display: flex; align-items: center; gap: var(--space-12); min-width: 0; }
+.presence-line .who { display: grid; gap: 2px; min-width: 0; }
+.presence-line .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence-line .muted { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.account-presence { display: grid; gap: var(--space-8); margin-top: var(--space-12); }
+.account-presence .tile { width: 32px; height: 32px; }
+.account-presence .tile svg { width: 18px; height: 18px; }
 .account-password { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; margin-top: var(--space-16); }
 .account-fields .field:first-child { margin-top: 0; }
 /* A form card starts at its title and ends at its buttons: no heading margin above, no empty message line below. */
@@ -30370,6 +30519,16 @@ select option:disabled { color: var(--muted); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }
 .setup-option .muted { font-size: var(--text-sm); }
+/* Several to pick (a Person's devices): the list scrolls within the sheet, the count of those picked beside its name. */
+.setup-choices legend { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); width: 100%; }
+.setup-choices-count { font-size: var(--text-sm); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
+.setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
+.setup-option strong { overflow-wrap: anywhere; }
+/* A word of caution beside a step's message (a phone's private Wi-Fi address). */
+.setup-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12);
+  border-radius: var(--radius-md); background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent); }
+.setup-warning svg { width: 18px; height: 18px; color: var(--warn); margin-top: 1px; }
+.setup-warning p { margin: 0; font-size: var(--text-sm); line-height: 1.45; }
 /* The sheet's head: what is being set up, and where it stands (a stage per screen: signing in, the devices, done). */
 .setup-sheet-head { display: flex; align-items: center; gap: var(--space-12); margin-bottom: var(--space-12); }
 .admin-dialog.sheet .setup-sheet-head h2 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.015em; }
@@ -32827,6 +32986,23 @@ self.addEventListener("notificationclick", (event) => {
       if (size === "medium") built.body = [];
       if (size === "full") Object.assign(built, { body: [], facets: facets(ctx, [primary]) });
       return built;
+    },
+  });
+
+  // Presence's Persons and Anyone Home (GLOSSARY.md, "Presence"): occupancy sensors that read as Home or Away, lit while
+  // home, a person's glyph or a house's.
+  register({
+    name: "presence", types: ["OccupancySensor"], match: (ctx) => ctx.accessory.platform === "Presence",
+    icon: (ctx) => ctx.accessory.id === "Presence:anyone" ? "house" : "user", tone: "teal", size: "small",
+    build(ctx, primary) {
+      const occupied = ctx.take(primary, "Occupancy Detected");
+      const home = () => occupied?.value === 1 || occupied?.value === true;
+      const anyone = ctx.accessory.id === "Presence:anyone";
+      return {
+        on: home,
+        hero: () => el("span", { class: "w-hero-word" }, home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"))),
+        status: () => [anyone ? t("Anyone Home") : t("Person"), ""],
+      };
     },
   });
 

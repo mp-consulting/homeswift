@@ -111,6 +111,17 @@ public final class UIServer: Sendable {
         layout = catalog.home.wall
     }
 
+    /// Presence for the pages: whether a Presence plugin runs, Anyone Home, and the Persons the user is (`you`), never
+    /// the others or their devices.
+    func presence(for username: String) -> JSONValue {
+        let board = catalog.host.presence
+        guard let anyone = board.anyoneHome else { return ["available": false, "you": []] }
+        return ["available": true, "anyoneHome": .bool(anyone), "you": .array(board.persons(of: username).map { person in
+            ["id": .string(person.id), "name": .string(person.name), "home": .bool(person.isHome),
+             "since": person.since.map { .string($0.formatted(.iso8601)) } ?? .null]
+        })]
+    }
+
     /// The SHA-256 fingerprint of the HTTPS certificate, for the banner: what a browser's warning shows.
     public var certificateFingerprint: String? { tls.withLockedValue { $0?.fingerprint } }
 
@@ -119,6 +130,8 @@ public final class UIServer: Sendable {
 
     public func start() async throws {
         events.attach(to: catalog)
+        // A plugin links what is someone's to their account (a Person): it picks among the users.
+        catalog.host.webUsers = { [users] in users.users.map { WebUser(username: $0.username, name: $0.name) } }
         let sslContext = try configuration.https ? makeSSLContext() : nil
         let idleTimeout = options.idleTimeout
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
@@ -437,7 +450,7 @@ public final class UIServer: Sendable {
     static func requiredScope(_ method: HTTPMethod, _ route: [String]) -> Scope {
         switch method {
         case .GET:
-            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "consumption"], ["events"], ["assistant"]].contains(route) { return .read }
+            if [["status"], ["presence"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "consumption"], ["events"], ["assistant"]].contains(route) { return .read }
             // A camera's pan and tilt: asking may sign in to the camera, so it is for those who may move it.
             if route.count == 3, route[0] == "cameras", route[2] == "controls" { return .control }
             if route.count == 3, route[0] == "cameras" { return .read }
@@ -650,6 +663,8 @@ public final class UIServer: Sendable {
             switch route {
             case ["status"]:
                 return .json(status(username: username, admin: caller.isAdmin))
+            case ["presence"]:
+                return .json(presence(for: username))
             case ["updates"]:
                 // The Settings page's Updates: as the last check left it, the version on disk looked at again.
                 guard let releases = options.releases else { return .error(503, "update checking is unavailable") }

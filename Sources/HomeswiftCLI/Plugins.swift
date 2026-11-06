@@ -1,5 +1,4 @@
 import HomeswiftAPsystemsECU
-import HomeswiftIPCameras
 import HomeswiftDaikinCloud
 import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
@@ -13,6 +12,7 @@ import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftHueSyncBox
+import HomeswiftIPCameras
 import HomeswiftImou
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
@@ -20,6 +20,7 @@ import HomeswiftMagicHome
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftPresence
 import HomeswiftRenault
 import HomeswiftReolink
 import HomeswiftRing
@@ -84,5 +85,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(RenaultPlugin.self)
     registry.register(ImouPlugin.self)
     registry.register(ReolinkPlugin.self)
+    registry.register(PresencePlugin.self)
     return registry
 }

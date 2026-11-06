@@ -1591,6 +1591,23 @@
     },
   });
 
+  // Presence's Persons and Anyone Home (GLOSSARY.md, "Presence"): occupancy sensors that read as Home or Away, lit while
+  // home, a person's glyph or a house's.
+  register({
+    name: "presence", types: ["OccupancySensor"], match: (ctx) => ctx.accessory.platform === "Presence",
+    icon: (ctx) => ctx.accessory.id === "Presence:anyone" ? "house" : "user", tone: "teal", size: "small",
+    build(ctx, primary) {
+      const occupied = ctx.take(primary, "Occupancy Detected");
+      const home = () => occupied?.value === 1 || occupied?.value === true;
+      const anyone = ctx.accessory.id === "Presence:anyone";
+      return {
+        on: home,
+        hero: () => el("span", { class: "w-hero-word" }, home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"))),
+        status: () => [anyone ? t("Anyone Home") : t("Person"), ""],
+      };
+    },
+  });
+
   register({
     name: "sensor", types: Object.keys(readings), icon: (ctx, primary) => readings[primary.type][1], tone: "teal", size: "small",
     build(ctx, primary, size) {

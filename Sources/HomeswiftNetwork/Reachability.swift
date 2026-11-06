@@ -1,20 +1,19 @@
 import Foundation
-import HomeswiftNetwork
 import NIOCore
 import NIOPosix
 
-/// What a PING condition checks: a host name or address, or the host of a URL (and its port). A MAC address has no
-/// target: finding its address needs an ARP scan.
-struct ReachabilityTarget: Sendable, Equatable {
-    var host: String
-    var ports: [Int]
+/// What a reachability check asks: a host name or address, or the host of a URL (and its port). A MAC address has no
+/// target: finding its address needs the ARP table (`ARPTable`).
+public struct ReachabilityTarget: Sendable, Equatable {
+    public var host: String
+    public var ports: [Int]
 
-    init(host: String, ports: [Int]) {
+    public init(host: String, ports: [Int]) {
         self.host = host
         self.ports = ports
     }
 
-    init?(_ text: String) {
+    public init?(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespaces)
         if MACAddress.canonical(text) != nil { return nil }
         if text.contains("://"), let url = URL(string: text), let host = url.host, !host.isEmpty {
@@ -29,17 +28,21 @@ struct ReachabilityTarget: Sendable, Equatable {
 }
 
 /// Whether a host answers; nil when the check itself failed (an unknown name).
-protocol ReachabilityProbing: Sendable {
+public protocol ReachabilityProbing: Sendable {
     func isReachable(_ target: ReachabilityTarget) async -> Bool?
 }
 
-/// Reachability without ICMP, which needs privileges the bridge does not have: a TCP connection to the host's web
-/// ports. A host that accepts or refuses it answered, so it is reachable; a timeout or no route means it is not. A
-/// host that drops every packet on those ports reads as unreachable.
-struct TCPReachabilityProbe: ReachabilityProbing {
-    var timeout: TimeAmount = .seconds(3)
+/// Reachability without ICMP, which needs privileges the bridge does not have: a TCP connection to the host's ports.
+/// A host that accepts or refuses it answered, so it is reachable; a timeout or no route means it is not. A host that
+/// drops every packet on those ports reads as unreachable. Dummy's "host comes or goes" and Presence's devices use it.
+public struct TCPReachabilityProbe: ReachabilityProbing {
+    public var timeout: TimeAmount
 
-    func isReachable(_ target: ReachabilityTarget) async -> Bool? {
+    public init(timeout: TimeAmount = .seconds(3)) {
+        self.timeout = timeout
+    }
+
+    public func isReachable(_ target: ReachabilityTarget) async -> Bool? {
         var answered = false
         for port in target.ports {
             let bootstrap = ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton).connectTimeout(timeout)

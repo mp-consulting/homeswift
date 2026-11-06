@@ -167,14 +167,16 @@
     // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
     // work: an optional account left alone needs no one.
     let accountState = "notSetUp", needsAccount = false;
-    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
+    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs. A
+    // plugin may call it otherwise ("Add a Person").
     const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    const addLabel = plugin.addLabel ? `${t(plugin.addLabel)}…` : t("Add by address…");
     // The account's Setup: its sign-in the first time, again once it is set up.
     const openAccount = (trigger = null) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger, after: load });
     // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
+      plugin.addByAddress ? { label: addLabel, icon: "plus", onSelect: () => addByAddress() } : null,
       action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => openAccount() } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
@@ -227,11 +229,11 @@
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress && !plugin.addLabel ? t("No devices found yet: add one by its address.")
           : t("No devices found") }));
         // Under its devices, a way to add one the plugin does not find.
         if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
-          el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
+          el("button", { type: "button", actionIcon: "plus", text: addLabel, onclick: (event) => addByAddress(event.currentTarget) })));
         list.replaceChildren(...rows);
         const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
@@ -359,6 +361,27 @@
     return node;
   }
 
+  /// Several to pick (a Person's devices): a checkbox per option, with what it is beneath, those the plugin picked
+  /// ticked. It reads as an input does: `value`, the options picked separated by commas, and `focus()`.
+  function choices(field) {
+    const picked = new Set((field.value ?? "").split(",").filter(Boolean));
+    const boxes = field.options.map((option) => el("input", { type: "checkbox", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
+    const count = el("span", { class: "muted setup-choices-count", "aria-live": "polite" });
+    const counted = () => { const n = boxes.filter((box) => box.checked).length; count.textContent = n ? tn("{n} picked", "{n} picked [plural]", n) : ""; };
+    boxes.forEach((box) => box.addEventListener("change", counted));
+    counted();
+    const node = el("fieldset", { class: "field setup-choice setup-choices", id: `setup-${field.key}` },
+      el("legend", { class: "field-title" }, el("span", { text: t(field.label) }), count),
+      el("div", { class: "setup-choices-list" }, ...field.options.map((option, index) => el("label", { class: "setup-option" }, boxes[index],
+        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: option.detail.split(" · ").map((part) => t(part)).join(" · ") }) : null)))));
+    Object.defineProperty(node, "value", { get: () => boxes.filter((box) => box.checked).map((box) => box.value).join(",") });
+    node.focus = () => (boxes.find((box) => box.checked) ?? boxes[0])?.focus();
+    return node;
+  }
+
+  /// A word of caution beside a step's message: what to do first for it to work.
+  const warning = (text, values) => el("div", { class: "setup-warning", role: "note" }, HomeswiftCommon.icon("warning"), el("p", { text: t(text, values ?? {}) }));
+
   /// A wait with nothing to type or open: a button to press on the device.
   const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
 
@@ -368,7 +391,7 @@
   /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
   /// whatever else the plugin needs, then ends on the device's settings as any device's does.
   function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? (adding ? t("Add by address") : block.name);
+    const title = device?.name ?? (adding ? (plugin?.addLabel ? t(plugin.addLabel) : t("Add by address")) : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
@@ -549,6 +572,7 @@
         // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
+          if (field.kind === "choices") return [field, choices(field)];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
             class: field.kind === "code" ? "setup-code" : "",
@@ -572,6 +596,7 @@
           ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null;
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
+          prompt.warning ? warning(prompt.warning, prompt.values) : null,
           link,
           ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
             : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title" }, t(field.label),
@@ -580,7 +605,7 @@
           error,
           el("div", { class: "actions" }, cancel, submit));
         // After an error, the first field, its text selected to type it again; else the first one left to fill.
-        const first = answer.error ? inputs.find(([field]) => field.kind !== "choice")?.[1] : null;
+        const first = answer.error ? inputs.find(([field]) => !["choice", "choices"].includes(field.kind))?.[1] : null;
         if (first) { first.focus(); first.select(); }
         else (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }

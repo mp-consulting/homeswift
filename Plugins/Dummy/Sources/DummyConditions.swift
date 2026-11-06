@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import HomeswiftPlugin
 
 /// The condition engine (spec 7.6): other accessories' states, lines of the bridge's log, reachability.

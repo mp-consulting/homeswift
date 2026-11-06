@@ -689,6 +689,38 @@
 
   // ---- Status --------------------------------------------------------------
 
+  /// When a Person was last seen arriving or leaving: a time today, else a day and a time.
+  function presenceSince(iso) {
+    if (!iso) return "";
+    const date = new Date(iso);
+    const today = new Date().toDateString() === date.toDateString();
+    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return format.format(date);
+  }
+
+  /// "You are home" for the Persons the user is (Presence, `/api/presence`): a line each, lit while home, and whether
+  /// someone else is when they are away. Nothing when the user is no Person.
+  function presenceLines(presence) {
+    const you = presence?.you ?? [];
+    if (!you.length) return null;
+    const several = you.length > 1;
+    return you.map((person) => {
+      const since = presenceSince(person.since);
+      const title = person.home ? (several ? t("{name} is home", { name: person.name }) : t("You are home")) : (several ? t("{name} is away", { name: person.name }) : t("You are away"));
+      const detail = [since ? (person.home ? t("Since {time}", { time: since }) : t("Left at {time}", { time: since })) : null,
+        !person.home ? (presence.anyoneHome ? t("Someone is home") : t("Nobody is home")) : null].filter(Boolean).join(" · ");
+      return el("div", { class: `presence-line ${person.home ? "is-home" : "is-away"}` },
+        tile(person.home ? "house" : "user", person.home ? "teal" : "grey"),
+        el("div", { class: "who" }, el("strong", { text: title }), detail ? el("span", { class: "muted", text: detail }) : null));
+    });
+  }
+
+  /// The Status page's card of `presenceLines`.
+  const presenceCard = (presence) => {
+    const lines = presenceLines(presence);
+    return lines ? el("div", { class: "card presence-card", role: "status" }, lines) : null;
+  };
+
   /// A page's title, one line on what it is for, and its tools (search, filters) on the right.
   const pageHead = (title, subtitle, ...tools) => el("div", { class: "page-head" },
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
@@ -748,10 +780,11 @@
   views.status = async (main) => {
     // Its values were frozen while the tab was hidden.
     onReturn(() => route());
-    const [status, accessories, firstMatter] = await Promise.all([
+    const [status, accessories, firstMatter, presence] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/matter").catch(() => null),
+      api("/api/presence").catch(() => null),
     ]);
     let matter = firstMatter;
     rememberMatterOwn(matter);
@@ -971,6 +1004,7 @@
         el("div", { class: "stat", title: t("Home app controllers") }, tile("users", "teal"), el("b", { text: main0 ? main0.controllers : 0 }),
           el("span", { class: "long", text: t("Home app controllers") }), el("span", { class: "short", "aria-hidden": "true", text: t("Controllers") })),
         el("div", { class: "stat" }, tile("history", "violet"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
+      presence: () => presenceCard(presence),
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       // Nothing in the vault and nothing to move into it: no section until there is.
@@ -1043,7 +1077,7 @@
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
-  const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+  const dashboardWidgets = [["presence", t("You are home"), t("Whether you are home, from your phone on the network")], ["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
     ["vault", t("Vault"), t("Passwords, keys and tokens, and what needs attention")],
     ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
@@ -1051,7 +1085,9 @@
   function dashboardLayout() {
     const saved = HomeswiftCommon.preferences().dashboard || {};
     const known = dashboardWidgets.map(([id]) => id);
-    const order = [...(saved.order || []).filter((id) => known.includes(id)), ...known.filter((id) => !(saved.order || []).includes(id))];
+    // New widgets go last, but "you are home", which reads first.
+    const fresh = known.filter((id) => !(saved.order || []).includes(id));
+    const order = [...fresh.filter((id) => id === "presence"), ...(saved.order || []).filter((id) => known.includes(id)), ...fresh.filter((id) => id !== "presence")];
     return { order, hidden: (saved.hidden || []).filter((id) => known.includes(id)) };
   }
 
@@ -4269,7 +4305,7 @@
   // ---- Account ---------------------------------------------------------------
 
   views.account = async (main) => {
-    const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
+    const [state, apps, presence] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null), api("/api/presence").catch(() => null)]);
     if (state.mode !== "form") {
       const plugins = await api("/api/plugins");
       const ui = plugins.blocks.find((block) => block.platform === "HomeswiftUI");
@@ -4318,7 +4354,8 @@
       el("div", { class: "account-who" },
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
-          "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) })),
+          "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) }),
+        presenceLines(presence) ? el("div", { class: "account-presence" }, presenceLines(presence)) : null),
       el("button", { actionIcon: "logout", text: t("Sign out"), onclick: signOut }));
     show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),

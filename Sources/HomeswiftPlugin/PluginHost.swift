@@ -182,6 +182,24 @@ public final class PluginHost: @unchecked Sendable {
 
     public var platforms: [PlatformInstance] { instances.map(\.described) }
 
+    /// Who of the Persons is home, as the Presence plugin publishes it (`PluginContext.presence`): for the web UI,
+    /// Automations and notifications.
+    public let presence = PresenceBoard()
+
+    /// The web UI's users, for a plugin that links something to one (`PluginContext.webUsers`): the web UI sets it when it
+    /// starts; empty without one.
+    public var webUsers: @Sendable () -> [WebUser] {
+        get { webUsersBox.withLockedValue { $0 } }
+        set { webUsersBox.withLockedValue { $0 = newValue } }
+    }
+    private let webUsersBox = NIOLockedValueBox<@Sendable () -> [WebUser]>({ [] })
+
+    /// Hands a context what the host shares with every plugin: the presence board and the web UI's users.
+    func share(with context: PluginContext) {
+        context.presence = presence
+        context.webUsersSource = { [weak self] in self?.webUsers() ?? [] }
+    }
+
     /// The instances whose plugin runs (not paused, started), with it.
     func runningPlugins() -> [(instance: Instance, plugin: any HomeswiftPlugin)] {
         instances.compactMap { instance in
@@ -727,6 +745,7 @@ public final class PluginHost: @unchecked Sendable {
             self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
         }
         context.logs = options.logs
+        share(with: context)
         context.naming.setNames(block.accessoryNames)
         context.applySeparations(block.separatedFunctions)
         context.naming.onRenamed { [weak self, logger = context.logger] id, name in

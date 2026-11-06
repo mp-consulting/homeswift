@@ -158,6 +158,9 @@ public struct SetupField: Sendable, Codable, Equatable {
         case url
         /// One of `options`, by its value: how to sign in, a region.
         case choice
+        /// Any of `options`, none or several, their values separated by commas (`SetupRequest.choices`): a Person's
+        /// devices among those on the network. `value` holds those picked to begin with.
+        case choices
     }
 
     public var key: String
@@ -177,6 +180,11 @@ public struct SetupField: Sendable, Codable, Equatable {
         self.optional = optional
         self.options = options
         self.value = value
+    }
+
+    /// Several of `options` to pick, `picked` ticked to begin with (`SetupRequest.choices` reads the answer).
+    public static func choices(_ key: String, label: String, options: [SetupOption], picked: [String] = [], optional: Bool = false) -> SetupField {
+        SetupField(key, label: label, kind: .choices, optional: optional, options: options, value: picked.isEmpty ? nil : picked.joined(separator: ","))
     }
 
     /// A choice between `options`, `value` picked to begin with.
@@ -240,6 +248,9 @@ public struct SetupPrompt: Sendable, Codable, Equatable {
     /// The values of `message`'s `{name}` placeholders.
     public var values: [String: String]
     public var fields: [SetupField]
+    /// A caution shown apart from the message, for people, in English as the message is: "Set the phone's private
+    /// Wi-Fi address to Fixed." nil for none.
+    public var warning: String?
     /// A Browser Redirect's page to open.
     public var url: String?
     /// A Button Press: how long the device waits for it, in seconds. The step is sent again, with no answers, every
@@ -247,10 +258,14 @@ public struct SetupPrompt: Sendable, Codable, Equatable {
     public var waitSeconds: Int?
     public var retryAfter: Int?
 
-    public init(message: String, values: [String: String] = [:], fields: [SetupField] = [], url: String? = nil, waitSeconds: Int? = nil, retryAfter: Int? = nil) {
+    public init(
+        message: String, values: [String: String] = [:], fields: [SetupField] = [], warning: String? = nil, url: String? = nil, waitSeconds: Int? = nil,
+        retryAfter: Int? = nil
+    ) {
         self.message = message
         self.values = values
         self.fields = fields
+        self.warning = warning
         self.url = url
         self.waitSeconds = waitSeconds
         self.retryAfter = retryAfter
@@ -349,6 +364,15 @@ public struct SetupRequest: Sendable {
     public func choice(_ key: String, among values: [String]) -> String? {
         guard let chosen = state[key]?.stringValue ?? answer(key), values.contains(chosen) else { return nil }
         return chosen
+    }
+
+    /// The options picked for a field of kind `choices`, in the order given, without repeats; empty when none was.
+    public func choices(_ key: String) -> [String] {
+        var picked: [String] = []
+        for value in (answers[key] ?? "").split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !value.isEmpty && !picked.contains(value) {
+            picked.append(value)
+        }
+        return picked
     }
 
     /// A secret answer (a password, a key) as typed: never trimmed, only nil when missing or empty.

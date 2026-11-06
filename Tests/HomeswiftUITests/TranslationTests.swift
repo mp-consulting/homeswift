@@ -46,13 +46,13 @@ import Testing
         }
     }
 
-    /// Each plugin's `summary` (read from its source) and the Assistant's, the lines under the plugins to add, and what an
+    /// Each plugin's `summary` and `addDeviceLabel` (read from its source) and the Assistant's, the lines under the plugins to add, and what an
     /// optional account adds (`.optional(adds:)`, its settings' Account), which the page passes to `t()` at run time,
     /// have their translations in the UI's catalogs.
     @Test func pluginSummariesAreTranslated() throws {
         let web = Self.root.appendingPathComponent("Sources/HomeswiftUI/Web")
         var summaries: [String] = []
-        let pattern = try NSRegularExpression(pattern: #"(?:static let (?:summary: String\?|assistantSummary) = |\.optional\(adds: )"([^"]+)""#)
+        let pattern = try NSRegularExpression(pattern: #"(?:static let (?:summary: String\?|addDeviceLabel: String\?|assistantSummary) = |\.optional\(adds: )"([^"]+)""#)
         let sources = [Self.root.appendingPathComponent("Sources/HomeswiftMCP/HomeswiftCatalog.swift")]
             + (FileManager.default.enumerator(at: Self.root.appendingPathComponent("Plugins"), includingPropertiesForKeys: nil)?
                 .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" && $0.path.contains("/Sources/") } ?? [])

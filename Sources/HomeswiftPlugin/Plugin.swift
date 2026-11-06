@@ -172,6 +172,10 @@ public protocol HomeswiftPlugin: Sendable {
     /// Defaults to false.
     static var addsDevicesByAddress: Bool { get }
 
+    /// What Add by address is called for this plugin's devices, when "Add by address" does not say it: "Add a Person". In
+    /// English, translated by the web UI's catalogs. Defaults to nil.
+    static var addDeviceLabel: String? { get }
+
     /// The devices the plugin can find now, set up or not (GLOSSARY.md, "Discovered Device"): on the network, in the
     /// account, at the addresses its settings name. It may run on an instance that was not started, created only to set
     /// up; it should answer within a few seconds. Defaults to none.
@@ -236,6 +240,7 @@ extension HomeswiftPlugin {
     public static var accountAuthorization: AuthorizationMethod { .none }
     public static var accountRequirement: AccountRequirement { .required }
     public static var addsDevicesByAddress: Bool { false }
+    public static var addDeviceLabel: String? { nil }
     public func discover() async throws -> [DiscoveredDevice] { [] }
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
     public func accountAuthorized() async -> Bool? { nil }
@@ -540,6 +545,22 @@ public final class PluginContext: @unchecked Sendable {
         set { logsBox.withLockedValue { $0 = newValue } }
     }
     private let logsBox = NIOLockedValueBox<LogBuffer?>(nil)
+
+    /// Who of the Persons is home, the host's (`PluginHost.presence`): the Presence plugin publishes on it. A context
+    /// without a host has a board of its own.
+    public internal(set) var presence: PresenceBoard {
+        get { presenceBox.withLockedValue { $0 } }
+        set { presenceBox.withLockedValue { $0 = newValue } }
+    }
+    private let presenceBox = NIOLockedValueBox(PresenceBoard())
+
+    /// The web UI's users, to link something to one of them (a Person); empty without a web UI.
+    public var webUsers: [WebUser] { webUsersSource() }
+    var webUsersSource: @Sendable () -> [WebUser] {
+        get { webUsersBox.withLockedValue { $0 } }
+        set { webUsersBox.withLockedValue { $0 = newValue } }
+    }
+    private let webUsersBox = NIOLockedValueBox<@Sendable () -> [WebUser]>({ [] })
 
     /// Every accessory on the host's servers (the bridges and the external accessories), set by `PluginHost`.
     var publishedAccessories: @Sendable () -> [Accessory] {
