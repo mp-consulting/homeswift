@@ -75,6 +75,8 @@ struct DeviceEnvironment: Sendable {
     let timing: ESPHomeTiming
     let blacklist: Set<String>
     let verbose: Bool
+    /// Where a Bluetooth proxy's advertisements go, with the proxy's name; nil to leave them unsubscribed.
+    let advertisements: (@Sendable ([BluetoothAdvertisement], String) async -> Void)?
     /// Tells the plugin which device a host turned out to be.
     let learned: @Sendable (_ origin: String, _ info: DeviceInfo) async -> Void
 }
@@ -123,13 +125,19 @@ actor ESPHomeDevice {
     func run() async {
         if let mac { markCachedUnavailable(mac: mac) }
         var failures = 0
+        var onAdvertisements: (@Sendable ([BluetoothAdvertisement]) async -> Void)?
+        if let forward = environment.advertisements {
+            let proxy = label
+            onAdvertisements = { advertisements in await forward(advertisements, proxy) }
+        }
         while !Task.isCancelled {
             connectedThisRun = false
             var delay: Duration = .zero
             do {
                 try await ESPHomeSession.run(
                     endpoint: endpoint, transport: environment.transport, timing: environment.timing, logger: logger,
-                    onReady: { ready in await self.ready(ready) }, onState: { kind, state in await self.show(kind, state) })
+                    onReady: { ready in await self.ready(ready) }, onState: { kind, state in await self.show(kind, state) },
+                    onAdvertisements: onAdvertisements)
             } catch is CancellationError {
                 break
             } catch {

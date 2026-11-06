@@ -34,6 +34,8 @@ final class FakeDevice: @unchecked Sendable {
         var password: String?
         var entities: [ESPHomeFrame] = []
         var states: [ESPHomeFrame] = []
+        /// DeviceInfo's `bluetooth_proxy_feature_flags`: a Bluetooth proxy when set.
+        var bluetoothFeatures: UInt32 = 0
     }
 
     private let lock = NIOLock()
@@ -232,6 +234,7 @@ final class FakeConnection: ByteStream, @unchecked Sendable {
                 $0.string(4, "2025.1.0")
                 $0.string(6, "esp32dev")
                 $0.string(13, configuration.friendlyName)
+                $0.uint32(15, configuration.bluetoothFeatures)
             })
         case MessageType.listEntitiesRequest:
             for entity in configuration.entities { write(entity) }

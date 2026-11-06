@@ -16,10 +16,21 @@ extension ESPHomePlugin {
         var retryAfter: Int?
     }
 
-    /// Every device is of one kind: its entities are its accessories.
-    static let deviceKind = "device"
+    /// A Bluetooth sensor's own Plugin Accessory Settings: the format Setup found it in.
+    struct BluetoothSettings: Decodable, Sendable, Equatable {
+        var format: BluetoothFormat?
+    }
 
-    public func deviceKind(of deviceID: String) async -> String? { Self.deviceKind }
+    /// An ESPHome device: its entities are its accessories.
+    static let deviceKind = "device"
+    /// A Bluetooth LE sensor a proxy hears.
+    static let sensorKind = "sensor"
+
+    public func deviceKind(of deviceID: String) async -> String? {
+        guard let mac = MACAddress.canonical(deviceID) else { return Self.deviceKind }
+        if context.accessorySettings(for: mac).decode(BluetoothSettings.self)?.format != nil { return Self.sensorKind }
+        return await bluetooth.heard[mac] != nil ? Self.sensorKind : Self.deviceKind
+    }
 
     /// The block with each `devices` entry whose address answered with a MAC moved into `_accessories` under it (`host`,
     /// `port` and `retryAfter`, an entry's own values winning). Its `password` and `encryptionKey` move into the vault
