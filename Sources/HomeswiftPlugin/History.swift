@@ -330,7 +330,7 @@ public final class HistoryStore: @unchecked Sendable {
     }
 
     /// A number when its format is one and it has no list of valid values; a state otherwise; nil for data.
-    static func kind(of type: CharacteristicType) -> HistorySeries.Kind? {
+    public static func kind(of type: CharacteristicType) -> HistorySeries.Kind? {
         switch type.format {
         case .tlv8, .data: nil
         case .bool, .string: .state

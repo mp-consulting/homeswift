@@ -30,6 +30,8 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
     case backupSucceeded
     /// dailyDigest: the Assistant's digest of the day, at `dailyDigestTime`.
     case dailyDigest
+    /// An Automation's Notify Step.
+    case automationMessage
     case test
 
     /// What the settings page calls it.
@@ -43,6 +45,7 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
         case .backupFailed: "The scheduled backup failed"
         case .backupSucceeded: "The scheduled backup was saved"
         case .dailyDigest: "Daily digest from the Assistant"
+        case .automationMessage: "A message from an automation"
         case .test: "Test"
         }
     }
@@ -561,7 +564,9 @@ extension HomeswiftCatalog {
     /// homeswift made itself). `stopHome` ends them.
     public func startHome(restarted: Bool = false) {
         guard home.running.withLockedValue({ $0 == nil }) else { return }
+        migrateSceneAutomations()
         seedWatchedValues()
+        seedStaysTimers()
         restoreHeldLights()
         syncSceneSwitches()
         let catalog = self
@@ -591,7 +596,7 @@ extension HomeswiftCatalog {
             return true
         }
         guard fresh else { return }
-        await runDueScenes(at: minute)
+        runDueAutomations(at: minute)
         await checkNotificationSources(now: now)
     }
 
@@ -601,6 +606,7 @@ extension HomeswiftCatalog {
         guard let running = home.running.withLockedValue({ state -> RunningHome? in defer { state = nil }; return state }) else { return }
         running.ticker.cancel()
         running.observations.forEach { $0.cancel() }
+        stopAutomations()
         guard !restarting else { return }
         await notify(.bridgeStopped, title: "Homeswift stopped", message: "Homeswift is shutting down; its accessories show No Response until it is back.", urgent: true)
     }

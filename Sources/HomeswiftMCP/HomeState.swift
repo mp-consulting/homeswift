@@ -48,7 +48,7 @@ public final class JSONFileStore<Value: Codable & Sendable>: Sendable {
 }
 
 /// What the web UI and the MCP server keep about the home besides config.json: the accessory layout (rooms,
-/// hidden accessories, display names, Quick Controls), the wall's order and sizes, the scenes and their automations, the notification
+/// hidden accessories, display names, Quick Controls), the wall's order and sizes, the scenes, the automations, the notification
 /// settings, and the shows that can still be undone. Each is its own owner-only file next to config.json; `HomeswiftCatalog.startHome` runs the
 /// automations and the notification sources.
 public final class HomeState: Sendable {
@@ -66,6 +66,14 @@ public final class HomeState: Sendable {
     /// Who follows changes to the rooms and the wall, from any writer (the pages, the chat, an MCP client).
     let layoutObservers = NIOLockedValueBox<[UUID: @Sendable () -> Void]>([:])
     public let scenes: JSONFileStore<SceneFile>
+    /// What the bridge does on its own (`Automations.swift`).
+    public let automations: JSONFileStore<AutomationFile>
+    /// The Automations running now, by id.
+    let automationRuns = NIOLockedValueBox<[String: AutomationRunning]>([:])
+    /// The `stays` triggers counting, by automation and trigger.
+    let staysTimers = NIOLockedValueBox<[String: Task<Void, Never>]>([:])
+    /// How an Automation's waits are counted; tests make them shorter.
+    public let automationTimeScale = NIOLockedValueBox(1.0)
     public let notifications: JSONFileStore<NotificationSettings>
     /// The shows and plugin scenes that set the lights and can still be undone, with what the lights were.
     let heldLights: JSONFileStore<[SavedHeldLights]>
@@ -93,6 +101,7 @@ public final class HomeState: Sendable {
         let observers = layoutObservers
         wall = WallLayout(url: directory.appendingPathComponent("ui-layout.json")) { Self.notify(observers) }
         scenes = JSONFileStore(url: directory.appendingPathComponent("scenes.json")) { SceneFile() }
+        automations = JSONFileStore(url: directory.appendingPathComponent("automations.json")) { AutomationFile() }
         notifications = JSONFileStore(url: directory.appendingPathComponent("notifications.json")) { NotificationSettings() }
         sceneUndo = JSONFileStore(url: directory.appendingPathComponent("scene-undo.json")) { [:] }
         heldLights = JSONFileStore(url: directory.appendingPathComponent("held-lights.json")) { [] }

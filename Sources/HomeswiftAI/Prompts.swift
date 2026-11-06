@@ -77,6 +77,14 @@ public enum Prompts {
         }
     }
 
+    public enum DraftAutomation {
+        public static let system = Prompts.system("draft-automation")
+        public static func user(sentence: String, home: JSONValue) -> String {
+            PromptBook.text("draft-automation.user", ["sentence": sentence])
+                + section(PromptBook.text("draft-automation.title-home"), untrusted(home.text(pretty: true)))
+        }
+    }
+
     public enum DailyDigest {
         public static let system = Prompts.system("daily-digest")
         public static func user(date: String, status: JSONValue?, logs: String?, accessories: JSONValue?, events: JSONValue?) -> String {

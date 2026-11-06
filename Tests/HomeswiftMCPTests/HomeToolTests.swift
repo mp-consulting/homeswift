@@ -381,47 +381,10 @@ struct SceneToolTests {
         #expect(scenes.first { $0["name"] == "Evening" }?["security"] == false)
     }
 
-    @Test func conditionsHoldAnAutomaticRunBack() async throws {
-        let environment = try MCPTestEnvironment()
-        try await environment.start()
-        defer { Task { await environment.stop() } }
-        let scene = try environment.catalog.createScene(["name": "Only when on", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 10]],
-            "conditions": [["type": "characteristic", "id": "Devices:lamp", "characteristic": "On", "operator": "eq", "value": true]]])
-        let id = try #require(scene["id"]?.stringValue)
-        let skipped = try await environment.catalog.runScene(id, trigger: .schedule)
-        #expect(skipped["skipped"]?.stringValue?.contains("On is false") == true)
-        #expect(environment.catalog.home.scenes.value.scenes.first?.lastSkipped != nil)
-        // By hand, the conditions do not count.
-        _ = try await environment.catalog.runScene(id, trigger: .manual)
-        #expect(environment.written.contains { $0.0 == "lamp.brightness" && $0.1 == .int(10) })
-    }
-
-    @Test func aCharacteristicChangeRunsAScene() async throws {
-        let environment = try MCPTestEnvironment()
-        try await environment.start()
-        let catalog = environment.catalog
-        catalog.startHome(restarted: true)
-        defer { Task { await catalog.stopHome(restarting: true); await environment.stop() } }
-        _ = try catalog.createScene(["name": "Bright when on", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 100]],
-            "triggers": [["type": "characteristic", "id": "Devices:lamp", "characteristic": "On", "operator": "eq", "value": true]]])
-        let lamp = try #require(catalog.find(id: "Devices:lamp"))
-        _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: true, allowSecurity: false)
-        #expect(await eventually { environment.written.contains { $0.0 == "lamp.brightness" && $0.1 == .int(100) } })
-    }
-
     @Test func refusesBadScenes() throws {
         let environment = try MCPTestEnvironment()
         #expect(throws: CatalogError.self) { try environment.catalog.createScene(["name": "", "actions": [["id": "a", "characteristic": "On", "value": true]]]) }
         #expect(throws: CatalogError.self) { try environment.catalog.createScene(["name": "No actions", "actions": []]) }
-        #expect(throws: CatalogError.self) {
-            try environment.catalog.createScene(["name": "Bad time", "actions": [["id": "a", "characteristic": "On", "value": true]], "triggers": [["type": "time", "at": "25:00"]]])
-        }
-        #expect(throws: CatalogError.self) {
-            try environment.catalog.createScene(["name": "Bad cron", "actions": [["id": "a", "characteristic": "On", "value": true]], "triggers": [["type": "cron", "cron": "61 * * * *"]]])
-        }
-        #expect(throws: CatalogError.self) {
-            try environment.catalog.createScene(["name": "Bad offset", "actions": [["id": "a", "characteristic": "On", "value": true]], "triggers": [["type": "sun", "event": "sunset", "offsetMinutes": 900]]])
-        }
         #expect(throws: CatalogError.self) { try environment.catalog.setSceneLocation(["lat": 95, "lon": 0]) }
     }
 }

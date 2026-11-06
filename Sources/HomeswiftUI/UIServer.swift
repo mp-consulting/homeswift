@@ -446,7 +446,7 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
             // The rooms, zones, scenes and Quick Controls the Accessories and Status pages show, and whether the rooms are
             // Apple Home's; this browser's Web Push.
-            if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["notifications", "push"]].contains(route) { return .read }
+            if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["automations"], ["notifications", "push"]].contains(route) { return .read }
             if route == ["assistant", "chat"] { return .control }
             // Today's digest, as the Status page's widget shows it (writing one is an administrator's); each user's
             // own conversations and appearance.
@@ -469,6 +469,8 @@ public final class UIServer: Sendable {
             // Running a scene is controlling its accessories (locks and the like still ask first); a browser turns
             // its own notifications on and off.
             if route.count == 3, route[0] == "scenes", route[2] == "run" { return .control }
+            // Running an Automation by hand is controlling what its Steps set (never a lock, a door or an alarm).
+            if route.count == 3, route[0] == "automations", route[2] == "run" { return .control }
             // Trying a template or a description, and putting the lights back after any run, is controlling lights;
             // saving a scene is an administrator's.
             if route == ["scenes", "try"] || (route.count == 3 && route[0] == "scenes" && route[2] == "stop") { return .control }

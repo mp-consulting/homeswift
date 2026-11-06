@@ -327,3 +327,29 @@ extension AssistantService {
         return result
     }
 }
+
+// MARK: - Automations
+
+extension AssistantService {
+    /// The shape of an Automation the Assistant drafts; the bridge checks it as it checks any it is given.
+    public static let automationDraftSchema: JSONValue = [
+        "type": "object", "required": ["name", "triggers", "steps"],
+        "properties": [
+            "name": ["type": "string"], "mode": ["type": "string", "enum": ["restart", "single"]],
+            "triggers": ["type": "array", "items": ["type": "object"]], "conditions": ["type": "array", "items": ["type": "object"]],
+            "steps": ["type": "array", "items": ["type": "object"]],
+        ],
+    ]
+
+    /// Drafts an Automation from a sentence. `home` lists the accessories (ids, names, rooms, characteristics), the
+    /// scenes and the plugins' actions it may use; it goes through `Redaction` first, and reaches the model as data.
+    public func draftAutomation(_ sentence: String, home: JSONValue) async throws -> JSONGenerationResult {
+        try await usage.checkBudget()
+        let result = try await JSONGeneration.generate(
+            provider: provider, schema: Self.automationDraftSchema,
+            prompt: Prompts.DraftAutomation.user(sentence: Redaction.redactText(sentence), home: Redaction.redactSecrets(Redaction.scrubAddresses(home))),
+            system: system(Prompts.DraftAutomation.system), maxOutputTokens: maxOutputTokens)
+        await record(model: provider.model, usage: result.usage)
+        return result
+    }
+}

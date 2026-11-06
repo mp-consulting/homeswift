@@ -53,13 +53,14 @@ struct HomeTests {
 
         let created = try await browser.post("/api/scenes", [
             "name": "Night", "actions": [["id": "Lamps:lamp", "characteristic": "Brightness", "value": 5], ["id": "Lamps:lock", "characteristic": "Lock Target State", "value": 1]],
-            "triggers": [["type": "time", "at": "23:00", "days": [0, 1, 2, 3, 4, 5, 6]], ["type": "sun", "event": "sunset", "offsetMinutes": -15]],
         ])
         #expect(created.status == 201)
         let scene = try #require(created.json)
         let id = try #require(scene["id"]?.stringValue)
         #expect(scene["security"] == true)
-        #expect(scene["triggers"]?[0]?["days"] == nil)   // every day reads as no days
+        // Triggers are an Automation's now.
+        #expect(try await browser.post("/api/scenes", ["name": "Timed", "actions": [["id": "Lamps:lamp", "characteristic": "On", "value": true]],
+                                                        "triggers": [["type": "time", "at": "23:00"]]]).status == 400)
         #expect(scene["actions"]?[1]?["security"] == true)
 
         // The page must say the person agreed to the lock.
@@ -81,7 +82,6 @@ struct HomeTests {
 
         let changed = try await browser.put("/api/scenes/\(id)", ["name": "Late night", "actions": [["id": "Lamps:lamp", "characteristic": "On", "value": false]]])
         #expect(changed.json?["name"] == "Late night")
-        #expect(changed.json?["triggers"]?.arrayValue?.count == 2)   // kept when left out
         #expect(try await browser.send("DELETE", "/api/scenes/\(id)").status == 200)
         #expect(try await browser.post("/api/scenes/\(id)/run", [:]).status == 404)
         #expect(try await browser.get("/api/scenes").json?["scenes"]?.arrayValue?.isEmpty == true)
