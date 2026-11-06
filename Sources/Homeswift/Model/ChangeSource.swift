@@ -43,7 +43,7 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
 
     /// Runs `operation` with this as the source of the changes it makes.
     public func run<Result>(_ operation: () async throws -> Result) async rethrows -> Result {
-        try await Self.$current.withValue(Stamped(source: self, since: .now), operation: operation)
+        try await Self.$current.withValue(Stamped(source: self, since: .now)) { try await operation() }
     }
 
     /// The kind, as JSON and the web UI's filter have it.
