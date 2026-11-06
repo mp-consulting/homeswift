@@ -484,7 +484,16 @@ extension HomeswiftCatalog {
             }
             if !rows.isEmpty { fields["reply_markup"] = ["inline_keyboard": .array(rows)] }
             let body = JSONValue.object(fields)
-            try await post("https://api.telegram.org/bot\(settings.channels.telegram.botToken)/sendMessage", headers: [("Content-Type", "application/json")], body: body.encoded())
+            let url = "https://api.telegram.org/bot\(settings.channels.telegram.botToken)/sendMessage"
+            do {
+                try await post(url, headers: [("Content-Type", "application/json")], body: body.encoded())
+            } catch where rows.contains(where: { $0[0]?["url"] != nil }) {
+                // Telegram refuses a link it finds invalid (an address on the home network): the message goes with its
+                // callbacks only, the confirmation page left to the other channels.
+                fields["reply_markup"] = ["inline_keyboard": .array(rows.filter { $0[0]?["url"] == nil })]
+                if rows.allSatisfy({ $0[0]?["url"] != nil }) { fields.removeValue(forKey: "reply_markup") }
+                try await post(url, headers: [("Content-Type", "application/json")], body: JSONValue.object(fields).encoded())
+            }
         case .browser:
             _ = try await sendPush(message)
         }

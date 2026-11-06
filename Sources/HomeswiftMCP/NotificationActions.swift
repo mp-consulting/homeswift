@@ -129,7 +129,10 @@ extension HomeswiftCatalog {
         var note = NotificationMessage(event: .automationMessage, title: title, message: message, path: confirm)
         note.buttons = delivered
         let sent = await notify(note, subject: "\(automation.id):\(pending.id)")
-        if home.notifications.value.isEnabled(.telegram), delivered.contains(where: { $0.token != nil }) { startTelegramPoller() }
+        // Nothing went out (the event off, no channel, the limit): its buttons go too.
+        if sent?.contains(where: { $0["ok"] == true }) != true { home.notificationActions.withLockedValue { _ = $0.removeValue(forKey: pending.id) } }
+        // Telegram's presses are read only while a message it got has a button waiting.
+        if sent?.contains(where: { $0["channel"] == "telegram" && $0["ok"] == true }) == true, delivered.contains(where: { $0.token != nil }) { startTelegramPoller() }
         return sent
     }
 

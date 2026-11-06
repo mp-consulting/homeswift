@@ -13,7 +13,8 @@ self.addEventListener("push", (event) => {
 });
 
 /// A path on this origin only: "//host" and "/\host" would leave it.
-const local = (path) => new URL(/^\/(?![/\\])/.test(path || "") ? path : "/", self.location.origin).href;
+// No control character either: a URL parser drops a tab, so "/\t/host" would read as "//host".
+const local = (path) => new URL(/^\/(?![/\\])/.test(path || "") && !/[\u0000-\u001f\u007f]/.test(path) ? path : "/", self.location.origin).href;
 
 function open(path) {
   const target = local(path);

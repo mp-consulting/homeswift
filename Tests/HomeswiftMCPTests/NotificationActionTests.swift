@@ -92,6 +92,29 @@ struct NotificationActionTests {
         environment.catalog.stopAutomations()
     }
 
+    /// Telegram refusing the links (an address on the home network): the message goes again with its callbacks only.
+    @Test func telegramRefusingALinkStillGetsTheMessage() async throws {
+        final class RefusingLinks: HTTPSending, @unchecked Sendable {
+            let lock = NSLock()
+            var bodies: [JSONValue] = []
+            func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+                guard request.url.path.hasSuffix("/sendMessage"), let body = try? JSONValue(data: request.body ?? Data()) else { return HomeswiftNetwork.HTTPResponse(status: 200) }
+                lock.withLock { bodies.append(body) }
+                let links = body["reply_markup"]?["inline_keyboard"]?.arrayValue?.contains { $0[0]?["url"] != nil } == true
+                return HomeswiftNetwork.HTTPResponse(status: links ? 400 : 200)
+            }
+        }
+        let (environment, _) = try await environment(["telegram": ["enabled": true, "botToken": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ012345", "chatId": "42"]])
+        defer { Task { environment.catalog.stopAutomations(); await environment.stop() } }
+        let sender = RefusingLinks()
+        environment.catalog.home.http = sender
+        try await run(environment)
+        let bodies = sender.lock.withLock { sender.bodies }
+        #expect(bodies.count == 2)
+        #expect(bodies.last?["reply_markup"]?["inline_keyboard"]?.arrayValue?.count == 1)
+        #expect(environment.catalog.home.notificationActions.withLockedValue { $0.count } == 1)
+    }
+
     @Test func buttonsExpireAfterAQuarterOfAnHour() async throws {
         let (environment, _) = try await environment(["ntfy": ["enabled": true, "server": "https://ntfy.example.com", "topic": "home"]])
         defer { Task { await environment.stop() } }
@@ -108,6 +131,9 @@ struct NotificationActionTests {
         #expect(throws: CatalogError.self) { try environment.catalog.saveAutomation(step([["label": "", "type": "open", "path": "/"]])) }
         #expect(throws: CatalogError.self) { try environment.catalog.saveAutomation(step([["label": "Away", "type": "open", "path": "https://example.com"]])) }
         #expect(throws: CatalogError.self) { try environment.catalog.saveAutomation(step([["label": "x", "type": "call"]])) }
+        // A tab would let "/\t/host" read as another site.
+        #expect(throws: CatalogError.self) { try environment.catalog.saveAutomation(step([["label": "Away", "type": "open", "path": "/\t/evil.example"]])) }
+        #expect(WebPush.localPath("/\t/evil.example") == "/")
         let four: JSONValue = .array((0..<4).map { _ in ["label": "Open", "type": "open", "path": "/"] })
         #expect(throws: CatalogError.self) { try environment.catalog.saveAutomation(step(four)) }
     }
