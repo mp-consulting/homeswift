@@ -16847,8 +16847,6 @@ HomeswiftI18n.add("es", {
   "Pick the reading to watch, and where the Helper turns on and off.": "Elige la lectura que vigilar y dónde se activa y desactiva el ayudante.",
   "Reading to watch": "Lectura que vigilar",
   "Turns on": "Se activa",
-  "Above the on value": "Por encima del valor de activación",
-  "Below the on value": "Por debajo del valor de activación",
   "On value": "Valor de activación",
   "Off value (leave empty for the on value)": "Valor de desactivación (vacío: el de activación)",
   "Enter a number for the on value": "Escribe un número para el valor de activación",
@@ -16871,6 +16869,9 @@ HomeswiftI18n.add("es", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Escribe los minutos, un número de 0 a 10080 (una semana)",
   "Give the Helper a name": "Pon un nombre al ayudante",
   "Pick one of the accessories listed": "Elige uno de los accesorios de la lista",
+  "When it rises above the on value": "Cuando sube por encima del valor de activación",
+  "When it falls below the on value": "Cuando baja por debajo del valor de activación",
+  "Occupancy": "Presencia",
 });
 
 """#),
@@ -19922,8 +19923,6 @@ HomeswiftI18n.add("fr", {
   "Pick the reading to watch, and where the Helper turns on and off.": "Choisissez la mesure à surveiller, et où l’auxiliaire s’active et se désactive.",
   "Reading to watch": "Mesure à surveiller",
   "Turns on": "S’active",
-  "Above the on value": "Au-dessus de la valeur d’activation",
-  "Below the on value": "En dessous de la valeur d’activation",
   "On value": "Valeur d’activation",
   "Off value (leave empty for the on value)": "Valeur de désactivation (vide : la valeur d’activation)",
   "Enter a number for the on value": "Saisissez un nombre pour la valeur d’activation",
@@ -19946,6 +19945,9 @@ HomeswiftI18n.add("fr", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Saisissez les minutes, un nombre de 0 à 10080 (une semaine)",
   "Give the Helper a name": "Donnez un nom à l’auxiliaire",
   "Pick one of the accessories listed": "Choisissez l’un des accessoires de la liste",
+  "When it rises above the on value": "Quand elle passe au-dessus de la valeur d’activation",
+  "When it falls below the on value": "Quand elle passe en dessous de la valeur d’activation",
+  "Occupancy": "Présence",
 });
 
 """#),
@@ -22997,8 +22999,6 @@ HomeswiftI18n.add("pt", {
   "Pick the reading to watch, and where the Helper turns on and off.": "Escolha a leitura a vigiar e onde o auxiliar se ativa e desativa.",
   "Reading to watch": "Leitura a vigiar",
   "Turns on": "Ativa-se",
-  "Above the on value": "Acima do valor de ativação",
-  "Below the on value": "Abaixo do valor de ativação",
   "On value": "Valor de ativação",
   "Off value (leave empty for the on value)": "Valor de desativação (vazio: o de ativação)",
   "Enter a number for the on value": "Introduza um número para o valor de ativação",
@@ -23021,6 +23021,9 @@ HomeswiftI18n.add("pt", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Introduza os minutos, um número de 0 a 10080 (uma semana)",
   "Give the Helper a name": "Dê um nome ao auxiliar",
   "Pick one of the accessories listed": "Escolha um dos acessórios da lista",
+  "When it rises above the on value": "Quando sobe acima do valor de ativação",
+  "When it falls below the on value": "Quando desce abaixo do valor de ativação",
+  "Occupancy": "Presença",
 });
 
 """#),
@@ -30551,8 +30554,13 @@ select option:disabled { color: var(--muted); }
 .setup-pick:not(:has(input:checked)) .tile { filter: grayscale(1); opacity: 0.55; }
 .setup-pick:not(:has(input:checked)) .who { opacity: 0.6; }
 /* The sheet's buttons stay in reach under a long list. */
-.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-14) 0 var(--space-20);
-  background: linear-gradient(to bottom, transparent, var(--material-solid) 30%); }
+.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-16) 0 var(--space-20);
+  background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
+/* Opaque from 8px above the buttons: only the space above that fades, so nothing scrolls through under them. */
+@media (max-width: 640px) {
+  .setup-step > .actions:last-child { bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom)));
+    margin-bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom))); padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom)); }
+}
 .setup-pick input { margin: 0; }
 .setup-pick .who { display: grid; min-width: 0; }
 .setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -9,8 +9,8 @@ struct SourceCandidate: Sendable {
     var label: String
     var type: CharacteristicType
 
-    /// The accessory as the label, what it reads as the detail ("Current Temperature"): the web UI translates the detail.
-    var option: SetupOption { SetupOption(ref.description, label: label, detail: type.name) }
+    /// The accessory as the label, what it reads as the detail ("Temperature"): the web UI translates the detail.
+    var option: SetupOption { SetupOption(ref.description, label: label, detail: type.readingName) }
 }
 
 /// The states a Stays Helper can wait on, for the characteristics that have named ones; the others' states are their
@@ -81,6 +81,28 @@ extension PluginContext {
 }
 
 extension CharacteristicType {
+    /// What it reads, in the web UI's words (the history sheet's, admin.js's `historyLabels`), which its catalogs
+    /// translate: "Humidity", not HAP's "Current Relative Humidity". Other types keep HAP's name.
+    var readingName: String {
+        switch uuid {
+        case CharacteristicType.currentTemperature.uuid: "Temperature"
+        case CharacteristicType.currentRelativeHumidity.uuid: "Humidity"
+        case CharacteristicType.currentAmbientLightLevel.uuid: "Light level"
+        case EveCharacteristic.currentConsumption.uuid: "Power"
+        case CharacteristicType.airQuality.uuid: "Air quality"
+        case CharacteristicType.batteryLevel.uuid: "Battery level"
+        case CharacteristicType.contactSensorState.uuid: "Contact"
+        case CharacteristicType.motionDetected.uuid: "Motion"
+        case CharacteristicType.occupancyDetected.uuid: "Occupancy"
+        case CharacteristicType.leakDetected.uuid: "Leak"
+        case CharacteristicType.outletInUse.uuid: "In use"
+        case CharacteristicType.currentPosition.uuid: "Position"
+        case CharacteristicType.lockCurrentState.uuid: "Lock"
+        case CharacteristicType.currentDoorState.uuid: "Door"
+        default: name
+        }
+    }
+
     /// A number a Threshold can watch: a reading, not a flag, a named state or text.
     var isReading: Bool {
         [.float, .int, .uint8, .uint16, .uint32, .uint64].contains(format) && SourceStates.states(of: self) == nil

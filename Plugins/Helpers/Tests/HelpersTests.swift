@@ -245,7 +245,7 @@ struct HelpersTests {
         }
         let options = try #require(sensors.fields.first { $0.key == "sources" }).options
         #expect(options.map(\.label) == ["Bedroom", "Kitchen"])
-        #expect(options.map(\.detail) == ["Current Temperature", "Current Temperature"])
+        #expect(options.map(\.detail) == ["Temperature", "Temperature"])
         // A name is needed, and only sensors listed are taken.
         await #expect(throws: SetupError.self) {
             try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["sources": options[0].value, "function": "max", "name": " "], state: state3))
@@ -293,7 +293,7 @@ struct HelpersTests {
         #expect(await eventually { host.mainBridge.server.accessory(id: "Helpers:open") != nil })
         #expect(await plugin.deviceKind(of: "open") == "stays")
         let sources = try #require(await plugin.accessorySettingChoices("source", deviceID: "open"))
-        #expect(sources.contains { $0.label == "Front door" && $0.detail == "Contact Sensor State" })
+        #expect(sources.contains { $0.label == "Front door" && $0.detail == "Contact" })
         // A Helper never reads itself.
         #expect(!sources.contains { $0.value.hasPrefix("Helpers:open#") })
         #expect(await plugin.accessorySettingChoices("state", deviceID: "open")?.map(\.detail) == ["Open", "Closed"])

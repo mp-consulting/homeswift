@@ -3045,8 +3045,6 @@ HomeswiftI18n.add("pt", {
   "Pick the reading to watch, and where the Helper turns on and off.": "Escolha a leitura a vigiar e onde o auxiliar se ativa e desativa.",
   "Reading to watch": "Leitura a vigiar",
   "Turns on": "Ativa-se",
-  "Above the on value": "Acima do valor de ativação",
-  "Below the on value": "Abaixo do valor de ativação",
   "On value": "Valor de ativação",
   "Off value (leave empty for the on value)": "Valor de desativação (vazio: o de ativação)",
   "Enter a number for the on value": "Introduza um número para o valor de ativação",
@@ -3069,4 +3067,7 @@ HomeswiftI18n.add("pt", {
   "Enter the minutes as a number from 0 to 10080 (a week)": "Introduza os minutos, um número de 0 a 10080 (uma semana)",
   "Give the Helper a name": "Dê um nome ao auxiliar",
   "Pick one of the accessories listed": "Escolha um dos acessórios da lista",
+  "When it rises above the on value": "Quando sobe acima do valor de ativação",
+  "When it falls below the on value": "Quando desce abaixo do valor de ativação",
+  "Occupancy": "Presença",
 });

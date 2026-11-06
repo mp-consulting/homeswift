@@ -80,7 +80,7 @@ extension HelpersPlugin {
                 return ask(SetupPrompt(message: "Pick the reading to watch, and where the Helper turns on and off.", fields: [
                     .choice("source", label: "Reading to watch", options: candidates.map(\.option)),
                     .choice("direction", label: "Turns on", options: [
-                        SetupOption("above", label: "Above the on value"), SetupOption("below", label: "Below the on value"),
+                        SetupOption("above", label: "When it rises above the on value"), SetupOption("below", label: "When it falls below the on value"),
                     ], value: "above"),
                     SetupField("on", label: "On value"),
                     SetupField("off", label: "Off value (leave empty for the on value)", optional: true),

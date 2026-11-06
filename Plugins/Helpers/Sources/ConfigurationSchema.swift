@@ -57,8 +57,8 @@ extension HelpersPlugin {
         "title": "Turns on",
         "description": "Whether the Helper turns on when the reading goes above the on value or below it",
         "oneOf": [
-          { "title": "Above the on value", "enum": ["above"] },
-          { "title": "Below the on value", "enum": ["below"] }
+          { "title": "When it rises above the on value", "enum": ["above"] },
+          { "title": "When it falls below the on value", "enum": ["below"] }
         ],
         "x-kinds": ["threshold"]
       },
@@ -127,8 +127,8 @@ extension HelpersPlugin {
       "The accessory the Helper reads": "L'accessoire que lit l'auxiliaire",
       "Turns on": "S'active",
       "Whether the Helper turns on when the reading goes above the on value or below it": "Si l'auxiliaire s'active quand la mesure passe au-dessus ou en dessous de la valeur d'activation",
-      "Above the on value": "Au-dessus de la valeur d'activation",
-      "Below the on value": "En dessous de la valeur d'activation",
+      "When it rises above the on value": "Quand elle passe au-dessus de la valeur d'activation",
+      "When it falls below the on value": "Quand elle passe en dessous de la valeur d'activation",
       "On value": "Valeur d'activation",
       "The reading past which the Helper turns on": "La mesure au-delà de laquelle l'auxiliaire s'active",
       "Off value": "Valeur de désactivation",
@@ -163,8 +163,8 @@ extension HelpersPlugin {
       "The accessory the Helper reads": "El accesorio que lee el ayudante",
       "Turns on": "Se activa",
       "Whether the Helper turns on when the reading goes above the on value or below it": "Si el ayudante se activa cuando la lectura sube por encima del valor de activación o baja por debajo",
-      "Above the on value": "Por encima del valor de activación",
-      "Below the on value": "Por debajo del valor de activación",
+      "When it rises above the on value": "Cuando sube por encima del valor de activación",
+      "When it falls below the on value": "Cuando baja por debajo del valor de activación",
       "On value": "Valor de activación",
       "The reading past which the Helper turns on": "La lectura a partir de la cual se activa el ayudante",
       "Off value": "Valor de desactivación",
@@ -199,8 +199,8 @@ extension HelpersPlugin {
       "The accessory the Helper reads": "O acessório que o auxiliar lê",
       "Turns on": "Ativa-se",
       "Whether the Helper turns on when the reading goes above the on value or below it": "Se o auxiliar se ativa quando a leitura sobe acima do valor de ativação ou desce abaixo dele",
-      "Above the on value": "Acima do valor de ativação",
-      "Below the on value": "Abaixo do valor de ativação",
+      "When it rises above the on value": "Quando sobe acima do valor de ativação",
+      "When it falls below the on value": "Quando desce abaixo do valor de ativação",
       "On value": "Valor de ativação",
       "The reading past which the Helper turns on": "A leitura a partir da qual o auxiliar se ativa",
       "Off value": "Valor de desativação",
