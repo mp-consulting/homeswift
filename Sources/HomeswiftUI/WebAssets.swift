@@ -1110,6 +1110,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
+    // A tap beside it closes it too (on a phone, Done may be below the fold until the history is scrolled).
+    dialog.addEventListener("click", (event) => {
+      const box = dialog.getBoundingClientRect();
+      if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) dialog.close();
+    });
     dialog.addEventListener("close", () => dialog.remove());
     document.body.append(dialog);
     dialog.showModal();
@@ -29020,7 +29025,7 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
-.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
 /* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
 .admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
 .admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
