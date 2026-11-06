@@ -31,12 +31,79 @@ public struct AccessoryLayout: Codable, Sendable, Equatable {
         var isEmpty: Bool { room == nil && hidden != true && name == nil && favourite != true }
     }
 
-    /// The rooms in the order the pages show them, empty ones included.
-    public var rooms: [String] = []
+    /// A Room: its own id, kept when it is renamed, its name, and the Home's id once it is linked (the Home Link).
+    public struct Room: Codable, Sendable, Equatable {
+        /// `room:<uuid>`.
+        public var id: String
+        public var name: String
+        public var homeKitID: String?
+    }
+
+    /// The Rooms in the order the pages show them, empty ones included.
+    public var roomEntries: [Room] = []
     public var accessories: [String: Entry] = [:]
+
+    /// The Rooms' names, in their order. Set, a name the layout has (case aside) keeps its Room, a new one is a new Room;
+    /// a rename keeps its Room only through `renameRoom(_:to:)`.
+    public var rooms: [String] {
+        get { roomEntries.map(\.name) }
+        set {
+            roomEntries = newValue.map { name in
+                guard var room = roomEntries.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+                    return Room(id: "room:\(UUID().uuidString.lowercased())", name: name)
+                }
+                room.name = name
+                return room
+            }
+        }
+    }
+
     public init(rooms: [String] = [], accessories: [String: Entry] = [:]) {
-        self.rooms = rooms
         self.accessories = accessories
+        self.rooms = rooms
+    }
+
+    enum CodingKeys: String, CodingKey { case rooms, accessories }
+
+    /// `rooms` as Rooms, or as the names older versions kept.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accessories = try container.decodeIfPresent([String: Entry].self, forKey: .accessories) ?? [:]
+        if let entries = try? container.decode([Room].self, forKey: .rooms) {
+            roomEntries = entries
+        } else {
+            rooms = (try? container.decode([String].self, forKey: .rooms)) ?? []
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(roomEntries, forKey: .rooms)
+        try container.encode(accessories, forKey: .accessories)
+    }
+
+    /// Renames a Room, which keeps its id and its link to the Home.
+    mutating func renameRoom(_ name: String, to new: String) {
+        guard let index = roomEntries.firstIndex(where: { $0.name == name }) else { return }
+        roomEntries[index].name = new
+    }
+
+    /// The Home's id of the Room of this name, case and accents aside; nil for one not linked.
+    func homeKitID(ofRoom name: String) -> String? {
+        roomEntries.first { HomeswiftCatalog.sameRoomName($0.name, name) }?.homeKitID
+    }
+
+    /// The Room the Home knows by this id.
+    func room(homeKitID id: String) -> Room? { roomEntries.first { $0.homeKitID == id } }
+
+    /// The Room of this id.
+    func room(id: String) -> Room? { roomEntries.first { $0.id == id } }
+
+    /// Links the Room of this name to the Home's id, or unlinks it with nil; the id leaves any other Room.
+    mutating func link(_ name: String, to homeKitID: String?) {
+        for index in roomEntries.indices where homeKitID != nil && roomEntries[index].homeKitID == homeKitID { roomEntries[index].homeKitID = nil }
+        guard let index = roomEntries.firstIndex(where: { $0.name == name }) else { return }
+        roomEntries[index].homeKitID = homeKitID
     }
 
     /// A Room's or Zone's name as it is kept: trimmed, 1 to `maxName` characters.
@@ -96,7 +163,7 @@ extension HomeswiftCatalog {
         if !fromHome {
             var changes: [HomeLinkFile.PendingChange] = change.added.map { .createRoom(name: $0) }
             if let renamed = change.renamed { changes.append(.renameRoom(from: renamed.from, to: renamed.to)) }
-            changes += change.removed.map { .deleteRoom(name: $0) }
+            changes += change.removed.map { .deleteRoom(name: $0, homeKitID: change.removedLinks[$0]) }
             await recordForHome(changes, into: &answer)
         }
         return .object(answer)
@@ -107,6 +174,8 @@ extension HomeswiftCatalog {
         var renamed: (from: String, to: String)?
         var removed: [String] = []
         var added: [String] = []
+        /// The Home's ids of the Rooms removed, which they no longer have.
+        var removedLinks: [String: String] = [:]
     }
 
     /// Changes the layout as `updateLayout(_:by:)` says, then the Accessory Settings that name a room renamed or removed
@@ -176,7 +245,7 @@ extension HomeswiftCatalog {
                 guard let from = rename["from"]?.stringValue, let current = adopt(from) else { throw CatalogError("No room \(rename["from"]?.stringValue ?? "")") }
                 let to = try cleanName(rename["to"]?.stringValue ?? "")
                 if let other = layout.room(named: to), other != current { throw CatalogError("There is already a room \(other)") }
-                layout.rooms = layout.rooms.map { $0 == current ? to : $0 }
+                layout.renameRoom(current, to: to)
                 // The legacy rooms follow too, as long as the layout has them.
                 for (id, entry) in layout.accessories where entry.room == current { layout.accessories[id]?.room = to }
                 for (id, room) in adopted where room == current { adopted[id] = to }
@@ -198,9 +267,10 @@ extension HomeswiftCatalog {
             guard layout.rooms.count <= AccessoryLayout.maxRooms else { throw CatalogError("At most \(AccessoryLayout.maxRooms) rooms") }
         }
         let added = home.layout.value.rooms.filter { room in previous.room(named: room) == nil && room != renamed?.to }
+        let removedLinks = Dictionary(removed.compactMap { name in previous.homeKitID(ofRoom: name).map { (name, $0) } }, uniquingKeysWith: { first, _ in first })
         guard renamed != nil || !removed.isEmpty || !adopted.isEmpty else {
             home.layoutChanged()
-            return LayoutChange(renamed: renamed, removed: removed, added: added)
+            return LayoutChange(renamed: renamed, removed: removed, added: added, removedLinks: removedLinks)
         }
         do {
             try await retryingWhenConfigChanges {
@@ -210,9 +280,9 @@ extension HomeswiftCatalog {
             try? home.layout.update { $0 = previous }
             throw error
         }
-        roomsChangedInZones(renamed: renamed, removed: removed)
+        if !removed.isEmpty { roomsRemovedFromZones() }
         home.layoutChanged()
-        return LayoutChange(renamed: renamed, removed: removed, added: added)
+        return LayoutChange(renamed: renamed, removed: removed, added: added, removedLinks: removedLinks)
     }
 
     /// `applyLayout`'s write of config.json: the settings' rooms renamed or emptied (a room's name matched as the layout

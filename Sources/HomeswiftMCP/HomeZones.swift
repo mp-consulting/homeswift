@@ -9,16 +9,25 @@ import HomeswiftPlugin
 extension HomeswiftCatalog {
     static let maxZones = 50
 
-    /// `{zones: [{id, name, rooms, linked}]}`, in their order.
+    /// `{zones: [{id, name, rooms, linked}]}`, in their order, each one's Rooms by name.
     public func zonesJSON() -> JSONValue {
-        ["zones": .array(home.homeLink.value.zones.map { zone in
-            ["id": .string(zone.id), "name": .string(zone.name), "rooms": .array(zone.rooms.map(JSONValue.string)), "linked": .bool(zone.homeKitID != nil)]
+        let layout = home.layout.value
+        return ["zones": .array(home.homeLink.value.zones.map { zone in
+            ["id": .string(zone.id), "name": .string(zone.name), "rooms": .array(zone.rooms.compactMap { layout.room(id: $0)?.name }.map(JSONValue.string)),
+             "linked": .bool(zone.homeKitID != nil)]
         })]
+    }
+
+    /// The names of the Rooms of the Zone of this name, case and accents aside.
+    func roomNames(ofZone name: String) -> [String] {
+        let layout = home.layout.value
+        return home.homeLink.value.zones.first { Self.sameRoomName($0.name, name) }?.rooms.compactMap { layout.room(id: $0)?.name } ?? []
     }
 
     /// The Zones a Room is in, by name.
     func zones(ofRoom room: String) -> [String] {
-        home.homeLink.value.zones.filter { $0.rooms.contains { Self.sameRoomName($0, room) } }.map(\.name)
+        guard let id = home.layout.value.roomEntries.first(where: { Self.sameRoomName($0.name, room) })?.id else { return [] }
+        return home.homeLink.value.zones.filter { $0.rooms.contains(id) }.map(\.name)
     }
 
     /// Changes the Zones. `body` holds one of: `create` `{name, rooms?}`; `zone` (an id) with `name`, `rooms` (all of its
@@ -28,15 +37,16 @@ extension HomeswiftCatalog {
         if let refusal = await homeLinkRefusal(), body["order"] == nil || body.objectValue?.count != 1 { throw CatalogError(refusal) }
         let layout = home.layout.value
         func cleanName(_ value: JSONValue?) throws -> String { try AccessoryLayout.cleanName(value?.stringValue ?? "", what: "zone") }
+        /// The Rooms named, by their id.
         func roomNames(_ value: JSONValue?) throws -> [String] {
             guard let value, !value.isNull else { return [] }
             guard let list = value.arrayValue else { throw CatalogError("rooms must be a list of room names") }
             var seen: Set<String> = []
             return try list.compactMap { item in
-                guard let text = item.stringValue, let room = layout.room(named: text) else {
+                guard let text = item.stringValue, let room = layout.roomEntries.first(where: { $0.name.caseInsensitiveCompare(text) == .orderedSame }) else {
                     throw CatalogError("No room \(item.stringValue ?? "\(item)")")
                 }
-                return seen.insert(room).inserted ? room : nil
+                return seen.insert(room.id).inserted ? room.id : nil
             }
         }
         var changes: [HomeLinkFile.PendingChange] = []
@@ -89,17 +99,12 @@ extension HomeswiftCatalog {
         return .object(answer)
     }
 
-    /// The Zones follow a Room renamed or removed (`applyLayout`). The links stay: the change made in Apple Home finds
-    /// the Room's id by its old name (`push`), and one Apple Home made updates them itself (`adopt`).
-    func roomsChangedInZones(renamed: (from: String, to: String)?, removed: [String]) {
-        guard renamed != nil || !removed.isEmpty, !home.homeLink.value.zones.isEmpty else { return }
+    /// The Zones lose the Rooms removed (`applyLayout`); a renamed Room keeps its id, and its place in them.
+    func roomsRemovedFromZones() {
+        let ids = Set(home.layout.value.roomEntries.map(\.id))
+        guard home.homeLink.value.zones.contains(where: { !$0.rooms.allSatisfy(ids.contains) }) else { return }
         try? home.homeLink.update { file in
-            for index in file.zones.indices {
-                file.zones[index].rooms = file.zones[index].rooms.compactMap { room in
-                    if let renamed, Self.sameRoomName(room, renamed.from) { return renamed.to }
-                    return removed.contains { Self.sameRoomName($0, room) } ? nil : room
-                }
-            }
+            for index in file.zones.indices { file.zones[index].rooms = file.zones[index].rooms.filter(ids.contains) }
         }
     }
 

@@ -412,7 +412,7 @@ extension HomeswiftCatalog {
     public func located(matching filter: AccessoryFilter) -> [Located] {
         var filter = filter
         if let zone = filter.zone {
-            filter.zoneRooms = home.homeLink.value.zones.first { Self.sameRoomName($0.name, zone) }?.rooms ?? []
+            filter.zoneRooms = roomNames(ofZone: zone)
         }
         return located().filter(filter.matches)
     }

@@ -14,8 +14,6 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
     /// The Home the bridge is linked to; nil before its first link is confirmed.
     public var homeID: String?
     public var homeName: String?
-    /// The Home's id of each linked Room, by the Room's name as the layout spells it.
-    public var rooms: [String: String] = [:]
     /// The Zones, in the order the pages show them.
     public var zones: [Zone] = []
     /// The Groups, linked to Apple Home's once made or found there; the wall keeps only where each one stands.
@@ -36,7 +34,7 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
         public var id: String
         public var homeKitID: String?
         public var name: String
-        /// Its Rooms, by name.
+        /// Its Rooms, by their id (`AccessoryLayout.Room.id`), so a renamed Room stays in it.
         public var rooms: [String]
     }
 
@@ -45,13 +43,14 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
     public enum PendingChange: Codable, Sendable, Equatable {
         case createRoom(name: String)
         case renameRoom(from: String, to: String)
-        case deleteRoom(name: String)
+        /// With the Home's id of the Room, which the bridge no longer has.
+        case deleteRoom(name: String, homeKitID: String?)
         /// To `room`, or out of every Room (Apple Home's Default Room) when it is empty.
         case moveAccessory(accessory: String, room: String)
         case createZone(zone: String)
         case renameZone(zone: String, name: String)
         case deleteZone(homeKitID: String)
-        /// Rooms by name.
+        /// Rooms by id.
         case setZoneRooms(zone: String, add: [String], remove: [String])
         case createGroup(group: String)
         case renameGroup(group: String, name: String)
@@ -72,7 +71,7 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
             switch self {
             case .createRoom(let name): "create the room \(name)"
             case .renameRoom(let from, let to): "rename the room \(from) \(to)"
-            case .deleteRoom(let name): "remove the room \(name)"
+            case .deleteRoom(let name, _): "remove the room \(name)"
             case .moveAccessory(let accessory, let room): room.isEmpty ? "take \(accessory) out of its room" : "move \(accessory) to \(room)"
             case .createZone: "create a zone"
             case .renameZone(_, let name): "rename a zone \(name)"
@@ -130,12 +129,6 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
 
         var json: JSONValue { ["change": .string(change.described), "reason": .string(reason)] }
     }
-
-    func homeKitID(ofRoom name: String) -> String? {
-        rooms.first { HomeswiftCatalog.sameRoomName($0.key, name) }?.value
-    }
-
-    func roomName(ofHomeKitID id: String) -> String? { rooms.first { $0.value == id }?.key }
 }
 
 /// What the Home Link last said, for checks that cannot wait for it (a Room renamed while it is up but not allowed to
@@ -265,7 +258,7 @@ extension HomeswiftCatalog {
                 return false
             }
         }
-        let linked = home.homeLink.value.rooms
+        let linked = Dictionary(home.layout.value.roomEntries.compactMap { room in room.homeKitID.map { (room.name, $0) } }, uniquingKeysWith: { first, _ in first })
         var links = linked
         let homeRooms = Dictionary(snapshot.rooms.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // Linked Rooms renamed in the Home, one by one (a rename is one change of the layout), and those gone, at once.
@@ -296,7 +289,11 @@ extension HomeswiftCatalog {
         if !added.isEmpty, !(await step("add the rooms \(added.joined(separator: ", "))", ["rooms": .array((home.layout.value.rooms + added).map(JSONValue.string))])) {
             for room in added { links.removeValue(forKey: room) }
         }
-        if links != home.homeLink.value.rooms { try home.homeLink.update { $0.rooms = links } }
+        if links != linked || home.layout.value.roomEntries.contains(where: { $0.homeKitID != links[$0.name] }) {
+            try home.layout.update { layout in
+                for index in layout.roomEntries.indices { layout.roomEntries[index].homeKitID = links[layout.roomEntries[index].name] }
+            }
+        }
 
         // Where each accessory the Home has is, read once the Rooms are as Apple Home has them.
         let moves = withLookup {
@@ -314,12 +311,13 @@ extension HomeswiftCatalog {
                 logger.warning("Could not move \(moves.count) accessories as in Apple Home: \(error)")
             }
         }
-        try adoptZones(snapshot, links: links)
+        try adoptZones(snapshot)
         try adoptGroups(snapshot)
     }
 
-    private func adoptZones(_ snapshot: HomeSnapshot, links: [String: String]) throws {
-        let names = { (ids: [String]) in ids.compactMap { id in links.first { $0.value == id }?.key } }
+    private func adoptZones(_ snapshot: HomeSnapshot) throws {
+        let layout = home.layout.value
+        let names = { (ids: [String]) in ids.compactMap { layout.room(homeKitID: $0)?.id } }
         let current = home.homeLink.value.zones
         var zones: [HomeLinkFile.Zone] = []
         for zone in current {
@@ -487,28 +485,27 @@ extension HomeswiftCatalog {
     private func push(_ change: HomeLinkFile.PendingChange, plugin: any HomeswiftPlugin) async throws {
         let file = home.homeLink.value
         func roomID(_ name: String) async throws -> String {
-            if let id = home.homeLink.value.homeKitID(ofRoom: name) { return id }
+            if let id = home.layout.value.homeKitID(ofRoom: name) { return id }
             let id = try await plugin.applyHomeChange(.createRoom(name: name))
             guard let id else { throw HomeChangeError(.refused, "Apple Home did not create the room \(name)") }
-            try home.homeLink.update { $0.rooms[name] = id }
+            try home.layout.update { layout in layout.link(layout.room(named: name) ?? name, to: id) }
             return id
         }
+        /// The name of the Room of this id, for a change that names it so.
+        func roomName(_ id: String) -> String? { home.layout.value.room(id: id)?.name }
         func zoneHomeKitID(_ id: String) -> String? { file.zones.first { $0.id == id }?.homeKitID }
         func groupHomeKitID(_ id: String) -> String? { wallGroups.first { $0.id == id }?.homeKitID }
         switch change {
         case .createRoom(let name):
             _ = try await roomID(name)
         case .renameRoom(let from, let to):
-            guard let id = file.homeKitID(ofRoom: from) else { _ = try await roomID(to); return }
+            // Renamed here already: the Room kept its link under its new name.
+            let layout = home.layout.value
+            guard let id = layout.homeKitID(ofRoom: to) ?? layout.homeKitID(ofRoom: from) else { _ = try await roomID(to); return }
             _ = try await plugin.applyHomeChange(.renameRoom(id: id, name: to))
-            try home.homeLink.update { file in
-                file.rooms = file.rooms.filter { $0.value != id }
-                file.rooms[to] = id
-            }
-        case .deleteRoom(let name):
-            guard let id = file.homeKitID(ofRoom: name) else { return }
+        case .deleteRoom(let name, let homeKitID):
+            guard let id = homeKitID ?? home.layout.value.homeKitID(ofRoom: name) else { return }
             _ = try await plugin.applyHomeChange(.deleteRoom(id: id))
-            try home.homeLink.update { file in file.rooms = file.rooms.filter { $0.value != id } }
         case .moveAccessory(let accessory, let room):
             _ = try await plugin.applyHomeChange(.moveAccessory(accessoryID: accessory, roomID: room.isEmpty ? nil : try await roomID(room)))
         case .createZone(let zone):
@@ -516,7 +513,7 @@ extension HomeswiftCatalog {
             let id = try await plugin.applyHomeChange(.createZone(name: local.name))
             guard let id else { throw HomeChangeError(.refused, "Apple Home did not create the zone \(local.name)") }
             var rooms: [String] = []
-            for name in local.rooms { rooms.append(try await roomID(name)) }
+            for name in local.rooms.compactMap(roomName) { rooms.append(try await roomID(name)) }
             if !rooms.isEmpty { _ = try await plugin.applyHomeChange(.setZoneRooms(id: id, add: rooms, remove: [])) }
             try home.homeLink.update { file in
                 if let index = file.zones.firstIndex(where: { $0.id == local.id }) { file.zones[index].homeKitID = id }
@@ -529,8 +526,9 @@ extension HomeswiftCatalog {
         case .setZoneRooms(let zone, let add, let remove):
             guard let id = zoneHomeKitID(zone) else { return }
             var added: [String] = []
-            for name in add { added.append(try await roomID(name)) }
-            _ = try await plugin.applyHomeChange(.setZoneRooms(id: id, add: added, remove: remove.compactMap(file.homeKitID(ofRoom:))))
+            for name in add.compactMap(roomName) { added.append(try await roomID(name)) }
+            let layout = home.layout.value
+            _ = try await plugin.applyHomeChange(.setZoneRooms(id: id, add: added, remove: remove.compactMap { layout.room(id: $0)?.homeKitID }))
         case .createGroup(let group):
             let groups = wallGroups
             guard let local = groups.first(where: { $0.id == group }), local.homeKitID == nil else { return }
@@ -615,10 +613,6 @@ extension HomeswiftCatalog {
     /// Rooms and Apple Home's of the same name linked, the accessories in No Room there that have a Room here moved there,
     /// and the groups Apple Home cannot have ungrouped.
     private func linkHome(_ snapshot: HomeSnapshot, comparison: HomeLinkFile.Comparison, link: HomeLinkPlugin) async throws {
-        var links: [String: String] = [:]
-        for local in home.layout.value.rooms {
-            if let room = snapshot.rooms.first(where: { Self.sameRoomName($0.name, local) }) { links[local] = room.id }
-        }
         let ungrouped = Set(comparison.groupsUngrouped.map(\.id))
         let groups = wallGroups.filter { !ungrouped.contains($0.id) }
         var changes: [HomeLinkFile.PendingChange] = comparison.roomsOnlyHere.map { .createRoom(name: $0) }
@@ -626,10 +620,16 @@ extension HomeswiftCatalog {
         changes += groups.filter { $0.homeKitID == nil }.map { .createGroup(group: $0.id) }
         changes += home.homeLink.value.zones.filter { $0.homeKitID == nil }.map { .createZone(zone: $0.id) }
         if !ungrouped.isEmpty { try setWallGroups(groups) }
+        // The Rooms and Apple Home's of the same name are one; the others are linked once made there.
+        try home.layout.update { layout in
+            for index in layout.roomEntries.indices {
+                let name = layout.roomEntries[index].name
+                layout.roomEntries[index].homeKitID = snapshot.rooms.first { Self.sameRoomName($0.name, name) }?.id
+            }
+        }
         try home.homeLink.update { file in
             file.homeID = snapshot.homeID
             file.homeName = snapshot.homeName
-            file.rooms = links
             file.comparison = nil
             file.pending = changes + file.pending
         }

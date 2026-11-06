@@ -15,7 +15,7 @@ Built, on branch `feat/home-link` (homeswift) and `feat/home-link` (homeswift-wi
 | 1. Spike on a real home | **Not run.** Every HomeKit behaviour below is written to the API's documentation, not yet tried on a home |
 | 2. Unique serials, the bridge by its serial | Done |
 | 3. Wingman's `home-link` API | Done (DemoStore and loopback tests; the app builds unsigned). Create edits take a `home` |
-| 4. The linked copy | Done: `home.json` (`HomeLinkFile`) links the layout's Rooms, the Zones and the wall's Groups |
+| 4. The linked copy | Done: each Room in `accessory-layout.json` has its own id and its Home id; the Zones (by Room id) and Groups are in `home.json` |
 | 5. Wingman as the Home Link | Done, but one Wingman per Home is chosen by connection and id, not the TXT `home` hash |
 | 6. Rooms over the link, Room Sync retired | Done |
 | 7. The first link's comparison | Done: it applies Apple Home's placements with the defaults, no choice per accessory |
