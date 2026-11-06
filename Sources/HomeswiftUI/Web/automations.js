@@ -366,7 +366,8 @@
     const until = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
     const stateText = { used: t("Already used"), expired: t("Expired") };
     const buttons = data.buttons.map((button) => {
-      const node = el("button", { type: "button", class: button.state === "ready" ? "primary" : "", disabled: button.state !== "ready" && button.type !== "open",
+      // What acts is the primary choice; a page to open, a quieter one.
+      const node = el("button", { type: "button", class: button.state === "ready" && button.type !== "open" ? "primary" : "", disabled: button.state !== "ready" && button.type !== "open",
         actionIcon: button.type === "open" ? "open" : button.security ? "lock" : button.type === "scene" ? "play" : "check", text: button.label });
       node.addEventListener("click", async () => {
         if (button.type === "open" && button.state !== "ready") { app().navigate(button.path || "/"); return; }
