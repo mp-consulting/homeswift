@@ -261,7 +261,7 @@ struct PhilipsHueTests {
     /// lights and sensors as devices that need nothing more.
     @Test func setUpAsksForTheLinkButtonThenListsTheLights() async throws {
         let host = try await environment.start(paired: false)
-        let plugin = try #require(await environment.plugin)
+        let plugin = try #require(environment.plugin)
         let first = try await plugin.authorize(SetupRequest(target: .account))
         guard case .ask(let prompt, let state) = first else { Issue.record("expected the link button"); return }
         #expect(prompt.waitSeconds == 60)

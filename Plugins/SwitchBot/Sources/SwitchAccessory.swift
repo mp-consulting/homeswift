@@ -168,7 +168,7 @@ final class SwitchAccessory: DeviceAccessory, @unchecked Sendable {
         if mode != "switch" {
             guard on || mode == "press" && allowPush else { return }
             let count = mode == "multipress" ? max(presses, 1) : 1
-            try await repeated(Array(repeating: Command(command: "press"), count: count))
+            _ = try await repeated(Array(repeating: Command(command: "press"), count: count))
             // A press returns the control to off, once HomeKit's write has landed.
             lock.withLock { target = false }
             control.characteristic(kind.written).revert(to: kind == .lock ? .int(1) : kind.written == .on ? .bool(false) : .int(kind == .garagedoor ? 1 : 0), after: .milliseconds(500))

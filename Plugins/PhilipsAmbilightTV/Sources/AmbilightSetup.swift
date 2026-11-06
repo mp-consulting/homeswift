@@ -94,7 +94,7 @@ extension PhilipsAmbilightTVPlugin {
             guard let canonical = MACAddress.canonical(mac) else { throw SetupError("That is not a MAC address") }
             return .done(SetupOutcome(credentials: credentials, settings: ["ip": .string(ip), "name": .string(device.name)], deviceID: canonical))
         }
-        guard let pin = request.answer("pin"), let data = try? request.state["session"]?.encoded(),
+        guard let pin = request.answer("pin"), let data = request.state["session"]?.encoded(),
               let session = try? JSONDecoder().decode(JointSpacePairing.Session.self, from: data) else {
             let session: JointSpacePairing.Session
             do {
