@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Presence (platform `Presence`, experimental): the Persons who live in the home, each known by the devices they carry,
+  and an occupancy sensor for each, home while one of their devices is on the network (the ARP table and a TCP probe of
+  its address) and away once none has been for a grace period (`graceMinutes`, 10 by default); Anyone Home, occupied
+  while any Person is. A Person is added on Add accessories (**Add a Person…**): their name, the web UI user they are,
+  and their devices picked from those on the network, named from mDNS and the router's DHCP names, with a word on
+  setting a phone's private Wi-Fi address to Fixed. The wall shows Persons as Home or Away; a user linked to a Person
+  sees "You are home" on the Status page and Account. Who is home is on the host's `PresenceBoard`
+  (`context.presence`, `GET /api/presence` for the signed-in user's own Persons), with arrivals, departures and Anyone
+  Home's changes for Automations' Triggers. In Docker it needs host networking.
+- Setup: a field of several options to pick (`SetupField.choices`, `request.choices`), a prompt's `warning`, and a plugin's
+  own name for Add by address (`addDeviceLabel`).
+
 ### Fixed
 
 - Two-way audio: a camera's Talk begins and stays open while HomeKit's return audio keeps coming, however busy the

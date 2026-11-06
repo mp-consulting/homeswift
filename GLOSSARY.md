@@ -220,3 +220,14 @@ _Avoid_: Other, remainder, unknown
 A Bridge Setting: what the home pays per kWh from a start date, by period of the day and week, and optionally what
 it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
 _Avoid_: Price, rate, contract, cost settings
+
+## Presence
+
+**Person**:
+Someone who lives in the home, known to the bridge by the devices they carry. A Person is home while one of those
+devices is on the network, and away after a grace period without any.
+_Avoid_: User, member, occupant, host
+
+**Anyone Home**:
+Whether at least one Person is home.
+_Avoid_: Occupancy, somebody home, home mode

@@ -189,7 +189,7 @@ sudo docker compose up -d
 
 | Setting | Why |
 |---|---|
-| `network_mode: host` | Required. HomeKit finds the bridge over mDNS multicast, which a bridged container network does not carry, and connects to the bridge's port on the NAS's address. With host networking there are no ports to map |
+| `network_mode: host` | Required. HomeKit finds the bridge over mDNS multicast, which a bridged container network does not carry, and connects to the bridge's port on the NAS's address. With host networking there are no ports to map. Presence needs it too: it reads the NAS's ARP table to see the phones on the network, and a bridged container's own table has none |
 | `restart: unless-stopped` | The bridge comes back after a reboot or a crash. A restart from the web UI happens inside the container, which keeps running |
 | `stop_grace_period: 30s` | Time to stop the servers and the plugins and to write the accessory cache |
 | `PUID`, `PGID` | The user the bridge runs as. The container makes the data folder that user's, so you can read and back up the files from DSM |

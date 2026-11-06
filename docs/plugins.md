@@ -119,7 +119,8 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   connection whose bytes arrive as a stream, for a binary protocol of the device's own), `SSDP` (an M-SEARCH and a
   listener for UPnP devices), `CoAPMessage` (the CoAP codec, for CoIoT status multicasts), `FCMReceiver` (an FCM
   web-push registration and receiver, for clouds that push to their phone app), `ARPTable` and `MACAddress` (the MAC
-  behind a LAN address, in one spelling for accessory ids). A plugin depends on it rather than adding a
+  behind a LAN address, in one spelling for accessory ids), `TCPReachabilityProbe` (whether a host answers, by a TCP
+  connection accepted or refused: ICMP needs privileges the bridge does not have). A plugin depends on it rather than adding a
   package; its tests take `FakeMQTTConnection` and `FakeWebSocket` from the `HomeswiftNetworkTestSupport` target.
 - **Helpers.** `Service(optional:)` with a type the service has already (`.targetTemperature.with(minValue: 30)`)
   changes its props; `accessory.takeValues(from: cached)` keeps the last values of a rebuilt accessory;
@@ -132,6 +133,10 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), `EveHistory` is
   fakegato-history for the Eve app, and `context.logs` is the bridge's log from now on (`LogBuffer.observe`), for a
   plugin that acts on log lines (Dummy's log triggers); nil in a library or a test that gives the host none.
+  `context.presence` is the host's `PresenceBoard` (who of the Persons is home, GLOSSARY.md "Presence"): the Presence
+  plugin publishes on it, and the web UI, Automations and notifications read it and follow its `PresenceEvent`s (a Person
+  arriving or leaving, Anyone Home changing). `context.webUsers` lists the web UI's users, for a plugin that links
+  something to one of them (a Person to the user they are); empty without a web UI.
 - **History and energy.** `context.recordValue(_:series:)` records a reading for the Status page's history (a minute
   keeps its count, sum, lowest and highest, for 8 days; `/api/metrics/values?series=plugin:<platform>:<series>`
   answers it over a range, for a plugin's page; several series separated by commas answer at once, by name, under
@@ -424,6 +429,10 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   keeps it once done. A short list of fixed answers (EcoFlow's region) is a choice too, not text to type. A country or a language is a
   choice of `SetupOption.countries()` (each country's ISO code, or what the plugin sends for it, such as eWeLink's
   calling codes) or `SetupOption.languages()`: the web UI shows a long choice as a menu, named in the reader's language.
+  Several to pick (a Person's devices among those on the network) is `SetupField.choices(_:label:options:picked:)`, a
+  checkbox per option; `request.choices(_:)` reads the values picked (an MCP client passes them as an array). A prompt's
+  `warning` is a caution the sheet shows apart from its message (a phone's private Wi-Fi address set to Fixed), in English
+  with its translations as the message's.
 - **What it gives**: `SetupOutcome.credentials` (tokens, keys, a device's password) go to the vault, read back with
   `context.credentials(for:as:)`; `settings` are merged into the block for the account (a `null` takes a key out,
   one the credentials now hold) or into the device's Accessory Settings; `deviceID` names the device when the
@@ -458,7 +467,8 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   did not work ("No light answered at 192.0.2.50:9123"), which the sheet shows and asks again. A device added this way is
   included (an Excluded one is no longer), and the plugin reloads and reaches it from `context.allAccessorySettings`;
   `discover()` lists it, set up, like a discovered one. The plugin's own Homebridge-shaped address list (Elgato's
-  `addresses`) keeps working beside it. `Plugins/ElgatoKeyLights/Sources/ElgatoSetup.swift` is the example:
+  `addresses`) keeps working beside it. A plugin whose devices are not named by an address calls it its own way with `static let addDeviceLabel`
+  ("Add a Person", translated in the web UI's catalogs), as Presence does. `Plugins/ElgatoKeyLights/Sources/ElgatoSetup.swift` is the example:
 
   ```swift
   public static let addsDevicesByAddress = true
