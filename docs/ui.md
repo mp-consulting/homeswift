@@ -474,6 +474,26 @@ switches and a **Send a test**, under a Save bar.
   uses the provider's quota). Glass UI's update and rollback events have no counterpart here: plugins are compiled in.
 - **Limits**: the same event about the same thing goes once per 15 minutes, 12 notifications an hour at most, 5 tests
   a minute.
+- **A tap** opens the page a notification is about (the Logs for a plugin's error, the Status page, an automation),
+  on ntfy (`Click`), Pushover (its link), Web Push and a webhook (`url`). **Address in notifications** is the web UI's
+  address those links use, when the one it starts on (this machine's address on the network) is not the one your phone
+  reaches, such as a reverse proxy's or a tunnel's.
+- **Buttons**: an [Automation](#automations)'s **Notify** Step carries up to three, each applying a Scene, setting a
+  value or opening a page. Each button has a single-use token valid 15 minutes, and the notification a confirmation page
+  (`/notify/<id>`, behind sign-in) that lists its buttons, which a tap opens.
+  - **ntfy**: its actions, an `http` POST to `/notify/act/<token>` for a button that acts, a `view` for one that opens
+    a page (the message is then published as JSON, so labels keep their accents).
+  - **Telegram**: an inline keyboard. A button that acts is a callback the bridge reads with `getUpdates` while a token
+    waits, from the configured chat only; it answers the press and takes the keyboard off the message. One that opens a
+    page is a link.
+  - **Web Push**: the notification's `actions` where the browser shows them (Chromium); the service worker posts the
+    token, or opens the page. On iOS and Safari, which show no buttons, a tap opens the confirmation page.
+  - **Pushover** and a **webhook** (its `buttons`, each with the `post` address of its token or the `url` of its page)
+    lead to the confirmation page.
+  - A button that would act on a **lock, a garage door or an alarm** never acts from the notification: it opens the
+    confirmation page, where a signed-in person confirms it. Its token is refused at `/notify/act`.
+  - A used or expired button says so on the page. `/notify/act/<token>` takes no cookie and no `Origin`: its token is
+    its only credential, as the OAuth endpoints' are theirs. The tokens live in memory and go with a restart.
 
 The settings live in `notifications.json` next to config.json (owner-only), not in config.json. Tokens, keys, header
 values and the webhook URL come back to the page as `********`: sent back unchanged they keep the stored value, and a

@@ -20,6 +20,11 @@ All notable changes to this project are documented here. The format follows
   and alarms are never set by one. An Automation may be a switch on the Homeswift Scenes accessory, which turns it on and
   off. The Assistant drafts one from a sentence, for review. MCP: `list_automations`, `save_automation`,
   `run_automation`, `delete_automation`.
+- Actionable notifications: an Automation's Notify Step carries up to three buttons (apply a Scene, set a value, open a
+  page), each a single-use token valid 15 minutes: ntfy actions, a Telegram inline keyboard (its callbacks read with
+  getUpdates), Web Push actions in Chromium; elsewhere, and for a lock, a garage door or an alarm, a tap opens a
+  confirmation page behind sign-in (`/notify/<id>`). Notifications' taps open their page on ntfy and Pushover too, at the
+  new **Address in notifications**.
 
 - History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
   each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,

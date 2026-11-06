@@ -176,7 +176,8 @@ writeFileSync(join(storage, "automations.json"), JSON.stringify({ version: 1, au
   { id: "a7e0e0000000b002", name: "Movie lights", mode: "single",
     triggers: [{ type: "stays", id: "PhilipsHue:l6", service: "TV Lightstrip", characteristic: "On", operator: "eq", value: true, forSeconds: 120 }],
     conditions: [], steps: [{ type: "scene", scene: "5ce0e0000000a001" }, { type: "wait", seconds: 7200 },
-      { type: "set", id: "PhilipsHue:l3", service: "Floor Lamp", characteristic: "On", value: false }, { type: "notify", title: "Movie night", message: "The floor lamp went off after two hours." }] },
+      { type: "set", id: "PhilipsHue:l3", service: "Floor Lamp", characteristic: "On", value: false }, { type: "notify", title: "Movie night", message: "The floor lamp went off after two hours.",
+        buttons: [{ label: "Lights back on", type: "scene", scene: "5ce0e0000000a002" }, { label: "Open the scenes", type: "open", path: "/scenes" }] }] },
 ] }));
 // A conversation where the Assistant started pairing the second bridge and handed the button press to the Setup sheet.
 const now = new Date().toISOString();
@@ -428,7 +429,7 @@ try {
   await shot("scene-controls", movie, { ready: ".scene-flow-nav", height: 720, element: ".scene-flow", prepare: step("Actions") }).then(() => toUI("scene-controls"));
   // The Automations page and its editor (docs/ui.md, "Automations").
   await shot("automations", "/automations", { ready: ".automation-card", tall: 900 }).then(() => toUI("automations"));
-  await shot("automation-editor", "/automations/a7e0e0000000b002", { ready: ".automation-steps .automation-step", tall: 1500 }).then(() => toUI("automation-editor"));
+  await shot("automation-editor", "/automations/a7e0e0000000b002", { ready: ".automation-steps .automation-step", tall: 2000, height: 2000 }).then(() => toUI("automation-editor"));
   await shot("scene-workflow-phone", movie, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, element: ".scene-flow", tall: 844, prepare: unpinned + step("Actions") })
     .then(() => toUI("scene-workflow-phone"));
   await shot("automation-editor-phone", "/automations/a7e0e0000000b001", { ready: ".automation-section .editor-row", width: 390, height: 844, mobile: true, tall: 1600, prepare: unpinned })
