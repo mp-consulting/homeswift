@@ -1,3 +1,7 @@
+---
+status: accepted; its Room Sync part superseded by ADR-0005
+---
+
 # Room, Hidden and Not in Home are Accessory Settings; the layout files keep only the Arrangement
 
 An accessory's room and whether it is Hidden lived in `accessory-layout.json` with its favourites, its name in three places

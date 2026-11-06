@@ -21,11 +21,13 @@ _Avoid_: Device settings, device options, overrides, feature options
 
 **Core Accessory Settings**:
 The Accessory Settings every accessory has whatever its plugin: its Name, its room, whether it is Excluded, Hidden
-or Not in Home, which of its Parts are included, and the Energy Role of each of its Meters.
+or Not in Home, which of its Parts are included, whether its Functions are Separate, and the Energy Role of each of
+its Meters.
 _Avoid_: Layout, common settings
 
 **Arrangement**:
-Where accessories sit on the wall and which are favourites. It is how a page is laid out, not an Accessory Setting.
+Where accessories sit on the wall, which are favourites, and the order Rooms and Zones are shown in. It is how a
+page is laid out, not an Accessory Setting, and it stays the bridge's own: Apple Home's order is not followed.
 _Avoid_: Layout, settings
 
 **Plugin Accessory Settings**:
@@ -33,11 +35,6 @@ The Accessory Settings one plugin declares for its accessories, such as a sensor
 duration or the type a switch shows as. A plugin may declare some for one Device Kind only, and give one a
 plugin-wide default in its Plugin Settings, which an accessory's own value overrules.
 _Avoid_: Device config, per-device options, feature options
-
-**Room Sync**:
-A Bridge Setting that keeps Homeswift's Rooms in step with the hubs' rooms of the same name: renaming a Room
-renames theirs, and moving an accessory moves it in Apple Home, in both directions.
-_Avoid_: Sync room names, hub rooms
 
 ## Accessories
 
@@ -62,7 +59,18 @@ _Avoid_: Ignored, disabled, removed, enabled: false
 **Part**:
 Something a device brings that a person can leave out while keeping the device, such as a gate's side door, a door's
 position sensor or a doorbell. A Core Accessory Setting keeps which parts are included.
-_Avoid_: Feature, sub-device, service, component
+_Avoid_: Feature, sub-device, service, component, Function
+
+**Function**:
+One thing an accessory does that Apple Home shows on its own, such as a light, a motion sensor or an outlet. An
+accessory's battery and identity are not Functions; they belong to every accessory made from the device.
+_Avoid_: Service, feature, sub-accessory, attached accessory
+
+**Separate Functions**:
+A Core Accessory Setting that makes each of an accessory's Functions an accessory of its own, so that it can have its
+own Name, room and Group. The main Function stays on the device's own accessory. A plugin can say that some Functions
+must stay together, such as a camera and the motion sensor its recordings need.
+_Avoid_: Split, unbundle, separate tiles
 
 **Not in Home**:
 An accessory the bridge has and shows on the wall, but leaves out of Apple Home.
@@ -80,6 +88,48 @@ _Avoid_: Talkback, backchannel (a camera's own way in for it)
 One continuous period of Return Audio on a live stream, from its first packet to a silence; a plugin sends each to
 its camera's speaker.
 _Avoid_: Intercom session, talk session
+
+## Home
+
+**Home**:
+The one Apple Home the bridge's accessories are in. Its Rooms, Zones and Groups are the bridge's; another home the
+same people have is not the bridge's concern.
+_Avoid_: House, HomeKit home, homes
+
+**Room**:
+One of the Home's rooms, its name its own: no two Rooms' names differ only by case or accents. Apple Home keeps the
+list and the bridge keeps a copy, so a person can still put accessories in Rooms while the Home Link is down. An
+accessory's room is a Core Accessory Setting naming one, and it is the same room the accessory is in in Apple Home:
+moving it on either side moves it on the other. A hub's own rooms (Hue, DIRIGERA, eWeLink) are not Rooms; they only
+follow a Room's renames.
+_Avoid_: Zone, area, group, hub room
+
+**No Room**:
+Where an accessory in none of the Rooms is, which Apple Home calls its Default Room. It is never one of the Rooms.
+_Avoid_: Default Room, unassigned, unknown room
+
+**Zone**:
+One of the Home's sets of Rooms, such as Upstairs, kept like Rooms: Apple Home keeps the list and the bridge a copy.
+A Room can be in several Zones. A hub's own zones (Hue's) are not Zones.
+_Avoid_: Floor, area, group, Hue zone
+
+**Group**:
+Accessories shown and controlled as one, as Apple Home groups them: the Home keeps the list and the bridge a copy, as
+for Rooms, and grouping or ungrouping on either side does it on the other. Its members are accessories in Apple Home
+of one kind, each with one Function, as the Home app allows; one with fewer than two members is no Group. A Group
+gathers accessories; a Zone gathers Rooms.
+_Avoid_: Wall group, service group, accessory group, Zone
+
+**Home Link**:
+The bridge's way to the Home, through a Wingman: while it is up, the bridge's Rooms, Zones and Groups and its
+accessories' rooms are Apple Home's, and a change on either side reaches the other. It can be up, down, or up but not
+allowed to edit, when only Apple Home's changes reach the bridge.
+_Avoid_: Room Sync, sync room names, hub rooms
+
+**Pending Change**:
+A change to the Rooms, the Zones, the Groups or an accessory's room made while the Home Link is down, which reaches
+Apple Home when it is back up. A change Apple Home does not allow is refused, never kept pending.
+_Avoid_: Queued move, offline change
 
 ## Setup
 
@@ -103,11 +153,6 @@ _Avoid_: Manual device, add manually, static device
 What sort of device a plugin says a Discovered Device is, such as a camera or a sensor, which decides the Plugin
 Accessory Settings it has.
 _Avoid_: Model, category, accessory type
-
-**Room**:
-One of the bridge's places that accessories are in. An accessory's room is a Core Accessory Setting naming one;
-with Room Sync on it is also the accessory's room in Apple Home.
-_Avoid_: Zone, area, group
 
 **Authorization**:
 What a device or an account asks before the bridge may talk to it. A plugin instance may need one for its account,
