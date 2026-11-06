@@ -116,10 +116,14 @@
         canSettle ? { label: t("Assistant settings"), icon: "gear", onSelect: () => { toggle(false); HomeswiftApp.navigate("/settings/assistant"); } } : null,
         Recognition ? { label: t("Voice language"), icon: "globe", count: voiceName(), onSelect: () => setTimeout(() => chooseVoice(settings)) } : null,
       ], { keyboard: event.detail === 0 }) }, icon("gear")) : null;
+    // Under the title, the model that answers: a menu of the provider's others, the choice kept for this user.
+    const modelLabel = el("span", { class: "chat-model-label", text: info.model || "" });
+    const modelButton = el("button", { type: "button", class: "chat-model", actionIcon: "down", "aria-haspopup": "menu", title: t("Choose the model"),
+      onclick: (event) => chooseModel(event.currentTarget, event.detail === 0) }, modelLabel);
     const head = el("div", { class: "chat-head" },
       el("span", { class: "chat-grabber", "aria-hidden": "true" }),
       el("span", { class: "chat-badge", "aria-hidden": "true" }, sparkle()),
-      el("div", { class: "chat-who" }, el("strong", { id: "chat-title", text: t("Assistant") }), el("span", { class: "chat-model", text: info.model || "" })),
+      el("div", { class: "chat-who" }, el("strong", { id: "chat-title", text: t("Assistant") }), modelButton),
       el("span", { class: "spacer" }),
       el("div", { class: "chat-tools" }, copy, earlier, fresh, settings), close);
     const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
@@ -128,7 +132,9 @@
       el("div", { class: "chat-surface" }, head, log, foot, form));
     const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
     document.body.append(scrim, sheet);
-    panel = { sheet, scrim, log, input, mic, send, foot, note, head, earlier, copy };
+    panel = { sheet, scrim, log, input, mic, send, foot, note, head, earlier, copy, modelButton, modelLabel };
+    showModel();
+    loadModels();
     showCopied(false);
 
     input.addEventListener("input", grow);
@@ -670,6 +676,47 @@
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
+  // ---- The model --------------------------------------------------------------------------------------------
+
+  /// The provider's models (`/api/assistant/models`: `{ models: [{ id, name }], default, error? }`), asked once a page.
+  let models = null;
+  async function loadModels() {
+    if (models) return models;
+    try { models = await api("/api/assistant/models"); } catch (e) { return { models: [], error: e.message }; }
+    showModel();
+    return models;
+  }
+
+  /// The model under the title, by the provider's name for it when the list has one.
+  function showModel() {
+    if (!panel) return;
+    const known = models?.models?.find((one) => one.id === info.model);
+    panel.modelLabel.textContent = known?.name || info.model || "";
+    panel.modelButton.setAttribute("aria-label", t("Model: {model}. Choose another", { model: known?.name || info.model || "" }));
+  }
+
+  /// The menu of models, the one answering ticked and the block's marked Default. A choice holds from the next message on.
+  async function chooseModel(trigger, keyboard) {
+    const listed = await loadModels();
+    const list = [...(listed.models || [])];
+    // A model the list does not name (a custom one in the block) stays choosable.
+    for (const id of [info.model, info.defaultModel]) if (id && !list.some((one) => one.id === id)) list.unshift({ id });
+    menu(trigger, [
+      { heading: t("Model"), detail: listed.error ? t("The provider's list could not be read: {error}", { error: listed.error }) : providerNames[info.provider] || info.provider },
+      ...list.map((one) => ({ label: one.name || one.id, count: one.id === info.defaultModel ? t("Default") : undefined, checked: one.id === info.model,
+        onSelect: () => pickModel(one.id) })),
+    ], { keyboard });
+  }
+
+  async function pickModel(id) {
+    if (id === info.model) return;
+    try {
+      await api("/api/preferences", { method: "PUT", body: { assistantModel: id === info.defaultModel ? null : id } });
+    } catch (e) { showError(e.message); return; }
+    info.model = id;
+    showModel();
+  }
+
   // ---- Voice ------------------------------------------------------------------------------------------------
 
   let recognition = null;
@@ -683,15 +730,22 @@
       mic.title = t("Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.");
     }
     let pressedAt = 0;
+    // A mouse starts on the press, so holding it down is push to talk. A finger starts on the tap (its click): Safari
+    // lets a page listen only from a tap that ended, and a touch's press is not one, so it refused to start.
     mic.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
       pressedAt = event.timeStamp;
       if (!listening) startListening();
       else stopListening(false);
     });
     // Held down and let go: push to talk. A tap keeps listening until the next tap or a pause.
     mic.addEventListener("pointerup", (event) => {
-      if (listening && event.timeStamp - pressedAt > 400) stopListening(false);
+      if (event.pointerType === "mouse" && listening && event.timeStamp - pressedAt > 400) stopListening(false);
+    });
+    mic.addEventListener("click", (event) => {
+      // A mouse was handled on its press; a keyboard's Enter or Space below.
+      if (event.pointerType === "mouse" || event.detail === 0) return;
+      listening ? stopListening(false) : startListening();
     });
     mic.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); listening ? stopListening(false) : startListening(); }
@@ -714,19 +768,24 @@
     current.interimResults = true;
     current.continuous = false;
     const before = panel.input.value ? `${panel.input.value} ` : "";
-    let finalText = "";
+    // What was heard: Safari on iOS often ends without marking a result final, so the last words count either way.
+    let heardText = "";
+    let failed = false;
     current.onresult = (event) => {
-      let interim = "";
-      finalText = "";
-      for (const result of event.results) {
-        if (result.isFinal) finalText += result[0].transcript; else interim += result[0].transcript;
-      }
-      panel.input.value = before + finalText + interim;
+      heardText = [...event.results].map((result) => result[0].transcript).join("");
+      panel.input.value = before + heardText;
       grow();
     };
     current.onerror = (event) => {
-      voiceNote = event.error === "not-allowed" || event.error === "service-not-allowed"
-        ? t("The browser did not allow the microphone for this page.")
+      // Our own stop or cancel: nothing to say.
+      if (event.error === "aborted") return;
+      failed = true;
+      voiceNote = event.error === "not-allowed" ? t("The browser did not allow the microphone for this page: allow it in the site's settings, then tap the mic again.")
+        // Safari says so when Siri & Dictation is off, or when dictation is not offered where the page runs.
+        : event.error === "service-not-allowed" ? t("Dictation is not available here. On an iPhone or iPad, turn on Enable Dictation in Settings › General › Keyboard; if this page was added to the Home Screen, try it in Safari.")
+        : event.error === "audio-capture" ? t("No microphone was found.")
+        : event.error === "network" ? t("Dictation could not reach its speech service. Check the connection and try again.")
+        : event.error === "language-not-supported" ? t("Dictation does not support {language}: choose another Voice language from the Settings menu.", { language: current.lang })
         : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
     current.onend = () => {
@@ -735,7 +794,7 @@
       listening = false;
       recognition = null;
       panel.sheet.classList.remove("listening");
-      const heard = send && finalText.trim();
+      const heard = send && !failed && heardText.trim();
       if (heard && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
       renderControls();
       const text = panel.input.value.trim();
@@ -787,10 +846,25 @@
       "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
     }, sparkle());
     header.insertBefore(trigger, header.querySelector("#user"));
+    // A phone: the button floats above the sections' button at the bottom right, in the thumb's reach, rather than in
+    // the header at the top. The header's glass makes it the box fixed things inside it are placed in, so the button
+    // moves to a dock of its own, and back into the header on a wider window.
+    const dock = el("div", { class: "chat-dock" });
+    const place = () => {
+      if (phone.matches) {
+        if (!dock.isConnected) document.body.append(dock);
+        if (trigger.parentNode !== dock) dock.append(trigger);
+      } else if (trigger.parentNode !== header) {
+        header.insertBefore(trigger, header.querySelector("#user"));
+        dock.remove();
+      }
+    };
+    place();
+    phone.addEventListener("change", place);
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
-      // Not from the sign-in screen: the button is in the hidden app then.
-      if (!trigger?.isConnected || trigger.closest(".hidden")) return;
+      // Not from the sign-in screen: the button is in the hidden app then (on a phone, in its dock while the app is hidden).
+      if (!trigger?.isConnected || trigger.closest(".hidden") || document.querySelector("#app.hidden")) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !event.isComposing) {
         event.preventDefault();
         toggle();

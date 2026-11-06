@@ -56,6 +56,11 @@ final class PreferencesStore: Sendable {
             case "temperatureUnit": accepted[key] = try Self.choice(value, in: Self.temperatureUnits, key)
             case "language": accepted[key] = try Self.choice(value, in: Self.languages, key)
             case "dashboard": accepted[key] = try Self.dashboard(value)
+            // The Assistant chat's model, one of the provider's; null goes back to the block's.
+            case "assistantModel":
+                if value.isNull { accepted[key] = .null; break }
+                guard let id = value.stringValue, Self.isModelID(id) else { throw PreferencesError("assistantModel is a model id of the Assistant's provider, or null") }
+                accepted[key] = .string(id)
             // One of the user's own images; `wallpaperVersion` follows it, for the address common.js loads.
             case "wallpaperImage":
                 guard let id = value.stringValue, wallpaperIDs(for: user).contains(id) else { throw PreferencesError("wallpaperImage is one of your images") }
@@ -66,7 +71,8 @@ final class PreferencesStore: Sendable {
         }
         try save { all in
             var object = all[user]?.objectValue ?? [:]
-            for (key, value) in accepted { object[key] = value }
+            // A null goes back to the default: the key goes.
+            for (key, value) in accepted { if value.isNull { object.removeValue(forKey: key) } else { object[key] = value } }
             all[user] = .object(object)
         }
         return preferences(for: user)
@@ -159,6 +165,12 @@ final class PreferencesStore: Sendable {
     }
 
     /// An image's id: base 36 digits, so it is a plain file name.
+    /// A provider's model id as the models lists give them (`claude-opus-5-5`, `gemini-3.8-flash`, `llama3.1:8b`,
+    /// `org/model`): no spaces or quotes, 100 characters at most.
+    static func isModelID(_ text: String) -> Bool {
+        (1...100).contains(text.count) && text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._:/-@".contains($0)) }
+    }
+
     static func isID(_ text: String) -> Bool {
         !text.isEmpty && text.count <= 16 && text.allSatisfy { $0.isASCII && ($0.isNumber || $0.isLowercase) }
     }

@@ -77,6 +77,12 @@ extension UIServer {
             if let refused = limitAssistant(for: username) { return refused }
             let block = body["block"].flatMap { $0.objectValue == nil ? nil : $0 }
             return .json(await catalog.testAssistantConnection(block: block, user: username))
+        case (.GET, ["models"]):
+            // The models the chat can switch to, for anyone who may chat: the saved block's provider asked with the
+            // bridge's key, limited as the chat is (no tokens are spent).
+            guard catalog.host.assistant != nil else { return .error(404, Self.assistantOff) }
+            if let refused = limitAssistant(for: username) { return refused }
+            return .json(await catalog.assistantModels(block: nil))
         case (.POST, ["models"]):
             // The settings form's block, saved or not, or the saved one: the models its provider offers (the Model menu).
             // Each opening of the menu asks the provider with the bridge's key: limited as the test is, though no
