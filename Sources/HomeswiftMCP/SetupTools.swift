@@ -300,7 +300,7 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "discover_devices", title: "Find devices",
                 description: "Asks a plugin which devices it finds now (on the network, in its account, at the addresses its settings name), each with "
-                    + "its deviceID, its accessoryID, the Authorization it needs (none, buttonPress, deviceCode, accountLogin, browserRedirect, apiKey) and its "
+                    + "its deviceID, its accessoryID, the Authorization it needs (none, buttonPress, deviceCode, accountLogin, browserRedirect, apiKey, bridgeSetting: a Bridge Setting such as the Location, set first) and its "
                     + "status: setUp, notResponding (set up, but the plugin cannot reach it now), needsAuthorization (start_setup with its deviceID), discovered (the plugin publishes it by itself) or excluded "
                     + "(excludedBySettings: by the plugin's own settings, which get_plugin_config_schema describes; exclude or include one with update_settings, "
                     + "its accessoryID and excluded, and leave out one of its parts with parts). kind is its Device Kind, which decides its Plugin Accessory Settings. "
