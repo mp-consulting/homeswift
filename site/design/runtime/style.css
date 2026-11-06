@@ -4908,6 +4908,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .chart .timeline-span.tone-5 { fill: var(--series-5); }
 .chart .timeline-span.tone-6 { fill: var(--series-6); }
 .chart .timeline-span.tone-7 { fill: var(--series-7); }
+.chart .timeline-span.tone-off, .key.tone-off { fill: var(--muted); background: var(--muted); opacity: 0.45; }
 .chart .timeline-span.chosen { stroke: var(--text); stroke-width: 1.5; }
 
 /* An accessory's sheet: its Controls and History tabs on the left of the bar, Done on the right. */

@@ -24,8 +24,12 @@
     const name = HomeswiftWidgets.characteristicName(series.characteristic);
     return series.service && series.service !== accessory.name && !accessory.name.endsWith(series.service) && !accessory.name.startsWith(series.service) ? `${name} · ${series.service}` : name;
   };
-  /// The colour slot of a state: by its place among the values it may take (false before true).
+  /// The colour slot of a state: by its place among the values it may take; off, false or an enumeration's first (Off,
+  /// Inactive, Unsecured is not first) in a neutral grey, as a switch that is off.
   const toneOf = (series, value) => {
+    if (value === false) return "off";
+    // A number's first value when it reads as off (Off, Inactive, Idle), as a switch that is off.
+    if (value === 0 && [t("Off"), t("Off [setting]"), t("Inactive"), t("Idle")].includes(valueText(series, 0))) return "off";
     const order = typeof value === "boolean" ? Number(value) : series.validValues?.indexOf(value) ?? -1;
     if (order >= 0) return (order % 7) + 1;
     return (Math.abs([...String(value)].reduce((hash, char) => hash * 31 + char.charCodeAt(0) | 0, 7)) % 7) + 1;
@@ -88,7 +92,7 @@
         const lowest = Math.min(...points.map((point) => point.min)), highest = Math.max(...points.map((point) => point.max));
         const [node, body] = card(series, figure, t("Lowest {min} · highest {max} · average {average}", { min: format(lowest), max: format(highest),
           average: format(points.reduce((sum, point) => sum + point.mean, 0) / points.length) }));
-        HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: series.step === "day" ? 86_400_000 : 3_600_000,
+        HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: series.step === "day" ? 86_400_000 : 3_600_000, fit: true,
           series: [{ label: t("Highest"), tone: 4, value: (point) => point.max }, { label: t("Average"), tone: 1, value: (point) => point.mean },
             { label: t("Lowest"), tone: 3, value: (point) => point.min }] });
         return node;
@@ -106,7 +110,7 @@
       const values = points.map((point) => point.value);
       const [node, body] = card(series, figure, t("Lowest {min} · highest {max} · average {average}", { min: format(Math.min(...values)), max: format(Math.max(...values)),
         average: format(weightedMean(points)) }));
-      HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: found.to - found.from,
+      HomeswiftChart.lineChart(body, { title: label, format, points, from: found.from, to: found.to, step: found.to - found.from, fit: series.unit !== "percentage",
         series: [{ label, tone: 1, value: (point) => point.value }] });
       return node;
     }

@@ -86,7 +86,8 @@
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
   /// of it. With `latest`, the legend writes each series' last value beside its name (a battery's level), so the
   /// chart needs no separate line of them. Returns `update(points, from, to, step)`.
-  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false }) {
+  /// With `fit`, the axis spans the values (a room's 19 to 22 °C) rather than starting at zero.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false, fit = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -120,7 +121,16 @@
       const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
       // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
       let top = niceMax(highest, unit(highest)), bottom = 0, ticks = [0, 1, 2, 3, 4].map((i) => top / 4 * i);
-      if (lowest < 0) {
+      const fitted = values.length ? [Math.min(...values), Math.max(...values)] : null;
+      if (fit && fitted) {
+        const [low, high] = fitted;
+        const span = Math.max(high - low, Math.abs(high) * 0.02, unit(Math.abs(high)) || 1);
+        const step = niceStep(span / 4, unit(span));
+        bottom = Math.floor(low / step) * step;
+        top = Math.max(bottom + step, Math.ceil(high / step) * step);
+        ticks = [];
+        for (let value = bottom; value <= top + step / 2; value += step) ticks.push(Math.round(value / step) * step);
+      } else if (lowest < 0) {
         const size = Math.max(highest, -lowest);
         const step = niceStep((highest - lowest) / 4, unit(size));
         top = Math.max(step, Math.ceil(highest / step) * step);
@@ -166,7 +176,7 @@
         for (const run of runs(one)) {
           const line = run.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
           if (series.length === 1 && run.length > 1) {
-            const base = y(0).toFixed(1);
+            const base = y(Math.max(bottom, Math.min(0, top))).toFixed(1);
             root.append(svg("path", { d: `${line}L${run.at(-1)[0].toFixed(1)},${base}L${run[0][0].toFixed(1)},${base}Z`, class: `area tone-${one.tone}` }));
           }
           root.append(svg("path", { d: line, class: `line tone-${one.tone}` }));
