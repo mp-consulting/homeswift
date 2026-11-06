@@ -66,7 +66,7 @@
   --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600; --weight-figure: 650; --weight-bold: 700;
   /* Layers for what floats over the page: the phone's tab bar, side panels, menus and pop-overs, a widget being
      dragged, tooltips. A scrim sits one below what it dims. */
-  --layer-tabbar: 15; --layer-panel: 20; --layer-menu: 30; --layer-drag: 40; --layer-tip: 50;
+  --layer-header: 10; --layer-tabbar: 15; --layer-panel: 20; --layer-menu: 30; --layer-drag: 40; --layer-tip: 50;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --fast: 120ms; --normal: 200ms;
 }
 @media (prefers-color-scheme: dark) {
@@ -155,7 +155,7 @@ body::before {
   box-shadow: 0 20px 40px rgba(40, 25, 20, 0.28);
 }
 header {
-  position: sticky; top: 12px; z-index: 2; margin: var(--space-12) auto 0; max-width: 1100px; width: calc(100% - 24px);
+  position: sticky; top: 12px; z-index: var(--layer-header); margin: var(--space-12) auto 0; max-width: 1100px; width: calc(100% - 24px);
   display: flex; align-items: center; gap: var(--space-14); padding: var(--space-8) var(--space-10) var(--space-8) var(--space-20); border-radius: var(--radius-pill);
   background-color: var(--material-chrome); background-image: var(--sheen);
   -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
@@ -2272,8 +2272,9 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
      grows, not its look). */
   .menu-button, .chat-icon, .chat-open { width: 40px; height: 40px; }
   button, a.button { min-height: 40px; }
-  /* A round button with only a glyph grows both ways, so it stays round. */
-  button:is(.icon-button, .menu-button) { min-width: 40px; }
+  /* A round button with only a glyph grows both ways, so it stays round; one drawn smaller over a tile (a scene's ⋯)
+     sets --round-target to its own size, and its tap area grows instead (an ::after). */
+  button:is(.icon-button, .menu-button) { min-width: var(--round-target, 40px); }
   button.link { padding-top: var(--space-10); padding-bottom: var(--space-10); }
   .group button, .chat-suggestions button, .tabbar a { min-height: 0; min-width: 0; }
   .menu [role="menuitem"] { padding: 11px var(--space-14); font-size: var(--text-lg); }
@@ -2537,16 +2538,16 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
 .scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
 .hub-scenes { display: grid; gap: var(--space-12); }
-.hub-scenes-head > select { width: auto; max-width: 260px; }
+.hub-scenes-head > select { width: auto; max-width: 260px; margin-left: auto; }
 .scene-run:disabled { opacity: 0.7; cursor: default; }
-.hub-scene-room { display: grid; gap: var(--space-8); }
 /* A hub scene's tile carries its actions: round glass buttons over its top-right corner, its "Scene active" on the left. */
-.hub-scene-tile { position: relative; display: grid; min-width: 0; }
+/* Its own layer: the buttons' z-index lifts them over the tile, never over the page's header as it scrolls past. */
+.hub-scene-tile { position: relative; isolation: isolate; display: grid; min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
 .hub-scene-tile > .scene-run .scene-active { right: auto; left: var(--space-10); }
 /* The same buttons as a plugin page's scene tiles (`.scene .eye`): a dark disc on a picture, a light one on a pale tile. */
 .hub-scene-actions { position: absolute; top: 6px; right: 6px; z-index: 2; display: flex; gap: var(--space-4); }
-.hub-scene-actions > button { display: grid; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
+.hub-scene-actions > button { --round-target: 30px; display: grid; place-items: center; width: 30px; height: 30px; min-height: 30px; margin: 0; padding: 0; border-radius: 50%;
   color: #fff; background: rgba(0, 0, 0, 0.28); border: 0; box-shadow: none; }
 .hub-scene-actions > button svg { width: 16px; height: 16px; }
 .hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
@@ -2564,7 +2565,6 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
-.scene-card .server-head > button { flex: none; }
 /* Templates: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
    mouse (a tap would leave it stuck). On a phone each kind is a row that swipes sideways and snaps, so the card fits a
@@ -3243,22 +3243,75 @@ select:disabled { opacity: .5; cursor: not-allowed; }
   .plugin-catalog .server-head .pill { margin-left: 44px; }
 }
 
-.scene-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); margin-bottom: 28px; }
-.scene-grid .scene-card { padding: var(--space-18); gap: var(--space-12); }
-.scene-card .server-head { align-items: flex-start; }
-.scene-card .server-head .who { min-width: 0; }
-.scene-card .server-head .muted { display: block; line-height: 1.5; margin-top: 5px; }
-.scene-card .controls { padding: var(--space-4) var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
-.scene-card .control { gap: var(--space-12); padding: 9px 0; }
-.scene-card .control > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.scene-card .value { text-align: right; font-size: var(--text-sm); }
-.scene-card .card-foot { font-size: var(--text-xs); line-height: 1.5; padding-top: var(--space-10); }
-.section-head:has(+ .scene-grid) { gap: var(--space-12); flex-wrap: wrap; }
-.section-head:has(+ .scene-grid) .search { margin-left: auto; max-width: 280px; }
-.templates .template-card { padding: var(--space-18); }
+/* The Scenes page: a search and the places as chips over everything; a hub's scene once, however many rooms have it;
+   the scenes run by name (Apple Home's) as small buttons; Ideas and the location folded at the foot. */
+.scene-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-10); margin-bottom: var(--space-18); }
+.scene-filters > .search { flex: 0 1 260px; min-width: 0; }
+.scene-filters > .clear-filters { margin: 0; flex: none; }
+.scene-places { flex: 1 1 320px; min-width: 0; display: flex; gap: var(--space-6); overflow-x: auto; scrollbar-width: none; padding: 3px; margin: -3px; }
+.scene-places::-webkit-scrollbar { display: none; }
+.scene-places > .template-room { flex: none; }
+.own-scenes { margin-bottom: var(--space-24); }
+.scene-moods { grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); }
+.scene-moods .scene-run { min-height: 120px; }
+.scene-more { justify-self: center; }
+.scene-around { display: grid; gap: var(--space-8); margin-top: var(--space-8); }
+/* A scene run by name: a capsule with its ⋯ inside, not a picture. */
+.hub-scene-tile.compact { display: flex; align-items: center; min-width: 0; max-width: 100%; border-radius: var(--radius-pill); background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow-control); }
+.hub-scene-tile.compact > .scene-run { width: auto; min-width: 0; min-height: 36px; padding: 0 var(--space-12); display: flex; align-items: center; background: none; border: 0; box-shadow: none; border-radius: var(--radius-pill);
+  font-size: var(--text-md); font-weight: var(--weight-medium); color: var(--text); }
+.hub-scene-tile.compact > .scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+.hub-scene-tile.compact .quick-scene-label > svg { width: 14px; height: 14px; color: var(--accent-ink); }
+.hub-scene-tile.compact .quick-scene-label > span { display: flex; align-items: baseline; gap: var(--space-6); min-width: 0; }
+.hub-scene-tile.compact .scene-source { display: inline; color: var(--muted); opacity: 1; }
+.hub-scene-tile.compact .scene-active { position: static; margin-left: var(--space-6); }
+.scene-copies { margin-left: var(--space-6); padding: 2px var(--space-8); border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: var(--weight-bold); background: var(--material-thin); color: var(--accent-ink); }
+.hub-scene-tile.compact > .hub-scene-actions { position: static; padding-right: 3px; }
+.hub-scene-tile.compact > .hub-scene-actions:empty { display: none; }
+.hub-scene-tile.compact .hub-scene-actions > button { background: transparent; color: var(--muted); }
+/* A scene of your own as a tile: what starts it on one line, small marks (the Home app, a schedule, a lock) where a hub's
+   tile has its source. */
+.own-scene .scene-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.own-scene .quick-scene-label > span { min-width: 0; }
+.scene-marks { position: absolute; top: var(--space-8); left: var(--space-8); display: flex; gap: var(--space-4); }
+.scene-marks > span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: rgba(0, 0, 0, 0.32); color: #fff; }
+.own-scene:not(.pictured) .scene-marks > span { background: rgba(255, 255, 255, 0.6); color: var(--accent-ink); }
+.scene-marks svg { width: 14px; height: 14px; }
+/* A scene's Details and a group's rooms, in openSheet's side panel (a bottom sheet on a phone). */
+.scene-details .controls { margin: var(--space-14) 0; padding: var(--space-4) var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
+.scene-details .control { gap: var(--space-12); padding: 9px 0; }
+.scene-details .control > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.scene-details .value { text-align: right; font-size: var(--text-sm); }
+.scene-details .scene-last-run { font-size: var(--text-sm); }
+.scene-group-sheet > .quick-scenes { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; overflow: visible; padding: 0; margin: var(--space-16) 0 0; }
+.scene-group-sheet .scene-run { min-height: 104px; }
+/* A small scene button presses as a whole, its ⋯ with it. */
+.hub-scene-tile.compact { transition: transform 160ms var(--ease-out); }
+.hub-scene-tile.compact:has(> .scene-run:active:not(:disabled)) { transform: scale(0.97); }
+.hub-scene-tile.compact > .scene-run:active:not(:disabled) { transform: none; }
+@media (prefers-reduced-motion: reduce) { .hub-scene-tile.compact:has(> .scene-run:active) { transform: none; } }
+.hub-scenes > p.muted { margin-top: calc(var(--space-8) * -1); }
+.templates { margin-top: var(--space-18); }
+.templates > summary { cursor: pointer; display: grid; gap: var(--space-4); list-style: none; }
+.templates > summary::-webkit-details-marker { display: none; }
+.templates-title { display: flex; align-items: center; gap: var(--space-8); font-size: var(--text-xl); }
+.templates-title > svg { width: 18px; height: 18px; color: var(--accent-ink); }
+.templates[open] > summary { margin-bottom: var(--space-16); }
+.templates-chevron { margin-left: auto; display: grid; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.templates-chevron > svg { width: 18px; height: 18px; }
+.templates[open] .templates-chevron { transform: rotate(180deg); }
+.templates .template-card { padding: 0; }
 .templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
+@media (max-width: 640px) {
+  /* The moods and a mood's rooms stay a grid of two: they are the page, not a row beside it. */
+  .scene-moods { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; overflow: visible; padding: 0; }
+  .scene-moods .scene-run { min-height: 116px; }
+  /* The search and Clear filters share the first row, Clear filters a round button as on other pages; the rooms swipe under them. */
+  .scene-filters > .search { flex: 1 1 0; }
+  .scene-filters > .clear-filters { flex: none; width: 40px; height: 40px; min-height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%; justify-content: center; }
+  .scene-filters > .scene-places { flex-basis: 100%; }
+}
 .templates .status-line:empty, .templates .template-running:empty { display: none; }
-@media (max-width: 560px) { .section-head:has(+ .scene-grid) .search { max-width: none; width: 100%; } }
 
 .scene-flow { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin: var(--space-20) 0; background: var(--material-solid); }
 .scene-flow-toolbar { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-12) var(--space-16); border-bottom: 1px solid var(--line); background: var(--control); }
@@ -4089,7 +4142,7 @@ select option:disabled { color: var(--muted); }
 .scene .name { position: relative; z-index: 1; font-weight: var(--weight-semibold); font-size: var(--text-base); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .scene.active { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.14); }
 .scene .badge { position: absolute; top: 10px; left: 12px; z-index: 1; font-size: var(--text-2xs); font-weight: var(--weight-semibold); padding: 2px var(--space-8); border-radius: var(--radius-pill); background: rgba(255, 255, 255, 0.85); color: #1d1d1f; }
-.scene .eye { position: absolute; top: 6px; right: 6px; z-index: 2; width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.28); border: 0; color: #fff; box-shadow: none; }
+.scene .eye { --round-target: 30px; position: absolute; top: 6px; right: 6px; z-index: 2; width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.28); border: 0; color: #fff; box-shadow: none; }
 .scene .eye svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .scene.hidden-scene { filter: grayscale(0.85); opacity: 0.55; }
 .scene.busy { pointer-events: none; }
@@ -4427,7 +4480,6 @@ select option:disabled { color: var(--muted); }
 .template-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
 
 
-.scene-run-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; }
 
 /* Original scalable abstract wallpapers. */
 :root[data-wallpaper="silk"] body::before, [data-swatch="silk"] { background: url("/wallpaper-silk.svg") center / cover no-repeat, var(--bg); }
@@ -4511,9 +4563,6 @@ select option:disabled { color: var(--muted); }
   .scene-editor.card { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--material-solid); }
 }
 
-.scene-card-details { margin-top: var(--space-12); }
-.scene-card-details > summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--text); }
-.scene-card-details[open] > summary { margin-bottom: var(--space-8); }
 
 /* Match gallery shelves across templates and plugin scene collections on phones. */
 @media (max-width: 640px) {
