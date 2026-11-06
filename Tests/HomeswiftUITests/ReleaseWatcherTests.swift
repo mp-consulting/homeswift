@@ -25,11 +25,14 @@ final class CannedGitHub: HTTPSending, Sendable {
 final class FakeInstaller: UpdateInstalling, Sendable {
     let onDisk: NIOLockedValueBox<String>
     let installs: String?
+    /// The releases it was asked to install.
+    let received = NIOLockedValueBox<[ReleaseWatcher.Release]>([])
     init(onDisk: String, installs: String?) {
         self.onDisk = NIOLockedValueBox(onDisk)
         self.installs = installs
     }
     func install(release: ReleaseWatcher.Release, progress: @escaping @Sendable (UpdateProgress) -> Void) async throws {
+        received.withLockedValue { $0.append(release) }
         progress(UpdateProgress(phase: .downloading, fraction: 0.5))
         progress(UpdateProgress(phase: .installing))
         if let installs { onDisk.withLockedValue { $0 = installs } }
@@ -267,6 +270,22 @@ final class CannedDownload: HTTPStreaming, Sendable {
         #expect(!ReleaseWatcher.isNewer("0.3.0", than: "0.3.0"))
         #expect(!ReleaseWatcher.isNewer("0.3.0-2", than: "0.3.0"))
         #expect(!ReleaseWatcher.isNewer("0.2.9", than: "0.3.0"))
+    }
+
+    /// A release seen minutes after it was published, before its packages were attached: the install asks GitHub again
+    /// and installs the release with them.
+    @Test func anInstallUsesTheReleaseAsGitHubHasItNow() async throws {
+        let bare = Self.release.replacingOccurrences(of: #""assets": ["#, with: #""assets": [], "older": ["#)
+        let github = CannedGitHub(json: bare)
+        let installer = FakeInstaller(onDisk: "0.3.0", installs: "0.4.0")
+        let releases = watcher(github, install: .synology, installer: installer)
+        await releases.check()
+        #expect(releases.json()?["download"] == nil)
+        github.reply.withLockedValue { $0 = HomeswiftNetwork.HTTPResponse(status: 200, body: Data(Self.release.utf8)) }
+        #expect(releases.install())
+        #expect(await eventually { releases.json()?["installed"]?.stringValue == "0.4.0" })
+        #expect(installer.received.withLockedValue { $0.first?.assets.map(\.name) } == ["homeswift-aarch64-0.4.0-1.spk", "homeswift-x86_64-0.4.0-1.spk"])
+        #expect(github.requests.withLockedValue { $0.count } == 2)
     }
 
     @Test func offersTheNASItsPackage() async throws {

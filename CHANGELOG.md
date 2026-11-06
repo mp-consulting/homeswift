@@ -6,18 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- TP-Link Tapo: a battery camera's lenses go on the bridge, as UniFi Protect's cameras do, so pairing the bridge brings
-  them; `standalone: true` on a device keeps each lens on a HAP server of its own, added in the Home app one by one. A
-  camera added before shows as a new accessory on the bridge: remove its old one from the Home app.
-
 ### Added
 
 - TP-Link Tapo: a battery camera's lenses each have a Battery service (Battery Level, Charging State, Status Low
   Battery), read from the camera's control API a few seconds after a live view wakes it, at most every five minutes and
   never on its own, kept in `battery.json` between views; the TP-Link cloud's low-battery and battery-empty notifications
   mark it low at once (a clean-room implementation of docs/clean-room/TapoBattery.md).
+
+### Changed
+
+- TP-Link Tapo: a battery camera's lenses go on the bridge, as UniFi Protect's cameras do, so pairing the bridge brings
+  them; `standalone: true` on a device keeps each lens on a HAP server of its own, added in the Home app one by one. A
+  camera added before shows as a new accessory on the bridge: remove its old one from the Home app.
+
+### Fixed
+
+- Installing an update from the Status page asks GitHub for the release again first: a NAS that saw a release minutes
+  after it was published, before its packages were attached, failed with "the release has no package for x86_64" until
+  its next check, 12 hours later.
 
 ## [0.22.0] - 2026-11-05
 
