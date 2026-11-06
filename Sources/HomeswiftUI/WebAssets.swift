@@ -31537,7 +31537,7 @@ self.addEventListener("notificationclick", (event) => {
     const byID = new Map(accessories.map(a => [a.id, a]));
     for (const ctx of cards) {
       // A group's merged accessory is not on the bridge: groups.js follows its members.
-      if (!ctx.node?.isConnected || ctx.options.group) continue;
+      if (!ctx.node?.isConnected || ctx.options?.group) continue;
       reconcileAccessory(ctx.accessory, byID.get(ctx.accessory.id));
       ctx.paint();
     }
