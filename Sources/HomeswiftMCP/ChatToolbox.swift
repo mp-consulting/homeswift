@@ -26,6 +26,7 @@ public final class ChatToolbox: Sendable {
     public init(server: MCPServer, user: String, scope: Scope = .admin, hidden: Set<String> = []) async {
         self.server = server
         session = server.makeSession(principal: Principal(name: user, scope: scope, hidden: hidden))
+        session.userSource.withLockedValue { $0 = user }
         let initialize: JSONValue = [
             "protocolVersion": .string(MCPServer.protocolVersion), "capabilities": ["elicitation": [:]],
             "clientInfo": ["name": "web UI chat", "version": .string(server.options.version)],

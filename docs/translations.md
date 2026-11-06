@@ -136,6 +136,10 @@ HomeswiftUI, JSON, MCP, OAuth, plugins' and brands' names, units.
 | Scenes | Scènes | Escenas | Cenas |
 | Config | Config | Configuración | Configuração |
 | Logs | Journaux | Registros | Registos |
+| History (an accessory's values over time) | historique | historial | histórico |
+| Logbook | journal de bord | bitácora | diário de bordo |
+| Change Source | auteur du changement | origen del cambio | origem da alteração |
+| automation | automatisation | automatización | automação |
 | Settings | Réglages | Ajustes | Definições |
 | Appearance | Apparence | Apariencia | Aspeto |
 | the Assistant | l'Assistant | el Asistente | o Assistente |

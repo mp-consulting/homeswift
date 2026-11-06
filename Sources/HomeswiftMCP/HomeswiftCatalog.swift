@@ -26,6 +26,8 @@ public struct HomeswiftCatalog: Sendable {
     public let logs: LogBuffer
     /// The memory, CPU and latency history of the Status page; nil when nothing records it.
     public let metrics: Metrics?
+    /// The History and the Logbook; nil when nothing records them.
+    public let history: HistoryStore?
     public let configURL: URL
     /// Held while config.json is written, so a save's compare and its write cannot be split by another save.
     private let configWrites = NIOLock()
@@ -54,13 +56,14 @@ public struct HomeswiftCatalog: Sendable {
     let logger: Logger
 
     public init(
-        host: PluginHost, logs: LogBuffer, metrics: Metrics? = nil, configURL: URL, allowSecrets: Bool = false, restart: (@Sendable () -> Void)? = nil,
+        host: PluginHost, logs: LogBuffer, metrics: Metrics? = nil, history: HistoryStore? = nil, configURL: URL, allowSecrets: Bool = false, restart: (@Sendable () -> Void)? = nil,
         reloadServices: (@Sendable (HomeswiftConfiguration, [String]) async -> Void)? = nil, blockSchemas: [String: String] = [:],
         logger: Logger = Logger(label: "homeswift.mcp")
     ) {
         self.host = host
         self.logs = logs
         self.metrics = metrics
+        self.history = history
         self.configURL = configURL
         self.allowSecrets = allowSecrets
         self.restart = restart
@@ -372,7 +375,7 @@ public struct HomeswiftCatalog: Sendable {
             if layout?.hidden == true { json.field("hidden", true) }
             // Kept out of the Home app (`_hiddenFromHomeKit`); the web UI offers to show it there again.
             if located.bridge.server.isHiddenFromHomeKit(accessory.id) { json.field("hiddenFromHomeKit", true) }
-            // Its plugin records an Eve history: get_accessory_history, and the web UI's History, have something to show.
+            // Its plugin records an Eve history: get_accessory_history has it before the History starts.
             if !EveHistory.histories(of: accessory).isEmpty { json.field("history", true) }
             json.field("id", .string(accessory.id))
             if let lastRing { json.field("lastRing", .string(lastRing)) }
@@ -1328,7 +1331,7 @@ public struct HomeswiftCatalog: Sendable {
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
                 return .json(try await catalog.restoreConfigBackup(backup))
             },
-        ] + hostTools + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + diagnosticsTools + pluginActionTools
+        ] + hostTools + historyTools + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + diagnosticsTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
