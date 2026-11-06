@@ -174,9 +174,10 @@ actor BluetoothHub {
 /// One Bluetooth sensor's accessory: a service for each value it has sent, added as they first come. Owned and called
 /// by `BluetoothHub` alone, whose isolation keeps it.
 final class BluetoothSensor {
-    /// What the accessory shows, in the order of its services.
+    /// What the accessory shows, in the order of its services: a state first (a door sensor's tile says it is open, not
+    /// its light level), then the measurements.
     enum Capability: Sendable, CaseIterable {
-        case temperature, humidity, illuminance, carbonDioxide, motion, occupancy, contact, leak, smoke, carbonMonoxide, battery
+        case smoke, carbonMonoxide, leak, contact, motion, occupancy, temperature, humidity, carbonDioxide, illuminance, battery
 
         var optional: [CharacteristicType] {
             switch self {
