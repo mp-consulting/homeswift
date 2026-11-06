@@ -267,8 +267,11 @@ public actor ReturnAudioReceiver {
     }
 
     private var talk: OpenTalk?
-    /// When the last RTP packet came: a Talk begins on decoded audio only while packets keep coming.
-    private var lastPacket: ContinuousClock.Instant?
+    /// When the last RTP packet reached the return port: a Talk begins on decoded audio only while packets keep coming, and
+    /// ends `idleTimeout` after they stop. Stamped on the demuxer's event loop as each packet arrives, not when this actor
+    /// gets to it: on a busy machine the actor can run seconds late, and packets still coming would look like a silence
+    /// (no Talk begun, or the one under way ended).
+    private let lastPacket = NIOLockedValueBox<ContinuousClock.Instant?>(nil)
     private var talks = 0
     private var handlers: [Int: Task<Void, Never>] = [:]
 
@@ -323,7 +326,11 @@ public actor ReturnAudioReceiver {
         rtpPort = port
         // Packets are counted in order on one task; the demuxer's event also fires when it closes, which ends nothing here.
         let (packets, arrived) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(64))
-        let id = demuxer.rtpEvents.on { arrived.yield() }
+        let lastPacket = lastPacket
+        let id = demuxer.rtpEvents.on {
+            lastPacket.withLockedValue { $0 = .now }
+            arrived.yield()
+        }
         listener = (demuxer.rtpEvents, id)
         packetsTask = Task { [weak self] in
             for await _ in packets {
@@ -367,7 +374,6 @@ public actor ReturnAudioReceiver {
     func packet() async {
         packetCount += 1
         guard !closed, !muted, !gaveUp else { return }
-        lastPacket = .now
         talk?.packets += 1
         if decoder == nil, !decoderStarting { await startDecoder() }
     }
@@ -414,7 +420,7 @@ public actor ReturnAudioReceiver {
     /// The open Talk's last packet (the stream's: a Talk begins only while they come) and its start.
     private func talkTimes(_ number: Int) -> (ContinuousClock.Instant, ContinuousClock.Instant)? {
         guard let talk, talk.number == number else { return nil }
-        return (lastPacket ?? talk.startedAt, talk.startedAt)
+        return (lastPacket.withLockedValue { $0 } ?? talk.startedAt, talk.startedAt)
     }
 
     private func endTalk(_ number: Int, reason: String) {
@@ -470,7 +476,7 @@ public actor ReturnAudioReceiver {
         chunkCount += 1
         guard decoder?.generation == generation else { return }
         let frames = framer.push(chunk)
-        if talk == nil, !frames.isEmpty, !closed, !muted, !gaveUp, let lastPacket,
+        if talk == nil, !frames.isEmpty, !closed, !muted, !gaveUp, let lastPacket = lastPacket.withLockedValue({ $0 }),
            ContinuousClock.now - lastPacket < options.idleTimeout * timeScale {
             beginTalk()
         }
