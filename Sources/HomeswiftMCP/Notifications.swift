@@ -572,6 +572,7 @@ extension HomeswiftCatalog {
         restoreHeldLights()
         syncSceneSwitches()
         let catalog = self
+        Task { await catalog.migrateSceneLocation() }
         let ticker = Task {
             while !Task.isCancelled {
                 let now = Date()
