@@ -4960,8 +4960,9 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-editor > .card { margin: 0; }
 .automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
 .automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
-.automation-step .step-tools { align-self: center; }
-.automation-step textarea { font: inherit; }
+.automation-step .step-tools { align-self: start; margin-top: 26px; }
+.automation-step textarea { font: inherit; height: 5em; min-height: 0; flex: none; resize: vertical; }
+.automation-step .field { align-self: start; }
 .automation-step::before { content: counter(step); position: absolute; left: 0; top: var(--space-12); width: 22px; height: 22px; border-radius: 50%;
   display: grid; place-items: center; font-size: var(--text-xs); font-weight: var(--weight-semibold); background: var(--material-thick); border: 1px solid var(--edge); }
 .automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
@@ -4973,3 +4974,12 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 }
 .automation-draft-row button { white-space: nowrap; flex: none; }
 .automation-draft .status-line:empty { display: none; }
+
+/* A Notify Step's buttons, and a notification's confirmation page. */
+.notify-buttons-field { width: 100%; }
+.notify-buttons { display: grid; gap: var(--space-8); margin: var(--space-6) 0; }
+.notify-button { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: end; padding: var(--space-10); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--material-thin); }
+.notify-confirm { display: grid; gap: var(--space-14); max-width: 560px; }
+.notify-choices { display: grid; gap: var(--space-10); }
+.notify-choice { display: flex; gap: var(--space-10); align-items: center; }
+.notify-choice button { flex: 1 1 auto; min-height: 48px; justify-content: center; }

@@ -1807,6 +1807,8 @@
 
     });
     const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
+    // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
+    const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
     const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
@@ -1816,7 +1818,7 @@
           for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
         }
       } catch (error) { say(line, error.message, "error"); return; }
-      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value };
+      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
       save.disabled = true;
       try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
@@ -1832,6 +1834,8 @@
           el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
           el("div", { class: "notification-event-list" }, events),
           el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
+          el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
+            t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
           el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
       el("div", { class: "save-bar notification-save" }, line,
         el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));

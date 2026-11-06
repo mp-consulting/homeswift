@@ -237,8 +237,9 @@
           const title = el("input", { type: "text", maxLength: 80, value: shown.title ?? "", placeholder: t("The automation's name") });
           const message = el("textarea", { rows: 2, maxLength: 500, required: true, value: shown.message ?? "" });
           message.value = shown.message ?? "";
-          body.replaceChildren(field(t("Title"), title), field(t("Message"), message, t("Sent through the channels on the Notifications page.")));
-          row.readBody = () => ({ ...(title.value.trim() ? { title: title.value.trim() } : {}), message: message.value.trim() });
+          const buttons = buttonsEditor(shown.buttons ?? [], { accessories, scenes });
+          body.replaceChildren(field(t("Title"), title), field(t("Message"), message, t("Sent through the channels on the Notifications page.")), buttons);
+          row.readBody = () => ({ ...(title.value.trim() ? { title: title.value.trim() } : {}), message: message.value.trim(), ...(buttons.read().length ? { buttons: buttons.read() } : {}) });
           break;
         }
         case "tool": {
@@ -265,6 +266,55 @@
     type.addEventListener("change", () => draw({ type: type.value }));
     row.read = () => ({ type: type.value, ...row.readBody() });
     return row;
+  }
+
+  /// A Notify Step's buttons, three at most: each applies a scene, sets a value or opens a page. `.read()` gives them.
+  function buttonsEditor(initial, { accessories, scenes }) {
+    const { characteristicPicker, writable, field } = home();
+    const rows = [];
+    const list = el("div", { class: "notify-buttons" });
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a button") });
+    const refresh = () => { list.replaceChildren(...rows); add.hidden = rows.length >= 3; };
+    const addRow = (button = { type: "scene", label: "" }) => {
+      const label = el("input", { type: "text", maxLength: 40, required: true, value: button.label ?? "", placeholder: t("Turn it off") });
+      const type = el("select", { "aria-label": t("Button") }, el("option", { value: "scene", text: t("Apply a scene") }), el("option", { value: "set", text: t("Set a value") }),
+        el("option", { value: "open", text: t("Open a page") }));
+      type.value = button.type;
+      const fields = el("div", { class: "group-inline grow" });
+      const row = el("div", { class: "notify-button" }, field(t("Button label"), label), field(t("Button"), type), fields,
+        el("button", { type: "button", class: "danger scene-condition-remove", actionIcon: "trash", text: t("Delete button"), onclick: () => { rows.splice(rows.indexOf(row), 1); refresh(); } }));
+      const draw = (shown) => {
+        if (shown.type === "scene") {
+          const scene = el("select", { "aria-label": t("Scene") }, scenes.map((one) => el("option", { value: one.id, text: one.name })));
+          if (shown.scene) scene.value = shown.scene;
+          fields.replaceChildren(field(t("Scene"), scene));
+          row.readBody = () => ({ scene: scene.value });
+        } else if (shown.type === "set") {
+          const pick = {};
+          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable });
+          fields.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
+          row.readBody = () => ({ ...pick.read(), value: pick.value.read() });
+        } else {
+          const path = el("select", { "aria-label": t("Page") }, [["/accessories", t("Accessories")], ["/scenes", t("Scenes")], ["/automations", t("Automations")], ["/logbook", t("Logbook")], ["/status", t("Status")]]
+            .map(([value, text]) => el("option", { value, text })));
+          if (shown.path) { if (![...path.options].some((option) => option.value === shown.path)) path.append(el("option", { value: shown.path, text: shown.path })); path.value = shown.path; }
+          fields.replaceChildren(field(t("Page"), path));
+          row.readBody = () => ({ path: path.value });
+        }
+      };
+      draw(button);
+      type.addEventListener("change", () => draw({ type: type.value }));
+      row.read = () => ({ label: label.value.trim(), type: type.value, ...row.readBody() });
+      rows.push(row);
+      refresh();
+    };
+    add.addEventListener("click", () => addRow());
+    initial.forEach(addRow);
+    refresh();
+    const node = el("div", { class: "field notify-buttons-field" }, el("span", { class: "field-title", text: t("Buttons") }),
+      el("span", { class: "help", text: t("Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.") }), list, add);
+    node.read = () => rows.map((row) => row.read());
+    return node;
   }
 
   /// A number of seconds as an amount and a unit (seconds, minutes, hours).
@@ -305,5 +355,43 @@
     return { nodes, read };
   }
 
-  window.HomeswiftAutomations = { view, draft };
+  /// A notification's buttons (/notify/<id>), behind sign-in: where a tap leads on iOS and Safari and on channels
+  /// without buttons, and where a button on a lock, a door or an alarm is confirmed. Each works once, within 15 minutes.
+  async function confirmView(main, id) {
+    const { statusLine, say } = home();
+    let data;
+    try { data = await api(`/api/notifications/actions/${encodeURIComponent(id ?? "")}`); }
+    catch (e) {
+      app().show(main, app().pageHead(t("Notification"), ""), el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bell")),
+        el("p", { class: "muted", text: e.status === 404 ? t("These buttons are gone: a notification's buttons last 15 minutes.") : e.message }),
+        el("a", { class: "button", href: "/automations", actionIcon: "workflow", text: t("Automations") })));
+      return;
+    }
+    const line = statusLine();
+    const until = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
+    const stateText = { used: t("Already used"), expired: t("Expired") };
+    const buttons = data.buttons.map((button) => {
+      const node = el("button", { type: "button", class: button.state === "ready" ? "primary" : "", disabled: button.state !== "ready" && button.type !== "open",
+        actionIcon: button.type === "open" ? "open" : button.security ? "lock" : button.type === "scene" ? "play" : "check", text: button.label });
+      node.addEventListener("click", async () => {
+        if (button.type === "open" && button.state !== "ready") { app().navigate(button.path || "/"); return; }
+        if (button.security && !(await HomeswiftAdmin.confirmAction({ title: t("{label}?", { label: button.label }), text: t("It changes a lock, a door or an alarm."),
+          danger: false, confirmLabel: button.label, confirmIcon: "lock" }))) return;
+        await HomeswiftCommon.busyButton(node, async () => {
+          const answer = await api(`/api/notifications/actions/${encodeURIComponent(id)}/${button.index}`, { method: "POST", body: { confirmSecurity: button.security } });
+          if (button.type === "open") { app().navigate(answer.path || button.path || "/"); return; }
+          say(line, t("Done: {label}", { label: button.label }), "ok");
+          node.disabled = true;
+          node.classList.remove("primary");
+        }, { report: (e) => say(line, e.message, "error") });
+      });
+      return el("div", { class: "notify-choice" }, node, button.state === "ready" ? null : el("span", { class: "muted", text: stateText[button.state] ?? "" }));
+    });
+    app().show(main, app().pageHead(data.title, data.message),
+      el("section", { class: "card notify-confirm" },
+        el("p", { class: "muted", text: t("From the automation {name}. Each button works once, until {time}.", { name: data.automation, time: until }) }),
+        el("div", { class: "notify-choices" }, buttons), line));
+  }
+
+  window.HomeswiftAutomations = { view, draft, confirmView };
 })();

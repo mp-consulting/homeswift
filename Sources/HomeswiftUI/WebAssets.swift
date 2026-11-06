@@ -7401,6 +7401,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
   views.automations = (main, args) => window.HomeswiftAutomations.view(main, args);
+  views.notify = (main, [id] = []) => window.HomeswiftAutomations.confirmView(main, id);
   views.import = (main) => window.HomeswiftImport.view(main);
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
@@ -8006,8 +8007,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const title = el("input", { type: "text", maxLength: 80, value: shown.title ?? "", placeholder: t("The automation's name") });
           const message = el("textarea", { rows: 2, maxLength: 500, required: true, value: shown.message ?? "" });
           message.value = shown.message ?? "";
-          body.replaceChildren(field(t("Title"), title), field(t("Message"), message, t("Sent through the channels on the Notifications page.")));
-          row.readBody = () => ({ ...(title.value.trim() ? { title: title.value.trim() } : {}), message: message.value.trim() });
+          const buttons = buttonsEditor(shown.buttons ?? [], { accessories, scenes });
+          body.replaceChildren(field(t("Title"), title), field(t("Message"), message, t("Sent through the channels on the Notifications page.")), buttons);
+          row.readBody = () => ({ ...(title.value.trim() ? { title: title.value.trim() } : {}), message: message.value.trim(), ...(buttons.read().length ? { buttons: buttons.read() } : {}) });
           break;
         }
         case "tool": {
@@ -8034,6 +8036,55 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     type.addEventListener("change", () => draw({ type: type.value }));
     row.read = () => ({ type: type.value, ...row.readBody() });
     return row;
+  }
+
+  /// A Notify Step's buttons, three at most: each applies a scene, sets a value or opens a page. `.read()` gives them.
+  function buttonsEditor(initial, { accessories, scenes }) {
+    const { characteristicPicker, writable, field } = home();
+    const rows = [];
+    const list = el("div", { class: "notify-buttons" });
+    const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a button") });
+    const refresh = () => { list.replaceChildren(...rows); add.hidden = rows.length >= 3; };
+    const addRow = (button = { type: "scene", label: "" }) => {
+      const label = el("input", { type: "text", maxLength: 40, required: true, value: button.label ?? "", placeholder: t("Turn it off") });
+      const type = el("select", { "aria-label": t("Button") }, el("option", { value: "scene", text: t("Apply a scene") }), el("option", { value: "set", text: t("Set a value") }),
+        el("option", { value: "open", text: t("Open a page") }));
+      type.value = button.type;
+      const fields = el("div", { class: "group-inline grow" });
+      const row = el("div", { class: "notify-button" }, field(t("Button label"), label), field(t("Button"), type), fields,
+        el("button", { type: "button", class: "danger scene-condition-remove", actionIcon: "trash", text: t("Delete button"), onclick: () => { rows.splice(rows.indexOf(row), 1); refresh(); } }));
+      const draw = (shown) => {
+        if (shown.type === "scene") {
+          const scene = el("select", { "aria-label": t("Scene") }, scenes.map((one) => el("option", { value: one.id, text: one.name })));
+          if (shown.scene) scene.value = shown.scene;
+          fields.replaceChildren(field(t("Scene"), scene));
+          row.readBody = () => ({ scene: scene.value });
+        } else if (shown.type === "set") {
+          const pick = {};
+          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, service: shown.service, characteristic: shown.characteristic, value: shown.value, list: writable });
+          fields.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Value"), holder));
+          row.readBody = () => ({ ...pick.read(), value: pick.value.read() });
+        } else {
+          const path = el("select", { "aria-label": t("Page") }, [["/accessories", t("Accessories")], ["/scenes", t("Scenes")], ["/automations", t("Automations")], ["/logbook", t("Logbook")], ["/status", t("Status")]]
+            .map(([value, text]) => el("option", { value, text })));
+          if (shown.path) { if (![...path.options].some((option) => option.value === shown.path)) path.append(el("option", { value: shown.path, text: shown.path })); path.value = shown.path; }
+          fields.replaceChildren(field(t("Page"), path));
+          row.readBody = () => ({ path: path.value });
+        }
+      };
+      draw(button);
+      type.addEventListener("change", () => draw({ type: type.value }));
+      row.read = () => ({ label: label.value.trim(), type: type.value, ...row.readBody() });
+      rows.push(row);
+      refresh();
+    };
+    add.addEventListener("click", () => addRow());
+    initial.forEach(addRow);
+    refresh();
+    const node = el("div", { class: "field notify-buttons-field" }, el("span", { class: "field-title", text: t("Buttons") }),
+      el("span", { class: "help", text: t("Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.") }), list, add);
+    node.read = () => rows.map((row) => row.read());
+    return node;
   }
 
   /// A number of seconds as an amount and a unit (seconds, minutes, hours).
@@ -8074,7 +8125,45 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return { nodes, read };
   }
 
-  window.HomeswiftAutomations = { view, draft };
+  /// A notification's buttons (/notify/<id>), behind sign-in: where a tap leads on iOS and Safari and on channels
+  /// without buttons, and where a button on a lock, a door or an alarm is confirmed. Each works once, within 15 minutes.
+  async function confirmView(main, id) {
+    const { statusLine, say } = home();
+    let data;
+    try { data = await api(`/api/notifications/actions/${encodeURIComponent(id ?? "")}`); }
+    catch (e) {
+      app().show(main, app().pageHead(t("Notification"), ""), el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bell")),
+        el("p", { class: "muted", text: e.status === 404 ? t("These buttons are gone: a notification's buttons last 15 minutes.") : e.message }),
+        el("a", { class: "button", href: "/automations", actionIcon: "workflow", text: t("Automations") })));
+      return;
+    }
+    const line = statusLine();
+    const until = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
+    const stateText = { used: t("Already used"), expired: t("Expired") };
+    const buttons = data.buttons.map((button) => {
+      const node = el("button", { type: "button", class: button.state === "ready" ? "primary" : "", disabled: button.state !== "ready" && button.type !== "open",
+        actionIcon: button.type === "open" ? "open" : button.security ? "lock" : button.type === "scene" ? "play" : "check", text: button.label });
+      node.addEventListener("click", async () => {
+        if (button.type === "open" && button.state !== "ready") { app().navigate(button.path || "/"); return; }
+        if (button.security && !(await HomeswiftAdmin.confirmAction({ title: t("{label}?", { label: button.label }), text: t("It changes a lock, a door or an alarm."),
+          danger: false, confirmLabel: button.label, confirmIcon: "lock" }))) return;
+        await HomeswiftCommon.busyButton(node, async () => {
+          const answer = await api(`/api/notifications/actions/${encodeURIComponent(id)}/${button.index}`, { method: "POST", body: { confirmSecurity: button.security } });
+          if (button.type === "open") { app().navigate(answer.path || button.path || "/"); return; }
+          say(line, t("Done: {label}", { label: button.label }), "ok");
+          node.disabled = true;
+          node.classList.remove("primary");
+        }, { report: (e) => say(line, e.message, "error") });
+      });
+      return el("div", { class: "notify-choice" }, node, button.state === "ready" ? null : el("span", { class: "muted", text: stateText[button.state] ?? "" }));
+    });
+    app().show(main, app().pageHead(data.title, data.message),
+      el("section", { class: "card notify-confirm" },
+        el("p", { class: "muted", text: t("From the automation {name}. Each button works once, until {time}.", { name: data.automation, time: until }) }),
+        el("div", { class: "notify-choices" }, buttons), line));
+  }
+
+  window.HomeswiftAutomations = { view, draft, confirmView };
 })();
 
 """#),
@@ -14147,6 +14236,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     });
     const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
+    // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
+    const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
     const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
@@ -14156,7 +14247,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
         }
       } catch (error) { say(line, error.message, "error"); return; }
-      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value };
+      const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value, address: address.value.trim() };
       save.disabled = true;
       try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
@@ -14172,6 +14263,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
           el("div", { class: "notification-event-list" }, events),
           el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
+          el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
+            t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
           el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
       el("div", { class: "save-bar notification-save" }, line,
         el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
@@ -17524,6 +17617,24 @@ HomeswiftI18n.add("es", {
   "{n} step": "{n} paso",
   "{n} steps": "{n} pasos",
   "A message from an automation": "Un mensaje de una automatización",
+  "Add a button": "Añadir un botón",
+  "Address in notifications": "Dirección en las notificaciones",
+  "Already used": "Ya usado",
+  "Button label": "Texto del botón",
+  "Buttons": "Botones",
+  "Delete button": "Eliminar el botón",
+  "Done: {label}": "Hecho: {label}",
+  "From the automation {name}. Each button works once, until {time}.": "De la automatización {name}. Cada botón funciona una vez, hasta las {time}.",
+  "It changes a lock, a door or an alarm.": "Cambia una cerradura, una puerta o una alarma.",
+  "Notification": "Notificación",
+  "Open a page": "Abrir una página",
+  "Page": "Página",
+  "These buttons are gone: a notification's buttons last 15 minutes.": "Estos botones ya no están: los botones de una notificación duran 15 minutos.",
+  "Turn it off": "Apagarlo",
+  "Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.": "Hasta tres, cada uno funciona una vez durante 15 minutos. Uno sobre una cerradura, una puerta o una alarma abre una página donde lo confirmas.",
+  "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "Lo que abren un toque y los botones de una automatización: la interfaz web tal como la alcanza tu teléfono. Vacío: {address}.",
+  "this machine's address": "la dirección de esta máquina",
+  "{label}?": "¿{label}?",
 });
 
 """#),
@@ -20660,6 +20771,24 @@ HomeswiftI18n.add("fr", {
   "{n} step": "{n} étape",
   "{n} steps": "{n} étapes",
   "A message from an automation": "Un message d'une automatisation",
+  "Add a button": "Ajouter un bouton",
+  "Address in notifications": "Adresse dans les notifications",
+  "Already used": "Déjà utilisé",
+  "Button label": "Texte du bouton",
+  "Buttons": "Boutons",
+  "Delete button": "Supprimer le bouton",
+  "Done: {label}": "Fait : {label}",
+  "From the automation {name}. Each button works once, until {time}.": "De l'automatisation {name}. Chaque bouton sert une fois, jusqu'à {time}.",
+  "It changes a lock, a door or an alarm.": "Il change une serrure, une porte ou une alarme.",
+  "Notification": "Notification",
+  "Open a page": "Ouvrir une page",
+  "Page": "Page",
+  "These buttons are gone: a notification's buttons last 15 minutes.": "Ces boutons ont disparu : les boutons d'une notification durent 15 minutes.",
+  "Turn it off": "L'éteindre",
+  "Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.": "Jusqu'à trois, chacun servant une fois pendant 15 minutes. Celui d'une serrure, d'une porte ou d'une alarme ouvre une page où vous le confirmez.",
+  "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "Ce qu'ouvrent un appui et les boutons d'une automatisation : l'interface web telle que votre téléphone l'atteint. Vide : {address}.",
+  "this machine's address": "l'adresse de cette machine",
+  "{label}?": "{label} ?",
 });
 
 """#),
@@ -23796,6 +23925,24 @@ HomeswiftI18n.add("pt", {
   "{n} step": "{n} passo",
   "{n} steps": "{n} passos",
   "A message from an automation": "Uma mensagem de uma automação",
+  "Add a button": "Adicionar um botão",
+  "Address in notifications": "Endereço nas notificações",
+  "Already used": "Já usado",
+  "Button label": "Texto do botão",
+  "Buttons": "Botões",
+  "Delete button": "Eliminar o botão",
+  "Done: {label}": "Feito: {label}",
+  "From the automation {name}. Each button works once, until {time}.": "Da automação {name}. Cada botão funciona uma vez, até às {time}.",
+  "It changes a lock, a door or an alarm.": "Altera uma fechadura, uma porta ou um alarme.",
+  "Notification": "Notificação",
+  "Open a page": "Abrir uma página",
+  "Page": "Página",
+  "These buttons are gone: a notification's buttons last 15 minutes.": "Estes botões já não existem: os botões de uma notificação duram 15 minutos.",
+  "Turn it off": "Desligá-lo",
+  "Up to three, each working once within 15 minutes. One on a lock, a door or an alarm opens a page where you confirm it.": "Até três, cada um funciona uma vez durante 15 minutos. Um sobre uma fechadura, uma porta ou um alarme abre uma página onde o confirma.",
+  "What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.": "O que um toque e os botões de uma automação abrem: a interface web tal como o seu telemóvel a alcança. Vazio: {address}.",
+  "this machine's address": "o endereço desta máquina",
+  "{label}?": "{label}?",
 });
 
 """#),
@@ -32146,8 +32293,9 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-editor > .card { margin: 0; }
 .automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
 .automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
-.automation-step .step-tools { align-self: center; }
-.automation-step textarea { font: inherit; }
+.automation-step .step-tools { align-self: start; margin-top: 26px; }
+.automation-step textarea { font: inherit; height: 5em; min-height: 0; flex: none; resize: vertical; }
+.automation-step .field { align-self: start; }
 .automation-step::before { content: counter(step); position: absolute; left: 0; top: var(--space-12); width: 22px; height: 22px; border-radius: 50%;
   display: grid; place-items: center; font-size: var(--text-xs); font-weight: var(--weight-semibold); background: var(--material-thick); border: 1px solid var(--edge); }
 .automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
@@ -32160,31 +32308,57 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-draft-row button { white-space: nowrap; flex: none; }
 .automation-draft .status-line:empty { display: none; }
 
+/* A Notify Step's buttons, and a notification's confirmation page. */
+.notify-buttons-field { width: 100%; }
+.notify-buttons { display: grid; gap: var(--space-8); margin: var(--space-6) 0; }
+.notify-button { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: end; padding: var(--space-10); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--material-thin); }
+.notify-confirm { display: grid; gap: var(--space-14); max-width: 560px; }
+.notify-choices { display: grid; gap: var(--space-10); }
+.notify-choice { display: flex; gap: var(--space-10); align-items: center; }
+.notify-choice button { flex: 1 1 auto; min-height: 48px; justify-content: center; }
+
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI's service worker: it only shows the bridge's push notifications (Notifications page, "this browser")
-// and opens the page one is about. It caches nothing and answers no request.
+// and opens the page one is about. It caches nothing and answers no request. An Automation's buttons are the
+// notification's actions where the browser shows them (Chromium): one acts with its single-use token, or opens its
+// page; elsewhere (Safari, iOS) a tap opens the page listing them.
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : "" }; }
+  const actions = Array.isArray(data.actions) ? data.actions : [];
   event.waitUntil(self.registration.showNotification(data.title || "Homeswift", {
-    body: data.body || "", tag: data.tag, icon: "/icon.svg", requireInteraction: !!data.urgent, data: { path: data.path || "/" },
+    body: data.body || "", tag: data.tag, icon: "/icon.svg", requireInteraction: !!data.urgent || actions.length > 0, data: { path: data.path || "/", actions },
+    actions: actions.slice(0, 3).map((action) => ({ action: action.action, title: action.title })),
   }));
 });
 
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  const path = (event.notification.data && event.notification.data.path) || "/";
-  // A path on this origin only: "//host" and "/\host" would leave it.
-  const target = new URL(/^\/(?![/\\])/.test(path) ? path : "/", self.location.origin).href;
-  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+/// A path on this origin only: "//host" and "/\host" would leave it.
+const local = (path) => new URL(/^\/(?![/\\])/.test(path || "") ? path : "/", self.location.origin).href;
+
+function open(path) {
+  const target = local(path);
+  return self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
     for (const client of windows) {
       if (new URL(client.url).origin === self.location.origin && "focus" in client) {
         return client.focus().then((focused) => (focused && "navigate" in focused ? focused.navigate(target) : focused));
       }
     }
     return self.clients.openWindow(target);
-  }));
+  });
+}
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const action = (data.actions || []).find((one) => one.action === event.action);
+  if (action && action.act) {
+    // Pressed in the notification: the button acts at once; if it cannot (used, expired), the page says why.
+    event.waitUntil(fetch(local(action.act), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", credentials: "omit" })
+      .then((response) => (response.ok ? null : open(data.path))).catch(() => open(data.path)));
+    return;
+  }
+  event.waitUntil(open(action && action.path ? action.path : data.path));
 });
 
 """#),
