@@ -226,6 +226,29 @@ A Bridge Setting: what the home pays per kWh of electricity, or per m³ of gas o
 it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
 _Avoid_: Price, rate, contract, cost settings
 
+## Automations
+
+**Scene**:
+A set of values for accessories, applied together by hand, from the Home app or by an Automation. A Scene has no
+trigger of its own.
+_Avoid_: Preset, mood, routine
+
+**Automation**:
+What the bridge does on its own: a Trigger, Conditions, and Steps run in order.
+_Avoid_: Rule, routine, scene trigger, script
+
+**Trigger**:
+What starts an Automation: a time, the sun, a schedule, an accessory's change, or a Person arriving or leaving.
+_Avoid_: Event, when
+
+**Condition**:
+What must hold when a Trigger fires for its Automation to run: a time window or an accessory's value.
+_Avoid_: Filter, guard, if
+
+**Step**:
+One thing an Automation does: apply a Scene, set a value, wait, wait until, notify, or call a plugin's action.
+_Avoid_: Action, task
+
 ## History
 
 **History**:

@@ -165,7 +165,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   embedded, so edit `Web/` and rerun the embed script (the tests say when it is stale). The API is the
   `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. The OAuth endpoints outside
   `/api` (`/oauth/token`, `/oauth/register`, `/oauth/revoke`) are the exception the protocol requires: form bodies
-  from claude.ai's servers, no `Origin`, no cookie; their tokens reach `/mcp` only. An app a user who is not an
+  from claude.ai's servers, no `Origin`, no cookie; their tokens reach `/mcp` only. So is `POST /notify/act/<token>`, a
+  notification's button (ntfy's http action, a Web Push action): its single-use token is its only credential, and it never
+  sets a lock, a garage door or an alarm. An app a user who is not an
   administrator connects gets `HomeswiftCatalog.administratorOnly` hidden, as the UI's chat does. `HomeswiftUI`,
   `HomeswiftAiKit` and `HomeswiftMatter` are system platforms: the CLI starts them, `PluginHost` skips them. The first account
   needs the set-up code the banner prints (`UIServer.setupCode`), never logged; requests are answered only

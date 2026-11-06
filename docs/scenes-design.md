@@ -10,9 +10,12 @@ is the design agreed before the work started; each slice below lands on its own 
   what it can do with each (`recall`, `rename`, `update`, `create`, `delete`, `animate`).
 - **Source of truth.** The hub keeps its own scenes; Homeswift keeps no copy. Writes go through and are read
   back; the last write wins.
-- **Triggers.** Only Homeswift scenes have triggers and conditions. A plugin scene is automated by a Homeswift
-  scene with a plugin-scene action (the "Automate" button makes one). An action whose plugin scene went away is
-  kept, skipped at run time, and reported in `lastSkipped`.
+- **Triggers.** No scene has triggers or conditions: an Automation does (`Automations.swift`,
+  docs/adr/0007-scenes-and-automations-are-separate.md), and one of its Steps applies a scene. The triggers and
+  conditions `scenes.json` had move, at the first start, into an Automation per scene with that scene's name and a
+  single Step that applies it. A plugin scene is automated by a Homeswift scene with a plugin-scene action, applied by
+  an Automation (the "Automate" button makes both). An action whose plugin scene went away is kept, skipped at run
+  time, and reported in the run.
 - **Lights.** A scene made for a room (from a template, by the Assistant) lists its lights when it is made; the
   editor offers to add the room's new lights.
 - **Rooms.** A plugin scene sits in the Homeswift room of the same name as its hub's room or zone, else in
@@ -77,7 +80,8 @@ The AI composes a scene and runs it without saving it, as moods did:
 - **HomeKit:** a Homeswift scene can be a switch, chosen per scene (`homeKit`), on one "Homeswift Scenes" accessory
   (`Homeswift:scenes`, a switch per scene with subtype `scene:<id>`; `SceneSwitches.swift`); the plugins' scene
   switches stay as they are. A switch carries the scene's name in Name and Configured Name, which the Home app follows:
-  renaming the scene renames the switch there, and renaming the switch in the Home app renames the scene.
+  renaming the scene renames the switch there, and renaming the switch in the Home app renames the scene. An
+  Automation can have a switch on the same accessory (subtype `automation:<id>`), which turns it on and off.
 - **Govee** provides the scenes picked on its page; the library stays a place to pick from.
 - **Removed:** `list_moods`, `start_mood`, `stop_mood`, `/api/moods/*`, `held-moods.json`, `design-mood.md`;
   `stop_scene` and `undo_scene` are added.
@@ -93,3 +97,6 @@ The AI composes a scene and runs it without saving it, as moods did:
    `hub`, `update_hub_scene`, `delete_hub_scene`; the plugin API's `sceneTarget`, `createScene`, `updateScene`,
    `deleteScene`.
 7. eWeLink's own modes: the L2 strip's scenes (`EWeLinkEffects.swift`).
+8. Automations apart from scenes: a scene keeps only its values; its triggers and conditions move to an Automation
+   (Triggers, Conditions and Steps, modes, `list_automations`, `save_automation`, `run_automation`,
+   `delete_automation`, the `/automations` page, the Assistant's draft).

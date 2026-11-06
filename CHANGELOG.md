@@ -52,6 +52,17 @@ All notable changes to this project are documented here. The format follows
   masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
   warnings over the last week. Names are kept. MCP clients get the same bundle from `get_diagnostics`, administrators
   only.
+- Automations (`/automations`, beside Scenes): Triggers (a time, the sun, cron, an accessory's change, a value that
+  stays so for a while, a number crossing a threshold), Conditions, and Steps run in order (apply a Scene, set a value,
+  wait, wait until, notify, a plugin's action that needs no confirmation), in Restart or Single mode. Locks, garage doors
+  and alarms are never set by one. An Automation may be a switch on the Homeswift Scenes accessory, which turns it on and
+  off. The Assistant drafts one from a sentence, for review. MCP: `list_automations`, `save_automation`,
+  `run_automation`, `delete_automation`.
+- Actionable notifications: an Automation's Notify Step carries up to three buttons (apply a Scene, set a value, open a
+  page), each a single-use token valid 15 minutes: ntfy actions, a Telegram inline keyboard (its callbacks read with
+  getUpdates), Web Push actions in Chromium; elsewhere, and for a lock, a garage door or an alarm, a tap opens a
+  confirmation page behind sign-in (`/notify/<id>`). Notifications' taps open their page on ntfy and Pushover too, at the
+  new **Address in notifications**.
 - ESPHome: passive Bluetooth LE sensors through ESPHome's Bluetooth proxies: BTHome v2 (open, or encrypted with a
   bindkey), Xiaomi MiBeacon (LYWSD03MMC and others on stock firmware, with their bindkey) and Govee thermometers (H5072,
   H5074, H5075, the H5100 family, H5179). Each sensor heard is a Discovered Device of the kind `sensor` in Add
@@ -61,6 +72,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
+  values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
+  Step applies it. A Scene saved with `triggers` or `conditions` is refused.
 - The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
   (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
   `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
