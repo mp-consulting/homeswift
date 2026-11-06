@@ -22,7 +22,7 @@ Built, on branch `feat/home-link` (homeswift) and `feat/home-link` (homeswift-wi
 | 8. Zones | Done, as a filter of the wall rather than a grouping level of its own |
 | 9. Groups | Done: in `home.json` beside the Zones, the wall keeping where each one stands |
 | 10. Separate Functions | Done; wall order, Quick Controls and scenes that name a moved Function are not moved with it |
-| 11. Release | Paperwork done (both CHANGELOGs, the READMEs, homeswift.dev in four languages; no screenshot shows what changed). The releases themselves, Wingman first, wait to be pushed |
+| 11. Release | Done on 2026-11-06: Homeswift 0.23.0, then Homeswift Wingman 0.4.0 (with `home-link`; a bridge on an older Wingman shows "Update Wingman" meanwhile), with both CHANGELOGs, the READMEs and homeswift.dev in four languages; no screenshot shows what changed |
 
 ## Goal
 
