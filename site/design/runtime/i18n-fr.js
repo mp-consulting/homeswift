@@ -2720,6 +2720,8 @@ HomeswiftI18n.add("fr", {
   "No zwave-js-server answered at {address}": "Aucun zwave-js-server n’a répondu à {address}",
   "Another Z-Wave network answered at {address}: find the server again": "Un autre réseau Z-Wave a répondu à {address} : retrouvez le serveur",
   "The server has no address: add it by its address": "Le serveur n’a pas d’adresse : ajoutez-le par son adresse",
+  "zwave-js-server announces itself at {address}: check it is yours, or enter another address.": "zwave-js-server s’annonce à {address} : vérifiez que c’est le vôtre, ou saisissez une autre adresse.",
+  "Z-Wave network {id} is already set up at {address}: change its address in its settings": "Le réseau Z-Wave {id} est déjà configuré à {address} : changez son adresse dans ses réglages",
   "Enter the camera's address: its IP address or host name on your network, from your router or IMOU Life.": "Saisissez l’adresse de la caméra : son adresse IP ou son nom d’hôte sur votre réseau, dans votre routeur ou IMOU Life.",
   "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life).": "Saisissez le code de sécurité de la caméra, imprimé sur son étiquette (ou le mot de passe que vous lui avez donné dans IMOU Life).",
   "Safety code": "Code de sécurité",

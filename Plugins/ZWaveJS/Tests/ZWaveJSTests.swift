@@ -48,6 +48,12 @@ final class FakeServer: Sendable {
     func set(setValueStatus: Int) { state.withLockedValue { $0.setValueStatus = setValueStatus } }
     /// The nodes the next `start_listening` gives.
     func removeNode(_ nodeID: Int) { state.withLockedValue { $0.nodes.removeAll { $0["nodeId"]?.intValue == nodeID } } }
+    /// A node of the next `start_listening` in place of the one with its id.
+    func replace(node: JSONValue) {
+        state.withLockedValue { state in
+            if let index = state.nodes.firstIndex(where: { $0["nodeId"] == node["nodeId"] }) { state.nodes[index] = node }
+        }
+    }
 
     func connect(_ url: URL) async throws -> any WebSocketConnection {
         let socket = FakeWebSocket(url: url)
@@ -487,8 +493,8 @@ struct ZWaveJSTests {
         #expect(found.accountState == .none)
         let server = try #require(found.devices.first { $0.deviceID == FakeServer.homeID })
         #expect(server.kind == "server" && server.isSetUp && server.address == "192.0.2.20:3000" && server.isReachable)
-        let announced = try #require(found.devices.first { $0.deviceID == "42" })
-        #expect(announced.kind == "server" && !announced.isSetUp && announced.address == "192.0.2.30:3000")
+        // An announcement is offered by Add by address, not listed as a device ready to use.
+        #expect(!found.devices.contains { $0.deviceID == "42" })
         let bulb = try #require(found.devices.first { $0.deviceID == "\(FakeServer.homeID)-2" })
         #expect(bulb.name == "Living Room Bulb" && bulb.kind == "light" && bulb.isSetUp && bulb.model == "ZWA002")
         #expect(found.devices.first { $0.deviceID == "\(FakeServer.homeID)-10" }?.isReachable == false)
@@ -503,6 +509,12 @@ struct ZWaveJSTests {
         let plugin = ZWaveJSPlugin(configuration: .init(), context: context, dependencies: environment.dependencies)
         guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
         #expect(prompt.fields.map(\.key) == ["host", "port"] && prompt.fields[1].optional)
+        #expect(prompt.fields[0].value == nil)
+        // A server the network announces is filled in.
+        environment.announcements.withLockedValue { $0 = [ServerAnnouncement(name: "zwave-js-server", host: "192.0.2.30", port: 3001, homeID: "42")] }
+        guard case .ask(let filled, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
+        #expect(filled.fields.map(\.value) == ["192.0.2.30", "3001"])
+        #expect(filled.values == ["address": "192.0.2.30:3001"])
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": " 192.0.2.20 "])) else {
             Issue.record("not done"); return
         }
@@ -515,6 +527,9 @@ struct ZWaveJSTests {
         #expect(environment.server.urls.last == URL(string: "ws://192.0.2.20:3001"))
         await #expect(throws: SetupError("The port must be between 1 and 65535")) {
             try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.20", "port": "0"]))
+        }
+        await #expect(throws: SetupError("The port must be between 1 and 65535")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.20:99999"]))
         }
         environment.server.set(reachable: false)
         await #expect(throws: SetupError("No zwave-js-server answered at 192.0.2.60:3000")) {
@@ -530,6 +545,58 @@ struct ZWaveJSTests {
         guard case .done(let checked) = try await plugin.authorize(SetupRequest(target: .device(right))) else { Issue.record("not done"); return }
         #expect(checked.deviceID == FakeServer.homeID)
         guard case .done = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("the account asks nothing"); return }
+        await host.stop()
+    }
+
+    @Test func aServerSayingAKnownHomeIDDoesNotMoveIt() async throws {
+        let host = try await environment.start()
+        let context = try #require(host.context(platform: ZWaveJSPlugin.platform, name: ZWaveJSPlugin.name))
+        let plugin = ZWaveJSPlugin(configuration: .init(), context: context, dependencies: environment.dependencies)
+        // Another address answering with the home id set up at 192.0.2.20.
+        await #expect(throws: SetupError("Z-Wave network \(FakeServer.homeID) is already set up at 192.0.2.20:3000: change its address in its settings")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.66"]))
+        }
+        guard case .done(let same) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.20"])) else { Issue.record("not done"); return }
+        #expect(same.deviceID == FakeServer.homeID)
+        await host.stop()
+    }
+
+    @Test func untrustedValuesDoNotCrashTheBridge() async throws {
+        let host = try await started()
+        let blind = try #require(host.accessory(id(9))?.service(.windowCovering))
+        environment.server.valueUpdated(node: 9, commandClass: 38, property: "currentValue", value: -1e20)
+        environment.server.valueUpdated(node: 9, commandClass: 38, property: "currentValue", value: 1e300)
+        environment.server.valueUpdated(node: 9, commandClass: 38, property: "currentValue", value: 20)
+        #expect(await eventually { blind[.currentPosition]?.value == 20 })
+        #expect(NodeBuilder.percent(level: -1e20) == 0 && NodeBuilder.percent(level: 1e20) == 100)
+        await host.stop()
+    }
+
+    @Test func anEntryControlSwitchIsGuardedAsALock() async throws {
+        // A door strike: a Binary Switch on an Entry Control node, shown as a light by its settings.
+        var settings = TestEnvironment.serverSettings
+        settings["_accessories"] = [FakeServer.homeID: ["host": "192.0.2.20"], "\(FakeServer.homeID)-3": ["showAs": "lightbulb"]]
+        var plug = try #require(FakeServer.fixture["state"]?["nodes"]?.arrayValue?.first { $0["nodeId"] == 3 }?.objectValue)
+        plug["deviceClass"] = ["basic": ["key": 4, "label": "Routing Slave"], "generic": ["key": 64, "label": "Entry Control"], "specific": ["key": 1, "label": "Door Lock"]]
+        environment.server.replace(node: .object(plug))
+        let host = try await environment.start(settings: settings)
+        #expect(await eventually { host.accessory(id(3)) != nil })
+        let strike = try #require(host.accessory(id(3)))
+        #expect(strike.category == .doorLock)
+        let on = try #require(strike.service(.switch, subtype: "0")?[.on])
+        #expect(on.isSecurityControl)
+        #expect(await environment.plugin?.deviceKind(of: "\(FakeServer.homeID)-3") == "lock")
+        await host.stop()
+    }
+
+    @Test func aLockEndpointWithASwitchIsALock() async throws {
+        var lock = try #require(FakeServer.fixture["state"]?["nodes"]?.arrayValue?.first { $0["nodeId"] == 5 }?.objectValue)
+        lock["values"] = .array((lock["values"]?.arrayValue ?? []) + [["endpoint": 0, "commandClass": 37, "property": "currentValue", "value": false, "metadata": ["type": "boolean"]]])
+        environment.server.replace(node: .object(lock))
+        let host = try await started()
+        let accessory = try #require(host.accessory(id(5)))
+        #expect(accessory.service(.lockMechanism, subtype: "0") != nil)
+        #expect(accessory.service(.switch) == nil && accessory.service(.outlet) == nil)
         await host.stop()
     }
 

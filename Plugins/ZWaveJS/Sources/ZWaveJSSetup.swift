@@ -43,7 +43,8 @@ extension ZWaveJSPlugin {
     /// How long Setup's check of an address may take.
     static let probeTimeout: Duration = .seconds(8)
 
-    /// The servers set up, those mDNS announces, and the nodes of the servers connected.
+    /// The servers set up and the nodes of those connected. A server mDNS announces is offered by Add by address, its
+    /// address filled in: an announcement is anyone's on the network, so a person checks it before the bridge uses it.
     public func discover() async throws -> [DiscoveredDevice] {
         var found: [String: DiscoveredDevice] = [:]
         for (homeID, server) in servers {
@@ -52,13 +53,6 @@ extension ZWaveJSPlugin {
                 isSetUp: true, kind: Self.serverKind)
             device.isReachable = server.client != nil || server.failures == 0
             found[homeID] = device
-        }
-        for announcement in await dependencies.browse(dependencies.setupDiscoveryWindow, logger) {
-            let id = announcement.homeID ?? "address:\(Self.address(host: announcement.host, port: announcement.port))"
-            guard found[id] == nil else { continue }
-            found[id] = DiscoveredDevice(
-                deviceID: id, name: announcement.homeID.map(Self.serverName) ?? announcement.name, model: "zwave-js-server",
-                address: Self.address(host: announcement.host, port: announcement.port), kind: Self.serverKind)
         }
         for (homeID, server) in servers {
             for node in server.nodes.values {
@@ -90,9 +84,17 @@ extension ZWaveJSPlugin {
             return try await check(host: host, port: port, expected: device.deviceID.hasPrefix("address:") ? nil : device.deviceID)
         case .newDevice:
             guard let host = request.answer("host") else {
+                // A server the network announces and that is not set up yet: its address filled in.
+                let found = await dependencies.browse(dependencies.setupDiscoveryWindow, logger).first { $0.homeID.map { servers[$0] == nil } ?? true }
+                let message = found == nil
+                    ? "Enter the address of zwave-js-server: the host running Z-Wave JS UI or Home Assistant's Z-Wave JS add-on, and its WebSocket port (3000 by default)."
+                    : "zwave-js-server announces itself at {address}: check it is yours, or enter another address."
                 return .ask(SetupPrompt(
-                    message: "Enter the address of zwave-js-server: the host running Z-Wave JS UI or Home Assistant's Z-Wave JS add-on, and its WebSocket port (3000 by default).",
-                    fields: [SetupField("host", label: "IP address or host name"), SetupField("port", label: "Port", optional: true)]))
+                    message: message, values: found.map { ["address": Self.address(host: $0.host, port: $0.port)] } ?? [:],
+                    fields: [
+                        SetupField("host", label: "IP address or host name", value: found?.host),
+                        SetupField("port", label: "Port", optional: true, value: found.map { String($0.port) }),
+                    ]))
             }
             let trimmed = Self.hostOnly(host)
             guard !trimmed.isEmpty, trimmed.count <= 253, !trimmed.contains(where: { $0.isWhitespace || $0 == "/" }) else {
@@ -102,6 +104,7 @@ extension ZWaveJSPlugin {
                 guard let port = Int(text), (1...65535).contains(port) else { throw SetupError("The port must be between 1 and 65535") }
                 return port
             } ?? Self.split(host)?.1 ?? Self.defaultPort
+            guard (1...65535).contains(port) else { throw SetupError("The port must be between 1 and 65535") }
             return try await check(host: trimmed, port: port, expected: nil)
         }
     }
@@ -118,6 +121,12 @@ extension ZWaveJSPlugin {
         }
         if let expected, expected != version.homeID {
             throw SetupError("Another Z-Wave network answered at \(address): find the server again")
+        }
+        // A network set up at another address is not moved there by a server that only says its home id: anyone on the
+        // network can answer with it.
+        if expected == nil, let known = context.accessorySettings(for: version.homeID).decode(ServerSettings.self), let knownHost = known.host?.nonEmpty,
+           knownHost.lowercased() != host.lowercased() || Self.port(known.port) != port {
+            throw SetupError("Z-Wave network \(version.homeID) is already set up at \(Self.address(host: knownHost, port: Self.port(known.port))): change its address in its settings")
         }
         logger.info("zwave-js-server \(version.serverVersion ?? "?") at \(address) runs the Z-Wave network \(version.homeID)")
         return .done(SetupOutcome(

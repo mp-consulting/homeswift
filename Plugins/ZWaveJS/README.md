@@ -17,12 +17,13 @@ works: it is tested against a fake zwave-js-server, not yet against real devices
 In Z-Wave JS UI, turn on **Settings → Home Assistant → WS Server** (the Home Assistant add-on runs it already). Then add
 the Z-Wave JS plugin in the web UI, and on **Add accessories**:
 
-- a server that announces itself over mDNS (`_zwave-js-server._tcp`, unless its discovery is turned off in those
-  settings) shows as **Z-Wave network &lt;home id&gt;**: set it up;
-- otherwise, **Add by address…** asks for its host and port (3000 by default).
+**Add by address…** asks for its host and port (3000 by default). A server that announces itself over mDNS
+(`_zwave-js-server._tcp`, unless its discovery is turned off in those settings) is filled in: check it is yours, since
+anyone on the network can announce one.
 
-Either way the plugin checks that the server answers and keeps its `host` and `port` in the server's Accessory Settings,
-under the home id of its network, so a server whose address changes is set up again without losing anything. Each node
+The plugin checks that the server answers and keeps its `host` and `port` in the server's Accessory Settings,
+under the home id of its network, so a server whose address changes keeps its accessories: change the address in its settings (Add by address refuses
+to move a network already set up elsewhere, as a server elsewhere could claim its home id). Each node
 then shows as a device of its own, which can be Excluded.
 
 ```json
@@ -57,7 +58,7 @@ several endpoints (a double relay) gets a service per endpoint. The controller's
 | Notification | Motion (Home Security), Contact (Access Control's door state), Leak, Smoke and Carbon Monoxide; preferred to Binary Sensor's |
 | Multilevel Sensor | Temperature (°F converted), Humidity, Light (in lux) |
 | Meter | Eve's Current and Total Consumption on the switch (or a service of their own), declared as the accessory's Meter, so the Status page's Energy section counts it; energy produced counts as Returned |
-| Door Lock | Lock Mechanism (secured or not, unknown, and the target), guarded as every lock is by the bridge's own surfaces |
+| Door Lock | Lock Mechanism (secured or not, unknown, and the target), guarded as every lock is by the bridge's own surfaces; an endpoint with Door Lock is its lock whatever else it has, and an Entry Control node's switch (a door strike, a gate) is a guarded switch whatever `showAs` says |
 | Thermostat Mode, Setpoint, Operating State | Thermostat: Off, Heat, Cool and Auto as the node supports them, the heating setpoint (cooling's in Cool), the air temperature |
 | Battery | Battery: level and low battery |
 | Central Scene | A Stateless Programmable Switch per scene: pressed once is a single press, twice a double, held down a long press |

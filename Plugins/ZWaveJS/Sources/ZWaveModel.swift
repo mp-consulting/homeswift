@@ -163,6 +163,9 @@ struct ZNode: Sendable {
             || (specificLabel ?? "").localizedCaseInsensitiveContains("motor control")
     }
 
+    /// A lock, a door strike or a gate: the Entry Control device class, or a node with Door Lock.
+    var isEntryControl: Bool { genericClass == 0x40 || values.keys.contains { $0.commandClass == CommandClass.doorLock } }
+
     func values(_ commandClass: Int, endpoint: Int? = nil) -> [ZValue] {
         values.values.filter { $0.id.commandClass == commandClass && (endpoint == nil || $0.id.endpoint == endpoint) }
             .sorted { ($0.id.endpoint, $0.id.propertyText, $0.id.propertyKeyText ?? "") < ($1.id.endpoint, $1.id.propertyText, $1.id.propertyKeyText ?? "") }

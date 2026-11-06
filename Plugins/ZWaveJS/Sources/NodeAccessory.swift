@@ -117,7 +117,7 @@ struct NodeBuilder {
 
         let primary = services.first(where: \.isPrimary)
         let ordered = primary.map { primary in [primary] + services.filter { $0 !== primary } } ?? services
-        let (kind, category) = Self.kind(of: primary?.type)
+        let (kind, category) = node.isEntryControl ? ("lock", .doorLock) : Self.kind(of: primary?.type)
         let accessory = Accessory(
             id: ZWaveJSPlugin.accessoryID(deviceID: deviceID), name: name, manufacturer: node.manufacturer ?? "Z-Wave",
             model: node.label ?? node.productDescription ?? "Z-Wave device", serialNumber: node.serialNumber ?? deviceID,
@@ -177,20 +177,21 @@ struct NodeBuilder {
     /// The endpoint's actuator, the service its Meter goes on when it has one.
     private mutating func buildActuator(endpoint: Int, label: String) -> Service? {
         let subtype = String(endpoint)
+        // A lock first: an endpoint that also has a switch is still its lock, written only through Lock Target State.
+        if let mode = node.value(CommandClass.doorLock, endpoint: endpoint, property: "currentMode") {
+            return buildLock(mode, subtype: subtype, label: label)
+        }
         if let level = node.value(CommandClass.multilevelSwitch, endpoint: endpoint, property: "currentValue") {
             return node.isCover ? buildCover(level, subtype: subtype, label: label) : buildDimmer(level, endpoint: endpoint, subtype: subtype, label: label)
         }
         if let state = node.value(CommandClass.binarySwitch, endpoint: endpoint, property: "currentValue") {
             return buildBinarySwitch(state, endpoint: endpoint, subtype: subtype, label: label)
         }
-        if let mode = node.value(CommandClass.doorLock, endpoint: endpoint, property: "currentMode") {
-            return buildLock(mode, subtype: subtype, label: label)
-        }
         return nil
     }
 
     /// Multilevel Switch levels are 0 to 99 (99 is full), 255 turns on at the last level.
-    static func percent(level: Double) -> Int { level >= 99 ? 100 : max(0, Int((level * 100 / 99).rounded())) }
+    static func percent(level: Double) -> Int { level >= 99 ? 100 : Int(saturating: (level * 100 / 99).rounded(), in: 0...100) ?? 0 }
     static func level(percent: Int) -> Int { min(99, max(0, Int((Double(percent) * 99 / 100).rounded()))) }
 
     private mutating func buildDimmer(_ level: ZValue, endpoint: Int, subtype: String, label: String) -> Service {
@@ -291,12 +292,12 @@ struct NodeBuilder {
             try await target(.number(Double(Self.level(percent: percent))))
         }
         on(level.id) { value in
-            guard let level = value.numberValue, level <= 99 else { return }
+            guard let level = value.numberValue, (0...99).contains(level) else { return }
             current.value = .int(Self.percent(level: level))
         }
         if let targetValue = node.value(CommandClass.multilevelSwitch, endpoint: level.id.endpoint, property: "targetValue") {
             on(targetValue.id) { value in
-                guard let level = value.numberValue, level <= 99 else { return }
+                guard let level = value.numberValue, (0...99).contains(level) else { return }
                 targetPosition.value = .int(Self.percent(level: level))
             }
         }
@@ -306,7 +307,9 @@ struct NodeBuilder {
 
     private mutating func buildBinarySwitch(_ state: ZValue, endpoint: Int, subtype: String, label: String) -> Service {
         let metered = !node.values(CommandClass.meter, endpoint: endpoint).isEmpty || !node.values(CommandClass.meter, endpoint: 0).isEmpty
-        let shape = showAs ?? (metered ? .outlet : .switch)
+        // An Entry Control node's switch (a door strike, a gate) opens a door: a switch whatever `showAs` says, guarded
+        // by the bridge's security rules as a lock is.
+        let shape = node.isEntryControl ? .switch : showAs ?? (metered ? .outlet : .switch)
         let type: ServiceType = switch shape {
         case .switch: .switch
         case .outlet: .outlet
@@ -317,6 +320,7 @@ struct NodeBuilder {
         if shape == .outlet { service.characteristic(.outletInUse).value = .bool(true) }
         let target = writer(state.id.with(property: "targetValue"))
         power.onWrite(changesOnly: true) { value in try await target(.bool(value.boolValue == true)) }
+        if node.isEntryControl { power.securityControl() }
         on(state.id) { value in
             if let state = value.boolValue { power.value = .bool(state) }
         }
