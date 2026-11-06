@@ -7,7 +7,9 @@ import NIOConcurrencyHelpers
 public protocol MatterAccessorySource: AnyObject, Sendable {
     /// Every accessory, with the names the configuration's `include` and `exclude` match it by.
     var matterAccessories: [(accessory: Accessory, names: [String])] { get }
-    func observeChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation
+    /// Changes of the accessories `matterAccessories` lists: one of a Function separated in HomeKit is said as its
+    /// device's, which Matter has whole.
+    func observeDeviceChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation
     func observeStructure(_ observer: @escaping @Sendable () -> Void) -> Observation
 }
 
@@ -28,6 +30,10 @@ extension PluginHost: MatterAccessorySource {
             }
         }
     }
+
+    public func observeDeviceChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
+        observeChanges { published, characteristic, value in observer(published.separatedFrom ?? published, characteristic, value) }
+    }
 }
 
 /// The accessories of one HAP server, matched by their id and name.
@@ -43,7 +49,7 @@ public final class ServerAccessories: MatterAccessorySource {
     }
 
     // The server keeps its observers: a cancelled observation stops passing calls on.
-    public func observeChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
+    public func observeDeviceChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
         let active = NIOLockedValueBox(true)
         server.observeChanges { accessory, characteristic, value in
             if active.withLockedValue({ $0 }) { observer(accessory, characteristic, value) }

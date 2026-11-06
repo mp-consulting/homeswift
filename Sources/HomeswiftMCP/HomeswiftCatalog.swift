@@ -126,6 +126,13 @@ public struct HomeswiftCatalog: Sendable {
         /// The bridge keeps the energy of some Meter of it (docs/adr/0004-meters-and-consumption-history.md).
         public var metered = false
 
+        /// The device behind it: the plugin's own accessory when this one stands for it in HomeKit with its Functions
+        /// separated, or is one of its Functions; the accessory itself otherwise.
+        public var device: Accessory { accessory.separatedFrom ?? accessory }
+
+        /// Whether it is one of a device's separated Functions rather than the device's own accessory.
+        public var isSeparatedFunction: Bool { device.id != accessory.id }
+
         /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`). An
         /// empty room is the user's "no room", which the suggestion does not override.
         public var room: String? {

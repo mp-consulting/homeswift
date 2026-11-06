@@ -134,24 +134,6 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
     func roomName(ofHomeKitID id: String) -> String? { rooms.first { $0.value == id }?.key }
 }
 
-/// Runs the Home Link's work one piece after the other: a snapshot followed, a change pushed, a comparison confirmed.
-final class SerialWork: Sendable {
-    private let tail = NIOLockedValueBox<Task<Void, Never>?>(nil)
-
-    func run<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
-        let task = tail.withLockedValue { tail -> Task<T, any Error> in
-            let previous = tail
-            let task = Task<T, any Error> {
-                await previous?.value
-                return try await work()
-            }
-            tail = Task { _ = try? await task.value }
-            return task
-        }
-        return try await task.value
-    }
-}
-
 /// What the Home Link last said, for checks that cannot wait for it (a Room renamed while it is up but not allowed to
 /// edit is refused at once).
 struct LastHome: Sendable {

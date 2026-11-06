@@ -719,6 +719,7 @@ public final class PluginContext: @unchecked Sendable {
                 naming.apply(to: part)
             }
             try bridge.server.add(separation.main)
+            accessory.shareAid(of: separation.main)
             for part in separation.parts { try bridge.server.add(part) }
         } else {
             try bridge.server.add(accessory)

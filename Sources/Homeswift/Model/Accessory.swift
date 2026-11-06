@@ -65,6 +65,12 @@ public final class Accessory: @unchecked Sendable {
         servicesBox = NIOLockedValueBox([information] + services.filter { $0 !== information })
     }
 
+    /// Takes the aid the server gave `published`, an accessory published in this one's place under its id (its Functions
+    /// separated), so code that knows this one finds it.
+    public func shareAid(of published: Accessory) {
+        aidBox.withLockedValue { $0 = published.aid }
+    }
+
     /// The plugin's own accessory this one was made from when its Functions are separated: the device's own accessory
     /// keeps its id with the main Function, each other Function is an accessory of its own (GLOSSARY.md, "Separate
     /// Functions"). nil for the plugin's own accessory.

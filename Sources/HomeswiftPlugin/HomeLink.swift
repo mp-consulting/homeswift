@@ -140,14 +140,25 @@ extension HomeswiftPlugin {
 }
 
 extension PluginHost {
-    /// The running plugin that is the Home Link, one that is up first, with its state; nil when none runs.
+    /// The running plugin that is the Home Link, one that is up first, with its state; nil when none runs. The one
+    /// that answered last is asked first: only a Home Link plugin answers, and most bridges have one.
     public func homeLink() async -> (instance: PlatformInstance, state: HomeLinkState, plugin: any HomeswiftPlugin)? {
-        var found: (instance: PlatformInstance, state: HomeLinkState, plugin: any HomeswiftPlugin)?
-        for (instance, plugin) in runningPlugins() {
-            guard let state = await plugin.homeLinkState() else { continue }
-            if state.isUp { return (instance.described, state, plugin) }
-            if found == nil { found = (instance.described, state, plugin) }
+        let running = runningPlugins()
+        let known = homeLinkKey.withLockedValue { $0 }
+        if let known, let (instance, plugin) = running.first(where: { $0.instance.context.key == known }),
+           let state = await plugin.homeLinkState(), state.isUp {
+            return (instance.described, state, plugin)
         }
-        return found
+        var found: (instance: PlatformInstance, state: HomeLinkState, plugin: any HomeswiftPlugin, key: String)?
+        for (instance, plugin) in running {
+            guard let state = await plugin.homeLinkState() else { continue }
+            if state.isUp {
+                homeLinkKey.withLockedValue { $0 = instance.context.key }
+                return (instance.described, state, plugin)
+            }
+            if found == nil { found = (instance.described, state, plugin, instance.context.key) }
+        }
+        homeLinkKey.withLockedValue { $0 = found?.key }
+        return found.map { ($0.instance, $0.state, $0.plugin) }
     }
 }

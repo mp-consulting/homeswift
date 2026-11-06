@@ -57,16 +57,7 @@ extension PluginHost {
 
     /// Runs `work` after the reloads and controls queued before it, so a save and a stop never interleave.
     func serialized<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T {
-        let task = reloadTail.withLockedValue { tail -> Task<T, Never> in
-            let previous = tail
-            let task = Task { () -> T in
-                _ = await previous?.value
-                return await work()
-            }
-            tail = Task { _ = await task.value }
-            return task
-        }
-        return await task.value
+        await reloads.run(work)
     }
 
     // MARK: Child bridges

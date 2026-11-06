@@ -56,7 +56,7 @@ public final class HomeState: Sendable {
     /// What links the Rooms, Zones and Groups to the Home's (`home.json`), and the Pending Changes.
     public let homeLink: JSONFileStore<HomeLinkFile>
     /// The Home Link's work, one piece after the other.
-    let homeLinkWork = SerialWork()
+    let homeLinkWork = SerialTasks()
     /// Whether a follow of the Home waits behind the one running: another call then makes none (`followHome`).
     let followQueued = NIOLockedValueBox(false)
     /// What the Home Link last said.

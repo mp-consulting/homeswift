@@ -116,6 +116,8 @@ public final class HAPServer: @unchecked Sendable {
         var databaseVersion = 0
         /// With `uniqueSerialNumbers`: the Serial Number each bridged accessory came with, and the one it was given.
         var serialNumbers: [Int: SerialNumber] = [:]
+        /// The aids that came with each Serial Number, so a change touches only those that share it.
+        var serialNumberAids: [String: Set<Int>] = [:]
 
         /// What HomeKit does not see besides mirrored accessories: those hidden by choice and those over capacity.
         var outOfHomeKit: Set<String> { overCapacity.isEmpty ? hiddenFromHomeKit : hiddenFromHomeKit.union(overCapacity) }
@@ -509,8 +511,6 @@ public final class HAPServer: @unchecked Sendable {
         var changed = state.persisted.aids[accessory.id] != aid
         state.persisted.aids[accessory.id] = aid
         accessory.aidBox.withLockedValue { $0 = aid }
-        // Published in place of the plugin's own accessory (its Functions separated): that one has the aid too.
-        if let original = accessory.separatedFrom, original.id == accessory.id { original.aidBox.withLockedValue { $0 = aid } }
 
         let prefix = "\(aid)/"
         // The next free iid, looked for only when one is needed: every server's iids would be scanned for each
@@ -549,7 +549,9 @@ public final class HAPServer: @unchecked Sendable {
         let known = state.serialNumbers[accessory.aid]
         // Added again as it is (a new name, a restored accessory replaced), it still carries the one it was given.
         let own = known.flatMap { $0.given == current ? $0.own : nil } ?? current
+        if let old = known?.own, old != own { state.serialNumberAids[old]?.remove(accessory.aid) }
         state.serialNumbers[accessory.aid] = SerialNumber(own: own, given: current)
+        state.serialNumberAids[own, default: []].insert(accessory.aid)
         return serialNumberUpdates(sharing: [own, known?.own].compactMap { $0 }, in: &state)
     }
 
@@ -557,13 +559,15 @@ public final class HAPServer: @unchecked Sendable {
     /// get it back.
     private func forgetSerialNumber(aid: Int, in state: inout State) -> [SerialNumberUpdate] {
         guard let removed = state.serialNumbers.removeValue(forKey: aid) else { return [] }
+        state.serialNumberAids[removed.own]?.remove(aid)
         return serialNumberUpdates(sharing: [removed.own], in: &state)
     }
 
     private func serialNumberUpdates(sharing owns: [String], in state: inout State) -> [SerialNumberUpdate] {
         var updates: [SerialNumberUpdate] = []
         for own in Set(owns) where !own.isEmpty {
-            let aids = state.serialNumbers.filter { $0.value.own == own }.keys.sorted()
+            let aids = (state.serialNumberAids[own] ?? []).sorted()
+            if aids.isEmpty { state.serialNumberAids.removeValue(forKey: own) }
             for (index, aid) in aids.enumerated() {
                 let wanted = index == 0 ? own : "\(own)-\(aid)"
                 guard state.serialNumbers[aid]?.given != wanted else { continue }

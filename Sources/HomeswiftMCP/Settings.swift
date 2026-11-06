@@ -252,9 +252,9 @@ extension HomeswiftCatalog {
         if let located = target.located { answer["name"] = .string(located.accessory.name) }
         if let source = target.located?.accessory.mirroredFrom { answer["mirroredFrom"] = .string(source) }
         // Separate Functions: offered for an accessory doing several things; a separated Function names its accessory.
-        if let published = target.located?.accessory {
-            let own = published.separatedFrom ?? published
-            if own.id != published.id {
+        if let located = target.located {
+            let own = located.device
+            if located.isSeparatedFunction {
                 answer["functionOf"] = ["id": .string(own.id), "name": .string(own.name)]
             } else if let groups = Separation.groups(of: own) {
                 answer["functions"] = .array(groups.map { group in .string(Separation.name(of: group[0], in: own)) })
@@ -450,14 +450,13 @@ extension HomeswiftCatalog {
                 guard !target.isMirrored else {
                     throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): it is published there, not by the bridge")
                 }
-                let own = target.located.map { $0.accessory.separatedFrom ?? $0.accessory }
-                guard let own, own.separatedFrom == nil, Separation.groups(of: own) != nil else {
+                guard let own = target.located?.device, Separation.groups(of: own) != nil else {
                     throw CatalogError("\(target.displayName) has nothing to separate: it does one thing, or what it does stays together (a camera, a doorbell, a television)")
                 }
             }
-            if let part = target.located?.accessory, let original = part.separatedFrom, original.id != part.id,
+            if let located = target.located, located.isSeparatedFunction,
                let other = settings.keys.first(where: { !AccessorySettings.liveKeys.contains($0) || $0 == "separateFunctions" }) {
-                throw CatalogError("\(target.displayName) is a Function of \(original.name): set \(other) on \(original.name)")
+                throw CatalogError("\(target.displayName) is a Function of \(located.device.name): set \(other) on \(located.device.name)")
             }
             if target.isMirrored, settings["notInHome"]?.boolValue == true {
                 throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): HomeKit has it there")

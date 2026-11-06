@@ -149,3 +149,42 @@ public func withTimeout<T: Sendable>(
     }
 }
 
+
+/// Runs work one piece after the other, in the order it was asked for, each piece once the one before it has ended
+/// (thrown or not): the host's reloads and controls, the Home Link's follows and changes.
+public final class SerialTasks: Sendable {
+    private let tail = NIOLockedValueBox<Task<Void, Never>?>(nil)
+
+    public init() {}
+
+    public func run<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        let task = tail.withLockedValue { tail -> Task<T, any Error> in
+            let previous = tail
+            let task = Task<T, any Error> {
+                await previous?.value
+                return try await work()
+            }
+            tail = Task { _ = try? await task.value }
+            return task
+        }
+        return try await task.value
+    }
+
+    public func run<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T {
+        let task = tail.withLockedValue { tail -> Task<T, Never> in
+            let previous = tail
+            let task = Task<T, Never> {
+                await previous?.value
+                return await work()
+            }
+            tail = Task { _ = await task.value }
+            return task
+        }
+        return await task.value
+    }
+
+    /// Waits for the work asked for so far to end.
+    public func idle() async {
+        await tail.withLockedValue { $0 }?.value
+    }
+}

@@ -222,7 +222,9 @@ public final class PluginHost: @unchecked Sendable {
     private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)
     private let homeChangeHandler = NIOLockedValueBox<(@Sendable () async -> Void)?>(nil)
     // The tail of the reloads, so two quick saves apply one after the other.
-    let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
+    let reloads = SerialTasks()
+    /// The key of the instance that last answered as the Home Link, asked first (`homeLink()`).
+    let homeLinkKey = NIOLockedValueBox<String?>(nil)
 
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
     /// until `start()`.
@@ -318,7 +320,7 @@ public final class PluginHost: @unchecked Sendable {
     /// Stops the plugins, saves the accessory caches, and stops the bridges. A plugin whose `stop()` takes
     /// longer than `pluginStopWait` is left to finish on its own.
     public func stop() async {
-        _ = await reloadTail.withLockedValue({ $0 })?.value
+        await reloads.idle()
         await withTaskGroup(of: Void.self) { group in
             for instance in instances {
                 group.addTask {

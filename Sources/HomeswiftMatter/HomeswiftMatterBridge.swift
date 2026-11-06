@@ -148,7 +148,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     public func start() async throws {
         let (changes, continuation) = AsyncStream<(Accessory, Characteristic, HAPValue)>.makeStream()
         // One stream keeps the changes in order (a press after the state it follows).
-        observations.append(source.observeChanges { accessory, characteristic, value in continuation.yield((accessory, characteristic, value)) })
+        observations.append(source.observeDeviceChanges { accessory, characteristic, value in continuation.yield((accessory, characteristic, value)) })
         tasks.append(Task { [weak self] in
             for await (accessory, characteristic, value) in changes { await self?.changed(accessory, characteristic, value) }
         })
@@ -387,9 +387,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     }
 
     /// A plugin changed a value: report it on the device's part that has the characteristic.
-    private func changed(_ published: Accessory, _ characteristic: Characteristic, _ value: HAPValue) async {
-        // A separated Function's change is the plugin's own accessory's in Matter, which has it whole.
-        let accessory = published.separatedFrom ?? published
+    private func changed(_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue) async {
         guard let bridged = devices[accessory.id], bridged.accessory === accessory else { return }
         let device = bridged.device
         await device.setReachable(!accessory.showsNoResponse)
