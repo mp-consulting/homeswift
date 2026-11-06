@@ -1013,7 +1013,7 @@ public struct MeterDescription: Sendable, Equatable {
 
 /// A reading of a Meter a plugin declared, on its way to the metrics store.
 public enum MeterReading: Sendable, Equatable {
-    /// A counter, in watt-hours, and when it was read.
+    /// A counter, in watt-hours (litres for gas and water), and when it was read.
     case counter(MeterID, Double, MeterDirection, Date)
     /// Power, in watts (above zero drawn, below zero sent back or produced), when it was read, and what the Meter is.
     case power(MeterID, Double, Date, MeterDescription)
@@ -1022,4 +1022,6 @@ public enum MeterReading: Sendable, Equatable {
     /// A plugin takes over a service's Meter (`PluginContext.meter(of:accessoryID:…)`): the bridge stops reading it from
     /// the service's Total Consumption and Current Consumption.
     case claim(MeterID)
+    /// A plugin declares a Meter of gas or water (`PluginContext.meter(_:deviceID:device:kind:)`): its figures are litres.
+    case kind(MeterID, MeterKind)
 }

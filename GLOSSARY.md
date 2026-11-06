@@ -201,8 +201,9 @@ batteries' charge and discharge.
 _Avoid_: Energy flows, home consumption
 
 **Meter**:
-Something in an accessory that measures energy, such as a plug, one channel of a two-channel relay, or one clamp of
-an energy meter. Phases that add up to one figure are one Meter. Each Meter has its own Consumption and Energy Role.
+Something in an accessory that measures electricity, gas or water, such as a plug, one channel of a two-channel
+relay, one clamp of an energy meter, or a gas or water meter's reader. Phases that add up to one figure are one Meter.
+Each Meter has its own Consumption, and an electricity Meter its Energy Role.
 _Avoid_: Channel, clamp, power meter, sensor
 
 **Energy Role**:
@@ -211,8 +212,8 @@ none (a single device's use). Its plugin suggests one; a person may change it.
 _Avoid_: Meter type, energy tag, energy kind
 
 **Consumption**:
-The energy one Meter measured being drawn over a span (an hour, a day, a month), in kWh, whether or not it counts in
-the Home Energy.
+What one Meter measured being drawn over a span (an hour, a day, a month), in kWh for electricity and m³ for gas and
+water, whether or not it counts in the Home Energy.
 _Avoid_: Usage, total consumption, energy counter
 
 **Returned**:
@@ -226,7 +227,7 @@ Energy Role.
 _Avoid_: Other, remainder, unknown
 
 **Tariff**:
-A Bridge Setting: what the home pays per kWh from a start date, by period of the day and week, and optionally what
+A Bridge Setting: what the home pays per kWh of electricity, or per m³ of gas or water, from a start date, by period of the day and week, and optionally what
 it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
 _Avoid_: Price, rate, contract, cost settings
 

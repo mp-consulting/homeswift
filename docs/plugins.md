@@ -192,6 +192,19 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   solar.record(counter: producedWh, direction: .returned)
   solar.importHours(cloudHours.map { MeterHourImport(start: $0.start, returned: $0.wattHours) })
   ```
+- **Gas and water Meters.** HAP has no gas or water characteristics, so a gas or water meter's reader (a pulse
+  counter, a smart meter's cloud) declares its Meter with a kind: `context.meter("gas", deviceID: id, device: name,
+  kind: .gas)` (or `.water`). It reads in m³: `record(cubicMetres:)` for the meter's index, a counter as for
+  electricity (gains between readings, a reset when it goes back), and `importHours` with
+  `MeterHourImport(start:cubicMetres:)` for its past. The archive keeps litres where it keeps watt-hours, and its
+  `meter.json` keeps the kind. Such a Meter has no power and no Energy Role (`suggestedRole` is ignored), never counts
+  in the Home Energy, and is never converted to kWh. It shows on the Status page's Gas or Water card and in
+  `get_consumption` in m³, priced by the Tariffs of its kind.
+  ```swift
+  let gas = context.meter("gas", deviceID: serial, device: "Gas meter", kind: .gas)
+  gas.record(cubicMetres: index)   // 1234.567 m³, as the meter reads
+  gas.importHours(days.map { MeterHourImport(start: $0.start, cubicMetres: $0.used) })
+  ```
 - **Cameras.** `CameraController` (and `DoorbellController`) mirror HAP-NodeJS's: implement
   `CameraStreamingDelegate` (`handleSnapshotRequest`, `prepareStream`, `handleStreamRequest`, async instead of
   callbacks) and, for HomeKit Secure Video, `CameraRecordingDelegate` (`handleRecordingStreamRequest` returns an
