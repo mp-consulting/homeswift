@@ -97,12 +97,32 @@
   const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1).replace(".", decimal)}°`; };
   const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.round(seconds % 60))).padStart(2, "0")}`;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  /// Whether an accessory answers: its device responds and its plugin is not paused (the Accessories page's Online;
+  /// No Response is the rest).
+  const answers = (accessory) => !accessory.unavailable && !accessory.paused;
   /// A colour temperature in mireds (what HomeKit sends) in kelvin, to the nearest 50.
   const kelvin = (mireds) => Math.round(1e6 / mireds / 50) * 50;
-  /// About the colour of white light at `k` kelvin, for a tile and the temperature track.
+  /// White light's hue and saturation by kelvin, about a black body's: amber when warm, neutral near 6200 K (a little
+  /// cooler than daylight's, so that everyday whites keep their warmth on a tile), blue when cool. The hue turns from warm
+  /// to cool only where the colour has none, so no green shows between them.
+  const kelvinHues = [[1800, 24, 100], [2200, 28, 100], [2700, 32, 95], [3500, 34, 80], [4500, 36, 55], [5500, 38, 25], [6200, 38, 0], [6800, 214, 22], [8000, 218, 50]];
+  /// The colour of white light at `k` kelvin and `lightness`, for a tile, a white track and the held picker.
   function whiteColor(k, lightness = 70) {
-    const share = clamp((k - 2700) / (6500 - 2700), 0, 1);
-    return `hsl(${Math.round(32 + share * 178)} ${Math.round(90 - share * 70)}% ${lightness}%)`;
+    const upper = kelvinHues.findIndex(([at]) => at >= k);
+    if (upper <= 0) { const [, h, s] = kelvinHues.at(upper === 0 ? 0 : -1); return `hsl(${h} ${s}% ${lightness}%)`; }
+    const [a, h1, s1] = kelvinHues[upper - 1], [b, h2, s2] = kelvinHues[upper], share = (k - a) / (b - a);
+    const h = s1 === 0 ? h2 : s2 === 0 ? h1 : h1 + (h2 - h1) * share;
+    return `hsl(${Math.round(h)} ${Math.round(s1 + (s2 - s1) * share)}% ${lightness}%)`;
+  }
+  /// The whites from `low` to `high` kelvin as a gradient, warm to cool (from the left, or from the bottom when `vertical`), with the table's own stops
+  /// between them: a light's white slider, a group's, a settings form's, and the held picker's disc and bar.
+  /// How light a white is drawn on a track (and the picker's marker on one).
+  const TRACK_LIGHTNESS = 82;
+  function whiteTrack(low, high, { vertical = false } = {}) {
+    const stops = [low, ...kelvinHues.map(([at]) => at).filter((at) => at > low && at < high), high];
+    // A track of one temperature (a group whose lights share a single one) is that white throughout.
+    const span = high - low || 1;
+    return `linear-gradient(${vertical ? "0deg" : "90deg"}, ${stops.map((k) => `${whiteColor(k, TRACK_LIGHTNESS)} ${((k - low) / span * 100).toFixed(1)}%`).join(", ")})`;
   }
 
   function describeModel(accessory) {
@@ -733,7 +753,16 @@
       return null;
     };
     const css = (c, lightness) => c.k ? whiteColor(c.k, lightness) : `hsl(${Math.round(c.h)} ${Math.round(c.s)}% ${lightness}%)`;
+    // A colour, or a white (no colour left over it), as the swatches, the white slider and the held picker write them.
+    const pickColor = canWrite(hue) && canWrite(saturation) ? (h, s) => { ctx.write(service, hue, h); ctx.write(service, saturation, s); } : null;
+    // Mireds run the other way: the warm end (few kelvin) is the most mireds.
+    const whiteRange = canWrite(temperature) ? { low: kelvin(temperature.maxValue ?? 500), high: kelvin(temperature.minValue ?? 140) } : null;
+    const pickWhite = whiteRange ? (k) => {
+      if (saturation && canWrite(saturation) && numberOf(saturation) > 0) ctx.write(service, saturation, 0);
+      ctx.write(service, temperature, clamp(Math.round(1e6 / k), temperature.minValue ?? 0, temperature.maxValue ?? 1000));
+    } : null;
     return {
+      pickColor, pickWhite, whiteRange,
       brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
         const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
           (v) => ctx.write(service, brightness, v));
@@ -744,12 +773,9 @@
         });
         return control.node;
       } : null,
-      swatches: canWrite(hue) && canWrite(saturation) ? ({ grid = false } = {}) => {
+      swatches: pickColor ? ({ grid = false } = {}) => {
         const swatches = presets.map(([name, h, s]) => {
-          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
-            ctx.write(service, hue, h);
-            ctx.write(service, saturation, s);
-          } });
+          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => pickColor(h, s) });
           swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
           return { swatch, h, s };
         });
@@ -760,16 +786,11 @@
         });
         return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
-      white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
-        // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
-        const low = kelvin(temperature.maxValue ?? 500), high = kelvin(temperature.minValue ?? 140);
+      white: whiteRange ? ({ vertical = false, thin = false } = {}) => {
+        const { low, high } = whiteRange;
         const control = level({ label: t("White"), min: low, max: high, step: 50, format: (k) => `${k} K`, vertical, thin,
-          gradient: `linear-gradient(${vertical ? "0deg" : "90deg"}, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})` },
-        (k) => {
-          const mireds = clamp(Math.round(1e6 / k), temperature.minValue ?? 0, temperature.maxValue ?? 1000);
-          if (saturation && canWrite(saturation) && numberOf(saturation) > 0) ctx.write(service, saturation, 0);
-          ctx.write(service, temperature, mireds);
-        });
+          gradient: whiteTrack(low, high, { vertical }) },
+        pickWhite);
         ctx.watch(() => control.set(kelvin(numberOf(temperature, 300))));
         return control.node;
       } : null,
@@ -1267,6 +1288,16 @@
     },
   });
 
+  /// What holding a light's tile picks from: its colours when it can be given a hue, its whites when it can be given a
+  /// colour temperature (the white slider's range), both when it has both; null for a light with neither.
+  function lightPicks(ctx, service, on, light) {
+    const turnOn = () => { if (!isOn(on)) ctx.write(service, on, onValue(on, true)); };
+    const color = light.pickColor ? { pick: (h, s) => { light.pickColor(h, s); turnOn(); } } : null;
+    const white = light.pickWhite ? { ...light.whiteRange, pick: (k) => { light.pickWhite(k); turnOn(); } } : null;
+    // A paused plugin's light, or one that does not answer, takes no colour: a hold is a tap, which says why.
+    return color || white ? { color, white, available: () => answers(ctx.accessory) } : null;
+  }
+
   register({
     name: "light", types: ["Lightbulb"], icon: "bulb", tone: "light",
     size: (ctx, primary) => canWrite(ctx.char(primary, "Brightness")) || canWrite(ctx.char(primary, "Hue")) || canWrite(ctx.char(primary, "Color Temperature")) ? "medium" : "small",
@@ -1278,6 +1309,8 @@
       const built = {
         power: { service: primary, characteristic: on },
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
+        // Held, a picker of its colours, its whites or both (colourWheel): the one picked, and the light on.
+        wheel: lightPicks(ctx, primary, on, light),
         on: () => isOn(on), color: light.color,
         hero: () => brightness && isOn(on) ? `${num(numberOf(brightness))}%` : "",
         status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.modeLabel(), light.reportedTemperature()].filter(Boolean).join(" · ")] : [t("Off")],
@@ -1883,6 +1916,150 @@
     return control.node;
   }
 
+  /// A colour picked by holding a light's tile: past a moment's press a picker opens under the pointer; the pointer
+  /// moves a marker over it, with the colour shown above it, out from under a finger; letting go on it picks, letting go
+  /// off it or without moving picks nothing. What it shows follows the light (`picks`):
+  ///   color { pick(hue, saturation) }        a wheel: hues around its rim, white at its centre
+  ///   white { low, high, pick(kelvin) }     whites only: a disc from warm at the bottom to cool at the top
+  ///   both                                 the wheel, and the whites as a bar under it, warm at the left
+  /// Moving before it opens is a scroll or a drag, not a pick. `used()` says, once, that the press was the picker's, so
+  /// the tile's click does not also toggle the light.
+  const WHEEL_SIZE = 232, WHITE_BAR = { gap: 18, height: 40 };
+  /// A press held this long, moving less than `PRESS_SLOP` pixels, arms a tile's gesture (the picker, a shutter's slide);
+  /// moving further first is a scroll.
+  const PRESS_MS = 350, PRESS_SLOP = 6;
+  /// The wheel's colour at a hue and saturation: the full hue at its rim, white at its centre.
+  const wheelColor = (h, s) => `hsl(${h} 100% ${100 - s / 2}%)`;
+  /// A white as the picker shows it, as on its disc and bar.
+  const pickerWhite = (k) => whiteColor(k, TRACK_LIGHTNESS);
+  /// A haptic tick, where the device has them and the page may (a browser refuses before the first tap on it, and says
+  /// so in the console).
+  const buzz = (ms) => { if (navigator.userActivation?.hasBeenActive ?? true) navigator.vibrate?.(ms); };
+  function colourWheel(hit, picks) {
+    const radius = WHEEL_SIZE / 2, { color, white } = picks;
+    // The white bar sits under the wheel when the light has both.
+    const bar = color && white ? WHITE_BAR : null;
+    const below = bar ? bar.gap + bar.height : 0;
+    let start = null, timer = null, open = null, used = false;
+    // The tile, which glows while the hold arms: the picker is coming.
+    const tile = () => hit.closest(".widget");
+    const close = () => {
+      clearTimeout(timer);
+      timer = null;
+      start = null;
+      tile()?.classList.remove("arming");
+      if (!open) return;
+      const { node, listening } = open;
+      open = null;
+      listening.abort();
+      node.classList.add("closing");
+      setTimeout(() => node.remove(), 140);
+    };
+    const whiteAt = (share) => Math.round((white.low + clamp(share, 0, 1) * (white.high - white.low)) / 50) * 50;
+    // What the pointer is on: a colour on the wheel, a white on the disc or the bar, or nothing; and the marker's place,
+    // from the wheel's top left.
+    const at = (event) => {
+      const dx = event.clientX - open.x, dy = event.clientY - open.y, distance = Math.hypot(dx, dy);
+      if (bar && dy > radius + bar.gap / 2) {
+        const share = (dx + radius) / WHEEL_SIZE;
+        const inside = Math.abs(dx) <= radius + 16 && dy <= radius + below + 16;
+        const k = whiteAt(share);
+        return { inside, white: k, css: pickerWhite(k), left: clamp(share, 0, 1) * WHEEL_SIZE, top: WHEEL_SIZE + bar.gap + bar.height / 2 };
+      }
+      const inside = distance <= radius + 16, share = Math.min(1, distance / radius);
+      const left = radius + (distance ? dx / distance : 0) * share * radius, top = radius + (distance ? dy / distance : 0) * share * radius;
+      if (!color) {
+        // Whites only: cool at the top, warm at the bottom.
+        const k = whiteAt(1 - (top / WHEEL_SIZE));
+        return { inside, white: k, css: pickerWhite(k), left, top };
+      }
+      const h = Math.round((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360), s = Math.round(share * 100);
+      return { inside, h, s, css: wheelColor(h, s), left, top };
+    };
+    const show = () => {
+      timer = null;
+      used = true;
+      tile()?.classList.remove("arming");
+      // Inside the window, with room above it for the colour shown (and below it for the white bar).
+      const x = clamp(start.x, radius + 8, innerWidth - radius - 8), y = clamp(start.y, radius + 64, innerHeight - radius - below - 8);
+      const mark = el("span", { class: "color-wheel-mark" }), preview = el("span", { class: "color-wheel-preview" });
+      // A white's temperature, beside the colour shown: whites differ by less than the eye can say.
+      const reading = white ? el("span", { class: "color-wheel-reading" }) : null;
+      const disc = el("span", { class: "color-wheel-disc" });
+      if (!color) disc.style.background = whiteTrack(white.low, white.high, { vertical: true });
+      const strip = bar ? el("span", { class: "color-wheel-whites" }) : null;
+      if (strip) Object.assign(strip.style, { top: `${WHEEL_SIZE + bar.gap}px`, height: `${bar.height}px`,
+        background: whiteTrack(white.low, white.high) });
+      const node = el("div", { class: "color-wheel", "aria-hidden": "true" }, disc, strip, mark, preview, reading);
+      // Grown from the finger and the marker under it, though the picker moved to stay inside the window.
+      const fx = clamp(start.x - (x - radius), 0, WHEEL_SIZE), fy = clamp(start.y - (y - radius), 0, WHEEL_SIZE);
+      node.style.transformOrigin = `${fx}px ${fy}px`;
+      mark.style.transform = `translate(${fx}px, ${fy}px)`;
+      // Placed by the wheel's centre, which `at` measures from.
+      Object.assign(node.style, { left: `${x - radius}px`, top: `${y - radius}px`, width: `${WHEEL_SIZE}px`, height: `${WHEEL_SIZE}px` });
+      document.body.append(node);
+      // Followed on the window: the tile may be drawn again while the picker is open (an event from the device).
+      const listening = new AbortController(), options = { signal: listening.signal };
+      open = { node, mark, preview, reading, x, y, moved: false, choice: null, listening };
+      try { hit.setPointerCapture(start.id); } catch {}
+      addEventListener("pointermove", follow, options);
+      addEventListener("pointerup", release, options);
+      addEventListener("pointercancel", (event) => { if (event.pointerId === start?.id) close(); }, options);
+      addEventListener("blur", close, options);
+      addEventListener("keydown", (event) => { if (event.key === "Escape") close(); }, options);
+      // Once the picker is open, the page does not scroll under the finger.
+      addEventListener("touchmove", (event) => event.preventDefault(), { ...options, passive: false });
+      buzz(8);
+    };
+    const follow = (event) => {
+      if (event.pointerId !== start?.id) return;
+      // A mouse let go where no pointerup reached the page (outside the window): nothing is picked.
+      if (event.buttons === 0) { close(); return; }
+      if (!open.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < PRESS_SLOP) return;
+      open.moved = true;
+      const choice = open.choice = at(event);
+      open.node.classList.toggle("outside", !choice.inside);
+      open.mark.style.transform = `translate(${choice.left}px, ${choice.top}px)`;
+      // Written on the two that show it, not inherited through the picker: a move restyles nothing else.
+      open.mark.style.background = open.preview.style.background = choice.css;
+      open.node.classList.add("picking");
+      if (open.reading) open.reading.textContent = choice.white !== undefined ? `${num(choice.white)} K` : "";
+    };
+    const release = (event) => {
+      if (event.pointerId !== start?.id) return;
+      const choice = open.moved ? open.choice : null;
+      close();
+      if (!choice?.inside) return;
+      // The pick lands with a tick, as the picker opened with one.
+      buzz(6);
+      if (choice.white !== undefined) white.pick(choice.white); else color.pick(choice.h, choice.s);
+    };
+    hit.addEventListener("pointerdown", (event) => {
+      // A second finger while one arms or picks changes nothing; a light that cannot take a colour has no picker.
+      if (event.button !== 0 || open || (start && start.id !== event.pointerId) || !(picks.available?.() ?? true)) return;
+      used = false;
+      const id = event.pointerId;
+      start = { x: event.clientX, y: event.clientY, id };
+      clearTimeout(timer);
+      timer = setTimeout(show, PRESS_MS);
+      tile()?.classList.add("arming");
+      // This pointer let go anywhere before it opens (off the tile too, where the tile hears nothing): a tap, not a
+      // pick. Another finger's touches change nothing.
+      const up = (other) => {
+        if (other.pointerId !== id) return;
+        removeEventListener("pointerup", up);
+        if (!open && start?.id === id) close();
+      };
+      addEventListener("pointerup", up);
+    });
+    // Before the picker opens, a move is a scroll or a drag.
+    hit.addEventListener("pointermove", (event) => {
+      if (!open && timer && event.pointerId === start?.id && Math.hypot(event.clientX - start.x, event.clientY - start.y) > PRESS_SLOP) close();
+    });
+    hit.addEventListener("pointercancel", (event) => { if (!open && event.pointerId === start?.id) close(); });
+    return { busy: () => Boolean(open), used: () => { const was = used; used = false; return was; } };
+  }
+
   /// Compact and tall summary tiles share their tap/hold actions; large and extra-large cards keep inline controls.
   /// The ⋯ menu opens all controls at every size. A tall tile shows its widget's `middle`, when it gives one (only for
   /// `ctx.tall`), between its icon and its name, in place of the hero value.
@@ -1933,9 +2110,13 @@
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
       } else hit.addEventListener("click", () => {
         if (slid) { slid = false; return; }
+        if (wheel?.used()) return;
         built.tap ? built.tap() : ctx.openFull();
       });
-      hit.addEventListener("contextmenu", (event) => { event.preventDefault(); menu.click(); });
+      // A light with colours: held, the colour wheel (a touch's long press is the wheel's, not the menu's).
+      const wheel = built.wheel ? colourWheel(hit, built.wheel) : null;
+      if (wheel) node.classList.add("has-wheel");
+      hit.addEventListener("contextmenu", (event) => { event.preventDefault(); if (!wheel?.busy()) menu.click(); });
       // A shutter's tile slides: the shade follows the pointer, the position is written when it is let go. A
       // mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page.
       let sliding = null, slid = false;
@@ -1952,12 +2133,12 @@
           start = { x: event.clientX, y: event.clientY, id: event.pointerId };
           armed = event.pointerType === "mouse";
           clearTimeout(holdTimer);
-          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, 350);
+          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, PRESS_MS);
         });
         hit.addEventListener("pointermove", (event) => {
           if (!start) return;
           const moved = Math.abs(event.clientY - start.y);
-          if (!armed) { if (moved > 6) { clearTimeout(holdTimer); start = null; } return; }
+          if (!armed) { if (moved > PRESS_SLOP) { clearTimeout(holdTimer); start = null; } return; }
           if (sliding === null && moved < 4) return;
           if (sliding === null) { hit.setPointerCapture(start.id); node.classList.add("sliding"); }
           sliding = at(event);
@@ -2180,12 +2361,13 @@
   for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
+    answers,
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
     /// The widgets' slider, for a settings form's brightness or colour temperature (`x-schema-form.type: "slider"`).
     level,
     /// A colour temperature track from `low` to `high` kelvin, warm to cool, as a light's white slider has.
-    whiteTrack: (low, high) => `linear-gradient(90deg, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})`,
+    whiteTrack,
     /// A brightness slider's fill in a neutral white, for a light the form has no colour of.
     brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
@@ -2220,6 +2402,6 @@
     /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
     register: (widget) => widgets.unshift(widget),
     /// The controls the widgets are made of, for a page's own widget.
-    controls: { toggle, segmented, level, kelvin, whiteColor, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
+    controls: { toggle, segmented, level, kelvin, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
   };
 })();

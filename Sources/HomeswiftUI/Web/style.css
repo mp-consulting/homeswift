@@ -981,6 +981,46 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-hit { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: none; box-shadow: none; }
 .widget .w-hit:hover, .widget .w-hit:active:not(:disabled) { transform: none; }
 .w-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* A light's picker (widgets.js's colourWheel): held, it opens under the pointer: a wheel of hues with white at its
+   centre, a disc of whites (cool at the top, warm at the bottom) for a light without colours, or the wheel with a bar of
+   whites under it. The marker follows the pointer and the colour it is on shows above, out from under a finger. Off the
+   picker, the marker and that colour fade: letting go there picks nothing. */
+.has-wheel > .w-hit { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* While a hold arms the picker, the tile's edge lights up: late enough that a tap never shows it, and done as the
+   picker opens. */
+.widget.has-wheel { outline: 3px solid transparent; outline-offset: 2px; }
+.widget.has-wheel.arming { outline-color: color-mix(in srgb, var(--accent) 45%, transparent); transition: outline-color 200ms var(--ease-out) 140ms; }
+.color-wheel { position: fixed; z-index: 1000; pointer-events: none; animation: color-wheel-in 160ms var(--ease-out); }
+.color-wheel-disc, .color-wheel-whites { position: absolute; box-shadow: 0 0 0 5px var(--material-solid), var(--shadow-thick); }
+.color-wheel-disc {
+  inset: 0; border-radius: 50%;
+  background: radial-gradient(closest-side, #fff, rgb(255 255 255 / 0)),
+    conic-gradient(hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%), hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%));
+}
+.color-wheel-whites { left: 0; right: 0; border-radius: var(--radius-pill); }
+.color-wheel.closing { opacity: 0; scale: 0.9; transition: opacity 120ms var(--ease-out), scale 120ms var(--ease-out); }
+/* From the finger, a little smaller: a popover arriving, not a zoom from nothing. */
+@keyframes color-wheel-in { from { opacity: 0; scale: 0.9; } }
+.color-wheel-mark {
+  /* Moved by its transform (colourWheel), centred on the point by its translate. */
+  position: absolute; left: 0; top: 0; width: 30px; height: 30px; translate: -50% -50%; border-radius: 50%;
+  background: transparent; border: 3px solid #fff; box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
+  transition: opacity 120ms var(--ease-out);
+}
+.color-wheel-preview {
+  position: absolute; left: 50%; top: -52px; width: 40px; height: 40px; translate: -50% 0; border-radius: 50%;
+  /* Its colour follows the pointer at once, never eased behind it. */
+  background: #fff; border: 3px solid var(--material-solid); box-shadow: var(--shadow-control);
+  transition: opacity 120ms var(--ease-out);
+}
+.color-wheel-reading {
+  position: absolute; left: calc(50% + 28px); top: -42px; padding: 2px var(--space-8); border-radius: var(--radius-pill);
+  background: var(--material-solid); color: var(--text); box-shadow: var(--shadow-control);
+  font-size: var(--text-xs); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.color-wheel-reading:empty { display: none; }
+.color-wheel:not(.picking) .color-wheel-mark, .color-wheel.outside .color-wheel-mark, .color-wheel.outside .color-wheel-preview { opacity: 0.25; }
+@media (prefers-reduced-motion: reduce) { .color-wheel { animation: none; } .color-wheel.closing { scale: none; } .widget.has-wheel.arming { transition-delay: 0ms; } }
 .w-top, .w-bottom { position: relative; z-index: 1; display: flex; gap: var(--space-8); min-width: 0; pointer-events: none; }
 /* A tall tile's middle line (a remote's keys), above the tap target like the others and shown only by it. */
 .w-middle { position: relative; z-index: 1; flex: none; min-width: 0; padding: 2px 0; overflow: hidden; pointer-events: none; }
@@ -1204,7 +1244,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .chip { font-size: var(--text-sm); padding: var(--space-6) var(--space-12); transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
 .widget .chip[aria-pressed="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
 .swatches { display: flex; flex-wrap: wrap; gap: var(--space-8); }
-.swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: var(--space-10); }
+/* An extra large light's colours: as many to a row as fit, five at most (Adaptive and the eight colours: five, then
+   four). Five swatches, their four gaps and the 3px padding each side that `.widget .swatches` keeps for the ring. */
+.swatches.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, 30px); gap: var(--space-10);
+  max-width: calc(5 * 30px + 4 * var(--space-10) + 2 * 3px);
+}
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
@@ -4278,6 +4323,9 @@ select option:disabled { color: var(--muted); }
 .overview-card { display: grid; gap: var(--space-12); }
 .overview-card .who { min-width: 0; }
 .overview-card .chart-head .muted { font-size: var(--text-sm); }
+/* By room or by bridge: beside the title, under it where the two do not fit side by side. */
+.overview-card .chart-head { flex-wrap: wrap; }
+.overview-card .chart-head .who { flex: 1 1 240px; }
 .overview-frame { position: relative; }
 .overview-empty { padding: 56px var(--space-16); text-align: center; }
 .overview-graph { display: block; width: 100%; max-width: 820px; height: auto; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }

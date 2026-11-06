@@ -212,7 +212,9 @@ screenshots, and what a plugin does to get good ones.
   order are the Arrangement, the layout's. Accessories mirrored from another controller (the Home app's, through
   the Wingman plugin) carry a small house badge, sit in that controller's room until given one here, and have a filter
   of their own, the **Apple Home** switch (`?from=Apple%20Home`). The Filters menu also narrows the wall to bridges
-  (`?bridge=<name>`) and device types (`?type=<category>`), each as often as chosen, as on the Graph. The Arrangement is the bridge's, shared by every user, in
+  (`?bridge=<name>`) and device types (`?type=<category>`), each as often as chosen, as on the Graph, and to the
+  accessories that answer, **Online** (`?online=1`: neither No Response nor paused), or those that do not, **No Response**
+  (`?unavailable=1`); choosing one clears the other. The Arrangement is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`), where older versions also kept rooms, Hidden and
   display names: those are read until the accessory's settings are next written, which moves them there. The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
@@ -250,7 +252,10 @@ touch pinch, dragging and the zoom buttons move the view. Click any node for a c
 (grouped by service, each with a tooltip saying what it is) and its accessories, each a click from its own card; on a
 phone the card sits under the graph. An accessory's card holds its widget, live as on the wall (a tap toggles it, its main
 control in reach), then **All controls** (the widget's sheet) and **Identify** when the accessory can. A search field and a Filters menu
-(Only from Apple Home, unavailable, bridges, device types) redraw the graph with what matches, and a table shows the same rows. **Full
+(Only from Apple Home, Online, No Response, bridges, device types: the same Online and No Response as the wall's, a paused plugin's accessories among those that do not answer) redraw the graph with what matches, and a table shows the same rows.
+**By room** (the default once there are rooms) and **By bridge** (`?by=bridge`), beside the graph's title, arrange it: by room, the first ring holds the rooms in
+the Arrangement's order, then No room, and each room's plugins, device types and accessories hang from it, each plugin
+in the colour it has by bridge; a room's card lists its plugins, its device types and its accessories. **Full
 screen** (the toolbar's last button, or `/accessories/graph?full=1`): the graph alone filling the window, its zoom at
 the bottom right as a map's and one button in the top corner for the search, the filters and Leave full screen, both
 fading while nothing happens; the cards and their actions work as on the page, a sheet from the bottom on a phone, and Esc leaves.

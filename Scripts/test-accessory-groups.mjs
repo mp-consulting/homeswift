@@ -37,8 +37,8 @@ for (const language of ['fr', 'es', 'pt']) {
   const i18n={add:(_lang,values)=>catalog=values,t:key=>catalog?.[key]||key,message:key=>catalog?.[key]||key};
   const rendering={window:{},document:{activeElement:null},HomeswiftI18n:i18n,
     HomeswiftCommon:{el,tile:()=>({classList:{toggle(){}}}),menuButton:()=>null},
-    HomeswiftWidgets:{controls:{
-      kelvin:m=>Math.round(1e6/m/50)*50, whiteColor:()=> 'white',
+    HomeswiftWidgets:{whiteTrack:()=>'white', controls:{
+      kelvin:m=>Math.round(1e6/m/50)*50,
       level:options=>({node:el('div',{'role':'slider','aria-label':options.label},el('span',{text:options.label})),set(){}})
     }}};
   vm.createContext(rendering);

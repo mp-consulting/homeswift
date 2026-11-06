@@ -76,11 +76,13 @@
     }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
 
+  /// The room an accessory is shown in: its own when the Arrangement knows it, else none ("").
+  const roomOf = (accessory, rooms) => (accessory.room && rooms.includes(accessory.room) ? accessory.room : "");
   /// The Accessories page's accessories by room, in the layout's order; those in no room last.
   function groupByRoom(accessories, rooms) {
     const byName = (a, b) => displayName(a).localeCompare(displayName(b));
     const groups = rooms.map((room) => [room, accessories.filter((a) => a.room === room).sort(byName)]).filter(([, list]) => list.length);
-    const rest = accessories.filter((a) => !a.room || !rooms.includes(a.room)).sort(byName);
+    const rest = accessories.filter((a) => !roomOf(a, rooms)).sort(byName);
     return rest.length ? [...groups, [groups.length ? t("No room") : t("Accessories"), rest]] : groups;
   }
 
@@ -1881,6 +1883,6 @@
         app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
       };
     },
-    layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
+    layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
   };
 })();

@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Web UI: the Accessories page's Graph arranges by room, its default once there are rooms, as well as by bridge
+  (**By bridge**, `?by=bridge`): the rooms on the first ring, then each room's plugins, device types and accessories; a
+  room's card lists what is in it.
+- Web UI: an **Online** filter on the Accessories page's wall and graph (`?online=1`): the accessories that answer, neither
+  No Response nor paused; it and No Response clear each other. The graph's Unavailable filter is now No Response, as on
+  the wall, and counts a paused plugin's accessories too.
+- Web UI: holding a light's small or medium tile opens a picker under the finger or pointer: a colour wheel, with a bar
+  of whites under it when the light also has a colour temperature, or a disc of whites for a white light. Letting go on
+  it sets that colour or white (and turns the light on); letting go off it or without moving changes nothing. A tap
+  still turns the light on or off.
 - TP-Link Tapo: the lens on a camera's motor (a C675D's tele lens) gets a "Go to <preset>" switch per pan and tilt
   preset and Horizontal and Vertical Patrol switches (the camera's sweep along that axis), from the first live view on.
   Like the web UI's pad, they move the camera only while a live view keeps it awake. `presetSwitches` and
@@ -20,6 +30,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Web UI: whites are drawn as white light looks, amber when warm, neutral near 6200 K and blue when cool, on a light's
+  tile, its white slider, a group's and the held picker alike; a white between them (4000 K) no longer turns green.
+- Web UI: an extra large light's colours sit five to a row (Adaptive and the eight colours: five, then four), where
+  four left room unused.
 - Web UI: a camera's pan and tilt pad sits at the live view's lower right, under the thumb of the hand holding a phone
   and beside the button that opens it, its presets on its left.
 - Web UI: the Scenes page shows a hub's scene once however many rooms have it (Hue makes Relax, Read or Concentrate

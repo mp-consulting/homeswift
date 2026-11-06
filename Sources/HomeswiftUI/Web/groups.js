@@ -198,6 +198,10 @@
           const commit = async (value, only = present.map((_, i) => i)) => {
             if (editing || busy) return;
             busy = true; input.inert = true; input.setAttribute('aria-disabled', 'true');
+            // A white, as one light's white slider sets it: no colour left over it on the members that show one.
+            if (temperature) await Promise.allSettled(only.map((i) => [present[i], controls(present[i]).get('Saturation')]).filter(([, s]) => s && s.c.value > 0)
+              .map(([member, s]) => api(`/api/accessories/${encodeURIComponent(member.id)}`, { method: 'PUT', body: { service: s.service, characteristic: 'Saturation', value: 0 } })
+                .then(() => { s.c.value = 0; })));
             const outcomes = await Promise.allSettled(only.map((i) => api(`/api/accessories/${encodeURIComponent(present[i].id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
             outcomes.forEach((outcome, n) => { if (outcome.status === 'fulfilled') targets[only[n]].c.value = value; });
             const failed = only.filter((_, n) => outcomes[n].status === 'rejected');
@@ -218,12 +222,12 @@
             if (count) input.setAttribute('aria-description', count.textContent);
             return el('label', {}, el('span', { class: 'group-name' }, el('span', { text: HomeswiftI18n.message(type) }), count), input);
           }
-          const { level, kelvin, whiteColor } = HomeswiftWidgets.controls;
+          const { level, kelvin } = HomeswiftWidgets.controls;
           const min = temperature ? kelvin(high) : low, max = temperature ? kelvin(low) : high;
           const step = Math.max(...targets.map(({ c }) => c.minStep || 1));
           const control = level({ label: HomeswiftI18n.message(type), min, max, step: temperature ? 50 : step,
             format: (value) => temperature ? `${value} K` : type === 'Hue' ? `${value}°` : `${value} %`,
-            gradient: temperature ? `linear-gradient(90deg, ${whiteColor(min, 72)}, ${whiteColor((min + max) / 2, 88)}, ${whiteColor(max, 84)})` : undefined },
+            gradient: temperature ? HomeswiftWidgets.whiteTrack(min, max) : undefined },
           (value) => commit(temperature ? Math.min(high, Math.max(low, Math.round((1e6 / value - low) / step) * step + low)) : value));
           input = control.node;
           input.inert = editing;

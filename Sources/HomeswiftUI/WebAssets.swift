@@ -1265,50 +1265,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     own: new Set((matter.ownDevices ?? []).map((device) => device.id)), bridged: new Set((matter.devices ?? []).map((device) => device.id)),
   } : null;
 
-  function overviewModel(status, plugins, accessories, filter = null, matter = null) {
+  /// What every graph is built from, worked out once (a search or filter only narrows it): what the endpoints gave, and
+  /// the plugin blocks in config.json's order, each with its bridge, its colour (counted before any filter, so that a
+  /// plugin keeps its colour however the graph is filtered or arranged) and its accessories: those of its platform on its
+  /// bridge, given to the first block that has them, and, under its platform's first block, its accessories of their own
+  /// (a camera on a HomeKit server of its own, with that server). Built-in blocks come as `{ system: true, block }`.
+  /// `shown` names the servers whose accessory hangs from its plugin; `unclaimed` are the accessories of their own no
+  /// block shows (their block gone from config.json).
+  function overviewSource(status, plugins, accessories, matter, rooms) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
-    // An accessory on a HomeKit server of its own (a camera, a television) is shown as what it is, with its category's icon.
-    const tops = bridges.map((bridge) => ({
-      kind: bridge.external ? "external" : bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge,
-      count: bridge.accessories ?? 0, sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}),
-      accessory: bridge.external ? accessories.find((accessory) => accessory.name === bridge.name) : undefined,
-      icon: bridge.external ? deviceIcon(accessories.find((accessory) => accessory.name === bridge.name)?.category) : undefined }));
-    const topByName = new Map(tops.map((top) => [top.name, top]));
-    // The HomeKit servers of an accessory of its own (a camera), by name: the plugin that publishes it shows it, with the
-    // server's pairing, port and Device ID on its card.
+    const names = new Set(bridges.map((bridge) => bridge.name));
     const externals = new Map(bridges.filter((bridge) => bridge.external).map((bridge) => [bridge.name, bridge]));
-    const shown = new Set();
-    const entries = plugins?.platforms ?? [];
-    const claimed = new Set();
-    let pluginCount = 0, pausedCount = 0, colorIndex = 0;
+    const entries = new Map((plugins?.platforms ?? []).map((entry) => [entry.name, entry]));
+    const claimed = new Set(), shown = new Set(), blocks = [];
+    let colorIndex = 0;
     for (const block of plugins?.blocks ?? []) {
-      if (block.system) {
-        const top = { kind: "system", name: block.name, children: [], sub: t("Built in") };
-        // The Matter block: its devices of their own and its bridged ones. Each is a copy of the accessory it shows: the
-        // layout places the plugin's dot and this one apart.
-        if (block.platform === "HomeswiftMatter" && matter) {
-          top.icon = "matter";
-          for (const [name, ids] of [[t("Devices of their own"), matter.own], [t("Bridged over Matter"), matter.bridged]]) {
-            let leaves = accessories.filter((accessory) => ids.has(accessory.id));
-            if (filter) leaves = leaves.filter(filter.keeps);
-            if (leaves.length) top.children.push(branchOf({ name, icon: "matter", matter: true, color: "var(--ok)" }, leaves.map((one) => ({ ...one }))));
-          }
-          top.sub = tn("{n} accessory", "{n} accessories", top.children.reduce((sum, branch) => sum + branch.leaves.length, 0), {});
-        }
-        tops.push(top);
-        continue;
-      }
-      const entry = entries.find((one) => one.name === block.name);
+      if (block.system) { blocks.push({ system: true, block }); continue; }
+      const entry = entries.get(block.name);
       const bridgeName = entry?.bridge ?? main?.name;
-      const parent = topByName.get(bridgeName);
-      if (!parent) continue;
-      // Counted before the filter, so that a plugin keeps its colour however the graph is filtered.
+      if (!names.has(bridgeName)) continue;
       const color = `var(${branchColors[colorIndex++ % branchColors.length]})`;
       const key = `${block.platform}|${bridgeName}`;
-      let leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
+      const leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
       claimed.add(key);
-      // Its accessories of their own, under the first of its blocks.
       if (!claimed.has(`${block.platform}|external`)) {
         claimed.add(`${block.platform}|external`);
         for (const accessory of accessories) {
@@ -1318,20 +1298,100 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           leaves.push({ ...accessory, server });
         }
       }
-      if (filter) {
-        leaves = leaves.filter(filter.keeps);
-        if (!leaves.length) continue;
+      blocks.push({ block, bridgeName, color, leaves, paused: Boolean(entry?.paused) });
+    }
+    // An accessory of its own goes by its server's name.
+    const ownAccessory = new Map(accessories.filter((one) => externals.has(one.bridge)).map((one) => [one.name, one]));
+    const unclaimed = [...externals.values()].filter((server) => !shown.has(server.name) && ownAccessory.has(server.name))
+      .map((server) => ({ ...ownAccessory.get(server.name), server }));
+    // The Homeswift card's figures, which no filter changes.
+    const totals = { bridges: bridges.length, accessories: accessories.length, unavailable: accessories.filter((one) => !HomeswiftWidgets.answers(one)).length };
+    return { status, plugins, accessories, matter, rooms, blocks, shown, unclaimed, totals, ownAccessory };
+  }
+  /// A block's branch from some of its accessories.
+  const blockBranch = (one, leaves) => branchOf({ name: one.block.name, platform: one.block.platform, icon: one.block.icon ?? "plugin",
+    bridgeName: one.bridgeName, paused: one.paused, color: one.color }, leaves);
+
+  /// The graph by bridge: each bridge on the first ring, its plugins on the second (see `overviewSource`).
+  function overviewModel(source, filter = null) {
+    const { status, accessories, matter, blocks, shown, ownAccessory } = source;
+    const bridges = status.bridges ?? [];
+    // An accessory on a HomeKit server of its own (a camera, a television) is shown as what it is, with its category's icon.
+    const tops = bridges.map((bridge) => ({
+      kind: bridge.external ? "external" : bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge,
+      count: bridge.accessories ?? 0, sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}),
+      accessory: bridge.external ? ownAccessory.get(bridge.name) : undefined,
+      icon: bridge.external ? deviceIcon(ownAccessory.get(bridge.name)?.category) : undefined }));
+    const topByName = new Map(tops.map((top) => [top.name, top]));
+    let pluginCount = 0, pausedCount = 0;
+    for (const one of blocks) {
+      const { block } = one;
+      if (one.system) {
+        const top = { kind: "system", name: block.name, children: [], sub: t("Built in") };
+        // The Matter block: its devices of their own and its bridged ones. Each is a copy of the accessory it shows: the
+        // layout places the plugin's dot and this one apart.
+        if (block.platform === "HomeswiftMatter" && matter) {
+          top.icon = "matter";
+          for (const [name, ids] of [[t("Devices of their own"), matter.own], [t("Bridged over Matter"), matter.bridged]]) {
+            let leaves = accessories.filter((accessory) => ids.has(accessory.id));
+            if (filter) leaves = leaves.filter(filter.keeps);
+            if (leaves.length) top.children.push(branchOf({ name, icon: "matter", matter: true, color: "var(--ok)" }, leaves.map((leaf) => ({ ...leaf }))));
+          }
+          top.sub = tn("{n} accessory", "{n} accessories", top.children.reduce((sum, branch) => sum + branch.leaves.length, 0), {});
+        }
+        tops.push(top);
+        continue;
       }
-      const paused = Boolean(entry?.paused);
+      const leaves = filter ? one.leaves.filter(filter.keeps) : one.leaves;
+      if (filter && !leaves.length) continue;
       pluginCount += 1;
-      pausedCount += paused ? 1 : 0;
-      parent.children.push(branchOf({ name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, color }, leaves));
+      pausedCount += one.paused ? 1 : 0;
+      topByName.get(one.bridgeName).children.push(blockBranch(one, leaves));
     }
     // A server whose accessory hangs from its plugin is not a node of its own.
     tops.splice(0, tops.length, ...tops.filter((top) => top.kind !== "external" || !shown.has(top.name)));
     for (const top of tops) top.color = "var(--muted)";
     // A filter keeps the nodes with something it matches: a bridge's plugins, or the accessory of its own no plugin shows.
     if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length || (top.accessory && filter.keeps(top.accessory))));
+    return layOut(tops, source, filter, { plugins: pluginCount, paused: pausedCount });
+  }
+
+  /// The graph by room: each room on the first ring, in the Arrangement's order, then the accessories in no room; under a
+  /// room, the plugins with accessories in it, their device types and their accessories. Empty rooms are left out.
+  function roomModel(source, filter = null) {
+    const { blocks, unclaimed, rooms } = source;
+    // The wall's rule (HomeswiftHome.roomOf): a room the Arrangement does not know is no room.
+    const tops = new Map([...rooms, ""].map((room) => [room, { kind: "room", name: room || t("No room"), room, icon: room ? "room" : "generic", color: "var(--muted)", children: [] }]));
+    /// Each room's share of a block's accessories, as a branch under that room; answers whether it had any.
+    const spread = (one, leaves) => {
+      const byRoom = new Map();
+      for (const leaf of leaves) {
+        const room = HomeswiftHome.roomOf(leaf, rooms);
+        if (!byRoom.has(room)) byRoom.set(room, []);
+        byRoom.get(room).push(leaf);
+      }
+      for (const [room, mine] of byRoom) tops.get(room).children.push(blockBranch(one, mine));
+      return byRoom.size > 0;
+    };
+    let pluginCount = 0, pausedCount = 0;
+    for (const one of blocks) {
+      if (one.system || !spread(one, filter ? one.leaves.filter(filter.keeps) : one.leaves)) continue;
+      pluginCount += 1;
+      pausedCount += one.paused ? 1 : 0;
+    }
+    // The accessories of their own no block shows: a branch of their own in their room, as the bridge view shows each
+    // as a node of its own.
+    spread({ block: { name: t("Accessory of its own"), icon: "bridge" }, color: "var(--muted)", paused: false },
+      filter ? unclaimed.filter(filter.keeps) : unclaimed);
+    const kept = [...tops.values()].filter((top) => top.children.length);
+    for (const top of kept) top.sub = tn("{n} accessory", "{n} accessories", top.children.reduce((sum, branch) => sum + branch.leaves.length, 0), {});
+    return layOut(kept, source, filter, { plugins: pluginCount, paused: pausedCount });
+  }
+
+  /// The places of a graph's nodes (`tops`, each with its plugin branches): device-type groups, slots, angles and rings,
+  /// and the square it is drawn in.
+  function layOut(tops, source, filter, counts) {
+    const { status } = source;
     // A plugin's accessories grouped by device type: one group per run of the same category (the leaves are sorted by it).
     const groupsOf = (plugin) => {
       const groups = [];
@@ -1399,7 +1459,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Nodes of an inner ring closer than their size are pushed apart, in order, each as little as it can be.
     for (const ring of Object.keys(ringNodes)) spread(ringNodes[ring], nodeRoom(ring) / rings[ring]);
     return { tops, status, rings, view: viewOf(tops, filter ? null : leaf), rootSub: t("Version {version}", { version: status.version ?? "" }),
-      counts: { bridges: bridges.length, accessories: accessories.length, unavailable: accessories.filter((one) => one.unavailable).length, plugins: pluginCount, paused: pausedCount } };
+      counts: { ...source.totals, ...counts } };
   }
 
   /// The square the graph is drawn in: the whole outer ring, or, for a filtered graph (`leaf` null), the box of its nodes
@@ -1452,32 +1512,36 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// What the graph shows: the search's words (each in what the Accessories page searches, the accessory's type, maker,
-  /// platform or bridge) and the chosen controller mirrored from, bridges, device types and unavailable ones. Null when
-  /// nothing narrows it.
-  function overviewFilter({ text = "", from = null, bridges = new Set(), categories = new Set(), unavailable = false }) {
+  /// platform or bridge) and the chosen controller mirrored from, bridges, device types, and unavailable ones or online
+  /// ones (those that answer: neither unavailable nor paused). Null when nothing narrows it.
+  function overviewFilter({ text = "", from = null, bridges = new Set(), categories = new Set(), unavailable = false, online = false }, searchOf = searchTextOf) {
     const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length && !from && !bridges.size && !categories.size && !unavailable) return null;
+    if (!words.length && !from && !bridges.size && !categories.size && !unavailable && !online) return null;
     return {
       keeps(leaf) {
         if (from && leaf.mirroredFrom !== from) return false;
         if (bridges.size && !bridges.has(leaf.bridge)) return false;
         if (categories.size && !categories.has(leaf.category)) return false;
-        if (unavailable && !leaf.unavailable) return false;
-        const haystack = [HomeswiftWidgets.searchText(leaf), leaf.category, categoryName(leaf.category), leaf.manufacturer, leaf.platform, leaf.bridge]
-          .filter(Boolean).join(" ").toLowerCase();
+        // As the wall's Online and No Response: a paused plugin's accessories do not answer either.
+        if ((unavailable || online) && HomeswiftWidgets.answers(leaf) !== online) return false;
+        if (!words.length) return true;
+        const haystack = searchOf(leaf);
         return words.every((word) => haystack.includes(word));
       },
     };
   }
 
+  /// What the graph's search looks in for an accessory: what the Accessories page searches, its type, maker, platform
+  /// and bridge.
+  const searchTextOf = (leaf) => [HomeswiftWidgets.searchText(leaf), leaf.category, categoryName(leaf.category), leaf.manufacturer, leaf.platform, leaf.bridge]
+    .filter(Boolean).join(" ").toLowerCase();
+
   /// The model of what homeswift runs, with what it was built from (the graph builds filtered ones from it).
   async function loadOverview() {
-    const [status, plugins, accessories, matter] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null),
-      api("/api/accessories").catch(() => []), api("/api/matter").catch(() => null)]);
-    const ids = matterIDs(matter);
-    const model = overviewModel(status, plugins, accessories, null, ids);
-    model.source = { status, plugins, accessories, matter: ids };
-    return model;
+    const [status, plugins, accessories, matter, home] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null),
+      api("/api/accessories").catch(() => []), api("/api/matter").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
+    const source = overviewSource(status, plugins, accessories, matterIDs(matter), (home?.rooms ?? []).map((room) => room.name));
+    return { ...overviewModel(source), source };
   }
 
   /// Accessories › Graph: the radial graph of the bridges, their plugins and their accessories. Full screen (?full=1):
@@ -1553,6 +1617,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     port: [t("Port"), t("The TCP port of its HomeKit server.")],
     deviceId: [t("Device ID"), t("The identifier HomeKit pairs with: a new one loses the pairing, rooms and automations.")],
     platforms: [t("Platforms"), t("The config.json platforms this bridge runs.")],
+    roomPlugins: [t("Plugins"), t("The plugins whose accessories are in this room.")],
     state: [t("State"), t("Running, or paused: a paused plugin's accessories stay in HomeKit but do not respond.")],
     unavailable: [t("Unavailable"), t("Accessories whose device does not answer right now.")],
     categories: [t("Categories"), t("Its accessories by HomeKit category.")],
@@ -1571,6 +1636,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// What a top node is: built in, a child bridge, an accessory of its own (a camera on its own HomeKit server), or a bridge.
   function topType(top) {
     if (top.kind === "system") return t("Built in");
+    if (top.kind === "room") return t("Room");
     if (top.kind === "external") return t("Accessory of its own");
     return top.kind === "child" ? t("Child bridge") : t("Bridge");
   }
@@ -1585,15 +1651,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
         factRow("platforms", bridge?.platforms?.join(", "))] };
   }
-  function pluginDetails(plugin) {
+  /// The card of a node over some accessories (a plugin, a room): its own facts first, then how many are unavailable,
+  /// their device types, and each accessory.
+  /// (A device type's card leaves out its one category.)
+  function leavesDetails({ name, icon, status }, leaves, facts, { categories: listed = true } = {}) {
     const categories = new Map();
-    for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
-    const unavailable = plugin.leaves.filter((one) => one.unavailable).length;
-    return { name: plugin.name, icon: plugin.icon, status: plugin.sub, warn: unavailable > 0,
-      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), plugin.matter ? null : factRow("state", plugin.paused ? t("Paused") : t("Running")),
-        factRow("unavailable", unavailable || null), factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", "))],
-      items: accessoryItems(plugin.leaves) };
+    for (const leaf of leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
+    const unavailable = leaves.filter((one) => one.unavailable).length;
+    return { name, icon, status, warn: unavailable > 0, items: accessoryItems(leaves),
+      facts: [...facts, factRow("unavailable", unavailable || null),
+        listed ? factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", ")) : null] };
   }
+  const roomDetails = (top) => leavesDetails({ name: top.name, icon: top.icon, status: top.sub }, top.children.flatMap((branch) => branch.leaves),
+    [factRow("bridgeType", t("Room")), factRow("roomPlugins", top.children.map((branch) => branch.name).join(", "))]);
+  const pluginDetails = (plugin) => leavesDetails({ name: plugin.name, icon: plugin.icon, status: plugin.sub }, plugin.leaves,
+    [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), plugin.matter ? null : factRow("state", plugin.paused ? t("Paused") : t("Running"))]);
   function homeswiftDetails(model) {
     const system = model.status.system ?? {};
     return { name: "Homeswift", image: "/icon.svg", warn: false, status: model.rootSub,
@@ -1634,12 +1706,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// A device-type group: its plugin, its accessories and how many are unavailable, then each accessory with its status.
-  function groupDetails(group) {
-    const unavailable = group.leaves.filter((one) => one.unavailable).length;
-    return { name: group.name, icon: group.icon, status: group.sub, warn: unavailable > 0,
-      facts: [group.plugin.matter ? null : factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
-      items: accessoryItems(group.leaves) };
-  }
+  const groupDetails = (group) => leavesDetails({ name: group.name, icon: group.icon, status: group.sub }, group.leaves,
+    [group.plugin.matter ? null : factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName)], { categories: false });
 
   /// The card: the radial graph with zoom (a click on a bridge or plugin, Ctrl-scroll or a trackpad pinch, a touch pinch,
   /// drag to pan, the buttons), a tooltip on hover and focus, the legend and a table of the same rows.
@@ -1841,21 +1909,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     svg.addEventListener("focusout", hide);
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
-    const { status, plugins, accessories: all, matter } = model.source;
-    // Kept in the address with the wall's names (q, from, bridge, type, unavailable): a tab carries them to the wall and back.
+    const { status, accessories: all, rooms } = model.source;
+    // Kept in the address with the wall's names (HomeswiftApp.accessoryFilterKeys): a tab carries them to the wall and back.
+    // How it is arranged is kept there too: by room unless `by=bridge`, or while there are no rooms.
     const params = new URLSearchParams(location.search);
+    let by = params.get("by") === "bridge" || !rooms.length ? "bridge" : "room";
     const chosen = { from: params.get("from"), bridges: new Set(params.getAll("bridge")), categories: new Set(params.getAll("type")),
       unavailable: params.get("unavailable") === "1" };
+    // Online and Unavailable exclude each other, as on the wall.
+    chosen.online = !chosen.unavailable && params.get("online") === "1";
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories"),
       value: params.get("q") ?? "" });
     const remember = () => {
       const next = new URLSearchParams(location.search);
-      for (const key of ["q", "from", "bridge", "type", "unavailable"]) next.delete(key);
+      for (const key of app().accessoryFilterKeys) next.delete(key);
+      if (by === "bridge" && rooms.length) next.set("by", "bridge");
       if (search.value.trim()) next.set("q", search.value.trim());
       if (chosen.from) next.set("from", chosen.from);
       for (const name of chosen.bridges) next.append("bridge", name);
       for (const category of chosen.categories) next.append("type", category);
       if (chosen.unavailable) next.set("unavailable", "1");
+      if (chosen.online) next.set("online", "1");
       history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
     };
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
@@ -1863,17 +1937,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("p", { class: "muted", text: t("No accessories match the current search.") }));
     frame.append(empty);
     const table = el("div");
-    const active = () => Number(Boolean(chosen.from)) + chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
-    const filterOf = (except = {}) => overviewFilter({ text: search.value, ...chosen, ...except });
+    const active = () => Number(Boolean(chosen.from)) + chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable) + Number(chosen.online);
+    // Each accessory's search text, built once: every keystroke and every count in the Filters menu reads it.
+    const searchTexts = new Map();
+    const searchOf = (leaf) => {
+      if (!searchTexts.has(leaf.id)) searchTexts.set(leaf.id, searchTextOf(leaf));
+      return searchTexts.get(leaf.id);
+    };
+    const filterOf = (except = {}) => overviewFilter({ text: search.value, ...chosen, ...except }, searchOf);
     // How many accessories a menu choice would show, with the search and the other choices as they are.
     const matching = (except) => { const filter = filterOf(except); return filter ? all.filter(filter.keeps).length : all.length; };
     const clear = HomeswiftCommon.clearFilters([[search, ""]], { active: () => active() > 0,
-      reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
+      reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; chosen.online = false; } });
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
-    const redraw = () => {
+    // Typed into the search, it settles quickly: a fade seen at every word would slow the typing down.
+    const redraw = ({ typing = false } = {}) => {
       remember();
       const filter = filterOf();
-      const next = overviewModel(status, plugins, all, filter, matter);
+      const next = by === "room" ? roomModel(model.source, filter) : overviewModel(model.source, filter);
       closeDetail();
       tip.hidden = true;
       cancelAnimationFrame(animation);
@@ -1884,16 +1965,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       svg.replaceChildren(layer);
       Object.assign(zoom, home());
       apply();
-      svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+      svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : typing ? 140 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
       filters.classList.toggle("on", active() > 0);
       filters.replaceChildren(...[HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
       search.dispatchEvent(new Event("change")); // the Clear filters button's state
       table.replaceChildren(overviewTable(next));
+      title.textContent = by === "room" ? t("Graph of the rooms, plugins and accessories") : t("Graph of the bridges, plugins and accessories");
+      hint.textContent = by === "room" ? t("Pinch or Ctrl-scroll to zoom. Click a room to see its plugins and accessories.")
+        : t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.");
+      svg.setAttribute("aria-label", title.textContent);
+      for (const button of arrangement.children) {
+        const on = button.dataset.by === by;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-pressed", String(on));
+      }
     };
+    // By bridge (what homeswift runs) or by room (where the accessories are).
+    const title = el("strong"), hint = el("div", { class: "muted" });
+    // Without rooms there is only the bridges' graph, and no choice.
+    // Two toggle buttons, as the wall's full-screen groupings, rather than radios that would owe arrow keys.
+    const arrangement = el("div", { class: "group overview-arrangement", role: "group", "aria-label": t("Arrange the graph"), hidden: !rooms.length },
+      [["room", t("By room"), "room"], ["bridge", t("By bridge"), "bridge"]].map(([value, text, icon]) =>
+        el("button", { type: "button", actionIcon: icon, "data-by": value, text, onclick: () => { if (by !== value) { by = value; redraw(); } } })));
     let typing = 0;
-    search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(redraw, 160); });
+    search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => redraw({ typing: true }), 160); });
     // A menu choice: a toggle in `set`, with what it would leave.
     const choice = (set, value, label, icon) => ({ label, icon, count: matching({ [set]: new Set(chosen[set]).add(value) }), checked: chosen[set].has(value),
       checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
@@ -1906,8 +2003,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: matching({ from: source }), checked: chosen.from === source,
         checkbox: true, toggle: true, icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
         onSelect: () => { chosen.from = chosen.from === source ? null : source; redraw(); } })),
-      { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
-        onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
+      { label: t("Online"), icon: "check", tone: "ok", count: matching({ online: true, unavailable: false }), checked: chosen.online, checkbox: true, toggle: true,
+        onSelect: () => { chosen.online = !chosen.online; chosen.unavailable = false; redraw(); } },
+      { label: t("No Response"), icon: "warning", tone: "error", count: matching({ unavailable: true, online: false }), checked: chosen.unavailable, checkbox: true, toggle: true,
+        onSelect: () => { chosen.unavailable = !chosen.unavailable; chosen.online = false; redraw(); } },
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
       ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
       { separator: true },
@@ -1931,13 +2030,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("li", {}, el("i", { class: "legend-mark status warn" }), el("span", { text: t("Not paired") })));
     // Full screen: the graph and its zoom alone, the search and the filters in a panel from the one button left, and
     // that button and the zoom faded while nothing happens, as on the wall.
-    const chrome = full ? graphFullScreenChrome(frame, search, filters, clear) : null;
+    const chrome = full ? graphFullScreenChrome(frame, search, filters, clear, arrangement) : null;
     // The search and filters go in the page's head, where the wall has its own (`card.toolbar`), so switching views
     // leaves them in place; full screen keeps them in the card, for its panel.
     const card = el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
       chrome,
-      el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: t("Graph of the bridges, plugins and accessories") }),
-        el("div", { class: "muted", text: t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.") }))),
+      el("div", { class: "chart-head" }, el("div", { class: "who" }, title, hint), arrangement),
       full ? toolbar : null, frame, controls, legend,
       el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), table));
     card.toolbar = toolbar;
@@ -1947,11 +2045,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// The full-screen graph's chrome: Leave full screen, and the button that opens a panel with the search and the filters;
   /// Escape (or the browser's own) leaves; a touch, the mouse or a key wakes the chrome, which fades a few seconds later.
-  function graphFullScreenChrome(frame, search, filters, clear) {
+  function graphFullScreenChrome(frame, search, filters, clear, arrangement) {
     const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Graph options"), "aria-haspopup": "dialog",
       title: t("Graph options"), onclick: () => app().openSheet((done) => el("div", { class: "wall-full-panel" },
         el("h2", { id: "graph-full-panel-title", text: t("Graph") }),
-        search, el("div", { class: "actions graph-full-filters" }, filters, clear),
+        arrangement, search, el("div", { class: "actions graph-full-filters" }, filters, clear),
         // Leaving is the button beside this panel's.
         el("div", { class: "actions" },
           el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
@@ -2019,7 +2117,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       edges.push(link(root, top, "trunk", top.color));
       nodes.push(node(top, { classes: `node bridge-node${top.kind === "system" ? " built-in" : ""}${top.paired === false ? " unpaired" : ""}`,
         radius: nodeRadius.top, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), size: 20, tip: `${top.name} · ${top.sub}`,
-        card: () => bridgeDetails(top), zoom: { radius: (rings.top + rings.plugin) / 2, k: 1.8 } }));
+        card: () => (top.kind === "room" ? roomDetails(top) : bridgeDetails(top)), zoom: { radius: (rings.top + rings.plugin) / 2, k: 1.8 } }));
       for (const branch of top.children) {
         edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));
         nodes.push(node(branch, { classes: `node plugin-node${branch.paused ? " paused" : ""}`, radius: nodeRadius.plugin,
@@ -2051,7 +2149,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tr", { class: "overview-bridge" }, el("th", { scope: "row", text: top.name }),
         el("td", { text: topType(top) }),
         el("td", { text: top.kind === "system" ? "" : top.sub }),
-        el("td", { text: top.kind === "system" ? "" : top.paired ? t("Paired") : t("Not paired") })),
+        el("td", { text: top.kind === "system" || top.kind === "room" ? "" : top.paired ? t("Paired") : t("Not paired") })),
       ...top.children.map((plugin) => el("tr", { class: "overview-plugin" }, el("th", { scope: "row", text: plugin.name }),
         el("td", { text: t("Plugin") }), el("td", { text: plugin.sub }), el("td", { text: plugin.paused ? t("Paused") : "" }))),
     ]);
@@ -4088,7 +4186,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // accessories only with hidden=1; only another controller's (Apple Home's, through Wingman) with from=.
   /// The Accessories page's views, as tabs: the wall and the graph.
   /// Their search and filters are the address's, which a tab carries to the other view.
-  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "hidden"];
+  // `by` is the graph's arrangement (by=bridge), kept across the tabs so the graph comes back as it was left.
+  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "online", "hidden", "by"];
   /// The tabs' row holds `extra` after them (the view's Full screen button), in the same place in both views.
   const accessoryTabs = (current, ...extra) => {
     const nav = HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
@@ -4121,6 +4220,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
     const showHidden = params.get("hidden") === "1";
     const noResponse = params.get("unavailable") === "1";
+    // Online (?online=1): the accessories that answer, the other side of No Response; the two never at once.
+    const online = !noResponse && params.get("online") === "1";
+    const { answers } = HomeswiftWidgets;
     // Full screen (?full=1): the widgets alone, a room or plugin a page when grouped; an address a wall tablet can open.
     const fullScreen = params.get("full") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
@@ -4139,7 +4241,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       type: new Set(params.getAll("type").filter((category) => categories.includes(category))) };
     const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
       && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category));
-    const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused);
+    const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || !answers(accessory)) && (!online || answers(accessory));
     const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
@@ -4751,13 +4853,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const canSuggest = isAdmin() && window.HomeswiftChat?.available() && all.length;
 
-    const changeFilter = (key, value, enabled) => {
+    /// One filter on or off; `clears` are the filters it cannot go with (Online and No Response).
+    const changeFilter = (key, value, enabled, clears = []) => {
       const next = new URLSearchParams(location.search);
+      for (const other of clears) next.delete(other);
       if (enabled) next.set(key, value); else next.delete(key);
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + chosen.bridge.size + chosen.type.size;
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size;
     // A bridge or device type: a toggle in the address, counting what it would add with the other filters as they are.
     const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
       count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && (key === "bridge" ? accessory.bridge : accessory.category) === value),
@@ -4775,7 +4879,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
         onSelect: () => changeFilter("from", source, from !== source) })),
-      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
+      { label: t("Online"), icon: "check", tone: "ok", count: searchCount(answers), checked: online, checkbox: true, toggle: true, onSelect: () => changeFilter("online", "1", !online, ["unavailable"]) },
+      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => !answers(accessory)), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse, ["online"]) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
       ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
@@ -4785,7 +4890,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         replaceQuery("q", "");
         if (activeFilters) {
           const next = new URLSearchParams(location.search);
-          for (const key of ["from", "hidden", "unavailable", "bridge", "type"]) next.delete(key);
+          // Every filter but the search, cleared above, and the graph's arrangement, which is no filter.
+          for (const key of accessoryFilterKeys.filter((key) => key !== "q" && key !== "by")) next.delete(key);
           navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
         } else filter();
       } },
@@ -7311,7 +7417,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { accessoryFilterKeys, api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -11449,6 +11555,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const commit = async (value, only = present.map((_, i) => i)) => {
             if (editing || busy) return;
             busy = true; input.inert = true; input.setAttribute('aria-disabled', 'true');
+            // A white, as one light's white slider sets it: no colour left over it on the members that show one.
+            if (temperature) await Promise.allSettled(only.map((i) => [present[i], controls(present[i]).get('Saturation')]).filter(([, s]) => s && s.c.value > 0)
+              .map(([member, s]) => api(`/api/accessories/${encodeURIComponent(member.id)}`, { method: 'PUT', body: { service: s.service, characteristic: 'Saturation', value: 0 } })
+                .then(() => { s.c.value = 0; })));
             const outcomes = await Promise.allSettled(only.map((i) => api(`/api/accessories/${encodeURIComponent(present[i].id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
             outcomes.forEach((outcome, n) => { if (outcome.status === 'fulfilled') targets[only[n]].c.value = value; });
             const failed = only.filter((_, n) => outcomes[n].status === 'rejected');
@@ -11469,12 +11579,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             if (count) input.setAttribute('aria-description', count.textContent);
             return el('label', {}, el('span', { class: 'group-name' }, el('span', { text: HomeswiftI18n.message(type) }), count), input);
           }
-          const { level, kelvin, whiteColor } = HomeswiftWidgets.controls;
+          const { level, kelvin } = HomeswiftWidgets.controls;
           const min = temperature ? kelvin(high) : low, max = temperature ? kelvin(low) : high;
           const step = Math.max(...targets.map(({ c }) => c.minStep || 1));
           const control = level({ label: HomeswiftI18n.message(type), min, max, step: temperature ? 50 : step,
             format: (value) => temperature ? `${value} K` : type === 'Hue' ? `${value}°` : `${value} %`,
-            gradient: temperature ? `linear-gradient(90deg, ${whiteColor(min, 72)}, ${whiteColor((min + max) / 2, 88)}, ${whiteColor(max, 84)})` : undefined },
+            gradient: temperature ? HomeswiftWidgets.whiteTrack(min, max) : undefined },
           (value) => commit(temperature ? Math.min(high, Math.max(low, Math.round((1e6 / value - low) / step) * step + low)) : value));
           input = control.node;
           input.inert = editing;
@@ -11604,11 +11714,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
 
+  /// The room an accessory is shown in: its own when the Arrangement knows it, else none ("").
+  const roomOf = (accessory, rooms) => (accessory.room && rooms.includes(accessory.room) ? accessory.room : "");
   /// The Accessories page's accessories by room, in the layout's order; those in no room last.
   function groupByRoom(accessories, rooms) {
     const byName = (a, b) => displayName(a).localeCompare(displayName(b));
     const groups = rooms.map((room) => [room, accessories.filter((a) => a.room === room).sort(byName)]).filter(([, list]) => list.length);
-    const rest = accessories.filter((a) => !a.room || !rooms.includes(a.room)).sort(byName);
+    const rest = accessories.filter((a) => !roomOf(a, rooms)).sort(byName);
     return rest.length ? [...groups, [groups.length ? t("No room") : t("Accessories"), rest]] : groups;
   }
 
@@ -13409,7 +13521,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
       };
     },
-    layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
+    layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
   };
 })();
 
@@ -14843,6 +14955,7 @@ HomeswiftI18n.add("es", {
   "No plugin compiled into this homeswift provides this platform.": "Ningún plugin compilado en este homeswift ofrece esta plataforma.",
   "No plugin provides {platform}.": "Ningún plugin ofrece {platform}.",
   "No plugin yet. Add one below.": "Aún no hay plugins. Añade uno abajo.",
+  "Online": "En línea",
   "No Response": "Sin respuesta",
   "No room": "Sin habitación",
   "No room {0}": "No hay ninguna habitación {0}",
@@ -15935,6 +16048,11 @@ HomeswiftI18n.add("es", {
   "Zoom out": "Alejar",
   "Reset view": "Restablecer la vista",
   "Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.": "Pellizca o usa Ctrl + rueda para acercar. Haz clic en un puente para ver sus plugins y accesorios.",
+  "By bridge": "Por puente",
+  "Arrange the graph": "Disposición del gráfico",
+  "Graph of the rooms, plugins and accessories": "Gráfico de habitaciones, plugins y accesorios",
+  "Pinch or Ctrl-scroll to zoom. Click a room to see its plugins and accessories.": "Pellizca o usa Ctrl + rueda para acercar. Haz clic en una habitación para ver sus plugins y accesorios.",
+  "The plugins whose accessories are in this room.": "Los plugins con accesorios en esta habitación.",
   "Platform": "Plataforma",
   "Version": "Versión",
   "Platforms": "Plataformas",
@@ -17832,6 +17950,7 @@ HomeswiftI18n.add("fr", {
   "No plugin compiled into this homeswift provides this platform.": "Aucun plugin compilé dans ce homeswift ne fournit cette plateforme.",
   "No plugin provides {platform}.": "Aucun plugin ne fournit {platform}.",
   "No plugin yet. Add one below.": "Aucun plugin pour l'instant. Ajoutez-en un ci-dessous.",
+  "Online": "En ligne",
   "No Response": "Pas de réponse",
   "No room": "Sans pièce",
   "No room {0}": "Aucune pièce {0}",
@@ -18924,6 +19043,11 @@ HomeswiftI18n.add("fr", {
   "Zoom out": "Dézoomer",
   "Reset view": "Réinitialiser la vue",
   "Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.": "Pincez ou faites Ctrl + molette pour zoomer. Cliquez sur un pont pour voir ses plugins et accessoires.",
+  "By bridge": "Par pont",
+  "Arrange the graph": "Disposition du graphe",
+  "Graph of the rooms, plugins and accessories": "Graphe des pièces, plugins et accessoires",
+  "Pinch or Ctrl-scroll to zoom. Click a room to see its plugins and accessories.": "Pincez ou faites Ctrl + molette pour zoomer. Cliquez sur une pièce pour voir ses plugins et accessoires.",
+  "The plugins whose accessories are in this room.": "Les plugins dont des accessoires sont dans cette pièce.",
   "Platform": "Plateforme",
   "Version": "Version",
   "Platforms": "Plateformes",
@@ -20821,6 +20945,7 @@ HomeswiftI18n.add("pt", {
   "No plugin compiled into this homeswift provides this platform.": "Nenhum plugin compilado neste homeswift fornece esta plataforma.",
   "No plugin provides {platform}.": "Nenhum plugin fornece {platform}.",
   "No plugin yet. Add one below.": "Ainda não há plugins. Adicione um abaixo.",
+  "Online": "Online",
   "No Response": "Sem resposta",
   "No room": "Sem divisão",
   "No room {0}": "Não existe nenhuma divisão {0}",
@@ -21913,6 +22038,11 @@ HomeswiftI18n.add("pt", {
   "Zoom out": "Afastar",
   "Reset view": "Repor a vista",
   "Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.": "Belisque ou use Ctrl + roda para aproximar. Clique numa ponte para ver os seus plugins e acessórios.",
+  "By bridge": "Por ponte",
+  "Arrange the graph": "Disposição do gráfico",
+  "Graph of the rooms, plugins and accessories": "Gráfico das divisões, plugins e acessórios",
+  "Pinch or Ctrl-scroll to zoom. Click a room to see its plugins and accessories.": "Belisque ou use Ctrl + roda para aproximar. Clique numa divisão para ver os seus plugins e acessórios.",
+  "The plugins whose accessories are in this room.": "Os plugins com acessórios nesta divisão.",
   "Platform": "Plataforma",
   "Version": "Versão",
   "Platforms": "Plataformas",
@@ -26731,6 +26861,46 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-hit { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: none; box-shadow: none; }
 .widget .w-hit:hover, .widget .w-hit:active:not(:disabled) { transform: none; }
 .w-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* A light's picker (widgets.js's colourWheel): held, it opens under the pointer: a wheel of hues with white at its
+   centre, a disc of whites (cool at the top, warm at the bottom) for a light without colours, or the wheel with a bar of
+   whites under it. The marker follows the pointer and the colour it is on shows above, out from under a finger. Off the
+   picker, the marker and that colour fade: letting go there picks nothing. */
+.has-wheel > .w-hit { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* While a hold arms the picker, the tile's edge lights up: late enough that a tap never shows it, and done as the
+   picker opens. */
+.widget.has-wheel { outline: 3px solid transparent; outline-offset: 2px; }
+.widget.has-wheel.arming { outline-color: color-mix(in srgb, var(--accent) 45%, transparent); transition: outline-color 200ms var(--ease-out) 140ms; }
+.color-wheel { position: fixed; z-index: 1000; pointer-events: none; animation: color-wheel-in 160ms var(--ease-out); }
+.color-wheel-disc, .color-wheel-whites { position: absolute; box-shadow: 0 0 0 5px var(--material-solid), var(--shadow-thick); }
+.color-wheel-disc {
+  inset: 0; border-radius: 50%;
+  background: radial-gradient(closest-side, #fff, rgb(255 255 255 / 0)),
+    conic-gradient(hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%), hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%));
+}
+.color-wheel-whites { left: 0; right: 0; border-radius: var(--radius-pill); }
+.color-wheel.closing { opacity: 0; scale: 0.9; transition: opacity 120ms var(--ease-out), scale 120ms var(--ease-out); }
+/* From the finger, a little smaller: a popover arriving, not a zoom from nothing. */
+@keyframes color-wheel-in { from { opacity: 0; scale: 0.9; } }
+.color-wheel-mark {
+  /* Moved by its transform (colourWheel), centred on the point by its translate. */
+  position: absolute; left: 0; top: 0; width: 30px; height: 30px; translate: -50% -50%; border-radius: 50%;
+  background: transparent; border: 3px solid #fff; box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
+  transition: opacity 120ms var(--ease-out);
+}
+.color-wheel-preview {
+  position: absolute; left: 50%; top: -52px; width: 40px; height: 40px; translate: -50% 0; border-radius: 50%;
+  /* Its colour follows the pointer at once, never eased behind it. */
+  background: #fff; border: 3px solid var(--material-solid); box-shadow: var(--shadow-control);
+  transition: opacity 120ms var(--ease-out);
+}
+.color-wheel-reading {
+  position: absolute; left: calc(50% + 28px); top: -42px; padding: 2px var(--space-8); border-radius: var(--radius-pill);
+  background: var(--material-solid); color: var(--text); box-shadow: var(--shadow-control);
+  font-size: var(--text-xs); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.color-wheel-reading:empty { display: none; }
+.color-wheel:not(.picking) .color-wheel-mark, .color-wheel.outside .color-wheel-mark, .color-wheel.outside .color-wheel-preview { opacity: 0.25; }
+@media (prefers-reduced-motion: reduce) { .color-wheel { animation: none; } .color-wheel.closing { scale: none; } .widget.has-wheel.arming { transition-delay: 0ms; } }
 .w-top, .w-bottom { position: relative; z-index: 1; display: flex; gap: var(--space-8); min-width: 0; pointer-events: none; }
 /* A tall tile's middle line (a remote's keys), above the tap target like the others and shown only by it. */
 .w-middle { position: relative; z-index: 1; flex: none; min-width: 0; padding: 2px 0; overflow: hidden; pointer-events: none; }
@@ -26954,7 +27124,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .chip { font-size: var(--text-sm); padding: var(--space-6) var(--space-12); transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
 .widget .chip[aria-pressed="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
 .swatches { display: flex; flex-wrap: wrap; gap: var(--space-8); }
-.swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: var(--space-10); }
+/* An extra large light's colours: as many to a row as fit, five at most (Adaptive and the eight colours: five, then
+   four). Five swatches, their four gaps and the 3px padding each side that `.widget .swatches` keeps for the ring. */
+.swatches.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, 30px); gap: var(--space-10);
+  max-width: calc(5 * 30px + 4 * var(--space-10) + 2 * 3px);
+}
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
@@ -30028,6 +30203,9 @@ select option:disabled { color: var(--muted); }
 .overview-card { display: grid; gap: var(--space-12); }
 .overview-card .who { min-width: 0; }
 .overview-card .chart-head .muted { font-size: var(--text-sm); }
+/* By room or by bridge: beside the title, under it where the two do not fit side by side. */
+.overview-card .chart-head { flex-wrap: wrap; }
+.overview-card .chart-head .who { flex: 1 1 240px; }
 .overview-frame { position: relative; }
 .overview-empty { padding: 56px var(--space-16); text-align: center; }
 .overview-graph { display: block; width: 100%; max-width: 820px; height: auto; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
@@ -30735,12 +30913,32 @@ self.addEventListener("notificationclick", (event) => {
   const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1).replace(".", decimal)}°`; };
   const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.round(seconds % 60))).padStart(2, "0")}`;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  /// Whether an accessory answers: its device responds and its plugin is not paused (the Accessories page's Online;
+  /// No Response is the rest).
+  const answers = (accessory) => !accessory.unavailable && !accessory.paused;
   /// A colour temperature in mireds (what HomeKit sends) in kelvin, to the nearest 50.
   const kelvin = (mireds) => Math.round(1e6 / mireds / 50) * 50;
-  /// About the colour of white light at `k` kelvin, for a tile and the temperature track.
+  /// White light's hue and saturation by kelvin, about a black body's: amber when warm, neutral near 6200 K (a little
+  /// cooler than daylight's, so that everyday whites keep their warmth on a tile), blue when cool. The hue turns from warm
+  /// to cool only where the colour has none, so no green shows between them.
+  const kelvinHues = [[1800, 24, 100], [2200, 28, 100], [2700, 32, 95], [3500, 34, 80], [4500, 36, 55], [5500, 38, 25], [6200, 38, 0], [6800, 214, 22], [8000, 218, 50]];
+  /// The colour of white light at `k` kelvin and `lightness`, for a tile, a white track and the held picker.
   function whiteColor(k, lightness = 70) {
-    const share = clamp((k - 2700) / (6500 - 2700), 0, 1);
-    return `hsl(${Math.round(32 + share * 178)} ${Math.round(90 - share * 70)}% ${lightness}%)`;
+    const upper = kelvinHues.findIndex(([at]) => at >= k);
+    if (upper <= 0) { const [, h, s] = kelvinHues.at(upper === 0 ? 0 : -1); return `hsl(${h} ${s}% ${lightness}%)`; }
+    const [a, h1, s1] = kelvinHues[upper - 1], [b, h2, s2] = kelvinHues[upper], share = (k - a) / (b - a);
+    const h = s1 === 0 ? h2 : s2 === 0 ? h1 : h1 + (h2 - h1) * share;
+    return `hsl(${Math.round(h)} ${Math.round(s1 + (s2 - s1) * share)}% ${lightness}%)`;
+  }
+  /// The whites from `low` to `high` kelvin as a gradient, warm to cool (from the left, or from the bottom when `vertical`), with the table's own stops
+  /// between them: a light's white slider, a group's, a settings form's, and the held picker's disc and bar.
+  /// How light a white is drawn on a track (and the picker's marker on one).
+  const TRACK_LIGHTNESS = 82;
+  function whiteTrack(low, high, { vertical = false } = {}) {
+    const stops = [low, ...kelvinHues.map(([at]) => at).filter((at) => at > low && at < high), high];
+    // A track of one temperature (a group whose lights share a single one) is that white throughout.
+    const span = high - low || 1;
+    return `linear-gradient(${vertical ? "0deg" : "90deg"}, ${stops.map((k) => `${whiteColor(k, TRACK_LIGHTNESS)} ${((k - low) / span * 100).toFixed(1)}%`).join(", ")})`;
   }
 
   function describeModel(accessory) {
@@ -31371,7 +31569,16 @@ self.addEventListener("notificationclick", (event) => {
       return null;
     };
     const css = (c, lightness) => c.k ? whiteColor(c.k, lightness) : `hsl(${Math.round(c.h)} ${Math.round(c.s)}% ${lightness}%)`;
+    // A colour, or a white (no colour left over it), as the swatches, the white slider and the held picker write them.
+    const pickColor = canWrite(hue) && canWrite(saturation) ? (h, s) => { ctx.write(service, hue, h); ctx.write(service, saturation, s); } : null;
+    // Mireds run the other way: the warm end (few kelvin) is the most mireds.
+    const whiteRange = canWrite(temperature) ? { low: kelvin(temperature.maxValue ?? 500), high: kelvin(temperature.minValue ?? 140) } : null;
+    const pickWhite = whiteRange ? (k) => {
+      if (saturation && canWrite(saturation) && numberOf(saturation) > 0) ctx.write(service, saturation, 0);
+      ctx.write(service, temperature, clamp(Math.round(1e6 / k), temperature.minValue ?? 0, temperature.maxValue ?? 1000));
+    } : null;
     return {
+      pickColor, pickWhite, whiteRange,
       brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
         const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
           (v) => ctx.write(service, brightness, v));
@@ -31382,12 +31589,9 @@ self.addEventListener("notificationclick", (event) => {
         });
         return control.node;
       } : null,
-      swatches: canWrite(hue) && canWrite(saturation) ? ({ grid = false } = {}) => {
+      swatches: pickColor ? ({ grid = false } = {}) => {
         const swatches = presets.map(([name, h, s]) => {
-          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
-            ctx.write(service, hue, h);
-            ctx.write(service, saturation, s);
-          } });
+          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => pickColor(h, s) });
           swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
           return { swatch, h, s };
         });
@@ -31398,16 +31602,11 @@ self.addEventListener("notificationclick", (event) => {
         });
         return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
-      white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
-        // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
-        const low = kelvin(temperature.maxValue ?? 500), high = kelvin(temperature.minValue ?? 140);
+      white: whiteRange ? ({ vertical = false, thin = false } = {}) => {
+        const { low, high } = whiteRange;
         const control = level({ label: t("White"), min: low, max: high, step: 50, format: (k) => `${k} K`, vertical, thin,
-          gradient: `linear-gradient(${vertical ? "0deg" : "90deg"}, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})` },
-        (k) => {
-          const mireds = clamp(Math.round(1e6 / k), temperature.minValue ?? 0, temperature.maxValue ?? 1000);
-          if (saturation && canWrite(saturation) && numberOf(saturation) > 0) ctx.write(service, saturation, 0);
-          ctx.write(service, temperature, mireds);
-        });
+          gradient: whiteTrack(low, high, { vertical }) },
+        pickWhite);
         ctx.watch(() => control.set(kelvin(numberOf(temperature, 300))));
         return control.node;
       } : null,
@@ -31905,6 +32104,16 @@ self.addEventListener("notificationclick", (event) => {
     },
   });
 
+  /// What holding a light's tile picks from: its colours when it can be given a hue, its whites when it can be given a
+  /// colour temperature (the white slider's range), both when it has both; null for a light with neither.
+  function lightPicks(ctx, service, on, light) {
+    const turnOn = () => { if (!isOn(on)) ctx.write(service, on, onValue(on, true)); };
+    const color = light.pickColor ? { pick: (h, s) => { light.pickColor(h, s); turnOn(); } } : null;
+    const white = light.pickWhite ? { ...light.whiteRange, pick: (k) => { light.pickWhite(k); turnOn(); } } : null;
+    // A paused plugin's light, or one that does not answer, takes no colour: a hold is a tap, which says why.
+    return color || white ? { color, white, available: () => answers(ctx.accessory) } : null;
+  }
+
   register({
     name: "light", types: ["Lightbulb"], icon: "bulb", tone: "light",
     size: (ctx, primary) => canWrite(ctx.char(primary, "Brightness")) || canWrite(ctx.char(primary, "Hue")) || canWrite(ctx.char(primary, "Color Temperature")) ? "medium" : "small",
@@ -31916,6 +32125,8 @@ self.addEventListener("notificationclick", (event) => {
       const built = {
         power: { service: primary, characteristic: on },
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
+        // Held, a picker of its colours, its whites or both (colourWheel): the one picked, and the light on.
+        wheel: lightPicks(ctx, primary, on, light),
         on: () => isOn(on), color: light.color,
         hero: () => brightness && isOn(on) ? `${num(numberOf(brightness))}%` : "",
         status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.modeLabel(), light.reportedTemperature()].filter(Boolean).join(" · ")] : [t("Off")],
@@ -32521,6 +32732,150 @@ self.addEventListener("notificationclick", (event) => {
     return control.node;
   }
 
+  /// A colour picked by holding a light's tile: past a moment's press a picker opens under the pointer; the pointer
+  /// moves a marker over it, with the colour shown above it, out from under a finger; letting go on it picks, letting go
+  /// off it or without moving picks nothing. What it shows follows the light (`picks`):
+  ///   color { pick(hue, saturation) }        a wheel: hues around its rim, white at its centre
+  ///   white { low, high, pick(kelvin) }     whites only: a disc from warm at the bottom to cool at the top
+  ///   both                                 the wheel, and the whites as a bar under it, warm at the left
+  /// Moving before it opens is a scroll or a drag, not a pick. `used()` says, once, that the press was the picker's, so
+  /// the tile's click does not also toggle the light.
+  const WHEEL_SIZE = 232, WHITE_BAR = { gap: 18, height: 40 };
+  /// A press held this long, moving less than `PRESS_SLOP` pixels, arms a tile's gesture (the picker, a shutter's slide);
+  /// moving further first is a scroll.
+  const PRESS_MS = 350, PRESS_SLOP = 6;
+  /// The wheel's colour at a hue and saturation: the full hue at its rim, white at its centre.
+  const wheelColor = (h, s) => `hsl(${h} 100% ${100 - s / 2}%)`;
+  /// A white as the picker shows it, as on its disc and bar.
+  const pickerWhite = (k) => whiteColor(k, TRACK_LIGHTNESS);
+  /// A haptic tick, where the device has them and the page may (a browser refuses before the first tap on it, and says
+  /// so in the console).
+  const buzz = (ms) => { if (navigator.userActivation?.hasBeenActive ?? true) navigator.vibrate?.(ms); };
+  function colourWheel(hit, picks) {
+    const radius = WHEEL_SIZE / 2, { color, white } = picks;
+    // The white bar sits under the wheel when the light has both.
+    const bar = color && white ? WHITE_BAR : null;
+    const below = bar ? bar.gap + bar.height : 0;
+    let start = null, timer = null, open = null, used = false;
+    // The tile, which glows while the hold arms: the picker is coming.
+    const tile = () => hit.closest(".widget");
+    const close = () => {
+      clearTimeout(timer);
+      timer = null;
+      start = null;
+      tile()?.classList.remove("arming");
+      if (!open) return;
+      const { node, listening } = open;
+      open = null;
+      listening.abort();
+      node.classList.add("closing");
+      setTimeout(() => node.remove(), 140);
+    };
+    const whiteAt = (share) => Math.round((white.low + clamp(share, 0, 1) * (white.high - white.low)) / 50) * 50;
+    // What the pointer is on: a colour on the wheel, a white on the disc or the bar, or nothing; and the marker's place,
+    // from the wheel's top left.
+    const at = (event) => {
+      const dx = event.clientX - open.x, dy = event.clientY - open.y, distance = Math.hypot(dx, dy);
+      if (bar && dy > radius + bar.gap / 2) {
+        const share = (dx + radius) / WHEEL_SIZE;
+        const inside = Math.abs(dx) <= radius + 16 && dy <= radius + below + 16;
+        const k = whiteAt(share);
+        return { inside, white: k, css: pickerWhite(k), left: clamp(share, 0, 1) * WHEEL_SIZE, top: WHEEL_SIZE + bar.gap + bar.height / 2 };
+      }
+      const inside = distance <= radius + 16, share = Math.min(1, distance / radius);
+      const left = radius + (distance ? dx / distance : 0) * share * radius, top = radius + (distance ? dy / distance : 0) * share * radius;
+      if (!color) {
+        // Whites only: cool at the top, warm at the bottom.
+        const k = whiteAt(1 - (top / WHEEL_SIZE));
+        return { inside, white: k, css: pickerWhite(k), left, top };
+      }
+      const h = Math.round((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360), s = Math.round(share * 100);
+      return { inside, h, s, css: wheelColor(h, s), left, top };
+    };
+    const show = () => {
+      timer = null;
+      used = true;
+      tile()?.classList.remove("arming");
+      // Inside the window, with room above it for the colour shown (and below it for the white bar).
+      const x = clamp(start.x, radius + 8, innerWidth - radius - 8), y = clamp(start.y, radius + 64, innerHeight - radius - below - 8);
+      const mark = el("span", { class: "color-wheel-mark" }), preview = el("span", { class: "color-wheel-preview" });
+      // A white's temperature, beside the colour shown: whites differ by less than the eye can say.
+      const reading = white ? el("span", { class: "color-wheel-reading" }) : null;
+      const disc = el("span", { class: "color-wheel-disc" });
+      if (!color) disc.style.background = whiteTrack(white.low, white.high, { vertical: true });
+      const strip = bar ? el("span", { class: "color-wheel-whites" }) : null;
+      if (strip) Object.assign(strip.style, { top: `${WHEEL_SIZE + bar.gap}px`, height: `${bar.height}px`,
+        background: whiteTrack(white.low, white.high) });
+      const node = el("div", { class: "color-wheel", "aria-hidden": "true" }, disc, strip, mark, preview, reading);
+      // Grown from the finger and the marker under it, though the picker moved to stay inside the window.
+      const fx = clamp(start.x - (x - radius), 0, WHEEL_SIZE), fy = clamp(start.y - (y - radius), 0, WHEEL_SIZE);
+      node.style.transformOrigin = `${fx}px ${fy}px`;
+      mark.style.transform = `translate(${fx}px, ${fy}px)`;
+      // Placed by the wheel's centre, which `at` measures from.
+      Object.assign(node.style, { left: `${x - radius}px`, top: `${y - radius}px`, width: `${WHEEL_SIZE}px`, height: `${WHEEL_SIZE}px` });
+      document.body.append(node);
+      // Followed on the window: the tile may be drawn again while the picker is open (an event from the device).
+      const listening = new AbortController(), options = { signal: listening.signal };
+      open = { node, mark, preview, reading, x, y, moved: false, choice: null, listening };
+      try { hit.setPointerCapture(start.id); } catch {}
+      addEventListener("pointermove", follow, options);
+      addEventListener("pointerup", release, options);
+      addEventListener("pointercancel", (event) => { if (event.pointerId === start?.id) close(); }, options);
+      addEventListener("blur", close, options);
+      addEventListener("keydown", (event) => { if (event.key === "Escape") close(); }, options);
+      // Once the picker is open, the page does not scroll under the finger.
+      addEventListener("touchmove", (event) => event.preventDefault(), { ...options, passive: false });
+      buzz(8);
+    };
+    const follow = (event) => {
+      if (event.pointerId !== start?.id) return;
+      // A mouse let go where no pointerup reached the page (outside the window): nothing is picked.
+      if (event.buttons === 0) { close(); return; }
+      if (!open.moved && Math.hypot(event.clientX - start.x, event.clientY - start.y) < PRESS_SLOP) return;
+      open.moved = true;
+      const choice = open.choice = at(event);
+      open.node.classList.toggle("outside", !choice.inside);
+      open.mark.style.transform = `translate(${choice.left}px, ${choice.top}px)`;
+      // Written on the two that show it, not inherited through the picker: a move restyles nothing else.
+      open.mark.style.background = open.preview.style.background = choice.css;
+      open.node.classList.add("picking");
+      if (open.reading) open.reading.textContent = choice.white !== undefined ? `${num(choice.white)} K` : "";
+    };
+    const release = (event) => {
+      if (event.pointerId !== start?.id) return;
+      const choice = open.moved ? open.choice : null;
+      close();
+      if (!choice?.inside) return;
+      // The pick lands with a tick, as the picker opened with one.
+      buzz(6);
+      if (choice.white !== undefined) white.pick(choice.white); else color.pick(choice.h, choice.s);
+    };
+    hit.addEventListener("pointerdown", (event) => {
+      // A second finger while one arms or picks changes nothing; a light that cannot take a colour has no picker.
+      if (event.button !== 0 || open || (start && start.id !== event.pointerId) || !(picks.available?.() ?? true)) return;
+      used = false;
+      const id = event.pointerId;
+      start = { x: event.clientX, y: event.clientY, id };
+      clearTimeout(timer);
+      timer = setTimeout(show, PRESS_MS);
+      tile()?.classList.add("arming");
+      // This pointer let go anywhere before it opens (off the tile too, where the tile hears nothing): a tap, not a
+      // pick. Another finger's touches change nothing.
+      const up = (other) => {
+        if (other.pointerId !== id) return;
+        removeEventListener("pointerup", up);
+        if (!open && start?.id === id) close();
+      };
+      addEventListener("pointerup", up);
+    });
+    // Before the picker opens, a move is a scroll or a drag.
+    hit.addEventListener("pointermove", (event) => {
+      if (!open && timer && event.pointerId === start?.id && Math.hypot(event.clientX - start.x, event.clientY - start.y) > PRESS_SLOP) close();
+    });
+    hit.addEventListener("pointercancel", (event) => { if (!open && event.pointerId === start?.id) close(); });
+    return { busy: () => Boolean(open), used: () => { const was = used; used = false; return was; } };
+  }
+
   /// Compact and tall summary tiles share their tap/hold actions; large and extra-large cards keep inline controls.
   /// The ⋯ menu opens all controls at every size. A tall tile shows its widget's `middle`, when it gives one (only for
   /// `ctx.tall`), between its icon and its name, in place of the hero value.
@@ -32571,9 +32926,13 @@ self.addEventListener("notificationclick", (event) => {
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
       } else hit.addEventListener("click", () => {
         if (slid) { slid = false; return; }
+        if (wheel?.used()) return;
         built.tap ? built.tap() : ctx.openFull();
       });
-      hit.addEventListener("contextmenu", (event) => { event.preventDefault(); menu.click(); });
+      // A light with colours: held, the colour wheel (a touch's long press is the wheel's, not the menu's).
+      const wheel = built.wheel ? colourWheel(hit, built.wheel) : null;
+      if (wheel) node.classList.add("has-wheel");
+      hit.addEventListener("contextmenu", (event) => { event.preventDefault(); if (!wheel?.busy()) menu.click(); });
       // A shutter's tile slides: the shade follows the pointer, the position is written when it is let go. A
       // mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page.
       let sliding = null, slid = false;
@@ -32590,12 +32949,12 @@ self.addEventListener("notificationclick", (event) => {
           start = { x: event.clientX, y: event.clientY, id: event.pointerId };
           armed = event.pointerType === "mouse";
           clearTimeout(holdTimer);
-          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, 350);
+          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, PRESS_MS);
         });
         hit.addEventListener("pointermove", (event) => {
           if (!start) return;
           const moved = Math.abs(event.clientY - start.y);
-          if (!armed) { if (moved > 6) { clearTimeout(holdTimer); start = null; } return; }
+          if (!armed) { if (moved > PRESS_SLOP) { clearTimeout(holdTimer); start = null; } return; }
           if (sliding === null && moved < 4) return;
           if (sliding === null) { hit.setPointerCapture(start.id); node.classList.add("sliding"); }
           sliding = at(event);
@@ -32818,12 +33177,13 @@ self.addEventListener("notificationclick", (event) => {
   for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
+    answers,
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
     /// The widgets' slider, for a settings form's brightness or colour temperature (`x-schema-form.type: "slider"`).
     level,
     /// A colour temperature track from `low` to `high` kelvin, warm to cool, as a light's white slider has.
-    whiteTrack: (low, high) => `linear-gradient(90deg, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})`,
+    whiteTrack,
     /// A brightness slider's fill in a neutral white, for a light the form has no colour of.
     brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
@@ -32858,7 +33218,7 @@ self.addEventListener("notificationclick", (event) => {
     /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
     register: (widget) => widgets.unshift(widget),
     /// The controls the widgets are made of, for a page's own widget.
-    controls: { toggle, segmented, level, kelvin, whiteColor, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
+    controls: { toggle, segmented, level, kelvin, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
   };
 })();
 

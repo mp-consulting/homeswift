@@ -2021,7 +2021,8 @@
   // accessories only with hidden=1; only another controller's (Apple Home's, through Wingman) with from=.
   /// The Accessories page's views, as tabs: the wall and the graph.
   /// Their search and filters are the address's, which a tab carries to the other view.
-  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "hidden"];
+  // `by` is the graph's arrangement (by=bridge), kept across the tabs so the graph comes back as it was left.
+  const accessoryFilterKeys = ["q", "from", "bridge", "type", "unavailable", "online", "hidden", "by"];
   /// The tabs' row holds `extra` after them (the view's Full screen button), in the same place in both views.
   const accessoryTabs = (current, ...extra) => {
     const nav = HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
@@ -2054,6 +2055,9 @@
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
     const showHidden = params.get("hidden") === "1";
     const noResponse = params.get("unavailable") === "1";
+    // Online (?online=1): the accessories that answer, the other side of No Response; the two never at once.
+    const online = !noResponse && params.get("online") === "1";
+    const { answers } = HomeswiftWidgets;
     // Full screen (?full=1): the widgets alone, a room or plugin a page when grouped; an address a wall tablet can open.
     const fullScreen = params.get("full") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
@@ -2072,7 +2076,7 @@
       type: new Set(params.getAll("type").filter((category) => categories.includes(category))) };
     const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
       && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category));
-    const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused);
+    const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || !answers(accessory)) && (!online || answers(accessory));
     const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
@@ -2684,13 +2688,15 @@
 
     const canSuggest = isAdmin() && window.HomeswiftChat?.available() && all.length;
 
-    const changeFilter = (key, value, enabled) => {
+    /// One filter on or off; `clears` are the filters it cannot go with (Online and No Response).
+    const changeFilter = (key, value, enabled, clears = []) => {
       const next = new URLSearchParams(location.search);
+      for (const other of clears) next.delete(other);
       if (enabled) next.set(key, value); else next.delete(key);
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + chosen.bridge.size + chosen.type.size;
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + Number(online) + chosen.bridge.size + chosen.type.size;
     // A bridge or device type: a toggle in the address, counting what it would add with the other filters as they are.
     const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
       count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && (key === "bridge" ? accessory.bridge : accessory.category) === value),
@@ -2708,7 +2714,8 @@
       ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
         onSelect: () => changeFilter("from", source, from !== source) })),
-      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
+      { label: t("Online"), icon: "check", tone: "ok", count: searchCount(answers), checked: online, checkbox: true, toggle: true, onSelect: () => changeFilter("online", "1", !online, ["unavailable"]) },
+      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => !answers(accessory)), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse, ["online"]) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
       ...(categories.length ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
@@ -2718,7 +2725,8 @@
         replaceQuery("q", "");
         if (activeFilters) {
           const next = new URLSearchParams(location.search);
-          for (const key of ["from", "hidden", "unavailable", "bridge", "type"]) next.delete(key);
+          // Every filter but the search, cleared above, and the graph's arrangement, which is no filter.
+          for (const key of accessoryFilterKeys.filter((key) => key !== "q" && key !== "by")) next.delete(key);
           navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
         } else filter();
       } },
@@ -5244,7 +5252,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { accessoryFilterKeys, api, navigate, route, isAdmin, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
