@@ -44,6 +44,11 @@ final class EntityDirectory: Sendable {
         return (suffix, suffix != name)
     }
 
+    /// Whether an entity holds this suffix.
+    func isClaimed(_ suffix: String) -> Bool {
+        claims.withLockedValue { $0[suffix] != nil }
+    }
+
     /// Lets an id go: its entity is gone.
     func release(_ suffix: String) {
         claims.withLockedValue { _ = $0.removeValue(forKey: suffix) }
@@ -75,6 +80,8 @@ struct DeviceEnvironment: Sendable {
     let timing: ESPHomeTiming
     let blacklist: Set<String>
     let verbose: Bool
+    /// Where a Bluetooth proxy's advertisements go; nil to leave them unsubscribed.
+    let bluetooth: BluetoothHub?
     /// Tells the plugin which device a host turned out to be.
     let learned: @Sendable (_ origin: String, _ info: DeviceInfo) async -> Void
 }
@@ -123,13 +130,19 @@ actor ESPHomeDevice {
     func run() async {
         if let mac { markCachedUnavailable(mac: mac) }
         var failures = 0
+        var onAdvertisements: (@Sendable ([BluetoothAdvertisement]) async -> Void)?
+        if let hub = environment.bluetooth {
+            let proxy = label
+            onAdvertisements = { advertisements in await hub.receive(advertisements, from: proxy) }
+        }
         while !Task.isCancelled {
             connectedThisRun = false
             var delay: Duration = .zero
             do {
                 try await ESPHomeSession.run(
                     endpoint: endpoint, transport: environment.transport, timing: environment.timing, logger: logger,
-                    onReady: { ready in await self.ready(ready) }, onState: { kind, state in await self.show(kind, state) })
+                    onReady: { ready in await self.ready(ready) }, onState: { kind, state in await self.show(kind, state) },
+                    onAdvertisements: onAdvertisements)
             } catch is CancellationError {
                 break
             } catch {

@@ -16,6 +16,8 @@ final class ESPHomeTestEnvironment: @unchecked Sendable {
     private let storage = MemoryStorage()
 
     var plugin: ESPHomePlugin? { plugins.withLockedValue { $0.last } }
+    /// How long a Bluetooth sensor stays reachable unheard; the plugin's own (30 minutes) when nil.
+    var bluetoothTimeout: Duration?
 
     /// The delays a hundred times shorter: a minute's retry is 0.6 s. The timeouts are ceilings, not waits, and stay
     /// long: scaled to 0.3 s, a busy CI runner (every test target at once) missed a HelloResponse and reconnected, and
@@ -42,7 +44,7 @@ final class ESPHomeTestEnvironment: @unchecked Sendable {
                 configuration: configuration, context: context,
                 dependencies: .init(
                     transport: transport, browse: { _, _ in announcements.withLockedValue { $0 } }, timing: Self.timing,
-                    setupDiscoveryWindow: .milliseconds(10)))
+                    setupDiscoveryWindow: .milliseconds(10), bluetoothCheckInterval: .milliseconds(20), bluetoothTimeout: self.bluetoothTimeout))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }

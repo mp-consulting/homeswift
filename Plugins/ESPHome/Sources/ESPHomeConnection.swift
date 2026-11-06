@@ -135,7 +135,8 @@ enum ESPHomeSession {
     /// Runs until the connection ends; throws why (`ESPHomeError`, a connection error, or `CancellationError`).
     static func run(
         endpoint: ESPHomeEndpoint, transport: any ESPHomeTransport, timing: ESPHomeTiming, logger: Logger,
-        onReady: @Sendable (Ready) async -> Void, onState: @Sendable (EntityKind, ProtobufMessage) async -> Void
+        onReady: @Sendable (Ready) async -> Void, onState: @Sendable (EntityKind, ProtobufMessage) async -> Void,
+        onAdvertisements: (@Sendable ([BluetoothAdvertisement]) async -> Void)? = nil
     ) async throws {
         let psk = try endpoint.encryptionKey.map(ESPHomeNoise.psk(fromBase64:))
         let stream = try await transport.connect(host: endpoint.host, port: endpoint.port, timeout: timing.connectTimeout)
@@ -234,6 +235,10 @@ enum ESPHomeSession {
                 lastPing = clock.now
                 await onReady(Ready(link: link, info: info, entities: entities, unsupported: unsupported))
                 try await link.send(ESPHomeRequest.empty(MessageType.subscribeStates))
+                // A Bluetooth proxy passes on what it hears: raw advertisements, in batches, when its firmware has them.
+                if onAdvertisements != nil, info.isBluetoothProxy {
+                    try await link.send(BluetoothProxy.subscribe(raw: info.sendsRawAdvertisements))
+                }
             case (.listing, let type):
                 if let kind = EntityKind(listType: type) {
                     entities.append(EntityInfo(kind: kind, message: message))
@@ -241,6 +246,10 @@ enum ESPHomeSession {
                     unsupported.append(Sanitized.text(message.string(3)))
                 }
             case (.running, let type):
+                if let onAdvertisements, let advertisements = BluetoothProxy.advertisements(type: type, message: message) {
+                    await onAdvertisements(advertisements)
+                    return
+                }
                 if let kind = EntityKind(stateType: type) { await onState(kind, message) }
             default:
                 break
