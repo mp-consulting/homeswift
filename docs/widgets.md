@@ -83,6 +83,12 @@ widget shows. An accessory no widget knows gets those rows, so nothing a plugin 
 - **A light that is on takes its colour.** Its widget's background is the light's own colour, pale (its hue, or
   the white of its colour temperature): a full wash on a small or medium tile, a tint over the glass on a large or
   extra large one. Off, it goes back to glass.
+- **Hold a light's tile to pick its colour or white.** On a small or medium tile, a tap turns the light on or off;
+  held a moment (its edge lights up as it arms), a picker grows from under the finger or the pointer: for a colour light, a wheel of hues with white at its
+  centre and, when the light also has a colour temperature, a bar of whites under it (warm at the left); for a white
+  light, a disc of whites, cool at the top and warm at the bottom, across the light's own range. Move over it, with the
+  colour shown above it (and a white's temperature in kelvin beside it), and let go: the light takes that colour or white and turns on. Let go off the picker, or
+  without moving, and nothing changes. A move before it opens still scrolls the page; a light with neither has none.
 
 - **Adaptive Lighting.** A light with Adaptive Lighting has a sun swatch first among its colours (a round button
   beside the white slider for a light without colours). HomeKit starts Adaptive Lighting: when you turn it on in
@@ -130,7 +136,7 @@ list below that it has):
 | WindowCovering, Door, Window | Shutter | slide, tap | position, slide to set | position, open, stop, close | a window to slide, tilt |
 | Valve | Valve | run or stop, time left | run or stop, time left | ring and duration | larger ring |
 | Fanv2, Fan | Fan | speed | speed, on and off | speed | speed, modes, direction, swing |
-| Lightbulb | Light | on and off, brightness | brightness, on and off | brightness, colours or white | tall brightness, colours, white |
+| Lightbulb | Light | on and off, brightness; held, a colour or white picker | brightness, on and off; held, a colour or white picker | brightness, colours or white | tall brightness, colours, white |
 | Switch, Outlet (one) | Switch | on and off | on and off | a big switch | a power button, its facets |
 | Switch, Outlet (several) | Group of switches | how many are on | how many are on | chips | a tile each |
 | Sensors | Sensor | the reading | the main reading | the readings | the readings, battery |
