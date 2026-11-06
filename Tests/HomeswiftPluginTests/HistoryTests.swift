@@ -45,7 +45,8 @@ struct HistoryTests {
         #expect(found.points.map(\.value) == [.bool(true), .bool(false)])
         let entries = store.logbook(LogbookQuery())
         #expect(entries.map(\.source) == [.device, .user("ann")])
-        #expect(entries.map(\.write) == [false, true])
+        // The user's change was not logged as a write: only a write marks it.
+        #expect(entries.map(\.write) == [false, false])
         #expect(store.logbook(LogbookQuery(sourceKind: "user")).count == 1)
     }
 
@@ -116,6 +117,33 @@ struct HistoryTests {
         let entries = store.logbook(LogbookQuery())
         #expect(entries.map(\.source) == [.scene("Evening"), .homeApp(pairing: "ABCDEF12-3456"), .mcpClient("Claude")])
         #expect(store.logbook(LogbookQuery(accessories: ["Other:1"])).isEmpty)
+    }
+
+    @Test func aWriteMarksTheChangeItMadeAndNotTheOthers() throws {
+        let clock = Clock(start)
+        let store = HistoryStore(directory: nil, now: { clock.now })
+        let (accessory, on, brightness) = lamp()
+        // The handler of a write to On sets Brightness too: one write, and a change it caused.
+        store.recordChange(of: on, in: accessory, value: .bool(true), source: .user("ann"))
+        store.recordWrite(of: on, in: accessory, value: .bool(true), source: .user("ann"))
+        store.recordChange(of: brightness, in: accessory, value: .int(100), source: .user("ann"))
+        let entries = store.logbook(LogbookQuery())
+        #expect(entries.map(\.characteristic) == ["On"])
+        #expect(entries.first?.write == true)
+    }
+
+    @Test func aDeviceThatStopsAnsweringStopsItsHours() throws {
+        let clock = Clock(start)
+        let store = HistoryStore(directory: nil, now: { clock.now })
+        let (accessory, temperature) = sensor()
+        store.recordChange(of: temperature, in: accessory, value: .double(20), source: .device)
+        clock.advance(1800)
+        store.tick(silent: [accessory.id])
+        clock.advance(4 * 3600)
+        store.tick(silent: [accessory.id])
+        let series = try #require(store.series(accessory: accessory.id).first)
+        // The first hour, closed at its last reading; nothing after.
+        #expect(store.hours(of: series, from: start, to: clock.now).map(\.start) == [start])
     }
 
     @Test func filesOutliveTheStoreAndOldDaysAreDeleted() throws {

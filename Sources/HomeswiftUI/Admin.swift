@@ -54,7 +54,7 @@ extension UIServer {
                 return .error(404, error.description)
             }
         }
-        // The Logbook is anyone's to read, as the accessories are.
+        // The Logbook is anyone's to read, as the accessories are; which user or MCP client made a change, an administrator's.
         if method == .GET, route == ["logbook"] {
             var since: Date?
             if let text = request.query["since"] {
@@ -64,7 +64,7 @@ extension UIServer {
             let limit = min(max(request.query["limit"].flatMap(Int.init) ?? 300, 1), 1000)
             do {
                 return .json(try catalog.logbookJSON(since: since, room: request.query["room"], accessory: request.query["accessory"],
-                                                     sourceKind: request.query["source"], sourceName: request.query["sourceName"], limit: limit))
+                                                     sourceKind: request.query["source"], sourceName: request.query["sourceName"], limit: limit, people: caller.isAdmin))
             } catch let error as CatalogError {
                 return .error(error.notFound ? 404 : 503, error.description)
             }

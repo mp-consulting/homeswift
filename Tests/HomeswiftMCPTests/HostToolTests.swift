@@ -219,7 +219,11 @@ struct HostToolTests {
         let logbook = try await client.tool("get_logbook", ["accessory": "Devices:lamp"])["structuredContent"]
         let entries = logbook?["entries"]?.arrayValue ?? []
         #expect(entries.compactMap { $0["source"]?["kind"]?.stringValue } == ["device", "mcp"])
-        #expect(entries.last?["source"]?["name"] == "tests")
+        // Which client: an administrator's to know.
+        #expect(entries.last?["source"]?["name"] == nil)
+        let admin = DirectClient(server: environment.server, scope: .admin)
+        try await admin.initialize()
+        #expect(try await admin.tool("get_logbook", ["accessory": "Devices:lamp"])["structuredContent"]?["entries"]?.arrayValue?.last?["source"]?["name"] == "tests")
         #expect(entries.last?["value"] == true)
         #expect(try await client.tool("get_logbook", ["source": "mcp"])["structuredContent"]?["entries"]?.arrayValue?.count == 1)
         #expect(try await client.tool("get_logbook", ["since": "soon"])["isError"] == true)

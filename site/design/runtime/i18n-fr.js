@@ -3130,4 +3130,6 @@ HomeswiftI18n.add("fr", {
   "{n} step": "{n} étape",
   "{n} steps": "{n} étapes",
   "A message from an automation": "Un message d'une automatisation",
+  "A Homeswift user": "Un utilisateur de Homeswift",
+  "An MCP client": "Un client MCP",
 });

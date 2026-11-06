@@ -194,6 +194,8 @@ public final class HistoryStore: @unchecked Sendable {
         var nextID = 1
         /// The series of each characteristic followed, by object; made again when accessories change.
         var known: [ObjectIdentifier: String] = [:]
+        /// The characteristics followed that the History does not keep (data, confidential): not looked up again.
+        var unkept: Set<ObjectIdentifier> = []
         var numbers: [String: Number] = [:]
         /// Lines waiting to be appended, by file (relative to `directory`).
         var lines: [String: [String]] = [:]
@@ -202,6 +204,10 @@ public final class HistoryStore: @unchecked Sendable {
         var indexDirty = false
         /// The last Logbook entry of each series: a write that follows the change it made is not logged twice.
         var lastLogged: [String: LogbookEntry] = [:]
+        /// Where each series' last Logbook line waits in `lines` (its file and place), for a write to mark it.
+        var lastLine: [String: (file: String, index: Int)] = [:]
+        /// A structure change waits to seed the accessories again.
+        var seedPending = false
         var lastPrune: Date?
     }
 
@@ -241,16 +247,23 @@ public final class HistoryStore: @unchecked Sendable {
         let writes = host.observeWrites { [weak self] accessory, characteristic, value in
             self?.recordWrite(of: characteristic, in: accessory, value: value, source: ChangeSource.resolved)
         }
+        // A burst of structure changes (a plugin adding its devices one by one) makes one pass, off the plugin's path.
         let structure = host.observeStructure { [weak self, weak host] in
-            guard let self, let host else { return }
-            self.seed(host.bridges.flatMap(\.server.accessories))
+            guard let self, self.state.withLockedValue({ state in defer { state.seedPending = true }; return !state.seedPending }) else { return }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self, weak host] in
+                guard let self, let host else { return }
+                self.state.withLockedValue { $0.seedPending = false }
+                self.seed(host.bridges.flatMap(\.server.accessories))
+            }
         }
         seed(host.bridges.flatMap(\.server.accessories))
         let interval = interval
-        let ticker = Task { [weak self] in
+        let ticker = Task { [weak self, weak host] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(interval)) } catch { return }
-                self?.tick()
+                // An accessory answering No Response holds no value: its hours stop until it reports again.
+                let silent = Set((host?.bridges.flatMap(\.server.accessories) ?? []).filter(\.showsNoResponse).map(\.id))
+                self?.tick(silent: silent)
             }
         }
         following.withLockedValue { $0 = (Observation { changes.cancel(); writes.cancel(); structure.cancel() }, ticker) }
@@ -269,10 +282,11 @@ public final class HistoryStore: @unchecked Sendable {
     func seed(_ accessories: [Accessory]) {
         let at = now()
         var fresh: [ObjectIdentifier: String] = [:]
+        var unkept: Set<ObjectIdentifier> = []
         for accessory in accessories {
             for service in accessory.services {
                 for characteristic in service.characteristics {
-                    guard let key = series(for: characteristic, service: service, in: accessory) else { continue }
+                    guard let key = series(for: characteristic, service: service, in: accessory) else { unkept.insert(ObjectIdentifier(characteristic)); continue }
                     fresh[ObjectIdentifier(characteristic)] = key
                     let value = characteristic.value
                     guard Self.isRecordable(value) else { continue }
@@ -294,7 +308,10 @@ public final class HistoryStore: @unchecked Sendable {
                 }
             }
         }
-        state.withLockedValue { $0.known = fresh }
+        state.withLockedValue { state in
+            state.known = fresh
+            state.unkept = unkept
+        }
     }
 
     /// The series of a characteristic, made the first time; nil for what the History does not keep.
@@ -347,10 +364,16 @@ public final class HistoryStore: @unchecked Sendable {
     }
 
     private func key(of characteristic: Characteristic, in accessory: Accessory) -> String? {
-        if let key = state.withLockedValue({ $0.known[ObjectIdentifier(characteristic)] }) { return key }
+        let id = ObjectIdentifier(characteristic)
+        let (known, unkept) = state.withLockedValue { ($0.known[id], $0.unkept.contains(id)) }
+        if let known { return known }
+        if unkept { return nil }
         guard let service = accessory.services.first(where: { $0.characteristics.contains { $0 === characteristic } }),
-              let key = series(for: characteristic, service: service, in: accessory) else { return nil }
-        state.withLockedValue { $0.known[ObjectIdentifier(characteristic)] = key }
+              let key = series(for: characteristic, service: service, in: accessory) else {
+            state.withLockedValue { _ = $0.unkept.insert(id) }
+            return nil
+        }
+        state.withLockedValue { $0.known[id] = key }
         return key
     }
 
@@ -363,7 +386,7 @@ public final class HistoryStore: @unchecked Sendable {
         record(value, key: key, at: at)
         guard let series = state.withLockedValue({ $0.series[key] }), Self.logs(series) else { return }
         log(LogbookEntry(time: at, accessory: series.accessory, accessoryName: series.accessoryName, service: series.service.isEmpty ? nil : series.service, characteristic: series.characteristic,
-                         value: value, source: source, write: source != .device), key: key)
+                         value: value, source: source, write: false), key: key)
     }
 
     /// A write of a characteristic, changed value or not, made by `source`: a Logbook entry, unless it is the one the
@@ -375,11 +398,18 @@ public final class HistoryStore: @unchecked Sendable {
         let serviceName = state.withLockedValue { $0.series[key]?.service }.flatMap { $0.isEmpty ? nil : $0 }
         let entry = LogbookEntry(time: at, accessory: accessory.id, accessoryName: accessory.name, service: serviceName, characteristic: characteristic.type.name,
                                  value: value, source: source, write: true)
-        let duplicate = state.withLockedValue { state -> Bool in
-            guard let last = state.lastLogged[key] else { return false }
-            return last.value == value && last.source == source && at.timeIntervalSince(last.time) < 2
+        // The change this write made was just logged: that line becomes the write's, rather than a second one.
+        let marked = state.withLockedValue { state -> Bool in
+            guard var last = state.lastLogged[key], last.value == value, last.source == source, at.timeIntervalSince(last.time) < 2 else { return false }
+            if !last.write, let place = state.lastLine[key], let file = state.lines[place.file], file.indices.contains(place.index) {
+                last.write = true
+                guard let data = try? JSONEncoder().encode(last), let line = String(data: data, encoding: .utf8) else { return true }
+                state.lines[place.file]?[place.index] = line
+                state.lastLogged[key] = last
+            }
+            return true
         }
-        if !duplicate { log(entry, key: key) }
+        if !marked { log(entry, key: key) }
     }
 
     /// Whether a series' changes go in the Logbook: states, and targets (what someone asked for).
@@ -389,9 +419,11 @@ public final class HistoryStore: @unchecked Sendable {
 
     private func log(_ entry: LogbookEntry, key: String) {
         guard let data = try? JSONEncoder().encode(entry), let line = String(data: data, encoding: .utf8) else { return }
+        let file = "logbook/\(Self.day(entry.time)).jsonl"
         state.withLockedValue { state in
             state.lastLogged[key] = entry
-            state.lines["logbook/\(Self.day(entry.time)).jsonl", default: []].append(line)
+            state.lines[file, default: []].append(line)
+            state.lastLine[key] = (file, state.lines[file]!.count - 1)
         }
     }
 
@@ -459,7 +491,7 @@ public final class HistoryStore: @unchecked Sendable {
                 lines["hours/\(series.id)/\(year(hour)).tsv", default: []].append(
                     "\(Int(hour.timeIntervalSince1970))\t\(format(entry.minimum))\t\(format(mean))\t\(format(entry.maximum))")
             }
-            // A value held for a day without a change is a device gone quiet: its hours stop until it speaks again.
+            // A day past without a tick (the machine slept): the time between is not known, so nothing is held across it.
             if at.timeIntervalSince(end) > 86_400 {
                 entry.hour = nil
                 entry.held = nil
@@ -477,14 +509,38 @@ public final class HistoryStore: @unchecked Sendable {
         }
     }
 
+    /// Closes a number's hour at its last reading and holds nothing more, until its next change.
+    private static func release(_ entry: inout Number, lines: inout [String: [String]], series: HistorySeries) {
+        if let hour = entry.hour, entry.covered > 0 {
+            lines["hours/\(series.id)/\(year(hour)).tsv", default: []].append(
+                "\(Int(hour.timeIntervalSince1970))\t\(format(entry.minimum))\t\(format(entry.weighted / entry.covered))\t\(format(entry.maximum))")
+        }
+        entry.hour = nil
+        entry.held = nil
+        entry.segment = nil
+        entry.weighted = 0
+        entry.covered = 0
+    }
+
     /// Keeps the numbers that waited, closes the hours that ended, and writes what waits; deletes what is past its
     /// retention once an hour.
-    public func tick() {
+    public func tick(silent: Set<String> = []) {
         let at = now()
         let interval = interval
         state.withLockedValue { state in
             for (key, var entry) in state.numbers {
                 guard let series = state.series[key] else { continue }
+                // No Response: the hour under way closes at its last reading, and nothing is held after it.
+                if silent.contains(series.accessory), entry.held != nil {
+                    var lines = state.lines
+                    state.lines = [:]
+                    // Held up to now (at most a tick past its silence), then closed.
+                    Self.advance(&entry, to: at, lines: &lines, series: series)
+                    Self.release(&entry, lines: &lines, series: series)
+                    state.lines = lines
+                    state.numbers[key] = entry
+                    continue
+                }
                 if let pending = entry.pending, let kept = entry.kept, at.timeIntervalSince(kept.time) >= interval,
                    let value = pending.value.doubleValue, let last = kept.value.doubleValue,
                    abs(value - last) > entry.step || at.timeIntervalSince(pending.time) >= interval {
@@ -511,7 +567,7 @@ public final class HistoryStore: @unchecked Sendable {
     /// Writes the lines waiting and the index, when it changed.
     public func flush() {
         let (lines, index) = state.withLockedValue { state -> ([String: [String]], [HistorySeries]?) in
-            defer { state.lines = [:]; state.indexDirty = false }
+            defer { state.lines = [:]; state.lastLine = [:]; state.indexDirty = false }
             return (state.lines, state.indexDirty ? Array(state.series.values) : nil)
         }
         guard !lines.isEmpty || index != nil else { return }
@@ -574,26 +630,36 @@ public final class HistoryStore: @unchecked Sendable {
     /// The values a series took from `from` to `to`, oldest first, and the value it held at `from` (the last before it
     /// still kept), when known.
     public func changes(of series: HistorySeries, from: Date, to: Date) -> (before: HistoryPoint?, points: [HistoryPoint]) {
+        changes(of: [series], from: from, to: to)[series.id] ?? (nil, [])
+    }
+
+    /// The same for several series at once (an accessory's), each day file read once.
+    public func changes(of many: [HistorySeries], from: Date, to: Date) -> [Int: (before: HistoryPoint?, points: [HistoryPoint])] {
         flush()
         let first = max(from, now().addingTimeInterval(-Double(retention.days + 1) * 86_400))
-        var before: HistoryPoint?
-        var points: [HistoryPoint] = []
+        let wanted = Set(many.map(\.id))
+        var found: [Int: (before: HistoryPoint?, points: [HistoryPoint])] = Dictionary(uniqueKeysWithValues: many.map { ($0.id, (nil, [])) })
         // Each day from the first kept to `to`: one before `from` too, for the value held at the start.
         var day = Self.dayStart(first.addingTimeInterval(-86_400))
-        let prefix = "\t\(series.id)\t"
         while day <= to {
-            for line in lines(of: "changes/\(Self.day(day)).tsv") where line.contains(prefix) {
-                guard let point = Self.parse(line, series: series.id) else { continue }
+            for line in lines(of: "changes/\(Self.day(day)).tsv") {
+                let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+                guard fields.count == 3, let id = Int(fields[1]), wanted.contains(id), let point = Self.parse(line, series: id) else { continue }
                 if point.time < from {
-                    before = point
+                    found[id]?.before = point
                 } else if point.time <= to {
-                    points.append(point)
+                    found[id]?.points.append(point)
                 }
             }
             day = day.addingTimeInterval(86_400)
         }
-        if before == nil, let last = series.last, let lastAt = series.lastAt, lastAt < from { before = HistoryPoint(time: lastAt, value: last) }
-        return (before, points.sorted { $0.time < $1.time })
+        for series in many {
+            if found[series.id]?.before == nil, let last = series.last, let lastAt = series.lastAt, lastAt < from {
+                found[series.id]?.before = HistoryPoint(time: lastAt, value: last)
+            }
+            found[series.id]?.points.sort { $0.time < $1.time }
+        }
+        return found
     }
 
     /// A number's hours from `from` to `to`, oldest first, the hour under way included.
