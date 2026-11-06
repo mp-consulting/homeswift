@@ -809,7 +809,7 @@ public final class UIServer: Sendable {
                 let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
                 do {
                     return .json(try catalog.consumptionJSON(period: request.query["period"], date: request.query["date"], hours: request.query["hours"].flatMap(Double.init),
-                                                             timeZone: timeZone, accessory: request.query["accessory"]))
+                                                             timeZone: timeZone, accessory: request.query["accessory"], kind: request.query["kind"].flatMap(MeterKind.init(rawValue:))))
                 } catch let error as CatalogError {
                     return .error(error.notFound ? 404 : 400, error.description)
                 }
