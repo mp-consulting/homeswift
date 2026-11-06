@@ -28,6 +28,8 @@ actor TapoCameraFeed {
     private let onSample: @Sendable (Data) async -> Void
     /// Called when a session opens: the camera is awake, for what can be asked only then (its battery).
     private let onAwake: @Sendable () async -> Void
+    /// Called when the camera's session closes and is not opened again: it goes back to sleep.
+    private let onAsleep: @Sendable () async -> Void
 
     private var viewers: [Int: AsyncStream<Data>.Continuation] = [:]
     private var nextViewer = 0
@@ -36,7 +38,7 @@ actor TapoCameraFeed {
     private var sessionsOpened = 0
 
     init(name: String, client: StreamdClient, resolution: Streamd.Resolution, timing: Timing = Timing(), logger: Logger,
-         onAwake: @escaping @Sendable () async -> Void = {}, onSample: @escaping @Sendable (Data) async -> Void = { _ in }) {
+         onAwake: @escaping @Sendable () async -> Void = {}, onAsleep: @escaping @Sendable () async -> Void = {}, onSample: @escaping @Sendable (Data) async -> Void = { _ in }) {
         self.name = name
         self.client = client
         self.resolution = resolution
@@ -44,6 +46,7 @@ actor TapoCameraFeed {
         self.logger = logger
         self.onSample = onSample
         self.onAwake = onAwake
+        self.onAsleep = onAsleep
     }
 
     var viewerCount: Int { viewers.count }
@@ -86,6 +89,8 @@ actor TapoCameraFeed {
         runner?.cancel()
         runner = nil
         logger.debug("\(name): nobody watches: the camera's session is closed.")
+        let onAsleep = onAsleep
+        Task { await onAsleep() }
     }
 
     /// Ends every viewer and closes the session.
@@ -145,6 +150,7 @@ actor TapoCameraFeed {
             for continuation in viewers.values { continuation.finish() }
             viewers = [:]
             runner = nil
+            await onAsleep()
         }
     }
 

@@ -137,7 +137,7 @@ actor TapoControl {
     }
 
     /// A motor request, at most one a second (7, `-40109`); a busy motor is stopped and asked once more (5.2).
-    private func motor(_ method: String, _ params: [String: Any]) async throws {
+    func motor(_ method: String, _ params: [String: Any]) async throws {
         await acquire()
         defer { release() }
         if let lastMotor {
@@ -153,7 +153,7 @@ actor TapoControl {
         }
     }
 
-    private func acquire() async {
+    func acquire() async {
         if busy {
             await withCheckedContinuation { waiting.append($0) }
         } else {
@@ -162,7 +162,7 @@ actor TapoControl {
     }
 
     /// Hands the turn to the next waiting call, if any.
-    private func release() {
+    func release() {
         if waiting.isEmpty { busy = false } else { waiting.removeFirst().resume() }
     }
 

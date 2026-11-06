@@ -146,6 +146,8 @@ accessories in the Home app, which lose their rooms and automations.
 | `devices[].resolution` | `HD` | A camera's stream: `HD` (every lens) or `VGA` (the sub stream: one lens) |
 | `devices[].motion` | `true` | A camera's Motion Sensor, from the TP-Link cloud |
 | `devices[].cloudId` | | The camera's id in the TP-Link cloud, when it is not found otherwise |
+| `devices[].presetSwitches` | `true` | A camera's "Go to <preset>" switches, on the lens on the motor |
+| `devices[].patrolSwitches` | `true` | A camera's Horizontal and Vertical Patrol switches, on the lens on the motor |
 | `devices[].standalone` | `false` | A camera's lenses each on a HAP server of their own, added in the Home app one by one, rather than on the bridge |
 | `videoProcessor` | `ffmpeg` | The FFmpeg the cameras' streams go through |
 
@@ -204,6 +206,13 @@ pinned on first use in `control-certificates.json`, signed in as `admin` with th
   supported yet (the log says so). A wrong password or a lockout stops the attempts for a minute, or as long as the
   camera says; a new certificate (after a firmware update) is trusted again once the camera's proof passes.
 - At most one motor request a second; the end of the range answers "cannot turn further that way".
+- **Switches in HomeKit.** HomeKit has no pan and tilt service, so the lens on the motor gets a **Go to <preset>**
+  switch per preset, named after it alone (it turns the camera there, then turns itself off) and **Horizontal Patrol** and **Vertical
+  Patrol** switches (the camera sweeps along that axis, `cruise`, until the switch is turned off or the camera sleeps;
+  starting one ends the other). They come with the first live view, which tells the motor and its presets, follow the
+  presets made in the Tapo app, and are kept for the next start. Like the pad, they move the camera only while a live
+  view keeps it awake: otherwise the Home app shows the switch as not responding. A patrol keeps the motor running on
+  the battery. `presetSwitches: false` and `patrolSwitches: false` leave them out.
 - Tried on a C675D (firmware 1.1.7): it pans, tilts and goes to its presets. Please report how other models move.
 
 ## Not done
@@ -236,7 +245,9 @@ cloud that checks each call's signature: the sign-in, the e-mailed code of a new
 refreshed once, a refused password stopping the watch, the camera found by its MAC, and a detection reaching both lenses
 and clearing after its hold without a connection to the camera. The battery: the spec's vectors, the level read for both
 lenses only once a live view opens and not again within five minutes, kept across a restart, and the cloud's low-battery
-notice.
+notice. The pan and tilt switches: none before the first live view, the presets' and patrols' once it opens (the lens
+keeping its camera and battery), a preset reached and the switch off again, one patrol at a time, the patrol off and a
+preset refused once the camera sleeps, and the switches back at a restart without the camera.
 
 `StreamdLiveTests` records a sample from a real camera when `TAPO_LIVE_HOST`, `TAPO_LIVE_PASSWORD_FILE` (a file holding
 the cloud password) and `TAPO_LIVE_OUTPUT` are set, and runs the live stream's FFmpeg command on a recorded sample for

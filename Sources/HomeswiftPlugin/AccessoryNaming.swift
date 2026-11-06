@@ -92,6 +92,7 @@ public final class AccessoryNaming: Sendable {
     @discardableResult
     func apply(to accessory: Accessory) -> Bool {
         guard accessory.mirroredFrom == nil else { return false }
+        let namedOthers = Self.nameOtherServices(of: accessory)
         let wanted = name(for: accessory.id)
         let key = ObjectIdentifier(accessory)
         var applied = state.withLockedValue { state -> Applied? in
@@ -159,7 +160,27 @@ public final class AccessoryNaming: Sendable {
                 self.state.withLockedValue { $0.onRenamed }?(id, name)
             }
         }
-        return addedConfiguredName
+        return addedConfiguredName || namedOthers
+    }
+
+    /// Gives each named service of an accessory that shows several, but the one standing for it, a Configured Name with
+    /// its Name, when the plugin gave it none: the Home app names an accessory's other services by their Configured
+    /// Name and numbers those without one ("Switch 1", "Switch 2"), as HAP-NodeJS warns. The Home app shows them inside
+    /// the accessory, so a Name that starts with the accessory's ("Desk Candle" on "Desk") gives its rest ("Candle").
+    /// The primary service is left alone: the Home app follows a Configured Name, so one added there would undo a
+    /// rename made in the Home app. Answers whether it added one, a change to the accessory's structure.
+    static func nameOtherServices(of accessory: Accessory) -> Bool {
+        let shown = namedServices(of: accessory).filter { !$0.isHidden && $0[.name]?.value.stringValue?.isEmpty == false }
+        guard shown.count > 1, let primary = primaryService(of: accessory) else { return false }
+        let prefix = (accessory.information[.name]?.value.stringValue ?? accessory.name) + " "
+        var added = false
+        for service in shown where service !== primary && service[.configuredName] == nil {
+            let name = service[.name]?.value.stringValue ?? ""
+            let own = name.hasPrefix(prefix) ? String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces) : ""
+            service.characteristic(adding: .configuredName).value = .string(own.isEmpty ? name : own)
+            added = true
+        }
+        return added
     }
 
     /// Forgets an accessory that left the instance.

@@ -24,6 +24,10 @@ extension TapoPlugin {
             /// Whether a camera's lenses each get a HAP server of their own (`publishExternal`), added in the Home app one
             /// by one, rather than going on the bridge: off by default, as UniFi Protect's `Device.Standalone`.
             public var standalone: Bool?
+            /// A "Go to <preset>" switch per pan and tilt preset on the lens on the motor: on by default.
+            public var presetSwitches: Bool?
+            /// Horizontal and Vertical Patrol switches (the camera's sweep) on the lens on the motor: on by default.
+            public var patrolSwitches: Bool?
         }
 
         /// The Tapo account's email.

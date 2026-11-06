@@ -18,6 +18,8 @@ final class FakeStreamdCamera: Sendable {
         /// What the camera does after the reply: send `parts` parts of TS, then stay silent or close.
         var parts = 3
         var closeAfterParts = false
+        /// After the parts, one more this often until the session closes: a camera that stays awake while watched.
+        var keepStreaming: Duration?
         var connections = 0
         var logins = 0
         var previews: [String] = []
@@ -132,6 +134,14 @@ final class FakeStreamdConnection: ByteStream, @unchecked Sendable {
             guard state.previewError == 0 else { return }
             for n in 0..<state.parts { sendMedia(FakeStreamdCamera.packet(UInt8(n))) }
             if state.closeAfterParts { serverClose() }
+            if let interval = state.keepStreaming {
+                Task { [weak self] in
+                    while let self, !self.inner.withLockedValue({ $0.closed }) {
+                        self.sendMedia(FakeStreamdCamera.packet(0))
+                        try? await Task.sleep(for: interval)
+                    }
+                }
+            }
         default:
             break
         }

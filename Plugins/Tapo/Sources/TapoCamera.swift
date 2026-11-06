@@ -52,7 +52,17 @@ final class TapoCamera: Sendable {
         VideoResolution(1920, 1080, 15),
     ]
 
-    let accessory: Accessory
+    /// The lens's accessory: rebuilt, with the same services and camera, when its pan and tilt switches change.
+    var accessory: Accessory { accessoryBox.withLockedValue { $0 } }
+    private let accessoryBox: NIOLockedValueBox<Accessory>
+    /// The switches it has now (TapoPTZSwitches.swift).
+    var ptzSwitches: TapoPTZSwitches { switchesBox.withLockedValue { $0 } }
+    private let switchesBox = NIOLockedValueBox(TapoPTZSwitches())
+    /// The patrol switches, while it has them, so the camera's sleep turns them off.
+    let patrolServices = NIOLockedValueBox<[Service]>([])
+    private let id: String
+    private let name: String
+    private let log: Logger
     let controller: CameraController
     let streamer: TapoCameraStreamer
     let motion: Service?
@@ -65,6 +75,9 @@ final class TapoCamera: Sendable {
          hold: Duration, log: Logger) throws {
         self.streamer = streamer
         self.hold = hold
+        self.id = id
+        self.name = name
+        self.log = log
         let motion = hasMotion ? Service(.motionSensor, name: "\(name) Motion", subtype: "motion") : nil
         self.motion = motion
         let battery = hasBattery ? Self.batteryService(name: name) : nil
@@ -77,11 +90,38 @@ final class TapoCamera: Sendable {
         controller = try CameraController(
             CameraControllerOptions(cameraStreamCount: 2, delegate: streamer, streamingOptions: streaming, sensors: motion.map { CameraSensorOptions(motion: .service($0)) }),
             logger: log)
-        accessory = Accessory(
+        let accessory = Accessory(
             id: id, name: name, manufacturer: "TP-Link", model: model, serialNumber: serial, category: .ipCamera, services: [motion, battery].compactMap { $0 },
             onIdentify: { [log] in log.info("\(name): identify requested.") })
         accessory.configureController(controller)
+        accessoryBox = NIOLockedValueBox(accessory)
         motion?.characteristic(.motionDetected).value = false
+    }
+
+    /// A new accessory for the lens with these pan and tilt switches: the same camera, Motion Sensor and Battery (the
+    /// same services, so a live view goes on), the same Accessory Information, under the same id. The caller publishes it.
+    func rebuild(_ switches: TapoPTZSwitches, actions: TapoPTZActions) -> Accessory {
+        let current = accessory
+        func info(_ type: CharacteristicType) -> String { current.information[type]?.value.stringValue ?? "" }
+        let services = switches.services(name: name, actions: actions, log: log)
+        let accessory = Accessory(
+            id: id, name: info(.name).nonEmpty ?? name, manufacturer: "TP-Link", model: info(.model), serialNumber: info(.serialNumber),
+            firmwareRevision: info(.firmwareRevision).nonEmpty ?? "1.0.0", category: .ipCamera,
+            services: [motion, battery].compactMap { $0 } + services.presets + services.patrols,
+            onIdentify: { [log, name] in log.info("\(name): identify requested.") })
+        accessory.configureController(controller)
+        accessoryBox.withLockedValue { $0 = accessory }
+        switchesBox.withLockedValue { $0 = switches }
+        patrolServices.withLockedValue { $0 = services.patrols }
+        return accessory
+    }
+
+    /// Whether one of its patrol switches is on.
+    var isPatrolling: Bool { patrolServices.withLockedValue { $0 }.contains { $0[.on]?.value == .bool(true) } }
+
+    /// The camera went back to sleep, or moved elsewhere: its patrol stopped.
+    func patrolStopped() {
+        for service in patrolServices.withLockedValue({ $0 }) { service.characteristic(.on).value = false }
     }
 
     /// Accessory Information from the camera the TP-Link cloud knows (its device list, which never reaches the camera):
@@ -128,6 +168,10 @@ struct TapoCameraRuntime: Sendable {
     var control: TapoControl? = nil
     /// The accessory id of the lens on the motor: the tele lens of a C675D, the only lens of another camera.
     var movableLens: String? = nil
+    /// On a HAP server of its own (`standalone`), and the switches its options ask for (TapoPTZSwitches.swift).
+    var standalone = false
+    var presetSwitches = true
+    var patrolSwitches = true
 }
 
 extension TapoPlugin {
@@ -166,7 +210,8 @@ extension TapoPlugin {
         let snapshotTargets = zip(lenses, stores).map { ($0.videoIndex, $1) }
         let log = logger
         let feed = TapoCameraFeed(name: name, client: client, resolution: resolution, timing: dependencies.cameraTiming, logger: logger,
-                                  onAwake: { [weak self] in await self?.readBattery(deviceID: deviceID) }) { sample in
+                                  onAwake: { [weak self] in await self?.cameraAwake(deviceID: deviceID) },
+                                  onAsleep: { [weak self] in await self?.cameraAsleep(deviceID: deviceID) }) { sample in
             for (index, store) in snapshotTargets {
                 if let image = await TapoCameraStreamer.snapshot(from: sample, videoIndex: index, ffmpeg: ffmpeg) {
                     store.update(image)
@@ -185,17 +230,20 @@ extension TapoPlugin {
                                         hold: dependencies.motionHold, log: logger)
             if let kept = keptBattery(deviceID) { camera.apply(kept) }
             await camera.start()
-            if device.standalone ?? false {
-                try await context.publishExternal(camera.accessory)
-            } else {
-                try context.add(camera.accessory)
-            }
             cameras.append(camera)
         }
         let control = makeControl(deviceID: deviceID, host: host)
         // The lens on the motor: the tele one when both show, the one shown otherwise (a C675D in VGA shows its tele lens).
         let movable = zip(lenses, cameras).first { $0.0.suffix == "Tele" }?.1 ?? (cameras.count == 1 ? cameras[0] : nil)
-        cameraRuntimes[deviceID] = TapoCameraRuntime(feed: feed, cameras: cameras, control: control, movableLens: movable?.accessory.id)
+        let standalone = device.standalone ?? false
+        cameraRuntimes[deviceID] = TapoCameraRuntime(
+            feed: feed, cameras: cameras, control: control, movableLens: movable?.accessory.id, standalone: standalone,
+            presetSwitches: device.presetSwitches ?? true, patrolSwitches: device.patrolSwitches ?? true)
+        // Its pan and tilt switches from what `ptz.json` keeps, before it is published.
+        await applyPTZSwitches(deviceID: deviceID, publish: false)
+        for camera in cameras {
+            if standalone { try await context.publishExternal(camera.accessory) } else { try context.add(camera.accessory) }
+        }
         if device.motion ?? true {
             // Each lens's serial: the MAC, with `-wide` or `-tele` when the camera has several.
             let labels = lenses.map { lens in lenses.count > 1 ? lens.suffix ?? "Wide" : nil }

@@ -84,6 +84,7 @@ extension TapoPlugin {
         presetsReadAt[deviceID] = .now
         ptzStates?[deviceID] = state
         do { try ptzFile.save(ptzStates ?? [:]) } catch { logger.warning("Could not keep what the cameras' motors do: \(error)") }
+        await applyPTZSwitches(deviceID: deviceID)
         return state
     }
 
@@ -98,6 +99,7 @@ extension TapoPlugin {
         let state = PTZState(supported: true, presets: presets)
         ptzStates?[deviceID] = state
         do { try ptzFile.save(ptzStates ?? [:]) } catch { logger.warning("Could not keep what the cameras' motors do: \(error)") }
+        await applyPTZSwitches(deviceID: deviceID)
         return state
     }
 
@@ -126,7 +128,7 @@ extension TapoPlugin {
     }
 
     /// Runs `work` on the control API of a camera that is awake and pans and tilts, its errors in words.
-    private func withControl(_ id: String, _ work: (TapoControl, PTZState, _ deviceID: String, _ runtime: TapoCameraRuntime) async throws -> Void) async throws {
+    func withControl(_ id: String, _ work: (TapoControl, PTZState, _ deviceID: String, _ runtime: TapoCameraRuntime) async throws -> Void) async throws {
         guard let (deviceID, runtime) = movable(id), let control = runtime.control else { throw CameraControlError("no Tapo camera that pans and tilts is \(id)") }
         guard await runtime.feed.isConnected else {
             throw CameraControlError("\(name(of: runtime)) is asleep: open its live view first, so moving it does not wake it")
@@ -150,7 +152,18 @@ extension TapoPlugin {
         case .left: (-angle, 0)
         case .right: (angle, 0)
         }
-        try await withControl(id) { control, _, _, _ in try await control.move(x: x, y: y) }
+        try await withControl(id) { control, _, _, runtime in
+            try await self.endingPatrol(control, runtime) { try await control.move(x: x, y: y) }
+        }
+    }
+
+    /// Runs a move that ends a patrol: the sweep is stopped first (a camera may otherwise sweep on after it), and its
+    /// switch turned off once the move is sent.
+    private func endingPatrol(_ control: TapoControl, _ runtime: TapoCameraRuntime, _ move: () async throws -> Void) async throws {
+        let patrolling = runtime.cameras.contains { $0.isPatrolling }
+        if patrolling { try await control.cruiseStop() }
+        try await move()
+        if patrolling { for camera in runtime.cameras { camera.patrolStopped() } }
     }
 
     func goToPreset(_ id: String, _ preset: String) async throws {
@@ -165,7 +178,7 @@ extension TapoPlugin {
                 throw CameraControlError("no preset \(preset): list_ptz_cameras gives them")
             }
             do {
-                try await control.goToPreset(found.id)
+                try await self.endingPatrol(control, runtime) { try await control.goToPreset(found.id) }
             } catch TapoControlError.code(let code) where code == -64302 || code == -64321 {
                 // Removed in the Tapo app: the list is read again for next time.
                 await refreshPresets(deviceID: deviceID, runtime: runtime, force: true)
