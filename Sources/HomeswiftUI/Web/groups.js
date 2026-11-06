@@ -24,7 +24,7 @@
     }
     return -1;
   }
-  function mount({ all, layout, persist, refresh, moveToRoom, rooms = [], setGroupRoom }) {
+  function mount({ all, layout, persist, refresh, moveToRoom, rooms = [], setGroupRoom, sizeChoices, resumeChoices }) {
     layout.groups ||= [];
     const byID = new Map(all.map((a) => [a.id, a]));
     const members = (id) => layout.groups.find((g) => g.id === id)?.members || [id];
@@ -135,10 +135,84 @@
       dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
     }
     const cards = new Set();
+    // The service type every shared control of the members sits on (a light's Lightbulb), else null: the members then
+    // differ too much to look like one of them.
+    function mergedKind(present) {
+      const kinds = new Set(present.flatMap((a) => shared(present).map((type) => {
+        const key = controls(a).get(type).service;
+        return groupable(a).find((s) => (s.subtype || s.type) === key)?.type;
+      })));
+      return present.length && kinds.size === 1 ? [...kinds][0] : null;
+    }
+    const isOn = (c) => Number(c?.value) > 0;
+    /// A group whose members are alike (lights, switches) as one of them: the same widget, its controls those the
+    /// members share and within the range they all take, its state theirs (on when one is; the values of the first
+    /// that is on), and a change sent to each of them.
+    function mergedCard(group, people, present, kind) {
+      const types = shared(present);
+      const power = types.find((type) => type === 'On' || type === 'Active');
+      const characteristics = types.map((type) => {
+        const each = present.map((a) => controls(a).get(type).c);
+        const one = { ...each[0], permissions: [...new Set(each.flatMap((c) => c.permissions || []))].filter((p) => each.every((c) => c.permissions?.includes(p))) };
+        const mins = each.map((c) => c.minValue).filter((v) => v != null), maxes = each.map((c) => c.maxValue).filter((v) => v != null);
+        if (mins.length) one.minValue = Math.max(...mins);
+        if (maxes.length) one.maxValue = Math.min(...maxes);
+        const steps = each.map((c) => c.minStep).filter((v) => v != null);
+        if (steps.length) one.minStep = Math.max(...steps);
+        return one;
+      });
+      const service = { type: kind, characteristics };
+      const merged = { id: group.id, name: group.name, displayName: group.name, members: group.members, category: present[0].category, services: [service] };
+      // The members' state on the merged one: on when one is; every other value from the first member that is on.
+      const follow = () => {
+        const lit = present.find((a) => !power || isOn(controls(a).get(power).c)) || present[0];
+        for (const c of characteristics) {
+          c.value = c.type === power
+            ? (present.some((a) => isOn(controls(a).get(power).c)) ? (c.format === 'bool' ? true : 1) : (c.format === 'bool' ? false : 0))
+            : controls(lit).get(c.type).c.value;
+        }
+        merged.paused = present.every((a) => a.paused);
+        merged.unavailable = !merged.paused && present.every((a) => a.unavailable || a.paused);
+      };
+      follow();
+      const views = new Set();
+      const write = async (_, characteristic, value) => {
+        const outcomes = await Promise.allSettled(present.map((a) => {
+          const target = controls(a).get(characteristic.type);
+          return api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: target.service, characteristic: characteristic.type, value } })
+            .then(() => { target.c.value = value; });
+        }));
+        const failed = present.filter((_, i) => outcomes[i].status === 'rejected');
+        if (failed.length) throw new Error(t('Could not update: {names}', { names: failed.map((a) => a.displayName || a.name).join(', ') }));
+      };
+      const draw = () => {
+        follow();
+        for (const ctx of views) {
+          if (ctx.node && !ctx.node.isConnected && Date.now() - ctx.born > 2000) views.delete(ctx); else ctx.paint();
+        }
+      };
+      const actions = () => [
+        ...((resume) => resume.length ? [...resume, { separator: true }] : [])(resumeChoices?.(present) ?? []),
+        ...(sizeChoices ? [sizeChoices(group), { separator: true }] : []),
+        ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: () => moveToRoom(group).catch((error) => HomeswiftCommon.showAlert(error.message)) }] : []),
+        { label: t('Edit group'), icon: 'edit', onSelect: () => edit([], group) },
+        { label: t('Ungroup'), icon: 'ungroup', onSelect: async () => {
+          const before = layout.groups; layout.groups = before.filter((g) => g !== group);
+          try { await persist(); refresh(); } catch (error) { layout.groups = before; HomeswiftCommon.showAlert(error.message); }
+        } },
+      ];
+      const node = HomeswiftWidgets.card(merged, { size: layout.sizes?.[group.id] || 'large', actions, group: { write, attach: (ctx) => views.add(ctx) } });
+      node.classList.add('accessory-group', 'merged');
+      node.dataset.search = [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase();
+      cards.add({ node, draw, members: new Set(group.members) });
+      return node;
+    }
     function card(group, editing) {
       const people = group.members.map((id) => byID.get(id));
       // A member that is gone (its plugin removed or not loaded) leaves the others controllable.
       const present = people.filter(Boolean);
+      const kind = mergedKind(present);
+      if (kind) return mergedCard(group, people, present, kind);
       const memberTypes = people.map((accessory) => accessory ? deviceType(accessory) : null);
       const matchingType = memberTypes[0]?.[0] && memberTypes.every((type) => type?.[0] === memberTypes[0][0]);
       const groupIcon = matchingType ? memberTypes[0][1] : 'group';
