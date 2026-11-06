@@ -139,6 +139,13 @@ extension TapoPlugin {
               "required": false,
               "description": "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras)."
             },
+            "standalone": {
+              "title": "Standalone",
+              "type": "boolean",
+              "required": false,
+              "default": false,
+              "description": "Each lens on a HAP server of its own, added in the Home app on its own, rather than on the bridge. Switching it makes new accessories in the Home app."
+            },
             "updateInterval": {
               "title": "Update Interval (in seconds)",
               "type": "number",
@@ -249,6 +256,12 @@ extension TapoPlugin {
         "type": "string",
         "description": "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras)."
       },
+      "standalone": {
+        "title": "Standalone",
+        "type": "boolean",
+        "default": false,
+        "description": "Each lens on a HAP server of its own, added in the Home app on its own, rather than on the bridge. Switching it makes new accessories in the Home app."
+      },
       "updateInterval": {
         "title": "Update Interval (in seconds)",
         "type": "number",
@@ -277,6 +290,7 @@ extension TapoPlugin {
       "Device": "Appareil",
       "Devices": "Appareils",
       "Dimmable bulb (L510E)": "Ampoule à intensité variable (L510E)",
+      "Each lens on a HAP server of its own, added in the Home app on its own, rather than on the bridge. Switching it makes new accessories in the Home app.": "Chaque objectif sur un serveur HAP à lui, ajouté seul dans l'app Maison, plutôt que sur le pont. Le changer crée de nouveaux accessoires dans l'app Maison.",
       "HD: every lens": "HD : tous les objectifs",
       "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Le temps qu'un changement venu de HomeKit attend ceux faits en même temps, pour qu'une couleur ou un curseur n'envoie qu'une requête.",
       "How long a request to a device on older firmware waits for its answer.": "Le temps qu'une requête à un appareil au firmware ancien attend sa réponse.",
@@ -287,6 +301,7 @@ extension TapoPlugin {
       "Plug (P100, P105)": "Prise (P100, P105)",
       "Plug with energy monitoring (P110)": "Prise avec suivi de la consommation (P110)",
       "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
+      "Standalone": "Autonome",
       "The FFmpeg the cameras' streams go through: a path, or ffmpeg on the path.": "Le FFmpeg par lequel passent les flux des caméras : un chemin, ou ffmpeg dans le PATH.",
       "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras).": "L'identifiant de la caméra dans le cloud TP-Link, quand son nom, son modèle ou son adresse MAC ne la trouvent pas (le journal liste les caméras du compte).",
       "The device's IP address or host name on the local network.": "L'adresse IP ou le nom d'hôte de l'appareil sur le réseau local.",
@@ -313,6 +328,7 @@ extension TapoPlugin {
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
       "Dimmable bulb (L510E)": "Bombilla regulable (L510E)",
+      "Each lens on a HAP server of its own, added in the Home app on its own, rather than on the bridge. Switching it makes new accessories in the Home app.": "Cada objetivo en un servidor HAP propio, que se añade por separado en la app Casa, en lugar de en el puente. Cambiarlo crea accesorios nuevos en la app Casa.",
       "HD: every lens": "HD: todos los objetivos",
       "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Cuánto espera un cambio desde HomeKit a los que se hacen con él, para que un color o un control deslizante envíe una sola solicitud.",
       "How long a request to a device on older firmware waits for its answer.": "Cuánto espera una solicitud a un dispositivo con firmware antiguo su respuesta.",
@@ -323,6 +339,7 @@ extension TapoPlugin {
       "Plug (P100, P105)": "Enchufe (P100, P105)",
       "Plug with energy monitoring (P110)": "Enchufe con medición de consumo (P110)",
       "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "Standalone": "Independiente",
       "The FFmpeg the cameras' streams go through: a path, or ffmpeg on the path.": "El FFmpeg por el que pasan los flujos de las cámaras: una ruta, o ffmpeg en el PATH.",
       "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras).": "El id. de la cámara en la nube de TP-Link, cuando su nombre, su modelo o su dirección MAC no la encuentran (el registro enumera las cámaras de la cuenta).",
       "The device's IP address or host name on the local network.": "La dirección IP o el nombre de host del dispositivo en la red local.",
@@ -349,6 +366,7 @@ extension TapoPlugin {
       "Device": "Dispositivo",
       "Devices": "Dispositivos",
       "Dimmable bulb (L510E)": "Lâmpada regulável (L510E)",
+      "Each lens on a HAP server of its own, added in the Home app on its own, rather than on the bridge. Switching it makes new accessories in the Home app.": "Cada lente num servidor HAP próprio, adicionada à parte na app Casa, em vez de na ponte. Mudá-lo cria novos acessórios na app Casa.",
       "HD: every lens": "HD: todas as lentes",
       "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Quanto tempo uma alteração vinda do HomeKit espera pelas feitas com ela, para que uma cor ou um controlo deslizante envie um só pedido.",
       "How long a request to a device on older firmware waits for its answer.": "Quanto tempo um pedido a um dispositivo com firmware antigo espera pela resposta.",
@@ -359,6 +377,7 @@ extension TapoPlugin {
       "Plug (P100, P105)": "Tomada (P100, P105)",
       "Plug with energy monitoring (P110)": "Tomada com medição de consumo (P110)",
       "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "Standalone": "Autónoma",
       "The FFmpeg the cameras' streams go through: a path, or ffmpeg on the path.": "O FFmpeg por onde passam os fluxos das câmaras: um caminho, ou ffmpeg no PATH.",
       "The camera's id in the TP-Link cloud, when its name, model or MAC address do not find it (the log lists the account's cameras).": "O id. da câmara na nuvem da TP-Link, quando o nome, o modelo ou o endereço MAC não a encontram (o registo lista as câmaras da conta).",
       "The device's IP address or host name on the local network.": "O endereço IP ou o nome de anfitrião do dispositivo na rede local.",

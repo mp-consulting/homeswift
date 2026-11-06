@@ -42,6 +42,8 @@ public actor TapoPlugin: HomeswiftPlugin {
         var controlHTTP: (any HTTPSending)? = nil
         /// How long Setup's discovery waits for the cloud's list of cameras.
         var cloudListTimeout: Duration = .seconds(4)
+        /// Seconds (scaled) a camera's battery is not asked again after a reading (docs/clean-room/TapoBattery.md, 6).
+        var batteryInterval = 300.0
     }
 
     public static let platform = "TapoP100"
@@ -70,6 +72,9 @@ public actor TapoPlugin: HomeswiftPlugin {
     var ptzProbeFailures: [String: ContinuousClock.Instant] = [:]
     /// When each camera's presets were last read.
     var presetsReadAt: [String: ContinuousClock.Instant] = [:]
+    /// What each camera last said of its battery (`battery.json`), read once, and when it was last asked (TapoBattery.swift).
+    var batteryReadings: [String: TapoBatteryReading]?
+    var batteryReadAt: [String: ContinuousClock.Instant] = [:]
     /// The account's sign-in to the TP-Link cloud, and the watch of its cameras' notifications.
     let cloud: TapoCloud
     let motionWatcher: TapoMotionWatcher

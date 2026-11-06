@@ -31,7 +31,7 @@ final class TestEnvironment: Sendable {
 
     func start(devices: [[String: Any]], settings: [String: Any] = account, bulbEnergyInterval: Duration = .seconds(600),
                connect: StreamdClient.Connect? = nil, cloud: FakeTapoCloud = FakeTapoCloud(), macAddress: String? = nil,
-               neighbours: FakeNeighbours = FakeNeighbours(), control: FakeTapoControlCamera? = nil) async throws -> PluginHost {
+               neighbours: FakeNeighbours = FakeNeighbours(), control: FakeTapoControlCamera? = nil, batteryInterval: Double? = nil) async throws -> PluginHost {
         var registry = PluginRegistry()
         let network = network
         registry.register(platform: TapoPlugin.platform, name: TapoPlugin.name) { json, context in
@@ -45,6 +45,7 @@ final class TestEnvironment: Sendable {
             dependencies.neighbours = { neighbours.entries }
             dependencies.resolveNeighbours = { _ in neighbours.resolve() }
             if let control { dependencies.controlHTTP = control }
+            if let batteryInterval { dependencies.batteryInterval = batteryInterval }
             let plugin = TapoPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin

@@ -91,10 +91,10 @@ actor TapoCloud {
         """
     /// Both roots, for the cloud's client.
     static var roots: String { rootCA + "\n" + cloudRootCA }
-    /// The detections the inbox is asked for.
+    /// The detections the inbox is asked for, and the low and empty battery (docs/clean-room/TapoBattery.md, 4.4).
     static let detectionTypes = [
         "Motion", "PersonDetected", "PersonEnhanced", "VehicleDetected", "PetDetected", "animalDetected", "tapoCameraLinecrossingDetection",
-        "tapoCameraAreaIntrusionDetection", "deliverPackageDetected", "pickUpPackageDetected", "ringEvent",
+        "tapoCameraAreaIntrusionDetection", "deliverPackageDetected", "pickUpPackageDetected", "ringEvent", "CameraLowBattery", "BatteryEmpty",
     ]
 
     private let http: any HTTPSending

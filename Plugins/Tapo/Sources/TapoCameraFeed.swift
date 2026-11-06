@@ -26,6 +26,8 @@ actor TapoCameraFeed {
     private let logger: Logger
     /// Gets the start of each session, and a sample every `sampleInterval`, for the snapshots.
     private let onSample: @Sendable (Data) async -> Void
+    /// Called when a session opens: the camera is awake, for what can be asked only then (its battery).
+    private let onAwake: @Sendable () async -> Void
 
     private var viewers: [Int: AsyncStream<Data>.Continuation] = [:]
     private var nextViewer = 0
@@ -34,13 +36,14 @@ actor TapoCameraFeed {
     private var sessionsOpened = 0
 
     init(name: String, client: StreamdClient, resolution: Streamd.Resolution, timing: Timing = Timing(), logger: Logger,
-         onSample: @escaping @Sendable (Data) async -> Void = { _ in }) {
+         onAwake: @escaping @Sendable () async -> Void = {}, onSample: @escaping @Sendable (Data) async -> Void = { _ in }) {
         self.name = name
         self.client = client
         self.resolution = resolution
         self.timing = timing
         self.logger = logger
         self.onSample = onSample
+        self.onAwake = onAwake
     }
 
     var viewerCount: Int { viewers.count }
@@ -130,6 +133,8 @@ actor TapoCameraFeed {
                 continue
             }
             logger.debug("\(name): live view opened\(session.sessionID.map { " (session \($0))" } ?? "").")
+            let onAwake = onAwake
+            Task { await onAwake() }
             await pump(session)
             await session.close()
             if Task.isCancelled || !isWatched { break }
