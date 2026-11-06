@@ -8,6 +8,24 @@ enum BluetoothFormat: String, Sendable, Codable, CaseIterable {
     case xiaomi
     /// Govee's thermometers and hygrometers: manufacturer data, never encrypted.
     case govee
+
+    var manufacturer: String {
+        switch self {
+        case .bthome: "BTHome"
+        case .xiaomi: "Xiaomi"
+        case .govee: "Govee"
+        }
+    }
+
+    /// The bytes of the format's part of an advertisement: what the decoder reads, and what tells one frame from another.
+    /// `name` is the sender's name, from this advertisement or an earlier one.
+    func frame(of advertisement: BluetoothAdvertisement, name: String?) -> [UInt8]? {
+        switch self {
+        case .bthome: advertisement.serviceData[BTHome.uuid]
+        case .xiaomi: advertisement.serviceData[MiBeacon.uuid]
+        case .govee: advertisement.manufacturerData[Govee.companyID] ?? (Govee.isGovee(name) ? advertisement.manufacturerData[Govee.genericCompanyID] : nil)
+        }
+    }
 }
 
 /// A button's press, as HomeKit's Programmable Switch Event tells them.
@@ -40,8 +58,13 @@ struct BluetoothReadings: Sendable, Equatable {
     var carbonMonoxide: Bool?
     /// Each button of the device in order, with what it did (nil: nothing, it only says it exists).
     var buttons: [BluetoothButtonEvent?] = []
+}
 
-    var isEmpty: Bool { self == BluetoothReadings() }
+/// A frame read: what it says, and the counter of an encrypted one, which the sender increases with each frame (a frame
+/// whose counter does not is a replay).
+struct DecodedFrame: Sendable, Equatable {
+    var readings: BluetoothReadings
+    var counter: UInt32?
 }
 
 /// What the plugin knows of a sender from one advertisement, before any key.
@@ -78,35 +101,36 @@ enum BluetoothDecoders {
         return nil
     }
 
-    /// The readings of an advertisement in `format`; nil when it carries none of that format.
-    static func decode(_ advertisement: BluetoothAdvertisement, as format: BluetoothFormat, key: [UInt8]?, name: String?) throws -> BluetoothReadings? {
+    /// The frame of an advertisement in `format`; nil when it carries none of that format.
+    static func decode(_ advertisement: BluetoothAdvertisement, as format: BluetoothFormat, key: [UInt8]?, name: String?) throws -> DecodedFrame? {
+        let name = name ?? advertisement.name
+        guard let data = format.frame(of: advertisement, name: name) else { return nil }
         switch format {
-        case .bthome:
-            guard let data = advertisement.serviceData[BTHome.uuid] else { return nil }
-            return try BTHome.decode(data, mac: advertisement.mac, key: key)
-        case .xiaomi:
-            guard let data = advertisement.serviceData[MiBeacon.uuid] else { return nil }
-            return try MiBeacon.decode(data, mac: advertisement.mac, key: key)
-        case .govee:
-            return Govee.decode(advertisement, name: name ?? advertisement.name)
+        case .bthome: return try BTHome.decode(data, mac: advertisement.mac, key: key)
+        case .xiaomi: return try MiBeacon.decode(data, mac: advertisement.mac, key: key)
+        case .govee: return Govee.decode(advertisement, name: name).map { DecodedFrame(readings: $0) }
         }
     }
 
-    /// The counter of an encrypted frame, which the sender increases with each one: a frame whose counter does not is a
-    /// replay. nil for an open frame.
-    static func counter(_ advertisement: BluetoothAdvertisement, as format: BluetoothFormat) -> UInt32? {
-        switch format {
-        case .bthome:
-            // The four bytes before the MIC.
-            guard let data = advertisement.serviceData[BTHome.uuid], let info = data.first, info & 1 != 0, data.count >= 9 else { return nil }
-            return uint(data[(data.count - 8)..<(data.count - 4)])
-        case .xiaomi:
-            // The extended counter (three bytes before the MIC) above the frame counter.
-            guard let data = advertisement.serviceData[MiBeacon.uuid], let header = MiBeacon.Header(data, mac: advertisement.mac), header.encrypted,
-                  data.count - header.payloadStart >= 7 else { return nil }
-            return uint(data[(data.count - 7)..<(data.count - 4)]) << 8 | UInt32(header.counter)
-        case .govee:
-            return nil
+    /// The objects of a payload, opened when `encrypted`: it then ends with `trailer` bytes, a counter and a 4-byte MIC.
+    /// `nonce` makes the nonce from the counter's bytes. Answers the plaintext and the counter's bytes (nil when open).
+    /// A sender with a `key` must encrypt: an open frame under its address could come from anyone.
+    static func open(
+        _ payload: [UInt8], encrypted: Bool, trailer: Int, key: [UInt8]?, associatedData: [UInt8] = [], nonce: ([UInt8]) -> [UInt8]
+    ) throws -> (plaintext: [UInt8], counter: [UInt8]?) {
+        guard encrypted else {
+            guard key == nil else { throw BluetoothDecodeError.unencrypted }
+            return (payload, nil)
+        }
+        guard let key else { throw BluetoothDecodeError.needsKey }
+        guard payload.count >= trailer, key.count == 16 else { throw BluetoothDecodeError.unsupported }
+        let counter = Array(payload[(payload.count - trailer)..<(payload.count - 4)])
+        do {
+            let plaintext = try AESCCM.open(
+                Array(payload.prefix(payload.count - trailer)), tag: Array(payload.suffix(4)), key: key, nonce: nonce(counter), associatedData: associatedData)
+            return (plaintext, counter)
+        } catch {
+            throw BluetoothDecodeError.wrongKey
         }
     }
 
@@ -136,23 +160,12 @@ enum BluetoothDecoders {
 enum BTHome {
     static let uuid: UInt16 = 0xFCD2
 
-    static func decode(_ data: [UInt8], mac: String, key: [UInt8]?) throws -> BluetoothReadings {
+    static func decode(_ data: [UInt8], mac: String, key: [UInt8]?) throws -> DecodedFrame {
         guard let info = data.first, info >> 5 == 2 else { throw BluetoothDecodeError.unsupported }
-        var objects = Array(data.dropFirst())
-        guard info & 1 != 0 || key == nil else { throw BluetoothDecodeError.unencrypted }
-        if info & 1 != 0 {
-            guard let key else { throw BluetoothDecodeError.needsKey }
-            guard objects.count >= 8, key.count == 16 else { throw BluetoothDecodeError.unsupported }
-            let counter = Array(objects[(objects.count - 8)..<(objects.count - 4)])
-            let tag = Array(objects.suffix(4))
-            let nonce = BluetoothDecoders.octets(mac) + [UInt8(uuid & 0xFF), UInt8(uuid >> 8), info] + counter
-            do {
-                objects = try AESCCM.open(Array(objects.prefix(objects.count - 8)), tag: tag, key: key, nonce: nonce)
-            } catch {
-                throw BluetoothDecodeError.wrongKey
-            }
+        let (objects, counter) = try BluetoothDecoders.open(Array(data.dropFirst()), encrypted: info & 1 != 0, trailer: 8, key: key) { counter in
+            BluetoothDecoders.octets(mac) + [UInt8(uuid & 0xFF), UInt8(uuid >> 8), info] + counter
         }
-        return readings(objects)
+        return DecodedFrame(readings: readings(objects), counter: counter.map { BluetoothDecoders.uint($0[...]) })
     }
 
     /// The size of each object's value, by id; an id not here ends the reading, as what follows cannot be found.
@@ -256,8 +269,8 @@ enum MiBeacon {
 
         init?(_ data: [UInt8], mac: String) {
             guard data.count >= 5 else { return nil }
-            control = UInt16(data[0]) | UInt16(data[1]) << 8
-            productID = UInt16(data[2]) | UInt16(data[3]) << 8
+            control = UInt16(BluetoothDecoders.uint(data[0..<2]))
+            productID = UInt16(BluetoothDecoders.uint(data[2..<4]))
             counter = data[4]
             var index = 5
             if control & 0x0010 != 0 {
@@ -279,33 +292,24 @@ enum MiBeacon {
         }
     }
 
-    static func decode(_ data: [UInt8], mac: String, key: [UInt8]?) throws -> BluetoothReadings {
+    static func decode(_ data: [UInt8], mac: String, key: [UInt8]?) throws -> DecodedFrame {
         guard let header = Header(data, mac: mac) else { throw BluetoothDecodeError.unsupported }
-        guard header.hasObjects else { return BluetoothReadings() }
-        var payload = Array(data[header.payloadStart...])
-        guard header.encrypted || key == nil else { throw BluetoothDecodeError.unencrypted }
-        if header.encrypted {
-            // Versions before 4 used another scheme, which this plugin does not read.
-            guard header.version >= 4 else { throw BluetoothDecodeError.unsupported }
-            guard let key else { throw BluetoothDecodeError.needsKey }
-            guard payload.count >= 7, key.count == 16 else { throw BluetoothDecodeError.unsupported }
-            let extended = Array(payload[(payload.count - 7)..<(payload.count - 4)])
-            let tag = Array(payload.suffix(4))
-            let nonce = header.reversedMAC + Array(data[2..<5]) + extended
-            do {
-                payload = try AESCCM.open(Array(payload.prefix(payload.count - 7)), tag: tag, key: key, nonce: nonce, associatedData: [0x11])
-            } catch {
-                throw BluetoothDecodeError.wrongKey
-            }
-        }
-        return readings(payload)
+        // A beacon without objects says nothing.
+        guard header.hasObjects else { return DecodedFrame(readings: BluetoothReadings()) }
+        // Versions before 4 encrypted with another scheme, which this plugin does not read.
+        guard !header.encrypted || header.version >= 4 else { throw BluetoothDecodeError.unsupported }
+        let (objects, extended) = try BluetoothDecoders.open(
+            Array(data[header.payloadStart...]), encrypted: header.encrypted, trailer: 7, key: key, associatedData: [0x11]
+        ) { extended in header.reversedMAC + Array(data[2..<5]) + extended }
+        // The extended counter above the frame counter.
+        return DecodedFrame(readings: readings(objects), counter: extended.map { BluetoothDecoders.uint($0[...]) << 8 | UInt32(header.counter) })
     }
 
     static func readings(_ payload: [UInt8]) -> BluetoothReadings {
         var readings = BluetoothReadings()
         var index = 0
         while index + 3 <= payload.count {
-            let type = UInt16(payload[index]) | UInt16(payload[index + 1]) << 8
+            let type = UInt16(BluetoothDecoders.uint(payload[index..<(index + 2)]))
             let length = Int(payload[index + 2])
             index += 3
             guard index + length <= payload.count else { break }
@@ -339,8 +343,8 @@ enum MiBeacon {
 
 /// Govee's thermometers and hygrometers, in manufacturer data. Company id 0xEC88: the H5072 and H5075 (six bytes, the
 /// temperature and humidity packed in three, then the battery) and the H5074 (seven bytes, the temperature and humidity in
-/// hundredths, little-endian, then the battery); other lengths there are other Govee devices. Company id 0x0001, told by a name starting GVH5 or Govee: the H5100
-/// family (H5100, H5101, H5102, H5104, H5174, H5177; six bytes, packed from the third) and the H5179 (nine bytes, the
+/// hundredths, little-endian, then the battery); other lengths there are other Govee devices. Company id 0x0001, told by
+/// a name starting GVH5 or Govee: the H5100 family (H5100, H5101, H5102, H5104, H5174, H5177; six bytes, packed from the third) and the H5179 (nine bytes, the
 /// values in hundredths from the fifth). Packed is `temperature × 10000 + humidity × 10` in tenths, its top bit the sign.
 enum Govee {
     static let companyID: UInt16 = 0xEC88
@@ -348,18 +352,15 @@ enum Govee {
 
     /// The model from the name (`GVH5075_A1B2` is an H5075), else from the frame's shape.
     static func model(of advertisement: BluetoothAdvertisement, name: String?) -> String? {
-        let named = name.flatMap(modelName)
         if let data = advertisement.manufacturerData[companyID] {
             switch data.count {
-            case 6: return named ?? "H5075"
-            case 7: return named ?? "H5074"
+            case 6: return name.flatMap(modelName) ?? "H5075"
+            case 7: return name.flatMap(modelName) ?? "H5074"
             default: return nil
             }
         }
-        if let data = advertisement.manufacturerData[genericCompanyID], let named, isGovee(name) {
-            return data.count == 6 || data.count == 9 ? named : nil
-        }
-        return nil
+        guard let data = advertisement.manufacturerData[genericCompanyID], data.count == 6 || data.count == 9, isGovee(name) else { return nil }
+        return name.flatMap(modelName)
     }
 
     static func isGovee(_ name: String?) -> Bool {

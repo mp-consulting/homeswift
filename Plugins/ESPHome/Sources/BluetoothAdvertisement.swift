@@ -15,7 +15,16 @@ struct BluetoothAdvertisement: Sendable, Equatable {
 
     /// A 48-bit address as ESPHome sends it (`uint64 address`, the first octet in the most significant byte).
     static func mac(of address: UInt64) -> String {
-        stride(from: 40, through: 0, by: -8).map { String(format: "%02X", UInt8(truncatingIfNeeded: address >> UInt64($0))) }.joined(separator: ":")
+        // Hand-made rather than String(format:): every advertisement heard comes through here.
+        let digits = Array("0123456789ABCDEF".utf8)
+        var text: [UInt8] = []
+        text.reserveCapacity(17)
+        for shift in stride(from: 40, through: 0, by: -8) {
+            let byte = UInt8(truncatingIfNeeded: address >> UInt64(shift))
+            if !text.isEmpty { text.append(UInt8(ascii: ":")) }
+            text += [digits[Int(byte >> 4)], digits[Int(byte & 0x0F)]]
+        }
+        return String(decoding: text, as: UTF8.self)
     }
 
     /// The advertisement's AD structures (Bluetooth Core Specification, Supplement part A): a length, a type, its data.
@@ -35,9 +44,9 @@ struct BluetoothAdvertisement: Sendable, Equatable {
                 // The complete name wins over a shortened one.
                 if type == 0x09 || name == nil { name = Self.text(data) }
             case 0x16 where data.count >= 2:
-                serviceData[UInt16(data[0]) | UInt16(data[1]) << 8] = Array(data.dropFirst(2))
+                serviceData[UInt16(BluetoothDecoders.uint(data[0..<2]))] = Array(data.dropFirst(2))
             case 0xFF where data.count >= 2:
-                manufacturerData[UInt16(data[0]) | UInt16(data[1]) << 8] = Array(data.dropFirst(2))
+                manufacturerData[UInt16(BluetoothDecoders.uint(data[0..<2]))] = Array(data.dropFirst(2))
             default:
                 break
             }

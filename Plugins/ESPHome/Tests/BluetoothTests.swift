@@ -125,7 +125,7 @@ struct BluetoothDecoderTests {
         let data: [UInt8] = [0x40, 0x00, 0x07, 0x01, 0x5D, 0x02, 0xCA, 0x09, 0x03, 0xBF, 0x13, 0x21, 0x01, 0x2D, 0x00]
         let advertisement = BluetoothAdvertisement(mac: thermometer, rssi: -60, serviceData: [0xFCD2: data])
         #expect(BluetoothDecoders.recognize(advertisement, name: nil) == BluetoothRecognition(format: .bthome, model: nil, encrypted: false))
-        let readings = try #require(try BluetoothDecoders.decode(advertisement, as: .bthome, key: nil, name: nil))
+        let readings = try #require(try BluetoothDecoders.decode(advertisement, as: .bthome, key: nil, name: nil)).readings
         #expect(readings.battery == 93)
         #expect(abs(readings.temperature! - 25.06) < 0.001)
         #expect(abs(readings.humidity! - 50.55) < 0.001)
@@ -150,10 +150,11 @@ struct BluetoothDecoderTests {
         #expect(throws: BluetoothDecodeError.wrongKey) {
             try BluetoothDecoders.decode(advertisement, as: .bthome, key: [UInt8](repeating: 1, count: 16), name: nil)
         }
-        let readings = try #require(try BluetoothDecoders.decode(advertisement, as: .bthome, key: bthomeKey, name: nil))
+        let frame = try #require(try BluetoothDecoders.decode(advertisement, as: .bthome, key: bthomeKey, name: nil))
+        let readings = frame.readings
         #expect(abs(readings.temperature! - 25.06) < 0.001)
         #expect(abs(readings.humidity! - 50.55) < 0.001)
-        #expect(BluetoothDecoders.counter(advertisement, as: .bthome) == 0x3322_1100)
+        #expect(frame.counter == 0x3322_1100)
         // Our own sealing gives the specification's bytes back.
         #expect(try sealedBTHome(mac: mac, objects: [0x02, 0xCA, 0x09, 0x03, 0xBF, 0x13], counter: 0x3322_1100, key: bthomeKey) == data)
         // An open frame from a sensor with a bindkey could come from anyone.
@@ -173,13 +174,13 @@ struct BluetoothDecoderTests {
         #expect(BluetoothDecoders.recognize(first, name: nil) == BluetoothRecognition(format: .xiaomi, model: "LYWSD03MMC", encrypted: true))
         #expect(throws: BluetoothDecodeError.needsKey) { try MiBeacon.decode(frames[0], mac: thermometer, key: nil) }
         #expect(throws: BluetoothDecodeError.wrongKey) { try MiBeacon.decode(frames[0], mac: thermometer, key: bthomeKey) }
-        #expect(try MiBeacon.decode(frames[0], mac: thermometer, key: key).temperature == 21.3)
-        #expect(try MiBeacon.decode(frames[1], mac: thermometer, key: key).humidity == 48.7)
-        #expect(try MiBeacon.decode(frames[2], mac: thermometer, key: key).battery == 87)
-        #expect(BluetoothDecoders.counter(first, as: .xiaomi) == 0x0000_0101)
+        #expect(try MiBeacon.decode(frames[0], mac: thermometer, key: key).readings.temperature == 21.3)
+        #expect(try MiBeacon.decode(frames[1], mac: thermometer, key: key).readings.humidity == 48.7)
+        #expect(try MiBeacon.decode(frames[2], mac: thermometer, key: key).readings.battery == 87)
+        #expect(try MiBeacon.decode(frames[0], mac: thermometer, key: key).counter == 0x0000_0101)
         // An open frame (an older sensor), temperature and humidity together.
         let open: [UInt8] = [0x50, 0x20, 0xAA, 0x01, 0x07] + BluetoothDecoders.octets(thermometer).reversed() + [0x0D, 0x10, 0x04, 0xF6, 0xFF, 0x02, 0x02]
-        let readings = try MiBeacon.decode(open, mac: thermometer, key: nil)
+        let readings = try MiBeacon.decode(open, mac: thermometer, key: nil).readings
         #expect(readings.temperature == -1.0)
         #expect(readings.humidity == 51.4)
         #expect(MiBeacon.Header(open, mac: thermometer)?.productID == 0x01AA)
@@ -232,7 +233,7 @@ struct BluetoothPluginTests {
         defer { Task { await host.stop() } }
         #expect(await eventually { subscribed(hall) && subscribed(garage) })
 
-        let id = "esphome:\(thermometer)"
+        let id = "esphome:ble@\(thermometer)"
         let reading = rawAdvertisement(serviceData: (0xFCD2, [0x40, 0x00, 0x07, 0x01, 0x5D, 0x02, 0xCA, 0x09, 0x03, 0xBF, 0x13, 0x3A, 0x00]))
         hall.push(rawAdvertisements([(thermometer, -80, reading)]))
         garage.push(rawAdvertisements([(thermometer, -50, reading)]))
@@ -315,14 +316,14 @@ struct BluetoothPluginTests {
         defer { Task { await host.stop() } }
         #expect(await eventually { subscribed(hall) })
         hall.push(rawAdvertisements([(mac, -60, rawAdvertisement(serviceData: (0xFCD2, Hex.bytes("41a47266c95f730011223378237214")!)))]))
-        #expect(await eventually { shows(host.accessory("esphome:\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.06) })
-        #expect(ESPHomePlugin.deviceID(ofAccessory: mac) == mac)
+        #expect(await eventually { shows(host.accessory("esphome:ble@\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.06) })
+        #expect(ESPHomePlugin.deviceID(ofAccessory: "ble@\(mac)") == mac)
 
         // A later frame is read; an open one, and an older one replayed, are not.
         let plugin = try #require(environment.plugin)
         let later = try sealedBTHome(mac: mac, objects: [0x02, 0xB8, 0x0B], counter: 0x3322_1101, key: bthomeKey)
         hall.push(rawAdvertisements([(mac, -60, rawAdvertisement(serviceData: (0xFCD2, later)))]))
-        let temperature = host.accessory("esphome:\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature)
+        let temperature = host.accessory("esphome:ble@\(mac)")?.service(.temperatureSensor)?.characteristic(.currentTemperature)
         #expect(await eventually { shows(temperature, 30) })
         let older = try sealedBTHome(mac: mac, objects: [0x02, 0xE8, 0x03], counter: 0x3322_1000, key: bthomeKey)
         hall.push(rawAdvertisements([
@@ -347,15 +348,15 @@ struct BluetoothPluginTests {
         #expect(await eventually { subscribed(hall) })
         let reading = rawAdvertisement(serviceData: (0xFCD2, [0x40, 0x02, 0xCA, 0x09]))
         hall.push(rawAdvertisements([(thermometer, -60, reading), (excluded, -60, reading)]))
-        #expect(await eventually { first.accessory("esphome:\(thermometer)")?.service(.temperatureSensor) != nil })
-        #expect(first.accessory("esphome:\(excluded)") == nil)
+        #expect(await eventually { first.accessory("esphome:ble@\(thermometer)")?.service(.temperatureSensor) != nil })
+        #expect(first.accessory("esphome:ble@\(excluded)") == nil)
         await first.stop()
 
         var off = settings
         off["bluetooth"] = false
         let host = try await environment.start(settings: off)
         defer { Task { await host.stop() } }
-        let restored = try #require(host.accessory("esphome:\(thermometer)"))
+        let restored = try #require(host.accessory("esphome:ble@\(thermometer)"))
         #expect(shows(restored.service(.temperatureSensor)?.characteristic(.currentTemperature), 25.06))
         #expect(restored.isUnavailable)
         #expect(await eventually { hall.connections == 2 && hall.isConnected })

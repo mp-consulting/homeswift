@@ -41,7 +41,7 @@ actor BluetoothHub {
     private(set) var heard: [String: Heard] = [:]
     /// Names from scan responses, by MAC: Govee's newer models are told by their name.
     private var names: [String: String] = [:]
-    /// The last frame read from each sender, and when.
+    /// The last frame read from each sensor set up, and when.
     private var lastFrames: [String: (frame: [UInt8], at: ContinuousClock.Instant)] = [:]
     private var sensors: [String: BluetoothSensor] = [:]
     private var setups: [String: BluetoothSensorSetup] = [:]
@@ -55,8 +55,6 @@ actor BluetoothHub {
         self.context = context
         self.timeout = timeout
     }
-
-    var setUp: [String: BluetoothSensorSetup] { setups }
 
     /// The sensors set up, from the Accessory Settings; their accessories restored from the cache come back as they were,
     /// reachable for `timeout` unless heard. Not `listening` (the `bluetooth` option off), they show No Response: nothing
@@ -79,18 +77,16 @@ actor BluetoothHub {
             let mac = advertisement.mac
             if let name = advertisement.name, Govee.isGovee(name) || heard[mac] != nil || setups[mac] != nil { remember(name, of: mac) }
             let name = names[mac] ?? advertisement.name
-            let known = heard[mac]?.recognition
-            guard let recognition = BluetoothDecoders.recognize(advertisement, name: name) ?? known.flatMap({ known in
-                // A scan response without the format's data says nothing more than the name.
-                Self.frame(of: advertisement, in: known.format, name: name) == nil ? nil : known
-            }) else { continue }
-            guard let frame = Self.frame(of: advertisement, in: recognition.format, name: name) else { continue }
-            var entry = heard[mac] ?? Heard(
-                mac: mac, recognition: recognition, name: name, rssi: advertisement.rssi, proxy: proxy, lastSeen: now, advertisement: advertisement)
-            if heard[mac] == nil {
+            let existing = heard[mac]
+            // A scan response without the format's data says nothing more than the name.
+            guard let recognition = BluetoothDecoders.recognize(advertisement, name: name) ?? existing?.recognition,
+                  let frame = recognition.format.frame(of: advertisement, name: name) else { continue }
+            if existing == nil {
                 logger.debug("Heard \(recognition.model ?? recognition.format.rawValue) \(mac) through \(proxy)")
                 evictIfFull()
             }
+            var entry = existing ?? Heard(
+                mac: mac, recognition: recognition, name: name, rssi: advertisement.rssi, proxy: proxy, lastSeen: now, advertisement: advertisement)
             // The loudest proxy of the last minute is the one it is nearest.
             if advertisement.rssi > entry.rssi || entry.proxy == proxy || now - entry.lastSeen > .seconds(60) {
                 entry.rssi = advertisement.rssi
@@ -98,30 +94,31 @@ actor BluetoothHub {
             }
             // A sender that encrypts some frames (a Xiaomi sensor's readings, not its beacons) needs its bindkey.
             if recognition.encrypted { entry.encryptedAdvertisement = advertisement }
+            let sameFormat = entry.recognition.format == recognition.format
             entry.recognition = BluetoothRecognition(
-                format: recognition.format, model: recognition.model ?? (entry.recognition.format == recognition.format ? entry.recognition.model : nil),
-                encrypted: recognition.encrypted || entry.recognition.format == recognition.format && entry.recognition.encrypted)
+                format: recognition.format, model: recognition.model ?? (sameFormat ? entry.recognition.model : nil),
+                encrypted: recognition.encrypted || sameFormat && entry.recognition.encrypted)
             entry.name = name ?? entry.name
             entry.lastSeen = now
             entry.advertisement = advertisement
             heard[mac] = entry
 
+            guard let setup = setups[mac], let sensor = sensors[mac], !context.isExcluded(mac) else { continue }
             if let last = lastFrames[mac], last.frame == frame, now - last.at < Self.duplicateWindow { continue }
             lastFrames[mac] = (frame, now)
-            guard let setup = setups[mac], let sensor = sensors[mac], !context.isExcluded(mac) else { continue }
             framesRead += 1
             do {
-                guard let readings = try BluetoothDecoders.decode(advertisement, as: setup.format, key: setup.key, name: name) else { continue }
+                guard let decoded = try BluetoothDecoders.decode(advertisement, as: setup.format, key: setup.key, name: name) else { continue }
                 // Checked once the frame is authentic, so a forged one cannot move it. A sensor unheard for `timeout` may
                 // have restarted its counter.
-                if let counter = BluetoothDecoders.counter(advertisement, as: setup.format) {
+                if let counter = decoded.counter {
                     if let last = counters[mac], counter <= last.value, now - last.at < timeout {
                         logger.debug("Ignoring a replayed frame of \(mac)")
                         continue
                     }
                     counters[mac] = (counter, now)
                 }
-                sensor.show(readings, model: entry.recognition.model, at: now)
+                sensor.show(decoded.readings, model: entry.recognition.model, at: now)
                 warnedKeys.remove(mac)
             } catch BluetoothDecodeError.wrongKey {
                 if warnedKeys.insert(mac).inserted { logger.warning("The bindkey of \(mac) does not open its advertisements: set it up again") }
@@ -135,15 +132,6 @@ actor BluetoothHub {
         }
     }
 
-    /// The bytes of the format's part of the advertisement: what tells one frame from another.
-    static func frame(of advertisement: BluetoothAdvertisement, in format: BluetoothFormat, name: String?) -> [UInt8]? {
-        switch format {
-        case .bthome: advertisement.serviceData[BTHome.uuid]
-        case .xiaomi: advertisement.serviceData[MiBeacon.uuid]
-        case .govee: advertisement.manufacturerData[Govee.companyID] ?? (Govee.isGovee(name) ? advertisement.manufacturerData[Govee.genericCompanyID] : nil)
-        }
-    }
-
     /// A sender's name, the names of senders neither heard nor set up let go when there are `capacity` of them.
     private func remember(_ name: String, of mac: String) {
         if names[mac] == nil, names.count >= Self.capacity {
@@ -154,9 +142,9 @@ actor BluetoothHub {
     }
 
     private func evictIfFull() {
-        guard heard.count >= Self.capacity, let oldest = heard.values.filter({ setups[$0.mac] == nil }).min(by: { $0.lastSeen < $1.lastSeen }) else { return }
+        guard heard.count >= Self.capacity,
+              let oldest = heard.values.lazy.filter({ self.setups[$0.mac] == nil }).min(by: { $0.lastSeen < $1.lastSeen }) else { return }
         heard.removeValue(forKey: oldest.mac)
-        lastFrames.removeValue(forKey: oldest.mac)
         names.removeValue(forKey: oldest.mac)
     }
 
@@ -166,10 +154,14 @@ actor BluetoothHub {
         for sensor in sensors.values { sensor.updateReachability(now: now, timeout: timeout) }
     }
 
-    func isReachable(_ mac: String) -> Bool {
-        guard let seen = heard[mac]?.lastSeen else { return false }
-        return clock.now - seen <= timeout
+    /// The senders heard, each with whether it was heard within `timeout`.
+    func discovered() -> [(heard: Heard, reachable: Bool)] {
+        let now = clock.now
+        return heard.values.map { ($0, now - $0.lastSeen <= timeout) }
     }
+
+    /// What the plugin knows of a sender's frames, when it has heard it.
+    func recognition(of mac: String) -> BluetoothRecognition? { heard[mac]?.recognition }
 
     /// Checks a bindkey against the sender's last advertisement.
     func check(key: [UInt8]?, for mac: String) throws -> BluetoothRecognition {
@@ -183,10 +175,16 @@ actor BluetoothHub {
 /// by `BluetoothHub` alone, whose isolation keeps it.
 final class BluetoothSensor {
     /// What the accessory shows, in the order of its services.
-    enum Capability: Int, Sendable, CaseIterable, Comparable {
+    enum Capability: Sendable, CaseIterable {
         case temperature, humidity, illuminance, carbonDioxide, motion, occupancy, contact, leak, smoke, carbonMonoxide, battery
 
-        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+        var optional: [CharacteristicType] {
+            switch self {
+            case .battery: [.batteryLevel, .chargingState]
+            case .carbonDioxide: [.carbonDioxideLevel]
+            default: []
+            }
+        }
 
         var serviceType: ServiceType {
             switch self {
@@ -252,10 +250,12 @@ final class BluetoothSensor {
         lastHeard = heardAt
     }
 
-    var id: String { BluetoothSensor.accessoryID(setup.mac) }
+    /// `esphome:ble@<MAC>`: the shape of an entity's `<name>@<MAC>`, whose MAC is its Device Id.
+    var id: String { "\(ESPHomePlugin.platform):\(Self.idPrefix)\(setup.mac)" }
+    static let idPrefix = "ble@"
 
-    /// `esphome:<MAC>`: the Device Id after the platform, as ESPHome's devices' entities are `<name>@<MAC>`.
-    static func accessoryID(_ mac: String) -> String { "\(ESPHomePlugin.platform):\(mac)" }
+    /// The Serial Number: the MAC, uppercase, without separators.
+    static func serialNumber(_ mac: String) -> String { mac.replacingOccurrences(of: ":", with: "") }
 
     /// The cached accessory, rebuilt with the services it had.
     func restore() {
@@ -304,14 +304,9 @@ final class BluetoothSensor {
 
     private func publish(from previous: Accessory?) {
         var services: [Service] = []
-        for capability in capabilities.sorted() {
-            var optional: [CharacteristicType] = []
-            switch capability {
-            case .battery: optional = [.batteryLevel, .chargingState]
-            case .carbonDioxide: optional = [.carbonDioxideLevel]
-            default: break
-            }
-            let service = Service(capability.serviceType, name: capability.name, optional: optional, isPrimary: services.isEmpty && capability != .battery)
+        for capability in Capability.allCases where capabilities.contains(capability) {
+            let service = Service(
+                capability.serviceType, name: capability.name, optional: capability.optional, isPrimary: services.isEmpty && capability != .battery)
             switch capability {
             case .battery:
                 service[.chargingState]?.value = .int(HAPConstants.ChargingState.notChargeable)
@@ -333,18 +328,13 @@ final class BluetoothSensor {
             label.characteristic(.serviceLabelNamespace).value = .int(HAPConstants.ServiceLabelNamespace.arabicNumerals)
             services.append(label)
         }
-        let suffix = setup.mac.replacingOccurrences(of: ":", with: "")
-        let manufacturer = switch setup.format {
-        case .bthome: "BTHome"
-        case .xiaomi: "Xiaomi"
-        case .govee: "Govee"
-        }
+        let serial = Self.serialNumber(setup.mac)
+        let manufacturer = setup.format.manufacturer
         let model = model ?? manufacturer
         let category: AccessoryCategory = buttonCount > 0 && capabilities.isEmpty ? .programmableSwitch : .sensor
         let accessory = Accessory(
-            id: id, name: "\(model) \(suffix.suffix(4))", manufacturer: manufacturer, model: model,
-            // The Serial Number is the device's MAC, without separators.
-            serialNumber: suffix, firmwareRevision: "1.0.0", category: category, services: services)
+            id: id, name: "\(model) \(serial.suffix(4))", manufacturer: manufacturer, model: model,
+            serialNumber: serial, firmwareRevision: "1.0.0", category: category, services: services)
         if let previous { accessory.takeValues(from: previous) }
         if unavailable { accessory.isUnavailable = true }
         do {

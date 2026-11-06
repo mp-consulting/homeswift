@@ -10,13 +10,12 @@ import HomeswiftPlugin
 extension ESPHomePlugin {
     /// The sensors heard, and those set up whether heard or not.
     func bluetoothDevices() async -> [DiscoveredDevice] {
-        let heard = await bluetooth.heard
         var found: [String: DiscoveredDevice] = [:]
-        for entry in heard.values {
+        for (entry, reachable) in await bluetooth.discovered() {
             var device = DiscoveredDevice(
                 deviceID: entry.mac, name: context.accessorySettings(for: entry.mac).name ?? Self.sensorName(entry.recognition, mac: entry.mac),
                 model: entry.recognition.model, authorization: entry.recognition.encrypted ? .apiKey : .none, kind: Self.sensorKind)
-            device.isReachable = await bluetooth.isReachable(entry.mac)
+            device.isReachable = reachable
             found[entry.mac] = device
         }
         for setup in bluetoothSetups() {
@@ -33,26 +32,19 @@ extension ESPHomePlugin {
 
     /// `LYWSD03MMC 3456`: the model, else the format, and the end of the MAC.
     static func sensorName(_ recognition: BluetoothRecognition, mac: String) -> String {
-        let format = switch recognition.format {
-        case .bthome: "BTHome sensor"
-        case .xiaomi: "Xiaomi sensor"
-        case .govee: "Govee sensor"
-        }
-        let kind = recognition.model ?? format
-        return "\(kind) \(mac.replacingOccurrences(of: ":", with: "").suffix(4))"
+        "\(recognition.model ?? "\(recognition.format.manufacturer) sensor") \(BluetoothSensor.serialNumber(mac).suffix(4))"
     }
 
     /// Whether a Setup step is for a Bluetooth sensor rather than an ESPHome device.
     func isBluetoothSensor(_ device: DiscoveredDevice) async -> Bool {
         if device.kind == Self.sensorKind { return true }
-        guard let mac = MACAddress.canonical(device.deviceID) else { return false }
-        return await deviceKind(of: mac) == Self.sensorKind
+        return await deviceKind(of: device.deviceID) == Self.sensorKind
     }
 
     /// The bindkey asked when the sensor encrypts, checked against what it sent last; the format in its settings.
     func authorizeBluetooth(_ request: SetupRequest, device: DiscoveredDevice) async throws -> SetupStep {
         guard let mac = MACAddress.canonical(device.deviceID) else { throw SetupError("That is not a Bluetooth address") }
-        guard let recognition = await bluetooth.heard[mac]?.recognition else {
+        guard let recognition = await bluetooth.recognition(of: mac) else {
             throw SetupError("No Bluetooth proxy has heard the sensor lately: bring it nearer to one, then find it again")
         }
         let settings: [String: JSONValue] = ["format": .string(recognition.format.rawValue)]

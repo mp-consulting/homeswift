@@ -80,8 +80,8 @@ struct DeviceEnvironment: Sendable {
     let timing: ESPHomeTiming
     let blacklist: Set<String>
     let verbose: Bool
-    /// Where a Bluetooth proxy's advertisements go, with the proxy's name; nil to leave them unsubscribed.
-    let advertisements: (@Sendable ([BluetoothAdvertisement], String) async -> Void)?
+    /// Where a Bluetooth proxy's advertisements go; nil to leave them unsubscribed.
+    let bluetooth: BluetoothHub?
     /// Tells the plugin which device a host turned out to be.
     let learned: @Sendable (_ origin: String, _ info: DeviceInfo) async -> Void
 }
@@ -131,9 +131,9 @@ actor ESPHomeDevice {
         if let mac { markCachedUnavailable(mac: mac) }
         var failures = 0
         var onAdvertisements: (@Sendable ([BluetoothAdvertisement]) async -> Void)?
-        if let forward = environment.advertisements {
+        if let hub = environment.bluetooth {
             let proxy = label
-            onAdvertisements = { advertisements in await forward(advertisements, proxy) }
+            onAdvertisements = { advertisements in await hub.receive(advertisements, from: proxy) }
         }
         while !Task.isCancelled {
             connectedThisRun = false

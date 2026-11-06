@@ -99,9 +99,8 @@ public actor ESPHomePlugin: HomeswiftPlugin {
     }
 
     public static func deviceID(ofAccessory suffix: String) -> String? {
-        // A Bluetooth sensor's is its MAC.
-        if MACAddress.canonical(suffix) == suffix { return suffix }
-        // `<name>@<MAC>` and `<name>@<MAC>#<key>`; a bare name belongs to whichever device claimed it.
+        // `<name>@<MAC>` and `<name>@<MAC>#<key>` (a Bluetooth sensor's `ble@<MAC>`); a bare name belongs to whichever
+        // device claimed it.
         guard let at = suffix.lastIndex(of: "@") else { return nil }
         return MACAddress.canonical(String(suffix[suffix.index(after: at)...].prefix { $0 != "#" }))
     }
@@ -229,15 +228,13 @@ public actor ESPHomePlugin: HomeswiftPlugin {
         tasks.add { await device.run() }
     }
 
+    /// The `bluetooth` option: proxies' advertisements are subscribed to.
+    var listensToBluetooth: Bool { configuration.bluetooth != false }
+
     var environment: DeviceEnvironment {
-        var advertisements: (@Sendable ([BluetoothAdvertisement], String) async -> Void)?
-        if configuration.bluetooth != false {
-            let hub = bluetooth
-            advertisements = { received, proxy in await hub.receive(received, from: proxy) }
-        }
-        return DeviceEnvironment(
+        DeviceEnvironment(
             context: context, directory: directory, transport: dependencies.transport, timing: dependencies.timing, blacklist: blacklist,
-            verbose: configuration.debug ?? false, advertisements: advertisements,
+            verbose: configuration.debug ?? false, bluetooth: listensToBluetooth ? bluetooth : nil,
             learned: { [weak self] origin, info in await self?.learned(origin: origin, info: info) })
     }
 
@@ -250,7 +247,9 @@ public actor ESPHomePlugin: HomeswiftPlugin {
     /// The Bluetooth sensors set up (their Accessory Settings' `format`), not Excluded, with their bindkeys.
     func bluetoothSetups() -> [BluetoothSensorSetup] {
         context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { mac, settings in
-            guard !settings.excluded, let mac = MACAddress.canonical(mac), let format = settings.decode(BluetoothSettings.self)?.format else { return nil }
+            guard !settings.excluded, let mac = MACAddress.canonical(mac), let format = settings.decode(BluetoothSettings.self)?.format else {
+                return nil
+            }
             let key = context.credentials(for: mac, as: ESPHomeCredentials.self)?.encryptionKey.flatMap(Hex.bytes)
             return BluetoothSensorSetup(mac: mac, format: format, key: key)
         }
@@ -262,14 +261,14 @@ public actor ESPHomePlugin: HomeswiftPlugin {
         let macs = Set(setups.map(\.mac))
         for accessory in context.accessories {
             let suffix = String(accessory.id.dropFirst(Self.platform.count + 1))
-            // An entity named like a MAC is a device's, not a sensor's.
-            guard MACAddress.canonical(suffix) == suffix, !macs.contains(suffix), !directory.isClaimed(suffix) else { continue }
+            // An entity named `ble` gets `ble@<its device's MAC>` too: the directory says which it is.
+            guard suffix.hasPrefix(BluetoothSensor.idPrefix), let mac = Self.deviceID(ofAccessory: suffix), !macs.contains(mac),
+                  !directory.isClaimed(suffix) else { continue }
             logger.info("Removing \(accessory.name): its Bluetooth sensor is no longer set up")
             try? await context.remove(id: accessory.id)
         }
-        let listening = configuration.bluetooth != false
-        await bluetooth.configure(setups, listening: listening)
-        guard listening else { return }
+        await bluetooth.configure(setups, listening: listensToBluetooth)
+        guard listensToBluetooth else { return }
         let hub = bluetooth, interval = dependencies.bluetoothCheckInterval
         tasks.add {
             while !Task.isCancelled {
