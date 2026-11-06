@@ -3424,7 +3424,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; }
 
 /* Accessory groups and their member picker. */
-.accessory-group { padding: var(--space-16); overflow: auto; min-height: 200px; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.accessory-group:not(.merged) { padding: var(--space-16); overflow: auto; min-height: 200px; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .accessory-group .server-head .who { min-width: 0; }
 .accessory-group .group-controls { display: grid; gap: var(--space-10); margin-top: var(--space-16); }
 .group-controls label { display: flex; align-items: center; gap: var(--space-10); font-size: var(--text-sm); }
