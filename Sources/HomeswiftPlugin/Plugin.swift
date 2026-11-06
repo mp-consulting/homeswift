@@ -568,7 +568,7 @@ public final class PluginContext: @unchecked Sendable {
 
     /// Where one of Homeswift's own accessories is, as another controller of the home sees it: the Serial Number of the
     /// bridge it is behind (nil for one published on its own server) and its own.
-    public struct PublishedPlace: Sendable, Equatable {
+    public struct PublishedPlace: Sendable, Hashable {
         public var bridge: String?
         public var serialNumber: String
 
@@ -598,6 +598,21 @@ public final class PluginContext: @unchecked Sendable {
         return nil
     }
 
+    /// Homeswift's own accessories by where they are published, those that share a place left out: `publishedAccessoryID(at:)`
+    /// for many lookups, the servers read once.
+    public func publishedIndex() -> [PublishedPlace: String] {
+        var index: [PublishedPlace: String] = [:], shared: Set<PublishedPlace> = []
+        for server in publishedServers() {
+            for accessory in server.published {
+                guard let serialNumber = accessory.information[.serialNumber]?.value.stringValue else { continue }
+                let place = PublishedPlace(bridge: server.isExternal ? nil : server.deviceID, serialNumber: serialNumber)
+                if index.updateValue(accessory.id, forKey: place) != nil { shared.insert(place) }
+            }
+        }
+        for place in shared { index.removeValue(forKey: place) }
+        return index
+    }
+
     /// The id of Homeswift's own accessory at this place: on the bridge with that Serial Number, where serial numbers
     /// are unique, or published on its own when `bridge` is nil; nil when none, or several, are there.
     public func publishedAccessoryID(at place: PublishedPlace) -> String? {
@@ -625,11 +640,6 @@ public final class PluginContext: @unchecked Sendable {
     public func publishedAccessoryID(serialNumber: String) -> String? {
         let ids = publishedAccessories().filter { $0.mirroredFrom == nil && $0.information[.serialNumber]?.value.stringValue == serialNumber }.map(\.id)
         return ids.count == 1 ? ids[0] : nil
-    }
-
-    /// The serial number of an accessory Homeswift itself publishes, by its id.
-    public func publishedSerialNumber(ofAccessory id: String) -> String? {
-        publishedAccessories().first { $0.id == id && $0.mirroredFrom == nil }?.information[.serialNumber]?.value.stringValue
     }
 
     /// The serial numbers of every accessory Homeswift itself publishes to HomeKit, on any bridge or on its own, mirrored
@@ -694,8 +704,7 @@ public final class PluginContext: @unchecked Sendable {
 
     /// Whether `accessory` is to have its Functions separated: its key in `_accessories` asks for it.
     private func wantsSeparation(_ accessory: Accessory) -> Bool {
-        let prefix = "\(platform):"
-        let key = accessory.id.hasPrefix(prefix) ? String(accessory.id.dropFirst(prefix.count)) : accessory.id
+        let key = AccessoryNaming.deviceID(of: accessory.id, platform: platform)
         return separations.withLockedValue { $0.keys.contains(key) } && !isExternal(id: accessory.id)
     }
 

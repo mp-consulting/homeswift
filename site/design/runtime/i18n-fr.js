@@ -2804,7 +2804,7 @@ HomeswiftI18n.add("fr", {
   "Change the settings of one accessory?": "Modifier les réglages d'un accessoire ?",
   "Change the settings of {n} accessories?": "Modifier les réglages de {n} accessoires ?",
   "Saved · {plugin} reloads": "Enregistré · {plugin} redémarre",
-  "Saved; the hub said: {error}": "Enregistré ; le hub a répondu : {error}",
+  "Saved; Apple Home refused: {reason}": "Enregistré ; Apple Home a refusé : {reason}",
   "The name its plugin gives it": "Le nom que lui donne son plugin",
   "Named in {source}: rename it there.": "Nommé dans {source} : renommez-le là-bas.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "Dans l'app Maison aussi. Vide, il reprend le nom que lui donne son plugin.",

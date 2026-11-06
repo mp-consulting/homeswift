@@ -239,7 +239,7 @@ public struct HomeswiftCatalog: Sendable {
     /// Stores a rename made in the Home app (a controller's write of Configured Name) as the accessory's Name.
     func storeHomeRename(of accessoryID: String, to name: String) async {
         do {
-            _ = try await updateAccessorySettings([(accessoryID, ["name": .string(name)])], moveOnHubs: false, by: .person)
+            _ = try await updateAccessorySettings([(accessoryID, ["name": .string(name)])], fromHome: true, by: .person)
             logger.info("Kept the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "name": "\(name)"])
         } catch {
             logger.warning("Could not keep the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "error": "\(error)"])

@@ -62,10 +62,11 @@ public struct Separation: Sendable {
         let information = accessory.information
         let value = { (type: CharacteristicType) in information[type]?.value.stringValue }
         var observations: [(Characteristic, Int)] = []
-        var keys: Set<String> = []
-        let parts = groups.dropFirst().map { group -> Accessory in
+        // A Function's key in its accessory's id: its subtype, else its type, as the bridge's other keys are (`Slug`).
+        let others = Array(groups.dropFirst())
+        let keys = Slug.unique(others.map { $0[0].subtype?.isEmpty == false ? $0[0].subtype! : $0[0].type.name }, fallback: "function")
+        let parts = zip(others, keys).map { group, key -> Accessory in
             let function = group[0]
-            let key = uniqueKey(for: function, taken: &keys)
             var services = group
             for service in battery {
                 let (copy, kept) = Self.copy(service)
@@ -85,24 +86,12 @@ public struct Separation: Sendable {
         return Separation(main: main, parts: parts, observations: observations)
     }
 
-    /// A Function's key in its accessory's id: its subtype, else its type, made unique.
-    static func uniqueKey(for service: Service, taken: inout Set<String>) -> String {
-        let base = (service.subtype?.isEmpty == false ? service.subtype! : service.type.name).lowercased()
-            .map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
-        var key = base, number = 1
-        while !taken.insert(key).inserted {
-            number += 1
-            key = "\(base)-\(number)"
-        }
-        return key
-    }
-
     /// The name a separated Function goes by: its own when it has one other than the accessory's, else the accessory's
     /// and what it does ("Desk Lamp Motion Sensor").
     public static func name(of service: Service, in accessory: Accessory) -> String {
-        let own = (service[.configuredName] ?? service[.name])?.value.stringValue?.trimmingCharacters(in: .whitespaces)
-        if let own, !own.isEmpty, own != accessory.name { return own }
-        return "\(accessory.name) \(spaced(service.type.name))"
+        if let own = (service[.configuredName] ?? service[.name])?.value.stringValue.flatMap(AccessoryNaming.cleaned), own != accessory.name { return own }
+        let named = "\(accessory.name) \(spaced(service.type.name))"
+        return AccessoryNaming.cleaned(named) ?? named
     }
 
     /// "MotionSensor" as "Motion Sensor".

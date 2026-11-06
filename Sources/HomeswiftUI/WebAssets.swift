@@ -13563,11 +13563,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   function dialogShell(title, ...content) {
+    const previousFocus = document.activeElement;
     const dialog = el("dialog", { class: "admin-dialog card home-link-dialog", "aria-label": title });
     const form = el("form", { method: "dialog" }, el("h2", { text: title }), ...content);
     dialog.append(form);
     document.body.append(dialog);
-    dialog.addEventListener("close", () => dialog.remove(), { once: true });
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (previousFocus?.isConnected) previousFocus.focus();
+    }, { once: true });
     return { dialog, form };
   }
 
@@ -13588,29 +13592,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const clashes = comparison.clashes ?? [];
     const confirm = el("button", { type: "submit", class: "primary", actionIcon: "link", text: t("Link"), disabled: clashes.length > 0 });
     const { dialog, form } = dialogShell(t("Link with Apple Home"),
-      el("p", { text: t("From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:", { home: comparison.home }) }),
+      el("p", { text: t("From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:", { home: comparison.homeName }) }),
       list(t("Rooms created in Apple Home"), comparison.roomsOnlyHere),
       list(t("Rooms taken from Apple Home"), comparison.roomsOnlyInHome),
       list(t("Accessories that move"), (comparison.accessories ?? []).filter((one) => one.result !== one.here)
         .map((one) => t("{name}: {from} → {to}", { name: one.name, from: roomName(one.here), to: roomName(one.result) }))),
       list(t("Accessories that keep their room and move in Apple Home"), (comparison.accessories ?? []).filter((one) => one.result === one.here)
         .map((one) => t("{name}: {room}", { name: one.name, room: roomName(one.here) }))),
-      list(t("Groups created in Apple Home"), comparison.groupsCreated),
-      list(t("Groups Apple Home cannot have, ungrouped"), comparison.groupsUngrouped),
+      list(t("Groups created in Apple Home"), (comparison.groupsCreated ?? []).map((group) => group.name)),
+      list(t("Groups Apple Home cannot have, ungrouped"), (comparison.groupsUngrouped ?? []).map((group) => group.name)),
       clashes.length ? el("p", { class: "error", text: t("Apple Home would take these rooms for one: rename one of each first. {rooms}", { rooms: clashes.map((names) => names.join(" / ")).join(", ") }) }) : null,
       message,
       el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close() }), confirm));
-    form.addEventListener("submit", async (event) => {
+    form.addEventListener("submit", (event) => {
       event.preventDefault();
-      confirm.disabled = true;
-      try {
+      HomeswiftCommon.busyButton(confirm, async () => {
         await api("/api/home-link/confirm", { method: "POST", body: {} });
         dialog.close();
         onLinked?.();
-      } catch (e) {
-        message.textContent = e.message;
-        confirm.disabled = false;
-      }
+      }, { report: (e) => { message.textContent = e.message; } });
     });
     dialog.showModal();
   }
@@ -16476,7 +16476,7 @@ HomeswiftI18n.add("es", {
   "Change the settings of one accessory?": "¿Cambiar los ajustes de un accesorio?",
   "Change the settings of {n} accessories?": "¿Cambiar los ajustes de {n} accesorios?",
   "Saved · {plugin} reloads": "Guardado · {plugin} se recarga",
-  "Saved; the hub said: {error}": "Guardado; el hub respondió: {error}",
+  "Saved; Apple Home refused: {reason}": "Guardado; Apple Home lo rechazó: {reason}",
   "The name its plugin gives it": "El nombre que le da su plugin",
   "Named in {source}: rename it there.": "Su nombre viene de {source}: cámbialo allí.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "También en la app Casa. Vacío, recupera el nombre que le da su plugin.",
@@ -19512,7 +19512,7 @@ HomeswiftI18n.add("fr", {
   "Change the settings of one accessory?": "Modifier les réglages d'un accessoire ?",
   "Change the settings of {n} accessories?": "Modifier les réglages de {n} accessoires ?",
   "Saved · {plugin} reloads": "Enregistré · {plugin} redémarre",
-  "Saved; the hub said: {error}": "Enregistré ; le hub a répondu : {error}",
+  "Saved; Apple Home refused: {reason}": "Enregistré ; Apple Home a refusé : {reason}",
   "The name its plugin gives it": "Le nom que lui donne son plugin",
   "Named in {source}: rename it there.": "Nommé dans {source} : renommez-le là-bas.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "Dans l'app Maison aussi. Vide, il reprend le nom que lui donne son plugin.",
@@ -22548,7 +22548,7 @@ HomeswiftI18n.add("pt", {
   "Change the settings of one accessory?": "Alterar as definições de um acessório?",
   "Change the settings of {n} accessories?": "Alterar as definições de {n} acessórios?",
   "Saved · {plugin} reloads": "Guardado · {plugin} é recarregado",
-  "Saved; the hub said: {error}": "Guardado; o hub respondeu: {error}",
+  "Saved; Apple Home refused: {reason}": "Guardado; o Apple Home recusou: {reason}",
   "The name its plugin gives it": "O nome que o plugin lhe dá",
   "Named in {source}: rename it there.": "O nome vem de {source}: mude-o lá.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "Também na app Casa. Vazio, volta ao nome que o plugin lhe dá.",
@@ -24828,8 +24828,8 @@ HomeswiftI18n.add("pt", {
   /// What a write did, in a few words for a field's state.
   function savedWords(result, instance) {
     if ((result.reloaded ?? []).length) return t("Saved · {plugin} reloads", { plugin: instance });
-    const failed = (result.hubMoves ?? []).find((move) => move.error);
-    if (failed) return t("Saved; the hub said: {error}", { error: HomeswiftI18n.message(failed.error) });
+    const refused = (result.appleHomeRefused ?? [])[0];
+    if (refused) return t("Saved; Apple Home refused: {reason}", { reason: HomeswiftI18n.message(refused.reason) });
     return t("Saved");
   }
 

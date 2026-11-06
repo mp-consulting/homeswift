@@ -136,7 +136,7 @@ import Testing
         await environment.catalog.followHome()
         _ = try await move(environment, to: "Garage")
         #expect(lampRoom(environment) == "Garage")
-        #expect(environment.catalog.home.homeLink.value.pending.map(\.kind) == [.createRoom, .moveAccessory])
+        #expect(environment.catalog.home.homeLink.value.pending == [.createRoom(name: "Garage"), .moveAccessory(accessory: "Devices:lamp", room: "Garage")])
         #expect(environment.homeLink.applied.isEmpty)
         let down = await environment.catalog.homeLinkJSON()
         #expect(down["state"] == "down" && down["pending"] == 2)

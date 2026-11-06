@@ -8,7 +8,7 @@ import HomeswiftPlugin
 /// Quick Control. An accessory's room, Hidden and Name are Accessory Settings (`updateAccessorySettings`); the room, hidden
 /// flag and display name an accessory has here are what older versions wrote, read where its settings have none and
 /// moved into them on its next settings write, never written again. The Rooms are the Home's once the bridge is linked
-/// to it (`HomeLinkSync.swift`); `syncRoomNames`, the retired Room Sync, is ignored and dropped by the next write. Kept
+/// to it (`HomeLinkSync.swift`); `syncRoomNames`, the retired Room Sync, is left out when read and so by the next write. Kept
 /// in `accessory-layout.json` next to config.json.
 public struct AccessoryLayout: Codable, Sendable, Equatable {
     public struct Entry: Codable, Sendable, Equatable {
@@ -34,13 +34,16 @@ public struct AccessoryLayout: Codable, Sendable, Equatable {
     /// The rooms in the order the pages show them, empty ones included.
     public var rooms: [String] = []
     public var accessories: [String: Entry] = [:]
-    /// Legacy: the retired Room Sync, ignored, cleared by the next write.
-    public var syncRoomNames: Bool?
-
-    public init(rooms: [String] = [], accessories: [String: Entry] = [:], syncRoomNames: Bool? = nil) {
+    public init(rooms: [String] = [], accessories: [String: Entry] = [:]) {
         self.rooms = rooms
         self.accessories = accessories
-        self.syncRoomNames = syncRoomNames
+    }
+
+    /// A Room's or Zone's name as it is kept: trimmed, 1 to `maxName` characters.
+    static func cleanName(_ value: String, what: String = "room") throws -> String {
+        let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= maxName else { throw CatalogError("A \(what)'s name must be 1 to \(maxName) characters") }
+        return name
     }
 
     /// The room of this name, as it is spelled in the layout, case aside.
@@ -91,11 +94,10 @@ extension HomeswiftCatalog {
             answer["hubRooms"] = .array(await renameHubRooms(from: renamed.from, to: renamed.to, by: by))
         }
         if !fromHome {
-            var changes: [HomeLinkFile.PendingChange] = change.added.map { .init(.createRoom, name: $0) }
-            if let renamed = change.renamed { changes.append(.init(.renameRoom, name: renamed.to, from: renamed.from)) }
-            changes += change.removed.map { .init(.deleteRoom, name: $0) }
-            let refused = await homeLinkRecord(changes)
-            if !refused.isEmpty { answer["appleHomeRefused"] = .array(refused) }
+            var changes: [HomeLinkFile.PendingChange] = change.added.map { .createRoom(name: $0) }
+            if let renamed = change.renamed { changes.append(.renameRoom(from: renamed.from, to: renamed.to)) }
+            changes += change.removed.map { .deleteRoom(name: $0) }
+            await recordForHome(changes, into: &answer)
         }
         return .object(answer)
     }
@@ -110,11 +112,7 @@ extension HomeswiftCatalog {
     /// Changes the layout as `updateLayout(_:by:)` says, then the Accessory Settings that name a room renamed or removed
     /// in one write of config.json; answers what changed.
     private func applyLayout(_ body: JSONValue) async throws -> LayoutChange {
-        func cleanName(_ value: String) throws -> String {
-            let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, name.count <= AccessoryLayout.maxName else { throw CatalogError("A room's name must be 1 to \(AccessoryLayout.maxName) characters") }
-            return name
-        }
+        let cleanName = { (value: String) in try AccessoryLayout.cleanName(value) }
         var changes: [(String, [String: JSONValue])] = []
         if let byID = body["accessories"]?.objectValue {
             changes = try byID.sorted { $0.key < $1.key }.map { id, value in
@@ -184,7 +182,6 @@ extension HomeswiftCatalog {
                 for (id, room) in adopted where room == current { adopted[id] = to }
                 if current != to { renamed = (current, to) }
             }
-            layout.syncRoomNames = nil
             for name in body["removeRooms"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
                 guard let current = adopt(name) else { continue }
                 layout.rooms.removeAll { $0 == current }

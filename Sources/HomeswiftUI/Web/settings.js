@@ -39,8 +39,8 @@
   /// What a write did, in a few words for a field's state.
   function savedWords(result, instance) {
     if ((result.reloaded ?? []).length) return t("Saved · {plugin} reloads", { plugin: instance });
-    const failed = (result.hubMoves ?? []).find((move) => move.error);
-    if (failed) return t("Saved; the hub said: {error}", { error: HomeswiftI18n.message(failed.error) });
+    const refused = (result.appleHomeRefused ?? [])[0];
+    if (refused) return t("Saved; Apple Home refused: {reason}", { reason: HomeswiftI18n.message(refused.reason) });
     return t("Saved");
   }
 

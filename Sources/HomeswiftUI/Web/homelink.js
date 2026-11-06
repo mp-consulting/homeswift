@@ -23,11 +23,15 @@
   }
 
   function dialogShell(title, ...content) {
+    const previousFocus = document.activeElement;
     const dialog = el("dialog", { class: "admin-dialog card home-link-dialog", "aria-label": title });
     const form = el("form", { method: "dialog" }, el("h2", { text: title }), ...content);
     dialog.append(form);
     document.body.append(dialog);
-    dialog.addEventListener("close", () => dialog.remove(), { once: true });
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (previousFocus?.isConnected) previousFocus.focus();
+    }, { once: true });
     return { dialog, form };
   }
 
@@ -48,29 +52,25 @@
     const clashes = comparison.clashes ?? [];
     const confirm = el("button", { type: "submit", class: "primary", actionIcon: "link", text: t("Link"), disabled: clashes.length > 0 });
     const { dialog, form } = dialogShell(t("Link with Apple Home"),
-      el("p", { text: t("From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:", { home: comparison.home }) }),
+      el("p", { text: t("From now on this bridge and Apple Home's {home} keep their rooms, zones and groups in one place. Linking changes this:", { home: comparison.homeName }) }),
       list(t("Rooms created in Apple Home"), comparison.roomsOnlyHere),
       list(t("Rooms taken from Apple Home"), comparison.roomsOnlyInHome),
       list(t("Accessories that move"), (comparison.accessories ?? []).filter((one) => one.result !== one.here)
         .map((one) => t("{name}: {from} → {to}", { name: one.name, from: roomName(one.here), to: roomName(one.result) }))),
       list(t("Accessories that keep their room and move in Apple Home"), (comparison.accessories ?? []).filter((one) => one.result === one.here)
         .map((one) => t("{name}: {room}", { name: one.name, room: roomName(one.here) }))),
-      list(t("Groups created in Apple Home"), comparison.groupsCreated),
-      list(t("Groups Apple Home cannot have, ungrouped"), comparison.groupsUngrouped),
+      list(t("Groups created in Apple Home"), (comparison.groupsCreated ?? []).map((group) => group.name)),
+      list(t("Groups Apple Home cannot have, ungrouped"), (comparison.groupsUngrouped ?? []).map((group) => group.name)),
       clashes.length ? el("p", { class: "error", text: t("Apple Home would take these rooms for one: rename one of each first. {rooms}", { rooms: clashes.map((names) => names.join(" / ")).join(", ") }) }) : null,
       message,
       el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close() }), confirm));
-    form.addEventListener("submit", async (event) => {
+    form.addEventListener("submit", (event) => {
       event.preventDefault();
-      confirm.disabled = true;
-      try {
+      HomeswiftCommon.busyButton(confirm, async () => {
         await api("/api/home-link/confirm", { method: "POST", body: {} });
         dialog.close();
         onLinked?.();
-      } catch (e) {
-        message.textContent = e.message;
-        confirm.disabled = false;
-      }
+      }, { report: (e) => { message.textContent = e.message; } });
     });
     dialog.showModal();
   }

@@ -330,7 +330,8 @@ actor Link {
 
     /// Reads the homes. An accessory whose shape is as it was keeps its objects and takes the new values; the others
     /// are built again and replace theirs.
-    func refresh() async throws {
+    /// `scenes` false after a structural edit: the homes changed, not the scenes or automations.
+    func refresh(scenes: Bool = true) async throws {
         guard !client.host.isEmpty else { throw WingmanError.unreachable("no address yet: waiting for Bonjour") }
         guard let plugin else { return }
         let info = try await client.info().info
@@ -338,8 +339,9 @@ actor Link {
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
         let homes = try await client.homes()
         let homeswift = plugin.context.publishedSerialNumbers
-        let bridgeHome = Structure.bridgeHome(of: homes, bridges: plugin.context.homeswiftBridgeSerialNumbers).flatMap { id in homes.first { $0.id == id }?.name }
-        plugin.bridgeHomes.withLockedValue { $0[device.id] = bridgeHome }
+        let bridges = plugin.context.homeswiftBridgeSerialNumbers
+        let bridgeHome = Structure.bridgeHome(of: homes, bridges: bridges)
+        plugin.bridgeHomes.withLockedValue { $0[device.id] = bridgeHome.flatMap { id in homes.first { $0.id == id }?.name } }
         let write: @Sendable (String, String, JSONValue) async throws -> Void = { [weak self] accessoryID, characteristicID, value in
             guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
             do {
@@ -381,12 +383,12 @@ actor Link {
         if info.servesStructure {
             var structure = Structure(
                 allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys),
-                bridges: plugin.context.homeswiftBridgeSerialNumbers, own: plugin.context.ownSerialNumbers, homeLink: info.servesHomeLink)
+                bridges: bridges, bridgeHome: bridgeHome, own: plugin.context.ownSerialNumbers, homeLink: info.servesHomeLink)
             // What the last read gave, until this one's scenes and automations come.
             structure.scenes = self.structure?.scenes ?? []
             structure.automations = self.structure?.automations ?? []
             self.structure = structure
-            await reload(scenes: true, automations: true)
+            await reload(scenes: scenes, automations: scenes)
         } else {
             structure = nil
         }
@@ -499,7 +501,7 @@ actor Link {
             structure?.devices[moved.accessory]?.room = moved.roomID.flatMap { id in home?.rooms.first { $0.id == id }?.name } ?? home?.defaultRoom?.name
             lastHome = plugin.flatMap { structure?.homeSnapshot(in: $0.context) }
         } else {
-            do { try await refresh() } catch { lost(error) }
+            do { try await refresh(scenes: false) } catch { lost(error) }
         }
         return created.flatMap { answer[$0]?["id"]?.stringValue }
     }

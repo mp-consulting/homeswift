@@ -26,18 +26,14 @@ extension HomeswiftCatalog {
     /// too, through the Home Link, as the Rooms'. Answers `zonesJSON()`, with `appleHomeRefused` when it refused.
     public func updateZones(_ body: JSONValue, by: String) async throws -> JSONValue {
         if let refusal = await homeLinkRefusal(), body["order"] == nil || body.objectValue?.count != 1 { throw CatalogError(refusal) }
-        let rooms = home.layout.value.rooms
-        func cleanName(_ value: JSONValue?) throws -> String {
-            let name = (value?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, name.count <= AccessoryLayout.maxName else { throw CatalogError("A zone's name must be 1 to \(AccessoryLayout.maxName) characters") }
-            return name
-        }
+        let layout = home.layout.value
+        func cleanName(_ value: JSONValue?) throws -> String { try AccessoryLayout.cleanName(value?.stringValue ?? "", what: "zone") }
         func roomNames(_ value: JSONValue?) throws -> [String] {
             guard let value, !value.isNull else { return [] }
             guard let list = value.arrayValue else { throw CatalogError("rooms must be a list of room names") }
             var seen: Set<String> = []
             return try list.compactMap { item in
-                guard let text = item.stringValue, let room = rooms.first(where: { Self.sameRoomName($0, text) }) else {
+                guard let text = item.stringValue, let room = layout.room(named: text) else {
                     throw CatalogError("No room \(item.stringValue ?? "\(item)")")
                 }
                 return seen.insert(room).inserted ? room : nil
@@ -54,28 +50,28 @@ extension HomeswiftCatalog {
                 guard file.zones.count < Self.maxZones else { throw CatalogError("At most \(Self.maxZones) zones") }
                 let zone = HomeLinkFile.Zone(id: "zone:\(UUID().uuidString.lowercased())", homeKitID: nil, name: name, rooms: try roomNames(create["rooms"]))
                 file.zones.append(zone)
-                changes.append(.init(.createZone, zone: zone.id))
+                changes.append(.createZone(zone: zone.id))
             }
             if let id = body["zone"]?.stringValue {
                 guard let index = file.zones.firstIndex(where: { $0.id == id }) else { throw CatalogError("No zone \(id)", notFound: true) }
                 let zone = file.zones[index]
                 if body["delete"]?.boolValue == true {
                     file.zones.remove(at: index)
-                    if zone.homeKitID != nil { changes.append(.init(.deleteZone, homeKitID: zone.homeKitID)) }
+                    if let id = zone.homeKitID { changes.append(.deleteZone(homeKitID: id)) }
                 } else {
                     if body["name"] != nil {
                         let name = try cleanName(body["name"])
                         guard !taken(name, except: id) else { throw CatalogError("There is already a zone \(name)") }
                         if name != zone.name {
                             file.zones[index].name = name
-                            changes.append(.init(.renameZone, name: name, zone: id))
+                            changes.append(.renameZone(zone: id, name: name))
                         }
                     }
                     if body["rooms"] != nil {
                         let next = try roomNames(body["rooms"])
                         let add = next.filter { !zone.rooms.contains($0) }, remove = zone.rooms.filter { !next.contains($0) }
                         file.zones[index].rooms = next
-                        if !add.isEmpty || !remove.isEmpty { changes.append(.init(.setZoneRooms, zone: id, add: add, remove: remove)) }
+                        if !add.isEmpty || !remove.isEmpty { changes.append(.setZoneRooms(zone: id, add: add, remove: remove)) }
                     }
                 }
             }
@@ -85,11 +81,9 @@ extension HomeswiftCatalog {
                 file.zones = ordered + file.zones.filter { !order.contains($0.id) }
             }
         }
-        // Not linked yet: the zones it created are the first link's to make in Apple Home.
-        if home.homeLink.value.homeID == nil { changes = [] }
-        let refused = await homeLinkRecord(changes)
-        var answer = zonesJSON().objectValue ?? [:]
-        if !refused.isEmpty { answer["appleHomeRefused"] = .array(refused) }
+        var answer: [String: JSONValue] = [:]
+        await recordForHome(changes, into: &answer)
+        answer.merge(zonesJSON().objectValue ?? [:]) { refused, _ in refused }
         logger.info("Zones changed", metadata: ["by": "\(by)"])
         home.layoutChanged()
         return .object(answer)

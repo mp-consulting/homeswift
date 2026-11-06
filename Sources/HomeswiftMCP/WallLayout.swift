@@ -425,8 +425,7 @@ extension HomeswiftCatalog {
             throw CatalogError(error.description)
         }
         var answer = wallJSON(layout: layout, all: all).objectValue ?? [:]
-        let refused = await recordGroupChanges(from: groupsBefore, to: Self.groups(of: layout))
-        if !refused.isEmpty { answer["appleHomeRefused"] = .array(refused) }
+        await recordForHome(Self.groupChanges(from: groupsBefore, to: Self.groups(of: layout)), into: &answer)
         return .object(answer)
     }
 
@@ -443,17 +442,20 @@ extension HomeswiftCatalog {
                 group.homeKitID = before.first { $0.id == group.id }?.homeKitID
                 return group
             }
+            let byID = Dictionary(located().map { ($0.accessory.id, $0.accessory) }, uniquingKeysWith: { first, _ in first })
             for group in groups where before.first(where: { $0.id == group.id })?.members != group.members {
+                guard Self.canGroup(group.members.compactMap { byID[$0] }) else {
+                    throw CatalogError("The group \(group.name) has no control its members share: a group turns lights, switches, outlets or fans on and off, or moves blinds")
+                }
                 if let problem = groupProblem(members: group.members) { throw CatalogError("Apple Home cannot group \(group.name): \(problem)") }
             }
-            if groups.map(\.id) != before.map(\.id) || groups != before, let refusal = await homeLinkRefusal() { throw CatalogError(refusal) }
+            if !Self.groupChanges(from: before, to: groups).isEmpty, let refusal = await homeLinkRefusal() { throw CatalogError(refusal) }
             object["groups"] = .array(groups.map(\.json))
         }
         let saved: JSONValue
         do { saved = try home.wall.save(.object(object)) } catch let error as WallLayout.Invalid { throw CatalogError(error.description) }
-        let refused = await recordGroupChanges(from: before, to: Self.groups(of: saved))
-        guard !refused.isEmpty, var answer = saved.objectValue else { return saved }
-        answer["appleHomeRefused"] = .array(refused)
+        var answer = saved.objectValue ?? [:]
+        await recordForHome(Self.groupChanges(from: before, to: Self.groups(of: saved)), into: &answer)
         return .object(answer)
     }
 
@@ -461,22 +463,22 @@ extension HomeswiftCatalog {
         layout["groups"]?.arrayValue?.compactMap(WallGroup.init) ?? []
     }
 
-    /// The changes to the Groups between two walls, for Apple Home (`homeLinkRecord`).
-    private func recordGroupChanges(from before: [WallGroup], to after: [WallGroup]) async -> [JSONValue] {
+    /// The changes to the Groups between two walls, for Apple Home (`recordForHome`); none when only their order moved.
+    static func groupChanges(from before: [WallGroup], to after: [WallGroup]) -> [HomeLinkFile.PendingChange] {
         var changes: [HomeLinkFile.PendingChange] = []
         for group in before where !after.contains(where: { $0.id == group.id }) {
-            if let id = group.homeKitID { changes.append(.init(.deleteGroup, group: group.id, homeKitID: id)) }
+            if let id = group.homeKitID { changes.append(.deleteGroup(homeKitID: id)) }
         }
         for group in after {
             guard let old = before.first(where: { $0.id == group.id }) else {
-                changes.append(.init(.createGroup, group: group.id))
+                changes.append(.createGroup(group: group.id))
                 continue
             }
-            if old.name != group.name { changes.append(.init(.renameGroup, name: group.name, group: group.id)) }
+            if old.name != group.name { changes.append(.renameGroup(group: group.id, name: group.name)) }
             let add = group.members.filter { !old.members.contains($0) }, remove = old.members.filter { !group.members.contains($0) }
-            if !add.isEmpty || !remove.isEmpty { changes.append(.init(.setGroupMembers, group: group.id, add: add, remove: remove)) }
+            if !add.isEmpty || !remove.isEmpty { changes.append(.setGroupMembers(group: group.id, add: add, remove: remove)) }
         }
-        return await homeLinkRecord(changes)
+        return changes
     }
 
     var wallTools: [MCPTool] {

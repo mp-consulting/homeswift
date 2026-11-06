@@ -22,7 +22,7 @@ import Homeswift
 /// them on the web UI's wall, and `notInHome` keeps them out of HomeKit (the web UI, the MCP server and Matter still have
 /// them); those four apply without reloading the plugin. `_hiddenFromHomeKit`, a list of accessory ids, is the older
 /// form of `notInHome`: read, and moved into `_accessories` by the next write of the block's settings.
-/// `bridge.roomSync`, the retired Room Sync, is read and ignored: the Rooms follow Apple Home through the Home Link. `accessories` blocks (Homebridge's accessory
+/// `bridge.roomSync`, the retired Room Sync, is ignored: the Rooms follow Apple Home through the Home Link. `accessories` blocks (Homebridge's accessory
 /// plugins) run in the block of their platform, in its `accessories` list (`AccessoryAdoption`), when its plugin runs
 /// them (`HomeswiftPlugin.runsAccessoryBlocks`).
 public struct HomeswiftConfiguration: Sendable {
@@ -162,9 +162,6 @@ public struct HomeswiftConfiguration: Sendable {
     /// How many of the `accessories` blocks (Homebridge's accessory plugins) are malformed and left out (no
     /// `accessory`, a `_bridge` that is not one); the others run in their platform's block (`AccessoryAdoption`).
     public var ignoredAccessoryBlocks = 0
-    /// `bridge.roomSync`, the retired Room Sync: read so an older config.json still loads, used by nothing (the Rooms are
-    /// Apple Home's through the Home Link, docs/adr/0005-apple-home-owns-rooms-zones-and-groups.md).
-    public var roomSync: Bool?
     /// `bridge.tariffs`, the Tariffs (GLOSSARY.md), oldest first. Not part of `bridge`: changing them needs no restart.
     public var tariffs: [Tariff] = []
 
@@ -307,10 +304,6 @@ public struct HomeswiftConfiguration: Sendable {
         if let bridge = root["bridge"] {
             guard bridge is [String: Any] else { throw ConfigurationError.invalidValue(key: "bridge", expected: "an object") }
             configuration.bridge = try decoder.decode(Bridge.self, from: JSONSerialization.data(withJSONObject: bridge))
-            if let sync = (bridge as? [String: Any])?["roomSync"] {
-                guard let on = sync as? Bool else { throw ConfigurationError.invalidValue(key: "bridge.roomSync", expected: "true or false") }
-                configuration.roomSync = on
-            }
             if let tariffs = (bridge as? [String: Any])?["tariffs"] {
                 guard let list = try? decoder.decode([Tariff].self, from: JSONSerialization.data(withJSONObject: tariffs)) else {
                     throw ConfigurationError.invalidValue(key: "bridge.tariffs", expected: "a list of Tariffs (start, currency, periods)")

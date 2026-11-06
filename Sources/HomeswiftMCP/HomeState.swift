@@ -57,6 +57,8 @@ public final class HomeState: Sendable {
     public let homeLink: JSONFileStore<HomeLinkFile>
     /// The Home Link's work, one piece after the other.
     let homeLinkWork = SerialWork()
+    /// Whether a follow of the Home waits behind the one running: another call then makes none (`followHome`).
+    let followQueued = NIOLockedValueBox(false)
     /// What the Home Link last said.
     let lastHome = NIOLockedValueBox<LastHome?>(nil)
     /// The Accessories page's wall: order, sizes, grouping (`ui-layout.json`).

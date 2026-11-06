@@ -485,7 +485,7 @@ struct PluginHostTests {
     }
 
     /// Name, room, Hidden and Not in Home in `_accessories` never reach the plugin: they leave its JSON, a change to them
-    /// reloads nothing, Not in Home keeps the accessory out of HomeKit, and so does Room Sync in the bridge block.
+    /// reloads nothing, Not in Home keeps the accessory out of HomeKit; the retired Room Sync in the bridge block is ignored.
     @Test func liveAccessorySettingsDoNotReloadThePlugin() async throws {
         func configuration(_ settings: String, roomSync: Bool = false) throws -> HomeswiftConfiguration {
             try HomeswiftConfiguration.decode(Data(#"""
@@ -507,7 +507,6 @@ struct PluginHostTests {
         let built = try HomeswiftConfiguration.Platform(platform: "Recording", name: "Lamps", settings: ["_accessories": ["lamp-2": ["name": "Shelf", "room": "Hall"]]])
         #expect(try JSONValue(data: built.json)["_accessories"] == nil && built.accessorySettings["lamp-2"] == AccessorySettings(name: "Shelf", room: "Hall"))
         #expect(built.accessoryNames == ["lamp-2": "Shelf"] && built.accessoryRooms == ["lamp-2": "Hall"])
-        #expect(first.roomSync == false)
         for bad in [#"{ "lamp-1": { "room": 3 } }"#, #"{ "lamp-1": { "hidden": "yes" } }"#, #"{ "lamp-1": { "notInHome": 1.5 } }"#] {
             #expect(throws: ConfigurationError.self) { try configuration(bad) }
         }
@@ -521,7 +520,6 @@ struct PluginHostTests {
         #expect(Set(host.context(platform: "Recording", name: "Lamps")?.allAccessorySettings.keys ?? [:].keys) == ["lamp-1", "lamp-2", "lamp-3"])
         #expect(server.isHiddenFromHomeKit("Recording:lamp-2") && !server.isHiddenFromHomeKit("Recording:lamp-1"))
         #expect(server.accessory(id: "Recording:lamp-1")?.name == "Desk")
-        #expect(host.configuration.roomSync == true)
         await host.stop()
     }
 

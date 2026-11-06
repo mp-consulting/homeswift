@@ -247,7 +247,7 @@ struct AccessorySettingsTests {
         try await #require(lamp[.lightbulb]?[.configuredName]).write(.string("Reading Lamp"))
         #expect(await eventually { (try? block(environment)?["_accessories"]?["lamp"]?["name"]) == "Reading Lamp" })
         // A move Apple Home made, as the Home Link follows it.
-        _ = try await catalog.updateAccessorySettings([("Devices:lamp", ["room": "Kitchen"])], moveOnHubs: false, who: "Apple Home")
+        _ = try await catalog.updateAccessorySettings([("Devices:lamp", ["room": "Kitchen"])], fromHome: true, who: "Apple Home")
         #expect(try block(environment)?["_accessories"]?["lamp"]?["room"] == "Kitchen")
         #expect(Set(catalog.backups()) == before)
 
@@ -317,10 +317,13 @@ struct AccessorySettingsTests {
     /// The retired Room Sync: what the layout kept is ignored and dropped by its next write.
     @Test func roomSyncIsRetired() async throws {
         let environment = try await environment()
-        try environment.catalog.home.layout.update { $0.syncRoomNames = true }
-        let answer = try await environment.catalog.updateLayout(["rooms": ["Office"]], by: "test")
+        let url = environment.catalog.home.layout.url
+        try Data(#"{ "rooms": ["Office"], "accessories": {}, "syncRoomNames": true }"#.utf8).write(to: url)
+        let fresh = HomeState(directory: url.deletingLastPathComponent())
+        #expect(fresh.layout.value.rooms == ["Office"])
+        let answer = try await environment.catalog.updateLayout(["rooms": ["Office", "Hall"]], by: "test")
         #expect(answer["syncRoomNames"] == nil && answer["homeLink"]?["state"] == "none")
-        #expect(environment.catalog.home.layout.value.syncRoomNames == nil)
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("syncRoomNames") == false)
         await environment.stop()
     }
 

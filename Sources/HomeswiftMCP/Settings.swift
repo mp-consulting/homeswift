@@ -403,28 +403,28 @@ extension HomeswiftCatalog {
     /// into `_accessories`; each accessory's legacy room and Hidden move from the layout into its settings, and its legacy
     /// display name goes when its Name is set. A new room is added to the layout's rooms. Name, room, Hidden and Not in
     /// Home apply live; Excluded, Parts and the plugin's own settings reload the plugin. An accessory moved to a Room, or
-    /// to none, moves in Apple Home too, through the Home Link (`moveOnHubs`; false for a move Apple Home made), and a new
+    /// to none, moves in Apple Home too, through the Home Link (`fromHome` for a move Apple Home made), and a new
     /// Room is made there: at once while the link is up, as a Pending Change while it is down, refused while it may not
     /// edit. A mirrored accessory's Name is read-only. A write that changes only live settings keeps no backup of config.json (`BlockWrite`), and
     /// the block's canonical shape alone reloads nothing. Answers each accessory's settings and the keys that changed,
     /// and what the write reloaded.
     @discardableResult
     public func updateAccessorySettings(
-        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String? = nil, dryRun: Bool = false, moveOnHubs: Bool = true,
+        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String? = nil, dryRun: Bool = false, fromHome: Bool = false,
         by writer: ConfigWriter = .person, who: String = "web UI"
     ) async throws -> JSONValue {
         guard !changes.isEmpty else { throw CatalogError("No accessory to change") }
-        if moveOnHubs, !dryRun, changes.contains(where: { $0.settings["room"] != nil && isInHome($0.accessoryID) != false }),
+        if !fromHome, !dryRun, changes.contains(where: { $0.settings["room"] != nil && isInHome($0.accessoryID) != false }),
            let refusal = await homeLinkRefusal() {
             throw CatalogError(refusal)
         }
         return try await retryingWhenConfigChanges {
-            try await writeAccessorySettings(changes, instance: instance, dryRun: dryRun, moveOnHubs: moveOnHubs, by: writer, who: who)
+            try await writeAccessorySettings(changes, instance: instance, dryRun: dryRun, fromHome: fromHome, by: writer, who: who)
         }
     }
 
     private func writeAccessorySettings(
-        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String?, dryRun: Bool, moveOnHubs: Bool, by writer: ConfigWriter, who: String
+        _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String?, dryRun: Bool, fromHome: Bool, by writer: ConfigWriter, who: String
     ) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
@@ -538,8 +538,8 @@ extension HomeswiftCatalog {
             results.append(["accessory": .string(target.accessoryID), "settings": .object(after), "changed": .array(changedKeys.map(JSONValue.string))])
             // Moved to a Room it was not in, or to none: Apple Home follows.
             let room = after["room"]?.stringValue ?? ""
-            if moveOnHubs, changedKeys.contains("room"), !Self.sameRoomName(target.located?.room ?? "", room) {
-                moves.append(.init(.moveAccessory, accessory: target.accessoryID, room: room))
+            if !fromHome, changedKeys.contains("room"), !Self.sameRoomName(target.located?.room ?? "", room) {
+                moves.append(.moveAccessory(accessory: target.accessoryID, room: room))
             }
         }
         var answer: [String: JSONValue] = ["accessories": .array(results)]
@@ -586,10 +586,7 @@ extension HomeswiftCatalog {
             (result["changed"]?.arrayValue ?? []).contains { $0.stringValue.map(AccessorySettings.liveKeys.contains) == true }
         }
         if !newRooms.isEmpty || legacyLeft || (liveChanged && next != current) { home.layoutChanged() }
-        if moveOnHubs, !moves.isEmpty || !newRooms.isEmpty {
-            let refused = await homeLinkRecord(newRooms.map { .init(.createRoom, name: $0) } + moves)
-            if !refused.isEmpty { answer["appleHomeRefused"] = .array(refused) }
-        }
+        if !fromHome { await recordForHome(newRooms.map { .createRoom(name: $0) } + moves, into: &answer) }
         return .object(answer)
     }
 

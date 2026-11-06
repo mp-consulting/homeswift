@@ -2804,7 +2804,7 @@ HomeswiftI18n.add("es", {
   "Change the settings of one accessory?": "¿Cambiar los ajustes de un accesorio?",
   "Change the settings of {n} accessories?": "¿Cambiar los ajustes de {n} accesorios?",
   "Saved · {plugin} reloads": "Guardado · {plugin} se recarga",
-  "Saved; the hub said: {error}": "Guardado; el hub respondió: {error}",
+  "Saved; Apple Home refused: {reason}": "Guardado; Apple Home lo rechazó: {reason}",
   "The name its plugin gives it": "El nombre que le da su plugin",
   "Named in {source}: rename it there.": "Su nombre viene de {source}: cámbialo allí.",
   "In the Home app too. Empty gives it back the name its plugin gives it.": "También en la app Casa. Vacío, recupera el nombre que le da su plugin.",

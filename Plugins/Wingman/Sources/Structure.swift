@@ -58,7 +58,8 @@ struct Structure: Sendable {
 
     /// `bridges` are the Serial Numbers of Homeswift's bridges (`PluginContext.homeswiftBridgeSerialNumbers`), `own` those of
     /// the accessories Homeswift publishes on their own servers.
-    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>, bridges: Set<String> = [], own: Set<String> = [], homeLink: Bool = false) {
+    /// `bridgeHome` when the caller worked it out already (`bridgeHome(of:bridges:)`).
+    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>, bridges: Set<String> = [], bridgeHome: String?? = nil, own: Set<String> = [], homeLink: Bool = false) {
         self.allowed = allowed
         self.mirrored = mirrored
         servesHomeLink = homeLink
@@ -68,7 +69,7 @@ struct Structure: Sendable {
                      zones: home.zones ?? [], serviceGroups: home.serviceGroups ?? [])
             }
         }
-        bridgeHome = Self.bridgeHome(of: homes, bridges: bridges)
+        self.bridgeHome = bridgeHome ?? Self.bridgeHome(of: homes, bridges: bridges)
         // The accessories of the homes that are Homeswift's bridges, by HomeKit id: their Serial Number is their device ID.
         var homeswiftBridges: [String: String] = [:]
         for accessory in homes.flatMap(\.accessories) {
@@ -123,8 +124,9 @@ struct Structure: Sendable {
         guard servesHomeLink, let id = bridgeHome, let home = home(id) else { return nil }
         var placements: [String: String?] = [:]
         var byService: [String: String] = [:]
+        let index = context.publishedIndex()
         for (deviceID, device) in devices.sorted(by: { $0.key < $1.key }) where device.home == id {
-            guard let accessoryID = homeswiftID(of: deviceID, in: context) else { continue }
+            guard let accessoryID = homeswiftID(of: deviceID, in: context, index: index) else { continue }
             placements[accessoryID] = .some(device.roomID)
             for service in device.services { byService[service] = accessoryID }
         }
@@ -162,13 +164,20 @@ struct Structure: Sendable {
     /// Homeswift's id of an accessory in these homes: a mirror's, or one of Homeswift's own (by where `context` publishes
     /// it); nil for one Homeswift does not have.
     func homeswiftID(of id: String, in context: PluginContext) -> String? {
+        homeswiftID(of: id, in: context, index: context.publishedIndex())
+    }
+
+    /// `homeswiftID(of:in:)` with Homeswift's accessories by where they are published, read once for many lookups.
+    func homeswiftID(of id: String, in context: PluginContext, index: [PluginContext.PublishedPlace: String]) -> String? {
         if mirrored.contains(id) { return Self.homeswiftID(id) }
         guard let device = devices[id], let serialNumber = device.serialNumber, let homeswift = device.homeswift else { return nil }
+        let bridge: String?
         switch homeswift {
-        case .bridge(let bridge): return context.publishedAccessoryID(at: .init(bridge: bridge, serialNumber: serialNumber))
-        case .own: return context.publishedAccessoryID(at: .init(bridge: nil, serialNumber: serialNumber))
+        case .bridge(let serial): bridge = serial
+        case .own: bridge = nil
         case .unnamedBridge: return context.publishedAccessoryID(serialNumber: serialNumber)
         }
+        return index[.init(bridge: bridge, serialNumber: serialNumber)]
     }
 
     /// Whether an edit of this home would go through: the owner allows it and this Mac's user administers the home.
@@ -467,33 +476,27 @@ extension WingmanPlugin {
             }
         }
         let strings = { (ids: [String]) in JSONValue.array(ids.map(JSONValue.string)) }
-        switch change {
-        case .createRoom(let name):
-            return try await link.homeEdit("rooms/create", ["name": .string(name), "home": .string(home.id)], created: "room")
-        case .renameRoom(let id, let name):
-            return try await link.homeEdit("rooms/rename", ["room": .string(id), "name": .string(name)])
-        case .deleteRoom(let id):
-            return try await link.homeEdit("rooms/delete", ["room": .string(id)])
-        case .moveAccessory(let accessoryID, let roomID):
-            let id = try accessory(accessoryID)
-            return try await link.homeEdit("accessories/room", ["accessory": .string(id), "roomID": roomID.map(JSONValue.string) ?? .null], moved: (id, roomID))
-        case .createZone(let name):
-            return try await link.homeEdit("zones/create", ["name": .string(name), "home": .string(home.id)], created: "zone")
-        case .renameZone(let id, let name):
-            return try await link.homeEdit("zones/rename", ["zone": .string(id), "name": .string(name)])
-        case .deleteZone(let id):
-            return try await link.homeEdit("zones/delete", ["zone": .string(id)])
-        case .setZoneRooms(let id, let add, let remove):
-            return try await link.homeEdit("zones/rooms", ["zone": .string(id), "add": strings(add), "remove": strings(remove)])
-        case .createGroup(let name, let members):
-            return try await link.homeEdit("groups/create", ["name": .string(name), "services": .array(try services(members)), "home": .string(home.id)], created: "group")
-        case .renameGroup(let id, let name):
-            return try await link.homeEdit("groups/rename", ["group": .string(id), "name": .string(name)])
-        case .deleteGroup(let id):
-            return try await link.homeEdit("groups/delete", ["group": .string(id)])
-        case .setGroupMembers(let id, let add, let remove):
-            return try await link.homeEdit("groups/services", ["group": .string(id), "add": .array(try services(add)), "remove": .array(try services(remove))])
-        }
+        let homeID = JSONValue.string(home.id)
+        // Wingman's edit for the change: its path and body, the key of what it creates, and the move to put in the copy.
+        let (path, body, created, moved): (String, JSONValue, String?, (String, String?)?) = try {
+            switch change {
+            case .createRoom(let name): ("rooms/create", ["name": .string(name), "home": homeID], "room", nil)
+            case .renameRoom(let id, let name): ("rooms/rename", ["room": .string(id), "name": .string(name)], nil, nil)
+            case .deleteRoom(let id): ("rooms/delete", ["room": .string(id)], nil, nil)
+            case .moveAccessory(let accessoryID, let roomID):
+                try { let id = try accessory(accessoryID); return ("accessories/room", ["accessory": .string(id), "roomID": roomID.map(JSONValue.string) ?? .null], nil, (id, roomID)) }()
+            case .createZone(let name): ("zones/create", ["name": .string(name), "home": homeID], "zone", nil)
+            case .renameZone(let id, let name): ("zones/rename", ["zone": .string(id), "name": .string(name)], nil, nil)
+            case .deleteZone(let id): ("zones/delete", ["zone": .string(id)], nil, nil)
+            case .setZoneRooms(let id, let add, let remove): ("zones/rooms", ["zone": .string(id), "add": strings(add), "remove": strings(remove)], nil, nil)
+            case .createGroup(let name, let members): ("groups/create", ["name": .string(name), "services": .array(try services(members)), "home": homeID], "group", nil)
+            case .renameGroup(let id, let name): ("groups/rename", ["group": .string(id), "name": .string(name)], nil, nil)
+            case .deleteGroup(let id): ("groups/delete", ["group": .string(id)], nil, nil)
+            case .setGroupMembers(let id, let add, let remove):
+                ("groups/services", ["group": .string(id), "add": .array(try services(add)), "remove": .array(try services(remove))], nil, nil)
+            }
+        }()
+        return try await link.homeEdit(path, body, created: created, moved: moved.map { (accessory: $0.0, roomID: $0.1) })
     }
 
     // Scenes
