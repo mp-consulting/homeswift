@@ -359,7 +359,8 @@ final class PacketStream: Sendable {
         // The partial frame: 460 bytes, 230 samples, then zeros.
         #expect(talk.frames[1].samples[229] == 0x0101 && talk.frames[1].samples[230] == 0)
         #expect(f.logs.messages.contains("Camera: Talk started."))
-        #expect(f.logs.messages.contains { $0.hasPrefix("Camera: Talk ended (") })
+        // Logged once the frames are finished, which is when the handler sees the Talk end.
+        #expect(await eventually { f.logs.messages.contains { $0.hasPrefix("Camera: Talk ended (") } })
         // FFmpeg flushing late, after the Talk went idle: dropped, no Talk begun.
         decoder.emit(Data(repeating: 0, count: 640))
         #expect(await eventuallyAsync { await f.receiver.chunkCount == 3 })
@@ -402,7 +403,8 @@ final class PacketStream: Sendable {
         let (packets, decoder) = try await talking(f)
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.talk(0)?.ended == true })
-        #expect(f.logs.messages(.debug).contains { $0.contains("longest Talk reached") })
+        // Logged once the frames are finished, which is when the handler sees the Talk end.
+        #expect(await eventually { f.logs.messages(.debug).contains { $0.contains("longest Talk reached") } })
         await packets.stop()
         await f.receiver.close()
     }
