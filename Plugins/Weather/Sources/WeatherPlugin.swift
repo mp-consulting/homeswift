@@ -149,7 +149,21 @@ public actor WeatherPlugin: HomeswiftPlugin {
 
     /// Sets the characteristics from a report, adding the accessory the first time; HomeKit hears of what changed.
     func show(_ report: WeatherReport) throws {
-        let accessory = try self.accessory ?? add()
+        if let accessory {
+            apply(report, to: accessory)
+            return
+        }
+        // The first report fills the accessory before it is published: HomeKit (and every reader) never sees it
+        // without its values.
+        let made = Self.makeAccessory()
+        apply(report, to: made)
+        try context.add(made)
+        let published = context.accessory(id: Self.accessoryID) ?? made
+        if published !== made { apply(report, to: published) }
+        accessory = published
+    }
+
+    private func apply(_ report: WeatherReport, to accessory: Accessory) {
         accessory.isUnavailable = false
         let temperature = accessory.service(.temperatureSensor)
         set(temperature, .currentTemperature, report.temperature)
@@ -174,20 +188,16 @@ public actor WeatherPlugin: HomeswiftPlugin {
         if let coerced = type.coerce(.double(fitted)) { service.characteristic(type).value = coerced }
     }
 
-    private func add() throws -> Accessory {
+    private static func makeAccessory() -> Accessory {
         let humidity = Service(.humiditySensor, name: "Humidity", subtype: "humidity")
         let raining = Service(.occupancySensor, name: "Is raining", subtype: "raining")
         let temperature = Service(
-            .temperatureSensor, name: Self.accessoryName,
+            .temperatureSensor, name: accessoryName,
             optional: [EveCharacteristic.airPressure, EveCharacteristic.weatherCondition, EveCharacteristic.windSpeed, EveCharacteristic.rainLastHour, EveCharacteristic.uvIndex],
             linked: [humidity, raining], isPrimary: true)
         // Without a MAC or a serial of its own, the serial is the device's id (CLAUDE.md).
-        try context.add(Accessory(
-            id: Self.accessoryID, name: Self.accessoryName, manufacturer: "Open-Meteo", model: "Weather",
-            serialNumber: Self.deviceID, firmwareRevision: PluginHost.version, category: .sensor, services: [temperature, humidity, raining]))
-        // The accessory the bridge publishes.
-        guard let published = context.accessory(id: Self.accessoryID) else { throw OpenMeteo.Failure(description: "the weather accessory was not added") }
-        accessory = published
-        return published
+        return Accessory(
+            id: accessoryID, name: accessoryName, manufacturer: "Open-Meteo", model: "Weather",
+            serialNumber: deviceID, firmwareRevision: PluginHost.version, category: .sensor, services: [temperature, humidity, raining])
     }
 }
