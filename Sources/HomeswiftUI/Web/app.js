@@ -1579,6 +1579,13 @@
     const consumersMore = el("button", { type: "button", class: "link consumers-more", hidden: true });
     consumers.body.append(consumerList, consumersMore);
     let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
+    // Gas and water (GLOSSARY.md, "Meter"): the m³ their Meters measured, by day or month, a colour per Meter, with the
+    // cost at their own Tariff. Shown when a plugin declares such a Meter.
+    const utilities = [
+      { kind: "gas", ...card(t("Gas"), t("What the gas meters measured in this period"), "flame", "orange") },
+      { kind: "water", ...card(t("Water"), t("What the water meters measured in this period"), "drop", "blue") },
+    ];
+    for (const one of utilities) one.node.hidden = true;
     consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
     const today = el("div", { class: "energy-today" });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
@@ -1592,7 +1599,8 @@
       el("div", { class: "chart-grid" }, power.node, levels.node),
       pointTable,
       historyBar,
-      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node));
+      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node),
+      el("div", { class: "chart-grid energy-utilities" }, utilities.map((one) => one.node)));
     let lastReport = null;   // for the table
     let refresh = null;
 
@@ -1722,7 +1730,9 @@
       }
       if (asked !== historyAsked) return;
       hasMeters = found.meters.length > 0;
-      fillConsumers(found);
+      // Electricity's Meters by device; gas and water each on a card of its own.
+      fillConsumers({ ...found, meters: found.meters.filter((one) => (one.kind ?? "electricity") === "electricity") });
+      for (const one of utilities) fillUtility(one, found);
       showSection();
     }
 
@@ -1766,7 +1776,8 @@
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(figure) }), note ? el("small", { text: note }) : null)));
       };
       const shown = consumersAll ? devices : devices.slice(0, 8);
-      consumerList.replaceChildren(
+      // A list of rows, none empty: replaceChildren writes a null as the text "null".
+      consumerList.replaceChildren(...[
         ...wholes.map((one) => row(one, false)),
         ...shown.map((one) => row(one, wholes.length > 0)),
         // The rest of the home: no history of its own to open.
@@ -1775,7 +1786,7 @@
           el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
           el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
-        ...sources.map((one) => row(one, false)));
+        ...sources.map((one) => row(one, false))].filter(Boolean));
       consumersMore.hidden = devices.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
         el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
@@ -1786,6 +1797,51 @@
       const costs = counted.filter((one) => one.cost != null);
       consumers.detail.textContent = !meters.length ? t("Nothing measured in this period")
         : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
+    }
+
+    /// A bar of the period's chart, by its date (YYYY-MM-DD, or YYYY-MM over a year): its labels, Today and Yesterday by
+    /// name, and whether it is the one now.
+    function periodBar(date) {
+      const monthly = view === "year";
+      const today = isoDay(new Date()), yesterday = isoDay(new Date(Date.now() - 86400000));
+      const [year, month, day] = date.split("-").map(Number);
+      const when = new Date(year, month - 1, day || 1);
+      const name = (format) => monthly ? format.format(when)
+        : date === today ? t("Today") : date === yesterday && format === dayFormat ? t("Yesterday") : format.format(when);
+      return {
+        label: monthly ? shortMonth.format(when) : view === "month" ? String(when.getDate()) : name(shortDay),
+        narrow: monthly ? narrowMonth.format(when) : String(when.getDate()),
+        title: name(monthly ? monthYear : dayFormat),
+        current: monthly ? date === today.slice(0, 7) : date === today,
+      };
+    }
+
+    /// A gas or water card: the period's m³ by day (by month over a year), a colour per Meter, the total and its cost.
+    function fillUtility(utility, found) {
+      const meters = found.meters.filter((one) => one.kind === utility.kind);
+      utility.node.hidden = !meters.length;
+      if (!meters.length) return;
+      // Gas starts orange, water blue; more Meters of a kind take the next slots.
+      const tones = utility.kind === "gas" ? [2, 5, 7, 3, 6, 1] : [1, 3, 7, 5, 6, 2];
+      const segments = meters.map((meter, index) => ({ label: meter.label ? `${meter.name} · ${meter.label}` : meter.name, tone: tones[index % tones.length],
+        value: (values) => values?.[index] ?? null }));
+      const bars = meters[0].bars.map((bar, at) => {
+        const values = meters.map((meter) => meter.bars[at]?.hours ? meter.bars[at].consumption : null);
+        return { ...periodBar(bar.date), values: values.some((value) => value != null) ? values : null };
+      });
+      const key = view + "\n" + segments.map((one) => one.label).join("\n");
+      if (utility.view && utility.key === key) utility.view.update(bars);
+      else {
+        utility.body.replaceChildren();
+        utility.key = key;
+        utility.view = HomeswiftChart.stackedBars(utility.body, { title: utility.title, segments, bars, format: formatCubicMetres, unit: (max) => max < 1 ? 0.01 : 1 });
+      }
+      const total = meters.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
+      utility.figure.textContent = formatCubicMetres(total);
+      const priced = meters.filter((one) => one.cost != null);
+      const currency = priced[0]?.currency;
+      utility.detail.textContent = total === 0 && !meters.some((one) => one.consumption != null) ? t("Nothing measured in this period")
+        : currency && priced.length ? t("{cost} at its tariff, hour by hour", { cost: formatMoney(priced.reduce((sum, one) => sum + one.cost, 0), currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -1834,15 +1890,8 @@
       ].filter(Boolean);
       // The legend names each colour once: an entity is the same colour above the line and below it.
       const legend = [...new Map(segments.map((one) => [one.tone, { tone: one.tone, label: { 4: t("Solar"), 3: t("Batteries"), 7: t("Grid"), 8: t("Not split") }[one.tone] }])).values()];
-      const today = isoDay(new Date()), yesterday = isoDay(new Date(Date.now() - 86400000));
       const dateOf = (bar) => { const [year, month, day] = bar.date.split("-").map(Number); return new Date(year, month - 1, day || 1); };
-      const name = (bar, format) => monthly ? format.format(dateOf(bar))
-        : bar.date === today ? t("Today") : bar.date === yesterday && format === dayFormat ? t("Yesterday") : format.format(dateOf(bar));
-      const chartBars = bars.map((bar) => ({
-        label: monthly ? shortMonth.format(dateOf(bar)) : view === "month" ? String(dateOf(bar).getDate()) : name(bar, shortDay),
-        narrow: monthly ? narrowMonth.format(dateOf(bar)) : String(dateOf(bar).getDate()),
-        title: name(bar, monthly ? monthYear : dayFormat), values: known(bar) ? bar : null,
-        current: monthly ? bar.date === today.slice(0, 7) : bar.date === today }));
+      const chartBars = bars.map((bar) => ({ ...periodBar(bar.date), values: known(bar) ? bar : null }));
       const key = view + "\n" + segments.map((one) => one.label).join("\n");
       days.titleNode.textContent = monthly ? t("Energy by month") : t("Energy by day");
       if (days.view && days.key === key) days.view.update(chartBars);
@@ -1909,7 +1958,7 @@
       dayTable.replaceChildren(dayTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
         el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: monthly ? t("Month") : t("Day") }), columns.map(([title]) => el("th", { scope: "col", text: title })))),
         el("tbody", {}, [...bars].reverse().map((bar) => el("tr", {},
-          el("th", { scope: "row", class: "time", text: name(bar, monthly ? monthYear : dayFormat) }),
+          el("th", { scope: "row", class: "time", text: periodBar(bar.date).title }),
           columns.map(([, field, format]) => {
             const one = known(bar) ? bar[field] : null;
             return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
@@ -1968,6 +2017,7 @@
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
   const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+  const formatCubicMetres = (value, top) => HomeswiftCommon.cubicMetres(value, top);
   const formatMoney = (amount, currency) => HomeswiftCommon.money(amount, currency);
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
