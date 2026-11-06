@@ -16873,8 +16873,6 @@ HomeswiftI18n.add("es", {
   "Nobody home": "Nadie en casa",
   "Home [presence]": "En casa",
   "Away [presence]": "Fuera",
-  "Anyone Home": "Alguien en casa",
-  "Person": "Persona",
   "You are home": "Estás en casa",
   "You are away": "Estás fuera",
   "Whether you are home, from your phone on the network": "Si estás en casa, según tu teléfono en la red",
@@ -19935,8 +19933,6 @@ HomeswiftI18n.add("fr", {
   "Nobody home": "Personne n'est là",
   "Home [presence]": "À la maison",
   "Away [presence]": "Absent",
-  "Anyone Home": "Quelqu'un à la maison",
-  "Person": "Personne",
   "You are home": "Vous êtes à la maison",
   "You are away": "Vous êtes absent",
   "Whether you are home, from your phone on the network": "Si vous êtes à la maison, d'après votre téléphone sur le réseau",
@@ -22997,8 +22993,6 @@ HomeswiftI18n.add("pt", {
   "Nobody home": "Ninguém em casa",
   "Home [presence]": "Em casa",
   "Away [presence]": "Fora",
-  "Anyone Home": "Alguém em casa",
-  "Person": "Pessoa",
   "You are home": "Está em casa",
   "You are away": "Está fora",
   "Whether you are home, from your phone on the network": "Se está em casa, segundo o seu telemóvel na rede",
@@ -30523,6 +30517,7 @@ select option:disabled { color: var(--muted); }
 .setup-choices legend { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); width: 100%; }
 .setup-choices-count { font-size: var(--text-sm); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
+.setup-choices-list > .setup-option { margin: 0; }
 .setup-option strong { overflow-wrap: anywhere; }
 /* A word of caution beside a step's message (a phone's private Wi-Fi address). */
 .setup-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12);
@@ -33001,7 +32996,7 @@ self.addEventListener("notificationclick", (event) => {
       return {
         on: home,
         hero: () => el("span", { class: "w-hero-word" }, home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"))),
-        status: () => [anyone ? t("Anyone Home") : t("Person"), ""],
+        status: () => [home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]")), ""],
       };
     },
   });

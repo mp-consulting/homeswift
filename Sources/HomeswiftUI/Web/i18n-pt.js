@@ -3039,8 +3039,6 @@ HomeswiftI18n.add("pt", {
   "Nobody home": "Ninguém em casa",
   "Home [presence]": "Em casa",
   "Away [presence]": "Fora",
-  "Anyone Home": "Alguém em casa",
-  "Person": "Pessoa",
   "You are home": "Está em casa",
   "You are away": "Está fora",
   "Whether you are home, from your phone on the network": "Se está em casa, segundo o seu telemóvel na rede",

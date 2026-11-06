@@ -4097,6 +4097,7 @@ select option:disabled { color: var(--muted); }
 .setup-choices legend { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); width: 100%; }
 .setup-choices-count { font-size: var(--text-sm); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
+.setup-choices-list > .setup-option { margin: 0; }
 .setup-option strong { overflow-wrap: anywhere; }
 /* A word of caution beside a step's message (a phone's private Wi-Fi address). */
 .setup-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12);
