@@ -114,18 +114,16 @@ public struct SceneFile: Codable, Sendable, Equatable {
 }
 
 public enum SceneRunTrigger: String, Sendable {
-    /// `homeKit`: its switch in the Home app, which a person turned on; `automation`: an Automation's Step.
-    case manual, schedule, sun, characteristic, homeKit, automation
-
-    /// Run by a trigger rather than a person: conditions apply, and a failure is notified.
-    var isAutomatic: Bool { self == .schedule || self == .sun || self == .characteristic }
+    /// `homeKit`: its switch in the Home app, which a person turned on; `automation`: an Automation's Step, which
+    /// keeps the Automation's conditions, its notification of a failure and its Change Source.
+    case manual, homeKit, automation
 
     /// Why a lock, a door or an alarm in the scene was left as it was, run this way without a person's confirmation.
     var securitySkipReason: String {
         switch self {
         case .manual: "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)"
         case .homeKit: "a lock, door or alarm: the Home app's scene switch leaves them out"
-        case .schedule, .sun, .characteristic, .automation: "a lock, door or alarm: automations do not change them"
+        case .automation: "a lock, door or alarm: automations do not change them"
         }
     }
 }
@@ -576,18 +574,12 @@ extension HomeswiftCatalog {
     func run(_ scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
         // Its changes are the scene's in the Logbook; an Automation's Step keeps them the Automation's.
         if trigger == .automation { return try await runSteps(of: scene, trigger: trigger, allowSecurity: allowSecurity) }
-        let source: ChangeSource = trigger.isAutomatic ? .automation(scene.name) : .scene(scene.name)
-        return try await source.run { try await runSteps(of: scene, trigger: trigger, allowSecurity: allowSecurity) }
+        return try await ChangeSource.scene(scene.name).run { try await runSteps(of: scene, trigger: trigger, allowSecurity: allowSecurity) }
     }
 
     private func runSteps(of scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
         guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
         defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
-        if trigger.isAutomatic, let reason = conditionsFail(scene.conditions) {
-            logger.info("Scene \"\(scene.name)\" not run (\(trigger.rawValue)): \(reason)")
-            record(scene.id) { $0.lastSkipped = SceneRunRecord(at: SceneRules.now(), ok: true, trigger: trigger.rawValue, reason: reason) }
-            return ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": true, "results": [], "skipped": .string(reason)]
-        }
         // Light snapshots include color mode, power and Adaptive Lighting, and inherit the baseline of a show they replace.
         let located = Set(scene.actions.map(\.id)).compactMap { find(id: $0) }
         let lights = Self.lights(of: located).filter { light in
@@ -680,9 +672,6 @@ extension HomeswiftCatalog {
         let ok = failed == 0
         let note = held > 0 ? "\(held) security action(s) not run" : nil
         record(scene.id) { $0.lastRun = SceneRunRecord(at: SceneRules.now(), ok: ok, trigger: trigger.rawValue, reason: note) }
-        if trigger.isAutomatic, !ok {
-            await notify(.sceneFailed, title: "Scene \(scene.name) failed", message: "\(failed) of \(scene.actions.count) actions failed when the \(trigger.rawValue) trigger ran it.", path: "/scenes", subject: scene.id)
-        }
         var answer: [String: JSONValue] = ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": .bool(ok), "results": .array(results)]
         if let note { answer["note"] = .string(note) }
         if let animated { answer["animation"] = animated }

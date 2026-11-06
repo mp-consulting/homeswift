@@ -62,7 +62,7 @@ struct AutomationTests {
         #expect(!environment.written.contains { $0.0 == "lock.target" })
         #expect(lampWrites(environment, "lamp.on") == [.bool(false)])
         #expect(answer["lastRun"]?["reason"]?.stringValue?.contains("lock, door or alarm") == true)
-        #expect(answer["lastRun"]?["steps"]?[0]?["note"]?.stringValue?.contains("automations do not change them") == true)
+        #expect(answer["lastRun"]?["steps"]?[0]?["skipped"] == true)
     }
 
     @Test func restartStartsAgainAndSingleIgnoresANewTrigger() async throws {
@@ -98,7 +98,8 @@ struct AutomationTests {
         // On and back off within the time: nothing.
         _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: true, allowSecurity: false)
         _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: false, allowSecurity: false)
-        try await Task.sleep(for: .seconds(2))
+        // Its timer ended with the change back: nothing can run from it.
+        #expect(await eventually { catalog.home.staysTimers.withLockedValue { $0.isEmpty } })
         #expect(lampWrites(environment, "lamp.brightness").isEmpty)
         // On for the whole time (a second, scaled): it runs.
         _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: true, allowSecurity: false)
@@ -141,6 +142,23 @@ struct AutomationTests {
         #expect(throws: CatalogError.self) {
             try catalog.createScene(["name": "Timed", "actions": [["id": "Devices:lamp", "characteristic": "On", "value": true]], "triggers": [["type": "time", "at": "07:00"]]])
         }
+    }
+
+    /// Saving one Automation leaves another's stays timer counting; a stale id is refused rather than made anew.
+    @Test func savingOneKeepsAnothersTimerAndAStaleIdIsRefused() async throws {
+        let environment = try await environment()
+        let catalog = environment.catalog
+        catalog.startHome(restarted: true)
+        defer { Task { await catalog.stopHome(restarting: true); await environment.stop() } }
+        _ = try catalog.saveAutomation(["name": "Left on", "triggers": [["type": "stays", "id": "Devices:lamp", "characteristic": "On", "operator": "eq", "value": true, "forSeconds": 3000]],
+            "steps": [["type": "set", "id": "Devices:lamp", "characteristic": "Brightness", "value": 1]]])
+        let lamp = try #require(catalog.find(id: "Devices:lamp"))
+        _ = try await catalog.write(lamp, service: nil, characteristic: "On", value: true, allowSecurity: false)
+        #expect(await eventually { catalog.home.staysTimers.withLockedValue { $0.count == 1 } })
+        _ = try catalog.saveAutomation(["name": "Other", "triggers": [["type": "time", "at": "07:00"]], "steps": [["type": "wait", "seconds": 1]]])
+        #expect(catalog.home.staysTimers.withLockedValue { $0.count } == 1)
+        #expect(throws: CatalogError.self) { try catalog.saveAutomation(["id": "0000000000000000", "name": "Ghost", "triggers": [["type": "time", "at": "07:00"]], "steps": [["type": "wait", "seconds": 1]]]) }
+        #expect(catalog.home.automations.value.automations.count == 2)
     }
 
     @Test func refusesBadAutomations() throws {

@@ -7777,7 +7777,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { el, api } = HomeswiftCommon;
   const app = () => window.HomeswiftApp;
   const home = () => window.HomeswiftHome.editor;
-  const dateTimeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
 
   /// What the editor opens with next, instead of an empty Automation: the Assistant's draft, or a Scene to apply.
   let pending = null;
@@ -7792,8 +7791,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function view(main, [id] = []) {
     if (id) return editor(main, id);
-    const data = await api("/api/automations");
-    const accessories = await api("/api/accessories").catch(() => []);
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories").catch(() => [])]);
     const names = new Map(accessories.map((one) => [one.id, window.HomeswiftHome.displayName(one)]));
     const admin = app().isAdmin();
     const newButton = admin ? el("a", { class: "button primary", href: "/automations/new", actionIcon: "plus", text: t("New automation") }) : null;
@@ -7826,14 +7824,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "automation-draft-row" }, sentence, ask), line);
   }
 
+  /// The scenes' wording of a last run (or a skip), with what the run noted.
   function lastRun(automation) {
-    if (automation.lastSkipped && (!automation.lastRun || automation.lastSkipped.at > automation.lastRun.at)) {
-      return t("Skipped {date}: {reason}", { date: dateTimeFormat.format(new Date(automation.lastSkipped.at)), reason: HomeswiftI18n.message(automation.lastSkipped.reason) });
-    }
-    if (!automation.lastRun) return t("Never run");
-    const vars = { date: dateTimeFormat.format(new Date(automation.lastRun.at)), trigger: automation.lastRun.trigger };
-    const text = automation.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
-    return automation.lastRun.reason ? `${text} · ${HomeswiftI18n.message(automation.lastRun.reason)}` : text;
+    const text = home().lastRun(automation);
+    const shown = automation.lastSkipped && (!automation.lastRun || automation.lastSkipped.at > automation.lastRun.at);
+    return !shown && automation.lastRun?.reason ? `${text} · ${HomeswiftI18n.message(automation.lastRun.reason)}` : text;
   }
 
   function card(automation, names, admin) {
@@ -7868,7 +7863,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function editor(main, id) {
     const isNew = id === "new";
-    const [data, accessories, scenes] = await Promise.all([api("/api/automations"), api("/api/accessories"), api("/api/scenes").catch(() => ({ scenes: [] }))]);
+    const [data, accessories] = await Promise.all([api("/api/automations"), api("/api/accessories")]);
+    const scenes = { scenes: data.scenes ?? [] };
     const fromDraft = isNew ? pending : null;
     pending = null;
     const automation = isNew ? { name: "", triggers: [{ type: "time", at: "07:00" }], conditions: [], steps: [], mode: "restart", enabled: true, ...(fromDraft ?? {}) }
@@ -13683,9 +13679,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
         operator.value = shown.operator || "eq";
         const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
-        const minutes = el("input", { type: "number", min: 1, max: 1440, step: 1, value: Math.max(1, Math.round((shown.forSeconds ?? 300) / 60)), "aria-label": t("Minutes") });
-        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("For (minutes)"), minutes));
-        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), forSeconds: Math.max(1, Math.round(Number(minutes.value) || 1)) * 60 });
+        // The duration in the unit it was saved in: 90 seconds stays 90 seconds.
+        const seconds = shown.forSeconds ?? 300;
+        const size = seconds % 3600 === 0 ? 3600 : seconds % 60 === 0 ? 60 : 1;
+        const amount = el("input", { type: "number", min: 1, max: 86400, step: 1, value: seconds / size, "aria-label": t("For") });
+        const unit = el("select", { "aria-label": t("Unit") }, el("option", { value: 1, text: t("seconds") }), el("option", { value: 60, text: t("minutes") }), el("option", { value: 3600, text: t("hours") }));
+        unit.value = String(size);
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder), field(t("For"), amount), field(t("Unit"), unit));
+        row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read(), forSeconds: Math.min(86400, Math.max(1, Math.round(Number(amount.value) || 1)) * Number(unit.value)) });
       } else if (shown.type === "threshold") {
         const pick = {};
         const numeric = (accessory) => readable(accessory).filter((c) => ["float", "int", "uint8", "uint16", "uint32", "uint64"].includes(c.format) && !c.validValues);
@@ -14250,7 +14251,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     },
     layoutActions, moveGroupToRoom, groupByRoom, roomOf, suggestRooms, quickSection, displayName,
     /// For the Automations page (automations.js): its triggers, conditions and the pickers they are made of.
-    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, valueInput, readable, writable, operators, field, rowShell, describeTrigger, describeSeconds, triggerIcons, statusLine: () => statusLine(), say: (...args) => say(...args) },
+    scenesTabs, editor: { triggerRow, conditionRow, characteristicPicker, readable, writable, operators, field, describeTrigger, triggerIcons, statusLine, say, lastRun: sceneLastRun },
   };
 })();
 
