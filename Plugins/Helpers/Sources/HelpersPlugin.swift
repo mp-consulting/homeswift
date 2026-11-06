@@ -83,9 +83,13 @@ public actor HelpersPlugin: HomeswiftPlugin {
         }
         await context.removeAccessories(keeping: Set(helpers.keys.map(Self.accessoryID)).union(broken), message: "Removing a Helper no longer set up")
 
-        let (stream, continuation) = AsyncStream<String?>.makeStream(bufferingPolicy: .bufferingNewest(256))
+        // Only the sources' changes reach the actor: the rest of the bridge's never wait on it, nor push one out.
+        let (stream, continuation) = AsyncStream<String?>.makeStream()
         wake = continuation
-        if let changes = context.observeHostChanges({ accessory, _, _ in continuation.yield(accessory.id) }) { observations.append(changes) }
+        let watched = Set(readers.keys)
+        if let changes = context.observeHostChanges({ accessory, _, _ in if watched.contains(accessory.id) { continuation.yield(accessory.id) } }) {
+            observations.append(changes)
+        }
         if let structure = context.observeHostStructure({ continuation.yield(nil) }) { observations.append(structure) }
         tasks.add { [weak self] in
             for await id in stream {
@@ -211,6 +215,9 @@ public actor HelpersPlugin: HomeswiftPlugin {
     }
 
     // MARK: For Setup and the settings
+
+    /// A running Helper's name now, which a rename changes without a reload.
+    func helperName(_ deviceID: String) -> String? { helpers[deviceID]?.accessory.name }
 
     /// Whether a Helper answers: none of its sources missing or No Response.
     func isReachable(_ deviceID: String) -> Bool? {

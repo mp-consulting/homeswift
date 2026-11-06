@@ -13,6 +13,21 @@ private let accept: JSONValue = ["action": "accept", "content": ["confirm": true
 /// places read and migrated, the plugin's declarations checked (docs/adr/0002, 0003).
 @Suite(.timeLimit(.minutes(1)))
 struct AccessorySettingsTests {
+    /// Choices a plugin gives from the home (`accessorySettingChoices`): a field's own, a list's items', as titled values the
+    /// web UI's catalogs translate.
+    @Test func pluginChoicesBecomeTheFieldsOneOf() {
+        let choices = [SetupOption("Fake:a#10", label: "Kitchen", detail: "Current Temperature")]
+        let one = HomeswiftCatalog.withChoices(["type": "string", "title": "Source"], choices)
+        #expect(one["oneOf"]?[0]?["enum"] == ["Fake:a#10"])
+        #expect(one["oneOf"]?[0]?["title"] == "Kitchen")
+        #expect(one["oneOf"]?[0]?["x-detail"] == "Current Temperature")
+        #expect(one["oneOf"]?[0]?["x-catalog"] == true)
+        let list = HomeswiftCatalog.withChoices(["type": "array", "items": ["type": "string"]], choices)
+        #expect(list["oneOf"] == nil)
+        #expect(list["items"]?["oneOf"]?.arrayValue?.count == 1)
+        #expect(list["items"]?["type"] == "string")
+    }
+
     /// The devices plugin's schema: a Plugin Setting that is a plugin-wide default, and three Plugin Accessory Settings,
     /// one only for cameras.
     static let schema = """

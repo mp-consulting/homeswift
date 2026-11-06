@@ -10,7 +10,9 @@ extension HelpersPlugin {
     public func discover() async throws -> [DiscoveredDevice] {
         context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { deviceID, settings in
             guard let kind = settings.plugin["rule"]?.stringValue.flatMap(HelperRule.Kind.init(rawValue:)) else { return nil }
-            var device = DiscoveredDevice(deviceID: deviceID, name: settings.name ?? "Helper", model: "\(kind.title) Helper", isSetUp: true, kind: kind.rawValue)
+            // Its accessory's name: a rename is live, the settings are as the plugin was launched.
+            let name = helperName(deviceID) ?? settings.name ?? "Helper"
+            var device = DiscoveredDevice(deviceID: deviceID, name: name, model: "\(kind.title) Helper", isSetUp: true, kind: kind.rawValue)
             device.isReachable = isReachable(deviceID) ?? true
             return device
         }
@@ -37,8 +39,7 @@ extension HelpersPlugin {
             for value in settings[key]?.arrayValue ?? [] { options = Self.withCurrent(value, options) }
             return options
         case ("state", .stays):
-            guard let source = settings["source"]?.stringValue.flatMap(SourceRef.init),
-                  let type = accessories.sourceCandidates { _ in true }.first(where: { $0.ref == source })?.type,
+            guard let source = settings["source"]?.stringValue.flatMap(SourceRef.init), let type = context.sourceType(source),
                   let states = SourceStates.states(of: type) else { return nil }
             return states.map { SetupOption(String($0.value), label: $0.label) }
         default:
@@ -49,7 +50,7 @@ extension HelpersPlugin {
     /// The options with the value set now added when it is not one of them (its accessory gone): it stays shown, and picked.
     static func withCurrent(_ value: JSONValue?, _ options: [SetupOption]) -> [SetupOption] {
         guard let text = value?.stringValue, !options.contains(where: { $0.value == text }) else { return options }
-        return options + [SetupOption(text, label: "Missing: \(text)")]
+        return options + [SetupOption(text, label: text, detail: "Not found")]
     }
 
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {

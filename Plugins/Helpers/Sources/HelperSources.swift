@@ -5,11 +5,12 @@ import HomeswiftPlugin
 /// A characteristic a Helper may read, found on the host's accessories: what Setup and the settings editor offer.
 struct SourceCandidate: Sendable {
     var ref: SourceRef
-    /// For people: "Living room · Current Temperature", the service's own name too when the accessory has several of it.
+    /// For people: the accessory's name ("Living room"), the service's own too when the accessory has several of it.
     var label: String
     var type: CharacteristicType
 
-    var option: SetupOption { SetupOption(ref.description, label: label) }
+    /// The accessory as the label, what it reads as the detail ("Current Temperature"): the web UI translates the detail.
+    var option: SetupOption { SetupOption(ref.description, label: label, detail: type.name) }
 }
 
 /// The states a Stays Helper can wait on, for the characteristics that have named ones; the others' states are their
@@ -51,12 +52,22 @@ extension Array where Element == Accessory {
                     guard type.permissions.contains(.pairedRead), type.permissions.contains(.events),
                           type.uuid != CharacteristicType.programmableSwitchEvent.uuid, test(type) else { continue }
                     let serviceName = twins ? (service[.configuredName] ?? service[.name])?.value.stringValue.flatMap { $0.isEmpty ? nil : $0 } : nil
-                    let label = [accessory.name, serviceName, type.name].compactMap { $0 }.joined(separator: " · ")
+                    let label = [accessory.name, serviceName].compactMap { $0 }.joined(separator: " · ")
                     found.append(SourceCandidate(ref: SourceRef(accessoryID: accessory.id, iid: characteristic.iid), label: label, type: type))
                 }
             }
         }
-        return found.sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+        return found.sorted { a, b in
+            let order = a.label.localizedStandardCompare(b.label)
+            return order == .orderedSame ? a.type.name < b.type.name : order == .orderedAscending
+        }
+    }
+}
+
+extension PluginContext {
+    /// The type of a source's characteristic, when its accessory is on the bridge.
+    func sourceType(_ source: SourceRef) -> CharacteristicType? {
+        hostAccessory(id: source.accessoryID)?.services.lazy.flatMap(\.characteristics).first { $0.iid == source.iid }?.type
     }
 }
 

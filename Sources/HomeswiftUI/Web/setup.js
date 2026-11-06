@@ -368,10 +368,12 @@
   function choice(field) {
     if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
     const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
+    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+      el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)));
+    // A long list (a Helper's sources) scrolls on its own, so the fields after it stay in reach.
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
-      ...field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
+      ...(options.length > 6 ? [el("div", { class: "setup-choices-list" }, ...options)] : options));
     Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
     node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
     return node;

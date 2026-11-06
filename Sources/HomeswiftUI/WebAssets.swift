@@ -5831,6 +5831,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
+    /// A choice's title: the schema's words, or for one the plugin gives from the home (`x-catalog`, an accessory and what
+    /// it reads) the web UI's catalogs', its detail after it.
+    const choiceTitle = (o) => o["x-catalog"] ? [o.title, o["x-detail"]].filter(Boolean).map((text) => t(text)).join(" · ") : tr(o.title) ?? String(o.enum[0]);
     const schema = root.schema || root;
     const properties = schema.properties || {};
     const requiredTop = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -5904,7 +5907,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
-      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
+      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
       // A value config.json has that is not among the choices stays one, so a save does not drop it.
       if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
@@ -6005,7 +6008,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // A list of choices (`items` an `enum`, or a `oneOf` of them) is a set of checkboxes, written in the choices'
         // order, unless `uniqueItems: false` lets a choice come twice; a value config.json has that is not a choice
         // stays, ticked.
-        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) }))
+        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) }))
           : Array.isArray(items.enum) ? items.enum.map((v) => ({ value: v, title: String(v) })) : null;
         if (choices && property.uniqueItems !== false) {
           const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -26141,10 +26144,12 @@ HomeswiftI18n.add("pt", {
   function choice(field) {
     if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
     const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
+    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+      el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)));
+    // A long list (a Helper's sources) scrolls on its own, so the fields after it stay in reach.
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
-      ...field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
+      ...(options.length > 6 ? [el("div", { class: "setup-choices-list" }, ...options)] : options));
     Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
     node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
     return node;

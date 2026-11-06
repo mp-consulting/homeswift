@@ -142,7 +142,7 @@ extension HomeswiftCatalog {
         guard let session = setupSessions.session(id) else { throw CatalogError("No Setup in progress with id \(id): it ended or expired, start it again") }
         var texts: [String: String] = [:]
         // What was answered, secrets left out: a step asked again shows it, to correct rather than type again.
-        let answered = answers.compactMapValues { $0.stringValue }
+        let answered = answers.compactMapValues { $0.stringValue ?? $0.arrayValue.map { $0.compactMap(\.stringValue).joined(separator: "\n") } }
         let asking = { (error: String) in self.asking(session, error: error, answers: answered) }
         for field in session.prompt.fields {
             // A `choices` field takes a list of values as well as one per line.

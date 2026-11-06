@@ -65,8 +65,9 @@ extension HomeswiftCatalog {
     static func withChoices(_ field: JSONValue, _ choices: [SetupOption]) -> JSONValue {
         guard var object = field.objectValue else { return field }
         let oneOf = JSONValue.array(choices.map { choice in
-            var option: [String: JSONValue] = ["enum": [.string(choice.value)], "title": .string(choice.label)]
-            if let detail = choice.detail { option["description"] = .string(detail) }
+            // Words the web UI's catalogs translate, as a Setup prompt's: the editor shows "title · detail".
+            var option: [String: JSONValue] = ["enum": [.string(choice.value)], "title": .string(choice.label), "x-catalog": true]
+            if let detail = choice.detail { option["x-detail"] = .string(detail) }
             return .object(option)
         })
         if object["type"] == "array" {
