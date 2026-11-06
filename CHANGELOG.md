@@ -6,7 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
+  values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
+  Step applies it. A Scene saved with `triggers` or `conditions` is refused.
+
 ### Added
+
+- Automations (`/automations`, beside Scenes): Triggers (a time, the sun, cron, an accessory's change, a value that
+  stays so for a while, a number crossing a threshold), Conditions, and Steps run in order (apply a Scene, set a value,
+  wait, wait until, notify, a plugin's action that needs no confirmation), in Restart or Single mode. Locks, garage doors
+  and alarms are never set by one. An Automation may be a switch on the Homeswift Scenes accessory, which turns it on and
+  off. The Assistant drafts one from a sentence, for review. MCP: `list_automations`, `save_automation`,
+  `run_automation`, `delete_automation`.
 
 - History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
   each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,

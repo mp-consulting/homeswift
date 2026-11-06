@@ -6,6 +6,9 @@
 //
 //   node Scripts/plugin-screenshots.mjs [<homeswift binary>] [<out dir>]
 //
+// PLUGIN_SHOTS_PORT, PLUGIN_SHOTS_HUE_PORT and PLUGIN_SHOTS_DEBUG_PORT move the web UI, the fake Hue Bridge and Chrome's
+// DevTools off 18591, 18592 and 9335 when another bridge has them.
+//
 // The DIRIGERA hub answers on 8443, the port the plugin uses, so nothing else may listen there. As the page loads, the
 // fakes' addresses become 192.168.1.20 and 192.168.1.30, and this machine's name and the folder's paths demonstration
 // ones. Everything the run made goes when it ends.
@@ -22,7 +25,8 @@ const literal = (value) => JSON.stringify(value).replace(/[<>\/\u2028\u2029]/g, 
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const binary = process.argv[2] || join(homedir(), "Library/Caches/homeswift-build/debug/homeswift");
 const out = resolve(process.argv[3] || join(root, "docs/images/plugins"));
-const uiPort = 18591, huePort = 18592, dirigeraPort = 8443;
+const debugPort = Number(process.env.PLUGIN_SHOTS_DEBUG_PORT || 9335);
+const uiPort = Number(process.env.PLUGIN_SHOTS_PORT || 18591), huePort = Number(process.env.PLUGIN_SHOTS_HUE_PORT || 18592), dirigeraPort = 8443;
 const base = `http://127.0.0.1:${uiPort}`;
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 mkdirSync(out, { recursive: true });
@@ -162,9 +166,17 @@ const action = (light, characteristic, value) => ({ id: `PhilipsHue:${light}`, s
 writeFileSync(join(storage, "scenes.json"), JSON.stringify({ version: 1, scenes: [
   { id: "5ce0e0000000a001", name: "Movie night", artworkId: "mood-cinema", homeKit: true, triggers: [], conditions: [],
     actions: [action("l2", "On", false), action("l3", "On", true), action("l3", "Brightness", 20), action("l6", "On", true), action("l6", "Hue", 230), action("l6", "Saturation", 80)] },
-  { id: "5ce0e0000000a002", name: "Evening", artworkId: "rolling-hills", conditions: [{ type: "time", after: "sunset", before: "23:00" }],
-    triggers: [{ type: "time", at: "19:30", days: [1, 2, 3, 4, 5], enabled: true }],
+  { id: "5ce0e0000000a002", name: "Evening", artworkId: "rolling-hills", triggers: [], conditions: [],
     actions: [action("l2", "On", true), action("l2", "Brightness", 60), action("l3", "On", true), action("l3", "Brightness", 45)] },
+] }));
+// The Automations that apply them: Evening on weekdays at 19:30, after sunset; the lights down when the TV strip goes on.
+writeFileSync(join(storage, "automations.json"), JSON.stringify({ version: 1, automations: [
+  { id: "a7e0e0000000b001", name: "Evening on weekdays", triggers: [{ type: "time", at: "19:30", days: [1, 2, 3, 4, 5] }],
+    conditions: [{ type: "time", after: "sunset", before: "23:00" }], steps: [{ type: "scene", scene: "5ce0e0000000a002" }], homeKit: true },
+  { id: "a7e0e0000000b002", name: "Movie lights", mode: "single",
+    triggers: [{ type: "stays", id: "PhilipsHue:l6", service: "TV Lightstrip", characteristic: "On", operator: "eq", value: true, forSeconds: 120 }],
+    conditions: [], steps: [{ type: "scene", scene: "5ce0e0000000a001" }, { type: "wait", seconds: 7200 },
+      { type: "set", id: "PhilipsHue:l3", service: "Floor Lamp", characteristic: "On", value: false }, { type: "notify", title: "Movie night", message: "The floor lamp went off after two hours." }] },
 ] }));
 // A conversation where the Assistant started pairing the second bridge and handed the button press to the Setup sheet.
 const now = new Date().toISOString();
@@ -288,10 +300,10 @@ const pageScript = `(() => {
 })();`;
 const profile = mkdtempSync(join(tmpdir(), "homeswift-plugin-chrome-"));
 const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  ["--headless=new", "--remote-debugging-port=9335", `--user-data-dir=${profile}`, "--hide-scrollbars", "--no-first-run", "about:blank"], { stdio: "ignore" });
+  ["--headless=new", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, "--hide-scrollbars", "--no-first-run", "about:blank"], { stdio: "ignore" });
 let target;
 for (let i = 0; i < 50 && !target; i++) {
-  try { target = (await (await fetch("http://127.0.0.1:9335/json/list")).json()).find((t) => t.type === "page"); } catch {}
+  try { target = (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find((t) => t.type === "page"); } catch {}
   if (!target) await sleep(200);
 }
 if (!target) { chrome.kill(); await stop(); throw new Error("headless Chrome did not start"); }
@@ -386,8 +398,8 @@ try {
   await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${literal(`${kind} .template-button`)})?.click();`, tall: 900 });
   await shotUI("scene-gallery-phone", { width: 390, height: 844, mobile: true, element: ".templates .template-group:has(.artwork-themes)", tall: 900 });
 
-  // The scene editor (docs/ui.md, "Scenes"): its workflow on Movie night's actions; Evening's weekday trigger and its
-  // time window; on a phone, the workflow, the condition and deleting the scene.
+  // The scene editor (docs/ui.md, "Scenes"): its workflow on Movie night's actions; on a phone, the workflow and deleting
+  // the scene. The Automations: the list, Movie lights' steps, and Evening on weekdays on a phone.
   const into = (folder) => (name) => {
     if (!process.env.PLUGIN_SHOTS_ONLY || process.env.PLUGIN_SHOTS_ONLY.split(",").includes(name)) {
       mkdirSync(folder, { recursive: true });
@@ -412,14 +424,15 @@ try {
   const step = (title) => `[...document.querySelectorAll(".scene-flow-nav")].find((b) => b.textContent.includes(${literal(title)}))?.click();`;
   // A phone's fixed save bar and menu button would land mid-picture in a capture taller than the screen.
   const unpinned = `const style = document.createElement("style"); style.textContent = ".save-bar, nav.tabbar { display: none !important; }"; document.head.append(style);`;
-  const movie = "/scenes/5ce0e0000000a001", evening = "/scenes/5ce0e0000000a002";
+  const movie = "/scenes/5ce0e0000000a001";
   await shot("scene-controls", movie, { ready: ".scene-flow-nav", height: 720, element: ".scene-flow", prepare: step("Actions") }).then(() => toUI("scene-controls"));
-  await shot("scene-trigger-controls", evening, { ready: ".scene-flow-nav", element: ".scene-flow-panel:not([hidden]) .editor-row", prepare: step("Triggers") })
-    .then(() => toUI("scene-trigger-controls"));
+  // The Automations page and its editor (docs/ui.md, "Automations").
+  await shot("automations", "/automations", { ready: ".automation-card", tall: 900 }).then(() => toUI("automations"));
+  await shot("automation-editor", "/automations/a7e0e0000000b002", { ready: ".automation-steps .automation-step", tall: 1500 }).then(() => toUI("automation-editor"));
   await shot("scene-workflow-phone", movie, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, element: ".scene-flow", tall: 844, prepare: unpinned + step("Actions") })
     .then(() => toUI("scene-workflow-phone"));
-  await shot("scene-condition-phone", evening, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, element: ".scene-flow-panel:not([hidden])", tall: 900, prepare: unpinned + step("Conditions") })
-    .then(() => toUI("scene-condition-phone"));
+  await shot("automation-editor-phone", "/automations/a7e0e0000000b001", { ready: ".automation-section .editor-row", width: 390, height: 844, mobile: true, tall: 1600, prepare: unpinned })
+    .then(() => toUI("automation-editor-phone"));
   await shot("scene-delete", movie, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, viewport: true,
     prepare: '[...document.querySelectorAll(".scene-editor button")].find((b) => b.textContent.trim() === "Delete")?.click();' }).then(() => toUI("scene-delete"));
   // The Scenes page's location: an address search, its answers the page is given (no request leaves for Photon).

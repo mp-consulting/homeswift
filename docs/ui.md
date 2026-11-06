@@ -305,19 +305,15 @@ a page to keep on a phone's home screen.
 
 ### Scenes and templates
 
-**Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand or by a trigger.
+**Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand, from the Home app or by an
+Automation (docs/adr/0007-scenes-and-automations-are-separate.md). A Scene has no trigger of its own: what runs on its
+own is an Automation, on the page's **Automations** tab ([Automations](#automations)).
 
-- **Triggers**: a time of day on chosen days, sunrise or sunset with an offset (-12 to +12 hours), a characteristic
-  change (the motion sensor turns on), or a cron expression (`30 7 * * 1-5`; five fields, or six with seconds, which are
-  ignored). Automations run on the minute; a characteristic trigger runs a scene at most once per 5 seconds.
-- **Conditions** hold an automatic run back: a time window (`sunset` to `23:00`, across midnight too) or a
-  characteristic's value. A run by hand ignores them. Sunrise and sunset come from Glass UI's equation for the location
-  set on the page (typed, or this device's position).
 - **Add an accessory as it is now** fills the actions from its current values.
 - **Locks, garage doors and alarms** keep Homeswift's rule that a person confirms them: the page asks before running a
   scene that has them, the MCP server's `run_scene` refuses such a scene (as homebridge-mcp-server's does), and
-  automations, with nobody to ask, leave those actions out and say so in the scene's last run. Glass UI sets them like
-  any value.
+  automations, with nobody to ask, leave those actions out and say so in their last run. Glass UI sets them like any
+  value.
 
 Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. The editor's **A switch
 in the Home app** makes the scene a switch of one **Homeswift Scenes** accessory on the bridge: turning it on runs the
@@ -325,13 +321,13 @@ scene, leaving out its locks, doors and alarms; turning it off puts the lights b
 on. The switch has the scene's name in the Home app: renaming the scene renames it there, and renaming it in the Home
 app renames the scene.
 
-![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's tile says what
-starts it, its Details its room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
+![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's tile says its
+room and whether it is in the Home app, its Details its room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
 Its ⋯ menu gives it a picture of your own (**Choose a picture…**, shrunk to 640 pixels; JPEG, PNG or WebP up to 1 MB)
 or takes it away; a hub's scene has the same menu, and its picture is the one the Hue or IKEA page shows. The bridge
 keeps them in `scene-pictures/` next to config.json. A hub's scene's menu also renames it on its hub, keeps its lights
 as they are now, or deletes it from the hub (after asking: it goes from the hub's own app too). A new scene of lights
-only, without triggers or an animation, can be saved to the Hue room or zone, or the IKEA hub, that has all its lights:
+only, without an animation, can be saved to the Hue room or zone, or the IKEA hub, that has all its lights:
 the editor's save bar offers it beside **Create the scene**.
 
 ![Scenes from your hubs, each shown once, with the scenes in no room under Around the house](images/plugins/scenes-from-hubs.png)
@@ -347,8 +343,8 @@ menu, and **Run in every room**; its own ⋯ runs it in every room, stops it, or
 runs at once. The scenes in no room (Apple Home's) are small
 buttons by name under **Around the house**, and several with one name show as one with their number (×3), which opens
 each copy. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
-lights it changed, for 12 hours, as for any scene. **Automate** makes a Homeswift scene that recalls it, to give it
-triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. The editor's **Animation** step
+lights it changed, for 12 hours, as for any scene. **Automate** makes a Homeswift scene that recalls it and opens a new
+Automation that applies it, for its triggers to be chosen; the editor's **Add a hub scene…** adds one to any scene. The editor's **Animation** step
 makes the chosen lights move after the actions: a style (candle, fire, sparkle, prism, underwater, a sunrise, moving
 colours, following the music…) with its speed, brightness and colour. Each brand plays it the way its own app does where
 its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, a SONOFF L2 strip's scenes, an
@@ -396,14 +392,6 @@ On narrow screens, the workflow editor replaces the canvas with a full-width for
 
 ![Mobile workflow editor](images/ui/scene-workflow-phone.png)
 
-Trigger fields stack within the inspector on phones, with wrapping weekday controls.
-
-![Trigger controls](images/ui/scene-trigger-controls.png)
-
-Conditions use labeled start/end groups and full-width accessory controls on small phones.
-
-![Small-phone condition editor](images/ui/scene-condition-phone.png)
-
 Deleting a scene opens a confirmation in the UI’s design system. Cancel is focused first; Escape dismisses it without deleting.
 
 ![Scene deletion confirmation](images/ui/scene-delete.png)
@@ -423,6 +411,51 @@ Address suggestions appear after three characters, with a short typing delay and
 
 ![Address suggestions](images/ui/scene-address-search.png)
 
+### Automations
+
+**Automations** (`/automations`, a tab beside Scenes; GLOSSARY.md): what the bridge does on its own. When any of its
+**Triggers** fires and all its **Conditions** hold, its **Steps** run in order.
+
+- **Triggers**: a time of day on chosen days; sunrise or sunset with an offset (-12 to +12 hours); a cron expression
+  (`30 7 * * 1-5`; five fields, or six with seconds, which are ignored); an accessory's value that changes or starts to
+  compare with a value (the motion sensor turns on); a value that **stays** so for a while (the door open for ten
+  minutes); a number that **crosses a threshold** (the temperature rises above 26). Timed triggers run on the minute;
+  one on a value fires at most once per 5 seconds. A Person arriving or leaving, and Anyone Home, come with the Presence
+  plugin.
+- **Conditions**: a time window (`sunset` to `23:00`, across midnight too) or an accessory's value. **Run now** ignores
+  them. Sunrise and sunset are for the location set on the Scenes page (typed, or this device's position).
+- **Steps**: apply a Scene, set a value, wait, wait until a value (with the longest it waits, then it goes on), notify
+  (through the channels of [Notifications](#notifications), as "A message from an automation"), or call a plugin's
+  action: one its plugin offers to MCP clients and the Assistant without asking a person to confirm, its fields drawn
+  from the action's input schema.
+- **Mode**: **Restart** (the default): a trigger that fires during a run cancels it and starts again, as "turn the
+  hall on, wait five minutes, turn it off" wants for each new motion. **Single**: a trigger during a run is ignored, and
+  the last run says so.
+- **Locks, garage doors and alarms** are never set by an Automation: a Step on one, or the part of a Scene that changes
+  one, is left out and its last run says so. Over MCP, saving an Automation that names one (in a trigger, a condition
+  or a Step) asks the person first.
+- **A switch in the Home app** puts the Automation on the **Homeswift Scenes** accessory, beside the scenes' switches:
+  the switch turns the Automation on and off; it never runs it.
+- **Describe it**: a sentence for the Assistant, whose draft opens in the editor to review; nothing is saved before you
+  save it. The Assistant sees the accessories by handles, with their names, rooms and characteristics, the scenes and
+  the plugins' actions, never their ids.
+
+Each card says what starts it, its steps and its last run (or why a trigger's run was skipped), with its on switch and
+**Run now**. Automations are kept in `automations.json` next to config.json (owner-only), with each one's last run and
+each Step's result. At its first start after the update, the bridge turns each Scene of `scenes.json` that had
+triggers or conditions into an Automation of the same name whose single Step applies it; the Scene keeps its values,
+its picture and its switch. Every change an Automation makes is its own in the [Logbook](#history-and-logbook).
+
+![The Automations page](images/ui/automations.png)
+
+![An Automation's editor: a value that stays, then a scene, a wait, a value and a notification](images/ui/automation-editor.png)
+
+![The editor on a phone](images/ui/automation-editor-phone.png)
+
+`/api/automations` (GET; POST, PUT and DELETE for administrators), `/api/automations/<id>/run` and
+`/api/automations/draft` answer the page; over MCP, `list_automations`, `save_automation`, `run_automation` and
+`delete_automation` ([docs/mcp.md](mcp.md)).
+
 ### Notifications
 
 ![Notification channels and event switches](images/notifications.png)
@@ -435,7 +468,8 @@ switches and a **Send a test**, under a Save bar.
   **Bearer token** or **Basic authentication** and custom headers; headers that would change the transport, or a second
   Authorization, are refused.
 - **Events**: homeswift started (not after a restart it made itself) and stopped, a plugin logged an error, an accessory
-  answered No Response for 5 minutes while its plugin is not paused, an automation failed, the daily backup failed or
+  answered No Response for 5 minutes while its plugin is not paused, an automation failed, an automation's Notify
+  Step, the daily backup failed or
   (off until turned on) was saved, and the Assistant's daily digest at a time of your choice (off until turned on: it
   uses the provider's quota). Glass UI's update and rollback events have no counterpart here: plugins are compiled in.
 - **Limits**: the same event about the same thing goes once per 15 minutes, 12 notifications an hour at most, 5 tests
