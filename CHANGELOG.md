@@ -37,6 +37,13 @@ All notable changes to this project are documented here. The format follows
 - MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
   goes further back.
 
+### Changed
+
+- The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
+  (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
+  `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.
+  The location an older `scenes.json` kept moves there at startup.
+
 ### Fixed
 
 - Two-way audio: a camera's Talk begins and stays open while HomeKit's return audio keeps coming, however busy the

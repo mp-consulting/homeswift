@@ -115,11 +115,13 @@ struct HomeTests {
         #expect(writes.contains { $0.0 == "brightness" && $0.1 == .int(5) })
         #expect(writes.contains { $0.0 == "lock" && $0.1 == .int(1) })
 
-        // A location gives the next sunrise and sunset.
-        let located = try await browser.put("/api/scenes/location", ["lat": 48.8566, "lon": 2.3522, "name": "Paris"])
+        // The Location, a Bridge Setting under Settings, gives the next sunrise and sunset.
+        let located = try await browser.put("/api/settings/location", ["location": ["latitude": 48.8566, "longitude": 2.3522, "name": "Paris"]])
         #expect(located.status == 200)
         #expect(located.json?["nextSunset"]?.stringValue != nil)
-        #expect(try await browser.put("/api/scenes/location", ["lat": 200, "lon": 0]).status == 400)
+        #expect(try await browser.get("/api/settings/location").json?["location"]?["name"] == "Paris")
+        #expect(try await browser.get("/api/scenes").json?["location"]?["latitude"] == 48.8566)
+        #expect(try await browser.put("/api/settings/location", ["location": ["latitude": 200, "longitude": 0]]).status == 400)
 
         let changed = try await browser.put("/api/scenes/\(id)", ["name": "Late night", "actions": [["id": "Lamps:lamp", "characteristic": "On", "value": false]]])
         #expect(changed.json?["name"] == "Late night")

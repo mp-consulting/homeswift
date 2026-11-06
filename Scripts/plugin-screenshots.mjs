@@ -436,8 +436,8 @@ try {
     .then(() => toUI("automation-editor-phone"));
   await shot("scene-delete", movie, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, viewport: true,
     prepare: '[...document.querySelectorAll(".scene-editor button")].find((b) => b.textContent.trim() === "Delete")?.click();' }).then(() => toUI("scene-delete"));
-  // The Scenes page's location: an address search, its answers the page is given (no request leaves for Photon).
-  await shot("scene-address-search", "/scenes", { ready: "details.location", element: "#shot-address", width: 560,
+  // The Location under Settings: an address search, its answers the page is given (no request leaves for Photon).
+  await shot("location-address-search", "/settings", { ready: "details.location", element: "#shot-address", width: 560,
     prepare: `
       const answers = [["Coimbra", "Portugal", 40.2033, -8.4103], ["Coimbra", "Minas Gerais, Brazil", -20.8556, -42.8017], ["Coimbra-B", "3000-312 Coimbra, Portugal", 40.2226, -8.4436]];
       const fetched = window.fetch;
@@ -447,7 +447,7 @@ try {
       const form = document.querySelector(".location-search");
       form.id = "shot-address";
       form.querySelector("input").value = "Coimbra";
-      form.requestSubmit();` }).then(() => toUI("scene-address-search"));
+      form.requestSubmit();` }).then(() => toUI("location-address-search"));
   // The Status page on a phone: the overview and the Quick controls with the scenes.
   await shot("quick-controls-phone", "/status", { ready: ".quick .scene-button, .quick-scenes", width: 390, height: 844, mobile: true, tall: 430 }).then(() => toUI("quick-controls-phone"));
   // The Energy section, on a day and a week of demonstration figures.

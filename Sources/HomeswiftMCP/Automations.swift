@@ -284,7 +284,7 @@ extension HomeswiftCatalog {
     public func automationsJSON() -> JSONValue {
         let file = home.automations.value
         return withLookup {
-            ["automations": .array(file.automations.map { automationJSON($0) }), "location": (try? JSONValue(encoding: home.scenes.value.location)) ?? .null,
+            ["automations": .array(file.automations.map { automationJSON($0) }), "location": locationJSON()["location"] ?? .null,
              "running": .array(home.automationRuns.withLockedValue { Array($0.keys) }.sorted().map(JSONValue.string))]
         }
     }
@@ -597,7 +597,7 @@ extension HomeswiftCatalog {
 
     /// Runs the Automations whose timed triggers are due at this minute.
     func runDueAutomations(at now: Date, calendar: Calendar = .current) {
-        let location = home.scenes.value.location
+        let location = host.configuration.location
         for automation in home.automations.value.automations where automation.isEnabled {
             guard let trigger = automation.triggers.first(where: { SceneRules.due($0, at: now, location: location, calendar: calendar) }) else { continue }
             start(automation, trigger: trigger.type)
