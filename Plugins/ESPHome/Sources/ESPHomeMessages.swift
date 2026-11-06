@@ -123,6 +123,12 @@ struct DeviceInfo: Equatable, Sendable {
     var esphomeVersion: String
     /// `uses_password`: older firmware asks for the API password.
     var usesPassword: Bool
+    /// `bluetooth_proxy_feature_flags` (`BluetoothProxy`), from `legacy_bluetooth_proxy_version` on older firmware.
+    var bluetoothProxyFeatures: UInt32
+
+    /// A Bluetooth proxy: it passes on the advertisements it hears.
+    var isBluetoothProxy: Bool { bluetoothProxyFeatures & BluetoothProxy.passiveScanFeature != 0 }
+    var sendsRawAdvertisements: Bool { bluetoothProxyFeatures & BluetoothProxy.rawAdvertisementsFeature != 0 }
 
     init(_ message: ProtobufMessage) {
         usesPassword = message.bool(1)
@@ -132,6 +138,8 @@ struct DeviceInfo: Equatable, Sendable {
         model = Sanitized.text(message.string(6), limit: 64)
         manufacturer = Sanitized.text(message.string(12), limit: 64)
         friendlyName = Sanitized.text(message.string(13))
+        // Version 1 of the legacy field scanned passively; later ones connected actively too.
+        bluetoothProxyFeatures = message.has(15) ? message.uint32(15) : (message.uint32(11) > 0 ? BluetoothProxy.passiveScanFeature : 0)
     }
 }
 

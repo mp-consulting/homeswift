@@ -49,6 +49,7 @@ extension ESPHomePlugin {
             add(mac, name: info?.displayName ?? key, model: info?.model.nonEmpty, address: Self.address(endpoint.host, endpoint.port),
                 encrypted: endpoint.encryptionKey != nil, setUp: true, reachable: connected)
         }
+        for device in await bluetoothDevices() where found[device.deviceID] == nil { found[device.deviceID] = device }
         return found.values.sorted { ($0.name, $0.deviceID) < ($1.name, $1.deviceID) }
     }
 
@@ -56,6 +57,7 @@ extension ESPHomePlugin {
     /// the device opens. The key and the password go in the vault, the address in the device's Accessory Settings.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         let device = try request.device()
+        if await isBluetoothSensor(device) { return try await authorizeBluetooth(request, device: device) }
         guard let address = device.address, let (host, port) = Self.split(address) else {
             throw SetupError("The device has no address: find it again, or add its host to the devices list")
         }
