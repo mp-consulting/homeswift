@@ -531,6 +531,8 @@ let package = Package(
             name: "HomeswiftHelpers",
             dependencies: ["Homeswift", "HomeswiftPlugin", .product(name: "Logging", package: "swift-log")],
             path: "Plugins/Helpers/Sources"
+        ),
+        .target(
             name: "HomeswiftZWaveJS",
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
@@ -1010,6 +1012,8 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/Helpers/Tests"
+        ),
+        .testTarget(
             name: "ZWaveJSTests",
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftZWaveJS",
