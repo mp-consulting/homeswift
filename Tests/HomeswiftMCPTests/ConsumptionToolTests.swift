@@ -117,4 +117,51 @@ struct ConsumptionToolTests {
             try await catalog.updateTariffs([["start": "2027-02-01", "currency": "EUR", "periods": [["from": "06:00", "to": "22:00", "price": 0.2]]]])
         }
     }
+
+    /// Gas and water Meters: in m³, priced by the Tariffs of their kind only, no Energy Role, filtered by kind.
+    @Test func gasAndWaterAreInCubicMetresAtTheirOwnPrices() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let metrics = Metrics(directory: nil, now: { [hour] in hour })
+        let lamp = MeterID(accessory: "Devices:lamp", meter: "43/")
+        let gas = MeterID(accessory: "Devices:boiler", meter: "gas")
+        let water = MeterID(accessory: "Devices:house", meter: "water")
+        metrics.meters.setKind(.gas, meter: gas)
+        metrics.meters.setKind(.water, meter: water)
+        metrics.meters.importHours([MeterHourImport(start: hour, consumption: 1_000)], meter: lamp)
+        metrics.meters.importHours([MeterHourImport(start: hour, cubicMetres: 2.5)], meter: gas)
+        metrics.meters.importHours([MeterHourImport(start: hour, cubicMetres: 0.4)], meter: water)
+        let catalog = catalog(environment, metrics: metrics)
+
+        let allWeek = { (price: Double) in [["from": "00:00", "to": "24:00", "price": JSONValue.number(price)]] }
+        _ = try await catalog.updateTariffs([
+            ["start": "2027-01-01", "currency": "EUR", "periods": .array(allWeek(0.2).map(JSONValue.object))],
+            ["start": "2027-01-01", "currency": "EUR", "kind": "gas", "periods": .array(allWeek(1.2).map(JSONValue.object))],
+        ])
+        let week = try catalog.consumptionJSON(period: "week", date: "2027-01-15", timeZone: utc, now: hour)
+        let meters = try #require(week["meters"]?.arrayValue)
+        let boiler = try #require(meters.first { $0["meter"] == "gas" })
+        #expect(boiler["kind"] == "gas" && boiler["unit"] == "m³")
+        #expect(boiler["consumption"] == 2.5)
+        #expect(boiler["cost"] == 3)
+        #expect(boiler["role"] == .null)
+        let house = try #require(meters.first { $0["meter"] == "water" })
+        #expect(house["consumption"] == 0.4 && house["unit"] == "m³")
+        // No water Tariff: no cost, and electricity's price is never used for it.
+        #expect(house["cost"] == nil)
+        #expect(meters.first { $0["meter"] == "43/" }?["cost"] == 0.2)
+        #expect(boiler["currency"] == "EUR")
+        #expect(house["currency"] == nil)
+        // By kind first: kWh and m³ do not compare.
+        #expect(meters.map { $0["kind"] } == ["electricity", "gas", "water"])
+        #expect(try catalog.tariffsJSON(now: hour)["meterKinds"] == ["electricity", "gas", "water"])
+
+        let onlyGas = try catalog.consumptionJSON(period: "week", date: "2027-01-15", timeZone: utc, kind: .gas, now: hour)
+        #expect(onlyGas["meters"]?.arrayValue?.map { $0["meter"] } == ["gas"])
+        #expect(try catalog.tariffsJSON(now: hour)["currentByKind"] == ["electricity": "2027-01-01", "gas": "2027-01-01"])
+        await #expect(throws: CatalogError.self) {
+            try await catalog.updateTariffs([["start": "2027-01-01", "currency": "EUR", "kind": "gas", "exportPrice": 0.1, "periods": .array(allWeek(1.2).map(JSONValue.object))]])
+        }
+    }
 }

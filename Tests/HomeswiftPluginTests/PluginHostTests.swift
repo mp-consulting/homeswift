@@ -28,6 +28,8 @@ actor RecordingPlugin: HomeswiftPlugin {
         var solar: Double?
         /// A solar Meter it declares (`array`), whose readings the test makes (`recordSolar`).
         var solarMeter: Bool?
+        /// A gas Meter it declares (`boiler`), whose index the test reads (`recordGas`).
+        var gasMeter: Bool?
         /// Televisions to publish on servers of their own.
         var externals: [String]?
         var refuse: Bool?
@@ -45,6 +47,9 @@ actor RecordingPlugin: HomeswiftPlugin {
     private var solarMeter: PluginMeter?
 
     func recordSolar(_ watts: Double) { solarMeter?.record(watts: watts) }
+    private var gasMeter: PluginMeter?
+    func recordGas(_ cubicMetres: Double) { gasMeter?.record(cubicMetres: cubicMetres) }
+    func recordGasWatts(_ watts: Double) { gasMeter?.record(watts: watts) }
     private(set) var stopped = false
 
     init(configuration: Configuration, context: PluginContext) throws {
@@ -66,6 +71,7 @@ actor RecordingPlugin: HomeswiftPlugin {
             try context.add(Accessory(id: "Recording:\(lamp)", name: lamp, category: .lightbulb, services: [light, motion, battery], onIdentify: {}))
         }
         if configuration.solarMeter == true { solarMeter = context.meter("solar", deviceID: "array", device: "Array", suggestedRole: .solar) }
+        if configuration.gasMeter == true { gasMeter = context.meter("gas", deviceID: "boiler", device: "Boiler", kind: .gas, suggestedRole: .home) }
         if let solar = configuration.solar {
             let roof = context.meter("solar", deviceID: "roof", device: "Roof", suggestedRole: .solar)
             roof.record(watts: solar)

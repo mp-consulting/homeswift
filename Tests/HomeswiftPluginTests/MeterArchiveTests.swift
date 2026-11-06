@@ -190,4 +190,37 @@ struct MeterArchiveTests {
         #expect(near(reloaded.hours(of: other, from: hour, to: hour).first?.consumption, 40))
         #expect(!reloaded.hasHistory(accessory: plug.accessory) && reloaded.hasHistory(accessory: other.accessory))
     }
+
+    @Test func aMetersKindIsKeptInItsFile() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let water = MeterID(accessory: "Meters:house", meter: "water")
+        let before = MeterArchive(directory: directory, now: { hour })
+        #expect(before.kind(of: water) == .electricity)
+        before.setKind(.water, meter: water)
+        before.importHours([MeterHourImport(start: hour, cubicMetres: 0.18)], meter: water)
+        before.recordCounter(1000, meter: plug, at: hour)
+        before.flush()
+
+        let after = MeterArchive(directory: directory, now: { hour })
+        #expect(after.kind(of: water) == .water)
+        #expect(after.kind(of: plug) == .electricity)
+        #expect(near(after.hours(of: water, from: hour, to: hour).first?.consumption, 180))
+        #expect(MeterKind.gas.unit == "m³" && MeterKind.electricity.unit == "kWh")
+    }
+
+    /// A declared Meter shows nowhere before its first reading, takes its kind then, and goes back to electricity when
+    /// its plugin says so.
+    @Test func aDeclaredKindWaitsForTheFirstReadingAndCanGoBack() {
+        let archive = MeterArchive(directory: nil, now: { hour })
+        let gas = MeterID(accessory: "Meters:boiler", meter: "gas")
+        archive.setKind(.gas, meter: gas)
+        #expect(archive.meters.isEmpty)
+        #expect(archive.kind(of: gas) == .gas)
+        archive.recordCounter(1_000, meter: gas, at: hour)
+        #expect(archive.meters == [gas])
+        #expect(archive.kind(of: gas) == .gas)
+        archive.setKind(.electricity, meter: gas)
+        #expect(archive.kind(of: gas) == .electricity)
+    }
 }

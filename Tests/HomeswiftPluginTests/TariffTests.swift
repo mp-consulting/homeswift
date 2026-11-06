@@ -65,6 +65,28 @@ struct TariffTests {
         #expect(configuration.bridge.name == "Home")
         #expect(throws: (any Error).self) { try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "tariffs": [{ "start": 1 }] } }"#.utf8)) }
     }
+
+    @Test func gasAndWaterHaveTariffsOfTheirOwn() throws {
+        let allWeek = [Tariff.Period(from: "00:00", to: "24:00", price: 0.2)]
+        let electricity = Tariff(start: "2027-01-01", currency: "EUR", periods: allWeek, exportPrice: 0.05)
+        let gas = Tariff(start: "2027-01-01", currency: "EUR", periods: [Tariff.Period(from: "00:00", to: "24:00", price: 1.1)], kind: .gas)
+        // The same day for two kinds is fine; a second gas Tariff that day, or gas sent back, is not.
+        #expect(Tariff.problems([electricity, gas]) == [])
+        #expect(Tariff.problems([gas, gas]) == ["tariffs[1].start: another gas Tariff starts that day"])
+        var exported = gas
+        exported.exportPrice = 0.1
+        #expect(Tariff.problems([exported]) == ["tariffs[0].exportPrice: only electricity is sent back"])
+
+        let utc = TimeZone(identifier: "UTC")!
+        let day = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(TariffSchedule([electricity, gas], timeZone: utc).cost(hour: day, drawn: 1) == 0.2)
+        #expect(TariffSchedule([electricity, gas], kind: .gas, timeZone: utc).cost(hour: day, drawn: 2) == 2.2)
+        #expect(TariffSchedule([electricity], kind: .water, timeZone: utc).isEmpty)
+        // config.json's shape: kind left out for electricity.
+        let decoded = try JSONDecoder().decode(Tariff.self, from: Data(#"{"start":"2027-01-01","currency":"EUR","kind":"water","periods":[{"from":"00:00","to":"24:00","price":3.5}]}"#.utf8))
+        #expect(decoded.kind == .water)
+        #expect(String(decoding: try JSONEncoder().encode(electricity), as: UTF8.self).contains("kind") == false)
+    }
 }
 
 /// The Location, a Bridge Setting: config.json's bridge.location, which plugins read live through `context.location`.

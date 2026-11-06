@@ -32,3 +32,7 @@ Tariff and never reprices the past.
   as Meters adding up to more than the home's use.
 - A Meter's cost is its Consumption at each hour's grid price, whatever source supplied it. What solar saved shows
   only in the home's cost. The fixed charge of a supply contract is not counted.
+- Gas and water are Meters too, of their own kind, declared by plugins only (HAP has no characteristics for them). They
+  stay in m³ (the archive keeps litres where it keeps watt-hours), never turn into kWh, take no Energy Role and never
+  count in the Home Energy. A Tariff has a kind as well: gas and water are priced per m³ by Tariffs of their own,
+  dated apart from electricity's.
