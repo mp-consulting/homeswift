@@ -138,6 +138,7 @@
     down: '<path d="M6 9l6 6 6-6"/>',
     // Energy (the Status page's Energy section): solar, the home, a battery, the grid's pylon, power, solar's share.
     globe: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
+    flame: '<path d="M12 3c.5 3 4.5 5.5 4.5 10a4.5 4.5 0 0 1-9 0c0-2 1-3.4 2-4.5.2 1.8 1 2.8 2 3.3 0-3.2-.6-5.8.5-8.8z"/>',
     cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.1 4.5 4.5 0 0 0 7 18z"/>',
     rain: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 17l-1 3M12 17l-1 3M16 17l-1 3"/>',
     snow: '<path d="M7 14h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 5.1 4.5 4.5 0 0 0 7 14zM8 18h.01M12 18h.01M16 18h.01M10 21h.01M14 21h.01"/>',
@@ -1740,14 +1741,24 @@
     input.click();
   }
 
-  /// Kilowatt-hours as every page shows energy: under a kWh in Wh (a plug's few hours, not 0.00 kWh); two decimals
-  /// under 10, one under 100, whole from there (3,009 kWh, not 3,009.0). An axis's tick (with `top`, its highest) is in
-  /// Wh when the axis stays under a kWh, else in kWh, whole when it is.
-  function kWh(value, top) {
+  /// An amount in a unit and its thousandth (`small`): under one unit in the thousandth (a plug's few hours in Wh, not
+  /// 0.00 kWh; a shower's litres, not 0.06 m³); `digits` decimals under 10, one under 100, whole from there (3,009 kWh,
+  /// not 3,009.0). An axis's tick (with `top`, its highest) is in the thousandth when the axis stays under one unit, else
+  /// in the unit, whole when it is.
+  function measure(value, top, { unit, small, digits }) {
     const size = Math.abs(value);
-    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} Wh`;
-    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} ${small}`;
+    const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? digits : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} ${unit}`;
+  }
+  /// Kilowatt-hours as every page shows energy.
+  const kWh = (value, top) => measure(value, top, { unit: "kWh", small: "Wh", digits: 2 });
+  /// Cubic metres as gas and water show, the total and the axis alike (never litres): two decimals under 10, one under
+  /// 100, whole from there; an axis's whole ticks without decimals.
+  function cubicMetres(value, top) {
+    const size = Math.abs(value);
+    const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} m³`;
   }
 
   /// A form's status line, what it says (`kind`: muted, ok or error), and a labelled field with its help: the pages'
@@ -1834,7 +1845,7 @@
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, statusLine, say, field, isoDay, parseDay, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

@@ -78,11 +78,15 @@ extension Metrics {
             // When they were read: those a plugin made before the store followed arrive late.
             case let .counter(id, wattHours, direction, at): meters.recordCounter(wattHours, direction: direction, meter: id, at: at)
             case let .claim(id): claimed.withLockedValue { _ = $0.insert(id) }
+            case let .kind(id, kind): meters.setKind(kind, meter: id)
             case let .history(id, hours, description):
                 meters.importHours(hours, meter: id)
+                // Gas and water never count in the Home Energy, which is electricity's.
+                guard meters.kind(of: id) == .electricity else { return }
                 importHomeEnergy(id, hours, description, role: host?.energyRole(of: id))
             case let .power(id, watts, at, description):
                 meters.recordPower(watts, meter: id, at: at)
+                guard meters.kind(of: id) == .electricity else { return }
                 recordHomeEnergy(id, watts: watts, description, role: host?.energyRole(of: id))
             }
         }
