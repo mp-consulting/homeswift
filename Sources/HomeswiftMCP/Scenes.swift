@@ -377,6 +377,10 @@ extension HomeswiftCatalog {
         let file = home.scenes.value
         let pictures = scenePictures.versions()
         var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map { sceneJSON($0, pictures: pictures) }), "artworks": SceneArtwork.catalogueJSON]
+        // An Automation waits for a location: the page opens its card.
+        answer["sunTriggers"] = .bool(home.automations.value.automations.contains { automation in
+            automation.triggers.contains { $0.type == "sun" } || automation.conditions.contains { ["sunrise", "sunset"].contains($0.after ?? "") || ["sunrise", "sunset"].contains($0.before ?? "") }
+        })
         if let location = file.location {
             answer["location"] = (try? JSONValue(encoding: location)) ?? .null
             answer["nextSunrise"] = Solar.next(.sunrise, latitude: location.lat, longitude: location.lon, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
