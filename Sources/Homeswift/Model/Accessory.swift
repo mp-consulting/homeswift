@@ -25,6 +25,7 @@ public final class Accessory: @unchecked Sendable {
 
     let aidBox = NIOLockedValueBox(0)
     private let mirrorBox = NIOLockedValueBox<(source: String?, room: String?)>((nil, nil))
+    private let separationBox = NIOLockedValueBox<(original: Accessory?, together: [[ObjectIdentifier]])>((nil, []))
     /// The camera that answers snapshot requests (`configureController`).
     let cameraControllerBox = NIOLockedValueBox<CameraController?>(nil)
     public var aid: Int { aidBox.withLockedValue { $0 } }
@@ -51,6 +52,39 @@ public final class Accessory: @unchecked Sendable {
         information.characteristic(.identify).onWrite { _ in try await onIdentify?() }
         self.information = information
         servicesBox = NIOLockedValueBox([information] + services)
+    }
+
+    /// An accessory made of another's identity: its Accessory Information service itself (the same object, which the
+    /// plugin keeps changing) and some of its services. What the runtime publishes in place of an accessory whose
+    /// Functions are separated (Separate Functions, `HomeswiftPlugin`), under the same id.
+    public init(id: String, information: Service, supportsIdentify: Bool, category: AccessoryCategory, services: [Service]) {
+        self.id = id
+        self.supportsIdentify = supportsIdentify
+        self.category = category
+        self.information = information
+        servicesBox = NIOLockedValueBox([information] + services.filter { $0 !== information })
+    }
+
+    /// The plugin's own accessory this one was made from when its Functions are separated: the device's own accessory
+    /// keeps its id with the main Function, each other Function is an accessory of its own (GLOSSARY.md, "Separate
+    /// Functions"). nil for the plugin's own accessory.
+    public var separatedFrom: Accessory? {
+        get { separationBox.withLockedValue { $0.original } }
+        set { separationBox.withLockedValue { $0.original = newValue } }
+    }
+
+    /// Says that these Functions must stay on one accessory when the accessory's Functions are separated (a light and
+    /// the sensor it cannot work without). The runtime keeps a camera, a doorbell and a television whole, and a
+    /// remote's buttons together, without being told.
+    public func keepFunctionsTogether(_ services: [Service]) {
+        separationBox.withLockedValue { $0.together.append(services.map(ObjectIdentifier.init)) }
+    }
+
+    /// The sets of services `keepFunctionsTogether` was given.
+    public var functionsKeptTogether: [[Service]] {
+        let together = separationBox.withLockedValue { $0.together }
+        let byID = Dictionary(services.map { (ObjectIdentifier($0), $0) }, uniquingKeysWith: { first, _ in first })
+        return together.map { $0.compactMap { byID[$0] } }
     }
 
     /// The first service of the given type, if any.
@@ -136,7 +170,8 @@ public final class Accessory: @unchecked Sendable {
         set { mirrorBox.withLockedValue { $0.room = newValue } }
     }
 
-    func identify() async {
+    /// Runs its Identify, as a controller's write of Identify does (an accessory made of its Functions forwards its own).
+    public func identify() async {
         guard !isUnavailable else { return }
         try? await information.characteristic(.identify).writeHandler(for: .bool(true))?(.bool(true))
     }

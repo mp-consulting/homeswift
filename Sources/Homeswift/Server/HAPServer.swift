@@ -683,8 +683,11 @@ public final class HAPServer: @unchecked Sendable {
         accessories: [Int: Accessory], hidden: Set<String>, includeValues: Bool, holes: inout [Characteristic]?
     ) -> AccessoryDatabase {
         AccessoryDatabase(accessories: accessories.filter { $0.value.mirroredFrom == nil && !hidden.contains($0.value.id) }.sorted { $0.key < $1.key }.map { aid, accessory in
-            AccessoryDatabase.AccessoryJSON(aid: aid, services: accessory.services.map { service in
-                AccessoryDatabase.ServiceJSON(
+            // A link names a service of the same accessory: one moved to another (Separate Functions) is left out.
+            let own = Set(accessory.services.map(ObjectIdentifier.init))
+            return AccessoryDatabase.AccessoryJSON(aid: aid, services: accessory.services.map { service in
+                let linked = service.linked.filter { own.contains(ObjectIdentifier($0)) }
+                return AccessoryDatabase.ServiceJSON(
                     iid: service.iid,
                     type: service.type.uuid.shortForm,
                     characteristics: service.characteristics.map {
@@ -697,7 +700,7 @@ public final class HAPServer: @unchecked Sendable {
                     },
                     primary: service.isPrimary ? true : nil,
                     hidden: service.isHidden ? true : nil,
-                    linked: service.linked.isEmpty ? nil : service.linked.map(\.iid)
+                    linked: linked.isEmpty ? nil : linked.map(\.iid)
                 )
             })
         })

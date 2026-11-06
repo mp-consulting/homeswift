@@ -16690,6 +16690,15 @@ HomeswiftI18n.add("es", {
   "Moves every member of this group, in the Home app too once this bridge is linked to Apple Home.": "Mueve cada miembro de este grupo, también en la app Casa una vez vinculado este puente a Apple Home.",
   "Also moves it in the Home app.": "También lo mueve en la app Casa.",
   "Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.": "También lo mueve en la app Casa una vez vinculado este puente a Apple Home mediante Homeswift Wingman.",
+  "Separate Functions": "Separar funciones",
+  "In Apple Home, each thing it does becomes an accessory of its own: {functions}.": "En Apple Home, cada cosa que hace pasa a ser un accesorio propio: {functions}.",
+  "Separate the Functions of {name}?": "¿Separar las funciones de {name}?",
+  "Join the Functions of {name} back?": "¿Volver a unir las funciones de {name}?",
+  "Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.": "Hay que rehacer las escenas y automatizaciones de Apple Home que usan lo que se mueve. Cada accesorio nuevo puede tener su propio nombre, habitación y grupo.",
+  "The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve.": "Los accesorios separados salen de Apple Home, con sus escenas y automatizaciones, y los grupos en los que estaban pueden deshacerse.",
+  "Separate": "Separar",
+  "Join back": "Volver a unir",
+  "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
 });
 
 """#),
@@ -19717,6 +19726,15 @@ HomeswiftI18n.add("fr", {
   "Moves every member of this group, in the Home app too once this bridge is linked to Apple Home.": "Déplace chaque membre de ce groupe, aussi dans l'app Maison une fois ce pont lié à Apple Home.",
   "Also moves it in the Home app.": "Le déplace aussi dans l'app Maison.",
   "Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.": "Le déplace aussi dans l'app Maison une fois ce pont lié à Apple Home par Homeswift Wingman.",
+  "Separate Functions": "Séparer les fonctions",
+  "In Apple Home, each thing it does becomes an accessory of its own: {functions}.": "Dans Apple Home, chaque chose qu'il fait devient un accessoire à part entière : {functions}.",
+  "Separate the Functions of {name}?": "Séparer les fonctions de {name} ?",
+  "Join the Functions of {name} back?": "Réunir les fonctions de {name} ?",
+  "Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.": "Les scènes et automatisations d'Apple Home qui utilisent ce qui est déplacé sont à refaire. Chaque nouvel accessoire peut avoir son nom, sa pièce et son groupe.",
+  "The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve.": "Les accessoires séparés quittent Apple Home, avec leurs scènes et automatisations, et les groupes dont ils faisaient partie peuvent disparaître.",
+  "Separate": "Séparer",
+  "Join back": "Réunir",
+  "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
 });
 
 """#),
@@ -22744,6 +22762,15 @@ HomeswiftI18n.add("pt", {
   "Moves every member of this group, in the Home app too once this bridge is linked to Apple Home.": "Move cada membro deste grupo, também na app Casa depois de esta ponte estar ligada ao Apple Home.",
   "Also moves it in the Home app.": "Também o move na app Casa.",
   "Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.": "Também o move na app Casa depois de esta ponte estar ligada ao Apple Home através do Homeswift Wingman.",
+  "Separate Functions": "Separar funções",
+  "In Apple Home, each thing it does becomes an accessory of its own: {functions}.": "No Apple Home, cada coisa que faz passa a ser um acessório próprio: {functions}.",
+  "Separate the Functions of {name}?": "Separar as funções de {name}?",
+  "Join the Functions of {name} back?": "Voltar a juntar as funções de {name}?",
+  "Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.": "As cenas e automatizações do Apple Home que usam o que muda têm de ser refeitas. Cada acessório novo pode ter o seu nome, divisão e grupo.",
+  "The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve.": "Os acessórios separados saem do Apple Home, com as suas cenas e automatizações, e os grupos em que estavam podem desfazer-se.",
+  "Separate": "Separar",
+  "Join back": "Voltar a juntar",
+  "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
 });
 
 """#),
@@ -25003,6 +25030,20 @@ HomeswiftI18n.add("pt", {
           if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
         } });
 
+      // Separate Functions: each thing it does an accessory of its own, which Apple Home can group and put in a room.
+      const functions = answer.functions ?? [];
+      const separate = functions.length > 1 && !mirrored ? switchRow({ title: t("Separate Functions"),
+        help: t("In Apple Home, each thing it does becomes an accessory of its own: {functions}.", { functions: functions.join(", ") }),
+        checked: settings.separateFunctions === true,
+        onChange: async (on, state, input) => {
+          if (!await confirmAction({ title: on ? t("Separate the Functions of {name}?", { name: answer.name ?? id }) : t("Join the Functions of {name} back?", { name: answer.name ?? id }),
+            text: on ? t("Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.")
+              : t("The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve."),
+            confirmLabel: on ? t("Separate") : t("Join back"), confirmIcon: "group" })) { input.checked = !on; return; }
+          if (!await save({ separateFunctions: on || null }, state, "separateFunctions")) input.checked = !on;
+        } }) : null;
+      const functionOf = answer.functionOf ? el("p", { class: "help", text: t("A Function of {name}: its other settings are there.", { name: answer.functionOf.name }) }) : null;
+
       // Energy: what each of its meters measures in the home's energy. Applies at once; the plugin keeps running.
       const roleNames = { solar: t("Solar production"), home: t("The home's use"), grid: t("The grid connection"), battery: t("A battery"), none: t("This device alone") };
       const energySection = (answer.meters ?? []).length ? section(t("Energy"),
@@ -25102,7 +25143,7 @@ HomeswiftI18n.add("pt", {
       node.replaceChildren(...[
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
-        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
         energySection,
         partsSection,
         pluginSection,

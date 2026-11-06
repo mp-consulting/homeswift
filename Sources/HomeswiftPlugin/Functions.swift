@@ -33,4 +33,34 @@ public enum Functions {
     public static func isFunction(_ service: Service) -> Bool {
         !service.isHidden && !neverFunctions.contains(service.type.uuid) && service.type.uuid.uuidString.uppercased().hasSuffix(appleBase)
     }
+
+    /// The category an accessory doing this one thing shows as.
+    public static func category(of type: ServiceType) -> AccessoryCategory {
+        switch type.uuid {
+        case ServiceType.lightbulb.uuid: .lightbulb
+        case ServiceType.outlet.uuid: .outlet
+        case ServiceType.switch.uuid, ServiceType.statelessProgrammableSwitch.uuid: .switch
+        case ServiceType.fan.uuid, ServiceType.fanv2.uuid: .fan
+        case ServiceType.thermostat.uuid: .thermostat
+        case ServiceType.heaterCooler.uuid: .airConditioner
+        case ServiceType.airPurifier.uuid: .airPurifier
+        case ServiceType.humidifierDehumidifier.uuid: .humidifier
+        case ServiceType.windowCovering.uuid: .windowCovering
+        case ServiceType.window.uuid: .window
+        case ServiceType.door.uuid: .door
+        case ServiceType.garageDoorOpener.uuid: .garageDoorOpener
+        case ServiceType.lockMechanism.uuid: .doorLock
+        case ServiceType.securitySystem.uuid: .securitySystem
+        case ServiceType.valve.uuid, ServiceType.irrigationSystem.uuid: .sprinkler
+        case ServiceType.television.uuid: .television
+        case ServiceType.speaker.uuid, ServiceType.smartSpeaker.uuid: .speaker
+        case ServiceType.doorbell.uuid: .videoDoorbell
+        case ServiceType.temperatureSensor.uuid, ServiceType.humiditySensor.uuid, ServiceType.motionSensor.uuid,
+             ServiceType.contactSensor.uuid, ServiceType.lightSensor.uuid, ServiceType.occupancySensor.uuid,
+             ServiceType.leakSensor.uuid, ServiceType.smokeSensor.uuid, ServiceType.carbonMonoxideSensor.uuid,
+             ServiceType.carbonDioxideSensor.uuid, ServiceType.airQualitySensor.uuid:
+            .sensor
+        default: .other
+        }
+    }
 }

@@ -12,14 +12,17 @@ public protocol MatterAccessorySource: AnyObject, Sendable {
 }
 
 extension PluginHost: MatterAccessorySource {
-    /// The accessories of every bridge, matched by their plugin's platform and name, then their id and name.
+    /// The accessories of every bridge, matched by their plugin's platform and name, then their id and name. An accessory
+    /// whose Functions are separated in HomeKit stays whole in Matter: the plugin's own accessory, its parts left out.
     public var matterAccessories: [(accessory: Accessory, names: [String])] {
         var owners: [ObjectIdentifier: [String: PlatformInstance]] = [:]
         for platform in platforms {
             for id in platform.accessoryIDs { owners[ObjectIdentifier(platform.bridge), default: [:]][id] = platform }
         }
         return bridges.flatMap { bridge in
-            bridge.server.accessories.map { accessory in
+            bridge.server.accessories.compactMap { published in
+                if let original = published.separatedFrom, original.id != published.id { return nil }
+                let accessory = published.separatedFrom ?? published
                 let platform = owners[ObjectIdentifier(bridge)]?[accessory.id]
                 return (accessory, [platform?.platform, platform?.name, accessory.id, accessory.name].compactMap { $0 })
             }

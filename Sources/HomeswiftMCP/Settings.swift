@@ -35,6 +35,7 @@ extension HomeswiftCatalog {
         "hidden": ["type": "boolean", "description": "Hidden: in Apple Home, but off the web UI's wall"],
         "notInHome": ["type": "boolean", "description": "Not in Home: on the bridge and the wall, but left out of Apple Home, which loses its room, scenes and automations"],
         "excluded": ["type": "boolean", "description": "Excluded: its plugin does not make the device into an accessory at all; the plugin reloads"],
+        "separateFunctions": ["type": "boolean", "description": "Separate Functions: each thing it does (a light, a sensor) an accessory of its own in Apple Home, with its own Name, Room and Group; it keeps its main Function. Apple Home's scenes and automations on the separated Functions need redoing, both ways"],
         "parts": ["type": "object", "additionalProperties": ["type": "boolean"], "description": "The Parts of the device included (true) or left out (false), by the plugin's part id; the plugin reloads"],
         "energyRoles": ["type": "object", "additionalProperties": ["type": ["string", "null"], "enum": ["solar", "home", "grid", "battery", "none", .null]],
                         "description": "The Energy Role of each of its Meters in the Home Energy, by the Meter's key (get_settings' meters): solar, home, grid, battery, or none for a single device's use; null gives back its plugin's suggestion"],
@@ -250,6 +251,19 @@ extension HomeswiftCatalog {
         ]
         if let located = target.located { answer["name"] = .string(located.accessory.name) }
         if let source = target.located?.accessory.mirroredFrom { answer["mirroredFrom"] = .string(source) }
+        // Separate Functions: offered for an accessory doing several things; a separated Function names its accessory.
+        if let published = target.located?.accessory {
+            let own = published.separatedFrom ?? published
+            if own.id != published.id {
+                answer["functionOf"] = ["id": .string(own.id), "name": .string(own.name)]
+            } else if let groups = Separation.groups(of: own) {
+                answer["functions"] = .array(groups.map { group in .string(Separation.name(of: group[0], in: own)) })
+            }
+        }
+        if answer["functions"] == nil, (answer["settings"]?["separateFunctions"]).map({ $0.isNull }) ?? true {
+            fields.removeValue(forKey: "separateFunctions")
+            answer["fields"] = .object(fields)
+        }
         // Its Meters, for `energyRoles`: each one's key, its own name on a device with several, and its plugin's suggestion.
         let meters = metrics?.meters.meters(of: target.accessoryID) ?? []
         // Energy Roles only for an accessory with Meters (one that has a role saved keeps the field, to clear it).
@@ -350,7 +364,7 @@ extension HomeswiftCatalog {
     }
 
     /// The flags of the Core Accessory Settings, whose default (false) the canonical shape leaves out.
-    static let flagKeys: Set<String> = ["hidden", "notInHome", "excluded"]
+    static let flagKeys: Set<String> = ["hidden", "notInHome", "excluded", "separateFunctions"]
 
     /// Runs a settings writer again when config.json changed between its read and its write (`ConfigChanged`, from
     /// `writeConfig(expecting:)`): a concurrent save (a Home app rename, a hub's move, another page) is read again and
@@ -431,6 +445,19 @@ extension HomeswiftCatalog {
                     throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): its Name is read-only, rename it there")
                 }
                 if let text = name.stringValue { clean["name"] = AccessoryNaming.cleaned(text).map(JSONValue.string) ?? .null }
+            }
+            if settings["separateFunctions"]?.boolValue == true {
+                guard !target.isMirrored else {
+                    throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): it is published there, not by the bridge")
+                }
+                let own = target.located.map { $0.accessory.separatedFrom ?? $0.accessory }
+                guard let own, own.separatedFrom == nil, Separation.groups(of: own) != nil else {
+                    throw CatalogError("\(target.displayName) has nothing to separate: it does one thing, or what it does stays together (a camera, a doorbell, a television)")
+                }
+            }
+            if let part = target.located?.accessory, let original = part.separatedFrom, original.id != part.id,
+               let other = settings.keys.first(where: { !AccessorySettings.liveKeys.contains($0) || $0 == "separateFunctions" }) {
+                throw CatalogError("\(target.displayName) is a Function of \(original.name): set \(other) on \(original.name)")
             }
             if target.isMirrored, settings["notInHome"]?.boolValue == true {
                 throw CatalogError("\(target.displayName) comes from \(target.located?.accessory.mirroredFrom ?? "another controller"): HomeKit has it there")

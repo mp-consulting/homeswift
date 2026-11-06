@@ -677,9 +677,84 @@ public final class PluginContext: @unchecked Sendable {
         }
         naming.apply(to: accessory)
         attachEnergyHistory(to: accessory)
-        try bridge.server.add(accessory)
+        try publishOnBridge(accessory)
         list.withLockedValue { $0.put(accessory) }
         scheduleCacheSave()
+    }
+
+    // MARK: Separate Functions
+
+    /// The keys of `_accessories` whose Functions are separated, and what is published now for each accessory separated.
+    private let separations = NIOLockedValueBox<(keys: Set<String>, published: [String: Separation])>(([], [:]))
+
+    /// The ids of what this instance publishes on the bridge besides its own accessories: their separated Functions.
+    public var separatedFunctionIDs: [String] {
+        separations.withLockedValue { $0.published.values.flatMap { $0.parts.map(\.id) } }
+    }
+
+    /// Whether `accessory` is to have its Functions separated: its key in `_accessories` asks for it.
+    private func wantsSeparation(_ accessory: Accessory) -> Bool {
+        let prefix = "\(platform):"
+        let key = accessory.id.hasPrefix(prefix) ? String(accessory.id.dropFirst(prefix.count)) : accessory.id
+        return separations.withLockedValue { $0.keys.contains(key) } && !isExternal(id: accessory.id)
+    }
+
+    /// Puts the plugin's accessory on the bridge: as it is, or its Functions separated (`Separation`), the accessories
+    /// of the Functions it no longer separates taken off.
+    private func publishOnBridge(_ accessory: Accessory) throws {
+        let separation = wantsSeparation(accessory) ? Separation.of(accessory) : nil
+        let previous = separations.withLockedValue { $0.published[accessory.id] }
+        if let separation {
+            for part in separation.parts {
+                try bridge.claim(part.id, for: key, name: name)
+                naming.apply(to: part)
+            }
+            try bridge.server.add(separation.main)
+            for part in separation.parts { try bridge.server.add(part) }
+        } else {
+            try bridge.server.add(accessory)
+        }
+        let kept = Set(separation?.parts.map(\.id) ?? [])
+        for part in previous?.parts ?? [] where !kept.contains(part.id) {
+            try? bridge.server.remove(part)
+            bridge.release(part.id)
+        }
+        previous?.end()
+        separations.withLockedValue { $0.published[accessory.id] = separation }
+    }
+
+    /// Takes what was published for the accessory with this id off the bridge: its separated Functions, and the
+    /// accessory itself as the server has it.
+    private func unpublishFromBridge(id: String, fallback: Accessory) throws {
+        let separation = separations.withLockedValue { $0.published.removeValue(forKey: id) }
+        for part in separation?.parts ?? [] {
+            try? bridge.server.remove(part)
+            bridge.release(part.id)
+            naming.forget(part.id)
+        }
+        separation?.end()
+        try bridge.server.remove(separation?.main ?? fallback)
+    }
+
+    /// Separates the Functions of the accessories `_accessories` asks it for, by key, and joins those of the others back,
+    /// without reloading the plugin (`PluginHost`, a live Accessory Setting).
+    func applySeparations(_ keys: Set<String>) {
+        let changed = separations.withLockedValue { state in
+            defer { state.keys = keys }
+            return state.keys != keys
+        }
+        guard changed else { return }
+        for accessory in accessories where !isExternal(id: accessory.id) {
+            let wanted = wantsSeparation(accessory)
+            let published = separations.withLockedValue { $0.published[accessory.id] != nil }
+            guard wanted != published else { continue }
+            do {
+                try publishOnBridge(accessory)
+                logger.info(wanted ? "Functions separated: \(accessory.name)" : "Functions joined back: \(accessory.name)")
+            } catch {
+                logger.warning("Could not change how \(accessory.name) is published: \(error)")
+            }
+        }
     }
 
     /// A Lightbulb with Brightness and a writable Color Temperature: what Adaptive Lighting needs.
@@ -701,7 +776,7 @@ public final class PluginContext: @unchecked Sendable {
         }
         try bridge.claim(accessory.id, for: key, name: name)
         if self.accessory(id: accessory.id) != nil, !isExternal(id: accessory.id) {
-            try bridge.server.remove(accessory)
+            try unpublishFromBridge(id: accessory.id, fallback: accessory)
         }
         naming.apply(to: accessory)
         let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
@@ -727,7 +802,7 @@ public final class PluginContext: @unchecked Sendable {
         if isExternal(id: id) {
             await externals.unpublish(id: id, key: key)
         } else {
-            try bridge.server.remove(accessory)
+            try unpublishFromBridge(id: id, fallback: accessory)
         }
         bridge.release(id)
         naming.forget(id)
@@ -780,7 +855,7 @@ public final class PluginContext: @unchecked Sendable {
                     let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
                     if isNew { created.append(published.server) }
                 } else {
-                    try bridge.server.add(accessory)
+                    try publishOnBridge(accessory)
                 }
                 list.withLockedValue { entries in
                     entries.accessories.append(accessory)
@@ -806,7 +881,7 @@ public final class PluginContext: @unchecked Sendable {
             if external.contains(accessory.id) {
                 await externals.unpublish(id: accessory.id, key: key)
             } else {
-                do { try bridge.server.remove(accessory) } catch { logger.warning("Could not remove \(accessory.name): \(error)") }
+                do { try unpublishFromBridge(id: accessory.id, fallback: accessory) } catch { logger.warning("Could not remove \(accessory.name): \(error)") }
             }
             bridge.release(accessory.id)
         }
@@ -832,12 +907,14 @@ public final class PluginContext: @unchecked Sendable {
     /// Name goes on its server again, its aid and iids kept, so controllers see the new characteristic.
     func applyNames(_ names: [String: String]) {
         guard naming.setNames(names) else { return }
-        for accessory in accessories where naming.apply(to: accessory) {
+        // A separated Function's own name, or one its accessory gives it, puts it on the bridge again.
+        let separated = Set(separations.withLockedValue { $0.published.filter { $0.value.parts.contains { naming.apply(to: $0) } }.keys })
+        for accessory in accessories where naming.apply(to: accessory) || separated.contains(accessory.id) {
             do {
                 if isExternal(id: accessory.id) {
                     try externals.bridge(id: accessory.id, key: key)?.server.replace(primary: accessory)
                 } else {
-                    try bridge.server.add(accessory)
+                    try publishOnBridge(accessory)
                 }
             } catch {
                 logger.warning("Could not give \(accessory.name) its name in HomeKit: \(error)")

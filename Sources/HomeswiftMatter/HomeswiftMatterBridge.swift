@@ -387,7 +387,9 @@ public actor HomeswiftMatterBridge: MatterControl {
     }
 
     /// A plugin changed a value: report it on the device's part that has the characteristic.
-    private func changed(_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue) async {
+    private func changed(_ published: Accessory, _ characteristic: Characteristic, _ value: HAPValue) async {
+        // A separated Function's change is the plugin's own accessory's in Matter, which has it whole.
+        let accessory = published.separatedFrom ?? published
         guard let bridged = devices[accessory.id], bridged.accessory === accessory else { return }
         let device = bridged.device
         await device.setReachable(!accessory.showsNoResponse)

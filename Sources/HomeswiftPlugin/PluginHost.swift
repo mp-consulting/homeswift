@@ -130,7 +130,7 @@ public final class PluginHost: @unchecked Sendable {
         var described: PlatformInstance {
             PlatformInstance(
                 name: context.name, platform: context.platform, pluginName: entry.name, bridge: context.bridge,
-                accessoryIDs: context.accessories.map(\.id), paused: block.paused)
+                accessoryIDs: context.accessories.map(\.id) + context.separatedFunctionIDs, paused: block.paused)
         }
 
         init(entry: PluginRegistry.Entry, block: HomeswiftConfiguration.Platform, context: PluginContext) {
@@ -549,6 +549,7 @@ public final class PluginHost: @unchecked Sendable {
                 report.started.append(block.name)
             }
         }
+        applySeparations(next)
         applyHomeKitVisibility(next)
         applyAccessoryNames(next)
         logApplied(report)
@@ -569,6 +570,15 @@ public final class PluginHost: @unchecked Sendable {
             } catch {
                 logger.error("Could not save which accessories HomeKit sees on \(bridge.name): \(error)")
             }
+        }
+    }
+
+    /// Separates the Functions of the accessories each block's `_accessories` asks it for, and joins the others' back
+    /// (`Separation`), without reloading its plugin.
+    private func applySeparations(_ configuration: HomeswiftConfiguration) {
+        for instance in instances {
+            let block = configuration.platforms.first { $0.platform == instance.block.platform && $0.name == instance.block.name }
+            instance.context.applySeparations(block?.separatedFunctions ?? [])
         }
     }
 
@@ -716,6 +726,7 @@ public final class PluginHost: @unchecked Sendable {
         }
         context.logs = options.logs
         context.naming.setNames(block.accessoryNames)
+        context.applySeparations(block.separatedFunctions)
         context.naming.onRenamed { [weak self, logger = context.logger] id, name in
             guard let handler = self?.renameHandler.withLockedValue({ $0 }) else { return }
             logger.info("Renamed in HomeKit: \(id) is now \(name)")

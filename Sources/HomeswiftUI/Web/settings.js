@@ -244,6 +244,20 @@
           if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
         } });
 
+      // Separate Functions: each thing it does an accessory of its own, which Apple Home can group and put in a room.
+      const functions = answer.functions ?? [];
+      const separate = functions.length > 1 && !mirrored ? switchRow({ title: t("Separate Functions"),
+        help: t("In Apple Home, each thing it does becomes an accessory of its own: {functions}.", { functions: functions.join(", ") }),
+        checked: settings.separateFunctions === true,
+        onChange: async (on, state, input) => {
+          if (!await confirmAction({ title: on ? t("Separate the Functions of {name}?", { name: answer.name ?? id }) : t("Join the Functions of {name} back?", { name: answer.name ?? id }),
+            text: on ? t("Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.")
+              : t("The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve."),
+            confirmLabel: on ? t("Separate") : t("Join back"), confirmIcon: "group" })) { input.checked = !on; return; }
+          if (!await save({ separateFunctions: on || null }, state, "separateFunctions")) input.checked = !on;
+        } }) : null;
+      const functionOf = answer.functionOf ? el("p", { class: "help", text: t("A Function of {name}: its other settings are there.", { name: answer.functionOf.name }) }) : null;
+
       // Energy: what each of its meters measures in the home's energy. Applies at once; the plugin keeps running.
       const roleNames = { solar: t("Solar production"), home: t("The home's use"), grid: t("The grid connection"), battery: t("A battery"), none: t("This device alone") };
       const energySection = (answer.meters ?? []).length ? section(t("Energy"),
@@ -343,7 +357,7 @@
       node.replaceChildren(...[
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
-        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
         energySection,
         partsSection,
         pluginSection,

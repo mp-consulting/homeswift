@@ -20,6 +20,8 @@ actor RecordingPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable {
         var name: String?
         var lamps: [String]?
+        /// Lamps with a motion sensor (linked to the light) and a battery: two Functions.
+        var sensorLamps: [String]?
         /// Outlets with Eve's Total Consumption, at 2 kWh.
         var meters: [String]?
         /// A solar array's power, in watts, recorded on a Meter it declares (`roof`).
@@ -55,6 +57,13 @@ actor RecordingPlugin: HomeswiftPlugin {
         started = true
         for lamp in configuration.lamps ?? [] {
             try addLamp(id: lamp)
+        }
+        for lamp in configuration.sensorLamps ?? [] {
+            let motion = Service(.motionSensor, name: "\(lamp) motion")
+            let light = Service(.lightbulb, name: lamp, optional: [.brightness], linked: [motion], isPrimary: true)
+            let battery = Service(.battery, optional: [.batteryLevel])
+            battery.characteristic(.batteryLevel).value = .int(80)
+            try context.add(Accessory(id: "Recording:\(lamp)", name: lamp, category: .lightbulb, services: [light, motion, battery], onIdentify: {}))
         }
         if configuration.solarMeter == true { solarMeter = context.meter("solar", deviceID: "array", device: "Array", suggestedRole: .solar) }
         if let solar = configuration.solar {

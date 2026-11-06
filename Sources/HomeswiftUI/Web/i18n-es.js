@@ -3021,4 +3021,13 @@ HomeswiftI18n.add("es", {
   "Moves every member of this group, in the Home app too once this bridge is linked to Apple Home.": "Mueve cada miembro de este grupo, también en la app Casa una vez vinculado este puente a Apple Home.",
   "Also moves it in the Home app.": "También lo mueve en la app Casa.",
   "Moves it in the Home app too once this bridge is linked to Apple Home through Homeswift Wingman.": "También lo mueve en la app Casa una vez vinculado este puente a Apple Home mediante Homeswift Wingman.",
+  "Separate Functions": "Separar funciones",
+  "In Apple Home, each thing it does becomes an accessory of its own: {functions}.": "En Apple Home, cada cosa que hace pasa a ser un accesorio propio: {functions}.",
+  "Separate the Functions of {name}?": "¿Separar las funciones de {name}?",
+  "Join the Functions of {name} back?": "¿Volver a unir las funciones de {name}?",
+  "Apple Home's scenes and automations that use what moves need redoing. Each new accessory can have its own name, room and group.": "Hay que rehacer las escenas y automatizaciones de Apple Home que usan lo que se mueve. Cada accesorio nuevo puede tener su propio nombre, habitación y grupo.",
+  "The separated accessories leave Apple Home, with their scenes and automations, and the groups they were in may dissolve.": "Los accesorios separados salen de Apple Home, con sus escenas y automatizaciones, y los grupos en los que estaban pueden deshacerse.",
+  "Separate": "Separar",
+  "Join back": "Volver a unir",
+  "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
 });
