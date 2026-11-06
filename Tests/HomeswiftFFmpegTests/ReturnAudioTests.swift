@@ -1,6 +1,8 @@
 import Foundation
 import Logging
 import NIOConcurrencyHelpers
+import NIOCore
+import NIOPosix
 import Testing
 
 @testable import Homeswift
@@ -151,6 +153,9 @@ final class FakeReturnAudioDecoder: ReturnAudioDecoding {
         return true
     }
 
+    /// Whether the receiver has handed it its output and exit: before that, `emit` and `end` reach nothing.
+    var isStarted: Bool { state.withLockedValue { $0.output != nil } }
+
     func stop() {
         let exit = state.withLockedValue { state -> (@Sendable () -> Void)? in
             state.stopped = true
@@ -165,7 +170,8 @@ final class FakeReturnAudioDecoder: ReturnAudioDecoding {
     func end() { state.withLockedValue { state in defer { state.exit = nil }; return state.exit }?() }
 }
 
-/// The decoders made, in order.
+/// The decoders started, in order. The receiver makes one, then starts it: one only counts once started, so what a test
+/// emits or ends right after seeing it reaches the receiver.
 final class FakeDecoders: Sendable {
     let made = NIOLockedValueBox<[FakeReturnAudioDecoder]>([])
 
@@ -177,8 +183,9 @@ final class FakeDecoders: Sendable {
         }
     }
 
-    var count: Int { made.withLockedValue { $0.count } }
-    var last: FakeReturnAudioDecoder? { made.withLockedValue { $0.last } }
+    var started: [FakeReturnAudioDecoder] { made.withLockedValue { $0 }.filter(\.isStarted) }
+    var count: Int { started.count }
+    var last: FakeReturnAudioDecoder? { started.last }
 }
 
 /// What the handler saw of each Talk.
@@ -206,6 +213,36 @@ final class TalkRecorder: Sendable {
     func talk(_ index: Int) -> Record? { talks.withLockedValue { index < $0.count ? $0[index] : nil } }
 }
 
+/// HomeKit while someone talks: a return audio packet every 20 ms, sent from NIO's event loop rather than from a task, so
+/// packets keep coming in real time however late a loaded runner (every test bundle at once) gets to the tests' tasks.
+final class PacketStream: Sendable {
+    private let channel: any Channel
+    private let task: RepeatedTask
+
+    init(to port: Int, packet: Data = ReturnAudioReceiverTests.packet) async throws {
+        let channel = try await DatagramBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: 0).get()
+        let address = try SocketAddress(ipAddress: "127.0.0.1", port: port)
+        self.channel = channel
+        task = channel.eventLoop.scheduleRepeatedTask(initialDelay: .zero, delay: .milliseconds(20)) { _ in
+            channel.writeAndFlush(AddressedEnvelope(remoteAddress: address, data: ByteBuffer(bytes: packet)), promise: nil)
+        }
+    }
+
+    /// Dropped by a test that failed half way: nothing keeps sending.
+    deinit {
+        task.cancel()
+        channel.close(promise: nil)
+    }
+
+    /// No more packets once it returns.
+    func stop() async {
+        let stopped = channel.eventLoop.makePromise(of: Void.self)
+        task.cancel(promise: stopped)
+        try? await stopped.futureResult.get()
+        try? await channel.close()
+    }
+}
+
 @Suite struct ReturnAudioReceiverTests {
     /// A return audio RTP packet (section 8.4), before SRTP: the receiver counts it and never reads it.
     static let packet = Data([0x80, 0x6E, 0x00, 0x01, 0x00, 0x00, 0x01, 0xE0, 0x00, 0xAB, 0xCD, 0xEF, 0x00, 0x10, 0x03, 0xC0] + [UInt8](repeating: 0, count: 120))
@@ -220,12 +257,13 @@ final class TalkRecorder: Sendable {
         let logs: LogRecorder
     }
 
-    /// `timeScale` shortens the idle, longest-Talk and quick-exit windows; a window a test must act within is kept at a
-    /// second or more, which a loaded runner (every bundle at once) still meets.
+    /// `timeScale` shortens the idle, longest-Talk and quick-exit windows. A Talk begins on audio decoded within the idle
+    /// timeout of the last packet: tests send them with a `PacketStream`, in real time, rather than racing the window with
+    /// their own tasks. `port`: the audio return port, else one reserved (free then, not held: see `startedFixture`).
     func fixture(idle: Duration = .seconds(1), maximum: Duration = .seconds(600), rate: Int = 16000, volume: Int = 100,
-                 timeScale: Double = 0.1) async throws -> Fixture {
+                 timeScale: Double = 0.1, port: Int? = nil) async throws -> Fixture {
         let ports = RtpPortAllocator()
-        let port = await ports.reserve()
+        let port = if let port { port } else { await ports.reserve() }
         try #require(port > 0)
         let decoders = FakeDecoders(), talks = TalkRecorder(), logs = LogRecorder()
         let codecs = FfmpegCodecs(log: logs.logger, ffmpegVersion: "7.0", decoders: ["aac": ["aac", "libfdk_aac"]])
@@ -238,9 +276,23 @@ final class TalkRecorder: Sendable {
         return Fixture(receiver: receiver, decoders: decoders, talks: talks, port: port, ports: ports, logs: logs)
     }
 
+    struct ReturnPortTaken: Error {}
+
+    /// A fixture whose receiver started. The return port is reserved free, then bound at `start`, as a stream's is between
+    /// HomeKit's prepare and start; in between, a socket of another test running at the same time can be given it. That
+    /// fixture is closed and another made.
+    func startedFixture(idle: Duration = .seconds(1), maximum: Duration = .seconds(600), volume: Int = 100,
+                        timeScale: Double = 0.1) async throws -> Fixture {
+        for _ in 0..<5 {
+            let f = try await fixture(idle: idle, maximum: maximum, volume: volume, timeScale: timeScale)
+            if await f.receiver.start() { return f }
+            await f.receiver.close()
+        }
+        throw ReturnPortTaken()
+    }
+
     @Test func nothingHappensWithoutAudio() async throws {
-        let f = try await fixture()
-        #expect(await f.receiver.start())
+        let f = try await startedFixture()
         #expect(await f.receiver.isListening)
         try await sendUDP(Self.rtcp, to: f.port)
         try await Task.sleep(for: .milliseconds(50))
@@ -259,30 +311,46 @@ final class TalkRecorder: Sendable {
         return try #require(f.decoders.last)
     }
 
+    /// Packets coming as while someone talks, and FFmpeg (the fake) started for them.
+    func talking(_ f: Fixture) async throws -> (PacketStream, FakeReturnAudioDecoder) {
+        let packets = try await PacketStream(to: f.port)
+        #expect(await eventually { f.decoders.count == 1 })
+        return (packets, try #require(f.decoders.last))
+    }
+
+    /// Packets coming again after a silence: once the receiver has had one, audio FFmpeg decodes begins a Talk.
+    func talkingAgain(_ f: Fixture) async throws -> PacketStream {
+        let before = await f.receiver.packetCount
+        let packets = try await PacketStream(to: f.port)
+        #expect(await eventuallyAsync { await f.receiver.packetCount > before })
+        return packets
+    }
+
     @Test func aTalkBeginsOnDecodedAudioOnly() async throws {
         // Datagrams to the return port start FFmpeg, but only audio it decodes (which passed SRTP) begins a Talk.
-        let f = try await fixture(idle: .seconds(60))
-        #expect(await f.receiver.start())
-        let decoder = try await firstPacket(f)
-        try await sendUDP(Self.packet, to: f.port)
-        #expect(await eventuallyAsync { await f.receiver.packetCount == 2 })
+        let f = try await startedFixture(idle: .seconds(60))
+        let (packets, decoder) = try await talking(f)
+        #expect(await eventuallyAsync { await f.receiver.packetCount >= 2 })
         #expect(f.talks.count == 0)
         #expect(await !f.receiver.isTalking)
         #expect(!f.logs.messages.contains("Camera: Talk started."))
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.talk(0)?.frames.count == 1 })
+        await packets.stop()
         await f.receiver.close()
     }
 
     @Test func aTalkGetsWholeFramesUntilItGoesIdle() async throws {
-        // Idle 3 s × 0.5: FFmpeg's audio begins a Talk within 1.5 s of the last packet.
-        let f = try await fixture(idle: .seconds(3), volume: 70, timeScale: 0.5)
-        #expect(await f.receiver.start())
-        let decoder = try await firstPacket(f)
+        // Idle 3 s × 0.5: the Talk ends 1.5 s after the last packet.
+        let f = try await startedFixture(idle: .seconds(3), volume: 70, timeScale: 0.5)
+        let (packets, decoder) = try await talking(f)
         #expect(decoder.arguments.contains("libfdk_aac") && decoder.arguments.contains("16000"))
         #expect(decoder.state.withLockedValue { $0.sdp }.contains("inline:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd"))
         decoder.emit(Data(repeating: 0x01, count: 1000))
         decoder.emit(Data(repeating: 0x01, count: 100))
+        // Both chunks taken before the packets stop: the silence then flushes the 460 bytes left.
+        #expect(await eventuallyAsync { await f.receiver.chunkCount == 2 })
+        await packets.stop()
         #expect(await eventually { f.talks.talk(0)?.ended == true })
         let talk = try #require(f.talks.talk(0))
         #expect(talk.volume == 70)
@@ -296,11 +364,11 @@ final class TalkRecorder: Sendable {
         decoder.emit(Data(repeating: 0, count: 640))
         #expect(await eventuallyAsync { await f.receiver.chunkCount == 3 })
         #expect(f.talks.count == 1)
-        try await sendUDP(Self.packet, to: f.port)
-        #expect(await eventuallyAsync { await f.receiver.packetCount == 2 })
+        let again = try await talkingAgain(f)
         decoder.emit(Data(repeating: 0x02, count: 640))
         #expect(await eventually { f.talks.count == 2 })
         #expect(f.decoders.count == 1)
+        await again.stop()
         await f.receiver.close()
         #expect(await eventually { f.talks.talk(1)?.ended == true })
         #expect(f.talks.talk(1)?.frames.map(\.offset) == [0])
@@ -309,61 +377,60 @@ final class TalkRecorder: Sendable {
     }
 
     @Test func packetsKeepATalkOpenAndAGapEndsIt() async throws {
-        // Idle 5 s × 0.3: packets every 30 ms keep it open, the silence after them ends it.
-        let f = try await fixture(idle: .seconds(5), timeScale: 0.3)
-        #expect(await f.receiver.start())
-        let decoder = try await firstPacket(f)
+        // Idle 5 s × 0.3: packets every 20 ms keep it open past the 1.5 s, the silence after them ends it.
+        let f = try await startedFixture(idle: .seconds(5), timeScale: 0.3)
+        let (packets, decoder) = try await talking(f)
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.count == 1 })
-        for _ in 0..<10 {
-            try await sendUDP(Self.packet, to: f.port)
-            try await Task.sleep(for: .milliseconds(30))
-        }
-        #expect(f.talks.count == 1)
+        // Longer than the idle timeout: only the packets keep it open.
+        try await Task.sleep(for: .seconds(2))
+        #expect(await f.receiver.isTalking)
+        #expect(f.talks.count == 1 && f.talks.talk(0)?.ended == false)
+        await packets.stop()
         #expect(await eventuallyAsync { await !f.receiver.isTalking })
-        let packets = await f.receiver.packetCount
-        try await sendUDP(Self.packet, to: f.port)
-        #expect(await eventuallyAsync { await f.receiver.packetCount > packets })
+        let again = try await talkingAgain(f)
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.count == 2 })
         #expect(await f.receiver.talkCount == 2)
+        await again.stop()
         await f.receiver.close()
     }
 
     @Test func theLongestTalkEnds() async throws {
-        let f = try await fixture(idle: .seconds(60), maximum: .seconds(1))
-        #expect(await f.receiver.start())
-        let decoder = try await firstPacket(f)
+        // Packets keep coming: only the longest Talk (1 s × 0.1) ends it.
+        let f = try await startedFixture(idle: .seconds(60), maximum: .seconds(1))
+        let (packets, decoder) = try await talking(f)
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.talk(0)?.ended == true })
+        #expect(f.logs.messages(.debug).contains { $0.contains("longest Talk reached") })
+        await packets.stop()
         await f.receiver.close()
     }
 
     @Test func muteEndsATalkAndStopsNewOnes() async throws {
-        let f = try await fixture(idle: .seconds(60))
-        #expect(await f.receiver.start())
-        let decoder = try await firstPacket(f)
+        let f = try await startedFixture(idle: .seconds(60))
+        let (packets, decoder) = try await talking(f)
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventuallyAsync { await f.receiver.isTalking })
         await f.receiver.speakerChanged(muted: true, volume: 40)
         #expect(await eventually { f.talks.talk(0)?.ended == true })
-        try await sendUDP(Self.packet, to: f.port)
-        #expect(await eventuallyAsync { await f.receiver.packetCount == 2 })
+        // Muted: packets still come, and FFmpeg's audio begins no Talk.
+        let muted = await f.receiver.packetCount
+        #expect(await eventuallyAsync { await f.receiver.packetCount > muted })
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventuallyAsync { await f.receiver.chunkCount == 2 })
         #expect(f.talks.count == 1)
         await f.receiver.speakerChanged(muted: false, volume: 40)
-        try await sendUDP(Self.packet, to: f.port)
         decoder.emit(Data(repeating: 0x01, count: 640))
         #expect(await eventually { f.talks.count == 2 })
         #expect(f.talks.talk(1)?.volume == 40)
+        await packets.stop()
         await f.receiver.close()
     }
 
     @Test func aDecoderThatCannotDecodeIsGivenUpOn() async throws {
         // Lengthened: each decoder ends well inside the 10 s (2 s × 5) that make an exit quick, however loaded the machine.
-        let f = try await fixture(idle: .seconds(60), timeScale: 5)
-        #expect(await f.receiver.start())
+        let f = try await startedFixture(idle: .seconds(60), timeScale: 5)
         _ = try await firstPacket(f)
         f.decoders.last?.end()
         #expect(await eventuallyAsync { await !f.receiver.isDecoding })
@@ -381,8 +448,9 @@ final class TalkRecorder: Sendable {
     }
 
     @Test func aPortInUseLeavesTwoWayAudioOff() async throws {
-        let f = try await fixture()
-        let other = try await UDPReceiver(host: "0.0.0.0", port: f.port)
+        // Someone else's socket on the return port, bound first (from port 0: no other test can be given it in between).
+        let other = try await UDPReceiver(host: "0.0.0.0", port: 0)
+        let f = try await fixture(port: try #require(other.channel.localAddress?.port))
         #expect(await !f.receiver.start())
         #expect(f.logs.messages(.warning).contains { $0.contains("two-way audio unavailable") })
         await other.close()
