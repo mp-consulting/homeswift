@@ -7917,7 +7917,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     (automation.steps ?? []).forEach(addStep);
 
     const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` })
-      : t("Sunrise and sunset need a location: set it on the Scenes page.");
+      : t("Sunrise and sunset need the home's location, which is not set yet.");
     const section = (title, glyph, help, ...content) => el("section", { class: "card automation-section" },
       el("div", { class: "automation-section-head" }, el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(glyph)),
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted", text: help }))), ...content);
@@ -12430,7 +12430,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("time", { datetime: entry.time, text: timeFormat.format(date) }),
         el("span", { class: "tile", "aria-hidden": "true" }, HomeswiftCommon.icon(icons.get(entry.accessory) ?? "accessory")),
         el("div", { class: "who" }, el("strong", { text: entry.name }), el("span", { class: "muted", text: [what, entry.room].filter(Boolean).join(" · ") })),
-        el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : null },
+        el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : sourceText(entry.source) },
           HomeswiftCommon.icon(sourceIcons[entry.source.kind] ?? "accessory"), el("span", { text: sourceText(entry.source) })));
     }
     reload();
@@ -13754,9 +13754,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "stays", text: t("When a value stays for a while") }),
       el("option", { value: "threshold", text: t("When a number crosses a threshold") }), el("option", { value: "cron", text: t("Cron") }));
     type.value = trigger.type;
-    const enabled = el("input", { type: "checkbox", checked: trigger.enabled !== false, "aria-label": t("On [setting]") });
+    // Whether the trigger counts, in the row's head with its kind: apart from a Value switch in its fields.
+    const enabled = el("input", { type: "checkbox", role: "switch", checked: trigger.enabled !== false });
     const body = el("span", { class: "group-inline grow" });
-    const row = rowShell(type, body, el("label", { class: "toggle compact" }, enabled, el("span", { text: t("On [setting]") })));
+    const row = rowShell(el("div", { class: "trigger-head" }, type,
+      el("label", { class: "toggle compact trigger-enabled" }, el("span", { class: "switch" }, enabled, el("span")), el("span", { text: t("Enabled") }))), body);
     const draw = (shown) => {
       if (shown.type === "time") {
         const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
@@ -17658,6 +17660,7 @@ HomeswiftI18n.add("es", {
   "{label}?": "¿{label}?",
   "A Homeswift user": "Un usuario de Homeswift",
   "An MCP client": "Un cliente MCP",
+  "Sunrise and sunset need the home's location, which is not set yet.": "El amanecer y el atardecer necesitan la ubicación de la casa, que aún no está indicada.",
 });
 
 """#),
@@ -20814,6 +20817,7 @@ HomeswiftI18n.add("fr", {
   "{label}?": "{label} ?",
   "A Homeswift user": "Un utilisateur de Homeswift",
   "An MCP client": "Un client MCP",
+  "Sunrise and sunset need the home's location, which is not set yet.": "Le lever et le coucher du soleil demandent le lieu de la maison, qui n'est pas encore indiqué.",
 });
 
 """#),
@@ -23970,6 +23974,7 @@ HomeswiftI18n.add("pt", {
   "{label}?": "{label}?",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
+  "Sunrise and sunset need the home's location, which is not set yet.": "O nascer e o pôr do sol precisam da localização da casa, que ainda não foi definida.",
 });
 
 """#),
@@ -32286,19 +32291,21 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .logbook.loading { opacity: 0.6; }
 .logbook-day h3 { font-size: var(--text-sm); color: var(--muted); font-weight: var(--weight-semibold); margin: var(--space-18) 0 var(--space-6); }
 .logbook-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); overflow: hidden; }
-.logbook-entry { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: var(--space-10); align-items: center; padding: var(--space-8) var(--space-14); }
+.logbook-entry { display: grid; grid-template-columns: auto auto minmax(0, 1fr) minmax(0, max-content); gap: var(--space-10); align-items: center; padding: var(--space-8) var(--space-14); }
 .logbook-entry + .logbook-entry { border-top: 1px solid var(--line); }
 .logbook-entry time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--text-sm); }
 .logbook-entry .tile { width: 28px; height: 28px; }
 .logbook-entry .who { display: grid; min-width: 0; }
 .logbook-entry .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.logbook-entry .source { display: inline-flex; align-items: center; gap: var(--space-4); max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A whole pill, its name cut with an ellipsis inside it; the full name is its tooltip. */
+.logbook-entry .source { display: inline-flex; align-items: center; gap: var(--space-4); max-width: min(18em, 100%); min-width: 0; box-sizing: border-box; }
+.logbook-entry .source > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logbook-entry .source::before { content: none; }
 .logbook-entry .source svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 640px) {
   .logbook-entry { grid-template-columns: auto minmax(0, 1fr); padding: var(--space-10) var(--space-12); }
   .logbook-entry .tile { display: none; }
-  .logbook-entry .source { grid-column: 2; justify-self: start; }
+  .logbook-entry .source { grid-column: 2; justify-self: start; max-width: 100%; }
   .logbook-filters select { flex: 1 1 calc(50% - var(--space-8)); }
 }
 
@@ -32344,6 +32351,10 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .notify-choices { display: grid; gap: var(--space-10); }
 .notify-choice { display: flex; gap: var(--space-10); align-items: center; }
 .notify-choice button { flex: 1 1 auto; min-height: 48px; justify-content: center; }
+
+/* A trigger's head: its kind, and whether it is enabled, above its fields. */
+.editor-row .trigger-head { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
+.trigger-enabled { gap: var(--space-8); }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

@@ -147,7 +147,7 @@
     (automation.steps ?? []).forEach(addStep);
 
     const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` })
-      : t("Sunrise and sunset need a location: set it on the Scenes page.");
+      : t("Sunrise and sunset need the home's location, which is not set yet.");
     const section = (title, glyph, help, ...content) => el("section", { class: "card automation-section" },
       el("div", { class: "automation-section-head" }, el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(glyph)),
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted", text: help }))), ...content);

@@ -56,6 +56,7 @@ function writeHistory(directory) {
     ["lamp", "43", "25", "Desk Lamp", "On", "state"],
     ["lamp", "43", "8", "Desk Lamp", "Brightness", "number", "percentage"],
     ["door", "45", "1D", "Front Door", "Lock Current State", "state", null, [0, 1, 2, 3]],
+    ["door", "45", "1E", "Front Door", "Lock Target State", "state", null, [0, 1]],
     ["motion", "85", "22", "Hallway Motion", "Motion Detected", "state"],
   ].map(([id, service, type, name, characteristic, kind, unit, validValues], index) => ({ id: index + 1, key: `HomebridgeDummy:${id}|${service}||${type}`,
     accessory: `HomebridgeDummy:${id}`, accessoryName: name, service: "", characteristic, kind, ...(unit ? { unit } : {}), ...(validValues ? { validValues } : {}) }));
@@ -100,7 +101,11 @@ function writeHistory(directory) {
   }
   events.push([dated(0) + 18.5 * hour + 2_000, "Brightness", 80, "automation", "Evening"], [dated(0) + 21 * hour, "Brightness", 40, "user", "alex"]);
   // The door: opened at the door, locked from the Home app.
-  for (const [h, value, kind, who] of [[0, 1, null], [8.2, 0, "device"], [8.25, 1, "homeApp", "5C1F0A93"], [17.9, 0, "device"], [18, 1, "homeApp", "A2E77B10"]]) events.push([dated(0) + h * hour, "Lock Current State", value, kind, who]);
+  // The Home app writes the target; the lock reports its current state, the Device's.
+  for (const [h, value, kind, who] of [[0, 1, null], [8.2, 0, "device"], [8.25, 1, "homeApp", "5C1F0A93"], [17.9, 0, "device"], [18, 1, "homeApp", "A2E77B10"]]) {
+    if (kind === "homeApp") events.push([dated(0) + h * hour - 2000, "Lock Target State", value, kind, who]);
+    events.push([dated(0) + h * hour, "Lock Current State", value, kind ? "device" : null, null]);
+  }
   // Motion in the hallway now and then.
   events.push([dated(0), "Motion Detected", false, null]);
   for (const h of [7.1, 7.6, 8.15, 12.4, 17.95, 18.6, 19.3, 22.8]) events.push([dated(0) + h * hour, "Motion Detected", true, "device"], [dated(0) + h * hour + 120_000, "Motion Detected", false, "device"]);

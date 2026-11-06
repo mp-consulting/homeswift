@@ -225,7 +225,7 @@
         el("time", { datetime: entry.time, text: timeFormat.format(date) }),
         el("span", { class: "tile", "aria-hidden": "true" }, HomeswiftCommon.icon(icons.get(entry.accessory) ?? "accessory")),
         el("div", { class: "who" }, el("strong", { text: entry.name }), el("span", { class: "muted", text: [what, entry.room].filter(Boolean).join(" · ") })),
-        el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : null },
+        el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : sourceText(entry.source) },
           HomeswiftCommon.icon(sourceIcons[entry.source.kind] ?? "accessory"), el("span", { text: sourceText(entry.source) })));
     }
     reload();
