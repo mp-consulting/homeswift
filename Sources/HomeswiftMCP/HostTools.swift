@@ -149,7 +149,8 @@ extension HomeswiftCatalog {
         for one in history?.series(accessory: located.accessory.id) ?? [] {
             let normalizedType = Self.normalized(one.characteristic)
             guard type.map({ Self.normalized($0) == normalizedType }) ?? true, let history else { continue }
-            var object: [String: JSONValue] = ["type": .string(one.characteristic.replacingOccurrences(of: " ", with: "")), "service": .string(one.service), "kind": .string(one.kind.rawValue)]
+            var object: [String: JSONValue] = ["type": .string(one.characteristic.replacingOccurrences(of: " ", with: "")), "kind": .string(one.kind.rawValue)]
+            if !one.service.isEmpty { object["service"] = .string(one.service) }
             if let unit = one.unit { object["unit"] = .string(unit) }
             let raw = hours <= Double(history.retention.days) * 24
             if one.kind == .number {

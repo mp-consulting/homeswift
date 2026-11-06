@@ -331,13 +331,15 @@ final class MCPTestEnvironment: @unchecked Sendable {
     let host: PluginHost
     let catalog: HomeswiftCatalog
     let server: MCPServer
+    /// The History and the Logbook, when the test asked for them.
+    let history: HistoryStore?
     var configURL: URL { directory.appendingPathComponent("config.json") }
     var auditURL: URL { directory.appendingPathComponent("audit.jsonl") }
 
     /// `config` replaces the default config.json; `schema` is the devices plugin's config.schema.json, `blockSchemas`
     /// the catalog's for blocks no plugin provides.
     init(elicitation: Bool = true, allowSecrets: Bool = false, config custom: String? = nil, schema: String? = nil, blockSchemas: [String: String] = [:],
-         aiTransport: (any HTTPTransport)? = nil) throws {
+         aiTransport: (any HTTPTransport)? = nil, history: HistoryStore? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("config.json")
         let auditURL = directory.appendingPathComponent("audit.jsonl")
@@ -361,7 +363,8 @@ final class MCPTestEnvironment: @unchecked Sendable {
         hostOptions.aiTransport = aiTransport
         host = try PluginHost(
             configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory, options: hostOptions)
-        catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, allowSecrets: allowSecrets, blockSchemas: blockSchemas, logger: testLogger)
+        self.history = history
+        catalog = HomeswiftCatalog(host: host, logs: logs, history: history, configURL: configURL, allowSecrets: allowSecrets, blockSchemas: blockSchemas, logger: testLogger)
         var options = MCPServer.Options(version: "test", instructions: HomeswiftCatalog.instructions)
         options.elicitation = elicitation
         options.logger = testLogger
@@ -371,9 +374,11 @@ final class MCPTestEnvironment: @unchecked Sendable {
 
     func start() async throws {
         try await host.start()
+        history?.start(following: host)
     }
 
     func stop() async {
+        history?.stop()
         await host.stop()
     }
 

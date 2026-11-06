@@ -1845,7 +1845,37 @@
     ctx.node = node;
     cards.add(ctx);
     const done = el("button", { actionIcon: "check", type: "button", class: "link", text: t("Done") });
-    const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
+    // Its controls and its History (history.js), as tabs over the card; `options.tab` opens on the History.
+    const views = [["controls", t("Controls"), "sliders"], ["history", t("History"), "chart"]];
+    let tab = "controls", historyPanel = null;
+    const tabButtons = window.HomeswiftHistory ? views.map(([name, label, glyph]) => el("button", {
+      type: "button", role: "tab", id: `sheet-tab-${name}`, "aria-controls": "sheet-panel", "aria-selected": String(name === tab),
+      tabIndex: name === tab ? 0 : -1, class: name === tab ? "on" : "", actionIcon: glyph, text: label, onclick: () => choose(name),
+    })) : [];
+    const panel = el("div", { id: "sheet-panel", class: "sheet-panel", role: tabButtons.length ? "tabpanel" : null, "aria-labelledby": tabButtons.length ? "sheet-tab-controls" : null }, node);
+    function choose(name) {
+      tab = name;
+      for (const [index, button] of tabButtons.entries()) {
+        const on = views[index][0] === name;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-selected", String(on));
+        button.tabIndex = on ? 0 : -1;
+      }
+      panel.setAttribute("aria-labelledby", `sheet-tab-${name}`);
+      if (name === "history") historyPanel ??= HomeswiftHistory.panel(accessory);
+      panel.replaceChildren(name === "history" ? historyPanel : node);
+    }
+    const tabList = tabButtons.length ? el("div", { class: "group view-switch sheet-tabs", role: "tablist", "aria-label": t("{name}: views", { name: accessory.name }), onkeydown: (event) => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+      if (!step && event.key !== "Home" && event.key !== "End") return;
+      event.preventDefault();
+      const at = views.findIndex(([name]) => name === tab);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? views.length - 1 : (at + step + views.length) % views.length;
+      choose(views[next][0]);
+      tabButtons[next].focus();
+    } }, tabButtons) : null;
+    const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: `sheet-bar${tabList ? " with-tabs" : ""}` }, tabList, done), panel);
+    if (options.tab === "history" && tabList) choose("history");
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
     if (matchMedia("(max-width: 640px)").matches) {
@@ -2391,6 +2421,17 @@
     /// A camera's picture (camera.js): live while on screen, else snapshots, its name and state over it.
     cameraView: (accessory) => cameraView({ accessory }).element,
     card, open, kindOf, sizes, searchText, valueSections, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
+    /// A value as the rows under All controls word it: an enumerated state by its name, a 0 or 1 switch as On or Off, a
+    /// number with its unit (a temperature in the user's). `one` is `{ type, value, format, unit, minValue, maxValue,
+    /// validValues }`, `type` the characteristic's name; a boolean without a format is one.
+    valueText(one) {
+      const format = one.format ?? (typeof one.value === "boolean" ? "bool" : undefined);
+      if (enumLabels[one.type]) return labelFor(one.type, one.value);
+      if (format !== "float" && typeof one.value === "number" && (one.minValue === 0 && one.maxValue === 1 || String(one.validValues) === "0,1")) return one.value ? t("On [setting]") : t("Off [setting]");
+      return formatValue({ ...one, format });
+    },
+    /// A characteristic's name as the rows under All controls give it.
+    characteristicName: (type) => rowLabels[type] ?? typeName(type),
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
     characteristicRow(accessory, service, characteristic) {
       const ctx = context(accessory);

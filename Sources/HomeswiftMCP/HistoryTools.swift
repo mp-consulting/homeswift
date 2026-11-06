@@ -32,8 +32,9 @@ extension HomeswiftCatalog {
         let live = Dictionary(located.accessory.services.flatMap(\.characteristics).map { ($0.type.name, $0) }, uniquingKeysWith: { first, _ in first })
         for one in history.series(accessory: located.accessory.id) {
             var object: [String: JSONValue] = [
-                "id": .number(Double(one.id)), "service": .string(one.service), "characteristic": .string(one.characteristic), "kind": .string(one.kind.rawValue),
+                "id": .number(Double(one.id)), "characteristic": .string(one.characteristic), "kind": .string(one.kind.rawValue),
             ]
+            if !one.service.isEmpty { object["service"] = .string(one.service) }
             if let unit = one.unit { object["unit"] = .string(unit) }
             if let valid = one.validValues { object["validValues"] = .array(valid.map { .number(Double($0)) }) }
             if let last = one.last { object["last"] = JSONValue(last) }

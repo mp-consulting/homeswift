@@ -44,6 +44,7 @@ public struct HistorySeries: Sendable, Equatable, Codable {
     public var key: String
     public var accessory: String
     public var accessoryName: String
+    /// The service's name; empty for a service without one.
     public var service: String
     public var characteristic: String
     public var unit: String?
@@ -303,7 +304,7 @@ public final class HistoryStore: @unchecked Sendable {
         guard !characteristic.isConfidential, type.permissions.contains(.events), let kind = Self.kind(of: type) else { return nil }
         let key = "\(accessory.id)|\(service.type.uuid)|\(service.subtype ?? "")|\(type.uuid)"
         let serviceName = service[.configuredName]?.value.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-            ?? service[.name]?.value.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? service.type.name
+            ?? service[.name]?.value.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? ""
         let name = accessory.name
         state.withLockedValue { state in
             if var existing = state.series[key] {
@@ -361,7 +362,7 @@ public final class HistoryStore: @unchecked Sendable {
         let at = now()
         record(value, key: key, at: at)
         guard let series = state.withLockedValue({ $0.series[key] }), Self.logs(series) else { return }
-        log(LogbookEntry(time: at, accessory: series.accessory, accessoryName: series.accessoryName, service: series.service, characteristic: series.characteristic,
+        log(LogbookEntry(time: at, accessory: series.accessory, accessoryName: series.accessoryName, service: series.service.isEmpty ? nil : series.service, characteristic: series.characteristic,
                          value: value, source: source, write: source != .device), key: key)
     }
 
@@ -371,7 +372,7 @@ public final class HistoryStore: @unchecked Sendable {
         guard Self.isRecordable(value), !characteristic.isConfidential, Self.kind(of: characteristic.type) != nil else { return }
         let at = now()
         let key = key(of: characteristic, in: accessory) ?? "\(accessory.id)|write|\(characteristic.type.uuid)"
-        let serviceName = state.withLockedValue { $0.series[key]?.service }
+        let serviceName = state.withLockedValue { $0.series[key]?.service }.flatMap { $0.isEmpty ? nil : $0 }
         let entry = LogbookEntry(time: at, accessory: accessory.id, accessoryName: accessory.name, service: serviceName, characteristic: characteristic.type.name,
                                  value: value, source: source, write: true)
         let duplicate = state.withLockedValue { state -> Bool in

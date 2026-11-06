@@ -1995,7 +1995,7 @@
   /// plugin. A separator between groups, none around an empty one.
   function accessoryActions(accessory, arrange = []) {
     const use = [
-      accessory.history || accessory.consumption ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) },
       accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
     ];
@@ -5259,6 +5259,7 @@
   // An accessory's widget at its kind's size, for the Quick Controls.
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
+  views.logbook = (main) => window.HomeswiftHistory.logbookView(main);
   views.import = (main) => window.HomeswiftImport.view(main);
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
