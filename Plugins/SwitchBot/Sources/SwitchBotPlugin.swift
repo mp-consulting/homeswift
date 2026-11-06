@@ -186,7 +186,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         }
         let intervals = polled.map { entries[$0]!.interval }
         if let shortest = intervals.min() {
-            let limit = await budget.limit, reserve = await budget.reserve
+            let limit = budget.limit, reserve = budget.reserve
             let stretched = max(shortest, scaled(RequestBudget.pollSeconds(devices: polled.count, limit: limit, reserve: reserve)))
             if stretched > shortest {
                 logger.warning("\(polled.count) devices polled every \(shortest) would use more than the day's \(limit - reserve) requests: polling every \(stretched)")

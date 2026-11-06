@@ -445,7 +445,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
     }
 
     /// Every characteristic's type, by id.
-    nonisolated(unsafe) static let characteristicTypes: [String: String] = {
+    static let characteristicTypes: [String: String] = {
         var types: [String: String] = [:]
         for accessory in home["accessories"] as? [[String: Any]] ?? [] {
             for service in accessory["services"] as? [[String: Any]] ?? [] {

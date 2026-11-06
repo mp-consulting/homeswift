@@ -122,10 +122,10 @@ extension ESPHomePlugin {
                     await ready.link.close()
                 }, onState: { _, _ in })
         } catch {
-            if let info = result.withLockedValue { $0 } { return info }
+            if let info = result.withLockedValue({ $0 }) { return info }
             throw error
         }
-        if let info = result.withLockedValue { $0 } { return info }
+        if let info = result.withLockedValue({ $0 }) { return info }
         throw ESPHomeError.connectionLost
     }
 

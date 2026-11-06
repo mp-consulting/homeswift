@@ -446,7 +446,7 @@ final class RTPStreamManagement: @unchecked Sendable {
             }
         }
         guard text != nil else { return nil }
-        let result = String(cString: buffer)
+        let result = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         return result.isEmpty || result == "0.0.0.0" || result == "::" ? nil : result
     }
 

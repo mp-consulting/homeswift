@@ -210,7 +210,7 @@ final class CannedDownload: HTTPStreaming, Sendable {
         let bin = prefix.appendingPathComponent("Cellar/homeswift/0.4.0_1/bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         // A link resolves only to a file that exists.
-        FileManager.default.createFile(atPath: bin.appendingPathComponent("homeswift").path, contents: Data())
+        _ = FileManager.default.createFile(atPath: bin.appendingPathComponent("homeswift").path, contents: Data())
         let opt = prefix.appendingPathComponent("opt")
         try FileManager.default.createDirectory(at: opt, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: opt.appendingPathComponent("homeswift").path, withDestinationPath: "../Cellar/homeswift/0.4.0_1")

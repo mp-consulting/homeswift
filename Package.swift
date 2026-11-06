@@ -52,7 +52,6 @@ let package = Package(
         .library(name: "HomeswiftRenault", targets: ["HomeswiftRenault"]),
         .library(name: "HomeswiftImou", targets: ["HomeswiftImou"]),
         .library(name: "HomeswiftReolink", targets: ["HomeswiftReolink"]),
-        .library(name: "HomeswiftTahoma", targets: ["HomeswiftTahoma"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
     ],

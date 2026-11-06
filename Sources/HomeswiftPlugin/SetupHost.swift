@@ -17,11 +17,11 @@ extension PluginHost {
         let instance = instances.first { $0.context.platform == platform && $0.context.name == name }
         var json: Data
         if let block {
-            json = try block.encoded()
+            json = block.encoded()
         } else if let instance {
             json = instance.block.json
         } else {
-            json = try JSONValue.object(["platform": .string(platform), "name": .string(name)]).encoded()
+            json = JSONValue.object(["platform": .string(platform), "name": .string(name)]).encoded()
         }
         // A running plugin answers for its instance, whatever block was asked: a second plugin on its context would write
         // the same credentials and stores at the same time. A draft only makes sense for a block not saved yet.

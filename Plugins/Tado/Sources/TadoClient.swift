@@ -350,7 +350,7 @@ struct TadoAPI: Sendable {
     func zones(_ home: Int) async throws -> JSONValue { try await call("GET", "api/v2/homes/\(home)/zones") }
     func zoneStates(_ home: Int) async throws -> JSONValue { try await call("GET", "api/v2/homes/\(home)/zoneStates") }
     func capabilities(_ home: Int, zone: Int) async throws -> JSONValue { try await call("GET", "api/v2/homes/\(home)/zones/\(zone)/capabilities") }
-    func setOverlay(_ home: Int, zone: Int, _ overlay: JSONValue) async throws -> JSONValue {
+    @discardableResult func setOverlay(_ home: Int, zone: Int, _ overlay: JSONValue) async throws -> JSONValue {
         try await call("PUT", "api/v2/homes/\(home)/zones/\(zone)/overlay", body: overlay)
     }
     func clearOverlay(_ home: Int, zone: Int) async throws { try await call("DELETE", "api/v2/homes/\(home)/zones/\(zone)/overlay") }
