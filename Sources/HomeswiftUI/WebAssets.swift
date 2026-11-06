@@ -32833,6 +32833,8 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-head .who, .automation-section-head .who { display: grid; gap: 2px; min-width: 0; }
 .automation-section-head h3 { margin: 0; }
 .automation-section-head p { margin: 0; }
+.automation-section-head p a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .automation-section-head p a:hover { text-decoration: underline; } }
 .automation-card .note { display: flex; gap: var(--space-6); align-items: center; margin: 0; }
 .automation-card .note svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .automation-last-run { margin: 0; }
