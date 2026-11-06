@@ -42,6 +42,8 @@ public actor TapoPlugin: HomeswiftPlugin {
         var controlHTTP: (any HTTPSending)? = nil
         /// How long Setup's discovery waits for the cloud's list of cameras.
         var cloudListTimeout: Duration = .seconds(4)
+        /// Seconds (scaled) a camera's battery is not asked again after a reading (docs/clean-room/TapoBattery.md, 6).
+        var batteryInterval = 300.0
     }
 
     public static let platform = "TapoP100"

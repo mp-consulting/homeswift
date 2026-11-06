@@ -51,37 +51,39 @@ struct TapoBatteryTests {
         return try #require(accessory.service(.battery))
     }
 
-    @Test func aLiveViewReadsTheBatteryForBothLensesAndKeepsIt() async throws {
-        let control = FakeTapoControlCamera()
+    /// A camera whose live view and control API sign in with the account's password.
+    func awakeCamera() -> (FakeTapoControlCamera, FakeStreamdCamera) {
         let camera = FakeStreamdCamera()
-        // The live view and the control API sign in with the same password, the account's.
         camera.state.withLockedValue { $0.password = "password123" }
-        let devices: [[String: Any]] = [["name": "Garden", "host": "192.168.1.40", "type": "DualLensCamera", "motion": false]]
-        let host = try await environment.start(devices: devices, connect: camera.connect, control: control)
+        return (FakeTapoControlCamera(), camera)
+    }
+
+    let devices: [[String: Any]] = [["name": "Garden", "host": "192.168.1.40", "type": "DualLensCamera", "motion": false]]
+
+    /// Opens a live view, waits for `condition`, and closes it again.
+    func watch(_ feed: TapoCameraFeed, until condition: @Sendable () async -> Bool) async -> Bool {
+        let viewer = await feed.join()
+        let met = await eventually(condition)
+        await feed.leave(viewer.id)
+        return await eventually { await feed.isConnected == false } && met
+    }
+
+    @Test func aLiveViewReadsTheBatteryForBothLensesAndKeepsIt() async throws {
+        let (control, camera) = awakeCamera()
+        // Every live view may ask: the interval is tested on its own.
+        let host = try await environment.start(devices: devices, connect: camera.connect, control: control, batteryInterval: 0)
         let wide = try await battery(host, wideID)
         let tele = try await battery(host, teleID)
         #expect(wide[.statusLowBattery]?.value == .int(0))
         // Asleep: never asked.
         try await Task.sleep(for: .milliseconds(100))
         #expect(control.state.withLockedValue { $0.deviceInfoReads + $0.logins } == 0)
-        let plugin = try #require(environment.plugin)
-        let feed = try #require(await plugin.cameraRuntimes[deviceID]?.feed)
-        let viewer = await feed.join()
-        #expect(await eventually { wide[.batteryLevel]?.value == .int(64) && tele[.batteryLevel]?.value == .int(64) })
+        let feed = try #require(await environment.plugin?.cameraRuntimes[deviceID]?.feed)
+        #expect(await watch(feed) { wide[.batteryLevel]?.value == .int(64) && tele[.batteryLevel]?.value == .int(64) })
         #expect(wide[.chargingState]?.value == .int(0))
-        // Charging now; a session that reopens within the interval does not ask again.
+        // Charging at the next live view.
         control.state.withLockedValue { $0.basicInfo = ["power": "SOLAR", "battery_percent": 65, "battery_charging": "YES", "low_battery": false] }
-        await feed.leave(viewer.id)
-        #expect(await eventually { await feed.isConnected == false })
-        let second = await feed.join()
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(control.state.withLockedValue { $0.deviceInfoReads } == 1)
-        // After the interval (0.6 s here), a new session reads it again.
-        try await Task.sleep(for: .milliseconds(700))
-        await feed.leave(second.id)
-        #expect(await eventually { await feed.isConnected == false })
-        _ = await feed.join()
-        #expect(await eventually { tele[.chargingState]?.value == .int(1) && tele[.batteryLevel]?.value == .int(65) })
+        #expect(await watch(feed) { tele[.chargingState]?.value == .int(1) && tele[.batteryLevel]?.value == .int(65) })
         await host.stop()
 
         // A restart shows the kept level before any live view.
@@ -90,6 +92,22 @@ struct TapoBatteryTests {
         #expect(kept[.batteryLevel]?.value == .int(65))
         #expect(kept[.chargingState]?.value == .int(1))
         await again.stop()
+    }
+
+    @Test func aLiveViewWithinTheIntervalDoesNotAskAgain() async throws {
+        let (control, camera) = awakeCamera()
+        // 200 seconds here: longer than the test.
+        let host = try await environment.start(devices: devices, connect: camera.connect, control: control, batteryInterval: 100_000)
+        let wide = try await battery(host, wideID)
+        let feed = try #require(await environment.plugin?.cameraRuntimes[deviceID]?.feed)
+        #expect(await watch(feed) { wide[.batteryLevel]?.value == .int(64) })
+        control.state.withLockedValue { $0.basicInfo["battery_percent"] = 50 }
+        let viewer = await feed.join()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(control.state.withLockedValue { $0.deviceInfoReads } == 1)
+        #expect(wide[.batteryLevel]?.value == .int(64))
+        await feed.leave(viewer.id)
+        await host.stop()
     }
 
     @Test func theCloudsLowBatteryNoticeMarksItLow() async throws {

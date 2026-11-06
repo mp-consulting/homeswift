@@ -69,9 +69,8 @@ extension TapoPlugin {
     static var deviceInfoParams: [String: Any] { ["device_info": ["name": ["basic_info"]]] }
     /// The notifications that say the battery is low or empty (4.4).
     static let batteryNotifications: Set<String> = ["CameraLowBattery", "BatteryEmpty"]
-    /// How long after a live view opens the battery is asked (the camera has proved awake), and how often at most (6).
+    /// How long after a live view opens the battery is asked: the camera has proved awake (6).
     static let batteryDelay = 3.0
-    static let batteryInterval = 300.0
 
     private var batteryFile: JSONFile<[String: TapoBatteryReading]> { context.jsonFile("battery.json", as: [String: TapoBatteryReading].self) }
 
@@ -85,7 +84,7 @@ extension TapoPlugin {
     /// camera that went back to sleep, or does not answer, keeps its last reading.
     func readBattery(deviceID: String) async {
         try? await Task.sleep(for: scaled(Self.batteryDelay))
-        if let last = batteryReadAt[deviceID], ContinuousClock.now - last < scaled(Self.batteryInterval) { return }
+        if let last = batteryReadAt[deviceID], ContinuousClock.now - last < scaled(dependencies.batteryInterval) { return }
         guard let runtime = cameraRuntimes[deviceID], await runtime.feed.isConnected, let control = runtime.control else { return }
         batteryReadAt[deviceID] = .now
         let found: TapoBatteryReading?
