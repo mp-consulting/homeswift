@@ -1,0 +1,1071 @@
+{
+ "version": {
+  "type": "version",
+  "driverVersion": "12.4.0",
+  "serverVersion": "1.33.0",
+  "homeId": 3967423180,
+  "minSchemaVersion": 0,
+  "maxSchemaVersion": 35
+ },
+ "state": {
+  "driver": {
+   "logConfig": {
+    "enabled": true
+   },
+   "statisticsEnabled": false
+  },
+  "controller": {
+   "homeId": 3967423180,
+   "ownNodeId": 1,
+   "sdkVersion": "7.18.1",
+   "type": 1,
+   "isPrimary": true
+  },
+  "nodes": [
+   {
+    "nodeId": 1,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "",
+    "location": "",
+    "label": "ZST10-700",
+    "isControllerNode": true,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Silicon Labs",
+     "label": "ZST10-700",
+     "description": "700 Series USB Controller"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 2,
+      "label": "Static Controller"
+     },
+     "specific": {
+      "key": 1,
+      "label": "PC Controller"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 1,
+      "index": 0
+     }
+    ],
+    "values": []
+   },
+   {
+    "nodeId": 2,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Living Room Bulb",
+    "location": "",
+    "label": "ZWA002",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Aeotec",
+     "label": "ZWA002",
+     "description": "LED Bulb 6 Multi-Color"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 17,
+      "label": "Multilevel Switch"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Multilevel Power Switch"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 2,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "currentValue",
+      "propertyName": "currentValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "min": 0,
+       "max": 99
+      },
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "targetValue",
+      "propertyName": "targetValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "min": 0,
+       "max": 99
+      },
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 0,
+      "propertyKey": 0,
+      "propertyKeyName": "Warm White"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 0,
+      "propertyKey": 1,
+      "propertyKeyName": "Cold White"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 255,
+      "propertyKey": 2,
+      "propertyKeyName": "Red"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 0,
+      "propertyKey": 3,
+      "propertyKeyName": "Green"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 0,
+      "propertyKey": 4,
+      "propertyKeyName": "Blue"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "targetColor",
+      "propertyName": "targetColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": true
+      },
+      "value": {}
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 114,
+      "commandClassName": "Manufacturer Specific",
+      "property": "deviceId",
+      "propertyName": "deviceId",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": "0123456789ABCDEF",
+      "propertyKey": "SerialNumber",
+      "propertyKeyName": "SerialNumber"
+     }
+    ]
+   },
+   {
+    "nodeId": 3,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Coffee Machine",
+    "location": "",
+    "label": "ZW096",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Aeotec",
+     "label": "ZW096",
+     "description": "Smart Switch 6"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 16,
+      "label": "Binary Switch"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Binary Power Switch"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 3,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 37,
+      "commandClassName": "Binary Switch",
+      "property": "currentValue",
+      "propertyName": "currentValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": false
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 37,
+      "commandClassName": "Binary Switch",
+      "property": "targetValue",
+      "propertyName": "targetValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "boolean",
+       "readable": true,
+       "writeable": true
+      },
+      "value": false
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 50,
+      "commandClassName": "Meter",
+      "property": "value",
+      "propertyName": "value",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "unit": "kWh",
+       "ccSpecific": {
+        "meterType": 1,
+        "rateType": 1,
+        "scale": 0
+       }
+      },
+      "value": 12.5,
+      "propertyKey": 65537,
+      "propertyKeyName": "65537"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 50,
+      "commandClassName": "Meter",
+      "property": "value",
+      "propertyName": "value",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "unit": "W",
+       "ccSpecific": {
+        "meterType": 1,
+        "rateType": 1,
+        "scale": 2
+       }
+      },
+      "value": 0,
+      "propertyKey": 66049,
+      "propertyKeyName": "66049"
+     }
+    ]
+   },
+   {
+    "nodeId": 4,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Hall Sensor",
+    "location": "",
+    "label": "ZW100",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Aeotec",
+     "label": "ZW100",
+     "description": "MultiSensor 6"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 33,
+      "label": "Multilevel Sensor"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Routing Multilevel Sensor"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 4,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 113,
+      "commandClassName": "Notification",
+      "property": "Home Security",
+      "propertyName": "Home Security",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "idle",
+        "8": "Motion detection"
+       }
+      },
+      "value": 0,
+      "propertyKey": "Motion sensor status",
+      "propertyKeyName": "Motion sensor status"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 49,
+      "commandClassName": "Multilevel Sensor",
+      "property": "Air temperature",
+      "propertyName": "Air temperature",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "unit": "°F"
+      },
+      "value": 71.6
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 49,
+      "commandClassName": "Multilevel Sensor",
+      "property": "Humidity",
+      "propertyName": "Humidity",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "unit": "%"
+      },
+      "value": 45
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 49,
+      "commandClassName": "Multilevel Sensor",
+      "property": "Illuminance",
+      "propertyName": "Illuminance",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "unit": "Lux"
+      },
+      "value": 120
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 128,
+      "commandClassName": "Battery",
+      "property": "level",
+      "propertyName": "level",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 87
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 128,
+      "commandClassName": "Battery",
+      "property": "isLow",
+      "propertyName": "isLow",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": false
+     }
+    ]
+   },
+   {
+    "nodeId": 5,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Front Door",
+    "location": "",
+    "label": "YRD256",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Yale",
+     "label": "YRD256",
+     "description": "Assure Lock"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 64,
+      "label": "Entry Control"
+     },
+     "specific": {
+      "key": 3,
+      "label": "Secure Keypad Door Lock"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 5,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 98,
+      "commandClassName": "Door Lock",
+      "property": "currentMode",
+      "propertyName": "currentMode",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "Unsecured",
+        "255": "Secured"
+       }
+      },
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 98,
+      "commandClassName": "Door Lock",
+      "property": "targetMode",
+      "propertyName": "targetMode",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true
+      },
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 128,
+      "commandClassName": "Battery",
+      "property": "level",
+      "propertyName": "level",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 60
+     }
+    ]
+   },
+   {
+    "nodeId": 6,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Bedroom Thermostat",
+    "location": "",
+    "label": "Spirit",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Eurotronic",
+     "label": "Spirit",
+     "description": "Spirit Z-Wave Plus"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 8,
+      "label": "Thermostat"
+     },
+     "specific": {
+      "key": 6,
+      "label": "General Thermostat V2"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 6,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 64,
+      "commandClassName": "Thermostat Mode",
+      "property": "mode",
+      "propertyName": "mode",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "states": {
+        "0": "Off",
+        "1": "Heat",
+        "11": "Energy heat",
+        "31": "Manufacturer specific",
+        "2": "Cool"
+       }
+      },
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 67,
+      "commandClassName": "Thermostat Setpoint",
+      "property": "setpoint",
+      "propertyName": "setpoint",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "unit": "°C",
+       "min": 8,
+       "max": 28
+      },
+      "value": 21,
+      "propertyKey": 1,
+      "propertyKeyName": "Heating"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 67,
+      "commandClassName": "Thermostat Setpoint",
+      "property": "setpoint",
+      "propertyName": "setpoint",
+      "ccVersion": 1,
+      "propertyKey": 2,
+      "propertyKeyName": "Cooling",
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "unit": "°C",
+       "min": 8,
+       "max": 28
+      },
+      "value": 24
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 49,
+      "commandClassName": "Multilevel Sensor",
+      "property": "Air temperature",
+      "propertyName": "Air temperature",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "unit": "°C"
+      },
+      "value": 19.5
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 128,
+      "commandClassName": "Battery",
+      "property": "level",
+      "propertyName": "level",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 90
+     }
+    ]
+   },
+   {
+    "nodeId": 7,
+    "index": 0,
+    "status": 1,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "",
+    "location": "",
+    "label": "ZW120",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Aeotec",
+     "label": "ZW120",
+     "description": "Door / Window Sensor Gen5"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 32,
+      "label": "Binary Sensor"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Routing Binary Sensor"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 7,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 113,
+      "commandClassName": "Notification",
+      "property": "Access Control",
+      "propertyName": "Access Control",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "22": "Window/door is open",
+        "23": "Window/door is closed"
+       }
+      },
+      "value": 23,
+      "propertyKey": "Door state",
+      "propertyKeyName": "Door state"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 48,
+      "commandClassName": "Binary Sensor",
+      "property": "Door/Window",
+      "propertyName": "Door/Window",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": false
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 128,
+      "commandClassName": "Battery",
+      "property": "level",
+      "propertyName": "level",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 100
+     }
+    ]
+   },
+   {
+    "nodeId": 8,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Wall Remote",
+    "location": "",
+    "label": "ZW130",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Aeotec",
+     "label": "ZW130",
+     "description": "WallMote Quad"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 24,
+      "label": "Wall Controller"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Basic Wall Controller"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 8,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 91,
+      "commandClassName": "Central Scene",
+      "property": "scene",
+      "propertyName": "scene",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "KeyPressed",
+        "1": "KeyReleased",
+        "2": "KeyHeldDown"
+       }
+      },
+      "value": null,
+      "propertyKey": "001",
+      "propertyKeyName": "001"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 91,
+      "commandClassName": "Central Scene",
+      "property": "scene",
+      "propertyName": "scene",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "KeyPressed",
+        "1": "KeyReleased",
+        "2": "KeyHeldDown"
+       }
+      },
+      "value": null,
+      "propertyKey": "002",
+      "propertyKeyName": "002"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 128,
+      "commandClassName": "Battery",
+      "property": "level",
+      "propertyName": "level",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 75
+     }
+    ]
+   },
+   {
+    "nodeId": 9,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Kitchen Blind",
+    "location": "",
+    "label": "FGR222",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Fibargroup",
+     "label": "FGR222",
+     "description": "Roller Shutter 2"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 17,
+      "label": "Multilevel Switch"
+     },
+     "specific": {
+      "key": 7,
+      "label": "Motor Control Class C"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 9,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "currentValue",
+      "propertyName": "currentValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 50
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "targetValue",
+      "propertyName": "targetValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "min": 0,
+       "max": 99
+      },
+      "value": 50
+     }
+    ]
+   },
+   {
+    "nodeId": 10,
+    "index": 0,
+    "status": 3,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Basement Leak",
+    "location": "",
+    "label": "ZSE42",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Zooz",
+     "label": "ZSE42",
+     "description": "Water Leak XS Sensor"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 7,
+      "label": "Notification Sensor"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Notification Sensor"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 10,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 113,
+      "commandClassName": "Notification",
+      "property": "Water Alarm",
+      "propertyName": "Water Alarm",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "idle",
+        "2": "Water leak detected"
+       }
+      },
+      "value": 0,
+      "propertyKey": "Sensor status",
+      "propertyKeyName": "Sensor status"
+     }
+    ]
+   }
+  ]
+ }
+}

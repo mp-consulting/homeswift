@@ -24,7 +24,7 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Thirty-nine plugins come with it, from Elgato Key
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Forty plugins come with it, from Elgato Key
 Lights to UniFi Protect cameras, Shelly, Zigbee2MQTT and Sonos, Philips Hue and IKEA DIRIGERA straight from their bridges, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
 lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. See
@@ -204,6 +204,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
 | [V2C Trydan](Plugins/V2CTrydan) | `V2CTrydan` | Experimental: V2C Trydan EV chargers on the local network: charging, the current offered, the charger's lock, the car plugged in, power and energy |
 | [Wingman](Plugins/Wingman) | `Wingman` | The Home app's accessories (Matter ones too) through [Homeswift Wingman](https://github.com/mp-consulting/homeswift-wingman) on a Mac: in the web UI, scenes and MCP, never published to HomeKit again; the Home Link that keeps the bridge's Rooms, Zones and Groups the same as Apple Home's |
+| [Z-Wave JS](Plugins/ZWaveJS) | `ZWaveJS` | Experimental: the nodes of a Z-Wave network through zwave-js-server (Z-Wave JS UI, Home Assistant's add-on): switches, dimmers, colour lights, covers, locks, thermostats, sensors, meters and scene buttons |
 | [Zigbee2MQTT](Plugins/Zigbee2MQTT) | `zigbee2mqtt` | Experimental: the devices and groups of a Zigbee2MQTT installation (lights, switches, blinds, locks, thermostats, sensors, remotes), over its MQTT broker |
 
 ### In a container, on a NAS

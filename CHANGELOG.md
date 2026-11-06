@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
   bridge and follow their changes; `newDeviceLabel` names Add by address for devices that have no address;
   `accessorySettingChoices` gives a Plugin Accessory Setting choices that depend on the home; Setup has a `choices`
   field, several options picked.
+- Z-Wave JS plugin (experimental): the nodes already on a Z-Wave network, through zwave-js-server's WebSocket API, the
+  server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run. Switches and outlets, dimmers, colour lights, window
+  coverings, door locks, thermostats, motion, contact, leak, smoke and CO sensors, temperature, humidity and light,
+  batteries, Central Scene buttons, and meters that count in the Energy section. The server is found over mDNS or added
+  by its address; a dead node answers No Response. Including and excluding nodes stays in Z-Wave JS UI.
 - Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
   attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
   masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and

@@ -53,6 +53,7 @@ let package = Package(
         .library(name: "HomeswiftImou", targets: ["HomeswiftImou"]),
         .library(name: "HomeswiftReolink", targets: ["HomeswiftReolink"]),
         .library(name: "HomeswiftHelpers", targets: ["HomeswiftHelpers"]),
+        .library(name: "HomeswiftZWaveJS", targets: ["HomeswiftZWaveJS"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
     ],
@@ -530,13 +531,20 @@ let package = Package(
             name: "HomeswiftHelpers",
             dependencies: ["Homeswift", "HomeswiftPlugin", .product(name: "Logging", package: "swift-log")],
             path: "Plugins/Helpers/Sources"
+            name: "HomeswiftZWaveJS",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/ZWaveJS/Sources"
         ),
         // The `homeswift` bridge: reads config.json and runs the plugins compiled in (Plugins.swift lists them).
         // The target is not named "homeswift": that is "Homeswift" on a case-insensitive file system.
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftNetwork", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftHueSyncBox", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftAPsystemsECU", "HomeswiftMagicHome", "HomeswiftRenault", "HomeswiftImou", "HomeswiftReolink", "HomeswiftHelpers",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftNetwork", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftHueSyncBox", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftAPsystemsECU", "HomeswiftMagicHome", "HomeswiftRenault", "HomeswiftImou", "HomeswiftReolink", "HomeswiftHelpers", "HomeswiftZWaveJS",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -1002,6 +1010,14 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/Helpers/Tests"
+            name: "ZWaveJSTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftZWaveJS",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/ZWaveJS/Tests",
+            exclude: ["Fixtures"]
         ),
     ]
 )
