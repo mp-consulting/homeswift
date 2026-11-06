@@ -12292,6 +12292,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const list = el("div", { class: "logbook" });
     const count = el("p", { class: "muted" });
     const icons = new Map(accessories.map((one) => [one.id, HomeswiftWidgets.accessoryIcon(one) ?? "accessory"]));
+    const byID = new Map(accessories.map((one) => [one.id, one]));
     app().show(main, app().pageHead(t("Logbook"), t("What changed in the home, and who or what changed it.")),
       el("div", { class: "logbook-filters" }, ...controls, clear), count, list);
 
@@ -12322,7 +12323,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     function row(entry, date, timeFormat) {
       const series = { characteristic: entry.characteristic, kind: typeof entry.value === "number" ? "number" : "state" };
-      const live = accessories.find((one) => one.id === entry.accessory);
+      const live = byID.get(entry.accessory);
       const characteristic = live?.services?.flatMap((service) => service.characteristics ?? []).find((one) => one.type === entry.characteristic);
       if (characteristic) Object.assign(series, { unit: characteristic.unit, minValue: characteristic.minValue, maxValue: characteristic.maxValue, validValues: characteristic.validValues });
       const what = t("{characteristic}: {value}", { characteristic: HomeswiftWidgets.characteristicName(entry.characteristic), value: valueText(series, entry.value) });

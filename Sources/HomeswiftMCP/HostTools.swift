@@ -146,17 +146,20 @@ extension HomeswiftCatalog {
         }
         var series: [JSONValue] = []
         var seen: Set<String> = []
-        for one in history?.series(accessory: located.accessory.id) ?? [] {
+        let wanted = (history?.series(accessory: located.accessory.id) ?? []).filter { one in type.map { Self.normalized($0) == Self.normalized(one.characteristic) } ?? true }
+        let raw = hours <= Double(history?.retention.days ?? 0) * 24
+        // The changes of every series that reads them, each day file read once.
+        let changes = history?.changes(of: wanted.filter { $0.kind == .state || raw }, from: from, to: to) ?? [:]
+        for one in wanted {
+            guard let history else { break }
             let normalizedType = Self.normalized(one.characteristic)
-            guard type.map({ Self.normalized($0) == normalizedType }) ?? true, let history else { continue }
             var object: [String: JSONValue] = ["type": .string(one.characteristic.replacingOccurrences(of: " ", with: "")), "kind": .string(one.kind.rawValue)]
             if !one.service.isEmpty { object["service"] = .string(one.service) }
             if let unit = one.unit { object["unit"] = .string(unit) }
-            let raw = hours <= Double(history.retention.days) * 24
             if one.kind == .number {
                 var points: [(time: Double, value: Double)]
                 if raw {
-                    let found = history.changes(of: one, from: from, to: to)
+                    let found = changes[one.id] ?? (nil, [])
                     points = found.points.compactMap { point in point.value.doubleValue.map { (time: point.time.timeIntervalSince1970, value: $0) } }
                     // The value held at the start counts from the start.
                     if let before = found.before?.value.doubleValue { points.insert((time: from.timeIntervalSince1970, value: before), at: 0) }
@@ -171,7 +174,7 @@ extension HomeswiftCatalog {
                 object.merge(Self.summarize(points, to: to.timeIntervalSince1970)) { _, new in new }
                 object["points"] = .array(Self.downsample(points, to: max(2, maxPoints)).map { [.string(Self.minute($0.time)), .number(Self.round($0.value))] })
             } else {
-                let found = history.changes(of: one, from: from, to: to)
+                let found = changes[one.id] ?? (nil, [])
                 guard found.before != nil || !found.points.isEmpty else { continue }
                 if let before = found.before { object["atStart"] = JSONValue(before.value) }
                 object["count"] = .number(Double(found.points.count))
@@ -184,7 +187,7 @@ extension HomeswiftCatalog {
         // What only the Eve history has.
         for field in Self.historyFields {
             guard type.map({ Self.normalized($0) == Self.normalized(field.type) }) ?? true, !seen.contains(Self.normalized(field.type)) else { continue }
-            let points = entries.compactMap { entry in entry[keyPath: field.key].map { (time: Double(entry.time), value: $0) } }
+            let points = evePoints(field.type)
             guard !points.isEmpty else { continue }
             seen.insert(Self.normalized(field.type))
             var object = Self.summarize(points, to: to.timeIntervalSince1970)
