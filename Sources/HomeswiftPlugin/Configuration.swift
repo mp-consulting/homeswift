@@ -164,6 +164,8 @@ public struct HomeswiftConfiguration: Sendable {
     public var ignoredAccessoryBlocks = 0
     /// `bridge.tariffs`, the Tariffs (GLOSSARY.md), oldest first. Not part of `bridge`: changing them needs no restart.
     public var tariffs: [Tariff] = []
+    /// `bridge.location`, the Location (GLOSSARY.md). Not part of `bridge`: changing it needs no restart.
+    public var location: Location?
 
     public init(bridge: Bridge = Bridge(), platforms: [Platform] = [], disabledPlugins: [String] = []) {
         self.bridge = bridge
@@ -309,6 +311,12 @@ public struct HomeswiftConfiguration: Sendable {
                     throw ConfigurationError.invalidValue(key: "bridge.tariffs", expected: "a list of Tariffs (start, currency, periods)")
                 }
                 configuration.tariffs = list
+            }
+            if let location = (bridge as? [String: Any])?["location"], !(location is NSNull) {
+                guard location is [String: Any], let decoded = try? decoder.decode(Location.self, from: JSONSerialization.data(withJSONObject: location)), decoded.isValid else {
+                    throw ConfigurationError.invalidValue(key: "bridge.location", expected: "a Location (latitude -90 to 90, longitude -180 to 180, name)")
+                }
+                configuration.location = decoded
             }
         }
         var blocks: [[String: Any]] = []

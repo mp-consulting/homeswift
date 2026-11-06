@@ -93,6 +93,8 @@ public struct Scene: Codable, Sendable, Equatable {
     public var homeKit: Bool? = nil
 }
 
+/// Where sunrise and sunset were computed for before the Location became a Bridge Setting: read once from an
+/// older scenes.json and moved to config.json's `bridge.location` (`migrateSceneLocation`).
 public struct SceneLocation: Codable, Sendable, Equatable {
     public var lat: Double
     public var lon: Double
@@ -101,8 +103,8 @@ public struct SceneLocation: Codable, Sendable, Equatable {
 
 public struct SceneFile: Codable, Sendable, Equatable {
     public var version = 1
-    /// Where sunrise and sunset are computed for. Glass UI took its dashboard's weather city; Homeswift has a
-    /// field on the Scenes page.
+    /// Where sunrise and sunset were computed for in an older file; the Location (a Bridge Setting) has it now, and
+    /// `migrateSceneLocation` moves it there.
     public var location: SceneLocation?
     public var scenes: [Scene] = []
 
@@ -191,9 +193,9 @@ enum SceneRules {
 
     /// Minutes since local midnight of HH:mm, sunrise or sunset; nil for a sun event without a location or that
     /// does not happen that day.
-    static func minutesOfDay(_ time: String, on now: Date, location: SceneLocation?, calendar: Calendar) -> Int? {
+    static func minutesOfDay(_ time: String, on now: Date, location: Location?, calendar: Calendar) -> Int? {
         if let event = Solar.Event(rawValue: time) {
-            guard let location, let at = Solar.onLocalDay(event, of: now, latitude: location.lat, longitude: location.lon, calendar: calendar) else { return nil }
+            guard let location, let at = Solar.onLocalDay(event, of: now, latitude: location.latitude, longitude: location.longitude, calendar: calendar) else { return nil }
             let parts = calendar.dateComponents([.hour, .minute], from: at)
             return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
         }
@@ -202,7 +204,7 @@ enum SceneRules {
     }
 
     /// Whether `now` is in a time window; nil when it cannot be told.
-    static func inWindow(_ condition: SceneCondition, now: Date, location: SceneLocation?, calendar: Calendar) -> Bool? {
+    static func inWindow(_ condition: SceneCondition, now: Date, location: Location?, calendar: Calendar) -> Bool? {
         guard let from = minutesOfDay(condition.after ?? "", on: now, location: location, calendar: calendar),
               let to = minutesOfDay(condition.before ?? "", on: now, location: location, calendar: calendar) else { return nil }
         let parts = calendar.dateComponents([.hour, .minute], from: now)
@@ -211,7 +213,7 @@ enum SceneRules {
     }
 
     /// Whether a timed trigger runs at this local minute.
-    static func due(_ trigger: SceneTrigger, at now: Date, location: SceneLocation?, calendar: Calendar) -> Bool {
+    static func due(_ trigger: SceneTrigger, at now: Date, location: Location?, calendar: Calendar) -> Bool {
         guard trigger.isEnabled else { return false }
         let parts = calendar.dateComponents([.hour, .minute, .weekday], from: now)
         let onDay = (trigger.days ?? []).isEmpty || (trigger.days ?? []).contains((parts.weekday ?? 1) - 1)
@@ -225,7 +227,7 @@ enum SceneRules {
             guard let location, let event = trigger.event else { return false }
             // The event of the day the shifted time falls on: sunset + 30 minutes may be after midnight.
             let shift = Double(trigger.offsetMinutes ?? 0) * 60
-            guard let at = Solar.onLocalDay(event, of: now.addingTimeInterval(-shift), latitude: location.lat, longitude: location.lon, calendar: calendar)?.addingTimeInterval(shift) else { return false }
+            guard let at = Solar.onLocalDay(event, of: now.addingTimeInterval(-shift), latitude: location.latitude, longitude: location.longitude, calendar: calendar)?.addingTimeInterval(shift) else { return false }
             let eventDay = calendar.dateComponents([.weekday], from: at.addingTimeInterval(-shift)).weekday ?? 1
             let sunDay = (trigger.days ?? []).isEmpty || (trigger.days ?? []).contains(eventDay - 1)
             return sunDay && calendar.isDate(at, equalTo: now, toGranularity: .minute)
@@ -376,10 +378,10 @@ extension HomeswiftCatalog {
         let file = home.scenes.value
         let pictures = scenePictures.versions()
         var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map { sceneJSON($0, pictures: pictures) }), "artworks": SceneArtwork.catalogueJSON]
-        if let location = file.location {
+        if let location = host.configuration.location {
             answer["location"] = (try? JSONValue(encoding: location)) ?? .null
-            answer["nextSunrise"] = Solar.next(.sunrise, latitude: location.lat, longitude: location.lon, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
-            answer["nextSunset"] = Solar.next(.sunset, latitude: location.lat, longitude: location.lon, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
+            answer["nextSunrise"] = Solar.next(.sunrise, latitude: location.latitude, longitude: location.longitude, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
+            answer["nextSunset"] = Solar.next(.sunset, latitude: location.latitude, longitude: location.longitude, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
         } else {
             answer["location"] = .null
         }
@@ -502,20 +504,6 @@ extension HomeswiftCatalog {
         }
         scenePictures.remove(key: id)
         syncSceneSwitches()
-    }
-
-    /// Sets where sunrise and sunset are computed for; nil forgets it.
-    public func setSceneLocation(_ body: JSONValue) throws -> JSONValue {
-        var location: SceneLocation?
-        if !body.isNull, body.objectValue?.isEmpty == false {
-            guard let lat = body["lat"]?.doubleValue, let lon = body["lon"]?.doubleValue, Solar.isValid(latitude: lat, longitude: lon) else {
-                throw CatalogError("A location needs lat (-90 to 90) and lon (-180 to 180)")
-            }
-            let name = body["name"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty.map { String($0.prefix(64)) }
-            location = SceneLocation(lat: lat, lon: lon, name: name)
-        }
-        try home.scenes.update { $0.location = location }
-        return scenesJSON()
     }
 
     /// save_scene: a scene from the current values of these accessories (every writable characteristic, or only
@@ -730,7 +718,7 @@ extension HomeswiftCatalog {
 
     /// Why the conditions do not hold now, or nil when they all do.
     func conditionsFail(_ conditions: [SceneCondition], now: Date = Date()) -> String? {
-        let location = home.scenes.value.location
+        let location = host.configuration.location
         for condition in conditions {
             if condition.type == "time" {
                 guard let inside = SceneRules.inWindow(condition, now: now, location: location, calendar: .current) else {
@@ -755,8 +743,9 @@ extension HomeswiftCatalog {
     /// Runs the timed triggers due at this minute.
     func runDueScenes(at now: Date, calendar: Calendar = .current) async {
         let file = home.scenes.value
+        let location = host.configuration.location
         for scene in file.scenes {
-            guard let trigger = scene.triggers.first(where: { SceneRules.due($0, at: now, location: file.location, calendar: calendar) }) else { continue }
+            guard let trigger = scene.triggers.first(where: { SceneRules.due($0, at: now, location: location, calendar: calendar) }) else { continue }
             let kind: SceneRunTrigger = trigger.type == "sun" ? .sun : .schedule
             logger.info("Running scene \"\(scene.name)\" (\(trigger.type == "sun" ? trigger.event?.rawValue ?? "sun" : "schedule"))")
             do { _ = try await runScene(scene.id, trigger: kind) } catch { logger.warning("Scene \"\(scene.name)\" (\(kind.rawValue)) failed: \(error)") }

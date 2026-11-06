@@ -39,6 +39,7 @@ extension PluginHost {
                 externals: externals, values: ValueFeed(), energyImports: EnergyImportFeed(), energyProgress: .init([:]), meterReadings: MeterFeed(limit: 0), assistantBackground: entry.assistantBackground)
             context.accessorySettingsBox.withLockedValue { $0 = draft.accessorySettings }
             context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }
+            context.locationSource.withLockedValue { $0 = { [weak self] in self?.configuration.location } }
         }
         let plugin = try await entry.make(json, context)
         do {

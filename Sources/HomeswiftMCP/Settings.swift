@@ -657,6 +657,8 @@ extension HomeswiftCatalog {
     /// change of Plugin Settings (a host, a device list, a secret: what `patch_config` writes, and the plugin reloads).
     @Sendable static func settingsChangeAsks(_ arguments: JSONValue) -> Bool {
         if let many = arguments["accessories"]?.objectValue { return many.values.contains(where: accessoryChangeAsks) }
+        // The Location: no device changes and nothing restarts.
+        if arguments["bridge"]?.boolValue == true { return false }
         guard let settings = arguments["settings"] else { return false }
         if arguments["accessory"]?.stringValue != nil { return accessoryChangeAsks(settings) }
         return settings.objectValue?.isEmpty == false
@@ -783,6 +785,7 @@ extension HomeswiftCatalog {
                 "platform": ["type": "string", "description": "The plugin's platform, as list_plugins gives it"],
                 "name": ["type": "string", "description": "The plugin instance's (block's) name, when the platform has several"],
             ], "description": "A plugin instance: its Plugin Settings; with accessory, the instance the accessory belongs to"],
+            "bridge": ["type": "boolean", "description": "true for the Bridge Settings that change without a restart: location, the Location (where the home is, for sunrise, sunset and the weather)"],
         ]
         let plugin = Self.pluginArgument
         return [
@@ -792,13 +795,17 @@ extension HomeswiftCatalog {
                     + "For an accessory: settings, its current Accessory Settings (Core: name, room, hidden, notInHome, excluded, parts, energyRoles; and the plugin's own), meters (each Meter's key, label and suggestedRole, for energyRoles), "
                     + "and fields, each with its JSON schema, core true or false, and default {setting, value} when a Plugin Setting gives it a plugin-wide default "
                     + "that the accessory's own value overrules; kind is its Device Kind, which decides the plugin's fields. "
-                    + "For a plugin: settings, its Plugin Settings (secrets as __SECRET_…__ handles), its schema and accessorySchema. Change them with update_settings.",
+                    + "For a plugin: settings, its Plugin Settings (secrets as __SECRET_…__ handles), its schema and accessorySchema. "
+                    + "For the bridge (bridge: true): settings.location, the Location ({latitude, longitude, name} or null), with the next sunrise and sunset there. "
+                    + "Change them with update_settings.",
                 inputSchema: ["type": "object", "properties": .object(address)],
                 // config.json's values, as get_config: hidden from a user who is not an administrator (`administratorOnly`).
                 scope: .read, idempotent: true
             ) { call in
                 let answer: JSONValue
-                if let id = call.optionalString("accessory") {
+                if call.arguments["bridge"]?.boolValue == true {
+                    answer = catalog.bridgeLiveSettingsJSON()
+                } else if let id = call.optionalString("accessory") {
                     answer = try await catalog.accessorySettingsJSON(accessoryID: id, instance: plugin(call)?.name)
                 } else if let plugin = plugin(call) {
                     answer = try catalog.pluginSettingsJSON(platform: plugin.platform, instance: plugin.name)
@@ -819,7 +826,8 @@ extension HomeswiftCatalog {
                     + "A mirrored accessory's name is read-only. Once the bridge is linked to Apple Home (get_home_link), an accessory moved to a room, or to none, moves in Apple Home too "
                     + "(appleHomeRefused lists what it refused); separateFunctions makes each thing it does an accessory of its own there, so it can be grouped. "
                     + "accessories, an object of settings by Accessory Id, changes several accessories in one write. Answers each accessory's settings and the keys that changed, "
-                    + "and what reloaded. dryRun previews.",
+                    + "and what reloaded. With bridge: true, settings.location sets the Location ({latitude, longitude, name}; null forgets it): scenes' sunrise and sunset "
+                    + "and plugins such as Weather use it, with no restart. The bridge's name, port and setup code are update_bridge_settings'. dryRun previews.",
                 inputSchema: ["type": "object", "properties": .object(address.merging([
                     "settings": ["type": "object", "description": "The settings to change, by key; null clears one"],
                     "accessories": ["type": "object", "maxProperties": 500, "additionalProperties": ["type": "object"], "description": "Settings by Accessory Id, for several accessories at once"],
@@ -835,6 +843,9 @@ extension HomeswiftCatalog {
                     return .json(try await catalog.updateAccessorySettings(changes, instance: plugin(call)?.name, dryRun: call.isDryRun, by: .client, who: who))
                 }
                 guard let settings = call.arguments["settings"]?.objectValue else { throw JSONRPCError.invalidParams("settings must be an object") }
+                if call.arguments["bridge"]?.boolValue == true {
+                    return .json(try await catalog.updateBridgeLiveSettings(settings, dryRun: call.isDryRun, by: .client))
+                }
                 if let id = call.optionalString("accessory") {
                     return .json(try await catalog.updateAccessorySettings([(id, settings)], instance: plugin(call)?.name, dryRun: call.isDryRun, by: .client, who: who))
                 }

@@ -727,6 +727,7 @@ public final class PluginHost: @unchecked Sendable {
             self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
         }
         context.logs = options.logs
+        context.locationSource.withLockedValue { $0 = { [weak self] in self?.configuration.location } }
         context.naming.setNames(block.accessoryNames)
         context.applySeparations(block.separatedFunctions)
         context.naming.onRenamed { [weak self, logger = context.logger] id, name in

@@ -422,7 +422,6 @@ struct SceneToolTests {
         #expect(throws: CatalogError.self) {
             try environment.catalog.createScene(["name": "Bad offset", "actions": [["id": "a", "characteristic": "On", "value": true]], "triggers": [["type": "sun", "event": "sunset", "offsetMinutes": 900]]])
         }
-        #expect(throws: CatalogError.self) { try environment.catalog.setSceneLocation(["lat": 95, "lon": 0]) }
     }
 }
 
@@ -447,7 +446,7 @@ struct SceneToolTests {
 
     @Test func timedTriggersRunOnTheirMinute() {
         let paris = calendar("Europe/Paris")
-        let location = SceneLocation(lat: 48.8566, lon: 2.3522, name: nil)
+        let location = Location(latitude: 48.8566, longitude: 2.3522)
         // Friday 21 June 2024, 07:30 in Paris.
         let friday = utc("2024-06-21T05:30:00Z")
         var time = SceneTrigger(type: "time")
@@ -521,7 +520,7 @@ struct SceneToolTests {
         #expect(SceneRules.inWindow(night, now: utc("2024-06-21T10:00:00Z"), location: nil, calendar: paris) == false)
         let evening = SceneCondition(type: "time", after: "sunset", before: "23:59")
         #expect(SceneRules.inWindow(evening, now: utc("2024-06-21T20:30:00Z"), location: nil, calendar: paris) == nil)
-        #expect(SceneRules.inWindow(evening, now: utc("2024-06-21T20:30:00Z"), location: SceneLocation(lat: 48.8566, lon: 2.3522), calendar: paris) == true)
+        #expect(SceneRules.inWindow(evening, now: utc("2024-06-21T20:30:00Z"), location: Location(latitude: 48.8566, longitude: 2.3522), calendar: paris) == true)
     }
 }
 
@@ -685,5 +684,70 @@ struct NotificationTests {
         let publicKey = try P256.Signing.PublicKey(x963Representation: try #require(WebPush.data(base64url: keys.publicKey)))
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: try #require(WebPush.data(base64url: parts[2])))
         #expect(publicKey.isValidSignature(signature, for: Data("\(parts[0]).\(parts[1])".utf8)))
+    }
+}
+
+/// The Location, a Bridge Setting: config.json's bridge.location, written without a restart, read by the scenes and by
+/// plugins; get_settings and update_settings with bridge: true; an older scenes.json's location moved to it.
+@Suite struct LocationSettingTests {
+    @Test func writesTheLocationWithoutARestart() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+
+        #expect(catalog.locationJSON()["location"] == .null)
+        let written = try await catalog.updateLocation(["latitude": 48.8566, "longitude": 2.3522, "name": "  Paris  "])
+        #expect(written["restartNeeded"] == [] || written["restartNeeded"] == nil)
+        #expect(environment.host.configuration.location == Location(latitude: 48.8566, longitude: 2.3522, name: "Paris"))
+        #expect(written["nextSunrise"]?.stringValue != nil)
+        #expect(try catalog.readConfig()["bridge"]?["location"]?["latitude"] == 48.8566)
+        #expect(catalog.scenesJSON()["location"]?["name"] == "Paris")
+
+        // The Scenes page's older shape is read too; out-of-range coordinates and unknown keys are refused.
+        _ = try await catalog.updateLocation(["lat": 51.5, "lon": -0.12])
+        #expect(environment.host.configuration.location?.longitude == -0.12)
+        await #expect(throws: CatalogError.self) { try await catalog.updateLocation(["latitude": 95, "longitude": 0]) }
+        await #expect(throws: CatalogError.self) { try await catalog.updateLocation(["latitude": 1, "longitude": 0, "altitude": 3]) }
+
+        _ = try await catalog.updateLocation(.null)
+        #expect(environment.host.configuration.location == nil)
+        #expect(try catalog.readConfig()["bridge"]?["location"] == nil)
+    }
+
+    @Test func getAndUpdateSettingsReachTheLocation() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+
+        let updated = try #require(try await client.tool("update_settings", ["bridge": true, "settings": ["location": ["latitude": 40.4168, "longitude": -3.7038, "name": "Madrid"]]])["structuredContent"])
+        #expect(updated["changed"] == ["location"])
+        #expect(environment.host.configuration.location?.name == "Madrid")
+        let read = try #require(try await client.tool("get_settings", ["bridge": true])["structuredContent"])
+        #expect(read["settings"]?["location"]?["name"] == "Madrid")
+        #expect(read["fields"]?["location"]?["core"] == true)
+        #expect(read["nextSunset"]?.stringValue != nil)
+        let refused = try await client.tool("update_settings", ["bridge": true, "settings": ["name": "Other"]])
+        #expect(refused["isError"] == true)
+    }
+
+    @Test func movesAnOlderScenesLocation() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        try catalog.home.scenes.update { $0.location = SceneLocation(lat: 45.764, lon: 4.8357, name: "Lyon") }
+
+        await catalog.migrateSceneLocation()
+        #expect(environment.host.configuration.location == Location(latitude: 45.764, longitude: 4.8357, name: "Lyon"))
+        #expect(catalog.home.scenes.value.location == nil)
+
+        // A Location already set stays; the scenes' copy is dropped.
+        try catalog.home.scenes.update { $0.location = SceneLocation(lat: 1, lon: 2, name: nil) }
+        await catalog.migrateSceneLocation()
+        #expect(environment.host.configuration.location?.name == "Lyon")
+        #expect(catalog.home.scenes.value.location == nil)
     }
 }

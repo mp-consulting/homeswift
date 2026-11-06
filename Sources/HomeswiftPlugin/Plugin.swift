@@ -541,6 +541,12 @@ public final class PluginContext: @unchecked Sendable {
     }
     private let logsBox = NIOLockedValueBox<LogBuffer?>(nil)
 
+    /// The Location, a Bridge Setting (GLOSSARY.md): where the home is, as config.json has it now (it changes without a
+    /// restart, so read it at each use). nil until a person sets it under Settings, or in a library or a test that gives none.
+    public var location: Location? { locationSource.withLockedValue { $0 }() }
+    /// Where `location` comes from: set by `PluginHost`.
+    let locationSource = NIOLockedValueBox<@Sendable () -> Location?>({ nil })
+
     /// Every accessory on the host's servers (the bridges and the external accessories), set by `PluginHost`.
     var publishedAccessories: @Sendable () -> [Accessory] {
         { [publishedServers] in publishedServers().flatMap(\.accessories) }

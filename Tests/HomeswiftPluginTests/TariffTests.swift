@@ -66,3 +66,31 @@ struct TariffTests {
         #expect(throws: (any Error).self) { try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "tariffs": [{ "start": 1 }] } }"#.utf8)) }
     }
 }
+
+/// The Location, a Bridge Setting: config.json's bridge.location, which plugins read live through `context.location`.
+@Suite(.timeLimit(.minutes(1)))
+struct LocationTests {
+    @Test func configJSONReadsTheLocation() throws {
+        let configuration = try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "name": "Home", "location": { "latitude": 48.8566, "longitude": 2.3522, "name": "Paris" } } }"#.utf8))
+        #expect(configuration.location == Location(latitude: 48.8566, longitude: 2.3522, name: "Paris"))
+        #expect(configuration.location?.label == "Paris")
+        #expect(Location(latitude: 1.5, longitude: -2).label == "1.5000, -2.0000")
+        #expect(try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": null } }"#.utf8)).location == nil)
+        #expect(throws: (any Error).self) { try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": { "latitude": 91, "longitude": 0 } } }"#.utf8)) }
+        #expect(throws: (any Error).self) { try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "location": "Paris" } }"#.utf8)) }
+    }
+
+    @Test func pluginsReadTheLocationAsItChanges() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs" }] }"#)
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let context = try #require(host.context(platform: "Recording", name: "Plugs"))
+        #expect(context.location == nil)
+
+        let report = await host.apply(try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "port": 0, "location": { "latitude": 40.2, "longitude": -8.4 } }, "platforms": [{ "platform": "Recording", "name": "Plugs" }] }"#.utf8)))
+        #expect(report.needsRestart.isEmpty)
+        #expect(report.reloaded.isEmpty)
+        #expect(context.location == Location(latitude: 40.2, longitude: -8.4))
+    }
+}
