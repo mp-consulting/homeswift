@@ -3030,4 +3030,13 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Gas": "Gaz",
+  "What the gas meters measured in this period, in m³": "Ce que les compteurs de gaz ont mesuré sur cette période, en m³",
+  "What the water meters measured in this period, in m³": "Ce que les compteurs d'eau ont mesuré sur cette période, en m³",
+  "{cost} at its tariff, hour by hour": "{cost} à son tarif, heure par heure",
+  "Price per m³": "Prix par m³",
+  "Gas tariff": "Tarif du gaz",
+  "Water tariff": "Tarif de l'eau",
+  "What the home pays per m³ of gas, for the costs on the Status page": "Ce que la maison paie par m³ de gaz, pour les coûts de la page État",
+  "What the home pays per m³ of water, for the costs on the Status page": "Ce que la maison paie par m³ d'eau, pour les coûts de la page État",
 });

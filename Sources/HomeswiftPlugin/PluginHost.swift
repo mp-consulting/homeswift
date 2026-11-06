@@ -215,8 +215,13 @@ public final class PluginHost: @unchecked Sendable {
     private let timings: TimingFeed
     private let values = ValueFeed()
     private let energyImports = EnergyImportFeed()
-    // A plugin's takeover of a Meter (`.claim`) is never the reading a full queue lets go.
-    private let meterReadings = MeterFeed(keeping: { if case .claim = $0 { true } else { false } })
+    // A plugin's takeover of a Meter (`.claim`) or what it measures (`.kind`) is never the reading a full queue lets go.
+    private let meterReadings = MeterFeed(keeping: {
+        switch $0 {
+        case .claim, .kind: true
+        default: false
+        }
+    })
     /// Each plugin's latest energy import report, by plugin key.
     private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
     private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)

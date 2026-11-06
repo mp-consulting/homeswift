@@ -1,6 +1,6 @@
 import Foundation
 
-/// What the home pays per kWh from a day on (GLOSSARY.md, "Tariff"): by period of the day and the week, and optionally
+/// What the home pays per kWh of electricity, or per m³ of gas or water (`kind`), from a day on (GLOSSARY.md, "Tariff"): by period of the day and the week, and optionally
 /// what it is paid for the energy it sends back, in one currency. Kept in config.json's bridge block as `tariffs`, oldest
 /// first; changing the price starts a new Tariff, so past ones keep theirs (docs/adr/0004-meters-and-consumption-history.md).
 ///
@@ -17,7 +17,7 @@ public struct Tariff: Sendable, Equatable, Codable {
         public var from: String
         public var to: String
         public var days: [Int]?
-        /// Per kWh, in the Tariff's currency.
+        /// Per kWh (per m³ for gas and water), in the Tariff's currency.
         public var price: Double
 
         public init(name: String? = nil, from: String, to: String, days: [Int]? = nil, price: Double) {
@@ -34,15 +34,21 @@ public struct Tariff: Sendable, Equatable, Codable {
     /// An ISO 4217 code: EUR, USD, GBP…
     public var currency: String
     public var periods: [Period]
-    /// What a kWh sent back to the grid is paid, when the home is.
+    /// What a kWh sent back to the grid is paid, when the home is; electricity only.
     public var exportPrice: Double?
+    /// What it prices: gas or water, by the m³; nil for electricity, by the kWh. Each kind has its own Tariffs.
+    public var kind: MeterKind?
 
-    public init(start: String, currency: String, periods: [Period], exportPrice: Double? = nil) {
+    public init(start: String, currency: String, periods: [Period], exportPrice: Double? = nil, kind: MeterKind? = nil) {
         self.start = start
         self.currency = currency
         self.periods = periods
         self.exportPrice = exportPrice
+        self.kind = kind == .electricity ? nil : kind
     }
+
+    /// What it prices, electricity when it says nothing.
+    public var meterKind: MeterKind { kind ?? .electricity }
 
     /// Minutes since midnight of an `HH:mm`, 0 to 1440; nil for anything else.
     static func minutes(_ text: String) -> Int? {
@@ -82,7 +88,11 @@ public struct Tariff: Sendable, Equatable, Codable {
         for (index, tariff) in tariffs.enumerated() {
             let at = "tariffs[\(index)]"
             if EnergyCalendar.day(tariff.start) == nil { problems.append("\(at).start must be a day, YYYY-MM-DD") }
-            if !starts.insert(tariff.start).inserted { problems.append("\(at).start: another Tariff starts that day") }
+            // One Tariff a day for each kind: gas and electricity may change on the same day.
+            if !starts.insert("\(tariff.meterKind.rawValue) \(tariff.start)").inserted {
+                problems.append(tariff.meterKind == .electricity ? "\(at).start: another Tariff starts that day" : "\(at).start: another \(tariff.meterKind.rawValue) Tariff starts that day")
+            }
+            if tariff.meterKind != .electricity, tariff.exportPrice != nil { problems.append("\(at).exportPrice: only electricity is sent back") }
             if tariff.currency.count != 3 || !tariff.currency.allSatisfy({ $0.isASCII && $0.isUppercase }) {
                 problems.append("\(at).currency must be a currency code, such as EUR or USD")
             }
@@ -105,18 +115,19 @@ public struct Tariff: Sendable, Equatable, Codable {
     }
 }
 
-/// The Tariffs in force over time, in a time zone: what a kWh cost at a moment, and what one sent back was paid. Each
+/// The Tariffs of one kind in force over time, in a time zone: what a kWh (or an m³) cost at a moment, and what one sent back was paid. Each
 /// Tariff's week is worked out once, a period for every minute of it.
 public struct TariffSchedule: Sendable {
     /// The Tariffs by their first moment, oldest first, each with its week (`Tariff.week`).
     let tariffs: [(start: Date, tariff: Tariff, week: [Int16])]
     let timeZone: TimeZone
 
-    public init(_ tariffs: [Tariff], timeZone: TimeZone = .current) {
+    /// `kind` keeps the Tariffs of what it prices: electricity's unless told.
+    public init(_ tariffs: [Tariff], kind: MeterKind = .electricity, timeZone: TimeZone = .current) {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         self.timeZone = timeZone
-        self.tariffs = tariffs.compactMap { tariff in
+        self.tariffs = tariffs.filter { $0.meterKind == kind }.compactMap { tariff in
             guard let start = EnergyCalendar.day(tariff.start).flatMap({ calendar.date(from: $0) }), let week = tariff.week() else { return nil }
             return (start, tariff, week.periods)
         }.sorted { $0.start < $1.start }

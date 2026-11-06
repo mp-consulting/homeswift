@@ -71,16 +71,21 @@ enum WebAssets {
   // ---- Bridge: its block, the network, pairings, caches, schedules -----------------------------------------
 
   async function bridgePage(main) {
-    const [settings, pairings, caches, plugins, tariffs] = await Promise.all([
+    const [settings, pairings, caches, plugins, tariffs, metered] = await Promise.all([
       api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null),
-      api("/api/settings/tariffs").catch(() => ({ tariffs: [] }))]);
+      api("/api/settings/tariffs").catch(() => ({ tariffs: [] })),
+      // Which kinds of Meter the bridge has: a gas or water Tariff is offered once one of them, or its Tariff, exists.
+      api(`/api/metrics/consumption?${new URLSearchParams({ hours: 1 })}`).catch(() => ({ meters: [] }))]);
+    const allTariffs = tariffs.tariffs ?? [];
+    const kinds = new Set([...(metered.meters ?? []).map((one) => one.kind), ...allTariffs.map((one) => one.kind)].filter(Boolean));
     const bridge = settings.bridge || {};
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
       app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
       subnav("bridge"),
       bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
-      tariffCard(tariffs),
+      tariffCard(allTariffs),
+      ...["gas", "water"].filter((kind) => kinds.has(kind)).map((kind) => tariffCard(allTariffs, kind)),
       networkCard(settings),
       sectionHead(t("HomeKit pairings"), t("Who the Home app knows each server by")),
       el("div", { class: "grid" }, pairings.bridges.map(pairingCard)),
@@ -88,11 +93,21 @@ enum WebAssets {
       schedulesCard(uiBlock));
   }
 
-  /// The Tariff: what the home pays per kWh, by period of the day and week, and what a kWh sent back is paid. It edits
-  /// the latest Tariff; saved with another first day, it is a new Tariff from that day and the earlier ones keep their
-  /// prices, so past costs stay right. No restart.
-  function tariffCard({ tariffs = [] }) {
-    const latest = tariffs.at(-1) ?? null;
+  /// The Tariff of a kind: what the home pays per kWh of electricity (and what a kWh sent back is paid), or per m³ of
+  /// gas or water, by period of the day and week. It edits that kind's latest Tariff; saved with another first day, it
+  /// is a new Tariff from that day and the earlier ones keep their prices, so past costs stay right. `tariffs` is every
+  /// kind's, shared by the cards: a save writes them all. No restart.
+  function tariffCard(tariffs, kind = "electricity") {
+    const kindOf = (one) => one.kind ?? "electricity";
+    const mine = tariffs.filter((one) => kindOf(one) === kind);
+    const latest = mine.at(-1) ?? null;
+    const electricity = kind === "electricity";
+    const perUnit = electricity ? t("Price per kWh") : t("Price per m³");
+    const words = {
+      electricity: [t("Energy tariff"), t("What the home pays per kWh, for the costs on the Status page"), "bolt", "yellow"],
+      gas: [t("Gas tariff"), t("What the home pays per m³ of gas, for the costs on the Status page"), "flame", "orange"],
+      water: [t("Water tariff"), t("What the home pays per m³ of water, for the costs on the Status page"), "drop", "blue"],
+    }[kind];
     const isoToday = HomeswiftCommon.isoDay(new Date());
     const daysChoices = [["", t("Every day")], ["1,2,3,4,5", t("Weekdays")], ["6,7", t("Weekends")]];
     const start = el("input", { type: "date", value: latest?.start ?? isoToday, required: true });
@@ -106,7 +121,7 @@ enum WebAssets {
       // 24:00 is the end of the day: a time input shows it as 00:00.
       const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
       const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
-      const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: t("Price per kWh"), "aria-label": t("Price per kWh"), required: true });
+      const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: perUnit, "aria-label": perUnit, required: true });
       const row = el("div", { class: "tariff-period" }, name, from, to, days, price,
         el("button", { type: "button", class: "icon-button", "aria-label": t("Remove this period"), title: t("Remove this period"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
       row.read = () => ({ ...(name.value.trim() ? { name: name.value.trim() } : {}), from: from.value || "00:00",
@@ -120,15 +135,15 @@ enum WebAssets {
     const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
-    const earlier = tariffs.slice(0, -1).reverse();
+    const earlier = mine.slice(0, -1).reverse();
     const startDate = (text) => HomeswiftCommon.parseDay(text);
     const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
     return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
       event.preventDefault();
       const tariff = { start: start.value, currency: currency.value.trim().toUpperCase(), periods: [...rows.children].map((row) => row.read()),
-        ...(exportPrice.value !== "" ? { exportPrice: Number(exportPrice.value) } : {}) };
-      // The same first day is the same Tariff, changed; another is a new one from that day.
-      const next = [...tariffs.filter((one) => one.start !== tariff.start), tariff].sort((a, b) => a.start.localeCompare(b.start));
+        ...(electricity && exportPrice.value !== "" ? { exportPrice: Number(exportPrice.value) } : {}), ...(electricity ? {} : { kind }) };
+      // The same first day is the same Tariff of this kind, changed; another is a new one from that day. The other kinds stay.
+      const next = [...tariffs.filter((one) => kindOf(one) !== kind || one.start !== tariff.start), tariff].sort((a, b) => a.start.localeCompare(b.start));
       await busy(save, async () => {
         await api("/api/settings/tariffs", { method: "PUT", body: { tariffs: next } });
         tariffs.splice(0, tariffs.length, ...next);
@@ -136,17 +151,17 @@ enum WebAssets {
         message.textContent = t("Saved. Costs follow from {date}.", { date: longDay.format(startDate(tariff.start)) });
       }, (e) => { message.className = "status-line error"; message.textContent = HomeswiftI18n.message(e.message); });
     } },
-      el("div", { class: "server-head" }, tile("bolt", "yellow"),
-        el("div", { class: "who" }, el("strong", { text: t("Energy tariff") }),
-          el("div", { class: "muted", text: t("What the home pays per kWh, for the costs on the Status page") }))),
+      el("div", { class: "server-head" }, tile(words[2], words[3]),
+        el("div", { class: "who" }, el("strong", { text: words[0] }),
+          el("div", { class: "muted", text: words[1] }))),
       el("div", { class: "fields" },
         field(t("Applies from"), start, t("Another day starts a new tariff: the days before it keep their prices.")),
         field(t("Currency"), currency, t("A currency code, such as EUR, USD or GBP.")),
-        field(t("Export price"), exportPrice, t("What a kWh sent back to the grid is paid, if it is."))),
+        electricity ? field(t("Export price"), exportPrice, t("What a kWh sent back to the grid is paid, if it is.")) : null),
       el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
         el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
         el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
-          ...[t("Name"), t("From"), t("To"), t("Days"), t("Price per kWh")].map((text) => el("span", { text })), el("span")),
+          ...[t("Name"), t("From"), t("To"), t("Days"), perUnit].map((text) => el("span", { text })), el("span")),
         rows, el("div", { class: "actions start" }, add)),
       earlier.length ? el("details", { class: "more" }, el("summary", { text: tn("{n} earlier tariff", "{n} earlier tariffs", earlier.length) }),
         el("ul", { class: "tariff-earlier" }, earlier.map((one) => el("li", { text: t("From {date}: {count} periods, in {currency}", {
@@ -1128,24 +1143,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
       const dateOf = (text) => HomeswiftCommon.parseDay(text);
       return found.meters.map((meter) => {
+        // Gas and water in m³ at their own Tariff; electricity in kWh at the grid's price.
+        const utility = meter.kind === "gas" || meter.kind === "water";
+        const format = utility ? HomeswiftCommon.cubicMetres : formatKWh;
         const returns = meter.bars.some((bar) => bar.returned > 0);
         const body = el("div", { class: "chart-body" });
-        const title = meter.label ? t("Consumption · {meter}", { meter: meter.label }) : t("Consumption");
+        const kindName = meter.kind === "gas" ? t("Gas") : meter.kind === "water" ? t("Water") : t("Consumption");
+        const title = !meter.label ? kindName : utility ? `${kindName} · ${meter.label}` : t("Consumption · {meter}", { meter: meter.label });
         const card = el("div", { class: "card chart-card consumption-card" },
           el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }),
             el("div", { class: "muted", text: hourly ? t("By hour") : t("By day") })),
-          el("b", { class: "chart-figure", text: formatKWh(meter.consumption ?? 0), title: t("Used in this range") })),
+          el("b", { class: "chart-figure", text: format(meter.consumption ?? 0), title: t("Used in this range") })),
           body,
           el("div", { class: "muted chart-detail", text: [
-            found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
-            returns ? t("{value} returned", { value: formatKWh(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
+            utility && meter.currency && meter.cost != null ? t("{cost} at its tariff, hour by hour", { cost: HomeswiftCommon.money(meter.cost, meter.currency) })
+              : !utility && found.currency && meter.cost != null ? t("{cost} at the grid's price, hour by hour", { cost: HomeswiftCommon.money(meter.cost, found.currency) }) : null,
+            returns ? t("{value} returned", { value: format(meter.returned ?? 0) }) : null].filter(Boolean).join(" · ") }));
         const bars = meter.bars.map((bar, index) => {
           const date = dateOf(bar.date);
           // Every third hour labelled, every day.
           const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
           return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
         });
-        HomeswiftChart.stackedBars(body, { title, format: formatKWh, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
+        HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? 0.001 : 1, bars, hourly,
           segments: [{ label: t("Used"), tone: 1, value: (values) => values?.consumption ?? null },
             ...(returns ? [{ label: t("Returned"), tone: 4, value: (values) => values?.returned == null ? null : -values.returned }] : [])] });
         return card;
@@ -3708,6 +3728,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const consumersMore = el("button", { type: "button", class: "link consumers-more", hidden: true });
     consumers.body.append(consumerList, consumersMore);
     let consumersAll = false, lastConsumption = null, hasMeters = false, hasRoles = false;
+    // Gas and water (GLOSSARY.md, "Meter"): the m³ their Meters measured, by day or month, a colour per Meter, with the
+    // cost at their own Tariff. Shown when a plugin declares such a Meter.
+    const utilities = [
+      { kind: "gas", ...card(t("Gas"), t("What the gas meters measured in this period, in m³"), "flame", "orange") },
+      { kind: "water", ...card(t("Water"), t("What the water meters measured in this period, in m³"), "drop", "blue") },
+    ];
+    for (const one of utilities) one.node.hidden = true;
     consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
     const today = el("div", { class: "energy-today" });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
@@ -3721,7 +3748,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "chart-grid" }, power.node, levels.node),
       pointTable,
       historyBar,
-      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node));
+      el("div", { class: "chart-grid energy-days" }, days.node, consumers.node),
+      el("div", { class: "chart-grid energy-utilities" }, utilities.map((one) => one.node)));
     let lastReport = null;   // for the table
     let refresh = null;
 
@@ -3851,7 +3879,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       if (asked !== historyAsked) return;
       hasMeters = found.meters.length > 0;
-      fillConsumers(found);
+      // Electricity's Meters by device; gas and water each on a card of its own.
+      fillConsumers({ ...found, meters: found.meters.filter((one) => (one.kind ?? "electricity") === "electricity") });
+      for (const one of utilities) fillUtility(one, found);
       showSection();
     }
 
@@ -3915,6 +3945,44 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const costs = counted.filter((one) => one.cost != null);
       consumers.detail.textContent = !meters.length ? t("Nothing measured in this period")
         : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
+    }
+
+    /// A gas or water card: the period's m³ by day (by month over a year), a colour per Meter, the total and its cost.
+    function fillUtility(utility, found) {
+      const meters = found.meters.filter((one) => one.kind === utility.kind);
+      utility.node.hidden = !meters.length;
+      if (!meters.length) return;
+      const monthly = view === "year";
+      const today = isoDay(new Date());
+      const dateOf = (text) => { const [year, month, day] = text.split("-").map(Number); return new Date(year, month - 1, day || 1); };
+      // Gas starts orange, water blue; more Meters of a kind take the next slots.
+      const tones = utility.kind === "gas" ? [2, 5, 7, 3, 6, 1] : [1, 3, 7, 5, 6, 2];
+      const segments = meters.map((meter, index) => ({ label: meter.label ? `${meter.name} · ${meter.label}` : meter.name, tone: tones[index % tones.length],
+        value: (values) => values?.[index] ?? null }));
+      const bars = meters[0].bars.map((bar, at) => {
+        const date = dateOf(bar.date);
+        const values = meters.map((meter) => meter.bars[at]?.hours ? meter.bars[at].consumption : null);
+        return {
+          label: monthly ? shortMonth.format(date) : view === "month" ? String(date.getDate()) : shortDay.format(date),
+          narrow: monthly ? narrowMonth.format(date) : String(date.getDate()),
+          title: monthly ? monthYear.format(date) : dayFormat.format(date),
+          values: values.some((value) => value != null) ? values : null,
+          current: monthly ? bar.date === today.slice(0, 7) : bar.date === today,
+        };
+      });
+      const key = view + "\n" + segments.map((one) => one.label).join("\n");
+      if (utility.view && utility.key === key) utility.view.update(bars);
+      else {
+        utility.body.replaceChildren();
+        utility.key = key;
+        utility.view = HomeswiftChart.stackedBars(utility.body, { title: utility.title, segments, bars, format: formatCubicMetres, unit: (max) => max < 1 ? 0.001 : 1 });
+      }
+      const total = meters.reduce((sum, one) => sum + (one.consumption ?? 0), 0);
+      utility.figure.textContent = formatCubicMetres(total);
+      const priced = meters.filter((one) => one.cost != null);
+      const currency = found.currencies?.[utility.kind];
+      utility.detail.textContent = total === 0 && !meters.some((one) => one.consumption != null) ? t("Nothing measured in this period")
+        : currency && priced.length ? t("{cost} at its tariff, hour by hour", { cost: formatMoney(priced.reduce((sum, one) => sum + one.cost, 0), currency) }) : "";
     }
 
     /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
@@ -4097,6 +4165,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
   const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
+  const formatCubicMetres = (value, top) => HomeswiftCommon.cubicMetres(value, top);
   const formatMoney = (amount, currency) => HomeswiftCommon.money(amount, currency);
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
@@ -9675,6 +9744,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     down: '<path d="M6 9l6 6 6-6"/>',
     // Energy (the Status page's Energy section): solar, the home, a battery, the grid's pylon, power, solar's share.
     globe: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
+    flame: '<path d="M12 3c.5 3 4.5 5.5 4.5 10a4.5 4.5 0 0 1-9 0c0-2 1-3.4 2-4.5.2 1.8 1 2.8 2 3.3 0-3.2-.6-5.8.5-8.8z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
     house: '<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>',
     battery: '<rect x="2.5" y="7" width="16.5" height="10" rx="2.5"/><path d="M21.5 10.5v3M6 10.5v3M9.5 10.5v3"/>',
@@ -11284,6 +11354,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
+  /// Cubic metres, as gas and water show: under one in litres (a shower's 60 L, not 0.06 m³); three decimals under
+  /// 10 (a meter's index is read to the litre), one under 100, whole from there. An axis's tick (with `top`, its highest)
+  /// is in litres when the axis stays under a cubic metre.
+  function cubicMetres(value, top) {
+    const size = Math.abs(value);
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} L`;
+    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 3 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} m³`;
+  }
+
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.
   function money(amount, currency) {
@@ -11362,7 +11442,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, isoDay, parseDay, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -16714,6 +16794,15 @@ HomeswiftI18n.add("es", {
   "Separate": "Separar",
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
+  "Gas": "Gas",
+  "What the gas meters measured in this period, in m³": "Lo que midieron los contadores de gas en este periodo, en m³",
+  "What the water meters measured in this period, in m³": "Lo que midieron los contadores de agua en este periodo, en m³",
+  "{cost} at its tariff, hour by hour": "{cost} a su tarifa, hora a hora",
+  "Price per m³": "Precio por m³",
+  "Gas tariff": "Tarifa del gas",
+  "Water tariff": "Tarifa del agua",
+  "What the home pays per m³ of gas, for the costs on the Status page": "Lo que la casa paga por m³ de gas, para los costes de la página Estado",
+  "What the home pays per m³ of water, for the costs on the Status page": "Lo que la casa paga por m³ de agua, para los costes de la página Estado",
 });
 
 """#),
@@ -19750,6 +19839,15 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Gas": "Gaz",
+  "What the gas meters measured in this period, in m³": "Ce que les compteurs de gaz ont mesuré sur cette période, en m³",
+  "What the water meters measured in this period, in m³": "Ce que les compteurs d'eau ont mesuré sur cette période, en m³",
+  "{cost} at its tariff, hour by hour": "{cost} à son tarif, heure par heure",
+  "Price per m³": "Prix par m³",
+  "Gas tariff": "Tarif du gaz",
+  "Water tariff": "Tarif de l'eau",
+  "What the home pays per m³ of gas, for the costs on the Status page": "Ce que la maison paie par m³ de gaz, pour les coûts de la page État",
+  "What the home pays per m³ of water, for the costs on the Status page": "Ce que la maison paie par m³ d'eau, pour les coûts de la page État",
 });
 
 """#),
@@ -22786,6 +22884,15 @@ HomeswiftI18n.add("pt", {
   "Separate": "Separar",
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
+  "Gas": "Gás",
+  "What the gas meters measured in this period, in m³": "O que os contadores de gás mediram neste período, em m³",
+  "What the water meters measured in this period, in m³": "O que os contadores de água mediram neste período, em m³",
+  "{cost} at its tariff, hour by hour": "{cost} à sua tarifa, hora a hora",
+  "Price per m³": "Preço por m³",
+  "Gas tariff": "Tarifa do gás",
+  "Water tariff": "Tarifa da água",
+  "What the home pays per m³ of gas, for the costs on the Status page": "O que a casa paga por m³ de gás, para os custos da página Estado",
+  "What the home pays per m³ of water, for the costs on the Status page": "O que a casa paga por m³ de água, para os custos da página Estado",
 });
 
 """#),

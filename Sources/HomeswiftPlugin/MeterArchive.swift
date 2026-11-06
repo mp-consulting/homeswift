@@ -17,6 +17,17 @@ public struct MeterID: Hashable, Sendable, Codable, CustomStringConvertible {
     public var description: String { "\(accessory)#\(meter)" }
 }
 
+/// What a Meter measures (GLOSSARY.md, "Meter"): electricity, in kWh, or gas or water, in m³. HAP has no gas or water
+/// characteristics, so only plugins declare those (`PluginContext.meter(_:deviceID:device:kind:)`). The archive keeps a
+/// Meter's figures in thousandths of its unit: watt-hours for electricity, litres for gas and water. Gas stays in m³:
+/// it is never converted to kWh, and never counts in the Home Energy.
+public enum MeterKind: String, Sendable, Codable, CaseIterable {
+    case electricity, gas, water
+
+    /// The unit its figures are shown in.
+    public var unit: String { self == .electricity ? "kWh" : "m³" }
+}
+
 /// Which way a Meter's energy flows: drawn (Consumption) or sent back, or produced (Returned).
 public enum MeterDirection: String, Sendable, Codable, CodingKeyRepresentable {
     case consumption, returned
@@ -61,6 +72,11 @@ public struct MeterHourImport: Sendable, Equatable {
         self.consumption = consumption
         self.returned = returned
     }
+
+    /// An hour of a gas or water Meter: the m³ it drew (kept in litres, as watt-hours are kept for kWh).
+    public init(start: Date, cubicMetres: Double) {
+        self.init(start: start, consumption: cubicMetres * 1000)
+    }
 }
 
 /// Each Meter's energy, an hour at a time, for years (docs/adr/0004-meters-and-consumption-history.md).
@@ -98,10 +114,13 @@ public final class MeterArchive: @unchecked Sendable {
         var id: MeterID
         /// The counters' last readings.
         var counters: [MeterDirection: Reading]
+        /// Gas or water; nil for electricity, as the files written before there were kinds have it.
+        var kind: MeterKind?
     }
 
     private struct Meter {
         var counters: [MeterDirection: Reading] = [:]
+        var kind: MeterKind = .electricity
         /// The power last read, held until the next reading, and counted up to `at`; this run's only.
         var power: Reading?
         /// When that power was read.
@@ -147,7 +166,7 @@ public final class MeterArchive: @unchecked Sendable {
         for folder in folders {
             guard let data = try? Data(contentsOf: folder.appendingPathComponent("meter.json")),
                   let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.version == Self.version else { continue }
-            meters[stored.id] = Meter(counters: stored.counters)
+            meters[stored.id] = Meter(counters: stored.counters, kind: stored.kind ?? .electricity)
         }
         state.withLockedValue { $0.meters = meters }
     }
@@ -155,6 +174,23 @@ public final class MeterArchive: @unchecked Sendable {
     /// Every Meter with a history, by Accessory Id and key.
     public var meters: [MeterID] {
         state.withLockedValue { Array($0.meters.keys) }.sorted { ($0.accessory, $0.meter) < ($1.accessory, $1.meter) }
+    }
+
+    /// What a Meter measures; electricity for one never declared otherwise.
+    public func kind(of id: MeterID) -> MeterKind {
+        state.withLockedValue { $0.meters[id]?.kind } ?? .electricity
+    }
+
+    /// Says what a Meter measures (its plugin declared it so), kept in its `meter.json`.
+    public func setKind(_ kind: MeterKind, meter id: MeterID) {
+        let changed = state.withLockedValue { state -> Bool in
+            guard state.meters[id]?.kind != kind else { return false }
+            state.meters[id, default: Meter()].kind = kind
+            // Its meter.json, with no year.
+            state.dirty[id, default: []].formUnion([])
+            return true
+        }
+        if changed { scheduleSave() }
     }
 
     // MARK: Readings
@@ -443,7 +479,7 @@ public final class MeterArchive: @unchecked Sendable {
             defer { state.dirty = [:] }
             return state.dirty.compactMap { id, years in
                 guard let meter = state.meters[id] else { return nil }
-                return (Stored(version: Self.version, id: id, counters: meter.counters), years.compactMap { year in meter.years[year].map { (year, $0) } })
+                return (Stored(version: Self.version, id: id, counters: meter.counters, kind: meter.kind == .electricity ? nil : meter.kind), years.compactMap { year in meter.years[year].map { (year, $0) } })
             }
         }
         let encoder = JSONEncoder()

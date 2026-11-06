@@ -265,7 +265,8 @@ extension HomeswiftCatalog {
             answer["fields"] = .object(fields)
         }
         // Its Meters, for `energyRoles`: each one's key, its own name on a device with several, and its plugin's suggestion.
-        let meters = metrics?.meters.meters(of: target.accessoryID) ?? []
+        // The electricity Meters: gas and water have no Energy Role.
+        let meters = (metrics?.meters.meters(of: target.accessoryID) ?? []).filter { metrics?.meters.kind(of: $0) == .electricity }
         // Energy Roles only for an accessory with Meters (one that has a role saved keeps the field, to clear it).
         if meters.isEmpty, (answer["settings"]?["energyRoles"]).map({ $0.isNull }) ?? true { fields.removeValue(forKey: "energyRoles"); answer["fields"] = .object(fields) }
         if !meters.isEmpty {

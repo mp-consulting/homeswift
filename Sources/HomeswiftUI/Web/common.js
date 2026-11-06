@@ -137,6 +137,7 @@
     down: '<path d="M6 9l6 6 6-6"/>',
     // Energy (the Status page's Energy section): solar, the home, a battery, the grid's pylon, power, solar's share.
     globe: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
+    flame: '<path d="M12 3c.5 3 4.5 5.5 4.5 10a4.5 4.5 0 0 1-9 0c0-2 1-3.4 2-4.5.2 1.8 1 2.8 2 3.3 0-3.2-.6-5.8.5-8.8z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
     house: '<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>',
     battery: '<rect x="2.5" y="7" width="16.5" height="10" rx="2.5"/><path d="M21.5 10.5v3M6 10.5v3M9.5 10.5v3"/>',
@@ -1746,6 +1747,16 @@
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
+  /// Cubic metres, as gas and water show: under one in litres (a shower's 60 L, not 0.06 m³); three decimals under
+  /// 10 (a meter's index is read to the litre), one under 100, whole from there. An axis's tick (with `top`, its highest)
+  /// is in litres when the axis stays under a cubic metre.
+  function cubicMetres(value, top) {
+    const size = Math.abs(value);
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} L`;
+    const digits = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 3 : size < 100 ? 1 : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} m³`;
+  }
+
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.
   function money(amount, currency) {
@@ -1824,7 +1835,7 @@
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, isoDay, parseDay, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

@@ -357,9 +357,14 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `period` around `date` (`week`, the 8 days to it, and `month` by day; `year` by month), days counted in `timeZone`;
   `accessory` keeps one accessory's Meters. With Tariffs, each Meter and bar has its `cost` in `currency`: its
   Consumption hour by hour at that hour's grid price. `list_accessories` marks an accessory with Meters
-  `"consumption": true`.
-- **Tariffs.** `get_tariffs` gives config.json's `bridge.tariffs`, oldest first, and `current`, the first day of the
-  one in force now. `update_tariffs` replaces the whole list (`tariffs`): each Tariff has its first day (`start`,
+  `"consumption": true`. Each Meter has its `kind` and `unit`: `electricity` in kWh, or `gas` and `water` in m³ (the
+  Meters plugins declare; gas is never turned into kWh). A gas or water Meter has no Energy Role and is priced by the
+  Tariffs of its kind only, its `cost` in its own `currency` (`currencies` gives each kind's); `kind` keeps one kind's
+  Meters.
+- **Tariffs.** `get_tariffs` gives config.json's `bridge.tariffs`, oldest first, `current`, the first day of the
+  electricity Tariff in force now, and `currentByKind`, each kind's. A Tariff with `kind` `gas` or `water` prices by the
+  m³ and has no `exportPrice`; one without `kind` is electricity's, by the kWh. Each kind has its own dated Tariffs, so
+  the gas price may change on the day the electricity's does. `update_tariffs` replaces the whole list (`tariffs`): each Tariff has its first day (`start`,
   YYYY-MM-DD), a `currency` (ISO 4217), `periods` (`from` and `to` as HH:mm, `24:00` for midnight, a `to` before `from`
   running past midnight; `days` 1 Monday to 7 Sunday, every day without it; `price` per kWh; a `name`) that must cover
   the week once, and an optional `exportPrice` for a kWh sent back. A new price is a new Tariff from its day, so past

@@ -190,4 +190,22 @@ struct MeterArchiveTests {
         #expect(near(reloaded.hours(of: other, from: hour, to: hour).first?.consumption, 40))
         #expect(!reloaded.hasHistory(accessory: plug.accessory) && reloaded.hasHistory(accessory: other.accessory))
     }
+
+    @Test func aMetersKindIsKeptInItsFile() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let water = MeterID(accessory: "Meters:house", meter: "water")
+        let before = MeterArchive(directory: directory, now: { hour })
+        #expect(before.kind(of: water) == .electricity)
+        before.setKind(.water, meter: water)
+        before.importHours([MeterHourImport(start: hour, cubicMetres: 0.18)], meter: water)
+        before.recordCounter(1000, meter: plug, at: hour)
+        before.flush()
+
+        let after = MeterArchive(directory: directory, now: { hour })
+        #expect(after.kind(of: water) == .water)
+        #expect(after.kind(of: plug) == .electricity)
+        #expect(near(after.hours(of: water, from: hour, to: hour).first?.consumption, 180))
+        #expect(MeterKind.gas.unit == "m³" && MeterKind.electricity.unit == "kWh")
+    }
 }

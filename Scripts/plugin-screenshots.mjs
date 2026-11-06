@@ -254,7 +254,18 @@ const energyDemo = `(() => {
       meter("demo:home", "Main meter", home, "home"), meter("demo:grid", "Grid connection", sum("gridImport"), "grid", sum("gridExport")),
       meter("demo:solar", "Rooftop solar", 0, "solar", sum("solar")),
       meter("demo:heat-pump", "Heat pump", home * 0.31), meter("demo:washer", "Washing machine", home * 0.09),
-      meter("demo:fridge", "Kitchen fridge", home * 0.06), meter("demo:desk", "Office desk", home * 0.04)] };
+      meter("demo:fridge", "Kitchen fridge", home * 0.06), meter("demo:desk", "Office desk", home * 0.04),
+      // A gas meter and a water meter, in m³ by day, as their plugins declare them.
+      utility("demo:gas", "Gas meter", "gas", (back) => 3.1 + 1.2 * Math.sin(back * 1.3)),
+      utility("demo:water", "Water meter", "water", (back) => 0.32 + 0.09 * Math.cos(back * 2.1))] };
+  };
+  const utility = (accessory, name, kind, perDay) => {
+    const bars = history().bars.map((bar, index, all) => {
+      const back = all.length - 1 - index, k = bar.recordedHours / 24;
+      return { date: bar.date, consumption: Math.round(perDay(back) * k * 1000) / 1000, returned: null, recordedHours: bar.recordedHours, hours: bar.recordedHours };
+    });
+    return { accessory, meter: kind, name, kind, unit: "m³", role: null, returned: null, bars,
+      consumption: Math.round(bars.reduce((total, bar) => total + bar.consumption, 0) * 1000) / 1000 };
   };
   const original = window.fetch;
   window.fetch = (input, init) => {
@@ -439,6 +450,9 @@ try {
   // The Energy section, on a day and a week of demonstration figures.
   await shot("energy", "/status", { ready: '[data-widget="energy"] .chart-card svg', width: 1100, height: 900, element: '[data-widget="energy"]', before: energyDemo })
     .then(() => toStatus("energy"));
+  // The gas and water cards under it.
+  await shot("energy-gas-water", "/status", { ready: '[data-widget="energy"] .energy-utilities .chart-card svg', width: 1100, height: 1400, element: '[data-widget="energy"] .energy-utilities', before: energyDemo })
+    .then(() => toStatus("energy-gas-water"));
 } finally {
   socket.close();
   const exited = new Promise((done) => chrome.once("exit", done));
