@@ -3050,8 +3050,10 @@ HomeswiftI18n.add("fr", {
   "Who is this Person? Linked to a web UI user, their pages say when they are home.": "Qui est cette Personne ? Liée à un utilisateur de l'interface web, ses pages disent quand elle est à la maison.",
   "Web UI user": "Utilisateur de l'interface web",
   "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Choisissez les appareils de {name} : ceux que cette Personne porte sur elle, comme son téléphone ou sa montre.",
-  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Un téléphone dont l'adresse Wi-Fi privée est en Rotation en change de temps en temps, et Presence le perd : dans les réglages Wi-Fi du téléphone pour ce réseau, réglez Adresse Wi-Fi privée sur Fixe (iPhone) ou utilisez la MAC de l'appareil (Android), puis choisissez-le ici.",
+  "Set the phone's Private Wi-Fi Address to Fixed for this network (on Android: use device MAC). A Rotating one changes, and Presence loses the phone.": "Réglez l'Adresse Wi-Fi privée du téléphone sur Fixe pour ce réseau (sur Android : utiliser la MAC de l'appareil). En Rotation, elle change, et Presence perd le téléphone.",
   "The name is too long: 64 characters at most": "Le nom est trop long : 64 caractères au plus",
   "There is no web UI user {user}": "Il n'y a pas d'utilisateur {user} dans l'interface web",
   "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Aucun appareil n'a répondu sur le réseau : vérifiez que le pont tourne sur le même réseau que les téléphones (dans Docker, avec le réseau de l'hôte)",
+  "Person": "Personne",
+  "Anyone Home": "Quelqu'un à la maison",
 });

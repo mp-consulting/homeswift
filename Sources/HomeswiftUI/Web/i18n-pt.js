@@ -3050,8 +3050,10 @@ HomeswiftI18n.add("pt", {
   "Who is this Person? Linked to a web UI user, their pages say when they are home.": "Quem é esta Pessoa? Ligada a um utilizador da interface web, as suas páginas dizem quando está em casa.",
   "Web UI user": "Utilizador da interface web",
   "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Escolha os dispositivos de {name}: os que traz consigo, como o telemóvel ou o relógio.",
-  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Um telemóvel com o endereço Wi-Fi privado em Rotativo muda-o de vez em quando, e o Presence perde-o: nas definições Wi-Fi do telemóvel para esta rede, defina Endereço Wi-Fi privado como Fixo (iPhone) ou use o MAC do dispositivo (Android) e escolha-o aqui.",
+  "Set the phone's Private Wi-Fi Address to Fixed for this network (on Android: use device MAC). A Rotating one changes, and Presence loses the phone.": "Defina o Endereço Wi-Fi privado do telemóvel como Fixo para esta rede (no Android: usar o MAC do dispositivo). Em Rotativo muda, e o Presence perde o telemóvel.",
   "The name is too long: 64 characters at most": "O nome é demasiado longo: 64 caracteres no máximo",
   "There is no web UI user {user}": "Não há nenhum utilizador {user} na interface web",
   "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Nenhum dispositivo respondeu na rede: verifique que a ponte corre na mesma rede que os telemóveis (no Docker, com a rede do anfitrião)",
+  "Person": "Pessoa",
+  "Anyone Home": "Alguém em casa",
 });

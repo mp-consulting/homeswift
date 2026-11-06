@@ -4097,7 +4097,9 @@ select option:disabled { color: var(--muted); }
 .setup-choices legend { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); width: 100%; }
 .setup-choices-count { font-size: var(--text-sm); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
-.setup-choices-list > .setup-option { margin: 0; }
+.setup-choice .setup-option { margin: 0; }
+/* On a phone the sheet scrolls, not the list within it. */
+@media (max-width: 640px) { .setup-choices-list { max-height: none; overflow: visible; } }
 .setup-option strong { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
 .setup-option-badge { font-size: var(--text-2xs); padding: 1px var(--space-8); }
 /* A word of caution beside a step's message (a phone's private Wi-Fi address). */

@@ -1601,7 +1601,8 @@
       const home = () => occupied?.value === 1 || occupied?.value === true;
       const anyone = ctx.accessory.id === "Presence:anyone";
       const word = () => home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"));
-      return { on: home, hero: () => el("span", { class: "w-hero-word" }, word()), status: () => [word(), ""] };
+      // Anyone Home's name asks the question: its small tile answers Yes or No.
+      return { on: home, hero: () => el("span", { class: "w-hero-word" }, word()), status: () => [anyone ? (home() ? t("Yes") : t("No")) : word(), ""] };
     },
   });
 
@@ -1768,6 +1769,7 @@
 
   /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
   const kindIcons = {
+    person: "user", anyone: "house",
     camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
     wingman: "bridge", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
     multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
@@ -2391,7 +2393,8 @@
     brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
     /// paused plugin's camera, a device not set up yet); undefined for a kind none fits.
-    deviceIcon: (device) => categoryIcons[device?.category]?.[0] ?? kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")],
+    // The plugin's Device Kind says more than the HAP category, when the wall has a glyph for it (a Person's sensor).
+    deviceIcon: (device) => kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")] ?? categoryIcons[device?.category]?.[0],
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {

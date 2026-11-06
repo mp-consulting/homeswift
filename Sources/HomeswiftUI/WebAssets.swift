@@ -16884,10 +16884,12 @@ HomeswiftI18n.add("es", {
   "Who is this Person? Linked to a web UI user, their pages say when they are home.": "¿Quién es esta Persona? Vinculada a un usuario de la interfaz web, sus páginas dicen cuándo está en casa.",
   "Web UI user": "Usuario de la interfaz web",
   "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Elige los dispositivos de {name}: los que lleva consigo, como su teléfono o su reloj.",
-  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Un teléfono con la dirección Wi-Fi privada en Rotación la cambia de vez en cuando, y Presence lo pierde: en los ajustes Wi-Fi del teléfono para esta red, pon Dirección Wi-Fi privada en Fija (iPhone) o usa la MAC del dispositivo (Android), y elígelo aquí.",
+  "Set the phone's Private Wi-Fi Address to Fixed for this network (on Android: use device MAC). A Rotating one changes, and Presence loses the phone.": "Pon la Dirección Wi-Fi privada del teléfono en Fija para esta red (en Android: usar la MAC del dispositivo). En Rotación cambia, y Presence pierde el teléfono.",
   "The name is too long: 64 characters at most": "El nombre es demasiado largo: 64 caracteres como máximo",
   "There is no web UI user {user}": "No hay ningún usuario {user} en la interfaz web",
   "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Ningún dispositivo respondió en la red: comprueba que el puente funciona en la misma red que los teléfonos (en Docker, con la red del host)",
+  "Person": "Persona",
+  "Anyone Home": "Alguien en casa",
 });
 
 """#),
@@ -19944,10 +19946,12 @@ HomeswiftI18n.add("fr", {
   "Who is this Person? Linked to a web UI user, their pages say when they are home.": "Qui est cette Personne ? Liée à un utilisateur de l'interface web, ses pages disent quand elle est à la maison.",
   "Web UI user": "Utilisateur de l'interface web",
   "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Choisissez les appareils de {name} : ceux que cette Personne porte sur elle, comme son téléphone ou sa montre.",
-  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Un téléphone dont l'adresse Wi-Fi privée est en Rotation en change de temps en temps, et Presence le perd : dans les réglages Wi-Fi du téléphone pour ce réseau, réglez Adresse Wi-Fi privée sur Fixe (iPhone) ou utilisez la MAC de l'appareil (Android), puis choisissez-le ici.",
+  "Set the phone's Private Wi-Fi Address to Fixed for this network (on Android: use device MAC). A Rotating one changes, and Presence loses the phone.": "Réglez l'Adresse Wi-Fi privée du téléphone sur Fixe pour ce réseau (sur Android : utiliser la MAC de l'appareil). En Rotation, elle change, et Presence perd le téléphone.",
   "The name is too long: 64 characters at most": "Le nom est trop long : 64 caractères au plus",
   "There is no web UI user {user}": "Il n'y a pas d'utilisateur {user} dans l'interface web",
   "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Aucun appareil n'a répondu sur le réseau : vérifiez que le pont tourne sur le même réseau que les téléphones (dans Docker, avec le réseau de l'hôte)",
+  "Person": "Personne",
+  "Anyone Home": "Quelqu'un à la maison",
 });
 
 """#),
@@ -23004,10 +23008,12 @@ HomeswiftI18n.add("pt", {
   "Who is this Person? Linked to a web UI user, their pages say when they are home.": "Quem é esta Pessoa? Ligada a um utilizador da interface web, as suas páginas dizem quando está em casa.",
   "Web UI user": "Utilizador da interface web",
   "Pick {name}'s devices: those they carry, such as their phone or their watch.": "Escolha os dispositivos de {name}: os que traz consigo, como o telemóvel ou o relógio.",
-  "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here.": "Um telemóvel com o endereço Wi-Fi privado em Rotativo muda-o de vez em quando, e o Presence perde-o: nas definições Wi-Fi do telemóvel para esta rede, defina Endereço Wi-Fi privado como Fixo (iPhone) ou use o MAC do dispositivo (Android) e escolha-o aqui.",
+  "Set the phone's Private Wi-Fi Address to Fixed for this network (on Android: use device MAC). A Rotating one changes, and Presence loses the phone.": "Defina o Endereço Wi-Fi privado do telemóvel como Fixo para esta rede (no Android: usar o MAC do dispositivo). Em Rotativo muda, e o Presence perde o telemóvel.",
   "The name is too long: 64 characters at most": "O nome é demasiado longo: 64 caracteres no máximo",
   "There is no web UI user {user}": "Não há nenhum utilizador {user} na interface web",
   "No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)": "Nenhum dispositivo respondeu na rede: verifique que a ponte corre na mesma rede que os telemóveis (no Docker, com a rede do anfitrião)",
+  "Person": "Pessoa",
+  "Anyone Home": "Alguém em casa",
 });
 
 """#),
@@ -26055,7 +26061,7 @@ HomeswiftI18n.add("pt", {
     const row = el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
       tile(glyph, excluded ? "grey" : needs ? "orange" : "blue"),
       el("div", { class: "who" }, el("strong", { text: device.name }),
-        el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
+        el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model ? t(device.model) : null, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       needs
         ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, known, trigger: event.currentTarget, after: reload }) })
@@ -30526,7 +30532,9 @@ select option:disabled { color: var(--muted); }
 .setup-choices legend { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); width: 100%; }
 .setup-choices-count { font-size: var(--text-sm); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
-.setup-choices-list > .setup-option { margin: 0; }
+.setup-choice .setup-option { margin: 0; }
+/* On a phone the sheet scrolls, not the list within it. */
+@media (max-width: 640px) { .setup-choices-list { max-height: none; overflow: visible; } }
 .setup-option strong { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
 .setup-option-badge { font-size: var(--text-2xs); padding: 1px var(--space-8); }
 /* A word of caution beside a step's message (a phone's private Wi-Fi address). */
@@ -33004,7 +33012,8 @@ self.addEventListener("notificationclick", (event) => {
       const home = () => occupied?.value === 1 || occupied?.value === true;
       const anyone = ctx.accessory.id === "Presence:anyone";
       const word = () => home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"));
-      return { on: home, hero: () => el("span", { class: "w-hero-word" }, word()), status: () => [word(), ""] };
+      // Anyone Home's name asks the question: its small tile answers Yes or No.
+      return { on: home, hero: () => el("span", { class: "w-hero-word" }, word()), status: () => [anyone ? (home() ? t("Yes") : t("No")) : word(), ""] };
     },
   });
 
@@ -33171,6 +33180,7 @@ self.addEventListener("notificationclick", (event) => {
 
   /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
   const kindIcons = {
+    person: "user", anyone: "house",
     camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
     wingman: "bridge", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
     multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
@@ -33794,7 +33804,8 @@ self.addEventListener("notificationclick", (event) => {
     brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
     /// paused plugin's camera, a device not set up yet); undefined for a kind none fits.
-    deviceIcon: (device) => categoryIcons[device?.category]?.[0] ?? kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")],
+    // The plugin's Device Kind says more than the HAP category, when the wall has a glyph for it (a Person's sensor).
+    deviceIcon: (device) => kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")] ?? categoryIcons[device?.category]?.[0],
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {

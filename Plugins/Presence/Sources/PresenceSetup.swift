@@ -9,17 +9,17 @@ import HomeswiftPlugin
 extension PresencePlugin {
     /// The Persons, and Anyone Home.
     public func discover() async throws -> [DiscoveredDevice] {
-        var found = [DiscoveredDevice(deviceID: Self.anyoneID, name: context.accessorySettings(for: Self.anyoneID).name ?? "Anyone Home", isSetUp: true, kind: Self.anyoneKind)]
+        var found = [DiscoveredDevice(deviceID: Self.anyoneID, name: context.accessorySettings(for: Self.anyoneID).name ?? "Anyone Home", model: "Anyone Home", isSetUp: true, kind: Self.anyoneKind)]
         for (id, settings) in context.allAccessorySettings where Self.isPerson(id) {
-            var person = DiscoveredDevice(deviceID: id, name: settings.name ?? id, isSetUp: true, kind: Self.personKind)
+            var person = DiscoveredDevice(deviceID: id, name: settings.name ?? id, model: "Person", isSetUp: true, kind: Self.personKind)
             person.isExcluded = settings.excluded
             found.append(person)
         }
         return found.sorted { ($0.deviceID == Self.anyoneID ? 0 : 1, $0.name) < ($1.deviceID == Self.anyoneID ? 0 : 1, $1.name) }
     }
 
-    static let privateAddressWarning = "A phone with a private Wi-Fi address set to Rotating changes it now and then, and Presence loses it: in the "
-        + "phone's Wi-Fi settings for this network, set Private Wi-Fi Address to Fixed (iPhone) or use the device's MAC (Android), then pick it here."
+    static let privateAddressWarning = "Set the phone's Private Wi-Fi Address to Fixed for this network (on Android: use device MAC). A Rotating one "
+        + "changes, and Presence loses the phone."
 
     /// Add a Person: their name and user, then their devices.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
