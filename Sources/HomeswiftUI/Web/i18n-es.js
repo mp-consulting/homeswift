@@ -3063,4 +3063,6 @@ HomeswiftI18n.add("es", {
   "{n} entry · kept {days} days": "{n} entrada · guardadas {days} días",
   "{title}: {n} change": "{title}: {n} cambio",
   "{title}: {n} changes": "{title}: {n} cambios",
+  "A Homeswift user": "Un usuario de Homeswift",
+  "An MCP client": "Un cliente MCP",
 });

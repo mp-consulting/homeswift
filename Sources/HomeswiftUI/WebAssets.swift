@@ -11804,7 +11804,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const { el, api } = HomeswiftCommon;
   const app = () => window.HomeswiftApp;
 
-  const ranges = [["day", t("24 hours")], ["week", t("Week")], ["year", t("Year")]];
+  const ranges = [["day", t("24 hours"), "history"], ["week", t("Week"), "grid"], ["year", t("Year"), "chart"]];
   const rangeHours = { day: 24, week: 168, year: 8760 };
 
   /// A value as the controls word it, a temperature in the user's unit.
@@ -11832,8 +11832,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let range = "day", asked = 0;
     const charts = el("div", { class: "chart-grid history-charts" });
     const note = el("p", { class: "muted history-note" });
-    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text]) =>
-      el("button", { type: "button", text, class: value === range ? "on" : "", "aria-pressed": String(value === range), onclick: (event) => {
+    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text, glyph]) =>
+      el("button", { type: "button", text, actionIcon: glyph, class: value === range ? "on" : "", "aria-pressed": String(value === range), onclick: (event) => {
         range = value;
         for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         load();
@@ -11951,6 +11951,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       case "device": return t("The device");
       case "automation": return t("Automation {name}", { name: source.name });
       case "scene": return t("Scene {name}", { name: source.name });
+      case "user": return source.name ?? t("A Homeswift user");
+      case "mcp": return source.name ?? t("An MCP client");
       default: return source.name ?? "";
     }
   }
@@ -11982,7 +11984,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     async function reload() {
       const query = new URLSearchParams();
       for (const control of controls) if (control.value) query.set(control.name, control.value);
-      const path = `/logbook${query.size ? `?${query}` : ""}`;
+      const search = query.toString();
+      const path = `/logbook${search ? `?${search}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
       list.classList.add("loading");
       let found;
@@ -17120,6 +17123,8 @@ HomeswiftI18n.add("es", {
   "{n} entry · kept {days} days": "{n} entrada · guardadas {days} días",
   "{title}: {n} change": "{title}: {n} cambio",
   "{title}: {n} changes": "{title}: {n} cambios",
+  "A Homeswift user": "Un usuario de Homeswift",
+  "An MCP client": "Un cliente MCP",
 });
 
 """#),
@@ -20189,6 +20194,8 @@ HomeswiftI18n.add("fr", {
   "{n} entry · kept {days} days": "{n} entrée · gardées {days} jours",
   "{title}: {n} change": "{title} : {n} changement",
   "{title}: {n} changes": "{title} : {n} changements",
+  "A Homeswift user": "Un utilisateur de Homeswift",
+  "An MCP client": "Un client MCP",
 });
 
 """#),
@@ -23258,6 +23265,8 @@ HomeswiftI18n.add("pt", {
   "{n} entry · kept {days} days": "{n} entrada · guardadas {days} dias",
   "{title}: {n} change": "{title}: {n} alteração",
   "{title}: {n} changes": "{title}: {n} alterações",
+  "A Homeswift user": "Um utilizador do Homeswift",
+  "An MCP client": "Um cliente MCP",
 });
 
 """#),

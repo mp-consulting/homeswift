@@ -8,7 +8,7 @@
   const { el, api } = HomeswiftCommon;
   const app = () => window.HomeswiftApp;
 
-  const ranges = [["day", t("24 hours")], ["week", t("Week")], ["year", t("Year")]];
+  const ranges = [["day", t("24 hours"), "history"], ["week", t("Week"), "grid"], ["year", t("Year"), "chart"]];
   const rangeHours = { day: 24, week: 168, year: 8760 };
 
   /// A value as the controls word it, a temperature in the user's unit.
@@ -36,8 +36,8 @@
     let range = "day", asked = 0;
     const charts = el("div", { class: "chart-grid history-charts" });
     const note = el("p", { class: "muted history-note" });
-    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text]) =>
-      el("button", { type: "button", text, class: value === range ? "on" : "", "aria-pressed": String(value === range), onclick: (event) => {
+    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text, glyph]) =>
+      el("button", { type: "button", text, actionIcon: glyph, class: value === range ? "on" : "", "aria-pressed": String(value === range), onclick: (event) => {
         range = value;
         for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         load();
@@ -155,6 +155,8 @@
       case "device": return t("The device");
       case "automation": return t("Automation {name}", { name: source.name });
       case "scene": return t("Scene {name}", { name: source.name });
+      case "user": return source.name ?? t("A Homeswift user");
+      case "mcp": return source.name ?? t("An MCP client");
       default: return source.name ?? "";
     }
   }
@@ -186,7 +188,8 @@
     async function reload() {
       const query = new URLSearchParams();
       for (const control of controls) if (control.value) query.set(control.name, control.value);
-      const path = `/logbook${query.size ? `?${query}` : ""}`;
+      const search = query.toString();
+      const path = `/logbook${search ? `?${search}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
       list.classList.add("loading");
       let found;
