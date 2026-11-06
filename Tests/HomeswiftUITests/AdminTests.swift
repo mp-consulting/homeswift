@@ -128,6 +128,15 @@ struct AdminPageTests {
         #expect(history?["note"]?.stringValue != nil)
         #expect(try await browser.get("/api/accessories/nope/history").status == 404)
 
+        // Diagnostics, as files to download: a plugin instance's and an accessory's.
+        let plugin = try await browser.get("/api/diagnostics/plugins/Lamps/Lamps")
+        #expect(plugin.status == 200)
+        #expect(plugin.headers["content-disposition"]?.contains("homeswift-diagnostics-lamps-") == true)
+        #expect(plugin.json?["plugin"]?["platform"] == "Lamps")
+        let accessory = try await browser.get("/api/diagnostics/accessories/Lamps:lamp")
+        #expect(accessory.json?["accessories"]?[0]?["name"] == "Desk Lamp")
+        #expect(try await browser.get("/api/diagnostics/accessories/nope").status == 400)
+
         // The audit log has the UI's own changes, as client "web UI".
         let audit = try #require(try await browser.get("/api/audit?client=web").json)
         #expect(audit["enabled"] == true)

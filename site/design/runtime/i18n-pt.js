@@ -3068,5 +3068,6 @@ HomeswiftI18n.add("pt", {
   "{title}: {n} changes": "{title}: {n} alterações",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
+  "Download diagnostics": "Transferir diagnósticos",
   "Forgotten.": "Esquecida.",
 });

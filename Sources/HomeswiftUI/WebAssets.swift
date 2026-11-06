@@ -4294,6 +4294,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const rememberMatterOwn = (matter) => { matterOwn = new Set([...(matter?.ownDevices || []), ...(matter?.failedDevices || [])].map((device) => device.id)); };
   const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
 
+  /// Downloads a Diagnostics file (Diagnostics.swift): the browser saves it under the name the bridge gives, and the
+  /// page stays where it is; a refusal (the accessory gone, an account that is not an administrator) says why.
+  async function downloadDiagnostics(url) {
+    try {
+      const response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) {
+        const answer = await response.json().catch(() => ({}));
+        throw new Error(answer.error ?? response.statusText);
+      }
+      const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "homeswift-diagnostics.json";
+      const link = el("a", { href: URL.createObjectURL(await response.blob()), download: name, hidden: true });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (e) { HomeswiftCommon.showAlert(HomeswiftI18n.message(e.message)); }
+  }
+
   /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
   function matterActions(accessory) {
     const card = `/status#matter-${slug(accessory.id)}`;
@@ -4338,6 +4356,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         glyph: HomeswiftWidgets.categoryIcon(accessory.category) ?? "accessory" }) } : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "plugin", href: `/plugins/${slug(accessory.platformName || accessory.platform)}/settings` } : null,
+      accessory.platform && isAdmin() ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/accessories/${encodeURIComponent(accessory.id)}`) } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
       .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
@@ -5303,6 +5322,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { label: t("Edit config.json"), icon: "code", href: "/settings/config" },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
         instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
+        plugin ? { label: t("Download diagnostics"), icon: "download", onSelect: () => downloadDiagnostics(`/api/diagnostics/plugins/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name ?? block.platform)}`) } : null,
         { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
       ];
     }
@@ -17167,6 +17187,7 @@ HomeswiftI18n.add("es", {
   "{title}: {n} changes": "{title}: {n} cambios",
   "A Homeswift user": "Un usuario de Homeswift",
   "An MCP client": "Un cliente MCP",
+  "Download diagnostics": "Descargar diagnósticos",
   "Forgotten.": "Olvidada.",
 });
 
@@ -20242,6 +20263,7 @@ HomeswiftI18n.add("fr", {
   "{title}: {n} changes": "{title} : {n} changements",
   "A Homeswift user": "Un utilisateur de Homeswift",
   "An MCP client": "Un client MCP",
+  "Download diagnostics": "Télécharger les diagnostics",
   "Forgotten.": "Oubliée.",
 });
 
@@ -23317,6 +23339,7 @@ HomeswiftI18n.add("pt", {
   "{title}: {n} changes": "{title}: {n} alterações",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
+  "Download diagnostics": "Transferir diagnósticos",
   "Forgotten.": "Esquecida.",
 });
 

@@ -238,3 +238,10 @@ _Avoid_: Activity, events, audit log
 **Change Source**:
 Who or what made a change: the Home app, a Homeswift user, an MCP client, an Automation or Scene, or the Device itself.
 _Avoid_: Origin, actor, context, initiator
+
+## Support
+
+**Diagnostics**:
+One file a person downloads for a plugin instance or an accessory, to review and attach to an issue: the versions, the
+settings with their secrets masked, the accessories' values and the plugin's recent log, redacted. Names stay in it.
+_Avoid_: Debug dump, support bundle, report

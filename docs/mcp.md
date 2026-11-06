@@ -92,7 +92,7 @@ do, and **Allow**. The connector is then there in the Claude apps signed in to t
 What it may do is one of the scopes below, chosen on that page up to the user's role: an administrator may
 give `admin`, any other user `control` at most, and the page never picks `admin` in advance, whatever the app
 asks. As in the web UI, an app of a user who is not an administrator controls accessories and runs scenes but
-does not see the log, config.json (nor `get_settings`, which reads it), the pairings or the child bridges' health (those tools, resources and
+does not see the log, config.json (nor `get_settings`, which reads it, or `get_diagnostics`), the pairings or the child bridges' health (those tools, resources and
 prompts are not listed for it), nor writes the daily digest again. The user's role is read again at every
 request, so demoting a user narrows the apps they connected, and `readOnly` caps them all at `read`. Sessions show in the audit log as the app and its user,
 `Claude (rosaly)`. **Account › Connected apps** lists a user's apps, with what each may do and when it last
@@ -200,7 +200,7 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `get_logbook`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `get_logbook`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs`, `get_diagnostics` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection`, `update_tariffs` (with `dryRun`) |
 
@@ -222,6 +222,12 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   list of `changes`, or one `characteristic` and `value` for the accessories that `ids` or `filter` (the same
   filters) pick; it refuses when more than `maxTargets` (25 by default, at most 200) would change, and skips
   and reports accessories without the characteristic and security controls.
+- **Diagnostics** (GLOSSARY.md). `get_diagnostics` answers the bundle the web UI's ⋯ menus download, for a plugin
+  instance (`plugin`: `platform`, and `name` when there are several) or an accessory (`accessory`): homeswift's
+  version and platform, the plugin's state, its Plugin Settings and Accessory Settings with every secret masked, the
+  accessories' services and current values, its last 1,000 log lines redacted, and its errors and warnings over the
+  last week. Names are kept. It is `read` scope but administrators only (`HomeswiftCatalog.administratorOnly`), as
+  `get_config` is, and it comes wrapped in `<untrusted-data>`.
 - **Settings** (GLOSSARY.md, docs/adr/0002 and 0003). `get_settings` and `update_settings` address an accessory by its
   Accessory Id (`accessory`, `list_accessories`' id or `discover_devices`' `accessoryID` for a device not on the bridge,
   with `plugin.name` when its platform has several blocks) or a plugin instance (`plugin`: `platform` and, when there
