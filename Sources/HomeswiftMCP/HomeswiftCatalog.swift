@@ -125,6 +125,8 @@ public struct HomeswiftCatalog: Sendable {
         public var layout: AccessoryLayout.Entry?
         /// The bridge keeps the energy of some Meter of it (docs/adr/0004-meters-and-consumption-history.md).
         public var metered = false
+        /// For a separated Function, its device's room (empty for none): where it starts until it is given its own.
+        public var deviceRoom: String?
 
         /// The device behind it: the plugin's own accessory when this one stands for it in HomeKit with its Functions
         /// separated, or is one of its Functions; the accessory itself otherwise.
@@ -137,6 +139,7 @@ public struct HomeswiftCatalog: Sendable {
         /// empty room is the user's "no room", which the suggestion does not override.
         public var room: String? {
             if let room = layout?.room { return room.isEmpty ? nil : room }
+            if let deviceRoom { return deviceRoom.isEmpty ? nil : deviceRoom }
             return accessory.suggestedRoom
         }
     }
@@ -179,8 +182,10 @@ public struct HomeswiftCatalog: Sendable {
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
                 let platform = owners.instance(of: accessory.id, on: bridge)
-                return Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]),
-                               metered: metered.contains(accessory.id))
+                var located = Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]),
+                                      metered: metered.contains(accessory.id))
+                if located.isSeparatedFunction { located.deviceRoom = live.entry(for: located.device.id, platform: platform, legacy: layout[located.device.id])?.room }
+                return located
             }
         }
     }
@@ -193,7 +198,11 @@ public struct HomeswiftCatalog: Sendable {
             // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
             let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
             let layout = LiveSettings.entry(for: id, platform: platform, legacy: home.layout.value.accessories[id], in: host.configuration)
-            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.hasMeters(accessory: id) == true)
+            var located = Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout, metered: metrics?.meters.hasMeters(accessory: id) == true)
+            if located.isSeparatedFunction {
+                located.deviceRoom = LiveSettings.entry(for: located.device.id, platform: platform, legacy: home.layout.value.accessories[located.device.id], in: host.configuration)?.room
+            }
+            return located
         }
         return nil
     }

@@ -252,6 +252,20 @@ import Testing
         #expect(environment.catalog.wallLayout()["groups"]?[0]?["id"] == "group:old")
     }
 
+    /// A separated Function starts in its device's Room, until it is given one of its own.
+    @Test func aSeparatedFunctionStartsInItsDevicesRoom() async throws {
+        let environment = try await environment()
+        defer { Task { await environment.stop() } }
+        _ = try await move(environment, "Devices:lock", to: "Hall")
+        _ = try await environment.catalog.updateAccessorySettings([("Devices:lock", ["separateFunctions": true])], who: "test")
+        let part = try #require(environment.catalog.located().first { $0.isSeparatedFunction })
+        #expect(part.device.id == "Devices:lock")
+        #expect(part.room == "Hall")
+        _ = try await move(environment, part.accessory.id, to: "Office")
+        #expect(environment.catalog.find(id: part.accessory.id)?.room == "Office")
+        #expect(environment.catalog.find(id: "Devices:lock")?.room == "Hall")
+    }
+
     /// A Room renamed here is renamed on the other hubs too (Philips Hue, DIRIGERA, eWeLink), by name, case and accents
     /// aside; a hub that refuses says so, and the Room is renamed all the same.
     @Test func otherHubsFollowRenames() async throws {
