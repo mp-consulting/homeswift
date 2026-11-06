@@ -402,7 +402,10 @@ public final class HistoryStore: @unchecked Sendable {
     // MARK: Recording
 
     /// A change of a characteristic's value, made by `source`.
+    /// A characteristic nobody can write (a current state, a reading) changes only because its device says so, even when a
+    /// write to its target caused it: its change is the Device's.
     public func recordChange(of characteristic: Characteristic, in accessory: Accessory, value: HAPValue, source: ChangeSource) {
+        let source = characteristic.type.permissions.contains(.pairedWrite) ? source : .device
         guard Self.isRecordable(value), let key = key(of: characteristic, in: accessory) else { return }
         let at = now()
         record(value, key: key, at: at)
