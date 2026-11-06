@@ -36,6 +36,7 @@ import HomeswiftTuya
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
 import HomeswiftV2CTrydan
+import HomeswiftWeather
 import HomeswiftWingman
 import HomeswiftZWaveJS
 import HomeswiftZigbee2MQTT
@@ -87,6 +88,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(ImouPlugin.self)
     registry.register(ReolinkPlugin.self)
     registry.register(PresencePlugin.self)
+    registry.register(WeatherPlugin.self)
     registry.register(ZWaveJSPlugin.self)
     return registry
 }

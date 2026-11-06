@@ -400,8 +400,10 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
 
 - **`static let accountAuthorization`**: what the instance's account asks, one of the Authorization Methods: `none`
   (the default), `buttonPress` (a hub's link button), `deviceCode` (a PIN a device shows), `accountLogin` (an email or
-  user name and password, perhaps a one-time code), `browserRedirect` (a sign-in page whose redirect comes back) or
-  `apiKey`.
+  user name and password, perhaps a one-time code), `browserRedirect` (a sign-in page whose redirect comes back),
+  `apiKey`, or `bridgeSetting` for a device's `authorization` that waits on a Bridge Setting such as the Location (its
+  step answers a `SetupPrompt` with `page: "/settings#location"` and a wait; the sheet links to the page and goes on
+  once the plugin answers `.done`; Weather is the example).
 - **`static let accountRequirement`**: whether the plugin's devices depend on that account. `.required` (the default):
   its devices come with the account or are reached through it, so the plugin's card says **Needs sign-in** (or
   **Needs pairing**, **Needs keys**) until it is set up, and its settings say its devices show once it is.

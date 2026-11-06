@@ -19,6 +19,10 @@ All notable changes to this project are documented here. The format follows
   Home's changes for Automations' Triggers. In Docker it needs host networking.
 - Setup: a field of several options to pick (`SetupField.choices`, `request.choices`), a prompt's `warning`, and a plugin's
   own name for Add by address (`addDeviceLabel`).
+- Weather, a plugin: the weather where the home is, from Open-Meteo with no account or key, for the Location set
+  under Settings, Bridge. One accessory with a Temperature sensor and Eve's air pressure, condition, wind speed, rain
+  in the last hour and UV index, a Humidity sensor, and an Is raining occupancy sensor for automations. It updates
+  every 15 minutes and at once when the Location moves, and appears as a Weather widget on the Accessories wall.
 - History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
   each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,
   average, highest) for years. The Logbook lists state changes, targets set and every write, each with its Change

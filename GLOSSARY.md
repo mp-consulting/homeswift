@@ -165,7 +165,7 @@ _Avoid_: Pairing, login, linking
 
 **Authorization Method**:
 One of the kinds of Authorization the bridge knows how to ask a person or an agent for: None, Button Press, Device
-Code, Account Login, Browser Redirect or API Key.
+Code, Account Login, Browser Redirect, API Key, or Bridge Setting (one the bridge needs first, such as the Location).
 _Avoid_: Pairing type, auth mode
 
 **Optional Account**:

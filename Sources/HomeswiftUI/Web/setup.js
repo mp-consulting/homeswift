@@ -23,6 +23,7 @@
     accountLogin: [() => t("Sign in"), "user"],
     browserRedirect: [() => t("Sign in with a browser"), "browser"],
     apiKey: [() => t("Enter keys"), "key"],
+    bridgeSetting: [() => t("Needs a Bridge Setting"), "gear"],
   };
   /// What the account's button says, by its Authorization Method.
   const accountActions = {
@@ -392,7 +393,7 @@
   const warning = (text, values) => el("div", { class: "setup-warning", role: "note" }, HomeswiftCommon.icon("warning"), el("p", { text: t(text, values ?? {}) }));
 
   /// A wait with nothing to type or open: a button to press on the device.
-  const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
+  const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url && !prompt.page;
 
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
@@ -548,7 +549,8 @@
           left = el("p", { class: "muted setup-countdown" });
           const tick = () => {
             const seconds = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-            left.textContent = seconds ? (pressing(prompt) ? t("Waiting for the button… {seconds} s left.", { seconds }) : t("Waiting… {seconds} s left.", { seconds }))
+            // A setting to fill in is the person's own pace: no seconds counted down for it.
+            left.textContent = seconds ? (pressing(prompt) ? t("Waiting for the button… {seconds} s left.", { seconds }) : prompt.page ? t("Waiting for it…") : t("Waiting… {seconds} s left.", { seconds }))
               : t("Time is up. Try again when you are ready.");
             if (!seconds) stop();
           };
@@ -602,7 +604,9 @@
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         const link = /^https?:\/\//i.test(prompt.url ?? "")
-          ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null;
+          ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") })
+          // A page of this UI the step waits on (the Location under Settings): in a tab of its own, the Setup waiting here.
+          : /^\/[^/]/.test(prompt.page ?? "") ? el("a", { class: "button primary", href: prompt.page, target: "_blank", rel: "noopener", actionIcon: "open", text: t("Open the setting") }) : null;
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           prompt.warning ? warning(prompt.warning, prompt.values) : null,
