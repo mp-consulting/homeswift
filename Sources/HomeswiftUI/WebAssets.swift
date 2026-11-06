@@ -71,21 +71,244 @@ enum WebAssets {
   // ---- Bridge: its block, the network, pairings, caches, schedules -----------------------------------------
 
   async function bridgePage(main) {
-    const [settings, pairings, caches, plugins, tariffs] = await Promise.all([
+    const [settings, pairings, caches, plugins, tariffs, location] = await Promise.all([
       api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null),
-      api("/api/settings/tariffs").catch(() => ({ tariffs: [] }))]);
+      api("/api/settings/tariffs").catch(() => ({ tariffs: [] })), api("/api/settings/location").catch(() => ({ location: null }))]);
     const bridge = settings.bridge || {};
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
       app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
       subnav("bridge"),
       bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
+      locationCard(location),
       tariffCard(tariffs),
       networkCard(settings),
       sectionHead(t("HomeKit pairings"), t("Who the Home app knows each server by")),
       el("div", { class: "grid" }, pairings.bridges.map(pairingCard)),
       cachesSection(caches),
       schedulesCard(uiBlock));
+  }
+
+  // ---- The Location: a Bridge Setting (bridge.location), for sunrise and sunset and the weather ----------------
+
+  const { statusLine, say, field } = HomeswiftCommon;
+  const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
+
+  /// A small raster map with no third-party scripts. Only visible tiles are requested.
+  function locationMap(initial, changed) {
+    let latitude = initial?.latitude ?? 0, longitude = initial?.longitude ?? 0, zoom = initial ? 12 : 2;
+    let selected = !!initial, drag = null;
+    const clampLat = (value) => Math.max(-85.0511, Math.min(85.0511, value));
+    const wrapLon = (value) => ((value + 180) % 360 + 360) % 360 - 180;
+    const project = (lat, lon) => {
+      const size = 256 * 2 ** zoom, sine = Math.sin(clampLat(lat) * Math.PI / 180);
+      return [(lon + 180) / 360 * size, (0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI)) * size];
+    };
+    const unproject = (x, y) => {
+      const size = 256 * 2 ** zoom;
+      return [clampLat(Math.atan(Math.sinh(Math.PI * (1 - 2 * y / size))) * 180 / Math.PI), wrapLon(x / size * 360 - 180)];
+    };
+    const tiles = el("div", { class: "location-map-tiles", "aria-hidden": "true" });
+    const pin = el("span", { class: "location-map-pin", "aria-hidden": "true" }, HomeswiftCommon.icon("location"));
+    const map = el("div", { class: "location-map", tabIndex: 0, role: "group", "aria-label": t("Location map. Drag to move, click to place the pin, or use the arrow keys.") }, tiles, pin);
+    const warning = el("p", { class: "muted", hidden: true, text: t("Map unavailable. You can still enter coordinates or use this device's location.") });
+    const tileNodes = new Map();
+    function draw() {
+      const width = map.clientWidth, height = map.clientHeight;
+      if (!width || !map.isConnected) return;
+      const [x, y] = project(latitude, longitude), left = x - width / 2, top = y - height / 2, count = 2 ** zoom;
+      const keep = new Set();
+      for (let tx = Math.floor(left / 256); tx <= Math.floor((left + width) / 256); tx++) {
+        for (let ty = Math.max(0, Math.floor(top / 256)); ty <= Math.min(count - 1, Math.floor((top + height) / 256)); ty++) {
+          const key = `${zoom}/${tx}/${ty}`; keep.add(key);
+          let image = tileNodes.get(key);
+          if (!image) {
+            image = el("img", { alt: "", draggable: false, referrerPolicy: "origin", src: `https://tile.openstreetmap.org/${zoom}/${((tx % count) + count) % count}/${ty}.png` });
+            image.addEventListener("error", () => { warning.hidden = false; });
+            tileNodes.set(key, image); tiles.append(image);
+          }
+          image.style.left = `${tx * 256 - left}px`; image.style.top = `${ty * 256 - top}px`;
+        }
+      }
+      for (const [key, image] of tileNodes) if (!keep.has(key)) { image.remove(); tileNodes.delete(key); }
+      pin.hidden = !selected;
+    }
+    const choose = (lat, lon, persist = false) => { latitude = clampLat(lat); longitude = wrapLon(lon); selected = true; changed(latitude, longitude, persist); draw(); };
+    const move = (dx, dy, persist = false) => { const [x, y] = project(latitude, longitude); choose(...unproject(x + dx, y + dy), persist); };
+    map.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target.closest("button, a")) return;
+      drag = { x: event.clientX, y: event.clientY, center: project(latitude, longitude), selected, moved: false };
+      map.setPointerCapture(event.pointerId); map.focus({ preventScroll: true });
+    });
+    map.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      if (Math.hypot(dx, dy) > 4) drag.moved = true;
+      if (drag.moved) { [latitude, longitude] = unproject(drag.center[0] - dx, drag.center[1] - dy); selected = true; pin.hidden = false; tiles.style.transform = `translate(${dx}px, ${dy}px)`; }
+    });
+    map.addEventListener("pointerup", (event) => {
+      if (!drag) return;
+      const wasDragged = drag.moved; drag = null; tiles.style.transform = "";
+      if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
+      if (wasDragged) choose(latitude, longitude, true);
+      else { const rect = map.getBoundingClientRect(); move(event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2, true); }
+    });
+    map.addEventListener("pointercancel", () => { if (drag) { [latitude, longitude] = unproject(...drag.center); selected = drag.selected; } drag = null; tiles.style.transform = ""; draw(); });
+    map.addEventListener("keydown", (event) => {
+      const delta = { ArrowLeft: [-64, 0], ArrowRight: [64, 0], ArrowUp: [0, -64], ArrowDown: [0, 64] }[event.key];
+      if (delta) { event.preventDefault(); move(...delta); }
+    });
+    const controls = el("div", { class: "location-map-controls" },
+      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), onclick: () => { zoom = Math.min(18, zoom + 1); draw(); } }),
+      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), onclick: () => { zoom = Math.max(1, zoom - 1); draw(); } }));
+    const attribution = el("a", { class: "location-map-credit", href: "https://www.openstreetmap.org/copyright", target: "_blank", rel: "noopener", text: "© OpenStreetMap contributors" });
+    map.append(controls, attribution);
+    const node = el("div", {}, el("p", { class: "muted", text: t("Click the map or finish dragging to save your coordinates. Map tiles load from OpenStreetMap.") }), map, warning);
+    let frame;
+    const resize = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(draw); });
+    resize.observe(map);
+    const lifecycle = new MutationObserver(() => {
+      if (!node.isConnected) { resize.disconnect(); lifecycle.disconnect(); cancelAnimationFrame(frame); }
+    });
+    lifecycle.observe(document.getElementById("view"), { childList: true });
+    return { node, draw, set(lat, lon) { latitude = lat; longitude = lon; selected = true; zoom = 12; draw(); } };
+  }
+
+  /// Where the home is: typed, searched, placed on the map, or this device's position. Scenes' sunrise and sunset and
+  /// plugins such as Weather read it. No restart.
+  function locationCard(data) {
+    const location = data.location;
+    const place = (one) => one.name || `${one.latitude}, ${one.longitude}`;
+    const lat = el("input", { type: "number", step: "any", min: -90, max: 90, value: location?.latitude ?? "", "aria-label": t("Latitude") });
+    const lon = el("input", { type: "number", step: "any", min: -180, max: 180, value: location?.longitude ?? "", "aria-label": t("Longitude") });
+    const name = el("input", { type: "text", value: location?.name ?? "", placeholder: t("My home"), maxLength: 64 });
+    const line = statusLine();
+    // What the card says of a Location answer: where, and the next sunrise and sunset there.
+    const sunLine = (answer) => answer.location ? t("Next sunrise {sunrise}, sunset {sunset}.", {
+      sunrise: answer.nextSunrise ? timeFormat.format(new Date(answer.nextSunrise)) : "—",
+      sunset: answer.nextSunset ? timeFormat.format(new Date(answer.nextSunset)) : "—",
+    }) : t("No location yet: sunrise and sunset triggers and the weather wait for one.");
+    const show = (answer) => {
+      summaryValue.textContent = answer.location ? place(answer.location) : t("not set");
+      nextInfo.textContent = sunLine(answer);
+      forget.hidden = !answer.location;
+    };
+    const typed = () => ({ latitude: Number(lat.value), longitude: Number(lon.value), name: name.value });
+    // The newest save wins: map clicks in a row send one request, after a short pause, and none waits behind another.
+    let pending = null, timer = null, saving = false;
+    const save = (body, { soon = false } = {}) => {
+      pending = { body };
+      clearTimeout(timer);
+      timer = setTimeout(flush, soon ? 400 : 0);
+    };
+    async function flush() {
+      if (saving || !pending) return;
+      const { body } = pending;
+      pending = null;
+      saving = true;
+      try {
+        show(await api("/api/settings/location", { method: "PUT", body: { location: body } }));
+        if (!pending) say(line, body ? t("Coordinates saved.") : t("Forgotten."), "ok");
+      } catch (e) { say(line, HomeswiftI18n.message(e.message), "error"); }
+      finally { saving = false; if (pending) flush(); }
+    }
+    const map = locationMap(location, (latitude, longitude, persist) => {
+      lat.value = latitude.toFixed(4); lon.value = longitude.toFixed(4);
+      if (persist) { say(line, t("Saving coordinates…")); save(typed(), { soon: true }); }
+      else say(line, t("Found: save to keep it."));
+    });
+    const query = el("input", { id: "location-address", type: "search", enterKeyHint: "search", autocomplete: "off", maxLength: 200, required: true, placeholder: t("Street, city or postcode"), "aria-label": t("Search address") });
+    const results = el("div", { class: "location-search-results" });
+    const searchStatus = statusLine();
+    const loader = el("span", { class: "spinner", hidden: true, "aria-hidden": "true" });
+    const setSearching = (busy) => { loader.hidden = !busy; query.setAttribute("aria-busy", String(busy)); };
+    const cache = new Map();
+    let searchController, searchTimer, searchVersion = 0;
+    const searchButton = el("button", { type: "submit", actionIcon: "search", text: t("Search") });
+    const searchForm = el("form", { class: "location-search", onsubmit: async (event) => {
+      event.preventDefault();
+      clearTimeout(searchTimer);
+      const term = query.value.trim();
+      if (term.length < 3) return;
+      searchController?.abort();
+      searchController = new AbortController();
+      const version = ++searchVersion;
+      const timeout = setTimeout(() => searchController.abort(), 10000);
+      searchButton.disabled = true; setSearching(true); results.replaceChildren();
+      say(searchStatus, t("Searching addresses…"));
+      try {
+        let features = cache.get(term);
+        if (!features) {
+          const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(term)}&limit=5`, { credentials: "omit", referrerPolicy: "no-referrer", signal: searchController.signal });
+          if (!response.ok) throw new Error();
+          const payload = await response.json();
+          features = (payload.features || []).filter((feature) => {
+            const [longitude, latitude] = feature.geometry?.coordinates || [];
+            return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+          }).slice(0, 5);
+          if (cache.size >= 30) cache.delete(cache.keys().next().value);
+          cache.set(term, features);
+        }
+        if (version !== searchVersion || query.value.trim() !== term || !searchForm.isConnected) return;
+        say(searchStatus, features.length ? t("Select an address to save its coordinates.") : t("No addresses found. Try a city or postcode."));
+        for (const feature of features) {
+          const p = feature.properties || {};
+          const address = [...new Set([p.name, [p.housenumber, p.street].filter(Boolean).join(" "), p.postcode, p.city || p.town || p.village, p.district || p.county, p.state, p.country].filter(Boolean))].join(", ");
+          const [longitude, latitude] = feature.geometry.coordinates;
+          results.append(el("button", { type: "button", actionIcon: "location", onclick: async () => {
+            lat.value = latitude.toFixed(6); lon.value = longitude.toFixed(6);
+            map.set(latitude, longitude);
+            results.replaceChildren(); query.value = address; query.focus();
+            say(searchStatus, ""); say(line, t("Saving coordinates…"));
+            save(typed());
+          } }, el("span", { class: "location-result-copy" }, el("strong", { text: p.name || p.street || address || `${latitude}, ${longitude}` }), el("span", { class: "muted", text: address }))));
+        }
+      } catch { if (version === searchVersion) say(searchStatus, t("Address search is unavailable. Try again or choose a point on the map."), "error"); }
+      finally { clearTimeout(timeout); if (version === searchVersion) { searchButton.disabled = false; setSearching(false); } }
+    } }, el("label", { for: "location-address", class: "field-title", text: t("Search address") }),
+      el("div", { class: "location-search-bar" }, el("div", { class: "location-search-input" }, query, loader), searchButton),
+      el("p", { class: "muted", text: t("Search sends your query to Photon. Results use OpenStreetMap data.") }), searchStatus, results);
+    query.addEventListener("input", () => {
+      clearTimeout(searchTimer); ++searchVersion; searchController?.abort();
+      searchButton.disabled = false; setSearching(false); results.replaceChildren(); say(searchStatus, "");
+      if (query.value.trim().length >= 3) searchTimer = setTimeout(() => searchForm.requestSubmit(), 400);
+    });
+    query.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" && results.firstElementChild) { event.preventDefault(); results.firstElementChild.focus(); }
+      if (event.key === "Escape") { clearTimeout(searchTimer); ++searchVersion; searchController?.abort(); results.replaceChildren(); say(searchStatus, ""); searchButton.disabled = false; setSearching(false); }
+    });
+    results.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") { event.preventDefault(); event.target.nextElementSibling?.focus(); }
+      if (event.key === "ArrowUp") { event.preventDefault(); (event.target.previousElementSibling || query).focus(); }
+      if (event.key === "Escape") { results.replaceChildren(); say(searchStatus, ""); query.focus(); }
+    });
+    const updateMap = () => { if (lat.value !== "" && lon.value !== "" && lat.checkValidity() && lon.checkValidity()) map.set(Number(lat.value), Number(lon.value)); };
+    lat.addEventListener("change", updateMap); lon.addEventListener("change", updateMap);
+    const here = el("button", { actionIcon: "location", text: t("Use this device's location"), onclick: () => {
+      if (!navigator.geolocation) return say(line, t("This browser cannot tell its location."), "error");
+      say(line, t("Asking the browser…"));
+      navigator.geolocation.getCurrentPosition(
+        (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); updateMap(); say(line, t("Found: save to keep it.")); },
+        (error) => say(line, error.message || t("The browser did not give its location (it needs HTTPS away from localhost)."), "error"));
+    } });
+    const summaryValue = el("div", { class: "muted", text: location ? place(location) : t("not set") });
+    const nextInfo = el("p", { class: "muted", text: sunLine(data) });
+    const forget = el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), hidden: !location, onclick: () => save(null) });
+    return el("details", { class: "card location", id: "location", ontoggle: () => map.draw(), open: window.location.hash === "#location" },
+      // Its head like its neighbours' (a tile, the title, what it holds), with a chevron for the fold.
+      el("summary", { class: "server-head" }, tile("location", "blue"), el("div", { class: "who" }, el("strong", { text: t("Location") }), summaryValue),
+        el("span", { class: "location-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("down"))),
+      el("p", { class: "help", text: t("Where the home is, for scenes' sunrise and sunset and for the weather.") }),
+      nextInfo, searchForm, map.node,
+      el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
+      el("div", { class: "actions" },
+        el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => {
+          if (lat.value === "" || lon.value === "" || !lat.reportValidity() || !lon.reportValidity()) return say(line, t("Choose a location on the map or enter valid coordinates."), "error");
+          say(line, t("Saving coordinates…"));
+          save(typed());
+        } }),
+        here, forget),
+      line);
   }
 
   /// The Tariff: what the home pays per kWh, by period of the day and week, and what a kWh sent back is paid. It edits
@@ -119,7 +342,6 @@ enum WebAssets {
     if (!latest) addRow();
     const add = el("button", { type: "button", actionIcon: "plus", text: t("Add a period"), onclick: () => addRow() });
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
-    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const earlier = tariffs.slice(0, -1).reverse();
     const startDate = (text) => HomeswiftCommon.parseDay(text);
     const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
@@ -168,7 +390,6 @@ enum WebAssets {
       historyDays: input("historyDays", { type: "number", min: 1, max: 90, step: 1, placeholder: "14" }),
       historyYears: input("historyYears", { type: "number", min: 1, max: 20, step: 1, placeholder: "10" }),
     };
-    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
     // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.
@@ -11363,6 +11584,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
+  /// A form's status line, what it says (`kind`: muted, ok or error), and a labelled field with its help: the pages'
+  /// common pieces.
+  const statusLine = () => el("p", { class: "status-line muted", role: "status" });
+  const say = (line, text, kind = "muted") => { line.className = `status-line ${kind}`; line.textContent = text; };
+  const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
+
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.
   function money(amount, currency) {
@@ -11441,7 +11668,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, isoDay, parseDay, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, money, statusLine, say, field, isoDay, parseDay, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -12060,10 +12287,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const firstWeekday = (weekLocale.getWeekInfo?.() ?? weekLocale.weekInfo)?.firstDay ?? 1;
   const weekdayOrder = Array.from({ length: 7 }, (_, offset) => (firstWeekday + offset) % 7);
   const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
-  const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
   const displayName = (accessory) => accessory.displayName || accessory.name;
-  const statusLine = () => el("p", { class: "status-line muted", role: "status" });
-  const say = (line, text, kind = "muted") => { line.className = `status-line ${kind}`; line.textContent = text; };
+  const { statusLine, say, field } = HomeswiftCommon;
 
   // ---- Rooms, hidden accessories, display names ------------------------------------------------------
 
@@ -12981,210 +13206,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
         ideasButton, anything ? newScene() : null),
       anything ? el("div", { class: "scene-filters" }, search, clear, places.length > 1 ? placeChips.node : null) : null,
-      ...sections, ideas, locationCard(data));
+      ...sections, ideas);
     hubScenes.source?.addEventListener("change", filter);
     filter();
-  }
-
-  /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
-  /// this device's position.
-  // Small raster map with no third-party scripts. Only visible tiles are requested.
-  function locationMap(initial, changed) {
-    let latitude = initial?.lat ?? 0, longitude = initial?.lon ?? 0, zoom = initial ? 12 : 2;
-    let selected = !!initial, drag = null;
-    const clampLat = (value) => Math.max(-85.0511, Math.min(85.0511, value));
-    const wrapLon = (value) => ((value + 180) % 360 + 360) % 360 - 180;
-    const project = (lat, lon) => {
-      const size = 256 * 2 ** zoom, sine = Math.sin(clampLat(lat) * Math.PI / 180);
-      return [(lon + 180) / 360 * size, (0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI)) * size];
-    };
-    const unproject = (x, y) => {
-      const size = 256 * 2 ** zoom;
-      return [clampLat(Math.atan(Math.sinh(Math.PI * (1 - 2 * y / size))) * 180 / Math.PI), wrapLon(x / size * 360 - 180)];
-    };
-    const tiles = el("div", { class: "location-map-tiles", "aria-hidden": "true" });
-    const pin = el("span", { class: "location-map-pin", "aria-hidden": "true" }, HomeswiftCommon.icon("location"));
-    const map = el("div", { class: "location-map", tabIndex: 0, role: "group", "aria-label": t("Location map. Drag to move, click to place the pin, or use the arrow keys.") }, tiles, pin);
-    const warning = el("p", { class: "muted", hidden: true, text: t("Map unavailable. You can still enter coordinates or use this device's location.") });
-    const tileNodes = new Map();
-    function draw() {
-      const width = map.clientWidth, height = map.clientHeight;
-      if (!width || !map.isConnected) return;
-      const [x, y] = project(latitude, longitude), left = x - width / 2, top = y - height / 2, count = 2 ** zoom;
-      const keep = new Set();
-      for (let tx = Math.floor(left / 256); tx <= Math.floor((left + width) / 256); tx++) {
-        for (let ty = Math.max(0, Math.floor(top / 256)); ty <= Math.min(count - 1, Math.floor((top + height) / 256)); ty++) {
-          const key = `${zoom}/${tx}/${ty}`; keep.add(key);
-          let image = tileNodes.get(key);
-          if (!image) {
-            image = el("img", { alt: "", draggable: false, referrerPolicy: "origin", src: `https://tile.openstreetmap.org/${zoom}/${((tx % count) + count) % count}/${ty}.png` });
-            image.addEventListener("error", () => { warning.hidden = false; });
-            tileNodes.set(key, image); tiles.append(image);
-          }
-          image.style.left = `${tx * 256 - left}px`; image.style.top = `${ty * 256 - top}px`;
-        }
-      }
-      for (const [key, image] of tileNodes) if (!keep.has(key)) { image.remove(); tileNodes.delete(key); }
-      pin.hidden = !selected;
-    }
-    const choose = (lat, lon, persist = false) => { latitude = clampLat(lat); longitude = wrapLon(lon); selected = true; changed(latitude, longitude, persist); draw(); };
-    const move = (dx, dy, persist = false) => { const [x, y] = project(latitude, longitude); choose(...unproject(x + dx, y + dy), persist); };
-    map.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || event.target.closest("button, a")) return;
-      drag = { x: event.clientX, y: event.clientY, center: project(latitude, longitude), selected, moved: false };
-      map.setPointerCapture(event.pointerId); map.focus({ preventScroll: true });
-    });
-    map.addEventListener("pointermove", (event) => {
-      if (!drag) return;
-      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
-      if (Math.hypot(dx, dy) > 4) drag.moved = true;
-      if (drag.moved) { [latitude, longitude] = unproject(drag.center[0] - dx, drag.center[1] - dy); selected = true; pin.hidden = false; tiles.style.transform = `translate(${dx}px, ${dy}px)`; }
-    });
-    map.addEventListener("pointerup", (event) => {
-      if (!drag) return;
-      const wasDragged = drag.moved; drag = null; tiles.style.transform = "";
-      if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
-      if (wasDragged) choose(latitude, longitude, true);
-      else { const rect = map.getBoundingClientRect(); move(event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2, true); }
-    });
-    map.addEventListener("pointercancel", () => { if (drag) { [latitude, longitude] = unproject(...drag.center); selected = drag.selected; } drag = null; tiles.style.transform = ""; draw(); });
-    map.addEventListener("keydown", (event) => {
-      const delta = { ArrowLeft: [-64, 0], ArrowRight: [64, 0], ArrowUp: [0, -64], ArrowDown: [0, 64] }[event.key];
-      if (delta) { event.preventDefault(); move(...delta); }
-    });
-    const controls = el("div", { class: "location-map-controls" },
-      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), onclick: () => { zoom = Math.min(18, zoom + 1); draw(); } }),
-      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), onclick: () => { zoom = Math.max(1, zoom - 1); draw(); } }));
-    const attribution = el("a", { class: "location-map-credit", href: "https://www.openstreetmap.org/copyright", target: "_blank", rel: "noopener", text: "© OpenStreetMap contributors" });
-    map.append(controls, attribution);
-    const node = el("div", {}, el("p", { class: "muted", text: t("Click the map or finish dragging to save your coordinates. Map tiles load from OpenStreetMap.") }), map, warning);
-    let frame;
-    const resize = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(draw); });
-    resize.observe(map);
-    const lifecycle = new MutationObserver(() => {
-      if (!node.isConnected) { resize.disconnect(); lifecycle.disconnect(); cancelAnimationFrame(frame); }
-    });
-    lifecycle.observe(document.getElementById("view"), { childList: true });
-    return { node, draw, set(lat, lon) { latitude = lat; longitude = lon; selected = true; zoom = 12; draw(); } };
-  }
-
-  function locationCard(data) {
-    const location = data.location;
-    const lat = el("input", { type: "number", step: "any", min: -90, max: 90, value: location?.lat ?? "", "aria-label": t("Latitude") });
-    const lon = el("input", { type: "number", step: "any", min: -180, max: 180, value: location?.lon ?? "", "aria-label": t("Longitude") });
-    const name = el("input", { type: "text", value: location?.name ?? "", placeholder: t("My home"), maxLength: 64 });
-    const line = statusLine();
-    let saves = Promise.resolve();
-    const save = (body, keepMap = false) => {
-      saves = saves.then(async () => {
-        try {
-          const saved = await app.api("/api/scenes/location", { method: "PUT", body });
-          if (!keepMap) { app.route(); return; }
-          summaryValue.textContent = ` · ${saved.location.name || `${saved.location.lat}, ${saved.location.lon}`}`;
-          nextInfo.textContent = t("Next sunrise {sunrise}, sunset {sunset}.", {
-            sunrise: saved.nextSunrise ? timeFormat.format(new Date(saved.nextSunrise)) : "—",
-            sunset: saved.nextSunset ? timeFormat.format(new Date(saved.nextSunset)) : "—",
-          });
-          forget.hidden = false;
-          say(line, t("Coordinates saved."), "ok");
-        } catch (e) { say(line, e.message, "error"); }
-      });
-      return saves;
-    };
-    const map = locationMap(location, (latitude, longitude, persist) => {
-      lat.value = latitude.toFixed(4); lon.value = longitude.toFixed(4);
-      if (persist) { say(line, t("Saving coordinates…")); save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }, true); }
-      else say(line, t("Found: save to keep it."));
-    });
-    const query = el("input", { id: "location-address", type: "search", enterKeyHint: "search", autocomplete: "off", maxLength: 200, required: true, placeholder: t("Street, city or postcode"), "aria-label": t("Search address") });
-    const results = el("div", { class: "location-search-results" });
-    const searchStatus = statusLine();
-    const loader = el("span", { class: "spinner", hidden: true, "aria-hidden": "true" });
-    const setSearching = (busy) => { loader.hidden = !busy; query.setAttribute("aria-busy", String(busy)); };
-    const cache = new Map();
-    let searchController, searchTimer, searchVersion = 0;
-    const searchButton = el("button", { type: "submit", actionIcon: "search", text: t("Search") });
-    const searchForm = el("form", { class: "location-search", onsubmit: async (event) => {
-      event.preventDefault();
-      clearTimeout(searchTimer);
-      const term = query.value.trim();
-      if (term.length < 3) return;
-      searchController?.abort();
-      searchController = new AbortController();
-      const version = ++searchVersion;
-      const timeout = setTimeout(() => searchController.abort(), 10000);
-      searchButton.disabled = true; setSearching(true); results.replaceChildren();
-      say(searchStatus, t("Searching addresses…"));
-      try {
-        let features = cache.get(term);
-        if (!features) {
-          const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(term)}&limit=5`, { credentials: "omit", referrerPolicy: "no-referrer", signal: searchController.signal });
-          if (!response.ok) throw new Error();
-          const payload = await response.json();
-          features = (payload.features || []).filter((feature) => {
-            const [longitude, latitude] = feature.geometry?.coordinates || [];
-            return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
-          }).slice(0, 5);
-          if (cache.size >= 30) cache.delete(cache.keys().next().value);
-          cache.set(term, features);
-        }
-        if (version !== searchVersion || query.value.trim() !== term || !searchForm.isConnected) return;
-        say(searchStatus, features.length ? t("Select an address to save its coordinates.") : t("No addresses found. Try a city or postcode."));
-        for (const feature of features) {
-          const p = feature.properties || {};
-          const address = [...new Set([p.name, [p.housenumber, p.street].filter(Boolean).join(" "), p.postcode, p.city || p.town || p.village, p.district || p.county, p.state, p.country].filter(Boolean))].join(", ");
-          const [longitude, latitude] = feature.geometry.coordinates;
-          results.append(el("button", { type: "button", actionIcon: "location", onclick: async () => {
-            lat.value = latitude.toFixed(6); lon.value = longitude.toFixed(6);
-            map.set(latitude, longitude);
-            results.replaceChildren(); query.value = address; query.focus();
-            say(searchStatus, ""); say(line, t("Saving coordinates…"));
-            await save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }, true);
-          } }, el("span", { class: "location-result-copy" }, el("strong", { text: p.name || p.street || address || `${latitude}, ${longitude}` }), el("span", { class: "muted", text: address }))));
-        }
-      } catch { if (version === searchVersion) say(searchStatus, t("Address search is unavailable. Try again or choose a point on the map."), "error"); }
-      finally { clearTimeout(timeout); if (version === searchVersion) { searchButton.disabled = false; setSearching(false); } }
-    } }, el("label", { for: "location-address", class: "field-title", text: t("Search address") }),
-      el("div", { class: "location-search-bar" }, el("div", { class: "location-search-input" }, query, loader), searchButton),
-      el("p", { class: "muted", text: t("Search sends your query to Photon. Results use OpenStreetMap data.") }), searchStatus, results);
-    query.addEventListener("input", () => {
-      clearTimeout(searchTimer); ++searchVersion; searchController?.abort();
-      searchButton.disabled = false; setSearching(false); results.replaceChildren(); say(searchStatus, "");
-      if (query.value.trim().length >= 3) searchTimer = setTimeout(() => searchForm.requestSubmit(), 400);
-    });
-    query.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowDown" && results.firstElementChild) { event.preventDefault(); results.firstElementChild.focus(); }
-      if (event.key === "Escape") { clearTimeout(searchTimer); ++searchVersion; searchController?.abort(); results.replaceChildren(); say(searchStatus, ""); searchButton.disabled = false; setSearching(false); }
-    });
-    results.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowDown") { event.preventDefault(); event.target.nextElementSibling?.focus(); }
-      if (event.key === "ArrowUp") { event.preventDefault(); (event.target.previousElementSibling || query).focus(); }
-      if (event.key === "Escape") { results.replaceChildren(); say(searchStatus, ""); query.focus(); }
-    });
-    const updateMap = () => { if (lat.value !== "" && lon.value !== "" && lat.checkValidity() && lon.checkValidity()) map.set(Number(lat.value), Number(lon.value)); };
-    lat.addEventListener("change", updateMap); lon.addEventListener("change", updateMap);
-    const here = el("button", { actionIcon: "location", text: t("Use this device's location"), onclick: () => {
-      if (!navigator.geolocation) return say(line, t("This browser cannot tell its location."), "error");
-      say(line, t("Asking the browser…"));
-      navigator.geolocation.getCurrentPosition(
-        (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); updateMap(); say(line, t("Found: save to keep it.")); },
-        (error) => say(line, error.message || t("The browser did not give its location (it needs HTTPS away from localhost)."), "error"));
-    } });
-    const next = location ? t("Next sunrise {sunrise}, sunset {sunset}.", { sunrise: data.nextSunrise ? timeFormat.format(new Date(data.nextSunrise)) : "—", sunset: data.nextSunset ? timeFormat.format(new Date(data.nextSunset)) : "—" }) : t("No location yet: sunrise and sunset triggers wait for one.");
-    const summaryValue = el("span", { class: "muted", text: ` · ${location ? (location.name || `${location.lat}, ${location.lon}`) : t("not set")}` });
-    const nextInfo = el("p", { class: "muted", text: next });
-    const forget = el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), hidden: !location, onclick: () => save(null) });
-    return el("details", { class: "card location", ontoggle: () => map.draw(), open: !location && data.scenes.some((s) => s.triggers.some((trigger) => trigger.type === "sun")) },
-      el("summary", {}, el("strong", { text: t("Location for sunrise and sunset") }), summaryValue),
-      nextInfo, searchForm, map.node,
-      el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
-      el("div", { class: "actions" },
-        el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => {
-          if (lat.value === "" || lon.value === "" || !lat.reportValidity() || !lon.reportValidity()) return say(line, t("Choose a location on the map or enter valid coordinates."), "error");
-          save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value });
-        } }),
-        here, forget),
-      line);
   }
 
   /// The characteristics of an accessory a scene can set: writable, not HomeKit's plumbing.
@@ -13610,7 +13634,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       stepEntries.push(entry); navigation.append(nav); inspector.append(panel);
       canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")), card);
     };
-    node(t("Triggers"), "play", "trigger", data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page."), triggers,
+    node(t("Triggers"), "play", "trigger", data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.latitude}, ${data.location.longitude}` }) : t("Run it automatically. Sunrise and sunset need the Location: set it under Settings, Bridge."), triggers,
       [triggerList, el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
     node(t("Conditions"), "shield", "condition", t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them."), conditions,
       [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
@@ -14646,7 +14670,9 @@ HomeswiftI18n.add("es", {
   "a field name is required": "se necesita un nombre de campo",
   "A faint amber glow to find your way.": "Un tenue brillo ámbar para orientarte.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON a una URL tuya: event, title, message, instance, timestamp.",
-  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Una ubicación necesita lat (de -90 a 90) y lon (de -180 a 180)",
+  "A Location needs latitude (-90 to 90) and longitude (-180 to 180)": "Una ubicación necesita latitud (de -90 a 90) y longitud (de -180 a 180)",
+  "Not part of a Location: {keys}": "No forma parte de una ubicación: {keys}",
+  "A Location is an object: latitude, longitude and a name; null forgets it": "Una ubicación es un objeto: latitud, longitud y un nombre; null la olvida",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "una cerradura, puerta o alarma: la confirma una persona (set_security_accessory, o la interfaz web)",
   "a lock, door or alarm: automations do not change them": "una cerradura, puerta o alarma: las automatizaciones no las cambian",
   "a message is required": "se necesita un mensaje",
@@ -15366,7 +15392,8 @@ HomeswiftI18n.add("es", {
   "Live video of {name}": "Vídeo en directo de {name}",
   "Loading": "Cargando",
   "Loading…": "Cargando…",
-  "Location for sunrise and sunset": "Ubicación para el amanecer y el atardecer",
+  "Location": "Ubicación",
+  "Where the home is, for scenes' sunrise and sunset and for the weather.": "Dónde está la casa, para el amanecer y el atardecer de las escenas y para el tiempo.",
   "lock": "bloquear",
   "Lock": "Bloquear",
   "lock [kind]": "cerradura",
@@ -15488,7 +15515,7 @@ HomeswiftI18n.add("es", {
   "No limit": "Sin límite",
   "No line is shown: widen the range or the filters first.": "No se muestra ninguna línea: amplía antes el intervalo o los filtros.",
   "No line matches.": "Ninguna línea coincide.",
-  "No location yet: sunrise and sunset triggers wait for one.": "Aún no hay ubicación: los activadores de amanecer y atardecer la esperan.",
+  "No location yet: sunrise and sunset triggers and the weather wait for one.": "Aún no hay ubicación: los activadores de amanecer y atardecer y el tiempo la esperan.",
   "no login is needed": "no hace falta iniciar sesión",
   "No motion": "Sin movimiento",
   "No picture from the camera": "No hay imagen de la cámara",
@@ -15765,7 +15792,7 @@ HomeswiftI18n.add("es", {
   "Run {name} [valve]": "Iniciar {name}",
   "Run by hand": "Se ejecuta a mano",
   "Run it automatically. Sunrise and sunset are for {place}.": "Para ejecutarla automáticamente. El amanecer y el atardecer son los de {place}.",
-  "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "Para ejecutarla automáticamente. El amanecer y el atardecer necesitan una ubicación: defínela en la página Escenas.",
+  "Run it automatically. Sunrise and sunset need the Location: set it under Settings, Bridge.": "Para ejecutarla automáticamente. El amanecer y el atardecer necesitan la ubicación: defínela en Ajustes, Puente.",
   "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Ejecuta un solo homeswift por copia: dos puentes con la misma identidad hacen que la app Casa los pierda.",
   "Runs the plugin again: it reconnects to its devices and they answer in the Home app.": "Vuelve a ejecutar el plugin: se reconecta a sus dispositivos y responden de nuevo en la app Casa.",
   "Running": "En ejecución",
@@ -17140,6 +17167,7 @@ HomeswiftI18n.add("es", {
   "{title}: {n} changes": "{title}: {n} cambios",
   "A Homeswift user": "Un usuario de Homeswift",
   "An MCP client": "Un cliente MCP",
+  "Forgotten.": "Olvidada.",
 });
 
 """#),
@@ -17717,7 +17745,9 @@ HomeswiftI18n.add("fr", {
   "a field name is required": "un nom de champ est requis",
   "A faint amber glow to find your way.": "Une faible lueur ambrée pour trouver votre chemin.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON vers une URL de votre choix : event, title, message, instance, timestamp.",
-  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Une position nécessite lat (-90 à 90) et lon (-180 à 180)",
+  "A Location needs latitude (-90 to 90) and longitude (-180 to 180)": "Une position nécessite une latitude (-90 à 90) et une longitude (-180 à 180)",
+  "Not part of a Location: {keys}": "Ne fait pas partie d'une position : {keys}",
+  "A Location is an object: latitude, longitude and a name; null forgets it": "Une position est un objet : latitude, longitude et un nom ; null l'oublie",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "une serrure, une porte ou une alarme : une personne doit confirmer (set_security_accessory, ou l'interface web)",
   "a lock, door or alarm: automations do not change them": "une serrure, une porte ou une alarme : les automatisations n'y touchent pas",
   "a message is required": "un message est requis",
@@ -18437,7 +18467,8 @@ HomeswiftI18n.add("fr", {
   "Live video of {name}": "Vidéo en direct de {name}",
   "Loading": "Chargement",
   "Loading…": "Chargement…",
-  "Location for sunrise and sunset": "Position pour le lever et le coucher du soleil",
+  "Location": "Position",
+  "Where the home is, for scenes' sunrise and sunset and for the weather.": "Où se trouve la maison, pour le lever et le coucher du soleil des scènes et pour la météo.",
   "lock": "verrouiller",
   "Lock": "Verrouiller",
   "lock [kind]": "serrure",
@@ -18559,7 +18590,7 @@ HomeswiftI18n.add("fr", {
   "No limit": "Aucune limite",
   "No line is shown: widen the range or the filters first.": "Aucune ligne n'est affichée : élargissez d'abord la période ou les filtres.",
   "No line matches.": "Aucune ligne ne correspond.",
-  "No location yet: sunrise and sunset triggers wait for one.": "Pas encore de position : les déclencheurs au lever et au coucher du soleil l'attendent.",
+  "No location yet: sunrise and sunset triggers and the weather wait for one.": "Pas encore de position : les déclencheurs au lever et au coucher du soleil et la météo l'attendent.",
   "no login is needed": "aucune connexion n'est nécessaire",
   "No motion": "Aucun mouvement",
   "No picture from the camera": "Aucune image de la caméra",
@@ -18836,7 +18867,7 @@ HomeswiftI18n.add("fr", {
   "Run {name} [valve]": "Démarrer {name}",
   "Run by hand": "Lancée à la main",
   "Run it automatically. Sunrise and sunset are for {place}.": "La lancer automatiquement. Le lever et le coucher du soleil sont ceux de {place}.",
-  "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "La lancer automatiquement. Le lever et le coucher du soleil demandent une position : définissez-la sur la page Scènes.",
+  "Run it automatically. Sunrise and sunset need the Location: set it under Settings, Bridge.": "La lancer automatiquement. Le lever et le coucher du soleil demandent la position : définissez-la dans Réglages, Pont.",
   "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Faites tourner un seul homeswift par sauvegarde : deux ponts de même identité amènent l'app Maison à les abandonner.",
   "Runs the plugin again: it reconnects to its devices and they answer in the Home app.": "Relance le plugin : il se reconnecte à ses appareils, qui répondent à nouveau dans l'app Maison.",
   "Running": "En marche",
@@ -20211,6 +20242,7 @@ HomeswiftI18n.add("fr", {
   "{title}: {n} changes": "{title} : {n} changements",
   "A Homeswift user": "Un utilisateur de Homeswift",
   "An MCP client": "Un client MCP",
+  "Forgotten.": "Oubliée.",
 });
 
 """#),
@@ -20788,7 +20820,9 @@ HomeswiftI18n.add("pt", {
   "a field name is required": "é preciso um nome de campo",
   "A faint amber glow to find your way.": "Um ténue brilho âmbar para encontrar o caminho.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Um POST JSON para um URL seu: event, title, message, instance, timestamp.",
-  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Uma localização precisa de lat (-90 a 90) e lon (-180 a 180)",
+  "A Location needs latitude (-90 to 90) and longitude (-180 to 180)": "Uma localização precisa de latitude (-90 a 90) e longitude (-180 a 180)",
+  "Not part of a Location: {keys}": "Não faz parte de uma localização: {keys}",
+  "A Location is an object: latitude, longitude and a name; null forgets it": "Uma localização é um objeto: latitude, longitude e um nome; null esquece-a",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "uma fechadura, porta ou alarme: uma pessoa tem de confirmar (set_security_accessory, ou a interface web)",
   "a lock, door or alarm: automations do not change them": "uma fechadura, porta ou alarme: as automatizações não lhes tocam",
   "a message is required": "é preciso uma mensagem",
@@ -21508,7 +21542,8 @@ HomeswiftI18n.add("pt", {
   "Live video of {name}": "Vídeo em direto de {name}",
   "Loading": "A carregar",
   "Loading…": "A carregar…",
-  "Location for sunrise and sunset": "Localização para o nascer e o pôr do sol",
+  "Location": "Localização",
+  "Where the home is, for scenes' sunrise and sunset and for the weather.": "Onde fica a casa, para o nascer e o pôr do sol das cenas e para a meteorologia.",
   "lock": "trancar",
   "Lock": "Trancar",
   "lock [kind]": "fechadura",
@@ -21630,7 +21665,7 @@ HomeswiftI18n.add("pt", {
   "No limit": "Sem limite",
   "No line is shown: widen the range or the filters first.": "Não há linhas visíveis: alargue primeiro o intervalo ou os filtros.",
   "No line matches.": "Nenhuma linha corresponde.",
-  "No location yet: sunrise and sunset triggers wait for one.": "Ainda sem localização: os acionadores de nascer e pôr do sol aguardam uma.",
+  "No location yet: sunrise and sunset triggers and the weather wait for one.": "Ainda sem localização: os acionadores de nascer e pôr do sol e a meteorologia aguardam uma.",
   "no login is needed": "não é preciso iniciar sessão",
   "No motion": "Sem movimento",
   "No picture from the camera": "Sem imagem da câmara",
@@ -21907,7 +21942,7 @@ HomeswiftI18n.add("pt", {
   "Run {name} [valve]": "Iniciar {name}",
   "Run by hand": "Executada manualmente",
   "Run it automatically. Sunrise and sunset are for {place}.": "Executá-la automaticamente. O nascer e o pôr do sol são os de {place}.",
-  "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "Executá-la automaticamente. O nascer e o pôr do sol precisam de uma localização: defina-a na página Cenas.",
+  "Run it automatically. Sunrise and sunset need the Location: set it under Settings, Bridge.": "Executá-la automaticamente. O nascer e o pôr do sol precisam da localização: defina-a em Definições, Ponte.",
   "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Execute um único homeswift por cópia: duas pontes com a mesma identidade fazem a app Casa perdê-las.",
   "Runs the plugin again: it reconnects to its devices and they answer in the Home app.": "Volta a executar o plugin: liga-se de novo aos seus dispositivos, que voltam a responder na app Casa.",
   "Running": "Em execução",
@@ -23282,6 +23317,7 @@ HomeswiftI18n.add("pt", {
   "{title}: {n} changes": "{title}: {n} alterações",
   "A Homeswift user": "Um utilizador do Homeswift",
   "An MCP client": "Um cliente MCP",
+  "Forgotten.": "Esquecida.",
 });
 
 """#),
@@ -29332,8 +29368,19 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 }
 @media (pointer: coarse) { .template-describe input { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
-.location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
+/* The Location's fold: a card head (tile, title, the place), the chevron turning as it opens. */
+.location > summary { cursor: pointer; list-style: none; padding: 0; color: inherit; }
+.location > summary::-webkit-details-marker { display: none; }
+.location > summary .who { flex: 1; min-width: 0; }
+.location-chevron { display: inline-flex; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.location-chevron svg { width: 20px; height: 20px; }
+.location[open] > summary { margin-bottom: var(--space-14); }
+.location[open] .location-chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .location-chevron { transition: none; } }
+.location .actions { flex-wrap: wrap; }
+.location .actions button { white-space: nowrap; }
+.location .status-line:empty, .location-search .status-line:empty, .location-search-results:empty { display: none; }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
 .scene-editor h2 + p { margin: 0 0 var(--space-8); font-size: var(--text-md); }
 .editor-list { display: grid; gap: var(--space-8); }
@@ -31273,6 +31320,10 @@ select option:disabled { color: var(--muted); }
 .location-search-input input { width: 100%; padding-right: calc(var(--space-20) * 2); }
 .location-search-input .spinner { position: absolute; right: var(--space-12); top: 50%; margin-top: -9px; pointer-events: none; }
 .location-search-input .spinner[hidden] { display: none; }
+@media (max-width: 520px) {
+  .location-search-bar { flex-wrap: wrap; }
+  .location-search-input { flex: 1 1 100%; }
+}
 .location-search > p { font-size: var(--text-sm); margin-block: var(--space-10); }
 .location-search-results button { border-radius: var(--radius-sm); padding: var(--space-12); box-shadow: none; border: 1px solid var(--line); touch-action: manipulation; }
 .location-result-copy { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }

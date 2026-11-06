@@ -27,7 +27,8 @@ mkdirSync(out, { recursive: true });
 // The bridge: paused demonstration blocks, the UI on this machine only.
 const storage = mkdtempSync(join(tmpdir(), "homeswift-ui-shots-"));
 writeFileSync(join(storage, "config.json"), JSON.stringify({
-  bridge: { name: "Homeswift", port: 51995 },
+  // A demonstration Location (Coimbra), for the Location map under Settings.
+  bridge: { name: "Homeswift", port: 51995, location: { latitude: 40.2033, longitude: -8.4103, name: "Home" } },
   platforms: [
     { platform: "HomeswiftUI", name: "Web UI", port, host: "127.0.0.1", auth: "none", checkForUpdates: false, scheduledBackupDisable: true },
     { platform: "ElgatoKeyLights", name: "Desk Lights", _paused: true },
@@ -262,7 +263,7 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
 }
 
 try {
-  await shot("scene-location", "/scenes", { ready: "details.location", prepare: 'document.querySelector("details.location").open = true;', element: "details.location" });
+  await shot("location", "/settings", { ready: "details.location", prepare: 'document.querySelector("details.location").open = true;', element: "details.location" });
   await shot("scene-homekit", "/scenes/new", { ready: ".scene-editor .toggle", element: ".scene-editor .toggle" });
   await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });
   // The bridge as the Home app pairs it: its setup code and QR code.

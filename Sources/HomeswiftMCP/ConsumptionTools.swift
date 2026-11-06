@@ -127,11 +127,8 @@ extension HomeswiftCatalog {
         let problems = Tariff.problems(decoded)
         guard problems.isEmpty else { throw CatalogError(problems.joined(separator: "; ")) }
         let sorted = zip(list, decoded).sorted { $0.1.start < $1.1.start }.map(\.0)
-        let current = try readConfig()
-        var root = current.objectValue ?? [:]
-        var bridge = root["bridge"]?.objectValue ?? [:]
-        if sorted.isEmpty { bridge.removeValue(forKey: "tariffs") } else { bridge["tariffs"] = .array(sorted) }
-        root["bridge"] = .object(bridge)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current)
+        return try await updateBridgeBlock(dryRun: dryRun) { bridge in
+            if sorted.isEmpty { bridge.removeValue(forKey: "tariffs") } else { bridge["tariffs"] = .array(sorted) }
+        }
     }
 }
