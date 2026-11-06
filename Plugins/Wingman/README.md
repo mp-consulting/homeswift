@@ -87,7 +87,9 @@ also gives Homeswift:
   ways. A room renamed in Homeswift is renamed in Apple Home, and one renamed in the Home app renames Homeswift's room
   of the old name (and the other hubs' with it). An accessory moved to another room in Homeswift moves to Apple Home's
   room of that name (added when there is none), and one moved in the Home app moves in Homeswift. Mirrored accessories
-  are known by their HomeKit id, Homeswift's own by their serial number; one taken out of every room in Homeswift stays
+  are known by their HomeKit id, Homeswift's own by their serial number behind Homeswift's bridge (so a hub's light
+  Apple Home also has is never taken for Homeswift's), or among the accessories it publishes on their own; one taken out
+  of every room in Homeswift stays
   where it is in Apple Home.
 - **Scenes**: Apple Home's scenes join **Scenes from your hubs**, in the room of their accessories when they share one.
   Run them, and from their ⋯ menu rename them, keep their lights as they are (their other actions stay) or delete them.

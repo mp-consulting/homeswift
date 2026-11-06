@@ -538,10 +538,68 @@ public final class PluginContext: @unchecked Sendable {
 
     /// Every accessory on the host's servers (the bridges and the external accessories), set by `PluginHost`.
     var publishedAccessories: @Sendable () -> [Accessory] {
+        { [publishedServers] in publishedServers().flatMap(\.accessories) }
+    }
+
+    /// Homeswift's HAP servers and what each publishes: set by `PluginHost`.
+    var publishedServers: @Sendable () -> [PublishedServer] {
         get { publishedBox.withLockedValue { $0 } }
         set { publishedBox.withLockedValue { $0 = newValue } }
     }
-    private let publishedBox = NIOLockedValueBox<@Sendable () -> [Accessory]>({ [] })
+    private let publishedBox = NIOLockedValueBox<@Sendable () -> [PublishedServer]>({ [] })
+
+    /// One of Homeswift's HAP servers: a bridge, main or child, or an accessory published on its own.
+    struct PublishedServer: Sendable {
+        /// Its HAP device ID: a bridge's Serial Number in HomeKit.
+        var deviceID: String
+        var isExternal: Bool
+        var accessories: [Accessory]
+
+        /// Its accessories HomeKit has from it, the bridge itself and mirrored ones left out.
+        var published: [Accessory] {
+            accessories.filter { $0.mirroredFrom == nil && (isExternal || $0.category != .bridge) }
+        }
+    }
+
+    /// Where one of Homeswift's own accessories is, as another controller of the home sees it: the Serial Number of the
+    /// bridge it is behind (nil for one published on its own server) and its own.
+    public struct PublishedPlace: Sendable, Equatable {
+        public var bridge: String?
+        public var serialNumber: String
+
+        public init(bridge: String?, serialNumber: String) {
+            self.bridge = bridge
+            self.serialNumber = serialNumber
+        }
+    }
+
+    /// The Serial Numbers HomeKit knows Homeswift's bridges by (their HAP device IDs), main and child.
+    public var homeswiftBridgeSerialNumbers: Set<String> {
+        Set(publishedServers().filter { !$0.isExternal }.map(\.deviceID))
+    }
+
+    /// The Serial Numbers of the accessories Homeswift publishes on their own servers (`publishExternal`).
+    public var ownSerialNumbers: Set<String> {
+        Set(publishedServers().filter(\.isExternal).flatMap(\.published).compactMap { $0.information[.serialNumber]?.value.stringValue })
+    }
+
+    /// Where Homeswift publishes the accessory with this id, mirrored ones left out.
+    public func publishedPlace(ofAccessory id: String) -> PublishedPlace? {
+        for server in publishedServers() {
+            guard let accessory = server.published.first(where: { $0.id == id }),
+                  let serialNumber = accessory.information[.serialNumber]?.value.stringValue else { continue }
+            return PublishedPlace(bridge: server.isExternal ? nil : server.deviceID, serialNumber: serialNumber)
+        }
+        return nil
+    }
+
+    /// The id of Homeswift's own accessory at this place: on the bridge with that Serial Number, where serial numbers
+    /// are unique, or published on its own when `bridge` is nil; nil when none, or several, are there.
+    public func publishedAccessoryID(at place: PublishedPlace) -> String? {
+        let ids = publishedServers().filter { place.bridge == nil ? $0.isExternal : !$0.isExternal && $0.deviceID == place.bridge }
+            .flatMap(\.published).filter { $0.information[.serialNumber]?.value.stringValue == place.serialNumber }.map(\.id)
+        return ids.count == 1 ? ids[0] : nil
+    }
 
     /// Tells Homeswift a room of the plugin's hub was renamed there (in the Home app, through Wingman): with the
     /// layout's `syncRoomNames` on, Homeswift renames its room of the old name too, and the other hubs' (docs/ui.md,

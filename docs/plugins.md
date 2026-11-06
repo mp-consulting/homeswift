@@ -318,7 +318,14 @@ automations use it as any other; the UI marks it with a house badge and filters 
 both survive the accessory cache. `CharacteristicType.known(uuid:)` and `ServiceType.known(uuid:)` find Homeswift's
 own types from a UUID another controller reports, so the widgets and scenes, which know types by name, recognise them.
 `context.publishedSerialNumbers` lists the serial numbers of every accessory Homeswift itself publishes (bridges, child
-bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. Renaming or removing a
+bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. To find one of them
+there, `context.homeswiftBridgeSerialNumbers` are the bridges' (their HAP device IDs, which the Home app lists as the
+bridges' Serial Numbers), `context.publishedPlace(ofAccessory:)` says which bridge an accessory is behind (none for one
+published on its own) with its serial number, and `context.publishedAccessoryID(at:)` goes back: a serial number is
+only unique on its bridge, so a hub's own accessory with the same one, such as a light Apple Home also has from its
+hub, is never taken for Homeswift's. Every bridge gives its accessories serial numbers no other on it has: of those a
+plugin gave the same one (a device's channels), the accessory with the lowest aid keeps it and the others get
+`-<aid>` after it (`HAPServer.Options.uniqueSerialNumbers`). Renaming or removing a
 room the other controller suggests makes it the layout's own; a removed one leaves its accessories with no room.
 `accessory.isUnavailable` set for a device that does not answer shows No Response in the web UI, which follows its
 changes as they happen (a change is announced with an event of an unchanged value). A mirror whose controller reports

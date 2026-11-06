@@ -175,8 +175,9 @@ in the four languages. The mirrored accessories take the new room from the `home
 
 Accessories move both ways with the same switch. Moved to another room in Homeswift (`updateAccessorySettings` sees the
 room change and calls every plugin's `moveAccessory(id:toRoom:)`, answering `hubMoves`), the Wingman plugin finds it in
-Apple Home, a mirror by its HomeKit id, one of Homeswift's own by its serial number (`/homes` lists Homeswift's bridged
-and published accessories with their Accessory Information), and posts `/accessories/room`. Moved in the Home app, the
+Apple Home, a mirror by its HomeKit id, one of Homeswift's own by its serial number behind its bridge (`/homes` lists
+Homeswift's bridged and published accessories with their Accessory Information and the bridge each is behind, and the
+bridge itself, whose Serial Number is its device ID), and posts `/accessories/room`. Moved in the Home app, the
 next read of the homes shows its room changed; the plugin tells Homeswift by Homeswift's id
 (`PluginContext.hubAccessoryMoved`) and the catalog moves it in the layout, to no hub. A mirror with no room in the layout
 keeps following its `suggestedRoom`. A move or rename the link asked for itself is remembered until the read that shows

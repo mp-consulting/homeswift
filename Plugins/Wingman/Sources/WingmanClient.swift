@@ -136,6 +136,8 @@ enum WingmanAPI {
     }
 
     struct Bridge: Decodable, Sendable, Equatable {
+        /// Its HomeKit id: the accessory of the home that is this bridge.
+        var id: String? = nil
         var name: String
         var manufacturer: String?
         var model: String?

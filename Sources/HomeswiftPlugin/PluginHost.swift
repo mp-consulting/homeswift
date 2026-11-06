@@ -712,7 +712,9 @@ public final class PluginHost: @unchecked Sendable {
             bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
         }
         let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, meterReadings: meterReadings, assistantBackground: entry.assistantBackground)
-        context.publishedAccessories = { [weak self] in self?.bridges.flatMap(\.server.accessories) ?? [] }
+        context.publishedServers = { [weak self] in
+            self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
+        }
         context.logs = options.logs
         context.naming.setNames(block.accessoryNames)
         context.naming.onRenamed { [weak self, logger = context.logger] id, name in
@@ -820,6 +822,9 @@ public final class PluginHost: @unchecked Sendable {
         var serverOptions = HAPServer.Options(port: settings.port, advertise: options.advertise, logger: serverLogger)
         serverOptions.advertiser = options.advertiser
         serverOptions.interfaces = options.interfaces
+        // The Home app's other controllers (Wingman) know Homeswift's accessories by serial number: two a plugin gave
+        // the same one (a device's channels) would be neither.
+        serverOptions.uniqueSerialNumbers = true
         if let pin = settings.pin {
             guard let code = SetupCode(pin) else { throw ConfigurationError.invalidSetupCode(pin) }
             serverOptions.setupCode = code

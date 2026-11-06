@@ -26,6 +26,9 @@ final class TestEnvironment: Sendable {
 
     var plugin: WingmanPlugin? { plugins.withLockedValue { $0.last } }
 
+    /// The bridge's device ID: its Serial Number in the fake's home.
+    static let bridgeID = "0E:11:22:33:44:55"
+
     nonisolated(unsafe) static let paired: [String: Any] = ["id": "wm-1", "name": "Mac mini", "host": "10.0.0.5", "token": FakeWingman.token, "fingerprint": FakeWingman.fingerprint]
 
     func start(settings: [String: Any] = ["devices": [TestEnvironment.paired]]) async throws -> PluginHost {
@@ -50,7 +53,7 @@ final class TestEnvironment: Sendable {
             return plugin
         }
         let block = try HomeswiftConfiguration.Platform(platform: WingmanPlugin.platform, name: WingmanPlugin.name, settings: settings)
-        let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
+        let configuration = HomeswiftConfiguration(bridge: .init(username: Self.bridgeID, port: 0), platforms: [block])
         let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         let host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: directory, options: options)
         try await host.start()
@@ -185,7 +188,8 @@ struct WingmanTests {
         let status = try await web(plugin, "GET", "wingmen")
         let wingman = try #require(status.json["wingmen"]?.arrayValue?.first)
         #expect(wingman["accessories"]?.doubleValue == 4)
-        #expect(wingman["leftOut"]?.doubleValue == 1)
+        // Homeswift's plug and its bridge itself.
+        #expect(wingman["leftOut"]?.doubleValue == 2)
         #expect(wingman["notResponding"]?.doubleValue == 1)
         await host.stop()
     }

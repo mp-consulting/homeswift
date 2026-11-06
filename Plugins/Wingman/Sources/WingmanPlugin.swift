@@ -375,7 +375,9 @@ actor Link {
         phase = .connected
         lastContact = Date()
         if info.servesStructure {
-            var structure = Structure(allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys))
+            var structure = Structure(
+                allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys),
+                bridges: plugin.context.homeswiftBridgeSerialNumbers, own: plugin.context.ownSerialNumbers)
             // What the last read gave, until this one's scenes and automations come.
             structure.scenes = self.structure?.scenes ?? []
             structure.automations = self.structure?.automations ?? []
@@ -399,7 +401,7 @@ actor Link {
                     continue
                 }
                 guard plugin.includesHome(home),
-                      let accessoryID = structure.homeswiftID(of: id, publishedID: plugin.context.publishedAccessoryID(serialNumber:)) else { continue }
+                      let accessoryID = structure.homeswiftID(of: id, in: plugin.context) else { continue }
                 logger.info("Accessory moved in Apple Home", metadata: ["wingman": "\(name)", "accessory": "\(accessoryID)", "room": "\(room)"])
                 plugin.context.hubAccessoryMoved(accessoryID: accessoryID, room: room)
             }

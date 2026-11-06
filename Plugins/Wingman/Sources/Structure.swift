@@ -21,8 +21,19 @@ struct Structure: Sendable {
         /// Its writable characteristics' HomeKit ids, by type.
         var writable: [HAPUUID: String]
         var serialNumber: String? = nil
-        /// Behind a Homeswift bridge: one of Homeswift's own.
-        var onHomeswiftBridge = false
+        /// Where it is, if it is one of Homeswift's own.
+        var homeswift: Homeswift? = nil
+    }
+
+    /// Where one of Homeswift's own accessories is in the homes.
+    enum Homeswift: Sendable, Equatable {
+        /// Behind the Homeswift bridge with this Serial Number (its HAP device ID).
+        case bridge(String)
+        /// Published on its own (a television, a camera): not behind a bridge.
+        case own
+        /// Behind a bridge that says it is Homeswift's (its manufacturer or model) that Wingman does not name: an
+        /// older Wingman, or one of another Homeswift.
+        case unnamedBridge
     }
 
     /// Whether Wingman's owner lets bridges edit now.
@@ -34,11 +45,18 @@ struct Structure: Sendable {
     var scenes: [WingmanAPI.Scene] = []
     var automations: [WingmanAPI.Automation] = []
 
-    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>) {
+    /// `bridges` are the Serial Numbers of Homeswift's bridges (`PluginContext.homeswiftBridgeSerialNumbers`), `own` those of
+    /// the accessories Homeswift publishes on their own servers.
+    init(allowed: Bool, homes: [WingmanAPI.Home], mirrored: Set<String>, bridges: Set<String> = [], own: Set<String> = []) {
         self.allowed = allowed
         self.mirrored = mirrored
         self.homes = homes.compactMap { home in
             home.id.map { Home(id: $0, name: home.name, editable: home.editable == true, rooms: home.rooms ?? []) }
+        }
+        // The accessories of the homes that are Homeswift's bridges, by HomeKit id: their Serial Number is their device ID.
+        var homeswiftBridges: [String: String] = [:]
+        for accessory in homes.flatMap(\.accessories) {
+            if let serial = accessory.serialNumber?.uppercased(), bridges.contains(serial) { homeswiftBridges[accessory.id] = serial }
         }
         var devices: [String: Device] = [:]
         for home in homes {
@@ -50,10 +68,23 @@ struct Structure: Sendable {
                         if let id = item.id, writable[HAPUUID(item.type)] == nil { writable[HAPUUID(item.type)] = id }
                     }
                 }
-                let bridge = accessory.bridge
+                let homeswift: Homeswift?
+                if mirrored.contains(accessory.id) {
+                    homeswift = nil
+                } else if let bridge = accessory.bridge {
+                    if let id = bridge.id, let serial = homeswiftBridges[id] {
+                        homeswift = .bridge(serial)
+                    } else if bridge.id == nil, bridge.manufacturer == "Homeswift" || bridge.model == "Homeswift" {
+                        homeswift = .unnamedBridge
+                    } else {
+                        homeswift = nil
+                    }
+                } else {
+                    homeswift = accessory.serialNumber.map(own.contains) == true ? .own : nil
+                }
                 devices[accessory.id] = Device(
                     name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber,
-                    onHomeswiftBridge: bridge?.manufacturer == "Homeswift" || bridge?.model == "Homeswift")
+                    homeswift: homeswift)
             }
         }
         self.devices = devices
@@ -70,21 +101,31 @@ struct Structure: Sendable {
         }
     }
 
-    /// The HomeKit id of a Homeswift accessory in these homes: a mirror by its id, one of Homeswift's own by its serial
-    /// number (`serialNumber`, its own) when exactly one of Homeswift's has it.
-    func homeKitID(of accessoryID: String, serialNumber: String?) -> String? {
+    /// The HomeKit id of a Homeswift accessory in these homes: a mirror by its id, one of Homeswift's own by where it is
+    /// published (`place`): its Serial Number behind that bridge, or among the accessories on their own. Never a home's
+    /// own accessory of the same serial number, such as the light a hub also brings to Apple Home.
+    func homeKitID(of accessoryID: String, place: PluginContext.PublishedPlace?) -> String? {
         if let id = Self.homeKitID(accessoryID), devices[id] != nil { return id }
-        guard let serialNumber else { return nil }
-        // Not a mirror: those are Apple Home's own accessories, never one of Homeswift's.
-        let matches = devices.filter { !mirrored.contains($0.key) && $0.value.serialNumber == serialNumber }.map(\.key)
+        guard let place else { return nil }
+        let wanted: Homeswift = place.bridge.map(Homeswift.bridge) ?? .own
+        var matches = devices.filter { $0.value.homeswift == wanted && $0.value.serialNumber == place.serialNumber }.map(\.key)
+        // A Wingman that does not name bridges: the bridges that say they are Homeswift's, as before.
+        if matches.isEmpty, place.bridge != nil {
+            matches = devices.filter { $0.value.homeswift == .unnamedBridge && $0.value.serialNumber == place.serialNumber }.map(\.key)
+        }
         return matches.count == 1 ? matches[0] : nil
     }
 
-    /// Homeswift's id of an accessory in these homes: a mirror's, or one of Homeswift's own (`publishedID`, by serial
-    /// number); nil for one Homeswift does not have.
-    func homeswiftID(of id: String, publishedID: (String) -> String?) -> String? {
+    /// Homeswift's id of an accessory in these homes: a mirror's, or one of Homeswift's own (by where `context` publishes
+    /// it); nil for one Homeswift does not have.
+    func homeswiftID(of id: String, in context: PluginContext) -> String? {
         if mirrored.contains(id) { return Self.homeswiftID(id) }
-        return devices[id]?.serialNumber.flatMap(publishedID)
+        guard let device = devices[id], let serialNumber = device.serialNumber, let homeswift = device.homeswift else { return nil }
+        switch homeswift {
+        case .bridge(let bridge): return context.publishedAccessoryID(at: .init(bridge: bridge, serialNumber: serialNumber))
+        case .own: return context.publishedAccessoryID(at: .init(bridge: nil, serialNumber: serialNumber))
+        case .unnamedBridge: return context.publishedAccessoryID(serialNumber: serialNumber)
+        }
     }
 
     /// The rooms whose name changed between two reads, by HomeKit id: none on the first read.
@@ -369,9 +410,9 @@ extension WingmanPlugin {
 
     /// Moves a mirror or one of Homeswift's own accessories in Apple Home; false for one Apple Home does not have.
     public func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool {
-        let serialNumber = context.publishedSerialNumber(ofAccessory: accessoryID)
+        let place = context.publishedPlace(ofAccessory: accessoryID)
         for (link, structure) in await structures() {
-            guard let id = structure.homeKitID(of: accessoryID, serialNumber: serialNumber), let device = structure.devices[id],
+            guard let id = structure.homeKitID(of: accessoryID, place: place), let device = structure.devices[id],
                   let home = structure.home(device.home), includesHome(home.name) else { continue }
             if let current = device.room, current.compare(room, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame { return true }
             try await link.moveAccessory(id, to: room)

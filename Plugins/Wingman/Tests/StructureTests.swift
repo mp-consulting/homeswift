@@ -63,6 +63,43 @@ struct StructureTests {
             id: "Meross:plug", name: "Plug", serialNumber: "PLUG-SERIAL", category: .outlet, services: [Service(.outlet, isPrimary: true)]))
     }
 
+    func homeAccessory(_ id: String, serialNumber: String, bridge: [String: Any]? = nil) -> [String: Any] {
+        var accessory: [String: Any] = ["id": id, "name": id, "services": [[
+            "type": "0000003E-0000-1000-8000-0026BB765291",
+            "characteristics": [["type": "00000030-0000-1000-8000-0026BB765291", "properties": ["read"], "value": serialNumber]],
+        ]]]
+        if let bridge { accessory["bridge"] = bridge }
+        return accessory
+    }
+
+    /// One of Homeswift's own accessories is found behind its bridge (the home's accessory whose Serial Number is the
+    /// bridge's device ID), never a home's own accessory with the same serial number, such as the light a hub also brings
+    /// to Apple Home; one published on its own is found among those that are not bridged.
+    @Test func homeswiftsOwnAccessoriesAreFoundBehindItsBridge() throws {
+        let bridge = TestEnvironment.bridgeID
+        let json: [String: Any] = ["id": "home-1", "name": "Maison", "accessories": [
+            homeAccessory("homeswift-bridge", serialNumber: bridge),
+            homeAccessory("hub-light", serialNumber: "SN", bridge: ["id": "hue-bridge", "name": "Hue Bridge"]),
+            homeAccessory("homeswift-light", serialNumber: "SN", bridge: ["id": "homeswift-bridge", "name": "Homeswift"]),
+            homeAccessory("other-homeswift", serialNumber: "SN", bridge: ["id": "elsewhere", "name": "Homeswift", "manufacturer": "Homeswift"]),
+            homeAccessory("older-wingman", serialNumber: "OLD", bridge: ["name": "Homeswift", "manufacturer": "Homeswift"]),
+            homeAccessory("homeswift-tv", serialNumber: "TV"),
+            homeAccessory("hub-tv", serialNumber: "TV", bridge: ["id": "hue-bridge", "name": "Hue Bridge"]),
+        ]]
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: json))
+        let structure = Structure(allowed: true, homes: [home], mirrored: [], bridges: [bridge], own: ["TV"])
+
+        #expect(structure.homeKitID(of: "Hue:light", place: .init(bridge: bridge, serialNumber: "SN")) == "homeswift-light")
+        #expect(structure.homeKitID(of: "PhilipsAmbilightTV:tv", place: .init(bridge: nil, serialNumber: "TV")) == "homeswift-tv")
+        // A Wingman that does not name bridges: a bridge that says it is Homeswift's.
+        #expect(structure.homeKitID(of: "Old:plug", place: .init(bridge: bridge, serialNumber: "OLD")) == "older-wingman")
+        #expect(structure.homeKitID(of: "Hue:gone", place: .init(bridge: bridge, serialNumber: "NONE")) == nil)
+        // Another Homeswift's bridge, or a hub's, is not this one.
+        #expect(structure.devices["other-homeswift"]?.homeswift == nil)
+        #expect(structure.devices["hub-light"]?.homeswift == nil)
+        #expect(structure.devices["hub-tv"]?.homeswift == nil)
+    }
+
     /// An accessory moved in Homeswift moves in Apple Home: a mirror by its id, one of Homeswift's own by its serial
     /// number, to a room Apple Home adds when it has none; one Apple Home does not have is not Wingman's.
     @Test func anAccessoryMovedInHomeswiftMovesInAppleHome() async throws {

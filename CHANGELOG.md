@@ -48,6 +48,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Rooms through Wingman: Homeswift's own accessories are found in Apple Home by their serial number behind Homeswift's
+  bridge (the Home app's accessory whose Serial Number is the bridge's device ID), or among the accessories Homeswift
+  publishes on their own, never a hub's accessory with the same serial number, nor another Homeswift's; a renamed
+  bridge manufacturer no longer hides them. Every bridge also gives its accessories serial numbers none other on it
+  has (`HAPServer.Options.uniqueSerialNumbers`): of those a plugin gave the same one, the accessory with the lowest aid
+  keeps it and the others get `-<aid>` after it, so eWeLink's channels, UniFi Protect's package cameras and LG ThinQ's
+  devices without a serial number move between rooms with the Home app too. `PluginContext` gains
+  `homeswiftBridgeSerialNumbers`, `ownSerialNumbers`, `publishedPlace(ofAccessory:)` and `publishedAccessoryID(at:)`.
 - The Home app named an accessory's other services by number ("Switch 1", "Switch 2") when a plugin gave them no
   Configured Name: the runtime now gives each, but the primary one, its Name as Configured Name, without the
   accessory's name in front ("Candle" on "Desk", not "Desk Candle"), as the Home app shows it inside the accessory.

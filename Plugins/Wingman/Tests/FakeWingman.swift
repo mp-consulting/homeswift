@@ -408,6 +408,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
                 ],
             ],
             [
+                // The Homeswift bridge itself, its Serial Number its device ID (`TestEnvironment.bridgeID`).
+                "id": "homeswift-bridge", "name": "Homeswift", "reachable": true, "manufacturer": "Homeswift", "model": "Homeswift",
+                "services": [
+                    ["id": "bridge-info", "type": "0000003E-0000-1000-8000-0026BB765291", "characteristics": [
+                        ["id": "bridge-serial", "type": "00000030-0000-1000-8000-0026BB765291", "properties": ["read"], "value": "0E:11:22:33:44:55", "format": "string"],
+                    ]],
+                ],
+            ],
+            [
                 "id": "homeswift-switch", "name": "Plug from Homeswift", "room": "Bureau", "reachable": true, "manufacturer": "Meross",
                 "bridge": ["id": "homeswift-bridge", "name": "Homeswift", "manufacturer": "Homeswift", "model": "Homeswift"],
                 "services": [
