@@ -91,6 +91,16 @@ public final class MCPSession: Sendable, Identifiable {
     public var isInitialized: Bool { state.withLockedValue { $0.initialized } }
     public var protocolVersion: String? { state.withLockedValue { $0.protocolVersion } }
     public var clientInfo: ClientInfo? { state.withLockedValue { $0.clientInfo } }
+
+    /// Who the changes its tools make are from (the Logbook's Change Source): the client by the name it gave, else
+    /// its token's; `userSource` when a person of the web UI drives it (the chat).
+    public var changeSource: ChangeSource {
+        if let user = userSource.withLockedValue({ $0 }) { return .user(user) }
+        return .mcpClient(clientInfo?.name ?? principal.name)
+    }
+
+    /// The web UI user driving the session, when one does.
+    let userSource = NIOLockedValueBox<String?>(nil)
     public var lastActivity: Date { state.withLockedValue { $0.lastActivity } }
     public var logLevel: Logger.Level { state.withLockedValue { $0.logLevel } }
     public var subscriptions: Set<String> { state.withLockedValue { $0.subscriptions } }
@@ -666,7 +676,8 @@ public final class MCPServer: Sendable {
             let version = session.protocolVersion
             return ["tools": .array(tools.filter { $0.scope <= session.principal.scope && !session.principal.hides($0.name) }.map { $0.json(protocolVersion: version) })]
         case "tools/call":
-            return try await callTool(params, session: session, serverRequests: serverRequests, emit: emit)
+            // What its tools change is the client's in the Logbook (the chat's: its user's).
+            return try await session.changeSource.run { try await callTool(params, session: session, serverRequests: serverRequests, emit: emit) }
         case "resources/list":
             return ["resources": .array(resources.filter { !isHidden(uri: $0.uri, from: session) }.map(\.json))]
         case "resources/templates/list":

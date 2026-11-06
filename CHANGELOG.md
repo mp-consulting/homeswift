@@ -12,13 +12,21 @@ All notable changes to this project are documented here. The format follows
   under Settings, Bridge. One accessory with a Temperature sensor and Eve's air pressure, condition, wind speed, rain
   in the last hour and UV index, a Humidity sensor, and an Is raining occupancy sensor for automations. It updates
   every 15 minutes and at once when the Location moves, and appears as a Weather widget on the Accessories wall.
-
+- History and Logbook: the bridge records every characteristic change of every accessory under `history/`: states at
+  each change, numbers at most every 10 seconds (at once past their step, else once settled) and by the hour (lowest,
+  average, highest) for years. The Logbook lists state changes, targets set and every write, each with its Change
+  Source: the Home app (by pairing), a Homeswift user, an MCP client, an Automation or Scene, or the device itself.
+  Retention is a Bridge Setting (`historyDays`, 14 by default; `historyYears`, 10).
+- Web UI: an accessory's sheet has a **History** tab beside its controls, a chart per characteristic over 24 hours, a
+  week or a year (a state as a band of its values); a **Logbook** page (`/logbook`) filtered by room, accessory and
+  Change Source.
+- MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
+  goes further back.
 - Z-Wave JS plugin (experimental): the nodes already on a Z-Wave network, through zwave-js-server's WebSocket API, the
   server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run. Switches and outlets, dimmers, colour lights, window
   coverings, door locks, thermostats, motion, contact, leak, smoke and CO sensors, temperature, humidity and light,
   batteries, Central Scene buttons, and meters that count in the Energy section. The server is found over mDNS or added
   by its address; a dead node answers No Response. Including and excluding nodes stays in Z-Wave JS UI.
-
 - Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
   attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
   masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
