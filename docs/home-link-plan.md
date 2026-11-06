@@ -12,7 +12,7 @@ Built, on branch `feat/home-link` (homeswift) and `feat/home-link` (homeswift-wi
 | Phase | State |
 |---|---|
 | 0. Clean the Wingman checkout | Left to a person: the phase 3 work is in its own worktree, the conflicted checkout untouched |
-| 1. Spike on a real home | **Half run:** what a real home holds was read (below, "What a real home showed"); the edits (names, the Default Room, deleting a room, groups) wait for a run with **Let bridges edit rooms, scenes and automations** on |
+| 1. Spike on a real home | Done through Wingman's API (below, "What a real home showed"); what the Home app itself shows of API-made zones and mixed groups was not looked at |
 | 2. Unique serials, the bridge by its serial | Done |
 | 3. Wingman's `home-link` API | Done (DemoStore and loopback tests; the app builds unsigned). Create edits take a `home` |
 | 4. The linked copy | Done: each Room in `accessory-layout.json` has its own id and its Home id; the Zones (by Room id) and Groups are in `home.json` |
@@ -118,6 +118,25 @@ Read through Wingman's `/homes` on a home of 151 accessories, 143 of them behind
   - Homeswift adopts only a group with at least two of its accessories, so empty groups never reach it.
   - Wingman lets a name held only by empty groups be used again (homeswift-wingman `521fced`); it refused it before.
 - **The one live group** holds two lights of one kind in one room, which says nothing yet about mixed kinds or rooms.
+
+#### The edits (2026-11-06, every change undone)
+
+Through Wingman's structure routes on the same home, with **Let bridges edit rooms, scenes and automations** on; the
+home was compared afterwards with a copy read before, and was the same:
+
+- **The Default Room:** moving a bridged accessory to it (`roomID: null`) works: it then reads `Default Room` with a
+  null `roomID`, and moves back by id. The Default Room's id was the same before and after.
+- **Room names:** `homeswift spike` and `Homeswift Spiké` were answered with the existing `Homeswift Spike`
+  (`added: false`). That is Wingman's own check, which folds case and accents before asking HomeKit, so HomeKit's own
+  rule was not reached; Homeswift and Wingman agree, which is what matters. Renaming a room works.
+- **Zones:** creating one and adding a room to it works.
+- **Deleting a room** takes it out of its zone at once (the zone's `roomIDs` empty). The test room held no accessory,
+  so where its accessories go was not seen again; HomeKit documents the Default Room.
+- **Groups:** HomeKit made a group of a light and an accessory of another kind as readily as one of two lights. The
+  API does not enforce one kind, so Homeswift's rule (one kind, one Function each) is the only check, and stays.
+
+Not looked at: how the Home app draws an API-made zone or mixed group, and which delegate calls fire for edits made in
+the Home app. Both need a person watching the Home app.
 
 ### 2. Unique serials and a sure way to find the bridge (homeswift)
 
@@ -408,6 +427,7 @@ Phase 1 settles these:
 
 - The Home app's exact grouping rule: which kinds group together, whether members can be in different rooms, and what
   an API-made group that breaks the rule looks like.
-- Whether HomeKit's own name uniqueness folds case and accents the way Homeswift will.
+- Whether HomeKit's own name uniqueness folds case and accents: Wingman's check answers first, the same way as
+  Homeswift's, so it no longer matters.
 - What happens to service groups when a member accessory moves to another bridge. (When it is removed, the group stays,
   empty: see phase 1's results.)
