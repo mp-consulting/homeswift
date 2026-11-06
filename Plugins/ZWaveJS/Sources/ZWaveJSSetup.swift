@@ -75,7 +75,7 @@ extension ZWaveJSPlugin {
         case .account:
             return .done(SetupOutcome())
         case .device(let device):
-            guard device.kind == Self.serverKind || !device.deviceID.contains("-") || device.deviceID.hasPrefix("address:") else {
+            guard Self.isServer(device.deviceID) else {
                 return .done(SetupOutcome())
             }
             guard let address = device.address, let (host, port) = Self.split(address) else {
@@ -96,14 +96,14 @@ extension ZWaveJSPlugin {
                         SetupField("port", label: "Port", optional: true, value: found.map { String($0.port) }),
                     ]))
             }
-            let trimmed = Self.hostOnly(host)
+            let (trimmed, typedPort) = Self.split(host) ?? (host, Self.defaultPort)
             guard !trimmed.isEmpty, trimmed.count <= 253, !trimmed.contains(where: { $0.isWhitespace || $0 == "/" }) else {
                 throw SetupError("That is not an address: type an IP address or a host name, such as 192.168.1.50")
             }
             let port = try request.answer("port").map { text in
                 guard let port = Int(text), (1...65535).contains(port) else { throw SetupError("The port must be between 1 and 65535") }
                 return port
-            } ?? Self.split(host)?.1 ?? Self.defaultPort
+            } ?? typedPort
             guard (1...65535).contains(port) else { throw SetupError("The port must be between 1 and 65535") }
             return try await check(host: trimmed, port: port, expected: nil)
         }
@@ -151,14 +151,6 @@ extension ZWaveJSPlugin {
                 throw error
             }
         }
-    }
-
-    /// A host typed with a scheme or a port (`ws://192.168.1.5:3000`) without them.
-    static func hostOnly(_ text: String) -> String {
-        var host = text.trimmingCharacters(in: .whitespaces)
-        for scheme in ["ws://", "wss://"] where host.lowercased().hasPrefix(scheme) { host = String(host.dropFirst(scheme.count)) }
-        if host.hasSuffix("/") { host.removeLast() }
-        return split(host)?.0 ?? host
     }
 
     /// `host`, `host:port`, `[v6]` or `[v6]:port`.

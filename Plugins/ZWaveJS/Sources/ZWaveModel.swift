@@ -21,6 +21,12 @@ enum CommandClass {
     static let manufacturerSpecific = 0x72
     static let notification = 0x71
     static let battery = 0x80
+
+    /// What the plugin reads: a node's other values (configuration, versions, associations) are not kept.
+    static let read: Set<Int> = [
+        binarySwitch, multilevelSwitch, binarySensor, multilevelSensor, meter, colorSwitch, thermostatMode, thermostatOperatingState,
+        thermostatSetpoint, centralScene, doorLock, manufacturerSpecific, notification, battery,
+    ]
 }
 
 /// A value's id: what `node.set_value` takes back, and the key values are kept by. A property or a property key is a
@@ -87,6 +93,11 @@ struct ZValue: Sendable {
     }
 
     var unit: String? { metadata["unit"]?.stringValue }
+    var isFahrenheit: Bool { unit == "°F" }
+    /// A temperature this value reports, in Celsius.
+    func celsius(_ reading: Double) -> Double { isFahrenheit ? (reading - 32) * 5 / 9 : reading }
+    /// A temperature in Celsius in this value's unit (whole degrees Fahrenheit).
+    func reading(celsius: Double) -> Double { isFahrenheit ? (celsius * 9 / 5 + 32).rounded() : celsius }
     /// The named states (`"0": "Off"`), by number.
     var states: [Int: String] {
         guard let states = metadata["states"]?.objectValue else { return [:] }
@@ -103,7 +114,6 @@ enum NodeStatus: Int, Sendable {
 struct ZNode: Sendable {
     var nodeID: Int
     var name: String?
-    var location: String?
     var manufacturer: String?
     /// The product's model (`ZW100`).
     var label: String?
@@ -114,7 +124,6 @@ struct ZNode: Sendable {
     var isControllerNode: Bool
     var ready: Bool
     var genericClass: Int?
-    var genericLabel: String?
     var specificClass: Int?
     var specificLabel: String?
     var values: [ValueID: ZValue]
@@ -123,7 +132,6 @@ struct ZNode: Sendable {
         guard let nodeID = json["nodeId"]?.intValue else { return nil }
         self.nodeID = nodeID
         name = json["name"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
-        location = json["location"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
         let config = json["deviceConfig"]
         manufacturer = config?["manufacturer"]?.stringValue?.nonEmpty ?? json["manufacturer"]?.stringValue?.nonEmpty
         label = json["label"]?.stringValue?.nonEmpty ?? config?["label"]?.stringValue?.nonEmpty
@@ -134,12 +142,11 @@ struct ZNode: Sendable {
         ready = json["ready"]?.boolValue ?? true
         let deviceClass = json["deviceClass"]
         genericClass = deviceClass?["generic"]?["key"]?.intValue
-        genericLabel = deviceClass?["generic"]?["label"]?.stringValue
         specificClass = deviceClass?["specific"]?["key"]?.intValue
         specificLabel = deviceClass?["specific"]?["label"]?.stringValue
         var values: [ValueID: ZValue] = [:]
         for item in json["values"]?.arrayValue ?? [] {
-            guard let value = ZValue(item) else { continue }
+            guard let value = ZValue(item), CommandClass.read.contains(value.id.commandClass) else { continue }
             values[value.id] = value
         }
         self.values = values

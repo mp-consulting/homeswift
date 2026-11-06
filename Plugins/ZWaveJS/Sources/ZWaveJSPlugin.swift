@@ -76,8 +76,6 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     var servers: [String: Server] = [:]
     /// Each node's accessory, by Device Id.
     var accessories: [String: NodeAccessory] = [:]
-    /// What each accessory was built from (its values' ids, its shape, its name), to rebuild only when it changed.
-    var signatures: [String: String] = [:]
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -97,11 +95,14 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
 
     static func accessoryID(deviceID: String) -> String { "\(platform):\(deviceID)" }
     static func deviceID(homeID: String, nodeID: Int) -> String { "\(homeID)-\(nodeID)" }
+    /// A server's Device Id (its home id, or `address:` while Setup has not read it) rather than a node's
+    /// (`<homeId>-<nodeId>`): a home id is a number, never with a dash.
+    static func isServer(_ deviceID: String) -> Bool { !deviceID.contains("-") || deviceID.hasPrefix("address:") }
 
     /// The servers whose Accessory Settings give a `host`, Excluded ones left out, by home id.
     static func configuredServers(_ context: PluginContext) -> [(homeID: String, host: String, port: Int)] {
         context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { homeID, settings in
-            guard !settings.excluded, !homeID.contains("-"), let server = settings.decode(ServerSettings.self),
+            guard !settings.excluded, isServer(homeID), let server = settings.decode(ServerSettings.self),
                   let host = server.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return nil }
             return (homeID, host, port(server.port))
         }
@@ -110,10 +111,7 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     static func port(_ port: Int?) -> Int { port.flatMap { (1...65535).contains($0) ? $0 : nil } ?? defaultPort }
 
     /// `ws://host:port`, an IPv6 host in brackets.
-    static func url(host: String, port: Int) -> URL? {
-        let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        return URL(string: "ws://\(bracketed):\(port)")
-    }
+    static func url(host: String, port: Int) -> URL? { URL(string: "ws://\(address(host: host, port: port))") }
 
     static func address(host: String, port: Int) -> String { hostHeader(host: host, port: port, defaultPort: 0) }
 
@@ -221,10 +219,8 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     func publish(_ node: ZNode, homeID: String) -> Bool {
         let deviceID = Self.deviceID(homeID: homeID, nodeID: node.nodeID)
         guard !context.isExcluded(deviceID) else { return false }
-        let shape = showAs(deviceID)
-        let signature = ([node.displayName, shape?.rawValue ?? "", node.isCover ? "cover" : ""]
-            + node.values.keys.map { "\($0.commandClass)/\($0.endpoint)/\($0.propertyText)/\($0.propertyKeyText ?? "")" }.sorted()).joined(separator: "|")
-        if let existing = accessories[deviceID], signatures[deviceID] == signature {
+        let shape = NodeShape(name: node.displayName, showAs: showAs(deviceID), values: Set(node.values.keys))
+        if let existing = accessories[deviceID], existing.shape == shape {
             for value in node.values.values { if let current = value.value { existing.update(value.id, current) } }
             existing.setUnavailable(node.isDead)
             return true
@@ -237,7 +233,7 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
         let accessoryID = Self.accessoryID(deviceID: deviceID)
         let context = self.context, name = node.displayName
         var builder = NodeBuilder(
-            node: node, deviceID: deviceID, name: name, showAs: shape, write: write,
+            node: node, deviceID: deviceID, name: name, shape: shape, write: write,
             meter: { service in context.meter(of: service, accessoryID: accessoryID, device: name) }, coalesce: coalesce)
         guard let built = builder.build() else {
             logger.debug("Node \(nodeID) (\(name)) has nothing HomeKit shows")
@@ -250,14 +246,12 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
             return false
         }
         accessories[deviceID] = built
-        signatures[deviceID] = signature
         return true
     }
 
     /// A node no longer on the network: its accessory leaves the bridge.
     func forget(_ deviceID: String) async {
         accessories[deviceID] = nil
-        signatures[deviceID] = nil
         do {
             try await context.remove(id: Self.accessoryID(deviceID: deviceID))
         } catch {
@@ -277,17 +271,9 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
         let args = event["args"] ?? .null
         switch name {
         case "value updated", "value added":
-            guard let id = ValueID(args) else { return }
+            guard let id = ValueID(args), CommandClass.read.contains(id.commandClass) else { return }
             let value = args["newValue"]?.nonNull
-            if var node = servers[homeID]?.nodes[nodeID] {
-                if var known = node.values[id] {
-                    known.value = value
-                    node.values[id] = known
-                } else {
-                    node.values[id] = ZValue(id: id, value: value, metadata: args["metadata"] ?? .null)
-                }
-                servers[homeID]?.nodes[nodeID] = node
-            }
+            servers[homeID]?.nodes[nodeID]?.values[id, default: ZValue(id: id, value: nil, metadata: args["metadata"] ?? .null)].value = value
             if let value { accessories[deviceID]?.update(id, value) }
         case "value notification":
             guard let id = ValueID(args), let value = args["value"]?.nonNull else { return }
@@ -342,7 +328,7 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     // MARK: Settings
 
     public func deviceKind(of deviceID: String) async -> String? {
-        if !deviceID.contains("-") || deviceID.hasPrefix("address:") { return Self.serverKind }
+        if Self.isServer(deviceID) { return Self.serverKind }
         return accessories[deviceID]?.kind
     }
 }

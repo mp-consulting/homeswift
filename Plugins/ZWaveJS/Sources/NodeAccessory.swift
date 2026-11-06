@@ -6,6 +6,13 @@ import NIOConcurrencyHelpers
 /// Writes one value of the node (`node.set_value`) through the server's connection of the moment.
 typealias ValueWriter = @Sendable (ValueID, JSONValue) async throws -> Void
 
+/// What a node's accessory is built from: rebuilt only when it changes.
+struct NodeShape: Equatable, Sendable {
+    var name: String
+    var showAs: SwitchShape?
+    var values: Set<ValueID>
+}
+
 /// How a Binary Switch shows in HomeKit (the `showAs` Accessory Setting).
 enum SwitchShape: String, Sendable {
     case `switch`, outlet, lightbulb
@@ -17,21 +24,20 @@ final class NodeAccessory: Sendable {
     typealias Updater = @Sendable (JSONValue) -> Void
 
     let accessory: Accessory
+    let shape: NodeShape
     /// Its Device Kind: `light`, `cover`, `switch`, `lock`, `thermostat`, `sensor` or `button`.
     let kind: String
     /// What a value's update changes, by value id.
     private let updaters: [ValueID: [Updater]]
     /// What a value notification (Central Scene's key presses) sends, by value id.
     private let notifiers: [ValueID: Updater]
-    fileprivate init(accessory: Accessory, kind: String, updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater]) {
+    fileprivate init(accessory: Accessory, shape: NodeShape, kind: String, updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater]) {
         self.accessory = accessory
+        self.shape = shape
         self.kind = kind
         self.updaters = updaters
         self.notifiers = notifiers
     }
-
-    /// The value ids the accessory reads.
-    var readValueIDs: Set<ValueID> { Set(updaters.keys).union(notifiers.keys) }
 
     /// A value changed on the node (the state dump's values and `value updated`).
     func update(_ id: ValueID, _ value: JSONValue) {
@@ -56,7 +62,8 @@ struct NodeBuilder {
     let node: ZNode
     let deviceID: String
     let name: String
-    let showAs: SwitchShape?
+    let shape: NodeShape
+    var showAs: SwitchShape? { shape.showAs }
     let write: ValueWriter
     /// Declares the Meter of a service before the accessory is added (`PluginContext.meter(of:)`).
     let meter: (Service) -> PluginMeter
@@ -69,12 +76,12 @@ struct NodeBuilder {
     /// The value ids a function took, so another does not show them twice.
     private var claimed: Set<ValueID> = []
 
-    init(node: ZNode, deviceID: String, name: String, showAs: SwitchShape?, write: @escaping ValueWriter,
+    init(node: ZNode, deviceID: String, name: String, shape: NodeShape, write: @escaping ValueWriter,
          meter: @escaping (Service) -> PluginMeter, coalesce: LatestCallGuard) {
         self.node = node
         self.deviceID = deviceID
         self.name = name
-        self.showAs = showAs
+        self.shape = shape
         self.write = write
         self.meter = meter
         self.coalesce = coalesce
@@ -122,7 +129,7 @@ struct NodeBuilder {
             id: ZWaveJSPlugin.accessoryID(deviceID: deviceID), name: name, manufacturer: node.manufacturer ?? "Z-Wave",
             model: node.label ?? node.productDescription ?? "Z-Wave device", serialNumber: node.serialNumber ?? deviceID,
             firmwareRevision: node.firmwareVersion ?? "1.0.0", category: category, services: ordered)
-        let built = NodeAccessory(accessory: accessory, kind: kind, updaters: updaters, notifiers: notifiers)
+        let built = NodeAccessory(accessory: accessory, shape: shape, kind: kind, updaters: updaters, notifiers: notifiers)
         for value in node.values.values {
             if let current = value.value { built.update(value.id, current) }
         }
@@ -256,27 +263,22 @@ struct NodeBuilder {
         let whites = colors.keys.filter { $0 == 0 || $0 == 1 }
         let target = writer(ValueID(commandClass: CommandClass.colorSwitch, endpoint: endpoint, property: "targetColor"))
         let guardian = coalesce, key = "\(deviceID):\(endpoint):color"
-        // A write's handler runs before the characteristic keeps the value: the newest of each is kept here.
-        let written = NIOLockedValueBox<(hue: Double?, saturation: Double?)>((nil, nil))
         let send: @Sendable () async throws -> Void = {
             guard await guardian(key) else { return }
-            let (newHue, newSaturation) = written.withLockedValue { written in
-                defer { written = (nil, nil) }
-                return written
-            }
-            let (red, green, blue) = ColorMath.rgb(
-                hue: newHue ?? hue.value.doubleValue ?? 0, saturation: newSaturation ?? saturation.value.doubleValue ?? 0)
+            let (red, green, blue) = ColorMath.rgb(hue: hue.value.doubleValue ?? 0, saturation: saturation.value.doubleValue ?? 0)
             var color: [String: JSONValue] = ["red": .number(Double(red)), "green": .number(Double(green)), "blue": .number(Double(blue))]
             if whites.contains(0) { color["warmWhite"] = .number(0) }
             if whites.contains(1) { color["coldWhite"] = .number(0) }
             try await target(.object(color))
         }
+        // A write's handler runs before the characteristic keeps the value: each keeps it first, so the colour sent
+        // has both halves of a write that sets the two.
         hue.onWrite { value in
-            written.withLockedValue { $0.hue = value.doubleValue }
+            hue.value = value
             try await send()
         }
         saturation.onWrite { value in
-            written.withLockedValue { $0.saturation = value.doubleValue }
+            saturation.value = value
             try await send()
         }
     }
@@ -309,15 +311,15 @@ struct NodeBuilder {
         let metered = !node.values(CommandClass.meter, endpoint: endpoint).isEmpty || !node.values(CommandClass.meter, endpoint: 0).isEmpty
         // An Entry Control node's switch (a door strike, a gate) opens a door: a switch whatever `showAs` says, guarded
         // by the bridge's security rules as a lock is.
-        let shape = node.isEntryControl ? .switch : showAs ?? (metered ? .outlet : .switch)
-        let type: ServiceType = switch shape {
+        let switchShape: SwitchShape = node.isEntryControl ? .switch : showAs ?? (metered ? .outlet : .switch)
+        let type: ServiceType = switch switchShape {
         case .switch: .switch
         case .outlet: .outlet
         case .lightbulb: .lightbulb
         }
-        let service = make(type, name: label, subtype: subtype, optional: shape == .outlet ? [.outletInUse] : [])
+        let service = make(type, name: label, subtype: subtype, optional: switchShape == .outlet ? [.outletInUse] : [])
         let power = service.characteristic(.on)
-        if shape == .outlet { service.characteristic(.outletInUse).value = .bool(true) }
+        if switchShape == .outlet { service.characteristic(.outletInUse).value = .bool(true) }
         let target = writer(state.id.with(property: "targetValue"))
         power.onWrite(changesOnly: true) { value in try await target(.bool(value.boolValue == true)) }
         if node.isEntryControl { power.securityControl() }
@@ -371,16 +373,14 @@ struct NodeBuilder {
         targetMode.value = .int(modes.first ?? 0)
         let hasOperatingState = node.value(CommandClass.thermostatOperatingState, endpoint: endpoint, property: "state") != nil
         // The setpoint shown and written: cooling's in Cool, heating's otherwise (cooling's when there is no heating).
-        let setpoints_ = NIOLockedValueBox<[Int: Double]>([:])
-        // The latest mode, written or reported: a write's handler runs before the characteristic keeps the value.
-        let latestMode = NIOLockedValueBox<Int>(modes.first ?? 0)
+        let celsiusSetpoints = NIOLockedValueBox<[Int: Double]>([:])
         let shownKey: @Sendable () -> Int = {
-            let mode = latestMode.withLockedValue { $0 }
+            let mode = targetMode.value.intValue ?? 1
             if mode == 2, cooling != nil { return 2 }
             return heating != nil ? 1 : 2
         }
         let showSetpoint: @Sendable () -> Void = {
-            guard let celsius = setpoints_.withLockedValue({ $0[shownKey()] }) else { return }
+            guard let celsius = celsiusSetpoints.withLockedValue({ $0[shownKey()] }) else { return }
             targetTemperature.value = .double(min(35, max(5, (celsius * 2).rounded() / 2)))
         }
         if let mode {
@@ -388,39 +388,33 @@ struct NodeBuilder {
             targetMode.onWrite { value in
                 guard let mode = value.intValue else { return }
                 try await target(.number(Double(mode)))
-                latestMode.withLockedValue { $0 = mode }
+                // Kept before the handler returns, so the setpoint shown is the new mode's at once.
+                targetMode.value = .int(mode)
                 showSetpoint()
             }
             on(mode.id) { value in
                 guard let mode = value.intValue else { return }
-                if Self.homeKitModes.contains(mode) {
-                    latestMode.withLockedValue { $0 = mode }
-                    targetMode.value = .int(mode)
-                }
+                if Self.homeKitModes.contains(mode) { targetMode.value = .int(mode) }
                 if !hasOperatingState { currentMode.value = .int(mode == 1 ? 1 : mode == 2 ? 2 : 0) }
                 showSetpoint()
             }
         }
         for setpoint in [heating, cooling].compactMap({ $0 }) {
             guard let key = setpoint.id.propertyKey?.intValue else { continue }
-            let unitIsFahrenheit = setpoint.unit == "°F"
             on(setpoint.id) { value in
                 guard let reading = value.numberValue else { return }
-                setpoints_.withLockedValue { $0[key] = unitIsFahrenheit ? (reading - 32) * 5 / 9 : reading }
+                celsiusSetpoints.withLockedValue { $0[key] = setpoint.celsius(reading) }
                 showSetpoint()
             }
         }
-        let heatingTarget = heating.map { writer($0.id) }, coolingTarget = cooling.map { writer($0.id) }
-        let heatingFahrenheit = heating?.unit == "°F", coolingFahrenheit = cooling?.unit == "°F"
+        let heatingTarget = heating.map { (writer($0.id), $0) }, coolingTarget = cooling.map { (writer($0.id), $0) }
         let guardian = coalesce, key = "\(deviceID):\(endpoint):setpoint"
         targetTemperature.onWrite { value in
             guard let celsius = value.doubleValue, await guardian(key) else { return }
             let cool = shownKey() == 2
-            guard let target = cool ? coolingTarget : heatingTarget else { return }
-            let fahrenheit = cool ? coolingFahrenheit : heatingFahrenheit
-            let reading = fahrenheit ? (celsius * 9 / 5 + 32).rounded() : celsius
-            try await target(.number(reading))
-            setpoints_.withLockedValue { $0[cool ? 2 : 1] = celsius }
+            guard let (target, setpoint) = cool ? coolingTarget : heatingTarget else { return }
+            try await target(.number(setpoint.reading(celsius: celsius)))
+            celsiusSetpoints.withLockedValue { $0[cool ? 2 : 1] = celsius }
         }
         if let operating = node.value(CommandClass.thermostatOperatingState, endpoint: endpoint, property: "state") {
             on(operating.id) { value in
@@ -432,10 +426,9 @@ struct NodeBuilder {
         // The room's temperature: the endpoint's air temperature, else the device's.
         if let air = node.value(CommandClass.multilevelSensor, endpoint: endpoint, property: "Air temperature")
             ?? node.value(CommandClass.multilevelSensor, endpoint: 0, property: "Air temperature") {
-            let airFahrenheit = air.unit == "°F"
             on(air.id) { value in
                 guard let reading = value.numberValue else { return }
-                currentTemperature.value = .double(min(100, max(-50, airFahrenheit ? (reading - 32) * 5 / 9 : reading)))
+                currentTemperature.value = .double(min(100, max(-50, air.celsius(reading))))
             }
         }
         add(service)
@@ -465,33 +458,31 @@ struct NodeBuilder {
             service = Service(ZWaveTypes.energyService, name: label, subtype: "\(endpoint):meter")
             add(service)
         }
-        var extra: [Characteristic] = []
-        if power != nil { extra.append(Characteristic(EveCharacteristic.currentConsumption, value: .double(0))) }
-        if consumed != nil { extra.append(Characteristic(EveCharacteristic.totalConsumption, value: .double(0))) }
-        for characteristic in extra { service.characteristic(adding: characteristic.type).value = characteristic.value }
         let meter = self.meter(service)
         let inUse = service.type.uuid == ServiceType.outlet.uuid ? service.characteristic(.outletInUse) : nil
+        // A counter's reading in kWh: a counter is never negative.
+        let kilowattHours: @Sendable (JSONValue) -> Double? = { value in value.numberValue.flatMap { $0 >= 0 ? $0 : nil } }
         if let power {
-            let characteristic = service.characteristic(EveCharacteristic.currentConsumption)
+            let characteristic = service.characteristic(adding: EveCharacteristic.currentConsumption)
             on(power.id) { value in
-                guard let watts = value.numberValue, watts.isFinite else { return }
+                guard let watts = value.numberValue else { return }
                 characteristic.value = .double(max(0, watts))
                 inUse?.value = .bool(watts > 0.5)
                 meter.record(watts: watts)
             }
         }
         if let consumed {
-            let characteristic = service.characteristic(EveCharacteristic.totalConsumption)
+            let characteristic = service.characteristic(adding: EveCharacteristic.totalConsumption)
             on(consumed.id) { value in
-                guard let kilowattHours = value.numberValue, kilowattHours.isFinite, kilowattHours >= 0 else { return }
-                characteristic.value = .double(kilowattHours)
-                meter.record(counter: kilowattHours * 1000)
+                guard let reading = kilowattHours(value) else { return }
+                characteristic.value = .double(reading)
+                meter.record(counter: reading * 1000)
             }
         }
         if let returned {
             on(returned.id) { value in
-                guard let kilowattHours = value.numberValue, kilowattHours.isFinite, kilowattHours >= 0 else { return }
-                meter.record(counter: kilowattHours * 1000, direction: .returned)
+                guard let reading = kilowattHours(value) else { return }
+                meter.record(counter: reading * 1000, direction: .returned)
             }
         }
     }
@@ -597,10 +588,10 @@ struct NodeBuilder {
         if let air = node.value(CommandClass.multilevelSensor, endpoint: endpoint, property: "Air temperature"), !claimed.contains(air.id) {
             let service = make(.temperatureSensor, name: "\(label) Temperature", subtype: "\(endpoint):temperature",
                                   optional: [.currentTemperature.with(minValue: -100, maxValue: 100)])
-            let characteristic = service.characteristic(.currentTemperature), fahrenheit = air.unit == "°F"
+            let characteristic = service.characteristic(.currentTemperature)
             on(air.id) { value in
                 guard let reading = value.numberValue else { return }
-                characteristic.value = .double(min(100, max(-100, fahrenheit ? (reading - 32) * 5 / 9 : reading)))
+                characteristic.value = .double(min(100, max(-100, air.celsius(reading))))
             }
             add(service)
         }
