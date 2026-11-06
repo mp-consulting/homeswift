@@ -18,6 +18,10 @@ public struct HomeLinkFile: Codable, Sendable, Equatable {
     public var rooms: [String: String] = [:]
     /// The Zones, in the order the pages show them.
     public var zones: [Zone] = []
+    /// The Groups, linked to Apple Home's once made or found there; the wall keeps only where each one stands.
+    var groups: [WallGroup] = []
+    /// Whether the wall's groups (`ui-layout.json`, where older versions kept them) were moved here.
+    var groupsMoved = false
     /// What changed while the Home Link was down, in order, to reach Apple Home when it is back up.
     public var pending: [PendingChange] = []
     /// A first link waiting for a person to confirm what it changes.
@@ -331,7 +335,7 @@ extension HomeswiftCatalog {
     }
 
     private func adoptGroups(_ snapshot: HomeSnapshot) throws {
-        let current = Self.groups(of: home.wall.load())
+        let current = wallGroups
         var groups: [WallGroup] = []
         var taken = Set<String>()
         for group in current {
@@ -351,12 +355,68 @@ extension HomeswiftCatalog {
         if groups != current { try setWallGroups(groups) }
     }
 
-    /// Puts these groups on the wall in place of its own.
+    /// Puts these groups in place of the Groups (`home.json`), checked as the wall checks them.
     func setWallGroups(_ groups: [WallGroup]) throws {
-        try home.wall.update { layout in
+        _ = try updateWallLayout { layout in
             var object = layout.objectValue ?? [:]
             object["groups"] = .array(groups.map(\.json))
             return .object(object)
+        }
+    }
+
+    /// The Groups.
+    var wallGroups: [WallGroup] {
+        moveWallGroups()
+        return home.homeLink.value.groups
+    }
+
+    /// The wall as the pages and the tools see it: `ui-layout.json`'s order, sizes and positions, with the Groups.
+    public func wallLayout() -> JSONValue {
+        var object = home.wall.load().objectValue ?? [:]
+        object["groups"] = .array(wallGroups.map(\.json))
+        return .object(object)
+    }
+
+    /// Changes the wall as `wallLayout()` has it: `change` gets it and answers the new one, which is checked; its
+    /// groups go to `home.json`, the rest to `ui-layout.json`. Answers what was kept, groups included.
+    @discardableResult
+    func updateWallLayout(_ change: (JSONValue) throws -> JSONValue) throws -> JSONValue {
+        let groups = wallGroups
+        var kept: [WallGroup] = groups
+        let layout = try home.wall.update { current in
+            var object = current.objectValue ?? [:]
+            object["groups"] = .array(groups.map(\.json))
+            var next = try WallLayout.checked(change(.object(object))).objectValue ?? [:]
+            kept = (next.removeValue(forKey: "groups")?.arrayValue ?? []).compactMap(WallGroup.init)
+            return .object(next)
+        }
+        if kept != groups {
+            try home.homeLink.update { $0.groups = kept }
+            home.layoutChanged()
+        }
+        var object = layout.objectValue ?? [:]
+        object["groups"] = .array(kept.map(\.json))
+        return .object(object)
+    }
+
+    /// Moves the groups older versions kept on the wall (`ui-layout.json`) to `home.json`, once.
+    private func moveWallGroups() {
+        guard !home.homeLink.value.groupsMoved else { return }
+        let old = Self.groups(of: home.wall.load())
+        do {
+            try home.homeLink.update { file in
+                if file.groups.isEmpty { file.groups = old }
+                file.groupsMoved = true
+            }
+            if !old.isEmpty {
+                try home.wall.update { layout in
+                    var object = layout.objectValue ?? [:]
+                    object.removeValue(forKey: "groups")
+                    return .object(object)
+                }
+            }
+        } catch {
+            logger.warning("Could not move the wall's groups to home.json: \(error)")
         }
     }
 
@@ -434,7 +494,7 @@ extension HomeswiftCatalog {
             return id
         }
         func zoneHomeKitID(_ id: String) -> String? { file.zones.first { $0.id == id }?.homeKitID }
-        func groupHomeKitID(_ id: String) -> String? { Self.groups(of: home.wall.load()).first { $0.id == id }?.homeKitID }
+        func groupHomeKitID(_ id: String) -> String? { wallGroups.first { $0.id == id }?.homeKitID }
         switch change {
         case .createRoom(let name):
             _ = try await roomID(name)
@@ -472,7 +532,7 @@ extension HomeswiftCatalog {
             for name in add { added.append(try await roomID(name)) }
             _ = try await plugin.applyHomeChange(.setZoneRooms(id: id, add: added, remove: remove.compactMap(file.homeKitID(ofRoom:))))
         case .createGroup(let group):
-            let groups = Self.groups(of: home.wall.load())
+            let groups = wallGroups
             guard let local = groups.first(where: { $0.id == group }), local.homeKitID == nil else { return }
             let id = try await plugin.applyHomeChange(.createGroup(name: local.name, members: local.members))
             guard let id else { throw HomeChangeError(.refused, "Apple Home did not create the group \(local.name)") }
@@ -520,7 +580,7 @@ extension HomeswiftCatalog {
                 placements.append(.init(accessory: accessoryID, name: found.accessory.name, here: here, home: there, result: there.isEmpty ? here : there))
             }
             var ungrouped: [HomeLinkFile.Comparison.Group] = [], created: [HomeLinkFile.Comparison.Group] = []
-            for group in Self.groups(of: home.wall.load()) where group.homeKitID == nil {
+            for group in wallGroups where group.homeKitID == nil {
                 let entry = HomeLinkFile.Comparison.Group(id: group.id, name: group.name)
                 if groupProblem(members: group.members) == nil { created.append(entry) } else { ungrouped.append(entry) }
             }
@@ -560,7 +620,7 @@ extension HomeswiftCatalog {
             if let room = snapshot.rooms.first(where: { Self.sameRoomName($0.name, local) }) { links[local] = room.id }
         }
         let ungrouped = Set(comparison.groupsUngrouped.map(\.id))
-        let groups = Self.groups(of: home.wall.load()).filter { !ungrouped.contains($0.id) }
+        let groups = wallGroups.filter { !ungrouped.contains($0.id) }
         var changes: [HomeLinkFile.PendingChange] = comparison.roomsOnlyHere.map { .createRoom(name: $0) }
         changes += comparison.accessories.filter { $0.home.isEmpty }.map { .moveAccessory(accessory: $0.accessory, room: $0.here) }
         changes += groups.filter { $0.homeKitID == nil }.map { .createGroup(group: $0.id) }

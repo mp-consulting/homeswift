@@ -833,7 +833,7 @@ public final class UIServer: Sendable {
                     ?? request.query["bridge"].flatMap { $0 == "all" ? nil : "bridge:\($0)" } ?? Metrics.allSeries
                 return .json(Self.metricsJSON(metrics.history(from: from, to: to, series: series), latest: metrics.latest))
             case ["layout"]:
-                return .json(layout.load())
+                return .json(catalog.wallLayout())
             case ["logs", "settings"]:
                 // Whether lines go to disk with their payloads; `available` false without a log on disk (tests, a library).
                 let archive = catalog.logs.archive

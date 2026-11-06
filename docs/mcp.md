@@ -287,7 +287,7 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `down` (the Pending Changes waiting) or `none`; `linked` whether the bridge is linked to its home; `comparison`, what
   its first link would change, waiting for `confirm_home_link` (destructive: it asks first); `refused`, what Apple Home
   refused lately.
-- **The wall.** `get_wall_layout` answers the Accessories page's wall as it is drawn (`ui-layout.json`): its grouping,
+- **The wall.** `get_wall_layout` answers the Accessories page's wall as it is drawn (`ui-layout.json`, its Groups from `home.json`): its grouping,
   the sections in order with their accessories in order and the sizes chosen, the default size of each kind of
   widget, and the accessory groups where they stand. `set_wall_layout` arranges it: `groups` makes accessories that
   go together one widget that drives them all (a room's lights, its blinds; an id changes an existing group, and an

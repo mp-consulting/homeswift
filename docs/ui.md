@@ -191,7 +191,8 @@ screenshots, and what a plugin does to get good ones.
   gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
   wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
   **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
-  `ui-layout.json` next to config.json (`/api/layout`), the same for every user.
+  `ui-layout.json` next to config.json (`/api/layout`), the same for every user; the Groups are the Home's and live in
+  `home.json` with the Zones (older versions' groups move there once), and `/api/layout` answers them with the wall.
 - **States**: a paused plugin's accessories are drawn striped, their controls out of reach; an accessory whose device
   does not answer says No Response.
 - **Cameras** get a card of their own: the picture in 16:9 with the name, motion, the doorbell's last ring and recording

@@ -236,7 +236,20 @@ import Testing
 
         environment.homeLink.set { $0.home.groups[0].name = "Lampes" }
         await environment.catalog.followHome()
-        #expect(HomeswiftCatalog.groups(of: environment.catalog.home.wall.load()).map(\.name) == ["Lampes"])
+        #expect(environment.catalog.wallGroups.map(\.name) == ["Lampes"])
+    }
+
+    /// Groups older versions kept on the wall (`ui-layout.json`) move to `home.json`, once; the wall keeps the rest.
+    @Test func groupsMoveFromTheWallToTheHomeFile() async throws {
+        let environment = try await environment(bulbs: 2)
+        defer { Task { await environment.stop() } }
+        let group: JSONValue = ["id": "group:old", "name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2"]]
+        _ = try environment.catalog.home.wall.save(["grouping": "room", "groups": [group]])
+        #expect(environment.catalog.wallGroups.map(\.id) == ["group:old"])
+        #expect(environment.catalog.home.wall.load()["groups"] == nil)
+        #expect(environment.catalog.home.wall.load()["grouping"] == "room")
+        #expect(environment.catalog.home.homeLink.value.groups.map(\.name) == ["Bulbs"])
+        #expect(environment.catalog.wallLayout()["groups"]?[0]?["id"] == "group:old")
     }
 
     /// A Room renamed here is renamed on the other hubs too (Philips Hue, DIRIGERA, eWeLink), by name, case and accents

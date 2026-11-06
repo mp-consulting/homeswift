@@ -20,7 +20,7 @@ Built, on branch `feat/home-link` (homeswift) and `feat/home-link` (homeswift-wi
 | 6. Rooms over the link, Room Sync retired | Done |
 | 7. The first link's comparison | Done: it applies Apple Home's placements with the defaults, no choice per accessory |
 | 8. Zones | Done, as a filter of the wall rather than a grouping level of its own |
-| 9. Groups | Done |
+| 9. Groups | Done: in `home.json` beside the Zones, the wall keeping where each one stands |
 | 10. Separate Functions | Done; wall order, Quick Controls and scenes that name a moved Function are not moved with it |
 | 11. Release | Not done |
 

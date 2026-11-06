@@ -148,7 +148,7 @@ public final class WallLayout: Sendable {
 
 /// A Group (GLOSSARY.md, "Group"): accessories shown and controlled as one, one widget on the wall whose controls drive
 /// its members, and the same group in Apple Home once linked (`homeKitID`).
-struct WallGroup: Equatable {
+struct WallGroup: Equatable, Codable, Sendable {
     var id: String
     var name: String
     var members: [String]
@@ -262,7 +262,7 @@ extension HomeswiftCatalog {
     /// (id, name, `members`), in the section of its first member, where its members' widgets give way to it. Hidden
     /// accessories are left out, as on the page. `layout` and `all` are the wall and the accessories when the caller has them.
     public func wallJSON(layout: JSONValue? = nil, all: [Located]? = nil) -> JSONValue {
-        let layout = layout ?? home.wall.load()
+        let layout = layout ?? wallLayout()
         let order = layout["order"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let sizes = layout["sizes"]?.objectValue ?? [:]
         let grouping = layout["grouping"]?.stringValue ?? "none"
@@ -358,12 +358,12 @@ extension HomeswiftCatalog {
     /// `clearPositions`, every widget of that grouping back to flowing in the order. Answers `wallJSON()`.
     public func updateWall(_ body: JSONValue) async throws -> JSONValue {
         let all = located()
-        let groupsBefore = Self.groups(of: home.wall.load())
+        let groupsBefore = wallGroups
         if body["groups"] != nil || body["ungroup"] != nil, let refusal = await homeLinkRefusal() { throw CatalogError(refusal) }
         let byID = Dictionary(all.map { ($0.accessory.id, $0.accessory) }, uniquingKeysWith: { first, _ in first })
         let layout: JSONValue
         do {
-            layout = try home.wall.update { current in
+            layout = try updateWallLayout { current in
                 guard var object = current.objectValue else { return current }
                 var edit = WallEdit(current, running: all)
                 for id in body["ungroup"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
@@ -433,7 +433,7 @@ extension HomeswiftCatalog {
     /// group made or changed must be one Apple Home can have (`groupProblem`), and what changed in them is made in Apple
     /// Home through the Home Link. Answers what was kept, with `appleHomeRefused` when Apple Home refused some.
     public func saveWall(_ body: JSONValue) async throws -> JSONValue {
-        let before = Self.groups(of: home.wall.load())
+        let before = wallGroups
         var object = body.objectValue ?? [:]
         if let sent = body["groups"]?.arrayValue {
             // The page sends the groups as it shows them: the links are the bridge's.
@@ -453,7 +453,7 @@ extension HomeswiftCatalog {
             object["groups"] = .array(groups.map(\.json))
         }
         let saved: JSONValue
-        do { saved = try home.wall.save(.object(object)) } catch let error as WallLayout.Invalid { throw CatalogError(error.description) }
+        do { saved = try updateWallLayout { _ in .object(object) } } catch let error as WallLayout.Invalid { throw CatalogError(error.description) }
         var answer = saved.objectValue ?? [:]
         await recordForHome(Self.groupChanges(from: before, to: Self.groups(of: saved)), into: &answer)
         return .object(answer)
