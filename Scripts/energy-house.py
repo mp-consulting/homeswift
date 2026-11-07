@@ -24,11 +24,11 @@ WIDTH = arg("--width", 1600)
 BATTERY = arg("--battery", 1) == 1
 NIGHT = arg("--night", 0) == 1   # moonlight, the rooms and the garden lamps lit
 
-# The house: 10 m by 7 m, two storeys, a 38° gable roof along x, walls 30 cm thick. Its +x side is cut away.
+# The house: 10 m by 7 m, two storeys, a 28° gable roof along x, walls 30 cm thick. Its +x side is cut away.
 W, D, H = 10.0, 7.0, 5.6
 T = 0.3
 FLOOR = 2.8
-PITCH = math.radians(38)
+PITCH = math.radians(28)
 OVER = 0.45
 RIDGE = H + D / 2 * math.tan(PITCH)
 x0, x1, y0, y1 = -W / 2, W / 2, -D / 2, D / 2
@@ -371,7 +371,7 @@ cabinet = material("Cabinet", (0.86, 0.84, 0.8), 0.45)
 counter = material("Counter", (0.12, 0.12, 0.13), 0.3)
 duvet = noise_bump(material("Duvet", (0.62, 0.36, 0.26), 0.95), 300, 0.2)
 linen = noise_bump(material("Linen", (0.9, 0.88, 0.84), 0.95), 300, 0.1)
-shade = material("Shade", (0.95, 0.9, 0.8), 0.6, **{"Emission Color": (1.0, 0.78, 0.5, 1), "Emission Strength": 8.0 if NIGHT else 0.0})
+shade = material("Shade", (0.95, 0.9, 0.8), 0.6, **{"Emission Color": (1.0, 0.78, 0.5, 1), "Emission Strength": 8.0 if NIGHT else 2.0})
 terracotta = material("Pot", (0.55, 0.28, 0.17), 0.8)
 art = [material(f"Art {i}", color, 0.7) for i, color in enumerate(((0.75, 0.45, 0.25), (0.25, 0.4, 0.55), (0.85, 0.75, 0.5)))]
 gauge_on = material("Gauge", (0.1, 0.9, 0.5), 0.3, **{"Emission Color": (0.15, 1.0, 0.55, 1), "Emission Strength": 5.0})
@@ -380,12 +380,12 @@ gauge_off = material("Gauge off", (0.18, 0.2, 0.2), 0.4)
 def lamp(name, x, y, z, radius=0.16, height=0.2):
     """A lampshade, lit at night, with a soft light under it."""
     cylinder(name, (x, y, z), (x, y, z + height), radius, shade, vertices=24)
-    if NIGHT:
-        data = bpy.data.lights.new(name + " light", "POINT")
-        data.energy, data.color, data.shadow_soft_size = 40, (1.0, 0.75, 0.45), 0.15
-        light = bpy.data.objects.new(name + " light", data)
-        collection.objects.link(light)
-        light.location = (x, y, z - 0.05)
+    # Warm practical lighting also gives the daytime cutaway depth.
+    data = bpy.data.lights.new(name + " light", "POINT")
+    data.energy, data.color, data.shadow_soft_size = (40 if NIGHT else 18), (1.0, 0.75, 0.45), 0.15
+    light = bpy.data.objects.new(name + " light", data)
+    collection.objects.link(light)
+    light.location = (x, y, z - 0.05)
 
 def picture(name, x, y0_, y1_, z0, z1, mat):
     """A framed picture on the partition, facing the open side."""
@@ -520,7 +520,7 @@ for y in (-6.2, -5.0, -3.8, -2.6, -1.4):
 for x, y in ((6.2, -2.4), (7.0, -1.6), (6.4, 0.6)):
     shrub(x, y, random.uniform(0.25, 0.4), leaves[3])
 tree(-6.7, -3.0, 3.8, leaves[1])
-tree(10.2, -0.4, 4.4, leaves[3])
+tree(10.5, 4.6, 3.4, leaves[3])  # Keep the open rooms and equipment unobstructed.
 x = BX0 + 0.7
 while x < BX1 - 0.6:
     blob("Hedge", (x, BY1 - 0.7 + random.uniform(-0.08, 0.08), 0.7), random.uniform(0.5, 0.62), leaves[4], 1.25)
@@ -548,6 +548,20 @@ for ly in (-4.9, -6.4):
         collection.objects.link(lamp)
         lamp.location = (0.65, ly, 0.78)
 
+# Interior trim gives each open storey a finished architectural section.
+for z in (0.28, FLOOR + 0.28):
+    span("Partition skirting", (CUT, y0 + T, z), (CUT + 0.04, WALL, z + 0.12), oak)
+    span("Back skirting", (CUT, WALL - 0.04, z), (x1, WALL, z + 0.12), oak)
+# A distribution run along the visible cut face, branching into both occupied floors.
+# Its illumination remains a live SVG overlay: an idle home must never imply power flow.
+HOME_RUN = [(METER.x, WALL - 0.2, 1.4), (x1 + 0.025, WALL - 0.2, 1.4),
+            (x1 + 0.025, WALL - 0.2, FLOOR + 0.12), (x1 + 0.025, -2.8, FLOOR + 0.12)]
+HOME_UPPER = [(x1 + 0.025, -0.8, FLOOR + 0.12), (x1 + 0.025, -0.8, FLOOR + 1.1)]
+HOME_LOWER = [(x1 + 0.025, -2.8, FLOOR + 0.12), (x1 + 0.025, -2.8, 0.35),
+              (x1 + 0.025, -0.8, 0.35)]
+for name, points in (("Home distribution", HOME_RUN), ("Upper supply", HOME_UPPER), ("Lower supply", HOME_LOWER)):
+    tube(name, points, 0.018, conduit)
+
 # Ground: a shadow catcher beyond the base, so the image is the model and its shadow alone.
 bpy.ops.mesh.primitive_plane_add(size=120, location=(0, 0, -0.35))
 bpy.context.object.is_shadow_catcher = True
@@ -557,22 +571,22 @@ bpy.context.object.hide_render = NIGHT   # at night the catcher catches mostly d
 # sky and the rooms lit warm ------------------------------------------------------------------------------------------------------
 
 sun_data = bpy.data.lights.new("Sun", "SUN")
-sun_data.energy = 0.9 if NIGHT else 2.6   # at night a full moon
-sun_data.color = (0.72, 0.8, 1.0) if NIGHT else (1.0, 1.0, 1.0)
+sun_data.energy = 0.7 if NIGHT else 1.7   # at night a full moon
+sun_data.color = (0.72, 0.8, 1.0) if NIGHT else (1.0, 0.83, 0.65)
 sun_data.angle = math.radians(3)
 sun = bpy.data.objects.new("Sun", sun_data)
 collection.objects.link(sun)
 sun.rotation_euler = (math.radians(50), 0, math.radians(28))
 
-for name, location, size, energy in (("Room light", (3.0, 0.0, FLOOR - 0.1), (3.6, 5.6), 420 if NIGHT else 260),
-                                     ("Upper light", (3.0, 0.0, RIDGE - 1.6), (3.0, 2.4), 300 if NIGHT else 180),
+for name, location, size, energy in (("Room light", (3.0, 0.0, FLOOR - 0.1), (3.6, 5.6), 520 if NIGHT else 420),
+                                     ("Upper light", (3.0, 0.0, RIDGE - 1.6), (3.0, 2.4), 420 if NIGHT else 320),
                                      ("Left room light", (-2.4, 0.0, FLOOR - 0.1), (3.6, 5.6), 300 if NIGHT else 0),
-                                     ("Fill", (x1 + 16, -12.0, 9.0), (8.0, 8.0), 260 if NIGHT else 3000)):
+                                     ("Fill", (x1 + 16, -12.0, 9.0), (8.0, 8.0), 420 if NIGHT else 1800)):
     data = bpy.data.lights.new(name, "AREA")
     data.shape = "RECTANGLE"
     data.size, data.size_y = size
     data.energy = energy
-    data.color = (0.6, 0.7, 1.0) if NIGHT and name == "Fill" else (1.0, 0.78, 0.5) if NIGHT else (1.0, 0.95, 0.88)
+    data.color = (0.6, 0.7, 1.0) if NIGHT and name == "Fill" else (1.0, 0.78, 0.5) if NIGHT else (1.0, 0.82, 0.62)
     light = bpy.data.objects.new(name, data)
     collection.objects.link(light)
     light.location = location
@@ -586,14 +600,14 @@ background = world.node_tree.nodes["Background"]
 background.inputs["Color"].default_value = (0.36, 0.43, 0.68, 1) if NIGHT else (0.95, 0.93, 0.9, 1)
 background.inputs["Strength"].default_value = 0.36 if NIGHT else 0.45
 
-# Camera: three-quarter view from the front right, onto the open side --------------------------------------------------------------
+# Camera: a lower view favouring the open rooms, with breathing room for the live callouts --------------------------------------------------------------
 
 cam_data = bpy.data.cameras.new("Camera")
-cam_data.lens = 66
+cam_data.lens = 54
 camera = bpy.data.objects.new("Camera", cam_data)
 collection.objects.link(camera)
-camera.location = (27.0, -25.0, 14.5)
-target = Vector((2.4, 0.4, 2.9))
+camera.location = (32.0, -17.0, 12.0)
+target = Vector((2.0, 0.0, 3.0))
 camera.rotation_euler = (target - camera.location).to_track_quat("-Z", "Y").to_euler()
 scene.camera = camera
 
@@ -646,6 +660,12 @@ image.pixels.foreach_set(pixels.ravel())
 settings.file_format = chosen
 if chosen == "WEBP":
     settings.quality = 82
+# The temporary PNG already has AgX applied. Re-encoding it with AgX a second
+# time washes out the wood, solar cells and warm room lighting.
+scene.view_settings.view_transform = "Standard"
+scene.view_settings.look = "None"
+scene.view_settings.exposure = 0
+scene.view_settings.gamma = 1
 image.save_render(scene.render.filepath, scene=scene)
 os.remove(temporary)
 
@@ -668,6 +688,9 @@ layout = {
     },
     "cables": {
         "solar": [screen(p) for p in SOLAR_RUN],
+        "home": [screen(p) for p in HOME_RUN],
+        "homeUpper": [screen(p) for p in HOME_UPPER],
+        "homeLower": [screen(p) for p in HOME_LOWER],
         "battery": [screen(p) for p in BATTERY_RUN] if BATTERY else None,
         "meter": [screen(p) for p in METER_RUN],
         "grid": [screen(p) for p in GRID_RUN] + [screen(p) for p in reversed(sag)],
