@@ -117,7 +117,7 @@ public class FfmpegProcess: @unchecked Sendable {
         var isLogging = false
         var stderrLog: [String] = []
         var stderrBuffer = ""
-        var killTimer: Task<Void, Never>?
+        var killTimer: DispatchWorkItem?
         // TypeScript keeps the handle of its kill timer after clearing it, and tells a normal exit by it: set by stop(), reset by start().
         var stopRequested = false
         var readiness = Readiness.pending
@@ -318,19 +318,17 @@ public class FfmpegProcess: @unchecked Sendable {
 
     /// Asks `child` to quit: `q` on standard input (unless FFmpeg reads its input there), then its input and output closed.
     /// Returns the SIGKILL failsafe, due after `inputTimeout`: it holds the process it was armed for, so a restart
-    /// meanwhile neither cancels it nor turns it on the new process. The caller sends SIGTERM.
-    private func beginStop(_ child: Subprocess, arguments: [String]) -> Task<Void, Never> {
+    /// meanwhile neither cancels it nor turns it on the new process. The caller sends SIGTERM. A Dispatch timer, not a
+    /// task: a failsafe must fire when Swift's cooperative pool is busy too.
+    private func beginStop(_ child: Subprocess, arguments: [String]) -> DispatchWorkItem {
         if !arguments.contains("pipe:0") {
             child.end(Data("q".utf8)) { [log] error in log.error("FFmpeg error: \(error).") }
         }
         child.end()
         child.destroyStdout()
-        let timeout = options.config.inputTimeout
-        return Task {
-            try? await Task.sleep(for: .milliseconds(timeout))
-            guard !Task.isCancelled else { return }
-            child.kill(SIGKILL)
-        }
+        let failsafe = DispatchWorkItem { _ = child.kill(SIGKILL) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(options.config.inputTimeout), execute: failsafe)
+        return failsafe
     }
 
     /// Stops the FFmpeg process.

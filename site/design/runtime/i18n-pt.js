@@ -3284,4 +3284,7 @@ HomeswiftI18n.add("pt", {
   "Leaves": "Sai",
   "The first comes home": "Chega a primeira",
   "The last leaves": "Sai a última",
+  "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Isto elimina-o com todas as definições: o nome, a divisão e as definições de {plugin} para ele.",
+  "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sai da app Casa com a divisão, as cenas e as automatizações, de vez: {plugin} não o consegue voltar a encontrar.",
+  "Deletes it and its settings for good: {plugin} cannot find it again.": "Elimina-o de vez com as definições: {plugin} não o consegue voltar a encontrar.",
 });

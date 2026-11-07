@@ -341,8 +341,11 @@
       const forget = el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Forget"), onclick: async (event) => {
         const button = event.currentTarget;
         if (!await confirmAction({ title: t("Forget {name}?", { name: answer.name ?? id }),
-          text: [t("This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.", { plugin }),
-            t("It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.", { plugin })],
+          // A device the plugin makes (a Helper) cannot be found again: it is deleted.
+          text: answer.addLabel ? [t("This deletes it and all its settings: its name, room and {plugin}'s settings for it.", { plugin }),
+            t("It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.", { plugin })]
+            : [t("This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.", { plugin }),
+              t("It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.", { plugin })],
           confirmLabel: t("Forget"), confirmIcon: "trash" })) return;
         HomeswiftCommon.busyButton(button, async () => {
           await api(accessoryPath(id, plugin), { method: "DELETE" });
@@ -353,7 +356,8 @@
       const danger = el("section", { class: "settings-section settings-danger" },
         dangerRow(excluded ? t("Excluded") : t("Exclude"), excluded ? t("{plugin} makes no accessory of it: it is out of the Home app, the wall and Matter.", { plugin })
           : t("Out of the Home app, the wall and Matter, until you include it again from {plugin}'s devices.", { plugin }), exclude),
-        dangerRow(t("Forget"), t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
+        dangerRow(t("Forget"), answer.addLabel ? t("Deletes it and its settings for good: {plugin} cannot find it again.", { plugin })
+          : t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
 
       // The renderer's own buttons (a list's Add) never submit a form around the editor.
       for (const button of pluginSection?.querySelectorAll("button:not([type])") ?? []) button.type = "button";
