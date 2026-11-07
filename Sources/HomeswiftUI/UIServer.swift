@@ -860,7 +860,20 @@ public final class UIServer: Sendable {
                 let from = request.query["from"].flatMap(Self.date(iso:)) ?? to.addingTimeInterval(-3600)
                 guard from < to else { return .error(400, "from must be before to") }
                 let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
-                return .json(Self.energyJSON(metrics.energy(from: from, to: to, timeZone: timeZone), timeZone: timeZone))
+                var report = Self.energyJSON(metrics.energy(from: from, to: to, timeZone: timeZone), timeZone: timeZone)
+                // With a Location, the sunrise and sunset of `to`'s day, so the Energy flow card's house turns to night
+                // after sunset: the times only, never where the home is.
+                if let location = catalog.host.configuration.location, var object = report.objectValue {
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = timeZone
+                    let start = calendar.startOfDay(for: to)
+                    let at = { (event: Solar.Event) -> JSONValue in
+                        Solar.next(event, latitude: location.latitude, longitude: location.longitude, after: start).map { .string(Timestamp.iso8601($0)) } ?? .null
+                    }
+                    object["sun"] = ["sunrise": at(.sunrise), "sunset": at(.sunset)]
+                    report = .object(object)
+                }
+                return .json(report)
             case ["metrics"]:
                 // `from` and `to` (now when left out) as ISO 8601, the last hour without them; `bridge` (a device ID,
                 // or `all`) or `accessory`: whose request and handler durations. Memory and CPU are the process's.

@@ -1594,6 +1594,8 @@
     for (const one of utilities) one.node.hidden = true;
     consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
     const today = el("div", { class: "energy-today" });
+    // Where the power flows now, or flowed today: the house or the diagram.
+    const flow = HomeswiftEnergyFlow.card({ watts: (value) => formatWatts(value), kWh: (value) => formatKWh(value), percent: formatPercent });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
     const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
@@ -1601,6 +1603,7 @@
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
       today,
+      flow.node,
       rangeBar,
       el("div", { class: "chart-grid" }, power.node, levels.node),
       pointTable,
@@ -1614,6 +1617,7 @@
     function showSection() {
       section.hidden = !hasRoles && !hasMeters;
       for (const node of [today, rangeBar, pointTable, days.node]) node.hidden = !hasRoles;
+      if (!hasRoles) flow.node.hidden = true;
       if (!hasRoles) { power.node.hidden = true; levels.node.hidden = true; }
       // Without the home's energy there is no first day to stop at: the meters' periods go back as far as asked.
       if (!hasRoles) previous.disabled = false;
@@ -1688,6 +1692,7 @@
       lastReport = report;
       if (pointTable.open) fillPoints();
       fillToday(report.days[0], report.roles);
+      flow.update(report);
       // The history moves on with today; a period in the past stays as it is.
       if (!anchor || !historyAsked) loadHistory();
       if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);

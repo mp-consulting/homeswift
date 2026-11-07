@@ -20,6 +20,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Status page's Energy section has an **Energy flow** card: a rendered cutaway house, solar on its roof, the
+  inverter, battery and meter inside and the grid's pole outside, with the latest reading's power running along its
+  conduits and a callout per part, by day or, after sunset at the bridge's Location, at night with its lights on; or a
+  diagram of solar, the grid, the battery and the home, now or for today so far.
 - Zigbee and Z-Wave devices are added from **Add accessories**, without opening Zigbee2MQTT or Z-Wave JS UI: **Add a
   Zigbee device…** lets devices join Zigbee2MQTT's network for two minutes and is done once the device is interviewed;
   **Add a Z-Wave device…** includes one into a network set up, granting the security classes it asks for and asking

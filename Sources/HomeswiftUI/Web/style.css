@@ -1597,6 +1597,53 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: var(--weight-figure); letter-spacing: -0.02em; white-space: nowrap; }
 .energy-today small { font-size: var(--text-xs); color: var(--muted); margin-top: -4px; }
 .energy .chart-head .who { flex: 1; min-width: 0; }
+/* The Energy flow card: the rendered house with its conduits and callouts, or the diagram. Both draw their lines in the
+   charts' series colours; a pulse or dots run along a line that carries power, faster for more, with reduced motion none. */
+.energy-flow { margin-bottom: var(--space-14); }
+.energy-flow-bar { display: flex; flex-wrap: wrap; gap: var(--space-8); justify-content: space-between; }
+.energy-flow-empty { margin: var(--space-16) 0; text-align: center; }
+.energy-flow .tone-1 { --flow: var(--series-1); }
+.energy-flow .tone-3 { --flow: var(--series-3); }
+.energy-flow .tone-4 { --flow: var(--series-4); }
+.energy-flow .tone-7 { --flow: var(--series-7); }
+.energy-house { position: relative; width: 100%; max-width: 920px; margin: 0 auto; container-type: inline-size; }
+.energy-house img, .energy-house-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.energy-house-lines { pointer-events: none; overflow: visible; }
+.energy-cable polyline { fill: none; stroke: var(--flow); stroke-linecap: round; stroke-linejoin: round; }
+.energy-cable .energy-cable-halo { stroke: #fff; stroke-width: 9; opacity: 0.55; }
+.energy-cable-line { stroke-width: 3; opacity: 0.3; }
+.energy-cable.on .energy-cable-line { opacity: 0.65; }
+.energy-pulse { stroke-width: 6; stroke-dasharray: 7 93; animation: energy-pulse var(--duration, 2s) linear infinite; }
+.energy-pulse.back { animation-direction: reverse; }
+@keyframes energy-pulse { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+.energy-callout { position: absolute; display: grid; gap: 1px; white-space: nowrap; padding-left: var(--space-8); translate: 0 -50%; }
+.energy-callout.end { transform: translateX(-100%); padding: 0 var(--space-8) 0 0; text-align: right; justify-items: end; }
+.energy-callout b { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-lg); font-weight: var(--weight-figure); line-height: 1.1; letter-spacing: -0.01em; }
+.energy-callout > span { font-size: var(--text-xs); color: var(--muted); }
+.energy-leader line { stroke: color-mix(in srgb, var(--text) 70%, transparent); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.energy-leader line.halo { stroke: rgba(255, 255, 255, 0.75); stroke-width: 3.5; }
+.energy-leader circle { fill: var(--flow); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.energy-callout-icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-xs); color: var(--flow); background: color-mix(in srgb, var(--flow) 18%, var(--material-solid)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--flow) 35%, transparent); flex: none; }
+.energy-callout-icon svg { width: 14px; height: 14px; }
+@container (max-width: 420px) { .energy-callout-icon { width: 18px; height: 18px; } .energy-callout-icon svg { width: 12px; height: 12px; } }
+@container (max-width: 420px) { .energy-callout b { font-size: var(--text-base); } }
+.energy-sky { position: absolute; left: 50%; top: 9%; width: 9%; min-width: 34px; max-width: 64px; translate: -50% -50%; }
+.energy-sky svg { display: block; width: 100%; height: auto; }
+.energy-sky .sun { fill: var(--series-4); }
+.energy-sky .ray { stroke: var(--series-4); stroke-width: 3; stroke-linecap: round; }
+.energy-sky .moon { fill: #f3e9c6; stroke: color-mix(in srgb, #c9b98a 70%, transparent); stroke-width: 1.5; }
+.energy-diagram { display: block; width: 100%; max-width: 520px; margin: 0 auto; }
+.energy-line path { fill: none; stroke: var(--flow); stroke-width: 1.5; opacity: 0.18; }
+.energy-line.on path { opacity: 0.7; }
+.energy-dot { fill: var(--flow); }
+.energy-node circle { fill: color-mix(in srgb, var(--flow) 16%, var(--material-solid)); stroke: var(--flow); stroke-width: 2; }
+.energy-node text { text-anchor: middle; dominant-baseline: central; fill: var(--text); font-size: 12px; font-weight: var(--weight-semibold); letter-spacing: -0.01em; }
+.energy-node text.small { font-size: 10.5px; font-weight: normal; fill: var(--flow); }
+.energy-node text.caption { fill: var(--muted); font-size: 12px; font-weight: normal; }
+.energy-node-icon { color: var(--flow); }
+.energy-ring { fill: none; stroke: var(--flow); stroke-width: 5; }
+@media (prefers-reduced-motion: reduce) { .energy-pulse { animation: none; stroke-dasharray: none; opacity: 0.6; } }
+
 /* A phone: two figures a row, tighter cards, smaller tiles, the range across the width. */
 @media (max-width: 640px) {
   .energy-today { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-10); margin-bottom: var(--space-12); }

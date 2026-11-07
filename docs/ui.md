@@ -100,6 +100,18 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
 ![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
 
 - **Today**: solar produced, home use, the share of it solar covered, and grid import, as figures.
+- **Energy flow**: where the power goes, two ways, the choice kept in the browser. **House**: a rendered cutaway of a
+  house (`Scripts/energy-house.py` makes it with Blender: `energy-house.webp` and, without a battery,
+  `energy-house-no-battery.webp`, each with a layout file saying where its parts and conduits land, and a `-night`
+  image of each), the latest reading's power running along the conduits, faster for more, with a callout per part in
+  each corner: solar, the grid (from or to it), the home and the battery (charging or discharging, and its level). The
+  house is by day between the day's sunrise and sunset at the bridge's Location (the energy report's `sun`, the times
+  alone), at night under a full moon with its rooms and garden lamps lit; without a Location, by the hour and solar. **Diagram**: solar, the grid, the battery and
+  the home as circles, dots running between them, **Now** (the latest reading, in watts) or **Today** (the day's energy
+  so far, split as the bars split it); the home's ring shows the share each source covered. With reduced motion the
+  lines stay still.
+
+  ![The Energy flow card's house](images/status/energy-flow.png)
 - **Power**: solar, the home, the grid (importing above zero, exporting below) and the batteries (charging above
   zero), each added up across devices, and each device's battery level. Its own range: 24 hours (the default), today,
   yesterday or 7 days (`?energy=7d`). Where the bridge recorded nothing (before it ran, while it was stopped), the power

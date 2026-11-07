@@ -465,6 +465,8 @@ try {
   await shot("energy", "/status", { ready: '[data-widget="energy"] .chart-card svg', width: 1100, height: 900, element: '[data-widget="energy"]', before: energyDemo })
     .then(() => toStatus("energy"));
   // The gas and water cards under it.
+  await shot("energy-flow", "/status", { ready: '[data-widget="energy"] .energy-house img', width: 1100, height: 1100, element: '[data-widget="energy"] .energy-flow', before: energyDemo })
+    .then(() => toStatus("energy-flow"));
   await shot("energy-gas-water", "/status", { ready: '[data-widget="energy"] .energy-utilities .chart-card svg', width: 1100, height: 1400, element: '[data-widget="energy"] .energy-utilities', before: energyDemo })
     .then(() => toStatus("energy-gas-water"));
 } finally {
