@@ -10,7 +10,7 @@
   const said = (text) => HomeswiftI18n.message(text);
 
   const OPERATION_MODE_LABELS = { auto: t("Auto"), cooling: t("Cooling"), heating: t("Heating"), dry: t("Dry"), fanOnly: t("Fan only") };
-  const numberFormat = new Intl.NumberFormat(HomeswiftI18n.locale);
+  const numberFormat = new Intl.NumberFormat(HomeswiftI18n.numberLocale);
   const formatNumber = (value) => (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? numberFormat.format(Number(value)) : String(value ?? ""));
   const operationModeLabel = (mode) => (mode ? OPERATION_MODE_LABELS[mode] || String(mode).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "");
   function formatTime(ms) {
@@ -220,7 +220,7 @@
         offerExplain($("#devices-problem"), `Failed to load: ${e.message}`, "Loading the device list (GET /v1/gateway-devices on the Daikin Onecta API) on the plugin's page failed.");
         return;
       }
-      const fetchedAt = result.fetchedAt ? new Date(result.fetchedAt).toLocaleTimeString(HomeswiftI18n.locale) : "";
+      const fetchedAt = result.fetchedAt ? HomeswiftI18n.formatDate(new Date(result.fetchedAt), { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
       $("#devices-fetched").textContent = fetchedAt ? (result.cached ? t("As of {time}", { time: fetchedAt }) : t("Fetched {time}", { time: fetchedAt })) : "";
       if (!result.success) {
         if (result.message?.includes("Not authenticated")) {
@@ -291,7 +291,7 @@
       }
       display.textContent = text || t("No rate limit headers in the last response");
       if (result.updatedAt) {
-        const parts = [t("as of {time}", { time: new Date(result.updatedAt).toLocaleString(HomeswiftI18n.locale) })];
+        const parts = [t("as of {time}", { time: HomeswiftI18n.formatDate(new Date(result.updatedAt), { year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" }) })];
         if (typeof result.ageMs === "number") parts.push(t("({time} ago)", { time: formatTime(result.ageMs) }));
         if (result.mode && result.mode !== authMode.current) parts.push(t("— recorded in {mode} mode", { mode: MODE_LABELS[result.mode] || result.mode }));
         updated.textContent = parts.join(" ");

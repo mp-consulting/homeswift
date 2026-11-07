@@ -109,10 +109,20 @@ extension HomeswiftCatalog {
         home.uiAddress.withLockedValue { $0 = address }
     }
 
+    /// How to find a user's chosen Language (nil for automatic), set by the web UI as it starts.
+    public func setUserLanguages(_ lookup: @escaping @Sendable (String) -> String?) {
+        home.userLanguages.withLockedValue { $0 = lookup }
+    }
+
+    /// The Language a user's account chose; nil for automatic, or without the web UI.
+    func userLanguage(_ user: String) -> String? {
+        home.userLanguages.withLockedValue { $0 }?(user)
+    }
+
     /// Sends an Automation's message with its buttons: each gets a token, the notification a confirmation page.
     func notifyWithButtons(_ buttons: [NotificationButton], title: String, message: String, automation: Automation) async -> [JSONValue]? {
         guard !buttons.isEmpty else {
-            return await notify(.automationMessage, title: title, message: message, path: "/automations", subject: "\(automation.id):\(UUID().uuidString)")
+            return await notify(.automationMessage, title: .literal(title), message: .literal(message), path: "/automations", subject: "\(automation.id):\(UUID().uuidString)")
         }
         let pending = withLookup { () -> PendingNotification in
             PendingNotification(id: Secrets.randomToken(), title: title, message: message, automation: automation.name, created: Date(),
@@ -129,7 +139,7 @@ extension HomeswiftCatalog {
             if button.security { return DeliveredButton(label: button.button.label, path: confirm) }
             return DeliveredButton(label: button.button.label, token: button.token)
         }
-        var note = NotificationMessage(event: .automationMessage, title: title, message: message, path: confirm)
+        var note = NotificationMessage(event: .automationMessage, title: .literal(title), message: .literal(message), path: confirm)
         note.buttons = delivered
         let sent = await notify(note, subject: "\(automation.id):\(pending.id)")
         // Nothing went out (the event off, no channel, the limit): its buttons go too.

@@ -15,10 +15,10 @@
   /// The region a language's dates and numbers take when the browser names none: Spain's Spanish, Portugal's Portuguese.
   const regions = { en: "en-US", fr: "fr-FR", es: "es-ES", pt: "pt-PT" };
 
-  /// The user's choice, kept by common.js with their other preferences ("auto" follows the browser).
-  function chosen() {
-    try { return JSON.parse(localStorage.getItem("homeswift.preferences") || "{}").language || "auto"; } catch { return "auto"; }
-  }
+  /// The user's Preferences as common.js keeps them in this browser (the server's, last seen).
+  const kept = (() => { try { return JSON.parse(localStorage.getItem("homeswift.preferences") || "{}") || {}; } catch { return {}; } })();
+  /// The user's choice of language ("auto" follows the browser).
+  const chosen = () => kept.language || "auto";
   const browser = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"]).map((tag) => String(tag));
   /// "fr", "es", "pt" or "en" for a preference: a language of the four, or the browser's first one of them.
   function resolve(preference) {
@@ -34,6 +34,135 @@
   const locale = browser.find((tag) => tag.toLowerCase().split("-")[0] === language && tag.includes("-")) || regions[language];
   document.documentElement.lang = locale;
 
+  // ---- Regional Formats and Home Time (GLOSSARY.md) ----------------------------------------------------------------
+  // Each is "auto" unless the user picked one on the Appearance page: the Language and the browser's region decide.
+  const choice = (key, allowed) => (allowed.includes(kept[key]) ? kept[key] : "auto");
+  const timeFormat = choice("timeFormat", ["12", "24"]);
+  const dateFormat = choice("dateFormat", ["dmy", "mdy", "ymd"]);
+  const numberFormat = choice("numberFormat", ["point", "comma", "space"]);
+  const firstWeekdayChoice = choice("firstWeekday", ["mon", "sat", "sun"]);
+  /// Numbers: the locale whose separators the user chose (1,234.5, 1.234,5, 1 234,5), else the page's.
+  const numberLocale = { point: "en-US", comma: "de-DE", space: "fr-FR" }[numberFormat] || locale;
+  const deviceTimeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const knownZone = (zone) => { try { return typeof zone === "string" && zone && new Intl.DateTimeFormat("en", { timeZone: zone }) && true; } catch { return false; } };
+  /// Home Time, the bridge's zone, unless the user chose the device's (rules are always written in Home Time).
+  const homeTimeZone = knownZone(kept.homeTimeZone) ? kept.homeTimeZone : deviceTimeZone;
+  const timeZone = kept.timeZone === "device" ? deviceTimeZone : homeTimeZone;
+  /// The week's first day, 1 (Monday) to 7 (Sunday), as Intl.Locale's weekInfo counts.
+  const firstWeekday = { mon: 1, sat: 6, sun: 7 }[firstWeekdayChoice] || (() => {
+    try { const one = new Intl.Locale(locale); return (one.getWeekInfo?.() ?? one.weekInfo)?.firstDay ?? 1; } catch { return 1; }
+  })();
+
+  /// A date's numeric day, month and year in the order the user chose; text months ("7 Nov") stay the language's.
+  const orders = { dmy: ["day", "month", "year"], mdy: ["month", "day", "year"], ymd: ["year", "month", "day"] };
+  function reorder(parts) {
+    if (dateFormat === "auto") return parts;
+    const places = parts.flatMap((part, index) => (["day", "month", "year"].includes(part.type) && /^\d+$/.test(part.value) ? [index] : []));
+    if (places.length < 2) return parts;
+    for (let index = places[0]; index <= places[places.length - 1]; index++) {
+      if (!places.includes(index) && parts[index].type !== "literal") return parts;
+    }
+    const present = places.map((index) => parts[index]);
+    const ordered = orders[dateFormat].map((type) => present.find((part) => part.type === type)).filter(Boolean);
+    const out = parts.slice();
+    places.forEach((index, at) => { out[index] = ordered[at]; });
+    // Year first is written with hyphens, as ISO 8601 does.
+    if (dateFormat === "ymd") for (let index = places[0] + 1; index < places[places.length - 1]; index++) if (out[index].type === "literal") out[index] = { type: "literal", value: "-" };
+    return out;
+  }
+
+  const dateFormats = new Map();
+  /// An Intl.DateTimeFormat in the page's language with the user's Regional Formats, in Home Time (or the device's zone,
+  /// as the user chose) unless `options` names a zone. Use it, `formatDate` and `zoned` for every date the pages show.
+  function dateTimeFormat(options = {}) {
+    const key = JSON.stringify(options);
+    if (dateFormats.has(key)) return dateFormats.get(key);
+    const settled = { ...options };
+    if (!("timeZone" in settled)) settled.timeZone = timeZone;
+    // A chosen order with the four-digit year: the short style's two digits read badly year first.
+    if (dateFormat !== "auto" && settled.dateStyle === "short") {
+      delete settled.dateStyle;
+      Object.assign(settled, { year: "numeric", month: "2-digit", day: "2-digit" });
+      if (settled.timeStyle) { Object.assign(settled, { hour: "numeric", minute: "2-digit", ...(settled.timeStyle === "short" ? {} : { second: "2-digit" }) }); delete settled.timeStyle; }
+    }
+    if (timeFormat !== "auto" && ("hour" in settled || "timeStyle" in settled)) {
+      delete settled.hour12;
+      settled.hourCycle = timeFormat === "12" ? "h12" : "h23";
+      // "5:39 pm", not "05:39 pm": a 12-hour clock writes its hour without a leading zero.
+      if (timeFormat === "12" && settled.hour === "2-digit") settled.hour = "numeric";
+    }
+    const format = new Intl.DateTimeFormat(locale, settled);
+    const join = (parts) => parts.map((part) => part.value).join("");
+    const made = dateFormat === "auto" ? format : {
+      format: (date) => join(reorder(format.formatToParts(date))),
+      formatToParts: (date) => reorder(format.formatToParts(date)),
+      formatRange: (from, to) => {
+        const [a, b] = [join(reorder(format.formatToParts(from))), join(reorder(format.formatToParts(to)))];
+        return a === b ? a : `${a} – ${b}`;
+      },
+      resolvedOptions: () => format.resolvedOptions(),
+    };
+    dateFormats.set(key, made);
+    return made;
+  }
+  /// A date (a Date, milliseconds or an ISO 8601 string) as `dateTimeFormat(options)` writes it.
+  const formatDate = (date, options) => dateTimeFormat(options).format(date instanceof Date ? date : new Date(date));
+
+  // Calendar arithmetic in the zone the pages show: what Date's getHours() and new Date(y, m, d) do in the device's.
+  const fields = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", second: "numeric", weekday: "short" });
+  const weekdays = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const fieldNames = { hour: "hours", minute: "minutes", second: "seconds" };
+  /// The zone is the device's (most users): Date's own local fields are the answer, without Intl.
+  const local = timeZone === deviceTimeZone;
+  /// A moment's wall-clock fields in that zone: `year`, `month` (0 to 11, as Date's), `day`, `hours`, `minutes`,
+  /// `seconds` and `weekday` (0 for Sunday).
+  function zoned(date) {
+    const moment = date instanceof Date ? date : new Date(date);
+    if (local) {
+      return { year: moment.getFullYear(), month: moment.getMonth(), day: moment.getDate(), hours: moment.getHours(),
+        minutes: moment.getMinutes(), seconds: moment.getSeconds(), weekday: moment.getDay() };
+    }
+    const out = {};
+    for (const part of fields.formatToParts(moment)) {
+      if (part.type === "weekday") out.weekday = weekdays[part.value];
+      else if (part.type !== "literal") out[fieldNames[part.type] || part.type] = Number(part.value);
+    }
+    out.month -= 1;
+    return out;
+  }
+  /// The moment a wall-clock time is in that zone, as `new Date(year, month, day, hours, minutes, seconds)` would be in
+  /// the device's (fields may overflow: day 0 is the month before's last). A time a clock change skips moves forward.
+  function zonedDate(year, month, day = 1, hours = 0, minutes = 0, seconds = 0) {
+    if (local) return new Date(year, month, day, hours, minutes, seconds);
+    const wall = Date.UTC(year, month, day, hours, minutes, seconds);
+    const offset = (moment) => {
+      const at = zoned(new Date(moment));
+      return Date.UTC(at.year, at.month, at.day, at.hours, at.minutes, at.seconds) - moment;
+    };
+    let moment = wall - offset(wall);
+    const again = wall - offset(moment);
+    if (again !== moment) moment = Math.max(moment, again);
+    return new Date(moment);
+  }
+  /// Midnight of the day `date` is in, in that zone.
+  const startOfDay = (date) => { const at = zoned(date); return zonedDate(at.year, at.month, at.day); };
+  /// For the range picker's calendar, written with Date's local fields: a Date whose device-local fields are the zone's
+  /// wall clock at `date` (format it with `timeZone: deviceTimeZone`; `zonedDate` turns its fields back into a moment).
+  const wallClock = (date) => { const at = zoned(date); return new Date(at.year, at.month, at.day, at.hours, at.minutes, at.seconds); };
+
+  /// What the page opened with, resolved: a choice, its default, or the zone it took for Home Time. `differs` names the
+  /// first preference the user now has otherwise (null when none): the page must open again to take it.
+  const opened = { timeFormat, dateFormat, numberFormat, firstWeekday: firstWeekdayChoice, timeZone: kept.timeZone === "device" ? "device" : "home" };
+  function differs(preferences) {
+    if (resolve(preferences.language) !== language) return "language";
+    const key = Object.keys(opened).find((one) => preferences[one] != null && preferences[one] !== opened[one]);
+    if (key) return key;
+    // Home Time moved on the bridge; a zone this browser cannot use (i18n.js takes the device's then) is no change.
+    const zone = preferences.homeTimeZone;
+    return zone != null && zone !== kept.homeTimeZone && knownZone(zone) && zone !== homeTimeZone ? "homeTimeZone" : null;
+  }
+
   const catalog = Object.create(null);
   const plural = new Intl.PluralRules(locale);
 
@@ -41,7 +170,7 @@
   const format = (vars) => {
     if (!vars) return vars;
     const out = {};
-    for (const [key, value] of Object.entries(vars)) out[key] = typeof value === "number" ? value.toLocaleString(locale) : value;
+    for (const [key, value] of Object.entries(vars)) out[key] = typeof value === "number" ? value.toLocaleString(numberLocale) : value;
     return out;
   };
 
@@ -118,7 +247,10 @@
     if (resolve(code) !== language) location.reload();
   }
 
-  window.HomeswiftI18n = { languages, names, flags, language, locale, t, tn, message, add, translate, resolve, choose };
+  window.HomeswiftI18n = {
+    languages, names, flags, language, locale, t, tn, message, add, translate, resolve, choose,
+    numberLocale, timeZone, homeTimeZone, deviceTimeZone, firstWeekday, dateTimeFormat, formatDate, zoned, zonedDate, startOfDay, wallClock, differs,
+  };
 
   // The catalog before the page's other scripts: a parser-inserted script written here runs before the next one.
   if (language !== "en" && document.readyState === "loading") {

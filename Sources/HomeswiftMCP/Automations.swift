@@ -521,8 +521,9 @@ extension HomeswiftCatalog {
             $0.lastRun = AutomationRunRecord(at: SceneRules.now(), ok: ok, trigger: trigger, reason: skipped > 0 ? "\(skipped) step(s) on a lock, door or alarm not run" : nil, steps: results)
         }
         if !ok, trigger != "manual" {
-            let failed = results.filter { !$0.ok }.map { "step \($0.step)" }.joined(separator: ", ")
-            await notify(.sceneFailed, title: "Automation \(automation.name) failed", message: "\(failed) failed when the \(trigger) trigger ran it.", path: "/automations", subject: automation.id)
+            let failed = results.filter { !$0.ok }.map { String($0.step) }.joined(separator: ", ")
+            await notify(.sceneFailed, title: NotificationText("Automation {name} failed", ["name": automation.name]),
+                         message: NotificationText("Steps {steps} failed. Trigger: {trigger}.", ["steps": failed, "trigger": trigger]), path: "/automations", subject: automation.id)
         }
     }
 

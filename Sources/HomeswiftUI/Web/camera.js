@@ -297,7 +297,7 @@
       still.src = next;
       if (stillURL) URL.revokeObjectURL(stillURL);
       stillURL = next;
-      stillBadge.textContent = new Date().toLocaleTimeString(HomeswiftI18n.locale, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      stillBadge.textContent = HomeswiftI18n.formatDate(new Date(), { hour: "numeric", minute: "2-digit", second: "2-digit" });
     }
 
     async function snapshots(signal) {

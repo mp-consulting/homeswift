@@ -1,9 +1,12 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftPlugin
 import NIOConcurrencyHelpers
 
-/// Each user's choices for the pages: the appearance (`theme`, `wallpaper`, `temperatureUnit`, `language`) and the Status
+/// Each user's choices for the pages (Preferences, GLOSSARY.md): the appearance (`theme`, `wallpaper`, `temperatureUnit`), the
+/// Language (`language`), the Regional Formats (`timeFormat`, `dateFormat`, `numberFormat`, `firstWeekday`) and whether
+/// times show in Home Time or the device's (`timeZone`), and the Status
 /// page's widgets (`dashboard`: their `order` and those `hidden`). Kept in `ui-preferences.json` next to
 /// config.json, owner-only, so they follow the user from one browser to the next; their own wallpapers are images
 /// under `ui-wallpapers/<user>/`, `wallpaperImages` lists them and `wallpaperImage` is the one shown. Glass UI keeps its theme and units in config.json and its dashboard layout in
@@ -14,7 +17,20 @@ final class PreferencesStore: Sendable {
     static let wallpapers: Set<String> = ["none", "aurora", "sunset", "ocean", "forest", "graphite", "silk", "prism", "ribbon", "lagoon", "ember", "midnight", "custom"]
     static let temperatureUnits: Set<String> = ["c", "f"]
     /// The pages' language (i18n.js): the browser's, or one of the UI's four.
-    static let languages: Set<String> = ["auto", "en", "fr", "es", "pt"]
+    static let languages = Set(["auto"] + HomeLanguage.all)
+    /// The Regional Formats (i18n.js): "auto" follows the Language and the browser's region.
+    static let timeFormats: Set<String> = ["auto", "12", "24"]
+    static let dateFormats: Set<String> = ["auto", "dmy", "mdy", "ymd"]
+    /// 1,234.5, 1.234,5 and 1 234,5.
+    static let numberFormats: Set<String> = ["auto", "point", "comma", "space"]
+    static let firstWeekdays: Set<String> = ["auto", "mon", "sat", "sun"]
+    /// Timestamps in Home Time, or in the device's own time zone. Rules (Tariffs, schedules) stay in Home Time.
+    static let timeZones: Set<String> = ["home", "device"]
+    /// The preferences that are one of a few words.
+    static let choices: [String: Set<String>] = [
+        "theme": themes, "wallpaper": wallpapers, "temperatureUnit": temperatureUnits, "language": languages,
+        "timeFormat": timeFormats, "dateFormat": dateFormats, "numberFormat": numberFormats, "firstWeekday": firstWeekdays, "timeZone": timeZones,
+    ]
     /// An uploaded wallpaper, after the page has scaled it down.
     static let maximumWallpaperBytes = 2_500_000
     /// How many images of their own a user keeps.
@@ -33,8 +49,12 @@ final class PreferencesStore: Sendable {
 
     /// The user's choices, with the defaults for what they never chose.
     func preferences(for user: String) -> JSONValue {
-        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto", "dashboard": ["order": [], "hidden": []]]
+        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto",
+                                              "timeFormat": "auto", "dateFormat": "auto", "numberFormat": "auto", "firstWeekday": "auto", "timeZone": "home",
+                                              "dashboard": ["order": [], "hidden": []]]
         for (key, value) in state.withLockedValue({ $0[user]?.objectValue ?? [:] }) { object[key] = value }
+        // Not a choice: the zone "home" means, which the pages format times in.
+        object["homeTimeZone"] = .string(HomeTime.zone.identifier)
         let images = wallpaperIDs(for: user)
         object["wallpaperImages"] = .array(images.map(JSONValue.string))
         // Chosen before there could be several: the image kept then.
@@ -44,6 +64,11 @@ final class PreferencesStore: Sendable {
         return .object(object)
     }
 
+    /// The Language the user chose; nil for automatic (the browser's). Reads only the kept choices: no wallpapers.
+    func language(for user: String) -> String? {
+        state.withLockedValue { $0[user]?["language"]?.stringValue }.flatMap { $0 == "auto" ? nil : $0 }
+    }
+
     /// Changes the keys `change` has, after checking them; answers all of the user's choices.
     @discardableResult
     func update(_ user: String, with change: JSONValue) throws -> JSONValue {
@@ -51,10 +76,7 @@ final class PreferencesStore: Sendable {
         var accepted: [String: JSONValue] = [:]
         for (key, value) in fields {
             switch key {
-            case "theme": accepted[key] = try Self.choice(value, in: Self.themes, key)
-            case "wallpaper": accepted[key] = try Self.choice(value, in: Self.wallpapers, key)
-            case "temperatureUnit": accepted[key] = try Self.choice(value, in: Self.temperatureUnits, key)
-            case "language": accepted[key] = try Self.choice(value, in: Self.languages, key)
+            case _ where Self.choices[key] != nil: accepted[key] = try Self.choice(value, in: Self.choices[key] ?? [], key)
             case "dashboard": accepted[key] = try Self.dashboard(value)
             // The Assistant chat's model, one of the provider's; null goes back to the block's.
             case "assistantModel":

@@ -275,7 +275,7 @@ try {
   await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
-  await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 1300 });
+  await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 2200 });
   await shot("backups", "/settings/backups", { ready: ".drop-zone", tall: 1000 });
   await shot("vault", "/settings/vault", { ready: ".vault-move", tall: 800 });
   // An accessory's History tab, and the Logbook (the demonstration's day, from writeHistory).

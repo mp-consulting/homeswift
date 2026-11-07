@@ -150,6 +150,8 @@
     const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.latitude}, ${data.location.longitude}` })
       : t("Sunrise and sunset need the home's Location, which is not set yet.");
     const setLocation = data.location ? null : el("a", { href: "/settings/bridge#location", text: t("Set the Location in Settings") });
+    // Beside the Triggers when this user shows times in a zone that is not Home Time.
+    const homeTimeNote = HomeswiftCommon.homeTimeNote();
     const section = (title, glyph, help, ...content) => el("section", { class: "card automation-section" },
       el("div", { class: "automation-section-head" }, el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(glyph)),
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted" }, ...[].concat(help).filter(Boolean)))), ...content);
@@ -175,7 +177,7 @@
       el("div", { class: "card form-card" }, el("div", { class: "fields" }, field(t("Name"), name), field(t("Mode"), mode)),
         toggle(enabled, t("On"), t("Off, its triggers do nothing; Run now still runs it.")),
         toggle(homeKit, t("A switch in the Home app"), t("On the Homeswift Scenes accessory: the switch turns the automation on and off."))),
-      section(t("Triggers"), "play", [t("Any of these starts it. {place}", { place }), setLocation && " ", setLocation], triggerList,
+      section(t("Triggers"), "play", [t("Any of these starts it. {place}", { place }), setLocation && " ", setLocation, homeTimeNote && " ", homeTimeNote], triggerList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
       section(t("Conditions"), "shield", t("A trigger's run goes ahead only when all of these hold. Run now ignores them."), conditionList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition({ type: "time", after: "sunset", before: "23:00" }) })),
@@ -365,7 +367,7 @@
       return;
     }
     const line = statusLine();
-    const until = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
+    const until = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
     const stateText = { used: t("Already used"), expired: t("Expired") };
     const buttons = data.buttons.map((button) => {
       // What acts is the primary choice; a page to open, a quieter one.
