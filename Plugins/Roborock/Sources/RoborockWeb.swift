@@ -52,14 +52,16 @@ extension RoborockPlugin {
         case ("GET", "robots"):
             return PluginWebResponse(["robots": .array(accessories.values.sorted { $0.name < $1.name }.map(robotJSON))])
         case ("GET", "rooms"):
-            guard let duid = robot(request.query["duid"]) else { return .error(404, "No such robot") }
+            let found = robotOrError(request.query["duid"])
+            guard let duid = found.duid else { return found.error }
             do {
                 return PluginWebResponse(["rooms": .array(try await rooms(duid).map(\.json))])
             } catch {
                 return .error(502, "The robot did not answer: \(error)")
             }
         case ("POST", "clean-rooms"):
-            guard let duid = robot(request.body["duid"]?.stringValue) else { return .error(404, "No such robot") }
+            let found = robotOrError(request.body["duid"]?.stringValue)
+            guard let duid = found.duid else { return found.error }
             let wanted = request.body["rooms"]?.arrayValue ?? []
             guard !wanted.isEmpty else { return .error(400, "Name at least one room") }
             let repeats = min(3, max(1, request.body["repeat"]?.intValue ?? 1))
@@ -74,7 +76,8 @@ extension RoborockPlugin {
                 return .error(502, "The robot refused: \(error)")
             }
         case ("POST", "mode"):
-            guard let duid = robot(request.body["duid"]?.stringValue), let vacuum = accessories[duid] else { return .error(404, "No such robot") }
+            let found = robotOrError(request.body["duid"]?.stringValue)
+            guard let duid = found.duid, let vacuum = accessories[duid] else { return found.error }
             let modes = vacuum.cleanModes
             var sent: [String: JSONValue] = [:]
             for (key, offered, method) in [("fan_power", modes.fanPowers, "set_custom_mode"), ("water_box_mode", modes.waterModes, "set_water_box_custom_mode"),
@@ -86,7 +89,8 @@ extension RoborockPlugin {
                 do {
                     _ = try await self.request(duid, method, [.number(Double(mode.code))])
                 } catch {
-                    return .error(502, "The robot refused \(key): \(error)")
+                    let done = sent.keys.sorted().joined(separator: ", ")
+                    return .error(502, "The robot refused \(key): \(error)" + (done.isEmpty ? "" : " (\(done) set already)"))
                 }
                 sent[key] = mode.json
             }
@@ -94,7 +98,8 @@ extension RoborockPlugin {
             await refreshStatus(duid)
             return PluginWebResponse(["ok": true, "set": .object(sent)])
         case ("POST", "locate"):
-            guard let duid = robot(request.body["duid"]?.stringValue) else { return .error(404, "No such robot") }
+            let found = robotOrError(request.body["duid"]?.stringValue)
+            guard let duid = found.duid else { return found.error }
             do {
                 _ = try await self.request(duid, "find_me")
                 return PluginWebResponse(["ok": true])
@@ -102,17 +107,21 @@ extension RoborockPlugin {
                 return .error(502, "The robot did not answer: \(error)")
             }
         case ("POST", "resolve-error"):
-            guard let duid = robot(request.body["duid"]?.stringValue) else { return .error(404, "No such robot") }
+            let found = robotOrError(request.body["duid"]?.stringValue)
+            guard let duid = found.duid else { return found.error }
             return await resolveError(duid)
         default:
             return .error(404, "No such route")
         }
     }
 
-    /// A robot by duid, or the only one when none is named.
-    func robot(_ duid: String?) -> String? {
-        if let duid = duid?.nonEmptyValue { return accessories[duid] != nil ? duid : nil }
-        return accessories.count == 1 ? accessories.keys.first : nil
+    /// The robot, or why there is none: an unknown duid, or several robots and none named.
+    func robotOrError(_ duid: String?) -> (duid: String?, error: PluginWebResponse) {
+        if let duid = duid?.nonEmptyValue {
+            return accessories[duid] != nil ? (duid, .error(404, "")) : (nil, .error(404, "No robot with duid \(duid): list_robots gives them"))
+        }
+        if accessories.count == 1 { return (accessories.keys.first, .error(404, "")) }
+        return (nil, accessories.isEmpty ? .error(404, "No robot yet") : .error(400, "Several robots: name one by its duid from list_robots"))
     }
 
     func robotJSON(_ vacuum: VacuumAccessory) -> JSONValue {

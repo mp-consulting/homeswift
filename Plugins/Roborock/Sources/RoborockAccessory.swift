@@ -67,13 +67,16 @@ final class VacuumAccessory {
     /// The Fan's Rotation Speed for a suction code: level n of N is n/N of 100 (nil for a mode that is no level).
     static func speed(fanPower: Int, levels: [RoborockMode]) -> Double? {
         guard let index = levels.firstIndex(where: { $0.code == fanPower }) else { return nil }
-        return (Double(index + 1) * 100 / Double(levels.count)).rounded()
+        // On the minStep grid (100 / N), unrounded: six levels are 16.67 % apart.
+        return Double(index + 1) * 100 / Double(levels.count)
     }
 
     /// The suction level nearest a Rotation Speed (nil at 0, which turns the fan off instead).
     static func fanPower(speed: Double, levels: [RoborockMode]) -> Int? {
         guard speed > 0, !levels.isEmpty else { return nil }
-        let index = min(levels.count - 1, max(0, Int((speed * Double(levels.count) / 100).rounded(.up)) - 1))
+        // A value between two levels takes the higher one; one a hair above a level (16.6667 for 16.666…) is that level.
+        let position = speed * Double(levels.count) / 100
+        let index = min(levels.count - 1, max(0, Int((position - 1e-3).rounded(.up)) - 1))
         return levels[index].code
     }
 

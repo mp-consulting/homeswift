@@ -587,14 +587,16 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         }
         let key = "\(deviceID):\(output.rawValue)"
         // Held while the write is on its way too: a reading from before it does not flip the Outlet back.
-        holds[key] = (on, ContinuousClock.now + dependencies.writeTimeout + dependencies.holdFor)
+        let hold = (on: on, until: ContinuousClock.now + dependencies.writeTimeout + dependencies.holdFor)
+        holds[key] = hold
         let name = EcoFlowWrites.table(device.model)?.names[output] ?? output.rawValue
         do {
             try await withTimeout(dependencies.writeTimeout, error: { EcoFlowWriteError.unanswered }) {
                 try await api.set(.output(output, on), on: device)
             }
         } catch {
-            holds[key] = nil
+            // A newer write to the same output keeps its own hold.
+            if let current = holds[key], current.on == hold.on, current.until == hold.until { holds[key] = nil }
             logger.warning("Could not switch \(name) of \(displayName(device)) \(on ? "on" : "off"): \(error)")
             tasks.add { [weak self] in await self?.refresh() }
             throw HAPStatusError(.serviceCommunicationFailure)

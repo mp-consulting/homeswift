@@ -54,6 +54,12 @@ import Testing
         #expect(VacuumAccessory.fanPower(speed: 50, levels: levels) == 103)
         #expect(VacuumAccessory.fanPower(speed: 100, levels: levels) == 108)
         #expect(VacuumAccessory.fanPower(speed: 0, levels: levels) == nil)
+        // Six levels (Gentle to Max+): 16.67 % apart, and the Home app's 16.6667 is Gentle, not Quiet.
+        let six = RoborockCleanModes(model: "roborock.vacuum.a72", featureSet: nil, newFeatureSet: nil).suctionLevels
+        #expect(six.map(\.code) == [105, 101, 102, 103, 104, 108])
+        #expect(VacuumAccessory.fanPower(speed: 16.6667, levels: six) == 105)
+        #expect(VacuumAccessory.fanPower(speed: 33.3334, levels: six) == 101)
+        #expect(VacuumAccessory.speed(fanPower: 101, levels: six) == 100.0 / 3)
     }
 
     @Test func modesAreFoundByNameOrCode() {

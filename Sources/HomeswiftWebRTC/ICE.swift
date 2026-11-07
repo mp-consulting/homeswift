@@ -93,7 +93,7 @@ public struct ICECredentials: Sendable, Equatable {
 /// candidate (trickled ones too) in priority order and nominates the first pair that succeeds (aggressive
 /// nomination, USE-CANDIDATE on every check). Datagrams that are not STUN go to `received` once a pair is selected.
 public actor ICEAgent {
-    public struct Pair: Sendable, Equatable {
+    public struct Pair: Sendable, Hashable {
         public var host: String
         public var port: Int
     }
@@ -108,6 +108,9 @@ public actor ICEAgent {
     private let tieBreaker: [UInt8]
     private var candidates: [ICECandidate] = []
     private var pending: [[UInt8]: Pair] = [:]
+    /// Addresses that proved they hold the session's credentials (a check in either direction): their DTLS and media
+    /// are taken before this side nominates, as the peer may start its handshake first.
+    private var validated: Set<Pair> = []
     private var reader: Task<Void, Never>?
     private var checker: Task<Void, Never>?
     private var selectedWaiters: [CheckedContinuation<Pair?, Never>] = []
@@ -204,7 +207,7 @@ public actor ICEAgent {
 
     private func handle(_ bytes: [UInt8], from source: Pair) async {
         guard STUNMessage.isSTUN(bytes) else {
-            if selected == source { receivedContinuation.yield(bytes) }
+            if selected == source || validated.contains(source) { receivedContinuation.yield(bytes) }
             return
         }
         guard STUNMessage.verifyFingerprint(bytes), let message = STUNMessage.decode(bytes) else { return }
@@ -215,6 +218,7 @@ public actor ICEAgent {
                   username.hasPrefix(local.ufrag + ":"), STUNMessage.verifyIntegrity(bytes, key: Array(local.password.utf8)),
                   let mapped = STUNMessage.xorAddress(host: source.host, port: source.port, transactionID: message.transactionID) else { return }
             let response = STUNMessage(.bindingSuccess, transactionID: message.transactionID, attributes: [.init(.xorMappedAddress, mapped)])
+            validated.insert(source)
             try? await socket.send(Data(response.encode(integrityKey: Array(local.password.utf8))), to: source.host, port: source.port)
             // A check from a candidate we did not know is a peer-reflexive one.
             if !candidates.contains(where: { $0.address == source.host && $0.port == source.port }) {
@@ -223,6 +227,7 @@ public actor ICEAgent {
         case .bindingSuccess?:
             guard let pair = pending.removeValue(forKey: message.transactionID), pair == source, let remote,
                   STUNMessage.verifyIntegrity(bytes, key: Array(remote.password.utf8)), selected == nil else { return }
+            validated.insert(pair)
             selected = pair
             for waiter in selectedWaiters { waiter.resume(returning: pair) }
             selectedWaiters = []
