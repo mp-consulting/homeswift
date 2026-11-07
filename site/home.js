@@ -300,7 +300,7 @@
   document.querySelectorAll('.hero-copy > *').forEach((el, i) => el.style.setProperty('--i', i));
   document.querySelectorAll('#house .w').forEach((el, i) => el.style.setProperty('--i', i));
   if (document.documentElement.classList.contains('motion') && 'IntersectionObserver' in window) {
-    const groups = ['.section-head', '.bridge > div:first-child', '.ways', '.trust', '.asks', '.brains', '.plugins', '.figures', '.term-stack', '.steps'];
+    const groups = ['.section-head', '.bridge > div:first-child', '.ways', '.trust', '.auto-stage', '.asks', '.brains', '.plugins', '.figures', '.term-stack', '.steps'];
     const reveal = new IntersectionObserver((entries) => entries.forEach(({ isIntersecting, target }) => {
       if (!isIntersecting) return;
       reveal.unobserve(target);

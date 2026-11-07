@@ -58,6 +58,9 @@
     <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.4 7 10 4-1.6 7-5.5 7-10V6l-7-3z"/></symbol>
     <symbol id="i-gh" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 8-11h-6z"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8" width="17" height="4.5" rx="1"/><path d="M5.5 12.5V20h13v-7.5M12 8v12M12 8c-1-3-4.5-4-5.3-2.2C6 7.4 9 8 12 8zm0 0c1-3 4.5-4 5.3-2.2C18 7.4 15 8 12 8z"/></symbol>
   </defs>
 </svg>
 
@@ -80,6 +83,7 @@
   <div class="band hero home-hero">
     <div class="wrap">
       <div class="hero-copy">
+        <a class="news" href="#automations"><b data-i18n>Novo</b><span data-i18n>Automações que sabem quem está em casa</span></a>
         <p class="eyebrow" data-i18n>O servidor MCP para a sua casa</p>
         <h1 data-i18n>Deixe a sua IA gerir a casa.</h1>
         <p class="lede" data-i18n>Ligue o Claude, ou qualquer agente que fale MCP, e ele passa a ver e a comandar todos os dispositivos da sua app Casa. Continua a pedir confirmação antes de destrancar, regista tudo o que faz e nunca obedece ao nome de um dispositivo.</p>
@@ -263,10 +267,53 @@ reinicia, todas as noites às 03:00…</span></pre>
     </div>
   </section>
 
+  <section class="band" id="automations">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow" data-i18n>Novo: automações</p>
+        <h2 data-i18n>Automações que sabem quem está em casa.</h2>
+        <p class="lede" data-i18n>Diga o que deve acontecer e o assistente escreve a automação para a rever: quando, só se, e o quê. A presença sabe quem está em casa pelos telemóveis de cada um, e uma notificação pode perguntar-lhe primeiro.</p>
+      </div>
+      <!-- A drawing (demonstration names), not a screenshot: an Automation as the Automations page shows it, the
+           notification it sends with its buttons, and the Persons it watches. -->
+      <div class="auto-stage" aria-hidden="true">
+        <div class="auto-card">
+          <div class="auto-head">
+            <span class="auto-glyph"><svg><use href="#i-bolt"/></svg></span>
+            <div><strong data-i18n>O último a sair</strong><small data-i18n>Automação · Ativa</small></div>
+            <span class="auto-switch"></span>
+          </div>
+          <ol class="auto-steps">
+            <li><span class="auto-kind" data-i18n>Quando</span><span data-i18n>Já todos saíram de casa</span></li>
+            <li><span class="auto-kind" data-i18n>Só se</span><span data-i18n>A porta da garagem está aberta</span></li>
+            <li><span class="auto-kind" data-i18n>Depois</span><span data-i18n>Desligar todas as luzes e tomadas</span></li>
+            <li><span class="auto-kind" data-i18n>Depois</span><span data-i18n>Notificar, com dois botões</span></li>
+          </ol>
+        </div>
+        <div class="auto-side">
+          <div class="notif">
+            <div class="notif-head"><svg><use href="#logo"/></svg><strong>Homeswift</strong><small data-i18n>agora</small></div>
+            <p data-i18n>Já todos saíram e a porta da garagem está aberta.</p>
+            <div class="notif-actions"><span data-i18n>Fechá-la</span><span data-i18n>Deixá-la aberta</span></div>
+          </div>
+          <div class="persons">
+            <div class="person"><span class="avatar">A</span><div><strong>Alex</strong><small data-i18n>Ausente · 4 min</small></div></div>
+            <div class="person"><span class="avatar two">S</span><div><strong>Sam</strong><small data-i18n>Ausente · 1 h</small></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="asks">
+        <div class="ask"><q data-i18n>Quando o último sair, desliga tudo.</q><p data-i18n>A presença sabe quem está em casa pelos telemóveis na rede. O assistente escreve a automação; você revê-a e guarda-a.</p></div>
+        <div class="ask"><q data-i18n>Pergunta-me antes de fechar a garagem à noite.</q><p data-i18n>A notificação traz os botões, no ntfy, no Telegram ou no browser. Para uma porta de garagem, uma fechadura ou um alarme, um toque abre uma confirmação depois de iniciar sessão.</p></div>
+        <div class="ask"><q data-i18n>Avisa-me quando a máquina de lavar acabar.</q><p data-i18n>Um acionador na potência da tomada que fica abaixo de 5 W durante cinco minutos, e depois uma notificação. Nenhum dispositivo novo, só a tomada.</p></div>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="scenes">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow" data-i18n>Novidade da 0.9</p>
+        <p class="eyebrow" data-i18n>Modelos de cenas</p>
         <h2 data-i18n>Prepare a cena.</h2>
         <p class="lede" data-i18n>Modelos de cenas para as luzes de uma divisão: ambientes calmos como luz de velas, efeitos como uma lareira ou um nascer do sol que as luzes de cada marca reproduzem sozinhas (efeitos Hue, cenas Govee, transições IKEA, cenas SONOFF L2, Ambilight a seguir a música) e sequências temporizadas como uma sirene de polícia. Explore 143 paletas fotográficas em 28 temas, experimente uma numa divisão e guarde-a como cena, no Homeswift ou na sua ponte Hue ou hub IKEA, com uma imagem sua e um interruptor na app Casa. Qualquer execução pode ser anulada: as luzes voltam ao que eram.</p>
       </div>
@@ -370,6 +417,19 @@ docker run -d --name homeswift --network host \
       </div>
     </div>
   </section>
+  <section class="band" id="sponsor">
+    <div class="wrap sponsor">
+      <div class="sponsor-copy">
+        <p class="eyebrow" data-i18n>Patrocinar</p>
+        <h2 data-i18n>Mantenha o Homeswift gratuito.</h2>
+        <p class="lede" data-i18n>O Homeswift é gratuito e de código aberto, sem conta nem nuvem própria. O seu apoio paga os dispositivos em que os plugins são testados, e o tempo para escrever os próximos.</p>
+      </div>
+      <div class="cta sponsor-cta">
+        <a class="btn btn-primary" href="https://github.com/sponsors/mp-consulting" data-i18n><svg aria-hidden="true"><use href="#i-heart"/></svg>Patrocinar no GitHub</a>
+        <a class="btn btn-plain" href="https://paypal.me/mickaelpalma" data-i18n><svg aria-hidden="true"><use href="#i-gift"/></svg>Doar com PayPal</a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="band">
@@ -382,6 +442,7 @@ docker run -d --name homeswift --network host \
       <a href="https://github.com/mp-consulting/homeswift/blob/main/docs/ai.md" data-i18n>O Assistente</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/docs/mcp.md" data-i18n>Servidor MCP</a>
       <a href="bridge.html" data-i18n>A ponte</a>
+      <a href="https://github.com/sponsors/mp-consulting" data-i18n>Patrocinar</a>
       <a href="privacy.html" data-i18n>Privacidade</a>
     </nav>
     <nav class="langs" aria-label="Idioma" data-i18n>
