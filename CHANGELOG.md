@@ -6,17 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- The Logbook no longer tells someone who is not an administrator which changes a named user or MCP client made: a
-  `sourceName` filter alone applied to people too, whose names the answer leaves out.
-- `save_automation` asks the user first for a change to an Automation that touches a lock, a garage door or an alarm,
-  when the change sends only some of its fields (its steps without its triggers).
-- A single-mode Automation triggered while it runs no longer starts its first Step before it is refused, and one whose
-  run ends at once is no longer left marked as running for good.
-- The History's day files stay in time order when two writes happen at once, and a chart starts from the right value.
-- A Zigbee device the network already has, interviewed again as it rejoins, is no longer taken for the device a Join
-  waits for; a Z-Wave removal that ends without naming a device says only that it ended.
+## [0.25.0] - 2026-11-07
 
 ### Added
 
@@ -41,7 +31,6 @@ All notable changes to this project are documented here. The format follows
   Updates come by server-sent events, else by one device list call per period; rotated refresh tokens are saved to
   the vault before use, and copies of Homeswift's own accessories through its Matter bridge are skipped. A clean-room
   implementation compatible with the blocks of homebridge-smartthings-oauth and homebridge-smartthings-ik.
-
 - Zigbee and Z-Wave devices are added from **Add accessories**, without opening Zigbee2MQTT or Z-Wave JS UI: **Add a
   Zigbee device…** lets devices join Zigbee2MQTT's network for two minutes and is done once the device is interviewed;
   **Add a Z-Wave device…** includes one into a network set up, granting the security classes it asks for and asking
@@ -58,6 +47,18 @@ All notable changes to this project are documented here. The format follows
   with a QR code or a password and an emailed code, or takes a token per device or Add by address. A homebridge-miot
   block loads as it is; its extra switches (buzzer, LED, modes, screen, motor) are now off unless turned on. The
   plugin's page and the Assistant read and set every property of a device's spec.
+
+### Fixed
+
+- The Logbook no longer tells someone who is not an administrator which changes a named user or MCP client made: a
+  `sourceName` filter alone applied to people too, whose names the answer leaves out.
+- `save_automation` asks the user first for a change to an Automation that touches a lock, a garage door or an alarm,
+  when the change sends only some of its fields (its steps without its triggers).
+- A single-mode Automation triggered while it runs no longer starts its first Step before it is refused, and one whose
+  run ends at once is no longer left marked as running for good.
+- The History's day files stay in time order when two writes happen at once, and a chart starts from the right value.
+- A Zigbee device the network already has, interviewed again as it rejoins, is no longer taken for the device a Join
+  waits for; a Z-Wave removal that ends without naming a device says only that it ended.
 
 ## [0.24.0] - 2026-11-07
 
@@ -2249,7 +2250,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/mp-consulting/homeswift/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/mp-consulting/homeswift/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/mp-consulting/homeswift/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/mp-consulting/homeswift/compare/v0.21.0...v0.22.0
