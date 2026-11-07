@@ -1,5 +1,39 @@
 /// Colour conversions HAP-NodeJS offers plugins (`ColorUtils`).
 public enum ColorUtils {
+    /// The hue (degrees, nil for a grey or black) and saturation (percent) of red, green and blue, on any one scale
+    /// (0...1, 0...255), at full value; unrounded.
+    public static func hueSaturation(red: Double, green: Double, blue: Double) -> (hue: Double?, saturation: Double) {
+        let high = max(red, green, blue), low = min(red, green, blue), delta = high - low
+        guard high > 0, delta > 0 else { return (nil, 0) }
+        var hue: Double
+        if high == red {
+            hue = (green - blue) / delta
+        } else if high == green {
+            hue = (blue - red) / delta + 2
+        } else {
+            hue = (red - green) / delta + 4
+        }
+        hue *= 60
+        if hue < 0 { hue += 360 }
+        return (hue, delta / high * 100)
+    }
+
+    /// Red, green and blue (0...1) of a hue (degrees, any) and saturation (percent, clamped) at full value; unrounded.
+    public static func rgb(hue: Double, saturation: Double) -> (red: Double, green: Double, blue: Double) {
+        let chroma = min(max(saturation, 0), 100) / 100
+        let h = (hue.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) / 60
+        let x = chroma * (1 - abs(h.truncatingRemainder(dividingBy: 2) - 1)), m = 1 - chroma
+        let (r, g, b): (Double, Double, Double) = switch Int(h) {
+        case 0: (chroma, x, 0)
+        case 1: (x, chroma, 0)
+        case 2: (0, chroma, x)
+        case 3: (0, x, chroma)
+        case 4: (x, 0, chroma)
+        default: (chroma, 0, x)
+        }
+        return (min(max(r + m, 0), 1), min(max(g + m, 0), 1), min(max(b + m, 0), 1))
+    }
+
     /// The hue and saturation of a colour temperature in mired (clamped to 100...500), from HAP-NodeJS's lookup
     /// table. Adaptive Lighting sets these on a lightbulb with Hue and Saturation; a plugin that converts with
     /// the same table sends no extra events. Rounded to integers unless `rounded` is false.

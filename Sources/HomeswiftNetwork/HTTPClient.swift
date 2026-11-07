@@ -307,6 +307,26 @@ public func hostHeader(host: String, port: Int, defaultPort: Int) -> String {
     return port == defaultPort ? name : "\(name):\(port)"
 }
 
+/// The host and port of an address a person typed: `host`, `host:port`, `[v6]` or `[v6]:port`, perhaps after a scheme
+/// (`ws://`) and before a final `/`, with `defaultPort` when it names none. An IPv6 address without brackets is a host
+/// on the default port. Nil for nothing, or for a port after brackets that is not a number.
+public func hostAndPort(_ address: String, defaultPort: Int) -> (host: String, port: Int)? {
+    var text = address.trimmingCharacters(in: .whitespaces)
+    if let scheme = text.range(of: "://") { text = String(text[scheme.upperBound...]) }
+    if text.hasSuffix("/") { text.removeLast() }
+    if text.hasPrefix("["), let close = text.firstIndex(of: "]") {
+        let host = String(text[text.index(after: text.startIndex)..<close])
+        let rest = text[text.index(after: close)...]
+        if rest.isEmpty { return (host, defaultPort) }
+        guard rest.hasPrefix(":"), let port = Int(rest.dropFirst()) else { return nil }
+        return (host, port)
+    }
+    // Two colons or more: an IPv6 address, whose last group is not a port.
+    let parts = text.split(separator: ":", omittingEmptySubsequences: false)
+    if parts.count == 2, let port = Int(parts[1]) { return (String(parts[0]), port) }
+    return text.isEmpty ? nil : (text, defaultPort)
+}
+
 /// A URL for an error message, without its password (`mqtt://user:pass@host` is a broker URL users write).
 func redactingPassword(_ url: URL) -> String {
     guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false), components.password != nil else { return url.absoluteString }

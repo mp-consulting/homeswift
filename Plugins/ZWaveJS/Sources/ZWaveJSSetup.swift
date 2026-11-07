@@ -153,21 +153,8 @@ extension ZWaveJSPlugin {
         }
     }
 
-    /// `host`, `host:port`, `[v6]` or `[v6]:port`.
+    /// `host`, `host:port`, `[v6]` or `[v6]:port`, perhaps typed as a `ws://` URL.
     static func split(_ address: String) -> (String, Int)? {
-        var text = address.trimmingCharacters(in: .whitespaces)
-        for scheme in ["ws://", "wss://"] where text.lowercased().hasPrefix(scheme) { text = String(text.dropFirst(scheme.count)) }
-        if text.hasSuffix("/") { text.removeLast() }
-        if text.hasPrefix("["), let close = text.firstIndex(of: "]") {
-            let host = String(text[text.index(after: text.startIndex)..<close])
-            let rest = text[text.index(after: close)...]
-            if rest.isEmpty { return (host, defaultPort) }
-            guard rest.hasPrefix(":"), let port = Int(rest.dropFirst()) else { return nil }
-            return (host, port)
-        }
-        let parts = text.split(separator: ":")
-        if parts.count == 2, let port = Int(parts[1]) { return (String(parts[0]), port) }
-        if parts.count > 2 { return (text, defaultPort) }
-        return text.isEmpty ? nil : (text, defaultPort)
+        hostAndPort(address, defaultPort: defaultPort).map { ($0.host, $0.port) }
     }
 }

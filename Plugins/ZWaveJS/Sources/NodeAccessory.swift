@@ -582,7 +582,7 @@ struct NodeBuilder {
         if let actuator {
             service = actuator
         } else {
-            service = Service(ZWaveTypes.energyService, name: label, subtype: "\(endpoint):meter")
+            service = Service(EveService.energy, name: label, subtype: "\(endpoint):meter")
             add(service)
         }
         let meter = self.meter(service)
@@ -853,45 +853,17 @@ enum WhiteMix {
     }
 }
 
-/// Types of the Eve app's the plugin uses beside `EveCharacteristic`'s.
-enum ZWaveTypes {
-    /// A service of Eve's that carries only a Meter's characteristics, for a meter with no switch.
-    static let energyService = ServiceType(name: "EveEnergy", uuid: HAPUUID("00000001-0000-1777-8000-775D67EC4377"), required: [], optional: [.name])
-}
-
-/// Hue and saturation to and from RGB, for Color Switch's components.
+/// Hue and saturation to and from Color Switch's red, green and blue (0 to 255), through `ColorUtils`.
 enum ColorMath {
-    /// Hue in degrees (nil for a grey) and saturation in percent.
+    /// Hue in degrees (nil for a grey) and saturation in percent, to a tenth.
     static func hueSaturation(red: Double, green: Double, blue: Double) -> (Double?, Double) {
-        let r = red / 255, g = green / 255, b = blue / 255
-        let high = max(r, g, b), low = min(r, g, b), delta = high - low
-        let saturation = high == 0 ? 0 : delta / high * 100
-        guard delta > 0 else { return (nil, saturation) }
-        var hue: Double
-        if high == r {
-            hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6)
-        } else if high == g {
-            hue = 60 * ((b - r) / delta + 2)
-        } else {
-            hue = 60 * ((r - g) / delta + 4)
-        }
-        if hue < 0 { hue += 360 }
-        return ((hue * 10).rounded() / 10, (saturation * 10).rounded() / 10)
+        let (hue, saturation) = ColorUtils.hueSaturation(red: red, green: green, blue: blue)
+        return (hue.map { ($0 * 10).rounded() / 10 }, (saturation * 10).rounded() / 10)
     }
 
-    /// Full-value RGB from hue (degrees) and saturation (percent).
+    /// Full-value red, green and blue from hue (degrees) and saturation (percent).
     static func rgb(hue: Double, saturation: Double) -> (Int, Int, Int) {
-        let s = min(100, max(0, saturation)) / 100, h = (hue.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) / 60
-        let chroma = s, x = chroma * (1 - abs(h.truncatingRemainder(dividingBy: 2) - 1)), m = 1 - chroma
-        let (r, g, b): (Double, Double, Double) = switch Int(h) {
-        case 0: (chroma, x, 0)
-        case 1: (x, chroma, 0)
-        case 2: (0, chroma, x)
-        case 3: (0, x, chroma)
-        case 4: (x, 0, chroma)
-        default: (chroma, 0, x)
-        }
-        func byte(_ value: Double) -> Int { Int(((value + m) * 255).rounded()) }
-        return (byte(r), byte(g), byte(b))
+        let (red, green, blue) = ColorUtils.rgb(hue: hue, saturation: saturation)
+        return (Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
     }
 }
