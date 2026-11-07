@@ -247,7 +247,7 @@ import Darwin
         process.start()
         try await process.waitForStart()
         let start = ContinuousClock.now
-        let status = await waitForExit(process, timeout: .seconds(15)) { process.stop() }
+        let status = await waitForExit(process) { process.stop() }
         #expect(status?.signal == "SIGKILL")
         #expect(ContinuousClock.now - start >= .milliseconds(options.config.inputTimeout))
         #expect(logs.messages(.debug).contains("FFmpeg process ended (Killed)."))
