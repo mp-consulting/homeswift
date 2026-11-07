@@ -105,6 +105,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Helpers: a lock, a garage door or an alarm is no longer offered as a source. A Helper would show its state as a
+  plain sensor, which the Matter bridge shows even when it hides security accessories. A Helper already reading one
+  keeps working.
+- Web UI: Forget on a Helper (a device its plugin makes rather than finds) says that it deletes it for good, instead of
+  that the plugin finds it again.
 - Charts: a 24-hour chart of a Meter's consumption at phone width labels its hours as the narrow ticks only (7, 13,
   19), no longer mixing in the wide ones (10:00, 16:00) between them.
 - Web UI: a History chart's legend reads Maximum, Average and Minimum in French, Spanish and Portuguese, the words a
