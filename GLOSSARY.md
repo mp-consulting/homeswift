@@ -159,6 +159,12 @@ discovered one. For devices discovery cannot find; with or without an account. A
 than found (a Helper, a Person) adds them through the same Setup, under its own words ("Add a Helper…").
 _Avoid_: Manual device, add manually, static device
 
+**Join**:
+A Setup that brings a new device into a plugin's own radio network (Zigbee, Z-Wave): the plugin opens the network,
+the person wakes the device (a reset, a button pressed three times), and it comes in as a device of the plugin, under the
+plugin's own words ("Add a Zigbee device…"). Forgetting it here leaves it in the network.
+_Avoid_: Pairing (HomeKit's), inclusion, permit join (the protocols' own words)
+
 **Device Kind**:
 What sort of device a plugin says a Discovered Device is, such as a camera or a sensor, which decides the Plugin
 Accessory Settings it has.

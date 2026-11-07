@@ -308,7 +308,8 @@ extension HomeswiftCatalog {
                     + "accountAuthorization says what the plugin's account needs (start_setup without a deviceID); accountState where it stands (none, setUp, notSetUp, refused); "
                     + "needsAuthorization that it must be set up (again) before the devices work; accountRequired false that the devices work without it, accountAdds what it adds. "
                     + "addByAddress true: the plugin also takes a device it cannot find, by its address (start_setup with addByAddress); with addLabel, "
-                    + "one it makes rather than finds (Add a Helper…: a sensor worked out from other accessories), its first prompt asking what it needs.",
+                    + "one it makes rather than finds (Add a Helper…: a sensor worked out from other accessories), its first prompt asking what it needs, "
+                    + "or one that joins the plugin's own radio network (Add a Zigbee device…: a buttonPress wait while the person resets the device).",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance)],
                 scope: .admin, readOnly: true
             ) { call in

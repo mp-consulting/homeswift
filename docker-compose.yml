@@ -25,3 +25,62 @@ services:
     # Hardware video encoding for UniFi Protect cameras on an Intel NAS (Quick Sync).
     # devices:
     #   - /dev/dri:/dev/dri
+
+  # Zigbee and Z-Wave beside the bridge (docs/zigbee-zwave.md): `docker compose --profile zigbee --profile zwave up -d`.
+  # In Container Manager, delete the `profiles:` lines of those you want. Add the devices from Add accessories:
+  # nothing else needs opening.
+
+  # The MQTT broker Zigbee2MQTT publishes on. Without a configuration file it answers only on the NAS itself
+  # (localhost:1883), which is where the bridge and Zigbee2MQTT look for it.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    profiles: [zigbee]
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /volume1/docker/mosquitto:/mosquitto/data
+
+  zigbee2mqtt:
+    image: ghcr.io/koenkk/zigbee2mqtt:latest
+    container_name: zigbee2mqtt
+    profiles: [zigbee]
+    network_mode: host
+    restart: unless-stopped
+    depends_on: [mosquitto]
+    environment:
+      TZ: Etc/UTC
+      # No onboarding page: the settings below are its configuration.
+      Z2M_ONBOARD_NO_SERVER: "1"
+      ZIGBEE2MQTT_CONFIG_MQTT_SERVER: mqtt://localhost:1883
+      ZIGBEE2MQTT_CONFIG_SERIAL_PORT: /dev/zigbee
+      # The adapter's chip, when Zigbee2MQTT does not recognise it: ember (Sonoff Dongle-E, SkyConnect), zstack
+      # (Sonoff Dongle-P), deconz (ConBee).
+      # ZIGBEE2MQTT_CONFIG_SERIAL_ADAPTER: ember
+      # Its own web page, for what Homeswift does not do (firmware updates, maps): http://<NAS>:8099.
+      ZIGBEE2MQTT_CONFIG_FRONTEND_ENABLED: "true"
+      ZIGBEE2MQTT_CONFIG_FRONTEND_PORT: "8099"
+    volumes:
+      - /volume1/docker/zigbee2mqtt:/app/data
+    devices:
+      # Your stick, by the name under /dev/serial/by-id (`ls /dev/serial/by-id` over SSH).
+      - /dev/serial/by-id/usb-ITead_Sonoff_Zigbee_3.0_USB_Dongle_Plus-if00-port0:/dev/zigbee
+
+  # zwave-js-server alone, without Z-Wave JS UI: Homeswift includes the devices. It announces itself over mDNS, so
+  # Add accessories finds it. Its network keys go in zwave.env, made once (docs/zigbee-zwave.md, "Z-Wave keys"):
+  # keep a copy, as a network cannot be read without them.
+  zwave-js:
+    image: ghcr.io/kpine/zwave-js-server:latest
+    container_name: zwave-js
+    profiles: [zwave]
+    network_mode: host
+    restart: unless-stopped
+    env_file: /volume1/docker/zwave-js/zwave.env
+    environment:
+      ENABLE_DNS_SD: "true"
+      # Your region: Europe, USA, USA (Long Range), Australia/New Zealand…
+      RF_REGION: Europe
+    volumes:
+      - /volume1/docker/zwave-js/cache:/cache
+    devices:
+      - /dev/serial/by-id/usb-Zooz_800_Z-Wave_Stick_533D004242-if00:/dev/zwave

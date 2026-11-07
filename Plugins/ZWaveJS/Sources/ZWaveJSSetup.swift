@@ -36,9 +36,11 @@ enum ZWaveDiscovery {
 // home id of its Z-Wave network), found over mDNS or added by its address (Add by address); its Setup checks the server
 // answers and keeps its `host` and `port` in its Accessory Settings. The nodes come with their server and need nothing
 // more: each is a device with its Device Kind (`light`, `cover`, `switch`, `lock`, `thermostat`, `sensor`, `button`),
-// which can be Excluded. Including a new node in the network stays in Z-Wave JS UI.
+// which can be Excluded. A new node is included from Add accessories (Join, ZWaveJSJoin.swift).
 extension ZWaveJSPlugin {
-    public static let newDevices: NewDevices? = .byAddress
+    /// Join (GLOSSARY.md): a device included into a network set up (ZWaveJSJoin.swift); with no network connected, or
+    /// when the person picks it, a zwave-js-server added by its address.
+    public static let newDevices: NewDevices? = .joined(label: "Add a Z-Wave device…")
 
     /// How long Setup's check of an address may take.
     static let probeTimeout: Duration = .seconds(8)
@@ -83,6 +85,7 @@ extension ZWaveJSPlugin {
             }
             return try await check(host: host, port: port, expected: device.deviceID.hasPrefix("address:") ? nil : device.deviceID)
         case .newDevice:
+            if request.answer("host") == nil, let step = try await joinStep(request) { return step }
             guard let host = request.answer("host") else {
                 // A server the network announces and that is not set up yet: its address filled in.
                 let found = await dependencies.browse(dependencies.setupDiscoveryWindow, logger).first { $0.homeID.map { servers[$0] == nil } ?? true }

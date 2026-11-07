@@ -540,6 +540,61 @@ struct Zigbee2MQTTTests {
         #expect(outcome.settings["mqtt"]?["password"] == nil)
     }
 
+    // MARK: Join
+
+    /// The permit_join requests published, as their `time`.
+    func permitJoins() -> [Int] {
+        environment.broker.published(on: "zigbee2mqtt/bridge/request/permit_join").compactMap { (try? JSONValue(string: $0))?["time"]?.intValue }
+    }
+
+    @Test func joinOpensTheNetworkUntilTheDeviceIsInterviewed() async throws {
+        #expect(Zigbee2MQTTPlugin.newDevices == .joined(label: "Add a Zigbee device…"))
+        let host = try await environment.started(devices: [Fixtures.light])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let wait, let state) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
+        #expect(wait.retryAfter == 2 && (wait.waitSeconds ?? 0) > 100 && wait.fields.isEmpty && wait.warning != nil)
+        #expect(await eventually { self.permitJoins() == [120] })
+        let request = try JSONValue(string: try #require(environment.broker.published(on: "zigbee2mqtt/bridge/request/permit_join").first))
+        #expect(request["value"] == true)
+        // Another device's interview is not the one Setup waits for.
+        environment.broker.receive("zigbee2mqtt/bridge/event", string: #"{"type":"device_joined","data":{"friendly_name":"0x00158d0001a2b3c4","ieee_address":"0x00158d0001a2b3c4"}}"#)
+        environment.broker.receive("zigbee2mqtt/bridge/event", string: #"{"type":"device_interview","data":{"friendly_name":"other","ieee_address":"0x0000000000000099","status":"successful","supported":true}}"#)
+        #expect(await eventually { await plugin.joining?.joined?.address == "0x00158d0001a2b3c4" })
+        guard case .ask(let reading, _) = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("no prompt"); return }
+        #expect(reading.values == ["name": "0x00158d0001a2b3c4"] && reading.retryAfter == 2)
+        environment.broker.receive("zigbee2mqtt/bridge/event", string: #"{"type":"device_interview","data":{"friendly_name":"0x00158d0001a2b3c4","ieee_address":"0x00158d0001a2b3c4","status":"successful","supported":true}}"#)
+        #expect(await eventually { await plugin.joining?.interviewed == true })
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("not done"); return }
+        #expect(outcome.deviceID == "0x00158d0001a2b3c4")
+        // The network closes once the device is in.
+        #expect(await eventually { self.permitJoins() == [120, 0] })
+        await #expect(throws: SetupError("Zigbee2MQTT closed its network: start again to add a device")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, state: state))
+        }
+    }
+
+    @Test func joinSaysWhenTheInterviewFails() async throws {
+        let host = try await environment.started(devices: [Fixtures.light])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        guard case .ask(_, let state) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
+        environment.broker.receive("zigbee2mqtt/bridge/event", string: #"{"type":"device_interview","data":{"friendly_name":"x","ieee_address":"0x01","status":"failed"}}"#)
+        #expect(await eventually { await plugin.joining?.failure != nil })
+        await #expect(throws: SetupError.self) { try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) }
+        #expect(await eventually { self.permitJoins() == [120, 0] })
+    }
+
+    @Test func joinNeedsTheBroker() async throws {
+        let plugin = Zigbee2MQTTPlugin(
+            configuration: try JSONDecoder().decode(Zigbee2MQTTPlugin.Configuration.self, from: Data(#"{"platform":"zigbee2mqtt"}"#.utf8)),
+            context: try #require(try await environment.start().context(platform: Zigbee2MQTTPlugin.platform, name: Zigbee2MQTTPlugin.name)),
+            dependencies: environment.dependencies)
+        await #expect(throws: SetupError("Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice))
+        }
+    }
+
     @Test func setupSaysWhenNoZigbee2MQTTAnswers() async throws {
         let host = try await environment.start()
         defer { Task { await host.stop() } }

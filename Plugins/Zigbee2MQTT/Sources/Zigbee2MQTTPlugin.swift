@@ -53,7 +53,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     let tasks = TaskBag()
     var settings: Settings?
     var log: Log
-    private var connection: (any MQTTConnection)?
+    var connection: (any MQTTConnection)?
     private var publisher: Publisher?
     /// By Device Id.
     var devices: [String: DeviceAccessory] = [:]
@@ -68,11 +68,13 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     /// The topic index and devices.json wait for the end of a sync, rather than following each device.
     private var topicsChanged = false
     private var entriesChanged = false
-    private var brokerDown = false
+    var brokerDown = false
     private var everConnected = false
     private var reportedDisconnection = false
     private var reportedUnreachable = false
     private var deviceListTimer: Task<Void, Never>?
+    /// A Join in progress: the network Zigbee2MQTT opened for Setup, and what came of it (Zigbee2MQTTJoin.swift).
+    var joining: Joining?
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -148,6 +150,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
+        joining?.closer?.cancel()
         tasks.cancelAll()
         deviceListTimer?.cancel()
         for device in devices.values { device.refresh?.cancel() }
@@ -248,6 +251,8 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
         case "bridge/groups": receivedGroups(message.payload)
         case "bridge/state": receivedBridgeState(message.payload)
         case "bridge/info": receivedInfo(message.payload)
+        case "bridge/event": receivedEvent(message.payload)
+        case "bridge/response/permit_join": receivedPermitJoin(message.payload)
         default:
             if topic.hasPrefix("bridge/") || topic.hasSuffix("/get") || topic.hasSuffix("/set") { return }
             if topic.hasSuffix("/availability") {

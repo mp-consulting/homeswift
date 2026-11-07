@@ -5,7 +5,8 @@ import HomeswiftAI
 // may talk to it (an `AuthorizationMethod`), and answers the steps of that Authorization (`authorize`). The bridge
 // holds each Setup in progress (a Setup Session), keeps what an Authorization gives in the vault, and writes the
 // settings it brings, so the web UI and MCP clients set up every plugin's devices the same way. A plugin whose devices
-// cannot be found (reached by address on the LAN) also takes one a person names (`newDevices`: Add by address, or a device it makes):
+// cannot be found (reached by address on the LAN) also takes one a person names (`newDevices`: Add by address, a device it
+// makes, or one that joins its own radio network):
 // its Setup is a device step whose target is `.newDevice`, the device's Device Id told by the outcome.
 
 /// The kinds of Authorization the bridge knows how to ask a person or an agent for.
@@ -35,11 +36,24 @@ public enum NewDevices: Sendable, Equatable {
     /// a Helper…", in English, with its French, Spanish and Portuguese in the web UI's catalogs (`TranslationTests` reads
     /// it from the source). Forgetting one deletes it: nothing finds it again.
     case made(label: String)
+    /// Join (GLOSSARY.md): a device the plugin brings into its own radio network (Zigbee2MQTT's permit join, Z-Wave's
+    /// inclusion). Setup opens the network and waits, as a Button Press does, while the person wakes the device; it ends
+    /// with the Device Id of the device that joined. `label` as for `made`: "Add a Zigbee device…". Forgetting one only
+    /// forgets it here: the network still has it, so it is found again.
+    case joined(label: String)
 
-    /// What adding one is called, for a device the plugin makes; nil for Add by address.
+    /// What adding one is called, for a device the plugin makes or that joins its network; nil for Add by address.
     public var label: String? {
-        if case .made(let label) = self { return label }
-        return nil
+        switch self {
+        case .made(let label), .joined(let label): label
+        case .byAddress: nil
+        }
+    }
+
+    /// A device the plugin makes: forgetting one deletes it, as nothing finds it again.
+    public var isMade: Bool {
+        if case .made = self { return true }
+        return false
     }
 }
 

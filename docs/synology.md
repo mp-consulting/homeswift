@@ -160,6 +160,9 @@ Package Center. Synology's package page lists the models that can run it.
 
 The same image and [docker-compose.yml](../docker-compose.yml) work on any Linux server with Docker.
 
+A Zigbee or Z-Wave USB stick on the NAS: the same docker-compose.yml runs Zigbee2MQTT and zwave-js-server beside the
+bridge ([zigbee-zwave.md](zigbee-zwave.md)).
+
 ### Install
 
 1. In **File Station**, create the folder `docker/homeswift` (the `docker` shared folder is created by
