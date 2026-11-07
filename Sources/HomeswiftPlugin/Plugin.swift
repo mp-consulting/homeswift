@@ -166,16 +166,11 @@ public protocol HomeswiftPlugin: Sendable {
     /// should and its settings say what setting it up brings.
     static var accountRequirement: AccountRequirement { get }
 
-    /// Whether a person can add a device the plugin does not find by itself, by its address (GLOSSARY.md, "Add by
-    /// address"): the Add accessories page offers "Add by address…" on the instance, and `start_setup` takes
-    /// `addByAddress`. Its Setup is `authorize` with `SetupRequest.Target.newDevice`, with or without an account.
-    /// Defaults to false.
-    static var addsDevicesByAddress: Bool { get }
-
-    /// What the web UI calls adding a device the plugin does not find, for a plugin whose new devices are not reached by an
-    /// address (`addsDevicesByAddress`): "Add a Helper…", in English, with its French, Spanish and Portuguese in the web UI's
-    /// catalogs (`TranslationTests` reads it from the source). Defaults to nil: "Add by address…".
-    static var newDeviceLabel: String? { get }
+    /// How a person adds a device the plugin does not find by itself (`NewDevices`): `.byAddress` (GLOSSARY.md, "Add by
+    /// address"), or `.made(label:)` for devices the plugin makes rather than finds (a Helper, a Person). The Add
+    /// accessories page offers it on the instance, and `start_setup` takes `addByAddress`. Its Setup is `authorize` with
+    /// `SetupRequest.Target.newDevice`, with or without an account. Defaults to nil: only the devices it finds.
+    static var newDevices: NewDevices? { get }
 
     /// The devices the plugin can find now, set up or not (GLOSSARY.md, "Discovered Device"): on the network, in the
     /// account, at the addresses its settings name. It may run on an instance that was not started, created only to set
@@ -246,8 +241,7 @@ extension HomeswiftPlugin {
     public func controlCamera(accessoryID: String, _ command: CameraCommand) async throws { throw CameraControlError("\(Self.name) does not move its cameras") }
     public static var accountAuthorization: AuthorizationMethod { .none }
     public static var accountRequirement: AccountRequirement { .required }
-    public static var addsDevicesByAddress: Bool { false }
-    public static var newDeviceLabel: String? { nil }
+    public static var newDevices: NewDevices? { nil }
     public func discover() async throws -> [DiscoveredDevice] { [] }
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
     public func accountAuthorized() async -> Bool? { nil }

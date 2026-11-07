@@ -489,7 +489,7 @@ struct APsystemsECUTests {
     }
 
     @Test func addByAddressAsksTheECUAndKeysItByItsID() async throws {
-        #expect(APsystemsECUPlugin.addsDevicesByAddress)
+        #expect(APsystemsECUPlugin.newDevices == .byAddress)
         let (host, context) = try await bareContext()
         defer { Task { await host.stop() } }
         let plugin = APsystemsECUPlugin(configuration: .init(), context: context, dependencies: .init(exchange: environment.ecu))

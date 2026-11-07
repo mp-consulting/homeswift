@@ -97,7 +97,7 @@ extension ReolinkPlugin {
     }
 
     /// A host the network does not show (another subnet, another MAC prefix) is added by its address.
-    public static let addsDevicesByAddress = true
+    public static let newDevices: NewDevices? = .byAddress
 
     /// A host: its address (when the device has none, as one added by its address), then the user name and password of a
     /// local user, checked with a login, `GetDevInfo` and `GetChannelstatus` before they are kept. Its host id is its

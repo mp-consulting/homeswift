@@ -62,7 +62,7 @@ extension V2CTrydanPlugin {
         fields: [SetupField("host", label: "IP address or host name")])
 
     /// A charger the plugin cannot find is added by its address (Add by address).
-    public static let addsDevicesByAddress = true
+    public static let newDevices: NewDevices? = .byAddress
 
     /// A charger asks nothing. Add by address asks for its host, reads it once, and keeps the host in its Accessory
     /// Settings under the Device Id it answered with (its `ID`, else one made of the host).

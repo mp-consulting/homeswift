@@ -305,7 +305,7 @@ actor AddressablePlugin: HomeswiftPlugin {
     static let platform = "Addressable"
     static let accountAuthorization = AuthorizationMethod.accountLogin
     static let accountRequirement = AccountRequirement.optional(adds: "Protects the webhooks with a password.")
-    static let addsDevicesByAddress = true
+    static let newDevices: NewDevices? = .byAddress
 
     let context: PluginContext
     init(configuration: Configuration, context: PluginContext) { self.context = context }
