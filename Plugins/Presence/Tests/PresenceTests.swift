@@ -53,7 +53,7 @@ final class TestEnvironment: Sendable {
 
     var registry: PluginRegistry {
         var registry = PluginRegistry()
-        registry.register(platform: PresencePlugin.platform, name: PresencePlugin.name, addsDevicesByAddress: true, addDeviceLabel: PresencePlugin.addDeviceLabel) { json, context in
+        registry.register(platform: PresencePlugin.platform, name: PresencePlugin.name, addsDevicesByAddress: true, newDeviceLabel: PresencePlugin.newDeviceLabel) { json, context in
             let configuration = try JSONDecoder().decode(PresencePlugin.Configuration.self, from: json)
             let clock = self.clock
             let plugin = PresencePlugin(configuration: configuration, context: context, dependencies: .init(source: self.source, timeScale: 0.0005, now: { clock.now }))
@@ -221,7 +221,7 @@ struct PresenceTests {
         #expect(second.warning?.contains("Fixed") == true)
         #expect(kept["name"] == "Alex")
 
-        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["devices": "\(phone),06-11-22-33-44-55"], state: kept)) else {
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["devices": "\(phone)\n06-11-22-33-44-55"], state: kept)) else {
             Issue.record("not done"); return
         }
         #expect(outcome.deviceID?.hasPrefix("person-") == true)

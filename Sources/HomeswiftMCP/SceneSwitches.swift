@@ -11,6 +11,9 @@ import HomeswiftPlugin
 // Each switch carries the scene's name in Name and Configured Name: the Home app keeps its own name for a paired
 // accessory's services and does not follow Name, but it follows Configured Name, and writes it when the switch is
 // renamed there, which renames the scene (homebridge-plugin-utils's `setServiceName` sets both the same way).
+//
+// An Automation whose `homeKit` is on is a switch of the same accessory (subtype `automation:<id>`): it shows whether the
+// Automation is on, and turning it off or on turns the Automation off or on; it never runs it.
 
 extension HomeswiftCatalog {
     static let sceneSwitchesID = "Homeswift:scenes"
@@ -19,19 +22,22 @@ extension HomeswiftCatalog {
     func syncSceneSwitches() {
         let server = host.mainBridge.server
         let chosen = home.scenes.value.scenes.filter { $0.homeKit == true }
+        let automations = home.automations.value.automations.filter { $0.homeKit == true }
         let existing = server.accessory(id: Self.sceneSwitchesID)
-        guard !chosen.isEmpty else {
+        guard !chosen.isEmpty || !automations.isEmpty else {
             if let existing { try? server.remove(existing) }
             return
         }
+        let wanted = Set(chosen.map { "scene:" + $0.id } + automations.map { "automation:" + $0.id })
+        let names = Dictionary(chosen.map { ("scene:" + $0.id, $0.name) } + automations.map { ("automation:" + $0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         // Same scenes, each switch with its Configured Name: a renamed scene's switch is renamed in place, so the
         // controllers following it get the new name as an event, and only the switches' states change.
-        if let existing, Set(existing.services.compactMap(\.subtype)) == Set(chosen.map { "scene:" + $0.id }),
+        if let existing, Set(existing.services.compactMap(\.subtype)) == wanted,
            existing.services.allSatisfy({ $0.subtype == nil || $0[.configuredName] != nil }) {
-            for scene in chosen {
-                guard let service = existing.services.first(where: { $0.subtype == "scene:" + scene.id }) else { continue }
-                for name in [service[.name], service[.configuredName]].compactMap({ $0 }) where name.value != .string(scene.name) {
-                    name.value = .string(scene.name)
+            for service in existing.services {
+                guard let subtype = service.subtype, let wantedName = names[subtype] else { continue }
+                for name in [service[.name], service[.configuredName]].compactMap({ $0 }) where name.value != .string(wantedName) {
+                    name.value = .string(wantedName)
                 }
             }
             refreshSceneSwitches()
@@ -66,7 +72,24 @@ extension HomeswiftCatalog {
             }
             return service
         }
-        let accessory = Accessory(id: Self.sceneSwitchesID, name: "Homeswift Scenes", manufacturer: "Homeswift", model: "Scenes", category: .switch, services: services)
+        let automationServices = automations.map { automation in
+            let service = Service(.switch, name: automation.name, subtype: "automation:" + automation.id, optional: [.configuredName])
+            service.characteristic(.configuredName).value = .string(automation.name)
+            service.characteristic(.on).value = .bool(automation.isEnabled)
+            let id = automation.id
+            service.characteristic(.configuredName).onWrite { value in
+                guard let name = value.stringValue.flatMap(AccessoryNaming.cleaned) else { return }
+                catalog.recordAutomation(id) { $0.name = name }
+                catalog.syncSceneSwitches()
+            }
+            // Turns the Automation on or off; it runs only when its triggers fire.
+            service.characteristic(.on).onWrite { value in
+                do { try catalog.setAutomationEnabled(id, value.boolValue ?? false) } catch { catalog.logger.warning("The Home app's switch for an automation did nothing: \(error)") }
+            }
+            return service
+        }
+        // Its name and id stay what they were: the Home app keeps the accessory, its rooms and its scenes.
+        let accessory = Accessory(id: Self.sceneSwitchesID, name: "Homeswift Scenes", manufacturer: "Homeswift", model: "Scenes", category: .switch, services: services + automationServices)
         do {
             try server.add(accessory)
         } catch {
@@ -83,6 +106,10 @@ extension HomeswiftCatalog {
                 guard let on = switches["scene:" + scene.id]?[.on] else { continue }
                 let value = HAPValue.bool(sceneSwitchIsOn(scene))
                 if on.value != value { on.value = value }
+            }
+            for automation in home.automations.value.automations where automation.homeKit == true {
+                guard let on = switches["automation:" + automation.id]?[.on] else { continue }
+                if on.value != .bool(automation.isEnabled) { on.value = .bool(automation.isEnabled) }
             }
         }
     }

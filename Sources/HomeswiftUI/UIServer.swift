@@ -147,6 +147,10 @@ public final class UIServer: Sendable {
             }
         let bound = try await bootstrap.bind(host: configuration.host, port: configuration.port).get()
         channel.withLockedValue { $0 = bound }
+        // The address notifications' links use unless the Notifications page sets one: this machine's on the network.
+        let port = bound.localAddress?.port ?? configuration.port
+        let lan = configuration.host == "0.0.0.0" ? NetworkInterfaces.ipv4().first(where: { $0.address >> 24 != 127 }).map { IPv4Network.dotted($0.address) } : configuration.host
+        catalog.setUIAddress(lan.map { "\(configuration.scheme)://\($0):\(port)" })
         startSchedules()
         logger.info("Web UI listening", metadata: ["url": "\(configuration.scheme)://\(configuration.host):\(bound.localAddress?.port ?? configuration.port)/", "auth": "\(configuration.auth.rawValue)"])
         if let live {
@@ -240,6 +244,18 @@ public final class UIServer: Sendable {
         let parts = path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
         if parts == ["robots.txt"] { return .text("User-agent: *\nDisallow: /\n", contentType: "text/plain; charset=utf-8") }
         if let reply = await oauthEndpoint(parts, request) { return reply }
+        // A notification's button (an ntfy http action, a Web Push action): its single-use token is its only credential,
+        // as the OAuth endpoints' are theirs, so it takes no cookie and no Origin. Never a lock, a door or an alarm.
+        if parts.count == 3, parts[0] == "notify", parts[1] == "act" {
+            guard request.method == .POST else { return .error(405, "POST a button") }
+            do {
+                return .json(try await catalog.pressNotificationToken(parts[2]))
+            } catch let error as CatalogError {
+                return .error(error.notFound ? 410 : 403, error.description)
+            } catch {
+                return .error(500, "\(error)")
+            }
+        }
         guard parts.first == "api" else { return page(for: parts, request) }
         let route = Array(parts.dropFirst())
         if route.first == "auth" { return await auth(route.dropFirst().first ?? "", request) }
@@ -459,7 +475,8 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
             // The rooms, zones, scenes and Quick Controls the Accessories and Status pages show, and whether the rooms are
             // Apple Home's; this browser's Web Push.
-            if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["notifications", "push"]].contains(route) { return .read }
+            if [["layout"], ["rooms"], ["zones"], ["home-link"], ["scenes"], ["scenes", "templates"], ["automations"], ["notifications", "push"]].contains(route) { return .read }
+            if route.count == 3, route[0] == "notifications", route[1] == "actions" { return .read }
             if route == ["assistant", "chat"] || route == ["assistant", "models"] { return .control }
             // Today's digest, as the Status page's widget shows it (writing one is an administrator's); each user's
             // own conversations and appearance.
@@ -482,10 +499,14 @@ public final class UIServer: Sendable {
             // Running a scene is controlling its accessories (locks and the like still ask first); a browser turns
             // its own notifications on and off.
             if route.count == 3, route[0] == "scenes", route[2] == "run" { return .control }
+            // Running an Automation by hand is controlling what its Steps set (never a lock, a door or an alarm).
+            if route.count == 3, route[0] == "automations", route[2] == "run" { return .control }
             // Trying a template or a description, and putting the lights back after any run, is controlling lights;
             // saving a scene is an administrator's.
             if route == ["scenes", "try"] || (route.count == 3 && route[0] == "scenes" && route[2] == "stop") { return .control }
             if route == ["notifications", "push", "subscribe"] || route == ["notifications", "push", "unsubscribe"] { return .control }
+            // A notification's button, on its confirmation page.
+            if route.count == 4, route[0] == "notifications", route[1] == "actions" { return .control }
             // Approving an OAuth client: the token it gets is capped by the user's role.
             if route == ["oauth", "decision"] { return .control }
         case .DELETE:

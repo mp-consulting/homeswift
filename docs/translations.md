@@ -143,6 +143,7 @@ HomeswiftUI, JSON, MCP, OAuth, plugins' and brands' names, units.
 | Settings | Réglages | Ajustes | Definições |
 | Appearance | Apparence | Apariencia | Aspeto |
 | the Assistant | l'Assistant | el Asistente | o Assistente |
+| Helper (an accessory the bridge derives) | auxiliaire | ayudante | auxiliar |
 | sign in / sign out | se connecter / se déconnecter | iniciar sesión / cerrar sesión | iniciar sessão / terminar sessão |
 | account | compte | cuenta | conta |
 | username | nom d'utilisateur | nombre de usuario | nome de utilizador |

@@ -60,6 +60,26 @@ extension HomeswiftCatalog {
         return .object(object)
     }
 
+    /// `field` offering `choices` (`HomeswiftPlugin.accessorySettingChoices`): its own, or its items' for a list, as a
+    /// `oneOf` of titled values, which the editor shows as a menu or checkboxes.
+    static func withChoices(_ field: JSONValue, _ choices: [SetupOption]) -> JSONValue {
+        guard var object = field.objectValue else { return field }
+        let oneOf = JSONValue.array(choices.map { choice in
+            // The title as it is (an accessory's name), the detail words the web UI's catalogs translate: "title · detail".
+            var option: [String: JSONValue] = ["enum": [.string(choice.value)], "title": .string(choice.label), "x-catalog": true]
+            if let detail = choice.detail { option["x-detail"] = .string(detail) }
+            return .object(option)
+        })
+        if object["type"] == "array" {
+            var items = object["items"]?.objectValue ?? ["type": "string"]
+            items["oneOf"] = oneOf
+            object["items"] = .object(items)
+        } else {
+            object["oneOf"] = oneOf
+        }
+        return .object(object)
+    }
+
     /// A field as `JSONSchema` checks it: Homebridge's keys made standard, the `x-` ones left out.
     static func checkable(_ field: JSONValue) -> JSONValue {
         guard var object = field.objectValue else { return field }
@@ -124,6 +144,10 @@ extension HomeswiftCatalog {
             default:
                 guard let field = fields[key] else {
                     if strict { problems.append(.init(path: at, message: "is not an Accessory Setting the plugin declares (its schema's accessorySchema)")) }
+                    continue
+                }
+                if strict, field["readOnly"]?.boolValue == true {
+                    problems.append(.init(path: at, message: "is set when the accessory is added and cannot change"))
                     continue
                 }
                 if strict, let kind, let kinds = kinds(of: field), !kinds.contains(kind) {
@@ -237,8 +261,12 @@ extension HomeswiftCatalog {
         for (key, field) in accessoryFields(for: target.platform) {
             if let kind, let kinds = Self.kinds(of: field), !kinds.contains(kind) { continue }
             if kind == nil, Self.kinds(of: field) != nil, !(block["_accessories"]?[target.deviceKey]?[key].map { !$0.isNull } ?? false) { continue }
-            // Its choices for this device's kind only (`x-kinds` on a choice).
-            var entry: [String: JSONValue] = ["core": false, "schema": kind.map { Self.forKind(field, kind: $0) } ?? field]
+            // Its choices for this device's kind only (`x-kinds` on a choice), or those the plugin gives for this device.
+            var schema = kind.map { Self.forKind(field, kind: $0) } ?? field
+            if let choices = await host.accessorySettingChoices(platform: target.platform, name: target.instance, key: key, deviceID: target.deviceKey) {
+                schema = Self.withChoices(schema, choices)
+            }
+            var entry: [String: JSONValue] = ["core": false, "schema": schema]
             if let setting = field["x-default"]?.stringValue {
                 entry["default"] = ["setting": .string(setting), "value": block[setting] ?? .null]
             }

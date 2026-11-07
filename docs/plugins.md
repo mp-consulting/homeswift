@@ -137,6 +137,13 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   plugin publishes on it, and the web UI, Automations and notifications read it and follow its `PresenceEvent`s (a Person
   arriving or leaving, Anyone Home changing). `context.webUsers` lists the web UI's users, for a plugin that links
   something to one of them (a Person to the user they are); empty without a web UI.
+- **Other plugins' accessories.** `context.hostAccessories` is every accessory on the bridge, main and child bridges and
+  those published on their own, whichever plugin added it; `context.hostAccessory(id:)` finds one by its id.
+  `context.observeHostChanges { accessory, characteristic, value in … }` calls back on every change of any of them and
+  `context.observeHostStructure { … }` when one is added, replaced or removed, until the `Observation` is cancelled in
+  `stop()`; both call back on the thread that made the change, so hand the work on (an `AsyncStream` read by a task of
+  the plugin's). Read a source by its accessory id and a characteristic's iid, which stay the same across restarts, and
+  show No Response (`accessory.isUnreachable`) while one is missing or `showsNoResponse`. `Plugins/Helpers` is the example.
 - **History and energy.** `context.recordValue(_:series:)` records a reading for the Status page's history (a minute
   keeps its count, sum, lowest and highest, for 8 days; `/api/metrics/values?series=plugin:<platform>:<series>`
   answers it over a range, for a plugin's page; several series separated by commas answer at once, by name, under
@@ -448,10 +455,9 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   keeps it once done. A short list of fixed answers (EcoFlow's region) is a choice too, not text to type. A country or a language is a
   choice of `SetupOption.countries()` (each country's ISO code, or what the plugin sends for it, such as eWeLink's
   calling codes) or `SetupOption.languages()`: the web UI shows a long choice as a menu, named in the reader's language.
-  Several to pick (a Person's devices among those on the network) is `SetupField.choices(_:label:options:picked:)`, a
-  checkbox per option; `request.choices(_:)` reads the values picked (an MCP client passes them as an array). A prompt's
-  `warning` is a caution the sheet shows apart from its message (a phone's private Wi-Fi address set to Fixed), in English
-  with its translations as the message's.
+  A prompt's `warning` is a caution the sheet shows apart from its message (a phone's private Wi-Fi address set to
+  Fixed), and an option's `badge` a word set apart beside its label ("Private address"), in English with their
+  translations as the message's.
 - **What it gives**: `SetupOutcome.credentials` (tokens, keys, a device's password) go to the vault, read back with
   `context.credentials(for:as:)`; `settings` are merged into the block for the account (a `null` takes a key out,
   one the credentials now hold) or into the device's Accessory Settings; `deviceID` names the device when the
@@ -486,8 +492,7 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   did not work ("No light answered at 192.0.2.50:9123"), which the sheet shows and asks again. A device added this way is
   included (an Excluded one is no longer), and the plugin reloads and reaches it from `context.allAccessorySettings`;
   `discover()` lists it, set up, like a discovered one. The plugin's own Homebridge-shaped address list (Elgato's
-  `addresses`) keeps working beside it. A plugin whose devices are not named by an address calls it its own way with `static let addDeviceLabel`
-  ("Add a Person", translated in the web UI's catalogs), as Presence does. `Plugins/ElgatoKeyLights/Sources/ElgatoSetup.swift` is the example:
+  `addresses`) keeps working beside it. `Plugins/ElgatoKeyLights/Sources/ElgatoSetup.swift` is the example:
 
   ```swift
   public static let addsDevicesByAddress = true
@@ -507,6 +512,12 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
 
   Its prompt and errors are English, with their French, Spanish and Portuguese in the web UI's catalogs, as every
   prompt's (an error with a value is a `{placeholder}` key there: `"No light answered at {address}"`).
+- **Devices without an address.** A plugin whose new devices are made rather than found (a Helper) sets
+  `addsDevicesByAddress` and `static let newDeviceLabel: String? = "Add a Helper…"`: the Add accessories page and the
+  plugin's settings offer that instead of **Add by address…**, and its first step asks what the plugin needs. The label is
+  translated in the web UI's catalogs, as a summary is.
+- **Several of a list.** `SetupField.choices(_:label:options:values:)` lets the person pick several options (a Helper's
+  sensors), as checkboxes; `request.answers(_:)` reads them, one value per line (an MCP client may pass a list).
 - **Its page** leads to Setup (`homeswift.setupCard`, docs/ui.md) rather than signing in or pairing itself.
 
 ### Settings
@@ -559,6 +570,10 @@ Two hooks, both optional, help the settings editor and the writers:
 
 - **`deviceKind(of deviceID:) async -> String?`**: the Device Kind of one of the running instance's devices, for the
   fields to show (`x-kinds`). nil (the default) falls back on the kind the last discovery gave (`DiscoveredDevice.kind`).
+- **`accessorySettingChoices(_ key:deviceID:) async -> [SetupOption]?`**: the choices of a Plugin Accessory Setting that
+  depend on the home rather than on the schema (the accessories a Helper reads), for one device. The settings editor
+  shows them as the field's choices, a menu or, for a list, checkboxes; the writers still check the schema's own
+  declaration, so the plugin checks what it reads. nil (the default) leaves the schema's.
 - **`canonicalSettings(_ block: JSONValue) async -> JSONValue`**: the block in its canonical shape. The bridge asks the
   running instance just before each settings write to the block (`update_settings` and the web UI's settings, Setup's
   last step, Exclude and Include) and writes what it answers. Turn the plugin's Homebridge shapes (a `devices` list,

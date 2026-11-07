@@ -200,9 +200,9 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `get_logbook`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs`, `get_diagnostics` |
-| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection`, `update_tariffs` (with `dryRun`) |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `get_logbook`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_settings`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_automations`, `list_hub_automations`, `get_assistant_usage`, `get_daily_digest`, `get_consumption`, `get_tariffs`, `get_diagnostics` |
+| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene`, `run_automation` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `update_settings` (with `dryRun`), `forget_device` (with `dryRun`), `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `save_automation` (with `dryRun`; asks first when it names a lock, garage door or alarm), `delete_automation`, `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `update_hub_automation` (with `dryRun`), `delete_hub_automation`, `send_test_notification`, `truncate_logs`, `test_assistant_connection`, `update_tariffs` (with `dryRun`) |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -310,8 +310,17 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   security control. With the accessories' rooms,
   that is what the Assistant needs to compose a wall ("arrange my wall by room"). An open Accessories page draws
   the wall again when it or the rooms change, whoever changed them (a `layout` event on the web UI's event stream).
-- **Scenes.** `list_scenes` lists the web UI's scenes with their room, whether they are active now, their actions,
-  triggers, conditions and last run, and `"security": true` on one that changes a lock, a garage door or an alarm;
+- **Automations** (GLOSSARY.md; [docs/ui.md](ui.md#automations)). `list_automations` lists each Automation's triggers
+  (`time`, `sun`, `cron`, `characteristic`, `stays` with `forSeconds`, `threshold` with `direction`), conditions,
+  steps (`scene`, `set`, `wait`, `waitUntil`, `notify` with up to three `buttons`, `tool`), `mode` (`restart` or `single`), whether it is on, whether
+  it touches a lock, a garage door or an alarm (`security`) and its last run with each step's result, and the plugins'
+  actions a `tool` step may call (`tools`: those that need no confirmation, with their input schemas).
+  `save_automation` creates one or, with its `id`, changes it; its arguments are checked as the page's are (`dryRun`
+  checks without saving), and one that names a security accessory asks the user first. `run_automation` runs the steps
+  now, whatever the triggers and conditions, and answers the run. `delete_automation` asks first. An Automation never
+  sets a lock, a garage door or an alarm: such a step is skipped, and the run says so.
+- **Scenes.** `list_scenes` lists the web UI's scenes with their room, whether they are active now, their actions
+  and last run (what runs them on their own is an Automation's), and `"security": true` on one that changes a lock, a garage door or an alarm;
   and `pluginScenes`, the scenes plugins' hubs keep (a Hue Bridge's, a DIRIGERA hub's, a Govee light's picks), with
   their room, source and whether the hub says they are on. `run_scene` (an id or a name) runs either kind, or a
   `plan` the client composes (values to set and hubs' scenes to recall, `{"recall": id}`), which runs at once and is

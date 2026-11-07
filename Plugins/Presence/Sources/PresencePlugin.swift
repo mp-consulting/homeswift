@@ -43,7 +43,7 @@ public actor PresencePlugin: HomeswiftPlugin {
     public static let icon: String? = "users"
     public static let summary: String? = "Who is home, from the phones on the network"
     public static let addsDevicesByAddress = true
-    public static let addDeviceLabel: String? = "Add a Person"
+    public static let newDeviceLabel: String? = "Add a Person…"
 
     /// Anyone Home's Device Id.
     static let anyoneID = "anyone"

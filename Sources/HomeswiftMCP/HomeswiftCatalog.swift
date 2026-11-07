@@ -604,35 +604,43 @@ public struct HomeswiftCatalog: Sendable {
         let configured = Set(host.configuration.platforms.map(\.platform))
         let running = host.platforms
         let accounts = await host.accountStates()
-        return [
-            "platforms": .array(running.map { instance in
-                let account = accounts["\(instance.platform)/\(instance.name)"] ?? AccountState.none
-                let requirement = host.registry.entry(for: instance.platform)?.accountRequirement ?? .required
-                // Paused, its accessories show No Response by design: only a running one is looked at.
-                let accessories = instance.paused ? [] : host.context(platform: instance.platform, name: instance.name)?.accessories ?? []
-                return [
-                    "platform": .string(instance.platform), "name": .string(instance.name), "plugin": .string(instance.pluginName), "bridge": .string(instance.bridge.name),
-                    "accessories": .number(Double(instance.accessoryIDs.count)), "paused": .bool(instance.paused),
-                    "accountState": .string(account.rawValue), "needsAuthorization": .bool(!instance.paused && account.needsAuthorization(requirement)),
-                    "noneResponding": .bool(!accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
-                ]
-            }),
-            "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
-            // The Assistant is a runtime block, not a compiled-in plugin, but it can be added, so it is listed as one.
-            "plugins": .array(host.registry.entries.map { entry -> JSONValue in
-                // Typed apart: the literal below is at the edge of what the type checker takes on Linux.
-                let addLabel: JSONValue = entry.addDeviceLabel.map(JSONValue.string) ?? .null
-                return [
-                    "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
-                    "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
-                    "accountAuthorization": .string(entry.accountAuthorization.rawValue),
-                    "accountRequired": .bool(entry.accountRequirement.isRequired), "accountAdds": entry.accountRequirement.adds.map(JSONValue.string) ?? .null,
-                    "addByAddress": .bool(entry.addsDevicesByAddress), "addLabel": addLabel,
-                    "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
-                ]
-            } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
-                                                                              "icon": .string(Self.assistantIcon), "summary": .string(Self.assistantSummary), "tools": .array([])]] : [])),
-        ]
+        let platforms: [JSONValue] = running.map { instance in
+            let account = accounts["\(instance.platform)/\(instance.name)"] ?? AccountState.none
+            let requirement = host.registry.entry(for: instance.platform)?.accountRequirement ?? .required
+            // Paused, its accessories show No Response by design: only a running one is looked at.
+            let accessories = instance.paused ? [] : host.context(platform: instance.platform, name: instance.name)?.accessories ?? []
+            let fields: [String: JSONValue] = [
+                "platform": .string(instance.platform), "name": .string(instance.name), "plugin": .string(instance.pluginName), "bridge": .string(instance.bridge.name),
+                "accessories": .number(Double(instance.accessoryIDs.count)), "paused": .bool(instance.paused),
+                "accountState": .string(account.rawValue), "needsAuthorization": .bool(!instance.paused && account.needsAuthorization(requirement)),
+                "noneResponding": .bool(!accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
+            ]
+            return .object(fields)
+        }
+        let unknown: [JSONValue] = configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)
+        var plugins: [JSONValue] = host.registry.entries.map { entry in
+            let tools: [JSONValue] = entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }
+            var fields: [String: JSONValue] = [
+                "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
+                "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
+                "accountAuthorization": .string(entry.accountAuthorization.rawValue),
+            ]
+            fields["accountRequired"] = .bool(entry.accountRequirement.isRequired)
+            fields["accountAdds"] = entry.accountRequirement.adds.map(JSONValue.string) ?? .null
+            fields["addByAddress"] = .bool(entry.addsDevicesByAddress)
+            fields["addLabel"] = entry.newDeviceLabel.map(JSONValue.string) ?? .null
+            fields["tools"] = .array(tools)
+            return .object(fields)
+        }
+        // The Assistant is a runtime block, not a compiled-in plugin, but it can be added, so it is listed as one.
+        if host.registry.entry(for: AIConfiguration.platform) == nil {
+            let assistant: [String: JSONValue] = [
+                "platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
+                "icon": .string(Self.assistantIcon), "summary": .string(Self.assistantSummary), "tools": .array([]),
+            ]
+            plugins.append(.object(assistant))
+        }
+        return .object(["platforms": .array(platforms), "unknownPlatforms": .array(unknown), "plugins": .array(plugins)])
     }
 
     /// What does not change while the process runs, read once: `ProcessInfo.hostName` can block on a DNS lookup.
@@ -1323,7 +1331,7 @@ public struct HomeswiftCatalog: Sendable {
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
                 return .json(try await catalog.restoreConfigBackup(backup))
             },
-        ] + hostTools + historyTools + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + diagnosticsTools + pluginActionTools
+        ] + hostTools + historyTools + automationToolsList + adminTools + layoutTools + homeLinkTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + diagnosticsTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
@@ -1392,14 +1400,26 @@ public struct HomeswiftCatalog: Sendable {
 
     /// The plugins' `assistantActions`, as `<platform>_<action>` tools on a running instance. Their answers
     /// reach the client with secrets as handles of the session's vault.
+    /// A plugin action's arguments, with `instance` for a platform run in several blocks.
+    static func actionInputSchema(_ action: AssistantAction, platform: String) -> JSONValue {
+        var schema = action.inputSchema.objectValue ?? ["type": "object"]
+        var properties = schema["properties"]?.objectValue ?? [:]
+        properties["instance"] = ["type": "string", "description": .string("The block's name, when \(platform) has several")]
+        schema["properties"] = .object(properties)
+        return .object(schema)
+    }
+
+    /// The block a plugin action runs on: the one named, else the only one; nil with the running ones to choose from.
+    func actionInstance(platform: String, wanted: String?) -> (instance: PluginHost.PlatformInstance?, running: [PluginHost.PlatformInstance]) {
+        let instances = host.platforms.filter { $0.platform == platform }
+        return (wanted.map { name in instances.first { $0.name == name } } ?? (instances.count == 1 ? instances.first : nil), instances)
+    }
+
     var pluginActionTools: [MCPTool] {
         let catalog = self
         return host.registry.entries.flatMap { entry in
             entry.assistantActions.map { action in
-                var schema = action.inputSchema.objectValue ?? ["type": "object"]
-                var properties = schema["properties"]?.objectValue ?? [:]
-                properties["instance"] = ["type": "string", "description": .string("The block's name, when \(entry.platform) has several")]
-                schema["properties"] = .object(properties)
+                let schema = Self.actionInputSchema(action, platform: entry.platform)
                 let scope: Scope = switch action.access {
                 case .read: .read
                 case .control: .control
@@ -1407,11 +1427,10 @@ public struct HomeswiftCatalog: Sendable {
                 }
                 return MCPTool(
                     name: Self.actionToolName(platform: entry.platform, action: action.name), title: action.title, description: "\(entry.name): \(action.description)",
-                    inputSchema: .object(schema), scope: scope, readOnly: action.access == .read, destructive: action.confirm
+                    inputSchema: schema, scope: scope, readOnly: action.access == .read, destructive: action.confirm
                 ) { call in
-                    let instances = catalog.host.platforms.filter { $0.platform == entry.platform }
-                    let wanted = call.optionalString("instance")
-                    guard let instance = wanted.map({ name in instances.first { $0.name == name } }) ?? (instances.count == 1 ? instances.first : nil) else {
+                    let (found, instances) = catalog.actionInstance(platform: entry.platform, wanted: call.optionalString("instance"))
+                    guard let instance = found else {
                         return .error(instances.isEmpty
                             ? "No \(entry.name) block is running: add one first (patch_config with platform \(entry.platform))."
                             : "Say which instance: \(instances.map(\.name).joined(separator: ", ")).")

@@ -93,6 +93,11 @@ One continuous period of Return Audio on a live stream, from its first packet to
 its camera's speaker.
 _Avoid_: Intercom session, talk session
 
+**Helper**:
+An accessory whose state the bridge derives from other accessories, such as a sensor crossing a threshold or the
+average of several. It has no device behind it.
+_Avoid_: Virtual sensor, template, derived accessory, Dummy
+
 ## Home
 
 **Home**:
@@ -236,6 +241,29 @@ _Avoid_: User, member, occupant, host
 **Anyone Home**:
 Whether at least one Person is home.
 _Avoid_: Occupancy, somebody home, home mode
+
+## Automations
+
+**Scene**:
+A set of values for accessories, applied together by hand, from the Home app or by an Automation. A Scene has no
+trigger of its own.
+_Avoid_: Preset, mood, routine
+
+**Automation**:
+What the bridge does on its own: a Trigger, Conditions, and Steps run in order.
+_Avoid_: Rule, routine, scene trigger, script
+
+**Trigger**:
+What starts an Automation: a time, the sun, a schedule, an accessory's change, or a Person arriving or leaving.
+_Avoid_: Event, when
+
+**Condition**:
+What must hold when a Trigger fires for its Automation to run: a time window or an accessory's value.
+_Avoid_: Filter, guard, if
+
+**Step**:
+One thing an Automation does: apply a Scene, set a value, wait, wait until, notify, or call a plugin's action.
+_Avoid_: Action, task
 
 ## History
 

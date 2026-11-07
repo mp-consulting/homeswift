@@ -17,8 +17,17 @@ All notable changes to this project are documented here. The format follows
   sees "You are home" on the Status page and Account. Who is home is on the host's `PresenceBoard`
   (`context.presence`, `GET /api/presence` for the signed-in user's own Persons), with arrivals, departures and Anyone
   Home's changes for Automations' Triggers. In Docker it needs host networking.
-- Setup: a field of several options to pick (`SetupField.choices`, `request.choices`), a prompt's `warning`, and a plugin's
-  own name for Add by address (`addDeviceLabel`).
+- Setup: a prompt's `warning` and an option's `badge`.
+- Helpers, a new core plugin: accessories whose state the bridge derives from other accessories, with no device behind
+  them. A Threshold is on while a reading is above or below a value, with an off value for hysteresis; a Combine shows
+  the lowest, highest or average temperature, humidity, light level or power of several sensors; a Stays is on once
+  something has been in a state for longer than a duration (a door open for more than 10 minutes). Add one with **Add a
+  Helper…** on the Add accessories page, and change its sources and values in its settings. A source missing or not
+  responding makes the Helper No Response.
+- Plugins: `context.hostAccessories`, `observeHostChanges` and `observeHostStructure` read every accessory on the
+  bridge and follow their changes; `newDeviceLabel` names Add by address for devices that have no address;
+  `accessorySettingChoices` gives a Plugin Accessory Setting choices that depend on the home; Setup has a `choices`
+  field, several options picked.
 - Web UI on a phone: the Accessories page's tools are one bar at the bottom, beside the sections' button and in reach of
   the thumb, in both views: Wall and Graph, then round buttons for the search (it opens over the row and rises with the
   keyboard), Filters with its count, Edit and the options (Full screen and Add accessories are in their menu on the wall).
@@ -63,6 +72,17 @@ All notable changes to this project are documented here. The format follows
   masked, the accessories' services and current values, the plugin's last 1,000 log lines redacted, and its errors and
   warnings over the last week. Names are kept. MCP clients get the same bundle from `get_diagnostics`, administrators
   only.
+- Automations (`/automations`, beside Scenes): Triggers (a time, the sun, cron, an accessory's change, a value that
+  stays so for a while, a number crossing a threshold), Conditions, and Steps run in order (apply a Scene, set a value,
+  wait, wait until, notify, a plugin's action that needs no confirmation), in Restart or Single mode. Locks, garage doors
+  and alarms are never set by one. An Automation may be a switch on the Homeswift Scenes accessory, which turns it on and
+  off. The Assistant drafts one from a sentence, for review. MCP: `list_automations`, `save_automation`,
+  `run_automation`, `delete_automation`.
+- Actionable notifications: an Automation's Notify Step carries up to three buttons (apply a Scene, set a value, open a
+  page), each a single-use token valid 15 minutes: ntfy actions, a Telegram inline keyboard (its callbacks read with
+  getUpdates), Web Push actions in Chromium; elsewhere, and for a lock, a garage door or an alarm, a tap opens a
+  confirmation page behind sign-in (`/notify/<id>`). Notifications' taps open their page on ntfy and Pushover too, at the
+  new **Address in notifications**.
 - ESPHome: passive Bluetooth LE sensors through ESPHome's Bluetooth proxies: BTHome v2 (open, or encrypted with a
   bindkey), Xiaomi MiBeacon (LYWSD03MMC and others on stock firmware, with their bindkey) and Govee thermometers (H5072,
   H5074, H5075, the H5100 family, H5179). Each sensor heard is a Discovered Device of the kind `sensor` in Add
@@ -72,6 +92,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
+  values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
+  Step applies it. A Scene saved with `triggers` or `conditions` is refused.
 - The Location is a Bridge Setting: where the home is, for scenes' sunrise and sunset and for plugins
   (`context.location`). Its map editor moved from the Scenes page to Settings, Bridge; config.json keeps it as
   `bridge.location`, changed without a restart, and `get_settings` and `update_settings` reach it with `bridge: true`.

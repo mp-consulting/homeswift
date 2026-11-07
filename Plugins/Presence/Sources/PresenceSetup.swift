@@ -40,7 +40,7 @@ extension PresencePlugin {
         var settings: [String: JSONValue] = ["name": .string(name)]
         if let user { settings["user"] = .string(user) }
 
-        let picked = request.choices("devices").compactMap(MACAddress.canonical)
+        let picked = request.answers("devices").compactMap(MACAddress.canonical)
         guard !picked.isEmpty else {
             let devices = await dependencies.source.devices()
             guard !devices.isEmpty else { throw SetupError("No device answered on the network: check that the bridge runs on the same network as the phones (in Docker, with host networking)") }

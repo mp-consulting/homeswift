@@ -172,9 +172,10 @@ public protocol HomeswiftPlugin: Sendable {
     /// Defaults to false.
     static var addsDevicesByAddress: Bool { get }
 
-    /// What Add by address is called for this plugin's devices, when "Add by address" does not say it: "Add a Person". In
-    /// English, translated by the web UI's catalogs. Defaults to nil.
-    static var addDeviceLabel: String? { get }
+    /// What the web UI calls adding a device the plugin does not find, for a plugin whose new devices are not reached by an
+    /// address (`addsDevicesByAddress`): "Add a Helper…", in English, with its French, Spanish and Portuguese in the web UI's
+    /// catalogs (`TranslationTests` reads it from the source). Defaults to nil: "Add by address…".
+    static var newDeviceLabel: String? { get }
 
     /// The devices the plugin can find now, set up or not (GLOSSARY.md, "Discovered Device"): on the network, in the
     /// account, at the addresses its settings name. It may run on an instance that was not started, created only to set
@@ -200,6 +201,12 @@ public protocol HomeswiftPlugin: Sendable {
     /// running instance; answer from what it already knows. Defaults to nil: the kind its last discovery gave
     /// (`DiscoveredDevice.kind`), else every field.
     func deviceKind(of deviceID: String) async -> String?
+
+    /// The choices of one of its Plugin Accessory Settings for one of its devices, when they depend on the home rather than
+    /// on the schema (the accessories a Helper reads): the settings editor shows them as the field's choices, a menu or, for
+    /// a list, checkboxes. Asked of the running instance each time the settings are read; answer from what it knows. The
+    /// writers still check the schema's own declaration, so the plugin checks what it reads. Defaults to nil: the schema's.
+    func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]?
 
     /// The block in its canonical shape (docs/adr/0001-canonical-accessory-settings.md): the plugin's Homebridge shapes
     /// (a `devices` list, exclude lists by name or id, typed arrays, feature-option strings) turned into Accessory Settings
@@ -240,12 +247,13 @@ extension HomeswiftPlugin {
     public static var accountAuthorization: AuthorizationMethod { .none }
     public static var accountRequirement: AccountRequirement { .required }
     public static var addsDevicesByAddress: Bool { false }
-    public static var addDeviceLabel: String? { nil }
+    public static var newDeviceLabel: String? { nil }
     public func discover() async throws -> [DiscoveredDevice] { [] }
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
     public func accountAuthorized() async -> Bool? { nil }
     public static func deviceID(ofAccessory suffix: String) -> String? { nil }
     public func deviceKind(of deviceID: String) async -> String? { nil }
+    public func accessorySettingChoices(_ key: String, deviceID: String) async -> [SetupOption]? { nil }
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue { block }
 }
 
@@ -581,6 +589,13 @@ public final class PluginContext: @unchecked Sendable {
         set { publishedBox.withLockedValue { $0 = newValue } }
     }
     private let publishedBox = NIOLockedValueBox<@Sendable () -> [PublishedServer]>({ [] })
+
+    /// The host's feeds of changes and of accessories added or removed, set by `PluginHost` (`observeHostChanges`).
+    var hostFeeds: HostFeeds? {
+        get { hostFeedsBox.withLockedValue { $0 } }
+        set { hostFeedsBox.withLockedValue { $0 = newValue } }
+    }
+    private let hostFeedsBox = NIOLockedValueBox<HostFeeds?>(nil)
 
     /// One of Homeswift's HAP servers: a bridge, main or child, or an accessory published on its own.
     struct PublishedServer: Sendable {

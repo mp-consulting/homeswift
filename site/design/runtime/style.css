@@ -4295,16 +4295,17 @@ select option:disabled { color: var(--muted); }
 .setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }
-.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); background: none; }
 .setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
-.setup-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-step .setup-choice:not(:first-child) { margin-top: var(--space-14); }
+.setup-option { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 160ms var(--ease-out); }
+.setup-option:active { transform: scale(0.98); }
+@media (prefers-reduced-motion: reduce) { .setup-option:active { transform: none; } }
 .setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }
 .setup-option .muted { font-size: var(--text-sm); }
-/* Several to pick (a Person's devices): the list scrolls within the sheet, the count of those picked beside its name. */
-.setup-choices legend { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-8); width: 100%; }
-.setup-choices-count { font-size: var(--text-sm); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
+/* A long list of options to pick (a Person's devices, a Helper's sources) scrolls within the sheet. */
 .setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
 .setup-choice .setup-option { margin: 0; }
 /* On a phone the sheet scrolls, not the list within it. */
@@ -4359,8 +4360,13 @@ select option:disabled { color: var(--muted); }
 .setup-pick:not(:has(input:checked)) .tile { filter: grayscale(1); opacity: 0.55; }
 .setup-pick:not(:has(input:checked)) .who { opacity: 0.6; }
 /* The sheet's buttons stay in reach under a long list. */
-.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-14) 0 var(--space-20);
-  background: linear-gradient(to bottom, transparent, var(--material-solid) 30%); }
+.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-16) 0 var(--space-20);
+  background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
+/* Opaque from 8px above the buttons: only the space above that fades, so nothing scrolls through under them. */
+@media (max-width: 640px) {
+  .setup-step > .actions:last-child { bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom)));
+    margin-bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom))); padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom)); }
+}
 .setup-pick input { margin: 0; }
 .setup-pick .who { display: grid; min-width: 0; }
 .setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -5179,3 +5185,52 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
   .logbook-entry .source { grid-column: 2; justify-self: start; max-width: 100%; }
   .logbook-filters select { flex: 1 1 calc(50% - var(--space-8)); }
 }
+
+/* Automations: a card per Automation, the Assistant's draft, the editor's sections and ordered steps. */
+.automation-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: var(--space-14); }
+.automation-card { display: grid; gap: var(--space-10); align-content: start; margin: 0; }
+.automation-head, .automation-section-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
+.automation-section-head { grid-template-columns: auto minmax(0, 1fr); margin-bottom: var(--space-10); }
+.automation-head .who, .automation-section-head .who { display: grid; gap: 2px; min-width: 0; }
+.automation-section-head h3 { margin: 0; }
+.automation-section-head p { margin: 0; }
+.automation-section-head p a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .automation-section-head p a:hover { text-decoration: underline; } }
+.automation-card .note { display: flex; gap: var(--space-6); align-items: center; margin: 0; }
+.automation-card .note svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.automation-last-run { margin: 0; }
+.automation-draft { display: grid; gap: var(--space-10); margin-bottom: var(--space-14); }
+.automation-draft .who p { margin: 2px 0 0; }
+.automation-draft-row { display: flex; gap: var(--space-8); align-items: center; }
+.automation-draft-row input { flex: 1 1 auto; min-width: 0; }
+.automation-editor { display: grid; gap: var(--space-14); }
+.automation-editor > .card { margin: 0; }
+.automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
+.automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
+.automation-step .step-tools { align-self: start; margin-top: 26px; }
+.automation-step textarea { font: inherit; height: 5em; min-height: 0; flex: none; resize: vertical; }
+.automation-step .field { align-self: start; }
+.automation-step::before { content: counter(step); position: absolute; left: 0; top: var(--space-12); width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font-size: var(--text-xs); font-weight: var(--weight-semibold); background: var(--material-thick); border: 1px solid var(--edge); }
+.automation-step .step-tools { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
+.automation-step .step-tools .icon-button { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 50%; }
+.automation-tool-fields { width: 100%; }
+@media (max-width: 640px) {
+  .automation-draft-row { flex-direction: column; align-items: stretch; }
+  .automation-step .step-tools .icon-button { width: 40px; height: 40px; min-height: 40px; }
+}
+.automation-draft-row button { white-space: nowrap; flex: none; }
+.automation-draft .status-line:empty { display: none; }
+
+/* A Notify Step's buttons, and a notification's confirmation page. */
+.notify-buttons-field { width: 100%; }
+.notify-buttons { display: grid; gap: var(--space-8); margin: var(--space-6) 0; }
+.notify-button { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: end; padding: var(--space-10); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--material-thin); }
+.notify-confirm { display: grid; gap: var(--space-14); max-width: 560px; }
+.notify-choices { display: grid; gap: var(--space-10); }
+.notify-choice { display: flex; gap: var(--space-10); align-items: center; }
+.notify-choice button { flex: 1 1 auto; min-height: 48px; justify-content: center; }
+
+/* A trigger's head: its kind, and whether it is enabled, above its fields. */
+.editor-row .trigger-head { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
+.trigger-enabled { gap: var(--space-8); }

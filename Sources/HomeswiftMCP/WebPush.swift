@@ -16,8 +16,9 @@ public enum WebPush {
     /// A notification's page on the bridge: a path with a single leading slash, else the home page. The service worker
     /// opens it on the bridge's origin, where `//host` or `/\host` would leave for another site.
     public static func localPath(_ path: String?) -> String {
+        // No control character anywhere: a URL parser drops a tab, so "/\t/host" would read as "//host".
         guard let path, path.hasPrefix("/"), !path.hasPrefix("//"), !path.hasPrefix("/\\"),
-              !path.contains(where: { $0.isNewline || $0 == "\0" }) else { return "/" }
+              !path.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) else { return "/" }
         return path
     }
 
