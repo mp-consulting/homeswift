@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-07
+
 ### Added
 
 - Automations: a Person who comes home or leaves is a Trigger, and so is Anyone Home (the first Person coming home, the
@@ -2194,7 +2196,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/mp-consulting/homeswift/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/mp-consulting/homeswift/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/mp-consulting/homeswift/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/mp-consulting/homeswift/compare/v0.20.1...v0.21.0
