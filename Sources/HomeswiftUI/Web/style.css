@@ -1609,21 +1609,48 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-house { position: relative; width: 100%; max-width: 920px; margin: 0 auto; container-type: inline-size; }
 .energy-house img, .energy-house-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
 .energy-house-lines { pointer-events: none; overflow: visible; }
+/* Photographic cutaway: every live path uses the same series colour as its callout. */
+.energy-house.photo { margin-top: var(--space-12); }
+.energy-flow-body { container-type: inline-size; }
+.energy-house-scene { position: absolute; inset: 0; }
+/* Narrow cards give the photograph the full card width and put readings underneath. */
+@container (max-width: 520px) {
+  .energy-house { aspect-ratio: auto !important; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-8); }
+  .energy-house .energy-house-scene { position: relative; inset: auto; grid-column: 1 / -1; width: calc(100% + 2 * var(--space-20)); margin: 0 calc(-1 * var(--space-20)) var(--space-4); }
+  .energy-house .energy-callout:is(.start, .end) { position: static; width: auto; translate: none; transform: none; margin: 0; min-width: 0; white-space: normal; text-align: left; justify-items: start; }
+  .energy-house .energy-callout b { flex-wrap: wrap; }
+  .energy-house .energy-leader { display: none; }
+}
+
+.energy-house.photo img { border-radius: var(--radius-md); }
+.energy-house.photo .energy-callout { background: color-mix(in srgb, var(--material-solid) 94%, transparent); }
+.energy-house:is(.photo, .simple) .energy-cable .energy-cable-halo { opacity: 0; }
+.energy-house:is(.photo, .simple) .energy-cable-line { opacity: 0.12; stroke-width: 2; }
+.energy-house:is(.photo, .simple) .energy-cable.on .energy-cable-halo { opacity: 0.85; stroke-width: 22; filter: blur(6px); }
+.energy-house:is(.photo, .simple) .energy-cable.on .energy-cable-line { stroke: color-mix(in srgb, var(--flow) 65%, white); stroke-width: 4.5; opacity: 1; filter: drop-shadow(0 0 3px var(--flow)) drop-shadow(0 0 9px var(--flow)) drop-shadow(0 0 16px var(--flow)); }
+.energy-house:is(.photo, .simple) .energy-pulse { stroke: color-mix(in srgb, var(--flow) 35%, white); stroke-width: 6; }
+.energy-house.photo .energy-leader line { stroke: #fff3dc; opacity: 0.7; }
+.energy-house.photo .energy-leader line.halo { stroke: #382d20; opacity: 0.45; }
+
 .energy-cable polyline { fill: none; stroke: var(--flow); stroke-linecap: round; stroke-linejoin: round; }
 .energy-cable .energy-cable-halo { stroke: #fff; stroke-width: 9; opacity: 0.45; }
 .energy-cable-line { stroke-width: 3.5; opacity: 0.3; }
 /* A line carrying power glows, as a lit wire would: its colour, a soft light around it. */
-.energy-cable.on .energy-cable-halo { stroke: var(--flow); stroke-width: 12; opacity: 0.28; filter: blur(3px); }
+.energy-cable.on .energy-cable-halo { stroke: var(--flow); stroke-width: 16; opacity: 0.55; filter: blur(4px); }
 .energy-cable.on .energy-cable-line { stroke-width: 4.5; opacity: 1; filter: drop-shadow(0 0 3px var(--flow)) drop-shadow(0 0 7px var(--flow)); }
 .energy-pulse { stroke-width: 7; filter: drop-shadow(0 0 4px var(--flow)) drop-shadow(0 0 10px var(--flow)); stroke-dasharray: 7 93; animation: energy-pulse var(--duration, 2s) linear infinite; }
 .energy-pulse.back { animation-direction: reverse; }
 @keyframes energy-pulse { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
 /* Each label on a soft backing of the card's own colour, so it reads over the lawn, the roof or the night. */
-.energy-callout { position: absolute; display: grid; gap: 1px; white-space: nowrap; translate: 0 -50%; padding: var(--space-6) var(--space-10);
+.energy-callout { position: absolute; width: max-content; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: var(--space-8); row-gap: 2px; white-space: nowrap; translate: 0 -50%; padding: var(--space-6) var(--space-10);
   border-radius: var(--radius-sm); background: color-mix(in srgb, var(--material-solid) 86%, transparent); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08); }
-.energy-callout.end { transform: translateX(-100%); text-align: right; justify-items: end; }
+.energy-callout.end { transform: translateX(-100%); text-align: left; justify-items: start; }
 .energy-callout b { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-lg); font-weight: var(--weight-figure); line-height: 1.1; letter-spacing: -0.01em; }
-.energy-callout > span { font-size: var(--text-xs); color: var(--muted); }
+.energy-callout-label { grid-column: 2; font-size: var(--text-xs); color: var(--muted); }
+.energy-callout > b { grid-column: 2; }
+.energy-callout > .energy-callout-icon { grid-column: 1; grid-row: 1 / span 2; width: 36px; height: 36px; border-radius: var(--radius-sm); }
+.energy-callout > .energy-callout-icon svg { width: var(--space-20); height: var(--space-20); }
+@container (max-width: 280px) { .energy-house { grid-template-columns: minmax(0, 1fr); } }
 .energy-leader line { stroke: color-mix(in srgb, var(--text) 70%, transparent); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
 .energy-leader line.halo { stroke: color-mix(in srgb, var(--material-solid) 80%, transparent); stroke-width: 3.5; }
 .energy-leader circle { fill: var(--flow); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
@@ -1660,9 +1687,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-day-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
 .energy-day-hours { display: flex; justify-content: space-between; font-size: var(--text-2xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .energy-diagram { display: block; width: 100%; max-width: 520px; margin: 0 auto; }
-.energy-line path { fill: none; stroke: var(--flow); stroke-width: 1.5; opacity: 0.18; }
-.energy-line.on path { opacity: 0.7; }
-.energy-dot { fill: var(--flow); }
+.energy-line path { fill: none; stroke: var(--flow); stroke-width: 2; stroke-linecap: round; opacity: 0.28; }
+.energy-line.on path { stroke: color-mix(in srgb, var(--flow) 65%, white); stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 2px var(--flow)) drop-shadow(0 0 5px var(--flow)) drop-shadow(0 0 9px var(--flow)); }
+.energy-dot { fill: color-mix(in srgb, var(--flow) 35%, white); filter: drop-shadow(0 0 3px var(--flow)); }
 .energy-node circle { fill: color-mix(in srgb, var(--flow) 16%, var(--material-solid)); stroke: var(--flow); stroke-width: 2; }
 .energy-node text { text-anchor: middle; dominant-baseline: central; fill: var(--text); font-size: 12px; font-weight: var(--weight-semibold); letter-spacing: -0.01em; }
 .energy-node text.small { font-size: 10.5px; font-weight: normal; fill: var(--flow); }
@@ -5314,3 +5341,69 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .editor-row .trigger-head { min-width: 0; }
 .editor-row .trigger-head > select { min-width: 0; max-width: 100%; }
 .trigger-enabled { gap: var(--space-8); }
+
+/* Account-wide house artwork: native radio choices with comparable previews. */
+.house-style-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-12); border: 0; padding: 0; margin: var(--space-16) 0 0; min-width: 0; }
+.house-style-choice { display: grid; align-content: start; gap: var(--space-8); padding: var(--space-8); border: 2px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); cursor: pointer; min-width: 0; }
+.house-style-choice:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--material-solid)); }
+.house-style-choice:focus-within { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+.house-style-choice img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: contain; border-radius: var(--radius-sm); background: var(--material-solid); }
+.house-style-name { display: flex; align-items: center; gap: var(--space-8); padding: 0 var(--space-4); }
+.house-style-name input { width: var(--space-18); height: var(--space-18); min-height: 0; padding: 0; margin: 0; box-shadow: none; accent-color: var(--accent-fill); flex: none; }
+.house-style-description { color: var(--muted); font-size: var(--text-sm); padding: 0 var(--space-4) var(--space-4); }
+.house-style-status:empty { display: none; }
+.house-style-choices:disabled { opacity: 0.65; }
+
+/* Contributions to the home's load, rather than total production or battery charging. */
+.energy-supply { display: grid; gap: var(--space-10); margin-top: var(--space-16); padding-top: var(--space-12); border-top: 1px solid var(--line); font-size: var(--text-sm); }
+.energy-supply-bar { display: flex; height: var(--space-8); overflow: hidden; border-radius: var(--radius-pill); background: var(--line); }
+.energy-supply-bar i { display: block; height: 100%; background: var(--flow); }
+.energy-supply-shares { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: var(--space-12); }
+.energy-supply-shares > div { display: grid; grid-template-columns: auto 1fr; gap: var(--space-4) var(--space-6); align-items: center; }
+.energy-supply-shares b { grid-column: 2; font-weight: var(--weight-figure); }
+.energy-supply-shares small { grid-column: 2; color: var(--muted); }
+
+/* Image-led house card, with a raised reading panel overlapping only the garden edge. */
+.energy-house-story { margin: var(--space-16) calc(-1 * var(--space-20)) calc(-1 * var(--space-18)); }
+.energy-house-story .energy-house { display: block; margin: 0; max-width: none; aspect-ratio: auto; }
+.energy-house-story .energy-house-scene { position: relative; inset: auto; width: 100%; margin: 0; }
+.energy-house-story .energy-house img { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.energy-house-details { position: relative; margin-top: calc(-1 * var(--space-24)); padding: calc(var(--space-24) + var(--space-16)) var(--space-20) var(--space-20); border-radius: var(--radius) var(--radius) var(--radius) var(--radius); background: var(--material-solid); box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08); }
+.energy-house-badge { position: absolute; top: -22px; left: var(--space-20); display: grid; place-items: center; width: 44px; height: 44px; border: 5px solid var(--material-solid); border-radius: var(--radius-pill); background: var(--series-1); color: #fff; }
+.energy-house-badge svg { width: var(--space-20); height: var(--space-20); }
+.energy-house-readings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); }
+.energy-house-story .energy-callout:is(.start, .end) { position: static; width: auto; margin: 0; min-width: 0; translate: none; transform: none; white-space: normal; text-align: left; justify-items: start; background: var(--material-thin); box-shadow: none; }
+.energy-house-story .energy-callout b { flex-wrap: wrap; }
+.energy-house-story .energy-supply { margin-top: var(--space-16); }
+@container (max-width: 680px) { .energy-house-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 280px) { .energy-house-readings { grid-template-columns: minmax(0, 1fr); } }
+
+/* In House view the artwork is the card's first content, right against its top edge. */
+.energy-flow.image-first { padding-top: 0; padding-bottom: 0; }
+.energy-flow.image-first .energy-house-story { margin-top: 0; margin-bottom: 0; }
+.energy-house-details { display: grid; gap: var(--space-16); }
+.energy-house-details .chart-head { margin: 0; }
+.energy-house-details .chart-head > :first-child { display: none; }
+.energy-house-details .energy-supply { margin-top: 0; }
+.energy-flow.image-first > .energy-devices:not([hidden]), .energy-flow.image-first > .energy-day:not([hidden]) { margin-bottom: var(--space-18); }
+
+.energy-house-title-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); }
+.energy-house-title-row .chart-head { flex: 1; min-width: 0; }
+.energy-house-title-row .energy-flow-bar { flex: none; margin-left: auto; }
+@container (max-width: 340px) {
+  .energy-house-title-row { flex-wrap: wrap; }
+  .energy-house-title-row .chart-head { flex-basis: 100%; }
+}
+
+/* Photographic artwork reaches the edge without the glass frame used by the simple model. */
+.energy-flow.image-first:has(.energy-house.photo) { border: 0; background: none; box-shadow: var(--shadow); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* Both views occupy the same canvas and keep the heading/switch in the same lower panel. */
+.energy-diagram-scene { position: absolute; inset: 0; display: grid; place-items: center; padding: calc(var(--space-24) * 2) var(--space-12) var(--space-12); background: var(--material-thin); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.energy-diagram-scene .energy-diagram { width: 100%; height: 100%; min-height: 0; max-height: 100%; }
+.energy-diagram-period { position: absolute; top: var(--space-8); right: var(--space-12); }
+
+/* Tighten the simple illustration's empty left margin without separating its live wiring. */
+.energy-house.simple .energy-house-scene:has(> img) { overflow: hidden; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.energy-house.simple .energy-house-scene > img,
+.energy-house.simple .energy-house-scene > .energy-house-lines { transform: scale(1.08); transform-origin: right 55%; }

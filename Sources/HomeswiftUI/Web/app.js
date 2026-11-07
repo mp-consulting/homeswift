@@ -471,8 +471,10 @@
     openEvents();
     // The user's theme, wallpaper and units; a page showing temperatures draws again when the unit changed.
     const shownUnit = HomeswiftCommon.preferences().temperatureUnit;
+    const shownHouse = HomeswiftCommon.preferences().energyHouseStyle;
     HomeswiftCommon.loadPreferences().then((preferences) => {
-      if (preferences.temperatureUnit !== shownUnit && ["/", "/status", "/accessories"].includes(location.pathname)) route();
+      if ((preferences.temperatureUnit !== shownUnit && ["/", "/status", "/accessories"].includes(location.pathname))
+        || (preferences.energyHouseStyle !== shownHouse && location.pathname === "/status")) route();
     });
     route();
   }
@@ -4870,14 +4872,20 @@
   views.appearance = async (main) => {
     let preferences = await HomeswiftCommon.loadPreferences();
     const message = el("p", { class: "status-line muted", role: "status" });
+    const houseMessage = el("p", { class: "status-line muted house-style-status", role: "status" });
     const choose = async (change) => {
       message.className = "status-line muted";
       message.textContent = t("Saving…");
+      if (change.energyHouseStyle) { houseMessage.className = "status-line muted house-style-status"; houseMessage.textContent = message.textContent; }
       try {
         preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: change }));
         message.textContent = t("Saved for your account, on every browser.");
+        if (change.energyHouseStyle) houseMessage.textContent = message.textContent;
         draw();
-      } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+      } catch (e) {
+        message.className = "status-line error"; message.textContent = e.message;
+        if (change.energyHouseStyle) { houseMessage.className = "status-line error house-style-status"; houseMessage.textContent = e.message; draw(); }
+      }
     };
     const segmented = (label, value, options, key) => el("div", { class: "group", role: "radiogroup", "aria-label": label },
       options.map(([option, text]) => el("button", { type: "button", role: "radio", actionIcon: key === "language" ? undefined : key === "temperatureUnit" ? "thermo" : "sun", class: option === value ? "on" : "", "aria-checked": String(option === value),
@@ -4941,6 +4949,23 @@
         el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("sun"), el("span", { text: t("Theme") })),
           el("p", { class: "muted", text: t("Automatic follows the system's light or dark appearance.") }),
           segmented(t("Theme"), preferences.theme, [["auto", t("Automatic")], ["light", t("Light")], ["dark", t("Dark")]], "theme")),
+        el("div", { class: "card house-style-card" },
+          el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("house"), el("span", { text: t("House style") })),
+          el("p", { class: "muted", text: t("Choose how the house looks in Energy flow. Your readings and animations stay the same.") }),
+          el("fieldset", { class: "house-style-choices", "aria-label": t("House style") },
+            [["simple", t("Simple"), t("A clean model with clear energy paths."), "energy-house-simple"],
+             ["realistic", t("Realistic"), t("Detailed rooms with warm lighting."), "energy-house"]].map(([value, title, description, asset]) =>
+              el("label", { class: "house-style-choice" },
+                el("img", { src: `/${asset}.webp`, alt: "", width: 320, height: 220, loading: "lazy" }),
+                el("span", { class: "house-style-name" },
+                  el("input", { type: "radio", name: "energyHouseStyle", value, checked: (preferences.energyHouseStyle || "realistic") === value,
+                    onchange: async (event) => {
+                      if (!event.target.checked) return;
+                      event.target.closest("fieldset").disabled = true;
+                      await choose({ energyHouseStyle: value });
+                      body.querySelector('input[name="energyHouseStyle"]:checked')?.focus({ preventScroll: true });
+                    } }), el("strong", { text: title })),
+                el("span", { class: "house-style-description", text: description })))), houseMessage),
         el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("image"), el("span", { text: t("Wallpaper") })),
           el("p", { class: "muted", text: t("Behind the glass of every page.") }),
           el("div", { class: "wallpapers", role: "radiogroup", "aria-label": t("Wallpaper") },

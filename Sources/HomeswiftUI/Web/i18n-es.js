@@ -1,5 +1,12 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Powering the home": "Suministro de la casa",
+  "House style": "Estilo de casa",
+  "Choose how the house looks in Energy flow. Your readings and animations stay the same.": "Elige el aspecto de la casa en el flujo de energía. Tus lecturas y animaciones no cambian.",
+  "Simple": "Sencillo",
+  "A clean model with clear energy paths.": "Un modelo sencillo con rutas de energía claras.",
+  "Realistic": "Realista",
+  "Detailed rooms with warm lighting.": "Habitaciones detalladas con iluminación cálida.",
   "Matter bridge": "Puente Matter",
   "For Google Home, Alexa, SmartThings and Home Assistant": "Para Google Home, Alexa, SmartThings y Home Assistant",
   "In one ecosystem": "En un ecosistema",

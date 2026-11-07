@@ -1,3 +1,5 @@
+# Legacy procedural model. Production artwork and its prompts are described in energy-house-artwork.txt.
+# Render to a scratch directory: do not overwrite the production energy-house assets.
 # Renders the Energy card's house: an original cutaway of a two-storey house (its gable side open on the rooms), solar
 # panels on a standing-seam roof, the inverter, battery and meter inside, and a utility pole with its wire, on a model
 # base and a transparent background, so the same image sits on the web UI's light and dark cards. It also writes where

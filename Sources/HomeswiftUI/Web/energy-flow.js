@@ -1,5 +1,5 @@
 // The Status page's Energy flow card: where the home's power comes from and goes, two ways. The house: a rendered
-// cutaway (Scripts/energy-house.py; its layout file says where the parts and conduits land in the image) with the
+// cutaway (its layout file says where the parts and conduits land in the image) with the
 // latest reading's power running along the conduits and a callout per part. The diagram: solar, the grid, the battery
 // and the home as circles, dots running between them, either now (the latest reading, in watts) or today (the day's
 // energy so far, split the way the Energy by day bars split it). Motion only says something: how much power a line
@@ -93,10 +93,14 @@
     const body = el("div", { class: "energy-flow-body" });
     const day = el("div", { class: "energy-day" });
     const devices = el("div", { class: "energy-devices", hidden: true });
-    const node = el("div", { class: "card chart-card energy-flow" },
-      el("div", { class: "chart-head" }, tile("house", "blue"), el("div", { class: "who" }, el("strong", { text: t("Energy flow") }), note)),
-      el("div", { class: "energy-flow-bar" }, views.node, spans.node),
-      body, devices, day);
+    const heading = el("div", { class: "chart-head" }, tile("house", "blue"), el("div", { class: "who" }, el("strong", { text: t("Energy flow") }), note));
+    const toolbar = el("div", { class: "energy-flow-bar" }, views.node);
+    const node = el("div", { class: "card chart-card energy-flow" }, heading, toolbar, body, devices, day);
+    const standardHeader = () => {
+      node.classList.remove("image-first");
+      node.insertBefore(heading, body);
+      node.insertBefore(toolbar, body);
+    };
     const layouts = new Map();   // the house's layout files, by image
 
     function draw() {
@@ -109,6 +113,7 @@
         : null;
       const live = view === "house" || span === "now";
       if (live && !last) {
+        standardHeader();
         note.textContent = t("No reading yet");
         body.replaceChildren(el("p", { class: "muted energy-flow-empty", text: t("The flow appears with the first reading.") }));
         return;
@@ -119,8 +124,7 @@
         ? (Date.now() - when > 10 * 60000 ? t("Reading of {time}", { time: when.toLocaleString(HomeswiftI18n.locale, { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }) }) : t("The latest reading"))
         : t("Today so far");
       const amount = live ? format.watts : format.kWh;
-      if (view === "house") house(figures, has, amount, when);
-      else diagram(figures, has, amount, live);
+      house(figures, has, amount, when, live);
       phases(has);
       appliances();
     }
@@ -223,77 +227,97 @@
       return el("div", { class: `energy-sky${night ? " night" : ""}`, "aria-hidden": "true" }, glyph);
     };
 
-    async function house(figures, has, amount, when) {
-      const name = has("battery") ? "energy-house" : "energy-house-no-battery";
+    let houseVersion = 0;
+    async function house(figures, has, amount, when, live) {
+      const renderedView = view, version = ++houseVersion;
+      const simple = HomeswiftCommon.preferences().energyHouseStyle === "simple";
+      const name = `energy-house${simple ? "-simple" : ""}${has("battery") ? "" : "-no-battery"}`;
       const night = isNight(figures, has, when);
       let layout = layouts.get(name);
       if (!layout) {
         try { layout = await (await fetch(`/${name}.json`)).json(); } catch { layout = null; }
-        if (!layout) { body.replaceChildren(el("p", { class: "muted", text: t("The house could not be loaded.") })); return; }
+        if (!layout) { standardHeader(); body.replaceChildren(el("p", { class: "muted", text: t("The house could not be loaded.") })); return; }
         layouts.set(name, layout);
       }
-      if (view !== "house") return;
+      if (view !== renderedView || version !== houseVersion) return;
       const { width, height, anchors, cables } = layout;
       const f = figures.flows;
       const point = ([x, y]) => `${(x * width).toFixed(1)},${(y * height).toFixed(1)}`;
       const top = Math.max(...Object.values(f), figures.home, 1);
       // A conduit and, when power runs along it, a pulse; `forward` is the conduit's drawn direction, toward the meter
       // or the inverter.
-      const cable = (role, points, value, forward) => {
+      const cable = (role, points, value, forward, colorRole = role, pulsePoints = points) => {
         if (!points || !has(role)) return null;
         const on = value > 0.5;
         const share = Math.min(1, value / top);
         const line = points.map(point).join(" ");
-        return svg("g", { class: `energy-cable tone-${tones[role]}${on ? " on" : ""}` },
+        return svg("g", { class: `energy-cable tone-${tones[colorRole]}${on ? " on" : ""}`, "data-energy-role": role },
           svg("polyline", { points: line, class: "energy-cable-halo" }),
           svg("polyline", { points: line, class: "energy-cable-line" }),
-          on ? svg("polyline", { points: line, pathLength: 100, class: `energy-pulse${forward ? "" : " back"}`, style: `--duration: ${(3.2 - share * 2.1).toFixed(2)}s` }) : null);
+          on ? svg("polyline", { points: pulsePoints.map(point).join(" "), pathLength: 100, class: `energy-pulse${forward ? "" : " back"}`, style: `--duration: ${(3.2 - share * 2.1).toFixed(2)}s` }) : null);
       };
       const solarOut = f.sh + f.sb + f.sg;
+      // Split every room circuit by actual supplied power, measured along the path in image pixels.
+      // Each source keeps its own colour and pulse; charging/exported power is not part of this split.
+      const homeSources = [["solar", f.sh], ["battery", f.bh], ["grid", f.gh]]
+        .filter(([role, value]) => has(role) && value > 0);
+      const supplied = homeSources.reduce((sum, [, value]) => sum + value, 0);
+      const homeCable = (points, gridAtEnd = false) => {
+        // On the main circuit, a source's pulse begins at its device and travels through the inverter.
+        // The coloured room sections still show their proportional shares; branch pulses continue at junctions.
+        const fromSource = (role, route) => points === cables.home && (role === "battery" || role === "solar") && cables[role]
+          ? [...cables[role], ...route] : route;
+        if (!points || !has("home")) return null;
+        if (homeSources.length < 2 || !supplied) {
+          const role = homeSources[0]?.[0] || "home";
+          return cable("home", points, figures.home, !(role === "grid" && gridAtEnd), role, fromSource(role, points));
+        }
+        // The board feeds into the circuit: on paths ending at the board, grid pulses travel backwards.
+        // On branches beginning at a distribution junction, the grid segment starts there instead.
+        const sources = gridAtEnd ? homeSources : [...homeSources].sort((a, b) => Number(b[0] === "grid") - Number(a[0] === "grid"));
+        const lengths = points.slice(1).map((p, i) => Math.hypot((p[0] - points[i][0]) * width, (p[1] - points[i][1]) * height));
+        const total = lengths.reduce((sum, length) => sum + length, 0);
+        if (!total) return null;
+        const section = (from, to) => {
+          let travelled = 0;
+          const result = [];
+          for (let i = 0; i < lengths.length; i++) {
+            const length = lengths[i], end = travelled + length;
+            if (length > 0 && end > from && travelled < to) {
+              const at = (distance) => points[i].map((v, axis) => v + (points[i + 1][axis] - v) * (distance - travelled) / length);
+              if (!result.length) result.push(at(Math.max(from, travelled)));
+              result.push(at(Math.min(to, end)));
+            }
+            travelled = end;
+          }
+          return result;
+        };
+        let offset = 0;
+        return svg("g", { class: "energy-home-wiring" }, sources.map(([role, value], index) => {
+          const end = index === sources.length - 1 ? total : offset + total * value / supplied;
+          const segment = section(offset, end);
+          const pulseRoute = points === cables.home && (role === "battery" || role === "solar") ? fromSource(role, section(0, end)) : segment;
+          const node = cable("home", segment, figures.home, !(role === "grid" && gridAtEnd), role, pulseRoute);
+          node.setAttribute("data-energy-source", role);
+          node.setAttribute("data-energy-share", String(value / supplied));
+          offset = end;
+          return node;
+        }));
+      };
       const overlay = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "energy-house-lines", "aria-hidden": "true" },
         cable("solar", cables.solar, solarOut, true),
-        cable("home", cables.home, figures.home, true),
-        cable("home", cables.homeUpper, figures.home, true),
-        cable("home", cables.homeLower, figures.home, true),
+        homeCable(cables.home, !simple),
+        homeCable(cables.homeUpper),
+        homeCable(cables.homeLower, !simple),
         cable("battery", cables.battery, figures.discharge || figures.charge, figures.discharge > 0),
         cable("grid", cables.meter, figures.imported || figures.exported, figures.exported > 0),
         cable("grid", cables.grid, figures.imported || figures.exported, figures.exported > 0));
-      // Callouts: the figure and what it is, one in each corner clear of the house, a hairline from there to its part
-      // ending on a dot. `at` is where the hairline starts; the words sit beside it, after it (`start`) or before it (`end`).
-      const leaders = [], placed = [];
-      const callout = (role, anchor, value, label, at, side) => {
+      // Readings sit in the raised panel below the image, sharing a badge and text-column layout.
+      const callout = (role, anchor, value, label) => {
         if (!anchor || !has(role)) return null;
-        const [x, y] = at;
-        // A light halo under the hairline, so it reads on the lawn as on the card.
-        const ends = { x1: x * width, y1: y * height, x2: anchor[0] * width, y2: anchor[1] * height };
-        const line = [svg("line", { ...ends, class: "halo" }), svg("line", ends)];
-        leaders.push(svg("g", { class: `energy-leader tone-${tones[role]}` }, ...line,
-          svg("circle", { cx: anchor[0] * width, cy: anchor[1] * height, r: 12 })));
-        const node = el("div", { class: `energy-callout ${side}`, style: `left: ${(x * 100).toFixed(2)}%; top: ${(y * 100).toFixed(2)}%` },
-          el("b", {}, el("span", { class: `energy-callout-icon tone-${tones[role]}`, "aria-hidden": "true" }, icon(icons[role])), value),
-          el("span", { text: label }));
-        placed.push({ node, line, side, tip: anchor });
-        return node;
-      };
-      // At a narrow width a label could run past the card: it moves in.
-      const fit = (frame) => {
-        const outer = frame.getBoundingClientRect();
-        if (!outer.width) return;
-        const scale = width / outer.width;
-        for (const one of placed) {
-          one.node.style.marginLeft = "";
-          const box = one.node.getBoundingClientRect();
-          const shift = box.left < outer.left ? outer.left - box.left : box.right > outer.right ? outer.right - box.right : 0;
-          if (shift) one.node.style.marginLeft = `${shift}px`;
-          // The hairline leaves the label at its point nearest the part, a little away from it, never across its words.
-          const moved = one.node.getBoundingClientRect();
-          const tipX = one.tip[0] * outer.width + outer.left, tipY = one.tip[1] * outer.height + outer.top;
-          const x = Math.min(Math.max(tipX, moved.left), moved.right), y = Math.min(Math.max(tipY, moved.top - 4), moved.bottom + 4);
-          for (const line of one.line) {
-            line.setAttribute("x1", ((x - outer.left) * scale).toFixed(1));
-            line.setAttribute("y1", ((y - outer.top) * scale).toFixed(1));
-          }
-        }
+        return el("div", { class: "energy-callout start" },
+          el("span", { class: `energy-callout-icon tone-${tones[role]}`, "aria-hidden": "true" }, icon(icons[role])),
+          el("b", { text: value }), el("span", { class: "energy-callout-label", text: label }));
       };
       const gridLabel = figures.exported > 0.5 ? t("To the grid") : figures.imported > 0.5 ? t("From the grid") : t("Grid");
       const batteryLabel = [figures.charge > 0.5 ? t("Charging") : figures.discharge > 0.5 ? t("Discharging") : t("Battery"),
@@ -302,22 +326,43 @@
       const summary = [has("solar") ? `${t("Solar")} ${amount(solarOut)}` : null, has("home") ? `${t("Home [use]")} ${amount(figures.home)}` : null,
         has("grid") ? `${gridLabel} ${amount(figures.imported || figures.exported)}` : null,
         has("battery") ? `${batteryLabel} ${amount(figures.charge || figures.discharge)}` : null].filter(Boolean).join(", ");
-      const frame = el("div", { class: "energy-house", role: "img", "aria-label": summary, style: `aspect-ratio: ${width} / ${height}` },
+      const readingNodes = [];
+      const frame = el("div", { class: `energy-house ${simple ? "simple" : "photo"}`, role: renderedView === "house" ? "img" : "group", "aria-label": summary, style: `aspect-ratio: ${width} / ${height}` },
         ...(() => {
           const nodes = [
-            callout("solar", anchors.solar, amount(solarOut), t("Solar"), [0.2, 0.1], "end"),
-            callout("grid", anchors.grid, amount(figures.imported || figures.exported), gridLabel, [0.8, 0.1], "start"),
-            callout("home", anchors.home, amount(figures.home), t("Home [use]"), [0.2, 0.84], "end"),
-            callout("battery", anchors.battery, amount(figures.charge || figures.discharge), batteryLabel, [0.8, 0.86], "start"),
+            callout("solar", anchors.solar, amount(solarOut), t("Solar")),
+            callout("grid", anchors.grid, amount(figures.imported || figures.exported), gridLabel),
+            callout("home", anchors.home, amount(figures.home), t("Home [use]")),
+            callout("battery", anchors.battery, amount(figures.charge || figures.discharge), batteryLabel),
           ];
-          overlay.prepend(...leaders);
-          return [image, sky(night), overlay, ...nodes];
+          readingNodes.push(...nodes.filter(Boolean));
+          return [el("div", { class: "energy-house-scene", style: `aspect-ratio: ${width} / ${height}` },
+            renderedView === "house" ? [image, simple ? sky(night) : null, overlay] :
+              el("div", { class: "energy-diagram-scene" }, el("div", { class: "energy-diagram-period" }, spans.node), diagram(figures, has, amount, live)))];
         })());
       // The house appears whole: its picture decoded first (a later reading or a change of view goes on without it).
-      await image.decode().catch(() => {});
-      if (view !== "house") return;
-      body.replaceChildren(frame);
-      new ResizeObserver(() => fit(frame)).observe(frame);
+      if (renderedView === "house") await image.decode().catch(() => {});
+      if (view !== renderedView || version !== houseVersion) return;
+      const supplies = [["solar", f.sh, t("Solar")], ["battery", f.bh, t("Battery")], ["grid", f.gh, t("Grid")]]
+        .filter(([role]) => has(role));
+      const shareSummary = supplies.map(([, value, label]) => `${label} ${format.percent(value / supplied * 100)}`).join(", ");
+      const supply = supplied > 0.5 ? el("div", { class: "energy-supply" },
+        el("strong", { text: t("Powering the home") }),
+        el("div", { class: "energy-supply-bar", role: "img", "aria-label": `${t("Powering the home")}: ${shareSummary}` },
+          supplies.filter(([, value]) => value > 0).map(([role, value]) => el("i", { class: `tone-${tones[role]}`, style: `width: ${value / supplied * 100}%` }))),
+        el("div", { class: "energy-supply-shares" }, supplies.map(([role, value, label]) =>
+          el("div", {}, el("span", { class: `energy-callout-icon tone-${tones[role]}`, "aria-hidden": "true" }, icon(icons[role])),
+            el("span", { text: label }), el("b", { text: format.percent(value / supplied * 100) }),
+            el("small", { text: amount(value) }))))) : null;
+      const focused = node.contains(document.activeElement) ? document.activeElement : null;
+      const scrollLeft = window.scrollX, scrollTop = window.scrollY;
+      node.classList.add("image-first");
+      body.replaceChildren(el("div", { class: "energy-house-story" }, frame,
+        el("div", { class: "energy-house-details" },
+          el("span", { class: "energy-house-badge", "aria-hidden": "true" }, icon("house")), el("div", { class: "energy-house-title-row" }, heading, toolbar),
+          el("div", { class: "energy-house-readings" }, readingNodes), supply)));
+      if (focused?.isConnected) focused.focus({ preventScroll: true });
+      window.scrollTo({ left: scrollLeft, top: scrollTop, behavior: "instant" });
     }
 
     // The diagram -----------------------------------------------------------------------------------------------------------
@@ -379,13 +424,13 @@
       const summary = [has("solar") ? `${t("Solar")} ${amount(figures.solar)}` : null, has("home") ? `${t("Home [use]")} ${amount(figures.home)}` : null,
         has("grid") ? `${t("Grid import")} ${amount(figures.imported)}, ${t("Grid export")} ${amount(figures.exported)}` : null,
         has("battery") ? `${t("Battery charged")} ${amount(figures.charge)}, ${t("Battery discharged")} ${amount(figures.discharge)}` : null].filter(Boolean).join(", ");
-      body.replaceChildren(svg("svg", { viewBox: "0 0 360 306", class: "energy-diagram", role: "img", "aria-label": summary },
+      return svg("svg", { viewBox: "0 0 360 306", class: "energy-diagram", role: "img", "aria-label": summary },
         lines,
         circle("solar", [amount(figures.solar)], t("Solar"), true),
         circle("grid", both(figures.exported, figures.imported), gridCaption),
         circle("battery", [`↓ ${amount(figures.charge)}`, `↑ ${amount(figures.discharge)}`], batteryCaption),
         circle("home", [amount(figures.home)], t("Home [use]")),
-        ring));
+        ring);
     }
 
     return {

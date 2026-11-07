@@ -1,0 +1,18 @@
+Realistic energy-flow house
+
+Created with the built-in image generation tool, then encoded as WebP. Live wiring and callouts are rendered by the application, not baked into the artwork.
+
+Installed assets:
+Sources/HomeswiftUI/Web/energy-house.webp
+Sources/HomeswiftUI/Web/energy-house-night.webp
+Sources/HomeswiftUI/Web/energy-house-no-battery.webp
+Sources/HomeswiftUI/Web/energy-house-no-battery-night.webp
+
+Base artwork prompt:
+Create a photorealistic architectural visualization asset for a home energy dashboard, using the TOP large house in the reference for composition and realism. Single landscape 3:2 image, no infographic, no text, no labels, no diagrams, no watermark. Wide two-storey real house shown almost straight-on, camera eye level with middle floor, only a small glimpse of right side. Entire broad front wall removed exposing six richly detailed inhabited rooms: upstairs bedroom with linens and pillows, study with books, sitting room; downstairs living room sofa rug television books lamps, kitchen cabinets stone countertops refrigerator sink cookware and dining furniture, laundry. Full broad dark tiled pitched roof covered in blue photovoltaic panels. Real plaster masonry, wood grain, glass, textured fabrics, realistic ambient occlusion, warm 2700K lamps and ceiling lights. A narrow equipment wall at left has a white hybrid inverter at mid-height and floor-standing white battery below. A distribution board on right ground floor wall. Utility pole and meter at far right. Real garden lawn and paving in foreground, trees in distance, golden-hour dusk sky, no pedestal or plinth, no dollhouse model or toy look, cinematic architectural photography. House fills approximately x=10%-80%, roof starts y=15%, ground y=85%; utility pole x=90%. Leave sky and lower foreground clear for UI callouts. IMPORTANT: electrical conduits should be thin neutral unlit lines, easy to overlay: rooftop down left front vertical to inverter, inverter across exposed floor edge to distribution board, down left to battery, distribution board out to utility pole. Do NOT bake glowing energy lines into image; live animated warm amber wiring will be added by application. All room lighting is warm, welcoming, detailed, realistic. This is a completely new realistic house asset, not a miniature 3D model.
+
+Night variant prompt:
+Precise lighting edit for a matched application asset. Keep this exact house, framing, 1536x1024 landscape aspect, every object, all walls, furniture, solar panels, electrical devices and conduits at their EXACT same pixel locations. Change ONLY outdoor lighting from sunset to blue-hour night: deep blue sky, dim cool moonlit garden and roof. Keep interior lamps warmly lit at 2700K, realistic architectural photography. No glowing electrical wires, no labels, no text, no geometry changes, no cropping. Battery and inverter unchanged.
+
+Battery-free variants:
+Remove ONLY the tall floor-standing white battery at bottom left (around x=250,y=790) and its short vertical conduit to the inverter above. Fill the small vacated area with matching plaster wall and paving. Preserve the exact dimensions, composition, lighting, smaller inverter, roof conduits, solar panels, room details and utility pole. Use the respective day and night images as edit targets.

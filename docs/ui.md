@@ -115,6 +115,10 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
   lines stay still.
 
   ![The Energy flow card's house](images/status/energy-flow.png)
+
+  The house fills the card width, with readings and source shares in a raised, rounded panel below the image. Interior wiring shows each source supplying the home: yellow for solar, green for battery, purple for the grid. With mixed supply, each colour occupies a proportion of every wiring path matching its contribution. Idle wires do not glow.
+
+  ![The Energy flow card on a phone](images/status/energy-flow-phone.png)
 - **Power**: solar, the home, the grid (importing above zero, exporting below) and the batteries (charging above
   zero), each added up across devices, and each device's battery level. Its own range: 24 hours (the default), today,
   yesterday or 7 days (`?energy=7d`). Where the bridge recorded nothing (before it ran, while it was stopped), the power
@@ -821,6 +825,7 @@ marked as you type.
 browser they sign in to; a browser remembers the last ones it saw, so a page opens in them at once.
 
 - **Theme**: Automatic (the system's light or dark appearance), Light or Dark.
+- **House style**: choose **Simple**, a clean model, or **Realistic**, detailed rooms with warm lighting, for the Energy flow card. Preview tiles show both choices. Realistic is the default; the choice follows your account across browsers. Both keep live readings, day/night artwork and the mobile layout with readings below the house.
 - **Wallpaper**, behind the glass of every page: photographic Aurora, Sunset, Ocean, Forest and Graphite presets; original abstract Silk, Prism, Ribbon, Lagoon, Ember and Midnight designs; or one of up to 12 images of your own. Drop images on
   the card's zone or choose them, several at once: each is scaled down to 2,560 pixels, kept under
   `ui-wallpapers/<user>/` (JPEG, PNG or WebP, checked by its bytes) and shown as it is added. A tap on its tile shows it
@@ -828,6 +833,8 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
 - **Temperatures** in °C or °F, on accessory cards and plugin pages. HomeKit and the Home app keep their own setting.
 - **Language**: English, French, Spanish or Portuguese, or Automatic, the browser's ([translations.md](translations.md)).
   The Assistant answers in it. The selector uses the same flag icons as sign-in; Automatic uses a globe.
+
+![House style choices in Appearance](images/ui/house-style.png)
 
 ### Addresses
 

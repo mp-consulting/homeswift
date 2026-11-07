@@ -9,6 +9,7 @@ import NIOConcurrencyHelpers
 /// under `ui-wallpapers/<user>/`, `wallpaperImages` lists them and `wallpaperImage` is the one shown. Glass UI keeps its theme and units in config.json and its dashboard layout in
 /// `.uix-dashboard.json`, for everyone; here each user has their own.
 final class PreferencesStore: Sendable {
+    static let energyHouseStyles: Set<String> = ["simple", "realistic"]
     static let themes: Set<String> = ["auto", "light", "dark"]
     /// The backdrops the stylesheet draws (`[data-wallpaper]`), and `custom`, the user's own image.
     static let wallpapers: Set<String> = ["none", "aurora", "sunset", "ocean", "forest", "graphite", "silk", "prism", "ribbon", "lagoon", "ember", "midnight", "custom"]
@@ -33,7 +34,7 @@ final class PreferencesStore: Sendable {
 
     /// The user's choices, with the defaults for what they never chose.
     func preferences(for user: String) -> JSONValue {
-        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto", "dashboard": ["order": [], "hidden": []]]
+        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto", "energyHouseStyle": "realistic", "dashboard": ["order": [], "hidden": []]]
         for (key, value) in state.withLockedValue({ $0[user]?.objectValue ?? [:] }) { object[key] = value }
         let images = wallpaperIDs(for: user)
         object["wallpaperImages"] = .array(images.map(JSONValue.string))
@@ -51,6 +52,7 @@ final class PreferencesStore: Sendable {
         var accepted: [String: JSONValue] = [:]
         for (key, value) in fields {
             switch key {
+            case "energyHouseStyle": accepted[key] = try Self.choice(value, in: Self.energyHouseStyles, key)
             case "theme": accepted[key] = try Self.choice(value, in: Self.themes, key)
             case "wallpaper": accepted[key] = try Self.choice(value, in: Self.wallpapers, key)
             case "temperatureUnit": accepted[key] = try Self.choice(value, in: Self.temperatureUnits, key)

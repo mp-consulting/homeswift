@@ -152,6 +152,12 @@ struct PanelTests {
         #expect(defaults.json?["theme"] == "auto")
         #expect(defaults.json?["temperatureUnit"] == "c")
         #expect(defaults.json?["language"] == "auto")
+        #expect(defaults.json?["energyHouseStyle"] == "realistic")
+        #expect(try await browser.put("/api/preferences", ["energyHouseStyle": "simple"]).json?["energyHouseStyle"] == "simple")
+        #expect(try await browser.put("/api/preferences", ["energyHouseStyle": "unknown"]).status == 400)
+        #expect(PreferencesStore(url: environment.directory.appendingPathComponent("ui-preferences.json")).preferences(for: "local")["energyHouseStyle"] == "simple")
+        #expect(PreferencesStore(url: environment.directory.appendingPathComponent("ui-preferences.json")).preferences(for: "another-user")["energyHouseStyle"] == "realistic")
+
         #expect(try await browser.put("/api/preferences", ["language": "pt"]).json?["language"] == "pt")
         #expect(try await browser.put("/api/preferences", ["language": "de"]).status == 400)
         let changed = try await browser.put("/api/preferences", ["theme": "dark", "temperatureUnit": "f", "dashboard": ["order": ["activity", "overview"], "hidden": ["system"]]])

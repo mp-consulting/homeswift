@@ -1338,7 +1338,7 @@
   // opens in them before the server answers. Storage may be missing (a private window): it then waits.
 
   const preferenceKey = "homeswift.preferences";
-  let preferences = { theme: "auto", wallpaper: "none", temperatureUnit: "c", language: "auto" };
+  let preferences = { theme: "auto", wallpaper: "none", temperatureUnit: "c", language: "auto", energyHouseStyle: "realistic" };
   try { Object.assign(preferences, JSON.parse(localStorage.getItem(preferenceKey) || "{}")); } catch {}
 
   /// Applies the user's choices to this page (and remembers them in this browser): `data-theme` and
