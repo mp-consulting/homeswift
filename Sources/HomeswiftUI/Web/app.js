@@ -695,7 +695,7 @@
     if (!iso) return "";
     const date = new Date(iso);
     const today = new Date().toDateString() === date.toDateString();
-    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+    const format = HomeswiftI18n.dateTimeFormat(today ? { hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
     return format.format(date);
   }
 
@@ -1021,7 +1021,12 @@
         el("div", { class: "facts" },
           fact(t("CPUs"), status.system.cpus),
           fact(t("Assistant"), status.assistant ? `${status.assistant.provider} · ${status.assistant.model}` : t("Off [setting]")),
-          fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0))),
+          fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0)),
+          status.homeTime ? fact(t("Home Time"), status.homeTime.zone) : null),
+        // A container runs in UTC unless told: Tariffs and Automations would then run hours off.
+        isAdmin() && status.homeTime?.universal && !status.homeTime.set ? el("p", { class: "status-line warn home-time-warning" },
+          HomeswiftCommon.icon("warning"), el("span", { text: t("Home Time is UTC, the host's. If the home is elsewhere, set its time zone, or Tariffs and Automations run at the wrong hours.") }), " ",
+          el("a", { href: "/settings/bridge", text: t("Set Home Time") })) : null,
         el("div", { class: "fact wide" }, el("span", { text: t("Configuration") }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
         isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
@@ -1162,7 +1167,7 @@
 
     const shown = (digest) => {
       body.replaceChildren(HomeswiftCommon.markdown(digest.text));
-      const when = new Date(digest.generatedAt).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+      const when = HomeswiftI18n.formatDate(new Date(digest.generatedAt), { dateStyle: "medium", timeStyle: "short" });
       note.textContent = digest.model ? t("Written {when} by {model}", { when, model: digest.model }) : t("Written {when}", { when });
       foot.hidden = false;
     };
@@ -1222,7 +1227,7 @@
       HomeswiftCommon.icon("forward"));
     const rows = [
       ...problems.slice(0, 3).map((problem) => row(problem.state === "expiring" ? "warn" : "bad", problem.entry, says[problem.state]?.(problem) ?? problem.state,
-        { class: "vault-status-row mono-name", title: problem.expires ? new Date(problem.expires).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : null })),
+        { class: "vault-status-row mono-name", title: problem.expires ? HomeswiftI18n.formatDate(new Date(problem.expires), { dateStyle: "full", timeStyle: "short" }) : null })),
       problems.length > 3 ? el("p", { class: "muted vault-status-more", text: tn("And {n} more", "And {n} more", problems.length - 3) }) : null,
       vault.inConfig ? row("info", tn("{n} secret is still in config.json", "{n} secrets are still in config.json", vault.inConfig), t("Move [to the vault]")) : null,
     ].filter(Boolean);
@@ -1269,7 +1274,7 @@
   }
 
   function updateCardContent(update, draw, embedded = false) {
-    const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
+    const released = update.publishedAt ? HomeswiftI18n.formatDate(new Date(update.publishedAt), {}) : null;
     let command = null;
     if (update.command) {
       const copy = el("button", { actionIcon: "copy", type: "button", text: t("Copy"), onclick: async () => {
@@ -1495,9 +1500,9 @@
     /// requests and the plugins' device calls, each its average, longest and count; a rule between the groups.
     function fillTable() {
       if (!shown) return;
-      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const time = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
       const cell = (value, format, start = false) => el("td", { class: [value == null ? "empty" : "", start ? "group-start" : ""].join(" ").trim(), text: value == null ? "–" : format(value) });
-      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString(HomeswiftI18n.locale))];
+      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString(HomeswiftI18n.numberLocale))];
       const group = (text, span, start = true) => el("th", { scope: "colgroup", colSpan: span, class: start ? "group-start" : "", text });
       const column = (text, start = false) => el("th", { scope: "col", class: start ? "group-start" : "", text });
       table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
@@ -1523,7 +1528,7 @@
     const params = new URLSearchParams(location.search);
     const range = HomeswiftCommon.rangeControl(params, { presets: [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
       fallback: "24h", names: { since: "energy", from: "energy-from", to: "energy-to" }, changed: () => load() });
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timeZone = HomeswiftI18n.timeZone;
     // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
     // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
     const roles = [
@@ -1695,17 +1700,18 @@
 
     /// One period earlier (-1) or later (1): 7 days, a month or a year. The period of today is the latest.
     function move(direction) {
-      const base = anchor ?? new Date();
-      const date = view === "week" ? new Date(base.getFullYear(), base.getMonth(), base.getDate() + 7 * direction)
-        : view === "month" ? new Date(base.getFullYear(), base.getMonth() + direction, 1) : new Date(base.getFullYear() + direction, 0, 1);
+      // Days where the pages show times (Home Time, or the device's), as the bridge counts them with `timeZone`.
+      const base = zoned(anchor ?? new Date());
+      const date = view === "week" ? zonedDate(base.year, base.month, base.day + 7 * direction)
+        : view === "month" ? zonedDate(base.year, base.month + direction, 1) : zonedDate(base.year + direction, 0, 1);
       anchor = containsToday(date) ? null : date;
       loadHistory();
     }
     function containsToday(date) {
-      const now = new Date();
-      if (view === "year") return date.getFullYear() >= now.getFullYear();
-      if (view === "month") return date.getFullYear() * 12 + date.getMonth() >= now.getFullYear() * 12 + now.getMonth();
-      return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const now = zoned(new Date()), day = zoned(date);
+      if (view === "year") return day.year >= now.year;
+      if (view === "month") return day.year * 12 + day.month >= now.year * 12 + now.month;
+      return date >= HomeswiftI18n.startOfDay(new Date());
     }
     /// The period's history, and its consumption by device; a poll while an import runs (`poll`) leaves the consumption
     /// until the import is done.
@@ -1807,16 +1813,25 @@
 
     /// A bar of the period's chart, by its date (YYYY-MM-DD, or YYYY-MM over a year): its labels, Today and Yesterday by
     /// name, and whether it is the one now.
+    /// Today and yesterday as YYYY-MM-DD, worked out once a minute rather than for every bar.
+    let named = { at: 0 };
+    function todayAndYesterday() {
+      if (Date.now() - named.at > 60000) {
+        const now = zoned(new Date());
+        named = { at: Date.now(), today: isoDay(new Date()), yesterday: isoDay(zonedDate(now.year, now.month, now.day - 1)) };
+      }
+      return named;
+    }
     function periodBar(date) {
       const monthly = view === "year";
-      const today = isoDay(new Date()), yesterday = isoDay(new Date(Date.now() - 86400000));
+      const { today, yesterday } = todayAndYesterday();
       const [year, month, day] = date.split("-").map(Number);
-      const when = new Date(year, month - 1, day || 1);
+      const when = zonedDate(year, month - 1, day || 1);
       const name = (format) => monthly ? format.format(when)
         : date === today ? t("Today") : date === yesterday && format === dayFormat ? t("Yesterday") : format.format(when);
       return {
-        label: monthly ? shortMonth.format(when) : view === "month" ? String(when.getDate()) : name(shortDay),
-        narrow: monthly ? narrowMonth.format(when) : String(when.getDate()),
+        label: monthly ? shortMonth.format(when) : view === "month" ? String(day) : name(shortDay),
+        narrow: monthly ? narrowMonth.format(when) : String(day),
         title: name(monthly ? monthYear : dayFormat),
         current: monthly ? date === today.slice(0, 7) : date === today,
       };
@@ -1854,7 +1869,7 @@
     /// seconds); one done: what it covers and when it last ran, quietly; one failed: why.
     function fillImports(imports) {
       clearTimeout(importPoll);
-      const longDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "long", year: "numeric" });
+      const longDay = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "long", year: "numeric" });
       const day = (text) => longDay.format(parseDay(text));
       importsNode.replaceChildren(...imports.map((one) => {
         if (one.state === "running") {
@@ -1896,7 +1911,7 @@
       ].filter(Boolean);
       // The legend names each colour once: an entity is the same colour above the line and below it.
       const legend = [...new Map(segments.map((one) => [one.tone, { tone: one.tone, label: { 4: t("Solar"), 3: t("Batteries"), 7: t("Grid"), 8: t("Not split") }[one.tone] }])).values()];
-      const dateOf = (bar) => { const [year, month, day] = bar.date.split("-").map(Number); return new Date(year, month - 1, day || 1); };
+      const dateOf = (bar) => { const [year, month, day] = bar.date.split("-").map(Number); return zonedDate(year, month - 1, day || 1); };
       const chartBars = bars.map((bar) => ({ ...periodBar(bar.date), values: known(bar) ? bar : null }));
       const key = view + "\n" + segments.map((one) => one.label).join("\n");
       days.titleNode.textContent = monthly ? t("Energy by month") : t("Energy by day");
@@ -1911,7 +1926,7 @@
 
       // The period, and the way to the ones around it: none before the history's first hour, none after today.
       const first = dateOf(bars[0]), last = dateOf(bars.at(-1));
-      periodLabel.textContent = monthly ? String(first.getFullYear()) : view === "month" ? monthYear.format(first) : rangeFormat.formatRange(first, last);
+      periodLabel.textContent = monthly ? String(zoned(first).year) : view === "month" ? monthYear.format(first) : rangeFormat.formatRange(first, last);
       previous.disabled = !earliest || first <= earliest;
       next.disabled = !anchor;
 
@@ -1963,8 +1978,8 @@
       ].filter(Boolean);
       dayTable.replaceChildren(dayTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
         el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: monthly ? t("Month") : t("Day") }), columns.map(([title]) => el("th", { scope: "col", text: title })))),
-        el("tbody", {}, [...bars].reverse().map((bar) => el("tr", {},
-          el("th", { scope: "row", class: "time", text: periodBar(bar.date).title }),
+        el("tbody", {}, [...bars].reverse().map((bar, index) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: chartBars[bars.length - 1 - index].title }),
           columns.map(([, field, format]) => {
             const one = known(bar) ? bar[field] : null;
             return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
@@ -1990,7 +2005,7 @@
     /// The power and levels at each point, newest first.
     function fillPoints() {
       if (!lastReport) return;
-      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const time = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
       const present = roles.filter((role) => lastReport.roles.includes(role.id));
       const rows = new Map();
       for (const point of lastReport.power) rows.set(point.t, { ...point });
@@ -2007,20 +2022,21 @@
     load();
     return section;
   }
-  const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
-  const shortMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "short" });
-  const narrowMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "narrow" });
-  const monthYear = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
-  const rangeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short" });
+  const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short" });
+  const shortMonth = HomeswiftI18n.dateTimeFormat({ month: "short" });
+  const narrowMonth = HomeswiftI18n.dateTimeFormat({ month: "narrow" });
+  const monthYear = HomeswiftI18n.dateTimeFormat({ month: "long", year: "numeric" });
+  const rangeFormat = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "short" });
   const { isoDay, parseDay } = HomeswiftCommon;
-  const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+  const { zoned, zonedDate } = HomeswiftI18n;
+  const shortDay = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
 
   /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
   function formatWatts(watts, top = Math.abs(watts)) {
     const kilo = Math.max(Math.abs(watts), top) >= 1000;
     const value = kilo ? watts / 1000 : watts;
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
-    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
+    return `${value.toLocaleString(HomeswiftI18n.numberLocale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
   const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
   const formatCubicMetres = (value, top) => HomeswiftCommon.cubicMetres(value, top);
@@ -3499,7 +3515,7 @@
 
     const usage = el("div", { class: "usage" }, el("p", { class: "muted", text: t("Loading…") }));
     const money = (usd) => usd == null ? "–" : usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
-    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString(HomeswiftI18n.locale);
+    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString(HomeswiftI18n.numberLocale);
     const meter = (label, used, limit, format) => {
       const share = Math.min(1, limit ? used / limit : 0);
       return el("div", { class: `budget-meter${share >= 1 ? " over" : share >= 0.8 ? " near" : ""}` },
@@ -3509,7 +3525,7 @@
     };
     const table = (title, rows) => rows.length ? el("div", { class: "table-scroll" }, el("table", {},
       el("thead", {}, el("tr", {}, [title, t("Requests"), t("Tokens"), t("Cost")].map((text) => el("th", { text })))),
-      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString(HomeswiftI18n.locale) }),
+      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString(HomeswiftI18n.numberLocale) }),
         el("td", { text: tokens(summary) }), el("td", { text: money(summary.costUsd) })))))) : null;
     async function loadUsage() {
       let answer;
@@ -3517,18 +3533,18 @@
       const report = answer.usage;
       const budget = report.budget || {};
       const meters = [
-        budget.dailyTokens ? meter(t("Tokens today"), report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.dailyTokens ? meter(t("Tokens today"), report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString(HomeswiftI18n.numberLocale)) : null,
         budget.dailyUsd ? meter(t("Spent today"), report.today.costUsd ?? 0, budget.dailyUsd, money) : null,
-        budget.monthlyTokens ? meter(t("Tokens this month"), report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.monthlyTokens ? meter(t("Tokens this month"), report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString(HomeswiftI18n.numberLocale)) : null,
         budget.monthlyUsd ? meter(t("Spent this month"), report.thisMonth.costUsd ?? 0, budget.monthlyUsd, money) : null,
       ].filter(Boolean);
       const byModel = Object.entries(report.monthByModel || {}).sort(([, a], [, b]) => b.requests - a.requests);
       const byUser = Object.entries(report.byUser?.thisMonth || {}).sort(([, a], [, b]) => b.requests - a.requests);
       usage.replaceChildren(...[
         el("div", { class: "stats" },
-          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests today") })),
+          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString(HomeswiftI18n.numberLocale) }), el("span", { text: t("Requests today") })),
           el("div", { class: "stat" }, el("b", { text: money(report.today.costUsd) }), el("span", { text: t("Cost today") })),
-          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests this month") })),
+          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString(HomeswiftI18n.numberLocale) }), el("span", { text: t("Requests this month") })),
           el("div", { class: "stat" }, el("b", { text: money(report.thisMonth.costUsd) }), el("span", { text: t("Cost this month") }))),
         report.exceeded ? el("p", { class: "error", text: HomeswiftI18n.message(report.exceeded) }) : null,
         meters.length ? el("div", { class: "budget-meters" }, meters) : el("p", { class: "muted", text: t("No budget: requests are not limited.") }),
@@ -3848,8 +3864,8 @@
     /// which it writes as `M H * * d,d`; an expression that says more than that stays as it is, under Custom.
     const scheduleField = (wrap, current) => {
       // The week from Sunday (1 January 2023 was one), in the page's language.
-      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short" });
-      const names = [0, 1, 2, 3, 4, 5, 6].map((day) => weekday.format(new Date(2023, 0, 1 + day)));
+      const weekday = HomeswiftI18n.dateTimeFormat({ weekday: "short", timeZone: "UTC" });
+      const names = [0, 1, 2, 3, 4, 5, 6].map((day) => weekday.format(new Date(Date.UTC(2023, 0, 1 + day))));
       const text = typeof current === "string" ? current.trim() : "";
       const simple = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+(\*|[0-7](?:,[0-7])*)$/.exec(text);
       const fits = simple && Number(simple[1]) < 60 && Number(simple[2]) < 24;
@@ -3857,7 +3873,7 @@
         el("option", { value: "never", text: t("Never") }), el("option", { value: "time", text: t("At a time") }), el("option", { value: "custom", text: t("Custom (cron)") }));
       mode.value = !text ? "never" : fits ? "time" : "custom";
       const pad = (n) => String(n).padStart(2, "0");
-      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": t("Time") });
+      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": t("Time"), title: HomeswiftCommon.homeTimeTitle() });
       const chosen = new Set(fits && simple[3] !== "*" ? simple[3].split(",").map((day) => Number(day) % 7) : []);
       const days = el("span", { class: "days", role: "group", "aria-label": t("Days (none: every day)") }, names.map((name, day) => {
         const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
@@ -4495,7 +4511,7 @@
   /// it may do and when it last came; its ⋯ menu disconnects it. With the MCP server on, the address to give them.
   function connectedAppsCard(apps) {
     if (!apps || (!apps.mcp && !apps.apps.length)) return null;
-    const when = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" }) : t("Never");
+    const when = (iso) => iso ? HomeswiftI18n.formatDate(new Date(iso), { dateStyle: "medium", timeStyle: "short" }) : t("Never");
     const scopes = { read: t("Read"), control: t("Control"), admin: t("Admin") };
     const rows = apps.apps.map((app) => el("div", { class: "server-head connected-app" },
       tile("key", app.scope === "admin" ? "orange" : "teal"),
@@ -4686,8 +4702,8 @@
     const [users, tokens] = await Promise.all([api("/api/users"), api("/api/tokens")]);
     const admins = users.filter((user) => user.admin).length;
     // A card's facts are a third of its width: the day alone ("24 Oct 2026"), the time in the tooltip.
-    const when = (iso) => iso ? new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { day: "numeric", month: "short", year: "numeric" }) : t("Never");
-    const whenFull = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : t("Never");
+    const when = (iso) => iso ? HomeswiftI18n.formatDate(new Date(iso), { day: "numeric", month: "short", year: "numeric" }) : t("Never");
+    const whenFull = (iso) => iso ? HomeswiftI18n.formatDate(new Date(iso), { dateStyle: "full", timeStyle: "short" }) : t("Never");
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
     // A choice as a switch, as the rest of the UI's on and off.
     const checkbox = (label, checked, help) => {
@@ -4860,6 +4876,17 @@
   // and the temperature unit, as Glass UI offers them. Each user's own, saved on the bridge (/api/preferences) and
   // applied at once, on every page, plugins' included.
 
+  /// The Language & Region card's choices: an icon each, and the examples they show, in the page's language.
+  /// Each choice's icon; the languages show their flags instead.
+  const choiceIcons = { theme: "sun", temperatureUnit: "thermo", timeFormat: "clock", dateFormat: "calendar", numberFormat: "hash", firstWeekday: "calendar", timeZone: "location" };
+  // The examples are raw Intl on purpose: each shows its own format, not the one the user has now.
+  const sample = (options) => new Intl.DateTimeFormat(HomeswiftI18n.locale, { ...options, timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 1, 13, 30)));
+  const weekdayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", timeZone: "UTC" });
+  /// A time zone by its city: Europe/Lisbon is Lisbon, America/Argentina/Buenos_Aires is Buenos Aires.
+  const city = (zone) => String(zone ?? "").split("/").pop().replaceAll("_", " ");
+  /// 0 for Sunday; 4 January 2026 was one.
+  const weekdayName = (day) => weekdayFormat.format(new Date(Date.UTC(2026, 0, 4 + day)));
+
   const wallpaperChoices = [["none", t("None")], ["aurora", t("Aurora")], ["sunset", t("Sunset")], ["ocean", t("Ocean")], ["forest", t("Forest")], ["graphite", t("Graphite")], ["silk", t("Silk")], ["prism", t("Prism")], ["ribbon", t("Ribbon")], ["lagoon", t("Lagoon")], ["ember", t("Ember")], ["midnight", t("Midnight")]];
 
   views.appearance = async (main) => {
@@ -4875,8 +4902,12 @@
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
     };
     const segmented = (label, value, options, key) => el("div", { class: "group", role: "radiogroup", "aria-label": label },
-      options.map(([option, text]) => el("button", { type: "button", role: "radio", actionIcon: key === "language" ? undefined : key === "temperatureUnit" ? "thermo" : "sun", class: option === value ? "on" : "", "aria-checked": String(option === value),
+      options.map(([option, text]) => el("button", { type: "button", role: "radio", actionIcon: choiceIcons[key], class: option === value ? "on" : "", "aria-checked": String(option === value),
         onclick: () => { if (option !== value) choose({ [key]: option }); } }, key === "language" ? flag(option === "auto" ? null : option) : null, el("span", { text }))));
+
+    /// A row of the Language & Region card: its label, the choices (the bridge always answers every preference) and help.
+    const regionChoice = (key, label, options, help) => el("div", { class: "field region-field" }, el("span", { class: "field-title", text: label }),
+      segmented(label, preferences[key], options, key), help ? el("span", { class: "help", text: help }) : null);
 
     const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", multiple: true, class: "hidden" });
     /// Wallpapers of the viewer's own, from the picker or dropped on the zone, one after the other: the bridge
@@ -4949,11 +4980,16 @@
         el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("thermo"), el("span", { text: t("Temperatures") })),
           el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),
           segmented(t("Temperature unit"), preferences.temperatureUnit, [["c", t("Celsius (°C)")], ["f", t("Fahrenheit (°F)")]], "temperatureUnit")),
-        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("globe"), el("span", { text: t("Language") })),
-          el("p", { class: "muted", text: t("The pages' language and the one the Assistant answers in. Automatic follows the browser.") }),
+        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("globe"), el("span", { text: t("Language & Region") })),
+          el("p", { class: "muted", text: t("The pages' language, the one the Assistant and your notifications answer in, and how dates, times and numbers are written. Automatic follows the language and the browser.") }),
           // Each language in its own name, so whoever reads the page finds theirs.
-          segmented(t("Language"), preferences.language || "auto",
-            [["auto", t("Automatic")], ...HomeswiftI18n.languages.map((code) => [code, HomeswiftI18n.names[code]])], "language")));
+          regionChoice("language", t("Language"), [["auto", t("Automatic")], ...HomeswiftI18n.languages.map((code) => [code, HomeswiftI18n.names[code]])]),
+          regionChoice("timeFormat", t("Time format"), [["auto", t("Automatic")], ["12", sample({ hour: "numeric", minute: "2-digit", hourCycle: "h12" })], ["24", sample({ hour: "2-digit", minute: "2-digit", hourCycle: "h23" })]]),
+          regionChoice("dateFormat", t("Date format"), [["auto", t("Automatic")], ["dmy", "31/12/2026"], ["mdy", "12/31/2026"], ["ymd", "2026-12-31"]]),
+          regionChoice("numberFormat", t("Numbers"), [["auto", t("Automatic")], ["point", "1,234.5"], ["comma", "1.234,5"], ["space", "1 234,5"]]),
+          regionChoice("firstWeekday", t("First day of the week"), [["auto", t("Automatic")], ["mon", weekdayName(1)], ["sat", weekdayName(6)], ["sun", weekdayName(0)]]),
+          regionChoice("timeZone", t("Time zone"), [["home", t("Home Time ({zone})", { zone: city(preferences.homeTimeZone) })], ["device", t("This device ({zone})", { zone: city(HomeswiftI18n.deviceTimeZone) })]],
+            t("How the log, the History and other moments show. Tariffs, Automations and schedules are always set in Home Time."))));
     }
     draw();
     show(main, pageHead(t("Appearance"), t("How the web UI looks for you, on every browser you sign in to.")), body, message);
@@ -5072,7 +5108,7 @@
   const levelRank = { trace: 0, debug: 1, info: 2, notice: 3, warning: 4, error: 5, critical: 6 };
   // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
   const latestLines = 2000, rangeLines = 10000;
-  const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   /// A line with what filtering reads, worked out once: its date and its text in lower case, its payload included.
   const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text} ${line.details ?? ""}`.toLowerCase() });
   // All: every line; Info: info and above; Warnings: warnings only; Errors: errors only (critical ones too).

@@ -424,7 +424,7 @@
     let chats;
     try { chats = await api("/api/assistant/chats"); } catch (e) { list.replaceChildren(el("p", { class: "chat-error", text: e.message })); return; }
     if (!historyOpen) return;
-    const when = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+    const when = HomeswiftI18n.dateTimeFormat({ dateStyle: "medium", timeStyle: "short" });
     const rows = chats.map((chat) => {
       const row = el("div", { class: `chat-history-row${chat.current ? " current" : ""}` },
         el("button", { type: "button", class: "chat-history-open", onclick: () => openChat(chat) },
@@ -539,7 +539,7 @@
   /// the changes asked for, without the tools' arguments or answers.
   function transcript() {
     const status = { running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") };
-    const lines = [`# ${t("Assistant")}${info.model ? ` · ${info.model}` : ""} · ${new Date().toLocaleString(HomeswiftI18n.locale)}`, ""];
+    const lines = [`# ${t("Assistant")}${info.model ? ` · ${info.model}` : ""} · ${HomeswiftI18n.formatDate(new Date(), { year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })}`, ""];
     for (const item of items) {
       switch (item.kind) {
       case "user": lines.push(`**${t("You")}:** ${item.text}`, ""); break;
@@ -671,7 +671,7 @@
     if (!waiting) thinking?.remove();
     const provider = providerNames[info.provider] || info.provider || t("Assistant");
     const cost = usage && usage.cost != null && usage.cost > 0
-      ? new Intl.NumberFormat(HomeswiftI18n.locale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
+      ? new Intl.NumberFormat(HomeswiftI18n.numberLocale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
     note.textContent = listening ? t("Listening… tap the mic again when you are done.") : voiceNote
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }

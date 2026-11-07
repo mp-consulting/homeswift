@@ -81,6 +81,8 @@ public final class HomeState: Sendable {
     let telegramPoller = NIOLockedValueBox<Task<Void, Never>?>(nil)
     /// The web UI's address, for notifications' links; set by the web UI as it starts.
     let uiAddress = NIOLockedValueBox<String?>(nil)
+    /// A user's Language as their account chose it, nil for "auto"; set by the web UI, whose Preferences keep it.
+    let userLanguages = NIOLockedValueBox<(@Sendable (String) -> String?)?>(nil)
     /// The shows and plugin scenes that set the lights and can still be undone, with what the lights were.
     let heldLights: JSONFileStore<[SavedHeldLights]>
     let sceneUndo: JSONFileStore<[String: SceneUndo]>

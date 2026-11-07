@@ -152,8 +152,9 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
 
 public struct NotificationMessage: Sendable {
     public var event: NotificationEvent
-    public var title: String
-    public var message: String
+    /// Put in the reader's language when sent (`NotificationText`).
+    public var title: NotificationText
+    public var message: NotificationText
     /// Higher priority for outages (ntfy, Pushover, Web Push).
     public var urgent = false
     /// The web UI page it is about, for channels that can open it: a tap opens it.
@@ -331,7 +332,8 @@ extension HomeswiftCatalog {
     }
 
     /// Adds (or refreshes) a browser's subscription, `PushSubscription.toJSON()` with a `label`.
-    public func subscribeToPush(_ body: JSONValue, username: String?) throws -> JSONValue {
+    /// `language` is the page's (its `Accept-Language`), for the notifications this browser receives.
+    public func subscribeToPush(_ body: JSONValue, username: String?, language: String? = nil) throws -> JSONValue {
         guard let endpoint = body["endpoint"]?.stringValue, endpoint.count <= 2048, let url = URL(string: endpoint), url.scheme == "https", url.host?.isEmpty == false, url.user == nil else {
             throw CatalogError("The push endpoint must be an https URL")
         }
@@ -344,7 +346,7 @@ extension HomeswiftCatalog {
         let label = String((body["label"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty ?? url.host ?? "browser").prefix(100))
         _ = try webPushPublicKey()
         let id = String(SHA256Hex.of(endpoint).prefix(16))
-        let subscription = WebPush.Subscription(id: id, endpoint: endpoint, p256dh: p256dh, auth: auth, label: label, username: username, createdAt: SceneRules.now())
+        let subscription = WebPush.Subscription(id: id, endpoint: endpoint, p256dh: p256dh, auth: auth, label: label, username: username, createdAt: SceneRules.now(), language: language.map(HomeLanguage.resolve))
         try home.notifications.update { settings in
             settings.subscriptions.removeAll { $0.endpoint == endpoint }
             guard settings.subscriptions.count < 20 else { throw CatalogError("At most 20 devices can receive browser notifications") }
@@ -371,27 +373,35 @@ extension HomeswiftCatalog {
         let settings = home.notifications.value
         let targets = settings.subscriptions.filter { endpoint == nil || $0.endpoint == endpoint }
         guard let keys = settings.webPushKeys, keys.isValid, !targets.isEmpty else { throw CatalogError(endpoint != nil ? "This browser is not subscribed" : "No browser is subscribed") }
-        var fields: [String: JSONValue] = [
-            "title": .string("\(instanceName): \(message.title)"), "body": .string(NotificationRules.truncate(message.message, NotificationRules.pushBodyMax)),
-            "tag": .string(message.event.rawValue), "path": .string(WebPush.localPath(message.path)), "urgent": .bool(message.urgent),
-        ]
-        // Buttons where the browser shows them (Chromium): each acts with its token, or opens its page.
-        if !message.buttons.isEmpty {
-            fields["tag"] = .string("\(message.event.rawValue)-\(UUID().uuidString.prefix(8))")
-            fields["actions"] = .array(message.buttons.enumerated().map { index, button in
-                var object: [String: JSONValue] = ["action": .string("b\(index)"), "title": .string(button.label)]
-                if let token = button.token { object["act"] = .string("/notify/act/\(token)") }
-                if let path = button.path { object["path"] = .string(WebPush.localPath(path)) }
-                return .object(object)
-            })
+        // In each reader's Language (`readerLanguage`): built and encoded once per language.
+        let homeTongue = homeLanguage
+        var encoded: [String: Data] = [:]
+        func payload(_ language: String) throws -> Data {
+            if let made = encoded[language] { return made }
+            var fields: [String: JSONValue] = [
+                "title": .string("\(instanceName): \(message.title.text(in: language))"), "body": .string(NotificationRules.truncate(message.message.text(in: language), NotificationRules.pushBodyMax)),
+                "tag": .string(message.event.rawValue), "path": .string(WebPush.localPath(message.path)), "urgent": .bool(message.urgent),
+            ]
+            // Buttons where the browser shows them (Chromium): each acts with its token, or opens its page.
+            if !message.buttons.isEmpty {
+                fields["tag"] = .string("\(message.event.rawValue)-\(UUID().uuidString.prefix(8))")
+                fields["actions"] = .array(message.buttons.enumerated().map { index, button in
+                    var object: [String: JSONValue] = ["action": .string("b\(index)"), "title": .string(button.label)]
+                    if let token = button.token { object["act"] = .string("/notify/act/\(token)") }
+                    if let path = button.path { object["path"] = .string(WebPush.localPath(path)) }
+                    return .object(object)
+                })
+            }
+            let made = try JSONValue.object(fields).encoded()
+            encoded[language] = made
+            return made
         }
-        let payload = JSONValue.object(fields)
         let http = home.http
         var gone: [String] = [], errors: [String] = []
         var sent = 0
         for target in targets {
             do {
-                try await WebPush.send(payload.encoded(), to: target, keys: keys, subject: NotificationRules.subject, urgent: message.urgent, http: http)
+                try await WebPush.send(payload(readerLanguage(of: target, home: homeTongue)), to: target, keys: keys, subject: NotificationRules.subject, urgent: message.urgent, http: http)
                 sent += 1
             } catch is WebPush.Gone {
                 gone.append(target.endpoint)
@@ -411,9 +421,21 @@ extension HomeswiftCatalog {
 
     var instanceName: String { host.mainBridge.name }
 
+    /// The Home Language: what goes out on the shared channels.
+    var homeLanguage: String { host.configuration.homeLanguage ?? "en" }
+
+    /// A browser's reader's Language: the one their account chose (`userLanguage`, the web UI's), else the page's when
+    /// it subscribed, else the Home Language.
+    func readerLanguage(of subscription: WebPush.Subscription, home: String) -> String {
+        if let user = subscription.username, let chosen = userLanguage(user) { return HomeLanguage.resolve(chosen) }
+        return subscription.language ?? home
+    }
+
     /// Sends one message on one channel; throws what went wrong, its secrets scrubbed by the caller.
     func send(_ message: NotificationMessage, on channel: NotificationChannel, settings: NotificationSettings) async throws {
-        let title = "\(instanceName): \(message.title)"
+        let language = homeLanguage
+        let title = "\(instanceName): \(message.title.text(in: language))"
+        let text = message.message.text(in: language)
         let http = home.http
         func post(_ url: String, headers: [(String, String)], body: Data) async throws {
             guard let target = URL(string: url) else { throw CatalogError("invalid URL") }
@@ -427,7 +449,7 @@ extension HomeswiftCatalog {
         let act = { (token: String) -> String? in address.map { "\($0)/notify/act/\(token)" } }
         switch channel {
         case .webhook:
-            var fields: [String: JSONValue] = ["event": .string(message.event.rawValue), "title": .string(title), "message": .string(message.message),
+            var fields: [String: JSONValue] = ["event": .string(message.event.rawValue), "title": .string(title), "message": .string(text),
                                              "instance": .string(instanceName), "timestamp": .string(SceneRules.now())]
             if let url = link(message.path) { fields["url"] = .string(url) }
             if !message.buttons.isEmpty {
@@ -445,13 +467,15 @@ extension HomeswiftCatalog {
             try await post(hook.url, headers: headers, body: body.encoded())
         case .ntfy:
             let ntfy = settings.channels.ntfy
-            // Header values must be Latin-1: anything else in the title becomes ?.
-            var headers = [("Title", String(title.map { $0.isASCII && !$0.isNewline ? $0 : "?" })), ("Priority", message.urgent ? "high" : "default"), ("Tags", "homeswift")]
+            // Header values must be ASCII: a title in another language (Résumé du jour) goes RFC 2047-encoded, which ntfy reads.
+            let oneLine = String(title.map { $0.isNewline ? " " : $0 })
+            let headerTitle = oneLine.allSatisfy(\.isASCII) ? oneLine : "=?UTF-8?B?\(Data(oneLine.utf8).base64EncodedString())?="
+            var headers = [("Title", headerTitle), ("Priority", message.urgent ? "high" : "default"), ("Tags", "homeswift")]
             if !ntfy.token.isEmpty { headers.append(("Authorization", "Bearer \(ntfy.token)")) }
             let server = ntfy.server.hasSuffix("/") ? String(ntfy.server.dropLast()) : ntfy.server
             // Buttons: ntfy's JSON publishing, which keeps their labels in any language.
             if !message.buttons.isEmpty {
-                var body: [String: JSONValue] = ["topic": .string(ntfy.topic), "title": .string(title), "message": .string(NotificationRules.truncate(message.message, 4096, bytes: true)),
+                var body: [String: JSONValue] = ["topic": .string(ntfy.topic), "title": .string(title), "message": .string(NotificationRules.truncate(text, 4096, bytes: true)),
                                                  "priority": .number(message.urgent ? 4 : 3), "tags": ["homeswift"]]
                 if let url = link(message.path) { body["click"] = .string(url) }
                 body["actions"] = .array(message.buttons.compactMap { button -> JSONValue? in
@@ -465,16 +489,16 @@ extension HomeswiftCatalog {
                 return
             }
             if let url = link(message.path), url.allSatisfy(\.isASCII) { headers.append(("Click", url)) }
-            try await post("\(server)/\(ntfy.topic)", headers: headers, body: Data(NotificationRules.truncate(message.message, 4096, bytes: true).utf8))
+            try await post("\(server)/\(ntfy.topic)", headers: headers, body: Data(NotificationRules.truncate(text, 4096, bytes: true).utf8))
         case .pushover:
             let fields = [
                 ("token", settings.channels.pushover.appToken), ("user", settings.channels.pushover.userKey), ("title", NotificationRules.truncate(title, 250)),
-                ("message", NotificationRules.truncate(message.message, 1024)), ("priority", message.urgent ? "1" : "0"),
-            ] + (link(message.path).map { [("url", $0), ("url_title", message.buttons.isEmpty ? "Open in Homeswift" : "Choose in Homeswift")] } ?? [])
+                ("message", NotificationRules.truncate(text, 1024)), ("priority", message.urgent ? "1" : "0"),
+            ] + (link(message.path).map { [("url", $0), ("url_title", NotificationText(message.buttons.isEmpty ? "Open in Homeswift" : "Choose in Homeswift").text(in: language))] } ?? [])
             let form = URLEncoding.form(fields)
             try await post("https://api.pushover.net/1/messages.json", headers: [("Content-Type", "application/x-www-form-urlencoded")], body: Data(form.utf8))
         case .telegram:
-            var fields: [String: JSONValue] = ["chat_id": .string(settings.channels.telegram.chatId), "text": .string(NotificationRules.truncate("\(title)\n\(message.message)", 4096)),
+            var fields: [String: JSONValue] = ["chat_id": .string(settings.channels.telegram.chatId), "text": .string(NotificationRules.truncate("\(title)\n\(text)", 4096)),
                                              "disable_web_page_preview": true]
             // A row per button: a callback the bridge reads, or a link to a page (Telegram wants an http(s) one).
             let rows: [JSONValue] = message.buttons.compactMap { button in
@@ -527,7 +551,7 @@ extension HomeswiftCatalog {
     /// Sends an event to every channel that is on, when the event is on and the limits allow: the same event
     /// about the same thing at most once per 15 minutes, 12 notifications an hour. nil when nothing went out.
     @discardableResult
-    public func notify(_ event: NotificationEvent, title: String, message: String, urgent: Bool = false, path: String? = nil, subject: String = "", now: Date = Date()) async -> [JSONValue]? {
+    public func notify(_ event: NotificationEvent, title: NotificationText, message: NotificationText, urgent: Bool = false, path: String? = nil, subject: String = "", now: Date = Date()) async -> [JSONValue]? {
         await notify(NotificationMessage(event: event, title: title, message: message, urgent: urgent, path: path), subject: subject, now: now)
     }
 
@@ -563,7 +587,7 @@ extension HomeswiftCatalog {
             return true
         }
         guard allowed else { throw CatalogError("Too many test notifications: try again in a minute") }
-        let message = NotificationMessage(event: .test, title: "Test notification", message: "Notifications from Homeswift are working.", path: "/notifications")
+        let message = NotificationMessage(event: .test, title: NotificationText("Test notification"), message: NotificationText("Notifications from Homeswift are working."), path: "/notifications")
         if channel == .browser, let endpoint {
             do {
                 _ = try await sendPush(message, endpoint: endpoint)
@@ -602,8 +626,8 @@ extension HomeswiftCatalog {
             return due
         }
         for located in due {
-            await notify(.accessoryOffline, title: "\(located.layout?.name ?? located.accessory.name) is not responding",
-                         message: "\(located.accessory.name)\(located.platform.map { " (\($0.name))" } ?? "") has answered No Response for 5 minutes.",
+            await notify(.accessoryOffline, title: NotificationText("{name} is not responding", ["name": located.layout?.name ?? located.accessory.name]),
+                         message: NotificationText("{name} has answered No Response for 5 minutes.", ["name": "\(located.accessory.name)\(located.platform.map { " (\($0.name))" } ?? "")"]),
                          path: "/accessories", subject: located.accessory.id, now: now)
         }
         // The daily digest, once a day at its time.
@@ -616,8 +640,8 @@ extension HomeswiftCatalog {
             var input = digestInput(now: now)
             input.date = day
             do {
-                let digest = try await assistant.dailyDigest(input).text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !digest.isEmpty { await notify(.dailyDigest, title: "Daily digest", message: digest, subject: day, now: now) }
+                let digest = try await assistant.speaking(homeLanguage).dailyDigest(input).text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !digest.isEmpty { await notify(.dailyDigest, title: NotificationText("Daily digest"), message: .literal(digest), subject: day, now: now) }
             } catch {
                 logger.warning("Could not make the daily digest notification: \(error)")
             }
@@ -629,7 +653,7 @@ extension HomeswiftCatalog {
         guard line.level >= .error, !line.label.hasPrefix("homeswift.notifications") else { return }
         let catalog = self
         Task {
-            await catalog.notify(.pluginError, title: "\(line.label): error", message: Self.safe(line.text), path: "/logs?level=error", subject: line.label, now: line.date)
+            await catalog.notify(.pluginError, title: NotificationText("{plugin}: error", ["plugin": line.label]), message: .literal(Self.safe(line.text)), path: "/logs?level=error", subject: line.label, now: line.date)
         }
     }
 
@@ -661,7 +685,8 @@ extension HomeswiftCatalog {
         let presence = host.presence.observe { event in catalog.automationPresenceChanged(event) }
         home.running.withLockedValue { $0 = RunningHome(ticker: ticker, observations: [changes, lines, presence]) }
         if !restarted {
-            Task { await catalog.notify(.bridgeStarted, title: "Homeswift started", message: "Homeswift \(PluginHost.version) is running with \(catalog.located().count) accessories.", path: "/status") }
+            Task { await catalog.notify(.bridgeStarted, title: NotificationText("Homeswift started"),
+                                            message: NotificationText("Homeswift {version} is running with {count} accessories.", ["version": PluginHost.version, "count": String(catalog.located().count)]), path: "/status") }
         }
     }
 
@@ -686,7 +711,7 @@ extension HomeswiftCatalog {
         running.observations.forEach { $0.cancel() }
         stopAutomations()
         guard !restarting else { return }
-        await notify(.bridgeStopped, title: "Homeswift stopped", message: "Homeswift is shutting down; its accessories show No Response until it is back.", urgent: true)
+        await notify(.bridgeStopped, title: NotificationText("Homeswift stopped"), message: NotificationText("Homeswift is shutting down; its accessories show No Response until it is back."), urgent: true)
     }
 
     // MARK: Tools
