@@ -52,7 +52,7 @@
         fact(t("Location"), status.location ?? "—"),
         fact(t("Updates"), updates),
         fact(t("Requests since start"), String(status.requests))),
-      status.eventsNote ? el("p", { class: "muted", text: status.sseGranted ? t("SmartThings refused the event stream: updates come by polling for now.") : status.eventsNote }) : null,
+      status.eventsNote ? el("p", { class: "muted", text: t("SmartThings refused the event stream: updates come by polling for now.") }) : null,
       !status.sseGranted && !status.personalToken ? el("p", { class: "muted", text: t("Your app has no sse scope: add it, then sign in again, for live updates and buttons.") }) : null,
       status.personalToken ? el("p", { class: "muted", text: t("Signed in with a personal access token, which expires within a day. Sign in with your own SmartThings app instead.") }) : null,
       status.lastError ? el("p", { class: "muted", text: t("SmartThings does not answer: the last values are kept.") }) : null,

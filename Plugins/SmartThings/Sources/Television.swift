@@ -104,6 +104,7 @@ extension AccessoryBuilder {
             try await writer.send([DeviceCommand("main", "audioVolume", value.intValue == 0 ? "volumeUp" : "volumeDown")])
         }
         @Sendable func setVolume(_ level: Int) async throws {
+            guard await writer.isLatest("main/volume") else { return }
             var commands: [DeviceCommand] = []
             var set: Writer.Set = [("main", "audioVolume", "volume", .number(Double(level)))]
             if level > 0, box.status.string("main", "audioMute", "mute") == "muted" {

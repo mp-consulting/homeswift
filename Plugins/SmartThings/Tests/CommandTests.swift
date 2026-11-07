@@ -88,6 +88,20 @@ struct CommandTests {
         await #expect(throws: HAPStatusError(.insufficientPrivileges)) { try await writer.send([DeviceCommand("main", "switch", "on")]) }
     }
 
+
+    /// A slider's drag sends where it ends, not every step: a device has 12 requests a minute (section 6.1).
+    @Test func aSliderDragSendsOnlyWhereItEnds() async throws {
+        let device = try #require(SmartThingsDevice(Fixture.item("l", "Lamp", components: [("main", [("switch", .null), ("switchLevel", .null)])])))
+        let sent = SentCommands()
+        let binding = try #require(TestBuild.binding(device, status: DeviceStatus(), sent: sent))
+        let light = try #require(binding.accessory.service(.lightbulb))
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for level in [10, 20, 30, 40, 50] { group.addTask { try await write(light[.brightness], .int(level)) } }
+            try await group.waitForAll()
+        }
+        #expect(sent.all.count == 1)
+        #expect(sent.all.first?.first?.command == "setLevel")
+    }
     /// At most ten commands a request (section 4.3).
     @Test func commandsGoTenARequest() async throws {
         let cloud = FakeSmartThings()

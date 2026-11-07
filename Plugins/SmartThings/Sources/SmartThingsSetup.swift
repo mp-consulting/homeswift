@@ -197,6 +197,10 @@ extension SmartThingsPlugin {
         guard uri.hasPrefix("/oauth/callback"), let pending = pendingAuth else {
             return (404, CallbackServer.page(success: false, message: "Nothing here"))
         }
+        // A reload of the page after the sign-in worked: its code is spent, and the sign-in stays done.
+        if case .success? = authResult {
+            return (200, CallbackServer.page(success: true, message: "Signed in to SmartThings. You can close this page."))
+        }
         do {
             try await complete(callback: "https://localhost" + uri, pending: pending)
             authResult = .success(())

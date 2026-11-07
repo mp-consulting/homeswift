@@ -16,6 +16,10 @@ struct Writer: Sendable {
         try await env.send(commands, values.map { StatusBox.key($0.component, $0.capability, $0.attribute) })
         box.setOptimistic(values, at: env.now())
     }
+
+    /// Waits a moment, then says whether this is still the last write for `key`: a slider's drag sends only where it
+    /// ends, so it does not spend the 12 requests a minute SmartThings allows a device (section 6.1).
+    func isLatest(_ key: String) async -> Bool { await env.sliders(key) }
 }
 
 /// Builds a device's accessory from its components' capabilities (section 7.2): device-level rules first (appliances,

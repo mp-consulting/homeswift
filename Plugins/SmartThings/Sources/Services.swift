@@ -113,6 +113,7 @@ extension AccessoryBuilder {
         let box = box
         if level {
             service.characteristic(.brightness).onWrite(changesOnly: true) { value in
+                guard await writer.isLatest("\(component)/brightness") else { return }
                 let level = Convert.percent(value.doubleValue) ?? 0
                 // setLevel 0 turns a light off: send the off itself (section 7.3.2).
                 if level == 0 {
@@ -150,15 +151,19 @@ extension AccessoryBuilder {
                 service.set(.saturation, status.number(component, "colorControl", "saturation").map { .double(Convert.clamp($0, 0...100)) })
             }
         }
+        // When the bridge last set the white: a colour bulb reports a new hue for it, which is not a colour set elsewhere.
+        let temperatureWrittenAt = NIOLockedValueBox<Date>(.distantPast), clock = env.now
         if temperature {
             let range = minMireds...maxMireds
             service.characteristic(.colorTemperature).onWrite(changesOnly: true) { value in
+                guard await writer.isLatest("\(component)/colorTemperature") else { return }
                 let mireds = Convert.clamp(value.doubleValue ?? 300, range)
                 var kelvin = Convert.kelvin(mireds: mireds) ?? 3000
                 if let limits = box.status.value(component, "colorTemperature", "colorTemperatureRange") {
                     if let low = limits["minimum"]?.doubleValue { kelvin = max(kelvin, Int(saturating: low) ?? kelvin) }
                     if let high = limits["maximum"]?.doubleValue { kelvin = min(kelvin, Int(saturating: high) ?? kelvin) }
                 }
+                temperatureWrittenAt.withLockedValue { $0 = clock() }
                 try await writer.send([DeviceCommand(component, "colorTemperature", "setColorTemperature", [.number(Double(kelvin))])],
                                       set: [(component, "colorTemperature", "colorTemperature", .number(Double(kelvin)))])
             }
@@ -175,7 +180,11 @@ extension AccessoryBuilder {
                 _ = controller?.disableIfChangedElsewhere(mireds: mireds)
             }
             if color {
-                eventHooks[StatusBox.key(component, "colorControl", "hue")] = { [weak controller] _, _ in _ = controller?.disableIfChangedElsewhere(mireds: nil) }
+                let echo = env.timing.timeInterval(10)
+                eventHooks[StatusBox.key(component, "colorControl", "hue")] = { [weak controller] _, _ in
+                    guard clock().timeIntervalSince(temperatureWrittenAt.withLockedValue { $0 }) > echo else { return }
+                    _ = controller?.disableIfChangedElsewhere(mireds: nil)
+                }
             }
         }
     }
@@ -189,6 +198,7 @@ extension AccessoryBuilder {
         bindOn(service, component, characteristic: .active)
         let writer = writer
         service.characteristic(.rotationSpeed).onWrite(changesOnly: true) { value in
+            guard await writer.isLatest("\(component)/rotationSpeed") else { return }
             let level = Convert.percent(value.doubleValue) ?? 0
             switch speed {
             case .level:
@@ -315,6 +325,7 @@ extension AccessoryBuilder {
             try await writer.send([DeviceCommand(component, capability, command, [value])], set: [(component, capability, attribute, value)])
         }
         service.characteristic(.targetTemperature).onWrite(changesOnly: true) { value in
+            guard await writer.isLatest("\(component)/targetTemperature") else { return }
             let celsius = value.doubleValue ?? 20
             switch variant {
             case .single: try await setpoint("temperatureSetpoint", "setTemperatureSetpoint", "temperatureSetpoint", celsius)
@@ -331,9 +342,11 @@ extension AccessoryBuilder {
         }
         if variant == .both {
             service.characteristic(.heatingThresholdTemperature).onWrite(changesOnly: true) { value in
+                guard await writer.isLatest("\(component)/heatingThreshold") else { return }
                 try await setpoint("thermostatHeatingSetpoint", "setHeatingSetpoint", "heatingSetpoint", value.doubleValue ?? 20)
             }
             service.characteristic(.coolingThresholdTemperature).onWrite(changesOnly: true) { value in
+                guard await writer.isLatest("\(component)/coolingThreshold") else { return }
                 try await setpoint("thermostatCoolingSetpoint", "setCoolingSetpoint", "coolingSetpoint", value.doubleValue ?? 24)
             }
         }
@@ -402,6 +415,7 @@ extension AccessoryBuilder {
             }
         }
         service.characteristic(.targetPosition).onWrite { value in
+            guard await writer.isLatest("\(component)/targetPosition") else { return }
             var target = Convert.percent(value.doubleValue) ?? 0
             if level == .none { target = target >= 50 ? 100 : 0 }
             if shade, target == 0 || target == 100 {
@@ -422,6 +436,7 @@ extension AccessoryBuilder {
         }
         if tilt {
             service.characteristic(.targetHorizontalTiltAngle).onWrite(changesOnly: true) { value in
+                guard await writer.isLatest("\(component)/tilt") else { return }
                 let angle = Convert.clamp(value.doubleValue ?? 0, -90...90)
                 let tiltLevel = ((angle + 90) / 1.8).rounded()
                 try await writer.send([DeviceCommand(component, "windowShadeTiltLevel", "setShadeTiltLevel", [.number(tiltLevel)])],

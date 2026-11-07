@@ -110,6 +110,24 @@ struct TokenTests {
         #expect(environment.cloud.sent.isEmpty)
     }
 
+
+    /// The browser reloading the callback page after the sign-in worked keeps it done: the spent code is not sent again.
+    @Test func aReloadedCallbackKeepsTheSignIn() async throws {
+        let environment = TestEnvironment(signedIn: false)
+        environment.cloud.answer("POST", "/v1/oauth/token", Fixture.tokens)
+        let host = try await environment.start(settings: ["name": "SmartThings"])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let step = try await plugin.authorize(SetupRequest(target: .account, answers: [
+            "client_id": "7a850484-0000-4000-8000-000000000001", "client_secret": "3581f317-0000-4000-8000-000000000002", "sse": "no", "callbackServerPort": "48584",
+        ]))
+        guard case .ask(_, let state) = step, let oauthState = state["oauthState"]?.stringValue else { Issue.record("no sign-in step"); return }
+        #expect(await plugin.callbackRequest("/oauth/callback?code=abc&state=\(oauthState)").status == 200)
+        environment.cloud.answer("POST", "/v1/oauth/token", status: 400, ["error": "invalid_grant"])
+        #expect(await plugin.callbackRequest("/oauth/callback?code=abc&state=\(oauthState)").status == 200)
+        guard case .done = try await plugin.authorize(SetupRequest(target: .account, state: state)) else { Issue.record("not done"); return }
+        #expect(environment.cloud.sent("POST", "/v1/oauth/token").count == 1)
+    }
     /// Setup: the client and the sse choice, the authorize URL, the pasted address exchanged; the client to the vault.
     @Test func setupSignsInWithAPastedAddress() async throws {
         let environment = TestEnvironment(signedIn: false)

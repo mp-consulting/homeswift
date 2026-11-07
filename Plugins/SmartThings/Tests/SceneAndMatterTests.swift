@@ -77,6 +77,24 @@ struct SceneAndMatterTests {
         #expect(MatterCopies.find(in: [own], homeswiftIDs: [long])["x"]?.rules == ["c"])
     }
 
+
+    /// A copy shown before its bridge was listed (the host's accessories were not all up) leaves the bridge once it is found.
+    @Test func aCopyFoundLaterLeavesTheBridge() async throws {
+        let environment = TestEnvironment()
+        let items = Self.matterDevices["items"]?.arrayValue ?? []
+        let child = try #require(items.first { $0["deviceId"] == "aaaa0000-0000-4000-8000-0000000000b1" })
+        environment.cloud.reset("GET", "/v1/devices")
+        environment.cloud.answer("GET", "/v1/devices", ["items": [child], "_links": [:]])
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.accessory("aaaa0000-0000-4000-8000-0000000000b1") != nil })
+        environment.cloud.reset("GET", "/v1/devices")
+        environment.cloud.answer("GET", "/v1/devices", Self.matterDevices)
+        let plugin = try #require(environment.plugin)
+        await plugin.reconcile()
+        #expect(await eventually { host.accessory("aaaa0000-0000-4000-8000-0000000000b1") == nil })
+        #expect(await plugin.bindings["aaaa0000-0000-4000-8000-0000000000b1"] == nil)
+    }
     @Test func copiesAreSkippedAndOtherMatterDevicesShown() async throws {
         let environment = TestEnvironment()
         environment.cloud.reset("GET", "/v1/devices")

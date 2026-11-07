@@ -83,6 +83,7 @@ extension AccessoryBuilder {
                                   set: [(component, "switch", "switch", "on"), (component, "airConditionerMode", "airConditionerMode", .string(mode))])
         }
         thermostat.characteristic(.targetTemperature).onWrite(changesOnly: true) { value in
+            guard await writer.isLatest("\(component)/targetTemperature") else { return }
             let setpoint = Convert.deviceTemperature(value.doubleValue ?? 24, unit: box.status.unit(component, "thermostatCoolingSetpoint", "coolingSetpoint") ?? unit(box.status))
             try await writer.send([DeviceCommand(component, "thermostatCoolingSetpoint", "setCoolingSetpoint", [setpoint])],
                                   set: [(component, "thermostatCoolingSetpoint", "coolingSetpoint", setpoint)])
@@ -106,6 +107,7 @@ extension AccessoryBuilder {
             }
         }
         fan.characteristic(.rotationSpeed).onWrite(changesOnly: true) { value in
+            guard await writer.isLatest("\(component)/rotationSpeed") else { return }
             let speed = value.doubleValue ?? 0
             let mode: String?
             if speed <= 0 {

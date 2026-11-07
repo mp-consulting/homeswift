@@ -312,6 +312,12 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
             present.insert(id)
             if let match = found[id] {
                 copies[id] = (device, match)
+                // Found after it was shown (the host's accessories were not all up yet): it leaves the bridge now.
+                if let binding = bindings.removeValue(forKey: id) {
+                    followUps.removeValue(forKey: id)?.cancel()
+                    removeAccessory(binding.accessory.id)
+                }
+                missing[id] = nil
                 if loggedOnce.insert("copy:\(id)").inserted {
                     logger.info("Skipping \(device.displayName): it is Homeswift's own accessory through Homeswift's Matter bridge")
                 }
@@ -428,7 +434,7 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
                 guard let self else { throw HAPStatusError(.serviceCommunicationFailure) }
                 try await self.send(deviceID: id, commands, watched: watched)
             },
-            controllable: device.isControllable)
+            controllable: device.isControllable, sliders: LatestCallGuard(delay: timing.seconds(0.3)))
         let name = context.map { _ in device.displayName } ?? device.displayName
         var builder = AccessoryBuilder(device: device, status: status, settings: settings, options: options, box: box, env: env, context: context,
                                        accessoryID: Self.accessoryID(id), name: name)

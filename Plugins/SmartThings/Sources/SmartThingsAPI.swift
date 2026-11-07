@@ -166,7 +166,9 @@ actor SmartThingsAPI {
             "subscriptionFilters": [["type": "LOCATIONIDS", "value": [.string(locationID)], "eventType": .array(Self.eventTypes.map(JSONValue.string))]],
         ]
         let answer = try await send("POST", path: "sse/subscriptions", body: body, isWrite: true)
-        guard let id = answer["subscriptionId"]?.stringValue, let text = answer["registrationUrl"]?.stringValue, let url = URL(string: text) else {
+        // The stream's host is not documented, so it is not pinned; the bearer token only ever goes over https.
+        guard let id = answer["subscriptionId"]?.stringValue, let text = answer["registrationUrl"]?.stringValue, let url = URL(string: text),
+              url.scheme?.lowercased() == "https", url.host?.isEmpty == false else {
             throw SmartThingsError.invalidAnswer(path: "sse/subscriptions")
         }
         return Subscription(id: id, registrationURL: url)

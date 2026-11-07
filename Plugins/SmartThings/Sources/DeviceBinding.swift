@@ -118,6 +118,8 @@ struct BindingEnvironment: Sendable {
     /// Sends commands; throws `HAPStatusError` for HomeKit when SmartThings refuses or does not answer.
     var send: @Sendable (_ commands: [DeviceCommand], _ watched: [String]) async throws -> Void
     var controllable: Bool
+    /// Coalesces each slider's writes (`Writer.isLatest`).
+    var sliders = LatestCallGuard(delay: .milliseconds(300))
 }
 
 /// An appliance value for the web page and the Assistant (section 8.9): a label and its value.
