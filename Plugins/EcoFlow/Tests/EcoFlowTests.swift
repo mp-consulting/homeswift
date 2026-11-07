@@ -29,6 +29,22 @@ actor FakeAPI: EcoFlowAPI {
     func update(deviceID: String, _ change: @Sendable (inout EcoFlowState) -> Void) {
         for index in list.indices where list[index].id == deviceID { change(&list[index].state) }
     }
+
+    /// The writes sent, by serial number; with `refusing`, each one is refused instead.
+    private(set) var sent: [(serial: String, write: EcoFlowWrite)] = []
+    private(set) var refusing = false
+
+    func refuse(_ refuse: Bool) { refusing = refuse }
+
+    /// The app's route's writes of the model, as the plugin would have with the app's sign-in.
+    nonisolated func writes(for device: EcoFlowDevice) -> EcoFlowCapabilities {
+        EcoFlowWrites.capabilities(device.model, route: .app)
+    }
+
+    func set(_ write: EcoFlowWrite, on device: EcoFlowDevice) async throws {
+        if refusing { throw EcoFlowWriteError.refused("test") }
+        sent.append((device.id, write))
+    }
 }
 
 /// Answers each path with a canned JSON body (404 for a path it does not know) and records the requests.
@@ -58,7 +74,8 @@ final class TestEnvironment: Sendable {
 
     func start(
         settings: [String: Any] = [:], developerAPI: (@Sendable (String, String, String?) -> any EcoFlowAPI)? = nil,
-        appSignIn: (@Sendable (String, String) async throws -> Void)? = nil
+        appSignIn: (@Sendable (String, String) async throws -> Void)? = nil,
+        configure: (@Sendable (inout EcoFlowPlugin.Dependencies) -> Void)? = nil
     ) async throws -> PluginHost {
         var registry = PluginRegistry()
         registry.register(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name) { json, context in
@@ -66,6 +83,7 @@ final class TestEnvironment: Sendable {
             var dependencies = EcoFlowPlugin.Dependencies(api: self.api)
             if let developerAPI { dependencies.developerAPI = developerAPI }
             if let appSignIn { dependencies.appSignIn = appSignIn }
+            configure?(&dependencies)
             let plugin = EcoFlowPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin

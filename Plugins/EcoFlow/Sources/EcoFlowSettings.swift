@@ -4,8 +4,8 @@ import HomeswiftPlugin
 // Settings (docs/plugins.md, "Settings"): the Plugin Settings are the route, the app's email, the developer account's
 // region, `importHistory` and `pollingInterval`; the developer keys and the app's password are the account's credentials,
 // in the vault (EcoFlowSetup.swift). Each device is a Discovered Device by its serial number, of the Device Kind of its
-// model (`stream`, `home`, `portable`, `powerBank`), with no Plugin Accessory Settings: its Name is a Core Accessory
-// Setting. A block's `devices` (serial numbers with names), `accessKey`, `secretKey` and `password` still load;
+// model (`stream`, `home`, `portable`, `powerBank`), its Plugin Accessory Settings the charge and discharge limits
+// (`chargeLimit`, `dischargeLimit`, EcoFlowPlugin.applyLimits): its Name is a Core Accessory Setting. A block's `devices` (serial numbers with names), `accessKey`, `secretKey` and `password` still load;
 // `canonicalSettings` moves them.
 extension EcoFlowPlugin {
     public func deviceKind(of deviceID: String) async -> String? {

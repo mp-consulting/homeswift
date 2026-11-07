@@ -96,6 +96,16 @@
 
   .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
 
+  /* The outputs the plugin switches, one row each (its port, its state, its button), and the limits under them. */
+  .controls { display: grid; gap: 8px; }
+  .controls > .caption { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--muted); }
+  .output-list { display: grid; gap: 8px; }
+  .output { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 14px;
+    background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
+  .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .output .button { flex: none; }
+  .limits { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
 
   /* No readings yet: the shared empty card, with a sentence on why and when the page looks again. */

@@ -8,8 +8,9 @@ extension EcoFlowPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The EcoFlow page: each device the plugin reads, its battery, and its power as IN and OUT, laid out by kind as the
-// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin. It writes no
-// settings: the devices come with the account (Setup), and each one's name is its Settings'.
+// app does, with the outputs it switches and its charge limits. The page refreshes every few seconds while it is
+// visible; it reads `GET power` from the plugin and switches an output with `POST output`, as HomeKit does. It writes no
+// settings: the devices come with the account (Setup), and each one's name and limits are its Settings'.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
@@ -126,6 +127,48 @@ extension EcoFlowPlugin {
   const untested = () => el("span", { class: "way untested", text: t("Untested"),
     "data-tip": t("This model's readings come from open-source projects and have not been checked on a real device yet") });
 
+  // A model whose writes nobody has confirmed on a real device: sent only with the plugin's "Writes to untested models".
+  const untestedWrites = () => el("span", { class: "way untested", text: t("Untested"),
+    "data-tip": t("This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet") });
+
+  // Switches an output as HomeKit does; the next answer shows the device's state.
+  async function switchOutput(device, output, button) {
+    button.disabled = true;
+    try {
+      await request("output", { method: "POST", body: { id: device.id, output: output.id, on: output.on !== true } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // The outputs the plugin switches, each with its state and a button, and the charge and discharge limits (the
+  // device's Settings change them).
+  function controls(device) {
+    const outputs = device.outputs ?? [];
+    if (outputs.length === 0 && !device.limits) return null;
+    const percent = (value) => value == null ? "–" : `${Math.round(value)} %`;
+    const rows = outputs.map((output) => {
+      const port = t(output.name);
+      const state = output.on === null ? "–" : output.on ? t("On") : t("Off");
+      const button = el("button", { type: "button", class: "button small", actionIcon: "power", disabled: !device.online,
+        text: output.on === true ? t("Turn off") : t("Turn on"),
+        "aria-label": output.on === true ? t("Turn {port} off", { port }) : t("Turn {port} on", { port }) });
+      button.addEventListener("click", () => switchOutput(device, output, button));
+      return el("div", { class: "output", "data-tip": t("This output, as HomeKit's Outlet shows it") },
+        el("span", { class: "label", text: port }),
+        el("span", { class: `pill ${output.on ? "on" : ""}`, text: state }), button);
+    });
+    const limits = device.limits ? el("p", { class: "limits", "data-tip": t("The device's Settings change its limits") },
+      el("span", { text: t("Charge limit {value}", { value: percent(device.limits.charge) }) }),
+      el("span", { text: t("Discharge limit {value}", { value: percent(device.limits.discharge) }) })) : null;
+    return el("div", { class: "controls" },
+      el("div", { class: "caption" }, el("span", { text: t("Outputs and limits") }), device.writesTested === false ? untestedWrites() : null),
+      rows.length ? el("div", { class: "output-list" }, rows) : null, limits);
+  }
+
   // The device's estimate of the time to full while charging, to empty otherwise, as the EcoFlow app shows it: days
   // and hours (rounded to the hour) from a day up, else hours and minutes, or minutes.
   function remaining(device) {
@@ -169,7 +212,7 @@ extension EcoFlowPlugin {
           el("span", { class: "way source", text: sourceLabel(device.source), "data-tip": sourceTip(device.source) }),
           device.tested === false ? untested() : null, known.length > 1 ? handle(device) : null),
         el("p", { class: "serial", text: device.model ? `${device.model} · ${device.id}` : device.id })),
-      battery, flowList, panels, status);
+      battery, flowList, panels, controls(device), status);
   }
 
   // MARK: Packing. In two columns each card spans the rows its height takes (the CSS's `--pack-row` rows, the gap
@@ -483,6 +526,25 @@ extension EcoFlowPlugin {
 // The EcoFlow page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Les écritures de ce modèle viennent de projets open source et de la documentation d'EcoFlow et n'ont pas encore été confirmées sur un vrai appareil",
+    "On": "Allumé",
+    "Off": "Éteint",
+    "Turn on": "Allumer",
+    "Turn off": "Éteindre",
+    "Turn {port} on": "Allumer {port}",
+    "Turn {port} off": "Éteindre {port}",
+    "This output, as HomeKit's Outlet shows it": "Cette sortie, comme la prise HomeKit la montre",
+    "The device's Settings change its limits": "Les réglages de l'appareil changent ses limites",
+    "Charge limit {value}": "Limite de charge {value}",
+    "Discharge limit {value}": "Limite de décharge {value}",
+    "Outputs and limits": "Sorties et limites",
+    "The device did not switch the output": "L'appareil n'a pas commuté la sortie",
+    "AC": "AC",
+    "DC": "DC",
+    "DC 12 V": "DC 12 V",
+    "USB": "USB",
+    "AC (high voltage)": "AC (haute tension)",
+    "AC (low voltage)": "AC (basse tension)",
     "Developer API": "API développeur",
     "EcoFlow app": "Application EcoFlow",
     "Live, from the developer API's MQTT pushes": "En direct, par les envois MQTT de l'API développeur",
@@ -548,6 +610,25 @@ HomeswiftI18n.add({
     "Power the USB-C ports supply": "Puissance fournie par les ports USB-C"
   },
   "es": {
+    "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Las escrituras de este modelo vienen de proyectos de código abierto y de la documentación de EcoFlow y aún no se han confirmado en un dispositivo real",
+    "On": "Encendido",
+    "Off": "Apagado",
+    "Turn on": "Encender",
+    "Turn off": "Apagar",
+    "Turn {port} on": "Encender {port}",
+    "Turn {port} off": "Apagar {port}",
+    "This output, as HomeKit's Outlet shows it": "Esta salida, como la muestra el enchufe de HomeKit",
+    "The device's Settings change its limits": "Los ajustes del dispositivo cambian sus límites",
+    "Charge limit {value}": "Límite de carga {value}",
+    "Discharge limit {value}": "Límite de descarga {value}",
+    "Outputs and limits": "Salidas y límites",
+    "The device did not switch the output": "El dispositivo no conmutó la salida",
+    "AC": "CA",
+    "DC": "CC",
+    "DC 12 V": "CC 12 V",
+    "USB": "USB",
+    "AC (high voltage)": "CA (alta tensión)",
+    "AC (low voltage)": "CA (baja tensión)",
     "Developer API": "API para desarrolladores",
     "EcoFlow app": "App de EcoFlow",
     "Live, from the developer API's MQTT pushes": "En directo, por los envíos MQTT de la API para desarrolladores",
@@ -613,6 +694,25 @@ HomeswiftI18n.add({
     "Power the USB-C ports supply": "Potencia que entregan los puertos USB-C"
   },
   "pt": {
+    "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "As escritas deste modelo vêm de projetos de código aberto e da documentação da EcoFlow e ainda não foram confirmadas num dispositivo real",
+    "On": "Ligado",
+    "Off": "Desligado",
+    "Turn on": "Ligar",
+    "Turn off": "Desligar",
+    "Turn {port} on": "Ligar {port}",
+    "Turn {port} off": "Desligar {port}",
+    "This output, as HomeKit's Outlet shows it": "Esta saída, tal como a tomada do HomeKit a mostra",
+    "The device's Settings change its limits": "As definições do dispositivo alteram os seus limites",
+    "Charge limit {value}": "Limite de carga {value}",
+    "Discharge limit {value}": "Limite de descarga {value}",
+    "Outputs and limits": "Saídas e limites",
+    "The device did not switch the output": "O dispositivo não comutou a saída",
+    "AC": "CA",
+    "DC": "CC",
+    "DC 12 V": "CC 12 V",
+    "USB": "USB",
+    "AC (high voltage)": "CA (alta tensão)",
+    "AC (low voltage)": "CA (baixa tensão)",
     "Developer API": "API para programadores",
     "EcoFlow app": "Aplicação EcoFlow",
     "Live, from the developer API's MQTT pushes": "Em direto, pelos envios MQTT da API para programadores",
@@ -791,6 +891,16 @@ HomeswiftI18n.add({
   @media (max-width: 359px) { .panel-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
   .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
+
+  /* The outputs the plugin switches, one row each (its port, its state, its button), and the limits under them. */
+  .controls { display: grid; gap: 8px; }
+  .controls > .caption { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--muted); }
+  .output-list { display: grid; gap: 8px; }
+  .output { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 14px;
+    background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
+  .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .output .button { flex: none; }
+  .limits { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
 

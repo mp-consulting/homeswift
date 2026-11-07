@@ -1,6 +1,7 @@
 // The EcoFlow page: each device the plugin reads, its battery, and its power as IN and OUT, laid out by kind as the
-// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin. It writes no
-// settings: the devices come with the account (Setup), and each one's name is its Settings'.
+// app does, with the outputs it switches and its charge limits. The page refreshes every few seconds while it is
+// visible; it reads `GET power` from the plugin and switches an output with `POST output`, as HomeKit does. It writes no
+// settings: the devices come with the account (Setup), and each one's name and limits are its Settings'.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
@@ -117,6 +118,48 @@
   const untested = () => el("span", { class: "way untested", text: t("Untested"),
     "data-tip": t("This model's readings come from open-source projects and have not been checked on a real device yet") });
 
+  // A model whose writes nobody has confirmed on a real device: sent only with the plugin's "Writes to untested models".
+  const untestedWrites = () => el("span", { class: "way untested", text: t("Untested"),
+    "data-tip": t("This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet") });
+
+  // Switches an output as HomeKit does; the next answer shows the device's state.
+  async function switchOutput(device, output, button) {
+    button.disabled = true;
+    try {
+      await request("output", { method: "POST", body: { id: device.id, output: output.id, on: output.on !== true } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // The outputs the plugin switches, each with its state and a button, and the charge and discharge limits (the
+  // device's Settings change them).
+  function controls(device) {
+    const outputs = device.outputs ?? [];
+    if (outputs.length === 0 && !device.limits) return null;
+    const percent = (value) => value == null ? "–" : `${Math.round(value)} %`;
+    const rows = outputs.map((output) => {
+      const port = t(output.name);
+      const state = output.on === null ? "–" : output.on ? t("On") : t("Off");
+      const button = el("button", { type: "button", class: "button small", actionIcon: "power", disabled: !device.online,
+        text: output.on === true ? t("Turn off") : t("Turn on"),
+        "aria-label": output.on === true ? t("Turn {port} off", { port }) : t("Turn {port} on", { port }) });
+      button.addEventListener("click", () => switchOutput(device, output, button));
+      return el("div", { class: "output", "data-tip": t("This output, as HomeKit's Outlet shows it") },
+        el("span", { class: "label", text: port }),
+        el("span", { class: `pill ${output.on ? "on" : ""}`, text: state }), button);
+    });
+    const limits = device.limits ? el("p", { class: "limits", "data-tip": t("The device's Settings change its limits") },
+      el("span", { text: t("Charge limit {value}", { value: percent(device.limits.charge) }) }),
+      el("span", { text: t("Discharge limit {value}", { value: percent(device.limits.discharge) }) })) : null;
+    return el("div", { class: "controls" },
+      el("div", { class: "caption" }, el("span", { text: t("Outputs and limits") }), device.writesTested === false ? untestedWrites() : null),
+      rows.length ? el("div", { class: "output-list" }, rows) : null, limits);
+  }
+
   // The device's estimate of the time to full while charging, to empty otherwise, as the EcoFlow app shows it: days
   // and hours (rounded to the hour) from a day up, else hours and minutes, or minutes.
   function remaining(device) {
@@ -160,7 +203,7 @@
           el("span", { class: "way source", text: sourceLabel(device.source), "data-tip": sourceTip(device.source) }),
           device.tested === false ? untested() : null, known.length > 1 ? handle(device) : null),
         el("p", { class: "serial", text: device.model ? `${device.model} · ${device.id}` : device.id })),
-      battery, flowList, panels, status);
+      battery, flowList, panels, controls(device), status);
   }
 
   // MARK: Packing. In two columns each card spans the rows its height takes (the CSS's `--pack-row` rows, the gap

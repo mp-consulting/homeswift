@@ -43,6 +43,9 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         /// Serial numbers with names, read first by the app's route; `canonicalSettings` moves the names into each device's
         /// Accessory Settings.
         public var devices: [Device]?
+        /// Whether the outputs and the limits of models whose writes nobody has confirmed on a real device are written
+        /// (EcoFlowWrites.checked); false by default.
+        public var untestedWrites: Bool?
     }
 
     /// What the plugin uses to reach its devices; tests swap it for a fake.
@@ -65,6 +68,10 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         }
         /// The cloud's energy history, with the app's sign-in; nil without it or with `importHistory` false.
         var history: EcoFlowHistory? = nil
+        /// How long a write may take before the HomeKit write fails, and how long the state it asked for is kept while
+        /// the device's readings catch up.
+        var writeTimeout: Duration = .seconds(8)
+        var holdFor: Duration = .seconds(2)
     }
 
     /// How far the energy history was imported, in the plugin's storage.
@@ -85,9 +92,21 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// At most this many serial numbers are kept: an account has a handful of devices.
     static let maximumOrdered = 200
 
-    /// A device's services on its accessory.
+    /// A device's services on its accessory: the Battery, and an Outlet per output it switches.
     struct DeviceServices {
         let battery: Service
+        var outlets: [EcoFlowOutput: Service] = [:]
+    }
+
+    /// The Accessory Settings of the limits (`accessorySchema`), and the file of the limits last sent, by serial number.
+    static let chargeLimitKey = "chargeLimit"
+    static let dischargeLimitKey = "dischargeLimit"
+    static let limitsFile = "limits.json"
+
+    /// The limits sent to a device, or that it already had.
+    struct Limits: Codable, Equatable {
+        var charge: Int?
+        var discharge: Int?
     }
 
     public static let platform = "EcoFlow"
@@ -110,6 +129,14 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private(set) var latest: [EcoFlowDevice] = []
     /// The page's order, each serial number's place, read from `orderFile` once and kept as it is saved.
     private var orderPlaces: [String: Int]?
+    /// The state each output was last switched to, kept until the instant given while the device's readings catch up:
+    /// a reading in that window that still shows the old state does not flip it back. By `<serial>:<output>`.
+    private var holds: [String: (on: Bool, until: ContinuousClock.Instant)] = [:]
+    /// The limits that were refused, or are being sent: not sent again until the settings change.
+    private var limitsRefused: [String: Limits] = [:]
+    private var limitsSending: Set<String> = []
+    /// The limits sent to each device (`limitsFile`), read once.
+    private var limitsSent: [String: Limits]?
     /// Each device's `recorded` series, with the name and route they were made for.
     private var recordedSeries: [String: (name: String, route: EcoFlowModel.Route, keys: [String: Recorded])] = [:]
     var logger: Logger { context.logger }
@@ -345,7 +372,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         }
         for device in reported {
             if let services = devices[device.id] {
-                Self.show(device.state, on: services)
+                show(device, on: services)
+                await applyLimits(device)
                 continue
             }
             // A device whose level is not known yet (offline since the plugin started, a STREAM on the developer API's
@@ -357,6 +385,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             } catch {
                 logger.error("Could not add \(device.name): \(error)")
             }
+            await applyLimits(device)
         }
         // TODO: once a device is known to be gone, `context.removeAccessories(keeping:)` drops its accessory.
     }
@@ -391,10 +420,25 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     }
 
     /// The plugin's page: `GET power` answers the devices' power flows, in watts, with the battery's state, in the
-    /// page's order; `POST order` keeps a new order (`ids`, the serial numbers from first to last).
+    /// page's order; `POST order` keeps a new order (`ids`, the serial numbers from first to last); `POST output`
+    /// switches an output (`id`, the serial number; `output`, `ac`, `ac2`, `dc12v` or `usb`; `on`) as HomeKit does.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "power"): return power()
+        case ("POST", "output"):
+            guard let id = request.body["id"]?.stringValue, let output = request.body["output"]?.stringValue.flatMap(EcoFlowOutput.init(rawValue:)),
+                  let on = request.body["on"]?.boolValue else {
+                return .error(400, "id, output and on say which output to switch")
+            }
+            guard let device = latest.first(where: { $0.id == id }), allowedWrites(device).outputs[output] != nil else {
+                return .error(404, "The device has no such output to switch")
+            }
+            do {
+                try await switchOutput(output, on: on, deviceID: id)
+            } catch {
+                return .error(502, "The device did not switch the output")
+            }
+            return PluginWebResponse(.object(["id": .string(id), "output": .string(output.rawValue), "on": .bool(on)]))
         case ("POST", "order"):
             guard let ids = request.body["ids"]?.arrayValue?.compactMap(\.stringValue), ids.count <= Self.maximumOrdered else {
                 return .error(400, "ids must list the devices' serial numbers")
@@ -425,7 +469,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private func power() -> PluginWebResponse {
         let devices: [JSONValue] = ordered(latest).map { device in
             let power = device.state.power
-            return .object([
+            var fields: [String: JSONValue] = [
                 "id": .string(device.id),
                 "name": .string(displayName(device)),
                 "online": .bool(device.online),
@@ -454,7 +498,9 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
                 "ac": .number(power.ac),
                 "ac1": .number(power.ac1),
                 "ac2": .number(power.ac2),
-            ])
+            ]
+            fields.merge(writesJSON(device)) { $1 }
+            return .object(fields)
         }
         // The configured devices with no readings yet: the page shows a placeholder for each while they arrive (the
         // app's stream reports a few seconds after the developer API).
@@ -476,14 +522,158 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         services.battery.characteristic(.chargingState).value = .int(state.battery.chargingState)
     }
 
+    /// The battery, and each Outlet's On from the device's readings: an output switched in the last `holdFor` keeps
+    /// the state it was switched to, and one whose state the device does not report keeps its own.
+    private func show(_ device: EcoFlowDevice, on services: DeviceServices) {
+        Self.show(device.state, on: services)
+        let now = ContinuousClock.now
+        for (output, outlet) in services.outlets {
+            let key = "\(device.id):\(output.rawValue)"
+            if let hold = holds[key] {
+                if now < hold.until { continue }
+                holds[key] = nil
+            }
+            if let on = device.state.outputs[output] { outlet.characteristic(.on).value = .bool(on) }
+        }
+    }
+
+    // MARK: - Writes (EcoFlowWrites.md)
+
+    /// The writes the plugin sends for the device: the API's, those on a route where its model's writes were seen
+    /// working, and the others only with `untestedWrites`.
+    func allowedWrites(_ device: EcoFlowDevice) -> EcoFlowCapabilities {
+        guard let api = dependencies.api else { return EcoFlowCapabilities() }
+        let untested = configuration.untestedWrites == true
+        return api.writes(for: device).filter { untested || EcoFlowWrites.isChecked(serial: device.id, route: $0) }
+    }
+
+    /// The output's state, from the device's readings or the Outlet's.
+    private func outputState(_ device: EcoFlowDevice, _ output: EcoFlowOutput) -> Bool? {
+        if let hold = holds["\(device.id):\(output.rawValue)"], ContinuousClock.now < hold.until { return hold.on }
+        return device.state.outputs[output] ?? devices[device.id]?.outlets[output]?.characteristic(.on).value.boolValue
+    }
+
+    /// The page's view of the device's writes: each output it switches, whether those writes were checked on a
+    /// device, and the limits.
+    private func writesJSON(_ device: EcoFlowDevice) -> [String: JSONValue] {
+        let allowed = allowedWrites(device)
+        let names = EcoFlowWrites.table(device.model)?.names ?? [:]
+        let outputs: [JSONValue] = allowed.outputs.keys.sorted().map { output in
+            .object(["id": .string(output.rawValue), "name": .string(names[output] ?? output.rawValue.uppercased()),
+                     "on": outputState(device, output).map(JSONValue.bool) ?? .null])
+        }
+        let routes = Array(allowed.outputs.values) + (allowed.limits.map { [$0] } ?? [])
+        let settings = context.accessorySettings(for: device.id).plugin
+        var fields: [String: JSONValue] = [
+            "outputs": .array(outputs),
+            "writesTested": .bool(routes.allSatisfy { EcoFlowWrites.isChecked(serial: device.id, route: $0) }),
+        ]
+        if allowed.limits != nil {
+            fields["limits"] = .object([
+                "charge": (device.state.chargeLimit ?? settings[Self.chargeLimitKey]?.saturatingIntValue).map { .number(Double($0)) } ?? .null,
+                "discharge": (device.state.dischargeLimit ?? settings[Self.dischargeLimitKey]?.saturatingIntValue).map { .number(Double($0)) } ?? .null,
+            ])
+        }
+        return fields
+    }
+
+    /// Switches an output, from HomeKit or the page. The state asked for shows at once and is kept for `holdFor` once
+    /// the device took it; a refusal or no answer within `writeTimeout` fails the write (the Home app says the device
+    /// is not responding) and the device is read again.
+    func switchOutput(_ output: EcoFlowOutput, on: Bool, deviceID: String) async throws {
+        guard let api = dependencies.api, let device = latest.first(where: { $0.id == deviceID }),
+              allowedWrites(device).outputs[output] != nil else {
+            throw HAPStatusError(.serviceCommunicationFailure)
+        }
+        let key = "\(deviceID):\(output.rawValue)"
+        // Held while the write is on its way too: a reading from before it does not flip the Outlet back.
+        holds[key] = (on, ContinuousClock.now + dependencies.writeTimeout + dependencies.holdFor)
+        let name = EcoFlowWrites.table(device.model)?.names[output] ?? output.rawValue
+        do {
+            try await withTimeout(dependencies.writeTimeout, error: { EcoFlowWriteError.unanswered }) {
+                try await api.set(.output(output, on), on: device)
+            }
+        } catch {
+            holds[key] = nil
+            logger.warning("Could not switch \(name) of \(displayName(device)) \(on ? "on" : "off"): \(error)")
+            tasks.add { [weak self] in await self?.refresh() }
+            throw HAPStatusError(.serviceCommunicationFailure)
+        }
+        holds[key] = (on, ContinuousClock.now + dependencies.holdFor)
+        devices[deviceID]?.outlets[output]?.characteristic(.on).value = .bool(on)
+        logger.info("Switched \(name) of \(displayName(device)) \(on ? "on" : "off")")
+    }
+
+    /// Sends the limits the device's Accessory Settings ask for (`chargeLimit`, `dischargeLimit`), clamped to its
+    /// model's ranges with the charge limit above the discharge limit, once per change of the settings: a limit the
+    /// device already has counts as sent, and one refused is not sent again until the settings change or the bridge
+    /// restarts. A limit cleared from the settings leaves the device's.
+    func applyLimits(_ device: EcoFlowDevice) async {
+        guard device.online, let api = dependencies.api, allowedWrites(device).limits != nil,
+              let table = EcoFlowWrites.table(device.model), !limitsSending.contains(device.id) else { return }
+        let settings = context.accessorySettings(for: device.id).plugin
+        let asked = EcoFlowWrites.clamp(charge: settings[Self.chargeLimitKey]?.saturatingIntValue,
+                                        discharge: settings[Self.dischargeLimitKey]?.saturatingIntValue,
+                                        current: (device.state.chargeLimit, device.state.dischargeLimit), table: table)
+        let wanted = Limits(charge: asked.charge, discharge: asked.discharge)
+        let file = context.jsonFile(Self.limitsFile, as: [String: Limits].self)
+        var sent = limitsSent ?? file.load() ?? [:]
+        limitsSent = sent
+        guard wanted.charge != nil || wanted.discharge != nil else {
+            if sent.removeValue(forKey: device.id) != nil {
+                limitsSent = sent
+                try? file.save(sent)
+            }
+            return
+        }
+        guard sent[device.id] != wanted, limitsRefused[device.id] != wanted else { return }
+        limitsSending.insert(device.id)
+        defer { limitsSending.remove(device.id) }
+        // The charge limit first, unless it goes down to the device's discharge limit or below: then the discharge limit
+        // comes down first. The device never holds a charge limit below its discharge limit.
+        var writes: [EcoFlowWrite] = []
+        if let charge = wanted.charge, charge != device.state.chargeLimit { writes.append(.chargeLimit(charge)) }
+        if let discharge = wanted.discharge, discharge != device.state.dischargeLimit { writes.append(.dischargeLimit(discharge)) }
+        if case .chargeLimit(let charge)? = writes.first, let current = device.state.dischargeLimit, charge <= current { writes.reverse() }
+        for write in writes {
+            do {
+                try await withTimeout(dependencies.writeTimeout, error: { EcoFlowWriteError.unanswered }) {
+                    try await api.set(write, on: device)
+                }
+            } catch {
+                limitsRefused[device.id] = wanted
+                logger.warning("Could not set the \(write) of \(displayName(device)): \(error)")
+                return
+            }
+            logger.info("Set the \(write) of \(displayName(device))")
+        }
+        sent = limitsSent ?? sent
+        sent[device.id] = wanted
+        limitsSent = sent
+        try? file.save(sent)
+    }
+
     private func add(_ device: EcoFlowDevice) throws {
         let name = displayName(device)
         let battery = Service(.battery, name: name, optional: [.batteryLevel, .chargingState], isPrimary: true)
-        let services = DeviceServices(battery: battery)
-        Self.show(device.state, on: services)
+        var services = DeviceServices(battery: battery)
+        // An Outlet per output the plugin switches, named after its port, its subtype the output's (`ac`, `dc12v`).
+        let names = EcoFlowWrites.table(device.model)?.names ?? [:]
+        let deviceID = device.id
+        for output in allowedWrites(device).outputs.keys.sorted() {
+            let outlet = Service(.outlet, name: names[output] ?? output.rawValue, subtype: output.rawValue, optional: [.outletInUse])
+            outlet.characteristic(.outletInUse).value = .bool(true)
+            outlet.characteristic(.on).value = .bool(device.state.outputs[output] ?? false)
+            outlet.characteristic(.on).onWrite { [weak self] value in
+                try await self?.switchOutput(output, on: value.boolValue == true, deviceID: deviceID)
+            }
+            services.outlets[output] = outlet
+        }
+        show(device, on: services)
         try context.add(Accessory(
             id: Self.accessoryID(deviceID: device.id), name: name, manufacturer: "EcoFlow", model: device.model?.name ?? device.name,
-            serialNumber: device.id, category: .other, services: [battery]))
+            serialNumber: device.id, category: .other,
+            services: [battery] + services.outlets.sorted { $0.key < $1.key }.map(\.value)))
         devices[device.id] = services
     }
 }

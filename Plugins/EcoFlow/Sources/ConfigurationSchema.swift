@@ -99,6 +99,41 @@ extension EcoFlowPlugin {
         "x-schema-form": {
           "condition": "model.route !== 'app'"
         }
+      },
+      "untestedWrites": {
+        "title": "Writes to untested models",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Switches the outputs and sets the charge limits of models whose writes nobody has confirmed on a real device yet: the plugin sends them commands mapped from open-source projects and EcoFlow's documentation, which could change a setting you did not ask for. Off by default"
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "chargeLimit": {
+        "title": "Charge limit (%)",
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 100,
+        "description": "The state of charge the device stops charging at, 50 to 100 % (a PowerStream's 70 to 100). Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes",
+        "x-kinds": [
+          "stream",
+          "portable",
+          "home"
+        ]
+      },
+      "dischargeLimit": {
+        "title": "Discharge limit (%)",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 30,
+        "description": "The state of charge the device stops discharging at, 0 to 30 % (a PowerStream's 1 to 30), kept below the charge limit. Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes",
+        "x-kinds": [
+          "stream",
+          "portable",
+          "home"
+        ]
       }
     }
   },
@@ -121,7 +156,13 @@ extension EcoFlowPlugin {
       "Seconds between reads of the developer API's REST values: 60 by default, 30 at least. MQTT values are live whatever this is": "Secondes entre deux lectures des valeurs REST de l'API développeur : 60 par défaut, 30 au minimum. Les valeurs MQTT sont en direct quelle que soit cette valeur",
       "Interval (seconds)": "Intervalle (secondes)",
       "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La production solaire, la consommation de la maison, la batterie et le réseau heure par heure depuis l'installation de votre système, depuis le cloud EcoFlow, dans les vues mois et année de la page État",
-      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Comme vous vous connectez à l'app EcoFlow. Son mot de passe est gardé dans le coffre : Configurer à nouveau le change"
+      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Comme vous vous connectez à l'app EcoFlow. Son mot de passe est gardé dans le coffre : Configurer à nouveau le change",
+      "Writes to untested models": "Écritures vers les modèles non testés",
+      "Switches the outputs and sets the charge limits of models whose writes nobody has confirmed on a real device yet: the plugin sends them commands mapped from open-source projects and EcoFlow's documentation, which could change a setting you did not ask for. Off by default": "Allume et éteint les sorties et règle les limites de charge des modèles dont personne n'a encore confirmé les écritures sur un vrai appareil : le plugin leur envoie des commandes tirées de projets open source et de la documentation d'EcoFlow, qui pourraient changer un réglage que vous n'avez pas demandé. Désactivé par défaut",
+      "Charge limit (%)": "Limite de charge (%)",
+      "The state of charge the device stops charging at, 50 to 100 % (a PowerStream's 70 to 100). Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes": "Le niveau de charge auquel l'appareil arrête de charger, de 50 à 100 % (de 70 à 100 pour un PowerStream). Envoyé une fois à l'appareil quand il change ; vide garde celui de l'appareil. Seulement pour un modèle dont le plugin écrit les limites",
+      "Discharge limit (%)": "Limite de décharge (%)",
+      "The state of charge the device stops discharging at, 0 to 30 % (a PowerStream's 1 to 30), kept below the charge limit. Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes": "Le niveau de charge auquel l'appareil arrête de se décharger, de 0 à 30 % (de 1 à 30 pour un PowerStream), gardé sous la limite de charge. Envoyé une fois à l'appareil quand il change ; vide garde celui de l'appareil. Seulement pour un modèle dont le plugin écrit les limites"
     },
     "es": {
       "Name": "Nombre",
@@ -141,7 +182,13 @@ extension EcoFlowPlugin {
       "Seconds between reads of the developer API's REST values: 60 by default, 30 at least. MQTT values are live whatever this is": "Segundos entre lecturas de los valores REST de la API para desarrolladores: 60 por defecto, 30 como mínimo. Los valores MQTT son en directo sea cual sea este valor",
       "Interval (seconds)": "Intervalo (segundos)",
       "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La producción solar, el consumo de la casa, la batería y la red hora a hora desde que se instaló tu sistema, desde la nube de EcoFlow, en las vistas de mes y año de la página Estado",
-      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Como inicias sesión en la app EcoFlow. Su contraseña se guarda en el almacén: Configurar de nuevo la cambia"
+      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Como inicias sesión en la app EcoFlow. Su contraseña se guarda en el almacén: Configurar de nuevo la cambia",
+      "Writes to untested models": "Escrituras en modelos sin probar",
+      "Switches the outputs and sets the charge limits of models whose writes nobody has confirmed on a real device yet: the plugin sends them commands mapped from open-source projects and EcoFlow's documentation, which could change a setting you did not ask for. Off by default": "Enciende y apaga las salidas y fija los límites de carga de los modelos cuyas escrituras nadie ha confirmado aún en un dispositivo real: el plugin les envía comandos sacados de proyectos de código abierto y de la documentación de EcoFlow, que podrían cambiar un ajuste que no has pedido. Desactivado por defecto",
+      "Charge limit (%)": "Límite de carga (%)",
+      "The state of charge the device stops charging at, 50 to 100 % (a PowerStream's 70 to 100). Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes": "El nivel de carga en el que el dispositivo deja de cargar, de 50 a 100 % (de 70 a 100 en un PowerStream). Se envía una vez al dispositivo cuando cambia; vacío deja el del dispositivo. Solo para un modelo cuyos límites escribe el plugin",
+      "Discharge limit (%)": "Límite de descarga (%)",
+      "The state of charge the device stops discharging at, 0 to 30 % (a PowerStream's 1 to 30), kept below the charge limit. Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes": "El nivel de carga en el que el dispositivo deja de descargarse, de 0 a 30 % (de 1 a 30 en un PowerStream), siempre por debajo del límite de carga. Se envía una vez al dispositivo cuando cambia; vacío deja el del dispositivo. Solo para un modelo cuyos límites escribe el plugin"
     },
     "pt": {
       "Name": "Nome",
@@ -161,7 +208,13 @@ extension EcoFlowPlugin {
       "Seconds between reads of the developer API's REST values: 60 by default, 30 at least. MQTT values are live whatever this is": "Segundos entre leituras dos valores REST da API para programadores: 60 por omissão, 30 no mínimo. Os valores MQTT são em direto, seja qual for este valor",
       "Interval (seconds)": "Intervalo (segundos)",
       "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "A produção solar, o consumo da casa, a bateria e a rede hora a hora desde a instalação do seu sistema, a partir da nuvem EcoFlow, nas vistas de mês e ano da página Estado",
-      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Como inicia sessão na app EcoFlow. A palavra-passe fica guardada no cofre: Configurar novamente altera-a"
+      "As you sign in to the EcoFlow app. Its password is kept in the vault: Set up again changes it": "Como inicia sessão na app EcoFlow. A palavra-passe fica guardada no cofre: Configurar novamente altera-a",
+      "Writes to untested models": "Escritas em modelos não testados",
+      "Switches the outputs and sets the charge limits of models whose writes nobody has confirmed on a real device yet: the plugin sends them commands mapped from open-source projects and EcoFlow's documentation, which could change a setting you did not ask for. Off by default": "Liga e desliga as saídas e define os limites de carga dos modelos cujas escritas ninguém confirmou ainda num dispositivo real: o plugin envia-lhes comandos retirados de projetos de código aberto e da documentação da EcoFlow, que podem alterar uma definição que não pediu. Desativado por omissão",
+      "Charge limit (%)": "Limite de carga (%)",
+      "The state of charge the device stops charging at, 50 to 100 % (a PowerStream's 70 to 100). Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes": "O nível de carga em que o dispositivo deixa de carregar, de 50 a 100 % (de 70 a 100 num PowerStream). Enviado uma vez ao dispositivo quando muda; vazio mantém o do dispositivo. Só para um modelo cujos limites o plugin escreve",
+      "Discharge limit (%)": "Limite de descarga (%)",
+      "The state of charge the device stops discharging at, 0 to 30 % (a PowerStream's 1 to 30), kept below the charge limit. Sent to the device once when it changes; empty leaves the device's. Only for a model whose limits the plugin writes": "O nível de carga em que o dispositivo deixa de descarregar, de 0 a 30 % (de 1 a 30 num PowerStream), sempre abaixo do limite de carga. Enviado uma vez ao dispositivo quando muda; vazio mantém o do dispositivo. Só para um modelo cujos limites o plugin escreve"
     }
   },
   "layout": [
@@ -169,7 +222,8 @@ extension EcoFlowPlugin {
       "type": "div",
       "items": [
         "name",
-        "route"
+        "route",
+        "untestedWrites"
       ]
     },
     {
