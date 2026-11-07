@@ -230,6 +230,10 @@ struct HostToolTests {
         #expect(try await admin.tool("get_logbook", ["accessory": "Devices:lamp"])["structuredContent"]?["entries"]?.arrayValue?.last?["source"]?["name"] == "tests")
         #expect(entries.last?["value"] == true)
         #expect(try await client.tool("get_logbook", ["source": "mcp"])["structuredContent"]?["entries"]?.arrayValue?.count == 1)
+        // A name is no filter for one who may not see names: it would say which changes that client made.
+        let byName = try await client.tool("get_logbook", ["sourceName": "tests"])["structuredContent"]?["entries"]?.arrayValue
+        #expect(byName?.count == 2)
+        #expect(try await admin.tool("get_logbook", ["sourceName": "tests"])["structuredContent"]?["entries"]?.arrayValue?.count == 1)
         #expect(try await client.tool("get_logbook", ["since": "soon"])["isError"] == true)
 
         let history = try await client.tool("get_accessory_history", ["id": "Devices:lamp", "type": "On"])["structuredContent"]

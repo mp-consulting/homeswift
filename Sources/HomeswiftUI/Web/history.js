@@ -204,25 +204,27 @@
       count.textContent = tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", found.entries.length, { days: String(found.days) });
       if (!found.entries.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
       const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
-      const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      // Hours and minutes read at a glance; the seconds are in the time's tooltip.
+      const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const exactFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const days = new Map();
       for (const entry of found.entries) {
         const date = new Date(entry.time);
         const key = dayFormat.format(date);
         if (!days.has(key)) days.set(key, []);
-        days.get(key).push(row(entry, date, timeFormat));
+        days.get(key).push(row(entry, date, timeFormat, exactFormat));
       }
       list.replaceChildren(...[...days].map(([day, rows]) => el("section", { class: "logbook-day" }, el("h3", { text: day }), el("ul", { class: "logbook-list" }, rows))));
     }
 
-    function row(entry, date, timeFormat) {
+    function row(entry, date, timeFormat, exactFormat) {
       const series = { characteristic: entry.characteristic, kind: typeof entry.value === "number" ? "number" : "state" };
       const live = byID.get(entry.accessory);
       const characteristic = live?.services?.flatMap((service) => service.characteristics ?? []).find((one) => one.type === entry.characteristic);
       if (characteristic) Object.assign(series, { unit: characteristic.unit, minValue: characteristic.minValue, maxValue: characteristic.maxValue, validValues: characteristic.validValues });
       const what = t("{characteristic}: {value}", { characteristic: HomeswiftWidgets.characteristicName(entry.characteristic), value: valueText(series, entry.value) });
       return el("li", { class: "logbook-entry" },
-        el("time", { datetime: entry.time, text: timeFormat.format(date) }),
+        el("time", { datetime: entry.time, title: exactFormat.format(date), text: timeFormat.format(date) }),
         el("span", { class: "tile", "aria-hidden": "true" }, HomeswiftCommon.icon(icons.get(entry.accessory) ?? "accessory")),
         el("div", { class: "who" }, el("strong", { text: entry.name }), el("span", { class: "muted", text: [what, entry.room].filter(Boolean).join(" · ") })),
         el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : sourceText(entry.source) },

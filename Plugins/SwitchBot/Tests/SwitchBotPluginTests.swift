@@ -70,7 +70,8 @@ struct SwitchBotPluginTests {
         #expect(meter.service(.humiditySensor)?[.currentRelativeHumidity]?.value.near(52) == true)
         #expect(meter.service(.battery)?[.batteryLevel]?.value == .int(87))
         #expect(meter.service(.battery)?[.statusLowBattery]?.value == .int(0))
-        #expect(meter.information.characteristic(.firmwareRevision).value == "3.1")
+        // The firmware comes with the status, set after the readings: waited for too.
+        #expect(await eventually { meter.information.characteristic(.firmwareRevision).value == "3.1" })
         #expect(await eventually { host.accessory(Self.curtain)?.service(.windowCovering)?[.currentPosition]?.value == .int(70) })
         let curtain = try #require(host.accessory(Self.curtain))
         #expect(curtain.service(.windowCovering)?[.targetPosition]?.value == .int(70))

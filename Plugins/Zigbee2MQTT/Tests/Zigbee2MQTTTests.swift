@@ -557,6 +557,10 @@ struct Zigbee2MQTTTests {
         #expect(await eventually { self.permitJoins() == [120] })
         let request = try JSONValue(string: try #require(environment.broker.published(on: "zigbee2mqtt/bridge/request/permit_join").first))
         #expect(request["value"] == true)
+        // A device the bridge has, interviewed again as it rejoins, is not the new one.
+        environment.broker.receive("zigbee2mqtt/bridge/event", string: #"{"type":"device_interview","data":{"friendly_name":"test_light","ieee_address":"0x00178d0009876543","status":"successful","supported":true}}"#)
+        #expect(await eventually { await plugin.joining != nil })
+        #expect(await plugin.joining?.joined == nil)
         // Another device's interview is not the one Setup waits for.
         environment.broker.receive("zigbee2mqtt/bridge/event", string: #"{"type":"device_joined","data":{"friendly_name":"0x00158d0001a2b3c4","ieee_address":"0x00158d0001a2b3c4"}}"#)
         environment.broker.receive("zigbee2mqtt/bridge/event", string: #"{"type":"device_interview","data":{"friendly_name":"other","ieee_address":"0x0000000000000099","status":"successful","supported":true}}"#)

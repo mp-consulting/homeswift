@@ -428,7 +428,7 @@ public final class HistoryStore: @unchecked Sendable {
             guard var last = state.lastLogged[key], last.value == value, last.source == source, at.timeIntervalSince(last.time) < 2 else { return false }
             if !last.write, let place = state.lastLine[key], let file = state.lines[place.file], file.indices.contains(place.index) {
                 last.write = true
-                guard let data = try? JSONEncoder().encode(last), let line = String(data: data, encoding: .utf8) else { return true }
+                guard let data = try? Self.encoder.encode(last), let line = String(data: data, encoding: .utf8) else { return true }
                 state.lines[place.file]?[place.index] = line
                 state.lastLogged[key] = last
             }
@@ -443,7 +443,7 @@ public final class HistoryStore: @unchecked Sendable {
     }
 
     private func log(_ entry: LogbookEntry, key: String) {
-        guard let data = try? JSONEncoder().encode(entry), let line = String(data: data, encoding: .utf8) else { return }
+        guard let data = try? Self.encoder.encode(entry), let line = String(data: data, encoding: .utf8) else { return }
         let file = "logbook/\(Self.day(entry.time)).jsonl"
         state.withLockedValue { state in
             state.lastLogged[key] = entry
@@ -580,17 +580,20 @@ public final class HistoryStore: @unchecked Sendable {
     /// `indexInterval` old, or with `all` (at stop).
     public func flush(all: Bool = false) {
         let at = now()
-        let (lines, index) = state.withLockedValue { state -> ([String: [String]], [HistorySeries]?) in
-            let due = state.indexDirty || (state.lastDirty && (all || state.indexWritten.map { at.timeIntervalSince($0) >= Self.indexInterval } ?? true))
-            defer {
-                state.lines = [:]
-                state.lastLine = [:]
-                if due { state.indexDirty = false; state.lastDirty = false; state.indexWritten = at }
-            }
-            return (state.lines, due ? Array(state.series.values) : nil)
-        }
-        guard !lines.isEmpty || index != nil else { return }
+        // The lines are taken and written under the one I/O lock: two flushes at once (the minute's tick, a page's
+        // read) append their batches in the order they were taken, so each day's file stays in time order, which the
+        // reads count on.
         io.withLock {
+            let (lines, index) = state.withLockedValue { state -> ([String: [String]], [HistorySeries]?) in
+                let due = state.indexDirty || (state.lastDirty && (all || state.indexWritten.map { at.timeIntervalSince($0) >= Self.indexInterval } ?? true))
+                defer {
+                    state.lines = [:]
+                    state.lastLine = [:]
+                    if due { state.indexDirty = false; state.lastDirty = false; state.indexWritten = at }
+                }
+                return (state.lines, due ? Array(state.series.values) : nil)
+            }
+            guard !lines.isEmpty || index != nil else { return }
             guard let directory else {
                 state.withLockedValue { state in for (file, more) in lines { state.memory[file, default: []].append(contentsOf: more) } }
                 return
@@ -665,7 +668,8 @@ public final class HistoryStore: @unchecked Sendable {
                 let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
                 guard fields.count == 3, let id = Int(fields[1]), wanted.contains(id), let point = Self.parse(line, series: id) else { continue }
                 if point.time < from {
-                    found[id]?.before = point
+                    // The latest before `from`, whatever the order of the lines.
+                    if found[id]?.before.map({ $0.time <= point.time }) ?? true { found[id]?.before = point }
                 } else if point.time <= to {
                     found[id]?.points.append(point)
                 }
@@ -702,14 +706,6 @@ public final class HistoryStore: @unchecked Sendable {
         }
         if let current, current.start >= Self.hourStart(from), current.start <= to, !hours.contains(where: { $0.start == current.start }) { hours.append(current) }
         return hours.sorted { $0.start < $1.start }
-    }
-
-    /// The first time a series has anything kept: its first change, else its first hour.
-    public func earliest(of series: HistorySeries) -> Date? {
-        let horizon = now().addingTimeInterval(-Double(retention.days) * 86_400)
-        let early = changes(of: series, from: horizon, to: now())
-        let hour = series.kind == .number ? hours(of: series, from: now().addingTimeInterval(-Double(retention.years) * 366 * 86_400), to: now()).first?.start : nil
-        return [early.before?.time, early.points.first?.time, hour].compactMap { $0 }.min()
     }
 
     /// The Logbook's entries that match, newest first.
@@ -766,7 +762,7 @@ public final class HistoryStore: @unchecked Sendable {
         case .int(let number): String(number)
         case .double(let number): format(number)
         case .string(let text):
-            (try? String(data: JSONEncoder().encode(text), encoding: .utf8) ?? "\"\"") ?? "\"\""
+            (try? String(data: Self.encoder.encode(text), encoding: .utf8) ?? "\"\"") ?? "\"\""
         case .null: "null"
         }
     }
@@ -777,7 +773,7 @@ public final class HistoryStore: @unchecked Sendable {
         case "false": return .bool(false)
         case "null": return .null
         default:
-            if text.first == "\"" { return (try? JSONDecoder().decode(String.self, from: Data(text.utf8))).map(HAPValue.string) }
+            if text.first == "\"" { return (try? Self.decoder.decode(String.self, from: Data(text.utf8))).map(HAPValue.string) }
             if let number = Int(text) { return .int(number) }
             return Double(text).map(HAPValue.double)
         }
@@ -788,16 +784,18 @@ public final class HistoryStore: @unchecked Sendable {
         return rounded == rounded.rounded() && abs(rounded) < 1e15 ? String(Int(rounded)) : String(rounded)
     }
 
+    /// One encoder and decoder for every Logbook line and string value: they run on each change, and both are Sendable.
+    static let encoder = JSONEncoder()
+    static let decoder = JSONDecoder()
+
     private static let utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         return calendar
     }()
 
-    static func day(_ date: Date) -> String {
-        let parts = utc.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
-    }
+    /// `2026-11-07`, the UTC day: `Timestamp`'s date, with no calendar on the path every change takes.
+    static func day(_ date: Date) -> String { String(Timestamp.iso8601(date).prefix(10)) }
 
     static func dayStart(_ date: Date) -> Date { utc.startOfDay(for: date) }
     static func year(_ date: Date) -> Int { utc.component(.year, from: date) }
@@ -805,11 +803,16 @@ public final class HistoryStore: @unchecked Sendable {
 
     /// Appends to a file the owner alone reads, made with its folder when missing.
     static func append(_ text: String, to url: URL) {
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         #if os(Windows)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if let handle = try? FileHandle(forWritingTo: url) { handle.seekToEndOfFile(); handle.write(Data(text.utf8)); try? handle.close() } else { try? Data(text.utf8).write(to: url) }
         #else
-        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
+        var descriptor = open(url.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
+        // The folder is made the first time only, not at every flush.
+        if descriptor < 0, errno == ENOENT {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            descriptor = open(url.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
+        }
         guard descriptor >= 0 else { return }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         try? handle.write(contentsOf: Data(text.utf8))

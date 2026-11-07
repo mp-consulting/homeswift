@@ -55,8 +55,9 @@ struct PluginTests {
         let sonos = try sonos(host, living)
         // The first events of each subscription: AVTransport (§8.6) and GroupRenderingControl (§8.7).
         #expect(await eventually { sonos[SonosCharacteristic.currentTrack]?.value == .string("Artist X - Song Y") })
+        // The play mode is another variable of the same event, applied after the track: waited for too.
+        #expect(await eventually { sonos[SonosCharacteristic.shuffle]?.value == .bool(true) })
         #expect(sonos.characteristic(.on).value == .bool(true))
-        #expect(sonos[SonosCharacteristic.shuffle]?.value == .bool(true))
         #expect(await eventually { sonos.characteristic(.volume).value == .int(14) })
         #expect(await eventually { sonos[.remainingDuration]?.value == .int(1781) })
         #expect(sonos[SonosCharacteristic.sonosGroup]?.value == .string("Living Room + 1"))

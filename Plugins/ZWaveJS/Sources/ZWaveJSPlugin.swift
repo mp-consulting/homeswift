@@ -134,7 +134,7 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
-        inclusion?.closer?.cancel()
+        inclusion?.window.cancel()
         tasks.cancelAll()
         for server in servers.values { await server.client?.close() }
     }

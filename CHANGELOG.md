@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Logbook no longer tells someone who is not an administrator which changes a named user or MCP client made: a
+  `sourceName` filter alone applied to people too, whose names the answer leaves out.
+- `save_automation` asks the user first for a change to an Automation that touches a lock, a garage door or an alarm,
+  when the change sends only some of its fields (its steps without its triggers).
+- A single-mode Automation triggered while it runs no longer starts its first Step before it is refused, and one whose
+  run ends at once is no longer left marked as running for good.
+- The History's day files stay in time order when two writes happen at once, and a chart starts from the right value.
+- A Zigbee device the network already has, interviewed again as it rejoins, is no longer taken for the device a Join
+  waits for; a Z-Wave removal that ends without naming a device says only that it ended.
+
 ### Added
 
 - Zigbee and Z-Wave devices are added from **Add accessories**, without opening Zigbee2MQTT or Z-Wave JS UI: **Add a

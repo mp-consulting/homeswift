@@ -58,6 +58,17 @@ public enum ChangeSource: Sendable, Hashable, Codable, CustomStringConvertible {
         }
     }
 
+    /// A person or an MCP client: who it is, which only administrators see (the audit log's rule).
+    public var namesSomeone: Bool {
+        switch self {
+        case .user, .mcpClient: true
+        case .homeApp, .automation, .scene, .device: false
+        }
+    }
+
+    /// The kinds whose names only administrators see, as `kind` writes them.
+    public static let kindsNamingSomeone: Set<String> = ["user", "mcp"]
+
     /// The name: the pairing, the user, the client, the Automation or Scene; nil for the device.
     public var name: String? {
         switch self {

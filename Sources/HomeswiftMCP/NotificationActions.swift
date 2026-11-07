@@ -52,6 +52,9 @@ struct PendingNotification: Sendable {
     var automation: String
     var created: Date
     var buttons: [PendingButton]
+
+    /// Its buttons still work: within `NotificationActionRules.lifetime` of its sending.
+    func isLive(at now: Date = Date()) -> Bool { now.timeIntervalSince(created) < NotificationActionRules.lifetime }
 }
 
 /// A button as a channel draws it: its label, and where it leads.
@@ -116,7 +119,7 @@ extension HomeswiftCatalog {
                                 buttons: buttons.map { PendingButton(button: $0, token: Secrets.randomToken(), security: buttonTouchesSecurity($0)) })
         }
         home.notificationActions.withLockedValue { actions in
-            actions = actions.filter { Date().timeIntervalSince($0.value.created) < NotificationActionRules.lifetime }
+            actions = actions.filter { $0.value.isLive() }
             actions[pending.id] = pending
         }
         let confirm = "/notify/\(pending.id)"
@@ -146,7 +149,7 @@ extension HomeswiftCatalog {
     /// What a notification's confirmation page shows: its words and each button, whether it is still there to press.
     public func notificationActionsJSON(_ id: String) throws -> JSONValue {
         guard let pending = home.notificationActions.withLockedValue({ $0[id] }) else { throw CatalogError("This notification's buttons are gone: they last 15 minutes", notFound: true) }
-        let expired = Date().timeIntervalSince(pending.created) >= NotificationActionRules.lifetime
+        let expired = !pending.isLive()
         return [
             "title": .string(pending.title), "message": .string(pending.message), "automation": .string(pending.automation),
             "expires": .string(Timestamp.iso8601(pending.created.addingTimeInterval(NotificationActionRules.lifetime))),
@@ -172,11 +175,18 @@ extension HomeswiftCatalog {
     /// A button pressed in a notification (an ntfy http action, a Web Push action): its token is its only credential,
     /// once, within 15 minutes; never a lock, a door or an alarm.
     public func pressNotificationToken(_ token: String) async throws -> JSONValue {
-        guard let id = home.notificationActions.withLockedValue({ actions in actions.first { $0.value.buttons.contains { Secrets.constantTimeEqual(Array($0.token.utf8), Array(token.utf8)) } }?.key }) else {
-            throw CatalogError("This button is gone: a button lasts 15 minutes and works once", notFound: true)
+        // One scan finds the notification and the button the token is.
+        let wanted = Array(token.utf8)
+        let found = home.notificationActions.withLockedValue { actions -> (id: String, index: Int)? in
+            for (id, pending) in actions {
+                if let index = pending.buttons.firstIndex(where: { Secrets.constantTimeEqual(Array($0.token.utf8), wanted) }) { return (id, index) }
+            }
+            return nil
         }
-        let claimed = try claim(id: id) { pending in
-            guard let index = pending.buttons.firstIndex(where: { Secrets.constantTimeEqual(Array($0.token.utf8), Array(token.utf8)) }) else { throw CatalogError("No such button", notFound: true) }
+        guard let found else { throw CatalogError("This button is gone: a button lasts 15 minutes and works once", notFound: true) }
+        let claimed = try claim(id: found.id) { pending in
+            let index = found.index
+            guard pending.buttons.indices.contains(index) else { throw CatalogError("No such button", notFound: true) }
             guard !pending.buttons[index].security else { throw CatalogError("This button changes a lock, a door or an alarm: open the notification to confirm it") }
             return index
         }
@@ -187,7 +197,7 @@ extension HomeswiftCatalog {
     private func claim(id: String, _ pick: (PendingNotification) throws -> Int) throws -> (button: NotificationButton, security: Bool, automation: String) {
         try home.notificationActions.withLockedValue { actions in
             guard var pending = actions[id] else { throw CatalogError("This notification's buttons are gone: they last 15 minutes", notFound: true) }
-            guard Date().timeIntervalSince(pending.created) < NotificationActionRules.lifetime else { throw CatalogError("This button has expired: buttons last 15 minutes", notFound: true) }
+            guard pending.isLive() else { throw CatalogError("This button has expired: buttons last 15 minutes", notFound: true) }
             let index = try pick(pending)
             guard !pending.buttons[index].used else { throw CatalogError("This button was already used") }
             pending.buttons[index].used = true
@@ -240,16 +250,19 @@ extension HomeswiftCatalog {
                     } catch {
                         failures += 1
                         if failures == 1 { catalog.logger.warning("Could not read the Telegram bot's button presses: \(catalog.scrubbed("\(error)"))") }
-                        try? await Task.sleep(for: .seconds(min(30, 2 * failures)))
+                        try? await Task.sleep(for: Self.telegramBackoff.delay(attempt: failures - 1))
                     }
                 }
             }
         }
     }
 
+    /// Between two failed reads of the bot's presses: 2 s, doubling, at most 30 s.
+    static let telegramBackoff = Backoff(initial: .seconds(2), maximum: .seconds(30), jitter: .proportional(0.2))
+
     var hasLiveTokens: Bool {
         home.notificationActions.withLockedValue { actions in
-            actions.values.contains { Date().timeIntervalSince($0.created) < NotificationActionRules.lifetime && $0.buttons.contains { !$0.used && !$0.security } }
+            actions.values.contains { $0.isLive() && $0.buttons.contains { !$0.used && !$0.security } }
         }
     }
 

@@ -112,6 +112,7 @@ enum AutomationRules {
     static func trigger(_ value: JSONValue, index: Int) throws -> SceneTrigger {
         let label = "Trigger \(index + 1)"
         guard let object = value.objectValue, let type = object["type"]?.stringValue else { throw CatalogError("\(label) must be an object with a type") }
+        guard triggerKinds.contains(type) else { throw CatalogError("\(label): the type must be one of \(triggerKinds.sorted().joined(separator: ", "))") }
         switch type {
         case "stays":
             var trigger = try SceneRules.trigger(["type": "characteristic", "id": object["id"] ?? .null, "service": object["service"] ?? .null,
@@ -461,19 +462,20 @@ extension HomeswiftCatalog {
         }
         let run = UUID()
         let catalog = self
-        let task = Task<Void, Never>.detached {
-            await ChangeSource.automation(automation.name).run { await catalog.runSteps(of: automation, trigger: trigger, run: run) }
-        }
-        let started = home.automationRuns.withLockedValue { runs -> Bool in
+        // The run is registered before its task starts: a single-mode run refused here never runs a Step, and a run
+        // that ends at once still finds itself in `automationRuns` to remove.
+        let task: Task<Void, Never>? = home.automationRuns.withLockedValue { runs in
             if let current = runs[automation.id] {
-                guard automation.runMode == .restart else { return false }
+                guard automation.runMode == .restart else { return nil }
                 current.task.cancel()
             }
+            let task = Task<Void, Never>.detached {
+                await ChangeSource.automation(automation.name).run { await catalog.runSteps(of: automation, trigger: trigger, run: run) }
+            }
             runs[automation.id] = AutomationRunning(run: run, task: task)
-            return true
+            return task
         }
-        guard started else {
-            task.cancel()
+        guard let task else {
             noteSkip(automation, trigger: trigger, reason: "already running (single mode)")
             return nil
         }
@@ -592,7 +594,7 @@ extension HomeswiftCatalog {
     /// Why a trigger's run did not go ahead: written when the reason changes, else at most once a minute, so a flapping
     /// sensor does not rewrite automations.json at each change.
     func noteSkip(_ automation: Automation, trigger: String, reason: String) {
-        if let last = automation.lastSkipped, last.reason == reason, let at = ISO8601DateFormatter().date(from: last.at), Date().timeIntervalSince(at) < 60 { return }
+        if let last = automation.lastSkipped, last.reason == reason, let at = try? Date(last.at, strategy: .iso8601), Date().timeIntervalSince(at) < 60 { return }
         recordAutomation(automation.id) { $0.lastSkipped = AutomationRunRecord(at: SceneRules.now(), ok: true, trigger: trigger, reason: reason) }
     }
 
@@ -675,19 +677,23 @@ extension HomeswiftCatalog {
                 catalog.home.staysTimers.withLockedValue { _ = $0.removeValue(forKey: key) }
                 // Still as it was asked to stay: it runs with the automation as saved now.
                 guard let current = catalog.home.automations.value.automations.first(where: { $0.id == automation.id }), current.isEnabled,
-                      let found = catalog.find(id: trigger.id ?? ""), let target = try? catalog.characteristic(in: found, service: trigger.service, characteristic: trigger.characteristic ?? ""),
-                      SceneRules.compare(Self.json(target.value), trigger.operator ?? "eq", trigger.value) else { return }
+                      catalog.matchesNow(trigger) else { return }
                 catalog.start(current, trigger: "stays")
             }
         }
+    }
+
+    /// Whether a trigger's characteristic holds what it compares with now; false when the accessory is gone.
+    func matchesNow(_ trigger: SceneTrigger) -> Bool {
+        guard let found = find(id: trigger.id ?? ""), let target = try? characteristic(in: found, service: trigger.service, characteristic: trigger.characteristic ?? "") else { return false }
+        return SceneRules.compare(Self.json(target.value), trigger.operator ?? "eq", trigger.value)
     }
 
     /// At start: a `stays` trigger whose value already matches starts counting from now.
     func seedStaysTimers() {
         for automation in home.automations.value.automations where automation.isEnabled {
             for (index, trigger) in automation.triggers.enumerated() where trigger.type == "stays" && trigger.isEnabled {
-                guard let found = find(id: trigger.id ?? ""), let target = try? characteristic(in: found, service: trigger.service, characteristic: trigger.characteristic ?? "") else { continue }
-                if SceneRules.compare(Self.json(target.value), trigger.operator ?? "eq", trigger.value) { stays(automation, trigger: trigger, index: index, matches: true) }
+                if matchesNow(trigger) { stays(automation, trigger: trigger, index: index, matches: true) }
             }
         }
     }
@@ -800,7 +806,9 @@ extension HomeswiftCatalog {
                     + "One that touches them (a trigger, a condition or a step on one, or a scene that changes one) asks the user first. dryRun checks it without saving.",
                 inputSchema: Self.automationSchema, scope: .admin, supportsDryRun: true,
                 confirmsWhen: { arguments in
-                    guard let automation = try? AutomationRules.automation(from: arguments, id: "check", existing: nil, tools: catalog.automationTools) else { return false }
+                    // A change is checked as it will be saved: the fields it leaves out are the saved Automation's.
+                    let existing = arguments["id"]?.stringValue?.nonEmpty.flatMap { id in catalog.home.automations.value.automations.first { $0.id == id } }
+                    guard let automation = try? AutomationRules.automation(from: arguments, id: existing?.id ?? "check", existing: existing, tools: catalog.automationTools) else { return false }
                     return catalog.withLookup { catalog.touchesSecurity(automation) }
                 }
             ) { call in .json(try catalog.saveAutomation(call.arguments, dryRun: call.isDryRun)) },

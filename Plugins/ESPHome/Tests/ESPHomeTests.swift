@@ -153,8 +153,9 @@ struct ESPHomePluginTests {
         #expect(await eventually { host.accessory("esphome:Lamp")?.service(.lightbulb)?.characteristic(.brightness).value == .int(50) })
         let accessory = try #require(host.accessory("esphome:Lamp"))
         let lightbulb = try #require(accessory.service(.lightbulb))
+        // The colour comes with the same state, written after the brightness: waited for too.
+        #expect(await eventually { lightbulb.characteristic(.saturation).value.doubleValue == 100 })
         #expect(lightbulb.characteristic(.hue).value.doubleValue == 0)
-        #expect(lightbulb.characteristic(.saturation).value.doubleValue == 100)
         #expect(lightbulb.adaptiveLighting == nil)
         let effects = accessory.services.filter { $0.type == .switch }
         #expect(effects.map(\.subtype) == ["Strobe Switch", "Flicker Switch"])

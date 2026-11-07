@@ -11,40 +11,27 @@ import HomeswiftPlugin
 
 /// What a Join has seen so far.
 struct Joining: Sendable {
-    /// When the network closes.
-    var deadline: ContinuousClock.Instant
+    /// How long the network stays open.
+    var window: JoinWindow
     /// The device that joined, by IEEE address, and its name.
     var joined: (address: String, name: String)?
     /// Its interview went through: Setup is done.
     var interviewed = false
     /// Why it stopped, for people.
     var failure: String?
-    /// Closes the network once the time is up.
-    var closer: Task<Void, Never>?
 }
 
 extension Zigbee2MQTTPlugin {
-    /// How long Zigbee2MQTT lets devices join: its frontend's own default.
-    static let joinSeconds = 120
-    /// How often Setup asks how the Join goes.
-    static let joinPoll = 2
-
-    /// A step of a Join: the first opens the network; the others, sent every `joinPoll` seconds, say where it is.
+    /// A step of a Join: the first opens the network; the others, sent every `JoinWindow.poll` seconds, say where it is.
     func join(_ request: SetupRequest) async throws -> SetupStep {
         guard let settings, let connection, !brokerDown else {
             throw SetupError("Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices")
         }
         if request.state["joining"] == nil {
-            joining?.closer?.cancel()
-            let deadline = ContinuousClock.now + .seconds(Self.joinSeconds)
-            try await permitJoin(Self.joinSeconds, connection: connection, base: settings.mqtt.baseTopic)
-            let closer = Task { [weak self] in
-                try? await Task.sleep(until: deadline + .seconds(5))
-                guard !Task.isCancelled else { return }
-                await self?.endJoin()
-            }
-            joining = Joining(deadline: deadline, closer: closer)
-            log.info("Zigbee2MQTT lets devices join for \(Self.joinSeconds) seconds")
+            joining?.window.cancel()
+            try await permitJoin(JoinWindow.defaultSeconds, connection: connection, base: settings.mqtt.baseTopic)
+            joining = Joining(window: JoinWindow { [weak self] in await self?.endJoin() })
+            log.info("Zigbee2MQTT lets devices join for \(JoinWindow.defaultSeconds) seconds")
             return .ask(waitPrompt(nil), state: ["joining": true])
         }
         guard let current = joining else {
@@ -59,7 +46,7 @@ extension Zigbee2MQTTPlugin {
             log.info("\(joined.name) joined Zigbee2MQTT's network")
             return .done(SetupOutcome(deviceID: joined.address))
         }
-        guard ContinuousClock.now < current.deadline else {
+        guard current.window.isOpen else {
             await endJoin()
             throw SetupError("No device joined: reset it close to the coordinator, then try again")
         }
@@ -67,16 +54,16 @@ extension Zigbee2MQTTPlugin {
     }
 
     private func waitPrompt(_ joined: String?) -> SetupPrompt {
-        let left = max(0, Int(((joining?.deadline ?? .now) - .now).components.seconds))
+        let left = joining?.window.secondsLeft ?? 0
         guard let joined else {
             return SetupPrompt(
                 message: "Reset the device, or hold its button until its light blinks: Zigbee2MQTT lets it join for two minutes.",
                 warning: "A device that was in another Zigbee network leaves it as it resets.",
-                waitSeconds: left, retryAfter: Self.joinPoll)
+                waitSeconds: left, retryAfter: JoinWindow.poll)
         }
         return SetupPrompt(
             message: "{name} joined: Zigbee2MQTT is reading what it does. Keep a battery device awake by pressing its button now and then.",
-            values: ["name": joined], waitSeconds: left, retryAfter: Self.joinPoll)
+            values: ["name": joined], waitSeconds: left, retryAfter: JoinWindow.poll)
     }
 
     /// Asks Zigbee2MQTT to let devices join for `seconds`, 0 to stop. Zigbee2MQTT 2 reads `time`; 1.x `value` and `time`.
@@ -93,7 +80,7 @@ extension Zigbee2MQTTPlugin {
     func endJoin() async {
         guard let current = joining else { return }
         joining = nil
-        current.closer?.cancel()
+        current.window.cancel()
         guard let connection, let settings else { return }
         try? await permitJoin(0, connection: connection, base: settings.mqtt.baseTopic)
     }
@@ -111,9 +98,9 @@ extension Zigbee2MQTTPlugin {
             joining?.joined = (address, name)
         case "device_interview":
             guard joining != nil else { return }
-            // A device already interviewed rejoining, or one joining while another is read, is the one Setup waits for
-            // only when it is the first that joined.
-            if joining?.joined == nil { joining?.joined = (address, name) }
+            // A device the network already has, interviewed again as it rejoins, is not the one Setup waits for: only a
+            // new one is, the first that joined.
+            if joining?.joined == nil, !isKnown(address) { joining?.joined = (address, name) }
             guard joining?.joined?.address == address else { return }
             switch data["status"]?.stringValue {
             case "successful":
@@ -129,6 +116,11 @@ extension Zigbee2MQTTPlugin {
         default:
             break
         }
+    }
+
+    /// A device the bridge already has: an accessory of its own, or one the cache brought back.
+    private func isKnown(_ address: String) -> Bool {
+        devices[address] != nil || context.accessory(id: Self.accessoryID(deviceID: address)) != nil
     }
 
     /// `bridge/response/permit_join`: Zigbee2MQTT refused to open its network.
