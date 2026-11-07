@@ -22,7 +22,6 @@ struct RoborockCleanModes: Sendable, Equatable {
         var noPureCleanMopWithMaxPlus = false
         var pureCleanMop = true
         var mop: MopModule = .none
-        var customCleanMode = true
     }
 
     let family: Family
@@ -159,9 +158,9 @@ struct RoborockCleanModes: Sendable, Equatable {
         add(["a23", "a24"], Family(mop: .shake))
         add(["a37", "a38"], Family(pureCleanMop: false, mop: .electronic))
         add(["a39", "a40", "a33", "a34"], Family(pureCleanMop: false, mop: .none))
-        add(["t6", "s6"], Family(pureCleanMop: false, mop: .none, customCleanMode: false))
+        add(["t6", "s6"], Family(pureCleanMop: false, mop: .none))
         add(["t7", "a11", "t7p", "a09", "a10"], Family(pureCleanMop: false, mop: .electronic))
-        add(["t4", "s4", "p5", "a08", "a19"], Family(pureCleanMop: false, mop: .none, customCleanMode: false))
+        add(["t4", "s4", "p5", "a08", "a19"], Family(pureCleanMop: false, mop: .none))
         add(["p6", "s5e", "a05"], Family(pureCleanMop: false, mop: .electronic))
         return table
     }()

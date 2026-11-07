@@ -28,6 +28,8 @@ final class VacuumAccessory {
     private(set) var battery: Service
     private(set) var dockWash: Service?
     private(set) var mop: Service?
+    /// The suction levels the Fan's speed runs through, fixed when the accessory is built.
+    private(set) var suctionLevels: [RoborockMode] = []
     private(set) var sceneSwitches: [Int: Service] = [:]
     private(set) var consumables: [String: Service] = [:]
     /// The scenes of the device, by id, and their names.
@@ -185,6 +187,7 @@ final class VacuumAccessory {
             linked.append(service)
         }
         let levels = cleanModes.suctionLevels
+        suctionLevels = levels
         var extra = [Characteristic(.statusFault), Characteristic(.statusActive)]
         if !levels.isEmpty {
             extra.append(Characteristic(.rotationSpeed.with(minValue: 0, maxValue: 100, minStep: 100 / Double(levels.count))))
@@ -254,7 +257,7 @@ final class VacuumAccessory {
         }
         if has("in_cleaning"), let inCleaning = value("in_cleaning", home: home) { set(fan, .active, .int(inCleaning != 0 ? 1 : 0)) }
         if has("fan_power"), let power = value("fan_power", home: home),
-           let speed = Self.speed(fanPower: Int(power), levels: cleanModes.suctionLevels) {
+           let speed = Self.speed(fanPower: Int(power), levels: suctionLevels) {
             set(fan, .rotationSpeed, .double(speed))
         }
         if has("water_box_mode"), let mop, let water = value("water_box_mode", home: home) { set(mop, .on, .bool(water != 200)) }

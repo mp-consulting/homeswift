@@ -95,8 +95,6 @@ final class LinuxBluetoothCentral: BLECentral, @unchecked Sendable {
         await disableScan()
     }
 
-    func reset() async {}
-
     /// Disable, set the parameters, enable, as noble's `startScanning`; with the extended commands when the
     /// controller refuses the legacy ones.
     private func enableScan(filterDuplicates: Bool) async throws {

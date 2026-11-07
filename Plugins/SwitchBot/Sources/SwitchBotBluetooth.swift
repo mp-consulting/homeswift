@@ -100,7 +100,7 @@ actor SwitchBotBluetooth {
         queues[device.mac] = queue
         let target = BLETarget(address: colonMAC(device.mac), identifier: identifiers[device.mac])
         return try await queue.run { [self] in
-            var delay = timing.retryDelay
+            let backoff = Backoff(initial: timing.retryDelay, maximum: timing.maximumRetryDelay)
             var failure: any Error = BLEError.notFound
             for attempt in 1...max(device.attempts, 1) {
                 try Task.checkCancellation()
@@ -115,8 +115,7 @@ actor SwitchBotBluetooth {
                 } catch {
                     failure = error
                     guard attempt < device.attempts else { break }
-                    try await Task.sleep(for: delay)
-                    delay = min(delay * 2, timing.maximumRetryDelay)
+                    try await Task.sleep(for: backoff.delay(attempt: attempt - 1))
                 }
             }
             throw failure

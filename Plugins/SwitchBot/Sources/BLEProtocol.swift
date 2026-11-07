@@ -76,25 +76,20 @@ enum BLEModel: String, Sendable, CaseIterable {
     }
 
     /// Only advertisements: never connected to (§6).
-    var isPassive: Bool { family == .meter || family == .contact || family == .motion }
-
     /// A connected status read the spec pins (§5.3, §5.4, §5.6).
-    var hasRead: Bool { [.plugMiniUS, .plugMiniJP, .colorBulb, .stripLight, .lock, .lockPro].contains(self) }
+    var hasRead: Bool { BLEFrames.read(self) != nil }
 
     var isLock: Bool { self == .lock || self == .lockPro }
 }
 
 /// A Bluetooth address as 12 upper-case hex digits (the cloud's `deviceId`), from any spelling; nil when it is not one.
 func bluetoothMAC(_ text: String) -> String? {
-    let hex = text.uppercased().filter { $0.isHexDigit }
-    let separators = text.filter { !$0.isHexDigit }
-    guard hex.count == 12, separators.allSatisfy({ $0 == ":" || $0 == "-" || $0 == " " }) else { return nil }
-    return hex
+    MACAddress.canonical(text)?.replacingOccurrences(of: ":", with: "")
 }
 
 /// `AA:BB:CC:DD:EE:FF` of 12 hex digits.
 func colonMAC(_ mac: String) -> String {
-    stride(from: 0, to: mac.count, by: 2).map { String(Array(mac)[$0..<min($0 + 2, mac.count)]) }.joined(separator: ":")
+    MACAddress.canonical(mac) ?? mac
 }
 
 /// What one advertisement says (§3), in the cloud's status keys so each accessory shows it as it shows a status:
@@ -332,7 +327,7 @@ struct BLEUnsupported: Error, CustomStringConvertible {
 enum BLEFrames {
     static func bot(action: UInt8, password: String?) -> [UInt8] {
         guard let password else { return [0x57, 0x01, action] }
-        let crc = crc32(Array(password.utf8))
+        let crc = CRC32.checksum(password.utf8)
         return [0x57, 0x11, UInt8(crc >> 24), UInt8((crc >> 16) & 0xFF), UInt8((crc >> 8) & 0xFF), UInt8(crc & 0xFF), action]
     }
 
@@ -475,15 +470,6 @@ enum BLEFrames {
     }
 }
 
-/// CRC-32 (IEEE: reflected `0xEDB88320`, initial and final `0xFFFFFFFF`), the Bot password's (§7.4).
-func crc32(_ bytes: [UInt8]) -> UInt32 {
-    var crc: UInt32 = 0xFFFF_FFFF
-    for byte in bytes {
-        crc ^= UInt32(byte)
-        for _ in 0..<8 { crc = crc & 1 != 0 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1 }
-    }
-    return crc ^ 0xFFFF_FFFF
-}
 
 /// A Bot password as the Bot takes it: exactly 4 letters or digits (§7.4).
 func validBotPassword(_ password: String) -> Bool {

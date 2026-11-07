@@ -132,8 +132,6 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
         }
     }
 
-    func reset() async {}
-
     func connect(_ target: BLETarget) async throws -> any BLEConnection {
         let found = try await find(target)
         let handle = Unchecked(value: found.peripheral)

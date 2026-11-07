@@ -126,8 +126,8 @@ private func hex(_ text: String) -> [UInt8] {
     }
 
     @Test func botPasswordsAreCRC32() throws {
-        #expect(crc32(Array("1234".utf8)) == 0x9BE3_E0A3)
-        #expect(crc32(Array("A1b2".utf8)) == 0xB859_3746)
+        #expect(CRC32.checksum("1234".utf8) == 0x9BE3_E0A3)
+        #expect(CRC32.checksum("A1b2".utf8) == 0xB859_3746)
         #expect(try BLEFrames.request(for: Command(command: "press"), model: .bot, password: "1234").frames == [hex("57 11 9B E3 E0 A3 00")])
         #expect(try BLEFrames.request(for: Command(command: "turnOn"), model: .bot, password: "A1b2").frames == [hex("57 11 B8 59 37 46 01")])
         #expect(validBotPassword("A1b2") && !validBotPassword("abc") && !validBotPassword("ab-c"))

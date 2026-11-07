@@ -89,34 +89,43 @@ public struct SRTPContext: Sendable {
         let ssrc = STUNMessage.be32(packet, 8), sequence = STUNMessage.be16(packet, 2)
         let roc = sendRollover(ssrc: ssrc, sequence: sequence)
         let index = UInt64(roc) << 16 | UInt64(sequence)
-        var out = Array(packet[0..<header])
-        out += try encrypt(Array(packet[header...]), keys: rtp, ssrc: ssrc, index: index)
-        out += tag(out + STUNMessage.be32(roc), key: rtp.auth)
+        var out = [UInt8]()
+        out.reserveCapacity(packet.count + Self.tagLength)
+        out += packet[0..<header]
+        out += try encrypt(packet[header...], keys: rtp, ssrc: ssrc, index: index)
+        out += tag(out[...], STUNMessage.be32(roc), key: rtp.auth)
         return out
     }
 
     /// Checks an SRTP packet's tag and decrypts it.
     public mutating func unprotect(rtp packet: [UInt8]) throws -> [UInt8] {
         guard packet.count >= 12 + Self.tagLength else { throw Failure.tooShort }
-        let body = Array(packet[0..<(packet.count - Self.tagLength)])
-        guard let header = Self.headerLength(body) else { throw Failure.tooShort }
-        let ssrc = STUNMessage.be32(body, 8), sequence = STUNMessage.be16(body, 2)
+        let body = packet[0..<(packet.count - Self.tagLength)]
+        guard let header = Self.headerLength(packet) else { throw Failure.tooShort }
+        guard header <= body.count else { throw Failure.tooShort }
+        let ssrc = STUNMessage.be32(packet, 8), sequence = STUNMessage.be16(packet, 2)
         let roc = estimateRollover(ssrc: ssrc, sequence: sequence)
-        let expected = tag(body + STUNMessage.be32(roc), key: rtp.auth)
+        let expected = tag(body, STUNMessage.be32(roc), key: rtp.auth)
         guard Secrets.constantTimeEqual(expected, Array(packet.suffix(Self.tagLength))) else { throw Failure.authentication }
         accept(ssrc: ssrc, sequence: sequence, roc: roc)
         let index = UInt64(roc) << 16 | UInt64(sequence)
-        return Array(body[0..<header]) + (try encrypt(Array(body[header...]), keys: rtp, ssrc: ssrc, index: index))
+        return Array(body[0..<header]) + (try encrypt(body[header...], keys: rtp, ssrc: ssrc, index: index))
     }
 
-    private func encrypt(_ payload: [UInt8], keys: SessionKeys, ssrc: UInt32, index: UInt64) throws -> [UInt8] {
+    /// AES-CM over the payload: counter mode is the XOR with the keystream RFC 3711 defines, so the payload goes
+    /// through the cipher as it is.
+    private func encrypt(_ payload: ArraySlice<UInt8>, keys: SessionKeys, ssrc: UInt32, index: UInt64) throws -> [UInt8] {
         guard !payload.isEmpty else { return [] }
-        let stream = try Self.keystream(key: keys.cipher, iv: Self.iv(salt: keys.salt, ssrc: ssrc, index: index), count: payload.count)
-        return zip(payload, stream).map { $0 ^ $1 }
+        return Array(try AES._CTR.encrypt(payload, using: keys.cipher, nonce: try AES._CTR.Nonce(nonceBytes: Self.iv(salt: keys.salt, ssrc: ssrc, index: index))))
     }
 
-    private func tag(_ bytes: [UInt8], key: SymmetricKey) -> [UInt8] {
-        Array(HMAC<Insecure.SHA1>.authenticationCode(for: bytes, using: key).prefix(Self.tagLength))
+    /// HMAC-SHA1 over the bytes and an optional trailer (RTP's rollover counter), truncated to 80 bits, without
+    /// joining them.
+    private func tag(_ bytes: ArraySlice<UInt8>, _ trailer: [UInt8] = [], key: SymmetricKey) -> [UInt8] {
+        var mac = HMAC<Insecure.SHA1>(key: key)
+        mac.update(data: bytes)
+        if !trailer.isEmpty { mac.update(data: trailer) }
+        return Array(mac.finalize().prefix(Self.tagLength))
     }
 
     /// The sender's rollover counter: it grows when the sequence number wraps.
@@ -158,23 +167,24 @@ public struct SRTPContext: Sendable {
         let index = rtcpIndex
         let ssrc = STUNMessage.be32(packet, 4)
         var out = Array(packet[0..<8])
-        out += try encrypt(Array(packet[8...]), keys: rtcp, ssrc: ssrc, index: UInt64(index))
+        out.reserveCapacity(packet.count + 4 + Self.tagLength)
+        out += try encrypt(packet[8...], keys: rtcp, ssrc: ssrc, index: UInt64(index))
         out += STUNMessage.be32(0x8000_0000 | index)
-        out += tag(out, key: rtcp.auth)
+        out += tag(out[...], key: rtcp.auth)
         return out
     }
 
     /// Checks an SRTCP packet's tag and decrypts it when its E flag says it is encrypted.
     public func unprotect(rtcp packet: [UInt8]) throws -> [UInt8] {
         guard packet.count >= 8 + 4 + Self.tagLength else { throw Failure.tooShort }
-        let authenticated = Array(packet[0..<(packet.count - Self.tagLength)])
-        guard Secrets.constantTimeEqual(tag(authenticated, key: rtcp.auth), Array(packet.suffix(Self.tagLength))) else {
+        let end = packet.count - Self.tagLength
+        guard Secrets.constantTimeEqual(tag(packet[0..<end], key: rtcp.auth), Array(packet[end...])) else {
             throw Failure.authentication
         }
-        let word = STUNMessage.be32(authenticated, authenticated.count - 4)
-        let body = Array(authenticated[0..<(authenticated.count - 4)])
-        guard word & 0x8000_0000 != 0 else { return body }
-        let ssrc = STUNMessage.be32(body, 4)
-        return Array(body[0..<8]) + (try encrypt(Array(body[8...]), keys: rtcp, ssrc: ssrc, index: UInt64(word & 0x7FFF_FFFF)))
+        let word = STUNMessage.be32(packet, end - 4)
+        let body = packet[0..<(end - 4)]
+        guard word & 0x8000_0000 != 0 else { return Array(body) }
+        let ssrc = STUNMessage.be32(packet, 4)
+        return Array(body[0..<8]) + (try encrypt(body[8...], keys: rtcp, ssrc: ssrc, index: UInt64(word & 0x7FFF_FFFF)))
     }
 }

@@ -373,7 +373,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         for device in reported {
             if let services = devices[device.id] {
                 show(device, on: services)
-                await applyLimits(device)
+                // Off the report loop: a limit write may take seconds, and the other devices' readings wait for none.
+                tasks.add { [weak self] in await self?.applyLimits(device) }
                 continue
             }
             // A device whose level is not known yet (offline since the plugin started, a STREAM on the developer API's
@@ -385,7 +386,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             } catch {
                 logger.error("Could not add \(device.name): \(error)")
             }
-            await applyLimits(device)
+            tasks.add { [weak self] in await self?.applyLimits(device) }
         }
         // TODO: once a device is known to be gone, `context.removeAccessories(keeping:)` drops its accessory.
     }

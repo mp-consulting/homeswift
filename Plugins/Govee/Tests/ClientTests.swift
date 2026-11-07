@@ -114,8 +114,6 @@ actor FakeCentral: BLECentral {
 
     func connect(_ target: BLETarget) async throws -> any BLEConnection { Connection(central: self) }
 
-    func reset() async {}
-
     func record(_ data: Data) { written.append(data) }
     func recordDisconnect() { disconnects += 1 }
 

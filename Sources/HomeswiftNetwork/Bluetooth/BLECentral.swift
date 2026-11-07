@@ -1,5 +1,9 @@
 import Foundation
 import Logging
+import NIOConcurrencyHelpers
+#if canImport(Glibc)
+import Glibc
+#endif
 
 /// An advertisement a scan saw.
 public struct BLEAdvertisement: Sendable, Equatable {
@@ -57,7 +61,6 @@ public protocol BLECentral: Sendable {
     func stopScanning() async
     /// Connects to the peripheral, finding it by identifier, address or advertised name.
     func connect(_ target: BLETarget) async throws -> any BLEConnection
-    func reset() async
 }
 
 /// A connection to one peripheral. Characteristic UUIDs are 128-bit without dashes, or four hex digits for one on
@@ -134,7 +137,11 @@ public enum Bluetooth {
 
     /// Whether an error from `systemCentral` means the system has no Bluetooth at all (no hardware or driver).
     public static func isMissing(_ error: any Error) -> Bool {
-        "\(error)".contains("Address family not supported")
+        #if os(Linux)
+        return (error as? SocketError)?.code == EAFNOSUPPORT
+        #else
+        return false
+        #endif
     }
 
     /// One adapter per process, which plugins share as they share the radio: a second HCI socket would turn off a
@@ -167,12 +174,15 @@ public enum Bluetooth {
 }
 
 /// One adapter's scan shared by several scanners: it scans for the union of their services (every peripheral when one
-/// of them wants every one), with duplicates when one of them does, and hands each scanner the advertisements it
-/// asked for.
-public actor BLEScanHub {
-    public nonisolated let base: any BLECentral
-    private var scanners: [UUID: Scanner] = [:]
-    private var scanning: (services: Set<String>, duplicates: Bool)?
+/// of them wants every one), with duplicates when one of them does, and hands each scanner the advertisements it asked
+/// for, in the order the adapter reported them. Connections go one at a time, whichever plugin asks: each central has
+/// a single search for a peripheral to connect to.
+public final class BLEScanHub: Sendable {
+    public let base: any BLECentral
+    private let scanners = NIOLockedValueBox<[UUID: Scanner]>([:])
+    private let changes = AsyncLock()
+    private let connects = AsyncLock()
+    private let scanning = NIOLockedValueBox<(services: Set<String>, duplicates: Bool)?>(nil)
 
     private struct Scanner {
         var services: Set<String>
@@ -183,45 +193,103 @@ public actor BLEScanHub {
     public init(base: any BLECentral) { self.base = base }
 
     func start(_ id: UUID, services: [String], allowDuplicates: Bool, onDiscover: @escaping @Sendable (BLEAdvertisement) -> Void) async throws {
-        scanners[id] = Scanner(services: Set(services.map { $0.lowercased() }), duplicates: allowDuplicates, onDiscover: onDiscover)
-        do {
-            try await rescan()
-        } catch {
-            scanners[id] = nil
-            throw error
+        try await changes.run {
+            self.scanners.withLockedValue { $0[id] = Scanner(services: Set(services.map { $0.lowercased() }), duplicates: allowDuplicates, onDiscover: onDiscover) }
+            do {
+                try await self.rescan()
+            } catch {
+                self.scanners.withLockedValue { $0[id] = nil }
+                throw error
+            }
         }
     }
 
     func stop(_ id: UUID) async {
-        guard scanners.removeValue(forKey: id) != nil else { return }
-        try? await rescan()
+        await changes.locked {
+            guard self.scanners.withLockedValue({ $0.removeValue(forKey: id) }) != nil else { return }
+            try? await self.rescan()
+        }
+    }
+
+    func connect(_ target: BLETarget) async throws -> any BLEConnection {
+        try await connects.run { try await self.base.connect(target) }
     }
 
     /// Starts, changes or stops the adapter's scan to cover every scanner.
     private func rescan() async throws {
-        guard !scanners.isEmpty else {
-            if scanning != nil {
-                scanning = nil
+        let current = scanners.withLockedValue { Array($0.values) }
+        guard !current.isEmpty else {
+            if scanning.withLockedValue({ $0 }) != nil {
+                scanning.withLockedValue { $0 = nil }
                 await base.stopScanning()
             }
             return
         }
-        let everything = scanners.values.contains { $0.services.isEmpty }
-        let wanted = (services: everything ? Set<String>() : scanners.values.reduce(into: Set<String>()) { $0.formUnion($1.services) },
-                      duplicates: scanners.values.contains { $0.duplicates })
-        if let scanning, scanning == wanted { return }
-        scanning = wanted
-        try await base.startScanning(services: wanted.services.sorted(), allowDuplicates: wanted.duplicates) { [weak self] advertisement in
-            guard let self else { return }
-            Task { await self.deliver(advertisement) }
+        let everything = current.contains { $0.services.isEmpty }
+        let services = everything ? Set<String>() : current.reduce(into: Set<String>()) { $0.formUnion($1.services) }
+        let duplicates = current.contains { $0.duplicates }
+        if let now = scanning.withLockedValue({ $0 }), now.services == services, now.duplicates == duplicates { return }
+        scanning.withLockedValue { $0 = (services, duplicates) }
+        try await base.startScanning(services: services.sorted(), allowDuplicates: duplicates) { [weak self] advertisement in
+            self?.deliver(advertisement)
         }
     }
 
+    /// On the adapter's callback, in its order.
     private func deliver(_ advertisement: BLEAdvertisement) {
-        let carried = Set(advertisement.serviceUUIDs.map { $0.lowercased() }).union(advertisement.serviceData.keys)
-        for scanner in scanners.values where scanner.services.isEmpty || !scanner.services.isDisjoint(with: carried) {
+        let current = scanners.withLockedValue { Array($0.values) }
+        var carried: Set<String>?
+        for scanner in current {
+            if !scanner.services.isEmpty {
+                let services = carried ?? Set(advertisement.serviceUUIDs.map { $0.lowercased() }).union(advertisement.serviceData.keys)
+                carried = services
+                guard !scanner.services.isDisjoint(with: services) else { continue }
+            }
             scanner.onDiscover(advertisement)
         }
+    }
+}
+
+/// A lock for async work: one body at a time, in the order they asked; a waiter cancelled before its turn throws.
+final class AsyncLock: Sendable {
+    private let state = NIOLockedValueBox<(busy: Bool, waiters: [CheckedContinuation<Void, Never>])>((false, []))
+
+    func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+        await acquire()
+        defer { release() }
+        try Task.checkCancellation()
+        return try await body()
+    }
+
+    func locked(_ body: @Sendable () async -> Void) async {
+        await acquire()
+        defer { release() }
+        await body()
+    }
+
+    private func acquire() async {
+        await withCheckedContinuation { continuation in
+            let now = state.withLockedValue { state -> Bool in
+                if state.busy {
+                    state.waiters.append(continuation)
+                    return false
+                }
+                state.busy = true
+                return true
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    private func release() {
+        let next = state.withLockedValue { state -> CheckedContinuation<Void, Never>? in
+            guard !state.waiters.isEmpty else {
+                state.busy = false
+                return nil
+            }
+            return state.waiters.removeFirst()
+        }
+        next?.resume()
     }
 }
 
@@ -236,8 +304,7 @@ struct SharedBLECentral: BLECentral {
         try await hub.start(id, services: services, allowDuplicates: allowDuplicates, onDiscover: onDiscover)
     }
     func stopScanning() async { await hub.stop(id) }
-    func connect(_ target: BLETarget) async throws -> any BLEConnection { try await hub.base.connect(target) }
-    func reset() async {}
+    func connect(_ target: BLETarget) async throws -> any BLEConnection { try await hub.connect(target) }
 }
 
 /// A wait for a callback that arrives on a serial queue (CoreBluetooth's delegate), which cancelling the waiting

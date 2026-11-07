@@ -226,7 +226,6 @@ final class ShareRecorder: BLECentral, @unchecked Sendable {
     }
     func stopScanning() async { lock.withLock { onDiscover = nil } }
     func connect(_ target: BLETarget) async throws -> any BLEConnection { throw BLEError.notFound }
-    func reset() async {}
 }
 
 final class Collected: @unchecked Sendable {

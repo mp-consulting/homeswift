@@ -1059,17 +1059,14 @@ final class HumidifierFunction: EntityFunction, @unchecked Sendable {
 // MARK: - The table
 
 enum EntityFunctions {
-    /// The domains of the first release (docs/clean-room/HomeAssistant.md, section 7).
-    static let domains: Set<String> = [
-        "light", "switch", "input_boolean", "cover", "lock", "climate", "sensor", "binary_sensor", "fan", "media_player", "scene", "script",
-        "button", "input_button", "valve", "alarm_control_panel", "humidifier",
-    ]
-
-    /// Which of a device's Functions is its primary service: the first of these domains it has.
+    /// Which of a device's Functions is its primary service: the first of these domains it has. They are the domains of
+    /// the first release (docs/clean-room/HomeAssistant.md, section 7).
     static let primaryOrder = [
         "light", "lock", "alarm_control_panel", "cover", "climate", "fan", "humidifier", "valve", "switch", "input_boolean", "media_player",
         "binary_sensor", "sensor", "scene", "script", "button", "input_button",
     ]
+
+    static let domains = Set(primaryOrder)
 
     /// What decides an entity's service shape: a change rebuilds the accessory (4.5).
     static func shape(of state: EntityState) -> String {

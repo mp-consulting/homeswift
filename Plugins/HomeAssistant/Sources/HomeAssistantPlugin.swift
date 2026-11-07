@@ -251,9 +251,13 @@ public actor HomeAssistantPlugin: HomeswiftPlugin {
     private func loadRegistries(_ session: HomeAssistantSession) async throws {
         let timeout = dependencies.commandTimeout
         do {
-            let entityList = try await session.command(["type": "config/entity_registry/list"], timeout: timeout)
-            let deviceList = try await session.command(["type": "config/device_registry/list"], timeout: timeout)
-            let areaList = try? await session.command(["type": "config/area_registry/list"], timeout: timeout)
+            // Independent commands: the session multiplexes them by id.
+            async let entityRequest = session.command(["type": "config/entity_registry/list"], timeout: timeout)
+            async let deviceRequest = session.command(["type": "config/device_registry/list"], timeout: timeout)
+            async let areaRequest = session.command(["type": "config/area_registry/list"], timeout: timeout)
+            let entityList = try await entityRequest
+            let deviceList = try await deviceRequest
+            let areaList = try? await areaRequest
             entities = Dictionary((entityList.arrayValue ?? []).compactMap(EntityEntry.init).map { ($0.entityID, $0) }) { first, _ in first }
             devices = Dictionary((deviceList.arrayValue ?? []).compactMap(DeviceEntry.init).map { ($0.id, $0) }) { first, _ in first }
             var names: [String: String] = [:]

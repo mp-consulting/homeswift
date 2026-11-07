@@ -86,14 +86,15 @@ struct EcoFlowCapabilities: Sendable, Equatable {
 enum EcoFlowWrites {
     // MARK: - Which models' writes were seen working
 
-    /// The models whose writes were seen working on a real device, by serial prefix, on each route: the ones the
-    /// plugin's author owns. Every other model's writes are sent only with the plugin's `untestedWrites` setting.
-    static let checked: [EcoFlowModel.Route: [String]] = [
-        .app: ["BK11", "BK31", "R651", "R653", "R654", "R655", "R631", "R634", "R635"],
+    /// The models whose writes were seen working on a real device, by the model table's name (so every serial prefix of
+    /// the model counts), on each route: the ones the plugin's author owns. Every other model's writes are sent only
+    /// with the plugin's `untestedWrites` setting.
+    static let checked: [EcoFlowModel.Route: Set<String>] = [
+        .app: ["STREAM Ultra", "STREAM AC Pro", "RIVER 3", "RIVER 3 Plus"],
     ]
 
     static func isChecked(serial: String, route: EcoFlowModel.Route) -> Bool {
-        checked[route]?.contains { serial.hasPrefix($0) } ?? false
+        EcoFlowModel.model(serial: serial).map { checked[route]?.contains($0.name) ?? false } ?? false
     }
 
     // MARK: - Each model's writes

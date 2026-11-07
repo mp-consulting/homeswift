@@ -117,8 +117,6 @@ public final class FakeBLECentral: BLECentral {
         return Connection(central: self, peripheral: peripheral)
     }
 
-    public func reset() async {}
-
     // MARK: The connection
 
     struct Connection: BLEConnection {

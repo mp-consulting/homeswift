@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import HomeswiftNetwork
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -188,21 +189,6 @@ public struct STUNMessage: Sendable, Equatable {
     static func be16(_ bytes: [UInt8], _ at: Int) -> UInt16 { UInt16(bytes[at]) << 8 | UInt16(bytes[at + 1]) }
     static func be32(_ bytes: [UInt8], _ at: Int) -> UInt32 {
         UInt32(bytes[at]) << 24 | UInt32(bytes[at + 1]) << 16 | UInt32(bytes[at + 2]) << 8 | UInt32(bytes[at + 3])
-    }
-}
-
-/// CRC-32 (ISO-HDLC, the one zlib computes), for STUN's FINGERPRINT.
-enum CRC32 {
-    static let table: [UInt32] = (0..<256).map { index in
-        var value = UInt32(index)
-        for _ in 0..<8 { value = value & 1 == 1 ? 0xEDB8_8320 ^ (value >> 1) : value >> 1 }
-        return value
-    }
-
-    static func checksum(_ bytes: [UInt8]) -> UInt32 {
-        var crc: UInt32 = 0xFFFF_FFFF
-        for byte in bytes { crc = table[Int((crc ^ UInt32(byte)) & 0xff)] ^ (crc >> 8) }
-        return crc ^ 0xFFFF_FFFF
     }
 }
 

@@ -78,7 +78,6 @@ actor BLEClient {
 
         var connection: (any BLEConnection)?
         do {
-            await central.reset()
             log.debug("connecting to device at \(target.address)")
             let central = central
             let connected = try await withTimeout(timing.connection, error: { BLEError.timeout("Connection timeout") }) { try await central.connect(target) }
@@ -221,7 +220,6 @@ actor BLEClient {
         discoverCallback = nil
         isScanning = false
         isConnecting = false
-        await central.reset()
         logger.info("[BLE] shutdown complete.")
     }
 }
