@@ -2906,8 +2906,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       [name, args] = ["status", []];
     }
     for (const link of document.querySelectorAll("nav a")) {
-      // Automations are a tab of Scenes.
-      const current = link.getAttribute("href") === `/${name === "automations" ? "scenes" : name}`;
+      // Scenes are a tab of Automations.
+      const current = link.getAttribute("href") === `/${name === "scenes" ? "automations" : name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
@@ -11740,7 +11740,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/automations", t("Automations"), "workflow"], ["/logbook", t("Logbook"), "history"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -13793,7 +13793,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// The Scenes and Automations pages, as tabs.
-  const scenesTabs = (current) => HomeswiftCommon.subnav(t("Scenes and automations"), "", [["scenes", t("Scenes"), "play"], ["automations", t("Automations"), "workflow"]], current);
+  const scenesTabs = (current) => HomeswiftCommon.subnav(t("Scenes and automations"), "", [["automations", t("Automations"), "workflow"], ["scenes", t("Scenes"), "play"]], current);
   /// What a scene of Homeswift's is, in a line: its room, the Home app, its animation.
   function sceneSummary(scene) {
     return [scene.room, scene.homeKit ? t("In the Home app") : null,
@@ -25557,7 +25557,7 @@ HomeswiftI18n.add("pt", {
     <nav>
       <a href="/status" data-i18n>Status</a>
       <a href="/accessories" data-i18n>Accessories</a>
-      <a href="/scenes" data-i18n>Scenes</a>
+      <a href="/automations" data-i18n>Automations</a>
       <a href="/logbook" data-i18n>Logbook</a>
       <a href="/plugins" data-i18n>Plugins</a>
       <a href="/logs" data-i18n>Logs</a>

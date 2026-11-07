@@ -109,6 +109,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Web UI: the menu's entry for scenes and automations is **Automations**, and it opens there, with Scenes as the
+  second tab. It stays highlighted on either tab.
 - Web UI: the Scene and Automation editors name an accessory's controls in the page's language, as the rows under All
   controls do ("Vitesse du vent", "Power"), in their menus and in the triggers' summaries; 34 of HomeKit's names that
   had no translation (the weather's, the energy meters', the televisions') have one in French, Spanish and Portuguese.

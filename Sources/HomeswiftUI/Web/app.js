@@ -546,8 +546,8 @@
       [name, args] = ["status", []];
     }
     for (const link of document.querySelectorAll("nav a")) {
-      // Automations are a tab of Scenes.
-      const current = link.getAttribute("href") === `/${name === "automations" ? "scenes" : name}`;
+      // Scenes are a tab of Automations.
+      const current = link.getAttribute("href") === `/${name === "scenes" ? "automations" : name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }

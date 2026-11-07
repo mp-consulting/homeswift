@@ -835,7 +835,7 @@
   }
 
   /// The Scenes and Automations pages, as tabs.
-  const scenesTabs = (current) => HomeswiftCommon.subnav(t("Scenes and automations"), "", [["scenes", t("Scenes"), "play"], ["automations", t("Automations"), "workflow"]], current);
+  const scenesTabs = (current) => HomeswiftCommon.subnav(t("Scenes and automations"), "", [["automations", t("Automations"), "workflow"], ["scenes", t("Scenes"), "play"]], current);
   /// What a scene of Homeswift's is, in a line: its room, the Home app, its animation.
   function sceneSummary(scene) {
     return [scene.room, scene.homeKit ? t("In the Home app") : null,
