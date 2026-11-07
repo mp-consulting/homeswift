@@ -104,6 +104,8 @@ All notable changes to this project are documented here. The format follows
 
 - Charts: a 24-hour chart of a Meter's consumption at phone width labels its hours as the narrow ticks only (7, 13,
   19), no longer mixing in the wide ones (10:00, 16:00) between them.
+- Web UI: a History chart's legend reads Maximum, Average and Minimum in French, Spanish and Portuguese, the words a
+  chart uses, rather than "la plus haute" or "el más alto", which agreed with no word on the chart.
 - Web UI: the chat's mic on an iPhone or iPad. It started listening on the finger's press, which Safari does not count as
   a tap, and sent only words Safari marked final, which it often never does: it now starts on the tap and sends what was
   heard. When dictation is off or unavailable, the note says what to turn on, rather than blaming the microphone.
