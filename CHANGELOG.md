@@ -92,6 +92,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Plugins: `newDevices` (`.byAddress`, or `.made(label:)` for devices a plugin makes, such as a Helper or a Person)
+  replaces `addsDevicesByAddress` and `newDeviceLabel`. `list_plugins`' and `discover_devices`' `addByAddress` and
+  `addLabel` are unchanged.
 - Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
   values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
   Step applies it. A Scene saved with `triggers` or `conditions` is refused.
@@ -107,6 +110,8 @@ All notable changes to this project are documented here. The format follows
   keeps working.
 - Web UI: Forget on a Helper (a device its plugin makes rather than finds) says that it deletes it for good, instead of
   that the plugin finds it again.
+- Charts: a 24-hour chart of a Meter's consumption at phone width labels its hours as the narrow ticks only (7, 13,
+  19), no longer mixing in the wide ones (10:00, 16:00) between them.
 - Web UI: a History chart's legend reads Maximum, Average and Minimum in French, Spanish and Portuguese, the words a
   chart uses, rather than "la plus haute" or "el más alto", which agreed with no word on the chart.
 - Web UI: the chat's mic on an iPhone or iPad. It started listening on the finger's press, which Safari does not count as

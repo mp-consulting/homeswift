@@ -513,7 +513,7 @@ struct V2CTrydanPluginTests {
     }
 
     @Test func addByAddressReadsTheChargerAndKeysItByItsID() async throws {
-        #expect(V2CTrydanPlugin.addsDevicesByAddress)
+        #expect(V2CTrydanPlugin.newDevices == .byAddress)
         let environment = TestEnvironment()
         let host = try await environment.start(settings: [:])
         let plugin = try #require(environment.plugin)

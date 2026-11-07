@@ -481,7 +481,7 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   block's own list (a TV's `ip`, a Wingman's `host`) is a device `discover()` lists by that address, and its Setup
   keeps it under the Device Id the Authorization reads.
 - **Add by address** (GLOSSARY.md): a plugin whose devices are reached by address and cannot be found (an EV charger,
-  a solar gateway, a camera on another subnet) sets `static let addsDevicesByAddress = true`. The Add accessories page
+  a solar gateway, a camera on another subnet) sets `static let newDevices: NewDevices? = .byAddress`. The Add accessories page
   then offers **Add by address…** on its instance, and `start_setup` takes `addByAddress: true`; with or without an
   account (a plugin with an optional account offers both). Its Setup is `authorize` with `request.target == .newDevice`
   (`request.isNewDevice`): the first step asks for the address and whatever else the device needs, a later one may ask
@@ -495,7 +495,7 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   `addresses`) keeps working beside it. `Plugins/ElgatoKeyLights/Sources/ElgatoSetup.swift` is the example:
 
   ```swift
-  public static let addsDevicesByAddress = true
+  public static let newDevices: NewDevices? = .byAddress
 
   public func authorize(_ request: SetupRequest) async throws -> SetupStep {
       guard request.isNewDevice else { return .done(SetupOutcome()) }
@@ -512,10 +512,10 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
 
   Its prompt and errors are English, with their French, Spanish and Portuguese in the web UI's catalogs, as every
   prompt's (an error with a value is a `{placeholder}` key there: `"No light answered at {address}"`).
-- **Devices without an address.** A plugin whose new devices are made rather than found (a Helper) sets
-  `addsDevicesByAddress` and `static let newDeviceLabel: String? = "Add a Helper…"`: the Add accessories page and the
-  plugin's settings offer that instead of **Add by address…**, and its first step asks what the plugin needs. The label is
-  translated in the web UI's catalogs, as a summary is.
+- **Devices the plugin makes.** A plugin whose new devices are made rather than found (a Helper, a Person) sets
+  `static let newDevices: NewDevices? = .made(label: "Add a Helper…")`: the Add accessories page and the plugin's settings
+  offer that instead of **Add by address…**, its Setup is the same `.newDevice` step, its first prompt asking what the
+  plugin needs, and Forget on one says it deletes it. The label is translated in the web UI's catalogs, as a summary is.
 - **Several of a list.** `SetupField.choices(_:label:options:values:)` lets the person pick several options (a Helper's
   sensors), as checkboxes; `request.answers(_:)` reads them, one value per line (an MCP client may pass a list).
 - **Its page** leads to Setup (`homeswift.setupCard`, docs/ui.md) rather than signing in or pairing itself.

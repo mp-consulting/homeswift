@@ -5,7 +5,7 @@ import HomeswiftAI
 // may talk to it (an `AuthorizationMethod`), and answers the steps of that Authorization (`authorize`). The bridge
 // holds each Setup in progress (a Setup Session), keeps what an Authorization gives in the vault, and writes the
 // settings it brings, so the web UI and MCP clients set up every plugin's devices the same way. A plugin whose devices
-// cannot be found (reached by address on the LAN) also takes one a person names (`addsDevicesByAddress`, Add by address):
+// cannot be found (reached by address on the LAN) also takes one a person names (`newDevices`: Add by address, or a device it makes):
 // its Setup is a device step whose target is `.newDevice`, the device's Device Id told by the outcome.
 
 /// The kinds of Authorization the bridge knows how to ask a person or an agent for.
@@ -24,6 +24,23 @@ public enum AuthorizationMethod: String, Sendable, Codable, CaseIterable {
     case apiKey
     /// A Bridge Setting the bridge needs first, such as the Location: the step points at its page and waits.
     case bridgeSetting
+}
+
+/// How a person adds a device a plugin does not find by itself (`HomeswiftPlugin.newDevices`). Either way its Setup is a
+/// device step whose target is `.newDevice`, ending with the Device Id the plugin gives it.
+public enum NewDevices: Sendable, Equatable {
+    /// Add by address (GLOSSARY.md): a device on the network the plugin cannot find, which the person names by its address.
+    case byAddress
+    /// A device the plugin makes rather than finds (a Helper, a Person): `label` is what the web UI calls adding one, "Add
+    /// a Helper…", in English, with its French, Spanish and Portuguese in the web UI's catalogs (`TranslationTests` reads
+    /// it from the source). Forgetting one deletes it: nothing finds it again.
+    case made(label: String)
+
+    /// What adding one is called, for a device the plugin makes; nil for Add by address.
+    public var label: String? {
+        if case .made(let label) = self { return label }
+        return nil
+    }
 }
 
 /// Whether a plugin's devices depend on its account (`HomeswiftPlugin.accountRequirement`), for a plugin whose
@@ -340,7 +357,7 @@ public struct SetupRequest: Sendable {
         case account
         case device(DiscoveredDevice)
         /// Add by address (GLOSSARY.md): a device discovery cannot find, which the person names (a host, a port, a
-        /// user and password). Sent only to a plugin whose `addsDevicesByAddress` is true. The first step asks for its
+        /// user and password). Sent only to a plugin with `newDevices`. The first step asks for its
         /// address; the plugin probes it and answers `.done` with the `SetupOutcome.deviceID` it read (required), the
         /// Accessory Settings that reach it (its host) and its credentials, or throws `SetupError` ("Nothing answered at
         /// 192.0.2.50").

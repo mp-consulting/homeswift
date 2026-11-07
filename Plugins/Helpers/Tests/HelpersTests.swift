@@ -68,7 +68,7 @@ final class TestEnvironment: Sendable {
         registry.register(platform: FakeSources.platform, name: "Fake") { _, context in FakeSources(configuration: .init(), context: context) }
         var blocks = [try HomeswiftConfiguration.Platform(platform: FakeSources.platform, name: "Fake", settings: [:])]
         if let helpers, let environment {
-            registry.register(platform: HelpersPlugin.platform, name: HelpersPlugin.name, addsDevicesByAddress: true) { _, context in
+            registry.register(platform: HelpersPlugin.platform, name: HelpersPlugin.name, newDevices: HelpersPlugin.newDevices) { _, context in
                 let plugin = HelpersPlugin(context: context, dependencies: .init(minute: environment.minute, newID: { "new-helper" }))
                 environment.plugins.withLockedValue { $0.append(plugin) }
                 return plugin

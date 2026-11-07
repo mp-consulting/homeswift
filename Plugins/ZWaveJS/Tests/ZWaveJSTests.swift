@@ -504,7 +504,7 @@ struct ZWaveJSTests {
     }
 
     @Test func addByAddressKeysTheServerByItsHomeID() async throws {
-        #expect(ZWaveJSPlugin.addsDevicesByAddress)
+        #expect(ZWaveJSPlugin.newDevices == .byAddress)
         let host = try await environment.start(settings: [:])
         let context = try #require(host.context(platform: ZWaveJSPlugin.platform, name: ZWaveJSPlugin.name))
         let plugin = ZWaveJSPlugin(configuration: .init(), context: context, dependencies: environment.dependencies)

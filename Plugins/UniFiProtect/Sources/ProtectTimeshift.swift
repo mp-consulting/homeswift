@@ -71,9 +71,10 @@ final class ProtectTimeshiftBuffer {
     @discardableResult
     func stop() -> Bool {
         if isStarted {
-            if let rtspEntry { camera.livestream.stop(rtspEntry) }
+            // Listening stops first: the livestream's own `close` as it stops is not a connection lost.
             listener?.cancel()
             listener = nil
+            if let rtspEntry { camera.livestream.stop(rtspEntry) }
         }
         segments = []
         isStarted = false

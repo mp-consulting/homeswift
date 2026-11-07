@@ -84,7 +84,7 @@ extension HomeswiftCatalog {
             "accountSetUp": .bool(found.accountState == .none || found.accountState == .setUp),
             "accountState": .string(found.accountState.rawValue), "accountRequired": .bool(requirement.isRequired),
             "accountAdds": requirement.adds.map(JSONValue.string) ?? .null, "needsAuthorization": .bool(found.accountState.needsAuthorization(requirement)),
-            "addByAddress": .bool(entry?.addsDevicesByAddress ?? false), "addLabel": entry?.newDeviceLabel.map(JSONValue.string) ?? .null,
+            "addByAddress": .bool(entry?.newDevices != nil), "addLabel": entry?.newDevices?.label.map(JSONValue.string) ?? .null,
             "devices": .array(found.devices.map { device in
                 let accessoryID = "\(platform):\(device.deviceID)"
                 var json: [String: JSONValue] = [
@@ -104,7 +104,7 @@ extension HomeswiftCatalog {
     }
 
     /// Starts the Setup of the instance's account (no `deviceID`), of one of the devices its last discovery found, or Add
-    /// by address (`addByAddress`, a device the person names, for a plugin whose `addsDevicesByAddress`), and runs its
+    /// by address (`addByAddress`, a device the person names, for a plugin with `newDevices`), and runs its
     /// first step. `block` is the block of an instance not saved yet, which the Setup adds when done.
     public func startSetup(platform: String, name: String?, deviceID: String?, addByAddress: Bool = false, block: JSONValue? = nil) async throws -> JSONValue {
         let name = name ?? platform
@@ -113,7 +113,7 @@ extension HomeswiftCatalog {
         let method: AuthorizationMethod
         if addByAddress {
             guard deviceID == nil else { throw CatalogError("Pass a deviceID or addByAddress, not both") }
-            guard entry.addsDevicesByAddress else { throw CatalogError("\(entry.name) cannot add a device by its address: discover_devices lists those it finds") }
+            guard entry.newDevices != nil else { throw CatalogError("\(entry.name) cannot add a device by its address: discover_devices lists those it finds") }
             target = .newDevice
             method = .none
         } else if let deviceID {
