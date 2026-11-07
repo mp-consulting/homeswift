@@ -84,10 +84,9 @@ jobs:
           key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
           restore-keys: ${{ steps.build-key.outputs.key }}-
 
-      - name: Rebuild the targets the pull request changes
-        # Not over the pull request's own cache, which is already built from its branch; the script compares the
-        # checkout with the commit the restored cache was built from.
-        if: steps.restore-build.outputs.cache-hit != 'true'
+      - name: Rebuild the targets changed since the cached build
+        # Over a pull request's own cache too: once its branch merges main, main's changes are newer than that build.
+        # The script compares the checkout with the commit the restored build was made from (.build/.built-from).
         run: Scripts/forget-changed-targets.sh
         env:
           CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
@@ -106,6 +105,12 @@ jobs:
         # On main only: a pull request's release build is Linux's, and macOS's queue is what holds a merge up.
         if: github.event_name == 'push'
         run: swift build -c release
+
+      - name: Record the commit the build is made from
+        # For Scripts/forget-changed-targets.sh in the runs that restore it: a pull request's head (its merge
+        # commit's second parent, which later heads descend from), else the commit itself.
+        if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
+        run: git rev-parse --verify --quiet HEAD^2 > .build/.built-from || git rev-parse HEAD > .build/.built-from
 
       - name: Save the build
         if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
@@ -150,10 +155,9 @@ jobs:
           key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
           restore-keys: ${{ steps.build-key.outputs.key }}-
 
-      - name: Rebuild the targets the pull request changes
-        # Not over the pull request's own cache, which is already built from its branch; the script compares the
-        # checkout with the commit the restored cache was built from.
-        if: steps.restore-build.outputs.cache-hit != 'true'
+      - name: Rebuild the targets changed since the cached build
+        # Over a pull request's own cache too: once its branch merges main, main's changes are newer than that build.
+        # The script compares the checkout with the commit the restored build was made from (.build/.built-from).
         run: Scripts/forget-changed-targets.sh
         env:
           CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
@@ -168,6 +172,12 @@ jobs:
 
       - name: Build
         run: swift build -c release
+
+      - name: Record the commit the build is made from
+        # For Scripts/forget-changed-targets.sh in the runs that restore it: a pull request's head (its merge
+        # commit's second parent, which later heads descend from), else the commit itself.
+        if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
+        run: git rev-parse --verify --quiet HEAD^2 > .build/.built-from || git rev-parse HEAD > .build/.built-from
 
       - name: Save the build
         if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
