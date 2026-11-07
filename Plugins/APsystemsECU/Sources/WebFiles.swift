@@ -13,13 +13,13 @@ extension APsystemsECUPlugin {
 (() => {
   "use strict";
   const { $, el, request, poll, fact, tile, renderKeyed } = homeswift;
-  const { t, locale } = HomeswiftI18n;
+  const { t } = HomeswiftI18n;
 
   $("#head-tile").replaceWith(tile("sun", "orange", true));
 
-  const whole = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
-  const energy = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
-  const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
+  const whole = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { maximumFractionDigits: 0 });
+  const energy = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { maximumFractionDigits: 2 });
+  const clock = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit" });
   const watts = (value) => `${whole.format(value)} W`;
   const kWh = (value) => `${energy.format(value)} kWh`;
   const time = (iso) => (iso ? clock.format(new Date(iso)) : "—");

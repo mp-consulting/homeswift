@@ -40,6 +40,7 @@ import HomeswiftUniFiProtect
 import HomeswiftV2CTrydan
 import HomeswiftWeather
 import HomeswiftWingman
+import HomeswiftXiaomiMiot
 import HomeswiftZWaveJS
 import HomeswiftZigbee2MQTT
 
@@ -93,6 +94,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HelpersPlugin.self)
     registry.register(WeatherPlugin.self)
     registry.register(ZWaveJSPlugin.self)
+    registry.register(XiaomiMiotPlugin.self)
     registry.register(SmartThingsPlugin.self)
     return registry
 }

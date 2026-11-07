@@ -49,6 +49,8 @@ public enum WebPush {
         public var label: String
         public var username: String?
         public var createdAt: String
+        /// The page's language when the browser subscribed: its reader's, unless their account chose one.
+        public var language: String?
     }
 
     static let recordSize = 4096

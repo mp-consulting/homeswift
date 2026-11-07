@@ -62,7 +62,7 @@
   /// else in sentence case.
   const typeName = (type) => { const translated = HomeswiftI18n.message(type); return translated !== type ? translated : sentence(type); };
   /// A number as the page's language writes it: "21,5" in French.
-  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.numberLocale).charAt(1);
   const num = (value) => typeof value === "number" ? String(value).replace(".", decimal) : value;
   /// The text for an enumerated value, or the value itself.
   function labelFor(type, value) {

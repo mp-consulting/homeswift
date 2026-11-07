@@ -1,0 +1,309 @@
+import Foundation
+import Homeswift
+import HomeswiftNetwork
+import HomeswiftPlugin
+import Logging
+
+/// Xiaomi Mi Home Wi-Fi devices that speak MIoT over the miIO LAN protocol, and the older Roborock-family robot vacuums
+/// that speak only miIO's vacuum commands (docs/clean-room/XiaomiMiot.md, a clean-room implementation).
+///
+/// Each device is reached on UDP 54321 at its address with its own token; its MIoT spec is fetched once from
+/// miot-spec.org and kept, and its standard services map to HomeKit by their type URNs (MiotAccessory.swift), with extra
+/// controls turned on per device (MiotControls.swift). The Xiaomi account is optional: through Setup (XiaomiSetup.swift)
+/// it finds the devices and their tokens; it is never used at run time. A homebridge-miot block (`miot`, `devices[]`)
+/// loads as it is and moves into `_accessories` by Device Id (the did) with the next settings write (XiaomiSettings.swift).
+/// See README.md in this directory.
+public actor XiaomiMiotPlugin: HomeswiftPlugin {
+    public struct Configuration: Decodable, Sendable {
+        /// The block as it is: read leniently, as homebridge-miot does.
+        public var raw: JSONValue
+
+        public init(from decoder: any Decoder) throws {
+            raw = try JSONValue(from: decoder)
+        }
+
+        init(raw: JSONValue) { self.raw = raw }
+
+        var micloud: [String: JSONValue] { raw["micloud"]?.objectValue ?? [:] }
+        var country: String {
+            let value = micloud["country"]?.stringValue?.lowercased() ?? "cn"
+            return MiCloud.regions.contains(value) ? value : "cn"
+        }
+        var devices: [JSONValue] { raw["devices"]?.arrayValue ?? [] }
+        /// The plugin-wide polling interval in seconds (`x-default` of a device's).
+        var pollingInterval: Double? { DeviceOptions.interval(raw["pollingInterval"]) }
+    }
+
+    /// What the plugin reaches devices, the registry and the cloud with; tests swap them.
+    struct Dependencies: Sendable {
+        var network: any MiioNetwork = UDPMiioNetwork()
+        /// miot-spec.org and the Xiaomi cloud: the registry's instance list is about 2 MB.
+        var http: any HTTPSending = HTTPClient(maximumBodySize: 32 * 1024 * 1024)
+        var timings = DeviceTimings()
+        /// How long the hello broadcast gathers replies (3.5).
+        var discoveryWindow: Duration = .seconds(2)
+        /// How long the account's list is kept (3.5).
+        var cloudListAge: TimeInterval = 300
+        /// The QR code's long poll (3.2).
+        var qrPollTimeout: Duration = .seconds(10)
+        var now: @Sendable () -> Date = Date.init
+        /// The log, when not the instance's own (tests read it).
+        var logger: Logger?
+    }
+
+    public static let platform = "miot"
+    public static let name = "Xiaomi"
+    public static let icon: String? = "plugin"
+    public static let summary: String? = "Mi Home Wi-Fi devices and robot vacuums on the local network"
+    // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
+
+    let configuration: Configuration
+    nonisolated let context: PluginContext
+    let dependencies: Dependencies
+    let tasks = TaskBag()
+    var logger: Logger { dependencies.logger ?? context.logger }
+    private(set) var hub: MiioHub?
+    private(set) var devices: [String: MiotDevice] = [:]
+    /// What the plugin learned from devices, kept in `learned.json` so it holds after a restart: the did each `devices[]`
+    /// entry without one answered with (by its ip), and the address a device moved to (by did), for `canonicalSettings`
+    /// and for running the device there.
+    struct Learned: Codable, Sendable, Equatable {
+        var didsByAddress: [String: String] = [:]
+        var addressesByDID: [String: Moved] = [:]
+    }
+
+    /// A device seen at `to` while its settings said `from`. It holds while the settings still say `from` (or `to`): an
+    /// address a person writes in the settings afterwards wins.
+    struct Moved: Codable, Sendable, Equatable {
+        var from: String?
+        var to: String
+
+        func address(configured: String?) -> String? {
+            guard let configured, configured != from, configured != to else { return to }
+            return nil
+        }
+    }
+
+    /// Where to reach a device: the address it was seen at, unless the settings name another since.
+    func address(of did: String, configured: String?) -> String? {
+        learned.addressesByDID[did]?.address(configured: configured) ?? configured
+    }
+
+    let learnedFile: JSONFile<Learned>
+    private(set) var learned: Learned
+    var learnedDIDs: [String: String] { learned.didsByAddress }
+    var learnedAddresses: [String: Moved] { learned.addressesByDID }
+    /// What the account's list said of its devices, by did (`known-devices.json`), read once.
+    private(set) var known: [String: KnownDevice]
+    /// homebridge-miot's session file was looked at (XiaomiSetup.swift, `session()`).
+    var legacySessionRead = false
+    var cloudList: (devices: [CloudDevice], at: Date)?
+    var skippedLogged = Set<String>()
+    let registry: SpecRegistry
+    /// The plugin-wide `pm25Breakpoints` and `co2AbnormalThreshold` over the defaults; a device's own go over these.
+    let mappingDefaults: MappingDefaults
+
+    public init(configuration: Configuration, context: PluginContext) {
+        self.init(configuration: configuration, context: context, dependencies: Dependencies())
+    }
+
+    init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
+        self.configuration = configuration
+        self.context = context
+        self.dependencies = dependencies
+        let learnedFile = context.jsonFile("learned.json", as: Learned.self)
+        self.learnedFile = learnedFile
+        learned = learnedFile.load() ?? Learned()
+        let knownDevices = context.jsonFile("known-devices.json", as: [String: KnownDevice].self)
+        self.knownDevices = knownDevices
+        known = knownDevices.load() ?? [:]
+        let logger = dependencies.logger ?? context.logger
+        mappingDefaults = Self.mappingDefaults(configuration.raw.objectValue ?? [:], over: MappingDefaults(), of: nil, logger: logger)
+        registry = SpecRegistry(http: dependencies.http, file: { model in context.jsonFile("spec/\(model).json", as: SpecRegistry.Stored.self) },
+                                logger: dependencies.logger ?? context.logger, now: dependencies.now)
+    }
+
+    var cloud: MiCloud { MiCloud(http: dependencies.http, now: dependencies.now) }
+
+    func sharedHub() -> MiioHub {
+        if let hub { return hub }
+        let made = MiioHub(network: dependencies.network, logger: logger)
+        hub = made
+        return made
+    }
+
+    /// `pm25Breakpoints` and `co2AbnormalThreshold` of `raw` (the plugin's block, or a device's options of `owner`) over
+    /// `base`; one that is not valid keeps the base's, with a warning.
+    static func mappingDefaults(_ raw: [String: JSONValue], over base: MappingDefaults, of owner: String?, logger: Logger) -> MappingDefaults {
+        var defaults = base
+        let of = owner.map { " of \($0)" } ?? ""
+        if let value = raw["pm25Breakpoints"], !value.isNull {
+            if let valid = MiotConversions.validBreakpoints(value) {
+                defaults.pm25Breakpoints = valid
+            } else {
+                logger.warning("pm25Breakpoints\(of) is not four increasing integers; using \(base.pm25Breakpoints.map(String.init).joined(separator: ", "))")
+            }
+        }
+        if let value = raw["co2AbnormalThreshold"], !value.isNull {
+            if let number = value.doubleValue {
+                defaults.co2AbnormalThreshold = number
+            } else {
+                logger.warning("co2AbnormalThreshold\(of) is not a number; using \(JSONValue.number(base.co2AbnormalThreshold).text())")
+            }
+        }
+        return defaults
+    }
+
+    // MARK: Lifecycle
+
+    public func start() async throws {
+        _ = sharedHub()
+        tasks.add { [weak self] in await self?.startDevices() }
+    }
+
+    public func stop() async {
+        tasks.cancelAll()
+        for device in devices.values { await device.stop() }
+        devices.removeAll()
+        await hub?.close()
+        hub = nil
+    }
+
+    /// One device to run: from `_accessories` (Setup's, its token in the vault) or a Homebridge-shaped `devices[]` entry.
+    struct ConfiguredDevice: Sendable {
+        var did: String?
+        var ip: String
+        var token: MiioToken
+        var options: DeviceOptions
+    }
+
+    /// The devices the block and the vault name, Excluded ones left out.
+    func configuredDevices() -> [ConfiguredDevice] {
+        var found: [String: ConfiguredDevice] = [:]
+        var withoutID: [ConfiguredDevice] = []
+        var legacyByDID: [String: [String: JSONValue]] = [:]
+        for entry in configuration.devices {
+            guard let fields = entry.objectValue else { continue }
+            let options = DeviceOptions(fields)
+            if let did = options.deviceID ?? options.ip.flatMap({ learnedDIDs[$0] }) { legacyByDID[did] = fields }
+            guard let ip = options.ip, let token = options.token.flatMap(MiioToken.init(hex:)) else {
+                if options.ip != nil { logger.warning("A device in devices has no valid token (32 hexadecimal characters); skipped") }
+                continue
+            }
+            guard let did = options.deviceID ?? learnedDIDs[ip] else {
+                withoutID.append(ConfiguredDevice(did: nil, ip: ip, token: token, options: options))
+                continue
+            }
+            if fields["micloud"]?["username"] != nil || fields["micloud"]?["password"] != nil {
+                logger.warning("A device's own Xiaomi account (micloud.username in devices) is not supported; the plugin's is used")
+            }
+            found[did] = ConfiguredDevice(did: did, ip: address(of: did, configured: ip) ?? ip, token: token, options: options)
+        }
+        for (did, settings) in context.allAccessorySettings where !settings.excluded {
+            let options = DeviceOptions(legacy: legacyByDID[did], settings: settings.plugin)
+            let token = (context.credentials(for: did)?["token"]?.stringValue).flatMap(MiioToken.init(hex:)) ?? found[did]?.token
+            guard let ip = address(of: did, configured: options.ip ?? found[did]?.ip), let token else { continue }
+            var merged = options
+            if let name = settings.name { merged.raw["name"] = .string(name) }
+            found[did] = ConfiguredDevice(did: did, ip: ip, token: token, options: merged)
+        }
+        return found.values.filter { !context.isExcluded($0.did ?? "") }.sorted { ($0.did ?? "") < ($1.did ?? "") } + withoutID
+    }
+
+    private func startDevices() async {
+        let hub = sharedHub()
+        var configured = configuredDevices()
+        // homebridge-miot learns a did from the device: all at once, so one that does not answer delays no other.
+        let unknown = configured.filter { $0.did == nil }
+        if !unknown.isEmpty {
+            let asking = unknown.map { device in Task { (device.ip, await self.learnDID(ip: device.ip, token: device.token)) } }
+            for task in asking {
+                let (ip, did) = await task.value
+                if let did { rememberDID(did, ip: ip) }
+            }
+            configured = configuredDevices()
+        }
+        var keep = Set<String>()
+        var unresolved = false
+        for device in configured {
+            guard !Task.isCancelled else { return }
+            guard let did = device.did else {
+                unresolved = true
+                logger.warning("The device at \(device.ip) did not answer; its did is unknown, so it is not added yet")
+                continue
+            }
+            guard !context.isExcluded(did) else { continue }
+            keep.insert(context.accessoryID(of: did))
+            guard devices[did] == nil else { continue }
+            let running = makeDevice(did: did, configured: device, hub: hub)
+            devices[did] = running
+            await running.start()
+        }
+        // A device whose did is unknown may be one of the cached accessories: none is removed until all are known.
+        if !unresolved { _ = await context.removeAccessories(keeping: keep) }
+    }
+
+    /// A did learned from a device, by address, kept so a device that is off at the next start keeps its accessory.
+    func rememberDID(_ did: String, ip: String) {
+        guard learned.didsByAddress[ip] != did else { return }
+        learned.didsByAddress[ip] = did
+        try? learnedFile.save(learned)
+    }
+
+    func makeDevice(did: String, configured: ConfiguredDevice, hub: MiioHub) -> MiotDevice {
+        let known = self.known[did]
+        let cached = context.accessory(id: context.accessoryID(of: did))
+        let model = configured.options.model ?? cached?.information[.model]?.value.stringValue.flatMap { $0 == "Accessory" ? nil : $0 } ?? known?.model
+        let name = MiotConversions.clamped(context.accessorySettings(for: did).name ?? configured.options.name ?? known?.name ?? "Miot device")
+        // The plugin-wide options under the device's own (2.1, 2.4).
+        var options = configured.options
+        var micloud = configuration.micloud.filter { $0.key != "username" && $0.key != "password" }
+        micloud.merge(options.micloud) { $1 }
+        if !micloud.isEmpty { options.raw["micloud"] = .object(micloud) }
+        if options.raw["pollingInterval"] == nil, let interval = configuration.raw["pollingInterval"] { options.raw["pollingInterval"] = interval }
+        let defaults = Self.mappingDefaults(options.raw, over: mappingDefaults, of: name, logger: logger)
+        let environment = DeviceEnvironment(context: context, registry: registry, hub: hub, timings: dependencies.timings, defaults: defaults, logger: logger)
+        return MiotDevice(did: did, name: name, model: model, host: configured.ip, token: configured.token, options: options,
+                          serialNumber: known?.serialNumber ?? did, firmware: known?.firmware, environment: environment)
+    }
+
+    /// Asks the device at `ip` who it is: the did of its hello reply.
+    /// The did of a verified reply: a hello alone proves nothing. Nil when the device does not answer.
+    func learnDID(ip: String, token: MiioToken) async -> String? {
+        try? await probe(address: ip, token: token).did
+    }
+
+    // MARK: What is known of the account's devices (not secret)
+
+    /// The MAC (as the Serial Number), firmware, name and model the cloud listed, by did.
+    struct KnownDevice: Codable, Sendable, Equatable {
+        var name: String?
+        var model: String?
+        var serialNumber: String?
+        var firmware: String?
+    }
+
+    let knownDevices: JSONFile<[String: KnownDevice]>
+
+    func remember(_ list: [CloudDevice]) {
+        var changed = false
+        for device in list where !device.isOutOfScope {
+            let entry = KnownDevice(name: device.name, model: device.model, serialNumber: device.serialNumber, firmware: device.firmware)
+            if known[device.did] != entry { known[device.did] = entry; changed = true }
+        }
+        if changed { try? knownDevices.save(known) }
+    }
+
+    /// A running device seen at another address: it moves there, and is run there after a restart.
+    func learned(address: String, for did: String) async {
+        guard let device = devices[did], await device.host != address else { return }
+        // What the settings say: the first move's, while the device runs where it was seen; else where it runs now.
+        let host = await device.host
+        let existing = learned.addressesByDID[did]
+        learned.addressesByDID[did] = Moved(from: existing?.to == host ? existing?.from : host, to: address)
+        try? learnedFile.save(learned)
+        await device.move(to: address)
+    }
+
+    func device(_ did: String) -> MiotDevice? { devices[did] }
+}

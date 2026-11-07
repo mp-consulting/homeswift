@@ -13,8 +13,8 @@
 
   const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
-  const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-  const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const dateTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const fullDate = HomeswiftI18n.dateTimeFormat({ year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
   const size = (bytes) => HomeswiftCommon.byteSize(bytes);
 
@@ -87,7 +87,7 @@
   // ---- The Location: a Bridge Setting (bridge.location), for sunrise and sunset and the weather ----------------
 
   const { statusLine, say, field } = HomeswiftCommon;
-  const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
+  const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit" });
 
   /// A small raster map with no third-party scripts. Only visible tiles are requested.
   function locationMap(initial, changed) {
@@ -341,9 +341,9 @@
     const cell = (text, control, extra = null) => el("label", { class: `tariff-cell${extra ? " with-unit" : ""}` }, el("span", { class: "tariff-cell-label", text }), control, extra);
     const addRow = (period = { from: "00:00", to: "24:00", price: "" }) => {
       const name = el("input", { type: "text", value: period.name ?? "", placeholder: t("Name, such as Peak"), maxLength: 40, "aria-label": t("Period name") });
-      const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From") });
+      const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From"), title: HomeswiftCommon.homeTimeTitle() });
       // 24:00 is the end of the day: a time input shows it as 00:00.
-      const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
+      const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To"), title: HomeswiftCommon.homeTimeTitle() });
       const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
       const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: perUnit, "aria-label": perUnit, required: true });
       const row = el("div", { class: "tariff-period" }, cell(t("Name"), name), cell(t("From"), from), cell(t("To"), to), cell(t("Days"), days),
@@ -361,7 +361,7 @@
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
     const earlier = mine.slice(0, -1).reverse();
     const startDate = (text) => HomeswiftCommon.parseDay(text);
-    const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
+    const longDay = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "long", year: "numeric" });
     return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
       event.preventDefault();
       const tariff = { start: start.value, currency: currency.value.trim().toUpperCase(), periods: [...rows.children].map((row) => row.read()),
@@ -384,6 +384,7 @@
         electricity ? field(t("Export price"), el("span", { class: "tariff-cell with-unit" }, exportPrice, unit("kWh")), t("What a kWh sent back to the grid is paid, if it is.")) : null),
       el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
         el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
+        HomeswiftCommon.homeTimeNote(),
         el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
           ...[t("Name"), t("From"), t("To"), t("Days"), perUnit].map((text) => el("span", { text })), el("span")),
         rows, el("div", { class: "actions start" }, add)),
@@ -406,15 +407,26 @@
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
       historyDays: input("historyDays", { type: "number", min: 1, max: 90, step: 1, placeholder: "14" }),
       historyYears: input("historyYears", { type: "number", min: 1, max: 20, step: 1, placeholder: "10" }),
+      // Home Time: the host's zone unless one is named; the zones this browser knows.
+      timeZone: el("select", { name: "timeZone", "aria-label": t("Home Time") },
+        el("option", { value: "", text: t("The host's ({zone})", { zone: settings.hostTimeZone || "?" }) }),
+        [...new Set([...(Intl.supportedValuesOf?.("timeZone") ?? []), ...(bridge.timeZone ? [bridge.timeZone] : [])])].sort()
+          .map((zone) => el("option", { value: zone, text: zone.replaceAll("_", " ") }))),
+      // The Home Language: notifications on shared channels and the daily digest.
+      language: el("select", { name: "language", "aria-label": t("Home Language") },
+        HomeswiftI18n.languages.map((code) => el("option", { value: code, text: `${HomeswiftI18n.flags[code]} ${HomeswiftI18n.names[code]}` }))),
     };
+    fields.timeZone.value = bridge.timeZone ?? "";
+    fields.language.value = bridge.language ?? "en";
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
-    // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.
-    const shownPin = fields.pin.value;
+    // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it; so is the
+    // Home Language, so a bridge that names none keeps following its first account's until someone picks one.
+    const shownPin = fields.pin.value, shownLanguage = fields.language.value;
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : ["port", "historyDays", "historyYears"].includes(key) ? Number(value) : value];
-    }).filter(([key, value]) => key !== "pin" || value !== shownPin));
+    }).filter(([key, value]) => (key !== "pin" || value !== shownPin) && (key !== "language" || value !== shownLanguage)));
     const copied = el("span", { class: "visually-hidden", role: "status" });
     const copyIcon = HomeswiftCommon.icon("copy"), doneIcon = HomeswiftCommon.icon("check");
     copyIcon.classList.add("copy-icon");
@@ -485,7 +497,10 @@
       if (JSON.stringify(next) === initial) { message.className = "status-line muted"; message.textContent = t("Nothing changed."); return; }
       try { await checkPort(); }
       catch (error) { portStatus.className = "help error"; portStatus.textContent = error.message; fields.port.focus(); return; }
-      if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
+      // The Home Language alone applies at once; everything else in the block is the bridge's identity and restarts it.
+      const before = JSON.parse(initial);
+      const live = Object.keys({ ...before, ...next }).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(next[key])).every((key) => key === "language");
+      if (!live && !(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
         text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
           "pin" in next ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
@@ -511,7 +526,9 @@
           qr),
         field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision),
         field(t("History kept (days)"), fields.historyDays, t("Each change of every accessory, and the Logbook. 14 days when empty.")),
-        field(t("Hourly history kept (years)"), fields.historyYears, t("The hourly lowest, average and highest of numbers. 10 years when empty."))),
+        field(t("Hourly history kept (years)"), fields.historyYears, t("The hourly lowest, average and highest of numbers. 10 years when empty.")),
+        field(t("Home Time"), fields.timeZone, t("The home's time zone: Tariffs, Automations, the History and the log run on it. Empty uses the host's.")),
+        field(t("Home Language"), fields.language, t("For what has no one reader: notifications on ntfy, Pushover, Telegram and the webhook, and the daily digest."))),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
     portStatus.style.display = "block";
@@ -1340,14 +1357,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// returned below it; by hour over a day, by day beyond.
   async function consumptionCards(accessory, hours) {
     if (!accessory.consumption) return [];
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timeZone = HomeswiftI18n.timeZone;
     let found;
     try { found = await api(`/api/metrics/consumption?${new URLSearchParams({ accessory: accessory.id, hours, timeZone })}`); }
     catch (e) { return [el("p", { class: "error", text: e.message })]; }
     const hourly = found.step === "hour";
-    const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-    const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
-    const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+    const hourFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+    const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
+    const longFormat = HomeswiftI18n.dateTimeFormat(hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
     const dateOf = (text) => HomeswiftCommon.parseDay(text);
     return found.meters.map((meter) => {
       // Gas and water in m³ at their own Tariff; electricity in kWh at the grid's price.
@@ -1371,7 +1388,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const date = dateOf(bar.date);
         // Every third hour labelled, every day.
         const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
-        return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
+        return { label, narrow: String(hourly ? (index % 6 ? "" : HomeswiftI18n.zoned(date).hours) : HomeswiftI18n.zoned(date).day), title: longFormat.format(date), values: bar.hours ? bar : null };
       });
       HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? (utility ? 0.01 : 0.001) : 1, bars, hourly,
         // Gas in orange, as on its card; water and electricity in blue.

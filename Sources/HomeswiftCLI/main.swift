@@ -164,6 +164,11 @@ do {
     fail("\(configURL.path): \(error)")
 }
 
+// Home Time before anything keeps a calendar: the Tariffs, Cron, the archives and the log run on it.
+if let zone = configuration.bridge.timeZone, !zone.isEmpty, HomeTime.apply(zone) == nil {
+    logger.warning("bridge.timeZone \(zone) is not a time zone this system knows: the host's, \(HomeTime.host.identifier), is used")
+}
+
 if command == "mcp" || AssistantCommands.commands.contains(command) {
     // Top-level code runs on the main actor, so the command runs detached and the main thread serves Dispatch.
     let selectedCommand = command

@@ -286,7 +286,14 @@ const energyDemo = `(() => {
     const answer = (body) => Promise.resolve(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
     if (url.pathname === "/api/metrics/energy") return answer(report(Date.parse(url.searchParams.get("from")) || Date.now() - 864e5, Date.parse(url.searchParams.get("to")) || Date.now()));
     if (url.pathname === "/api/metrics/energy/history") return answer(history());
-    if (url.pathname === "/api/metrics/consumption") return answer(consumption());
+    if (url.pathname === "/api/metrics/consumption") {
+      // As the bridge answers: \`kind\` keeps one kind of Meter; \`hours\` (the Energy flow card's today) scales the week down.
+      const found = consumption(), kind = url.searchParams.get("kind"), hours = Number(url.searchParams.get("hours"));
+      found.meters = found.meters.filter((one) => !kind || (one.kind ?? "electricity") === kind);
+      if (hours > 0) found.meters = found.meters.map((one) => ({ ...one, consumption: Math.round(one.consumption * hours / (8 * 24) * 100) / 100,
+        returned: one.returned == null ? null : Math.round(one.returned * hours / (8 * 24) * 100) / 100 }));
+      return answer(found);
+    }
     return original(input, init);
   };
 })();`;
@@ -465,6 +472,13 @@ try {
   await shot("energy", "/status", { ready: '[data-widget="energy"] .chart-card svg', width: 1100, height: 900, element: '[data-widget="energy"]', before: energyDemo })
     .then(() => toStatus("energy"));
   // The gas and water cards under it.
+  await shot("energy-flow", "/status", { ready: '[data-widget="energy"] .energy-house img', width: 1100, height: 1100, element: '[data-widget="energy"] .energy-flow', before: energyDemo })
+    .then(() => toStatus("energy-flow"));
+  await shot("energy-flow-phone", "/status", { ready: '[data-widget="energy"] .energy-house img', width: 390, height: 844, mobile: true, element: '[data-widget="energy"] .energy-flow', before: energyDemo })
+    .then(() => toStatus("energy-flow-phone"));
+  // The Appearance page's House style choice, the two houses side by side.
+  await shot("house-style", "/appearance", { ready: ".house-style-card img", width: 1100, height: 900, element: ".house-style-card" })
+    .then(() => toUI("house-style"));
   await shot("energy-gas-water", "/status", { ready: '[data-widget="energy"] .energy-utilities .chart-card svg', width: 1100, height: 1400, element: '[data-widget="energy"] .energy-utilities', before: energyDemo })
     .then(() => toStatus("energy-gas-water"));
 } finally {

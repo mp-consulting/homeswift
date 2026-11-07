@@ -561,6 +561,9 @@ public struct HomeswiftCatalog: Sendable {
             "uptimeSeconds": .number(Date().timeIntervalSince(startedAt).rounded()),
             "configPath": .string(configURL.path),
             "restartNeeded": .bool(restartNeeded.withLockedValue { $0 }),
+            // Home Time, and whether it is the UTC a container runs in because nobody named the home's.
+            "homeTime": ["zone": .string(HomeTime.zone.identifier), "set": .bool(host.configuration.bridge.timeZone == HomeTime.zone.identifier),
+                         "universal": .bool(HomeTime.isUniversal(HomeTime.zone))],
             "bridges": .array(host.bridges.map { bridge in
                 let server = bridge.server
                 var entry: [String: JSONValue] = [

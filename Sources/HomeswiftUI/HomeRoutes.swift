@@ -212,7 +212,7 @@ extension UIServer {
         case (.GET, ["notifications", "push"]):
             return .json(["publicKey": .string(try catalog.webPushPublicKey()), "subscriptions": catalog.notificationSettingsJSON()["subscriptions"] ?? []])
         case (.POST, ["notifications", "push", "subscribe"]):
-            let subscription = try catalog.subscribeToPush(body, username: username)
+            let subscription = try catalog.subscribeToPush(body, username: username, language: language)
             logger.info("Web UI: a browser subscribed to notifications", metadata: ["user": "\(username)", "label": "\(subscription["label"]?.stringValue ?? "")"])
             return .json(subscription)
         case (.POST, ["notifications", "push", "unsubscribe"]):

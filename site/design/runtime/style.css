@@ -1587,21 +1587,84 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* The Energy section's days: one card the width of the row, its table under the head. */
 /* Today's figures above the charts: a small tile and the label on one row, the proportional figure the card's width
    under them, a note in muted ink. */
-.energy-today { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-14); margin-bottom: var(--space-14); }
-.energy-today .card { margin: 0; padding: var(--space-14) var(--space-16); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-8) var(--space-10); align-content: start; }
-.energy-today .card > div { display: contents; }
-.energy-today .tile { width: 30px; height: 30px; border-radius: var(--radius-sm); }
-.energy-today .tile svg { width: 17px; height: 17px; }
-.energy-today .card > div > span { font-size: var(--text-sm); color: var(--muted); }
-.energy-today b, .energy-today small { grid-column: 1 / -1; }
-.energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: var(--weight-figure); letter-spacing: -0.02em; white-space: nowrap; }
-.energy-today small { font-size: var(--text-xs); color: var(--muted); margin-top: -4px; }
 .energy .chart-head .who { flex: 1; min-width: 0; }
-/* A phone: two figures a row, tighter cards, smaller tiles, the range across the width. */
+/* The Energy flow card: the rendered house with its conduits and callouts, or the diagram. Both draw their lines in the
+   charts' series colours; a pulse or dots run along a line that carries power, faster for more, with reduced motion none. */
+.energy-flow-bar { display: flex; flex-wrap: wrap; gap: var(--space-8); justify-content: space-between; }
+.energy-flow-empty { margin: var(--space-16) 0; text-align: center; }
+.energy-flow .tone-1 { --flow: var(--series-1); }
+.energy-flow .tone-3 { --flow: var(--series-3); }
+.energy-flow .tone-4 { --flow: var(--series-4); }
+.energy-flow .tone-7 { --flow: var(--series-7); }
+.energy-house-lines { pointer-events: none; overflow: visible; }
+.energy-flow { container-type: inline-size; }
+.energy-house { position: relative; }
+.energy-house-scene { position: relative; width: 100%; aspect-ratio: 3 / 2; }
+.energy-house-scene > img, .energy-house-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+
+.energy-cable polyline { fill: none; stroke: var(--flow); stroke-linecap: round; stroke-linejoin: round; }
+.energy-cable .energy-cable-halo { opacity: 0; }
+.energy-cable-line { stroke-width: 2; opacity: 0.12; }
+/* A line carrying power glows, as a lit wire would: its colour, a soft light around it. */
+.energy-cable.on .energy-cable-halo { stroke: var(--flow); stroke-width: 22; opacity: 0.85; filter: blur(6px); }
+/* The halo already glows: the line itself needs no filter, which every pulse frame would otherwise repaint. */
+.energy-cable.on .energy-cable-line { stroke: color-mix(in srgb, var(--flow) 65%, white); stroke-width: 4.5; opacity: 1; }
+.energy-pulse { stroke: color-mix(in srgb, var(--flow) 35%, white); stroke-width: 6; stroke-dasharray: 7 93; animation: energy-pulse var(--duration, 2s) linear infinite; }
+.energy-pulse.back { animation-direction: reverse; }
+@keyframes energy-pulse { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+/* Each label on a soft backing of the card's own colour, so it reads over the lawn, the roof or the night. */
+.energy-callout { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: var(--space-8); row-gap: 2px; min-width: 0;
+  padding: var(--space-8) var(--space-10); border-radius: var(--radius-sm); background: var(--material-thin); }
+.energy-callout > b { grid-column: 2; font-size: var(--text-lg); font-weight: var(--weight-figure); line-height: 1.1; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.energy-callout-label { grid-column: 2; font-size: var(--text-xs); color: var(--muted); }
+.energy-callout > .energy-callout-icon { grid-column: 1; grid-row: 1 / span 2; width: 36px; height: 36px; border-radius: var(--radius-sm); }
+.energy-callout > .energy-callout-icon svg { width: var(--space-20); height: var(--space-20); }
+.energy-callout-icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-xs); color: var(--flow); background: color-mix(in srgb, var(--flow) 18%, var(--material-solid)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--flow) 35%, transparent); flex: none; }
+.energy-callout-icon svg { width: 14px; height: 14px; }
+@container (max-width: 420px) { .energy-callout-icon { width: 18px; height: 18px; } .energy-callout-icon svg { width: 12px; height: 12px; } }
+.energy-sky { position: absolute; left: 63%; top: 10%; width: 9%; min-width: 34px; max-width: 64px; translate: -50% -50%; }
+.energy-sky svg { display: block; width: 100%; height: auto; }
+.energy-sky .sun { fill: var(--series-4); }
+.energy-sky .ray { stroke: var(--series-4); stroke-width: 3; stroke-linecap: round; }
+.energy-sky .moon { fill: #f3e9c6; stroke: color-mix(in srgb, #c9b98a 70%, transparent); stroke-width: 1.5; }
+/* The appliances: today's biggest users, a tile each, its kWh and a bar of its use beside the biggest. */
+.energy-devices { display: grid; gap: var(--space-8); padding-top: var(--space-10); border-top: 1px solid var(--line); }
+.energy-devices-title { font-size: var(--text-sm); }
+.energy-devices ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--space-8); }
+.energy-devices li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px var(--space-8); padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius-sm); background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); }
+.energy-device-icon { grid-row: span 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-xs); color: var(--flow);
+  background: color-mix(in srgb, var(--flow) 16%, var(--material-solid)); }
+.energy-device-icon svg { width: 17px; height: 17px; }
+.energy-device-name { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.energy-devices li b { font-size: var(--text-base); font-weight: var(--weight-figure); }
+.energy-device-bar { grid-column: 1 / -1; height: 4px; border-radius: var(--radius-pill); background: linear-gradient(90deg, var(--series-1) var(--share), var(--line) var(--share)); }
+.energy-devices li small { grid-column: 1 / -1; font-size: var(--text-2xs); color: var(--muted); }
+/* The day's phases: a band of today, a colour where each source covered most of the home's use, a mark at now. */
+.energy-day { display: grid; gap: var(--space-6); padding-top: var(--space-10); border-top: 1px solid var(--line); }
+.energy-day-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-4) var(--space-12); font-size: var(--text-sm); }
+.energy-day-keys { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-12); color: var(--muted); font-size: var(--text-xs); }
+.energy-day-keys span { display: inline-flex; align-items: center; gap: var(--space-4); }
+.energy-day-keys b { color: var(--text); font-weight: var(--weight-semibold); }
+.energy-day-bar { position: relative; height: 14px; border-radius: var(--radius-pill); background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.energy-day-bar i { position: absolute; top: 0; bottom: 0; background: var(--flow); }
+.energy-day-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
+.energy-day-hours { display: flex; justify-content: space-between; font-size: var(--text-2xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.energy-diagram { display: block; width: 100%; max-width: 520px; margin: 0 auto; }
+.energy-line path { fill: none; stroke: var(--flow); stroke-width: 2; stroke-linecap: round; opacity: 0.28; }
+.energy-line.on path { stroke: color-mix(in srgb, var(--flow) 65%, white); stroke-width: 4; opacity: 1; }
+.energy-dot { fill: color-mix(in srgb, var(--flow) 35%, white); }
+.energy-node circle { fill: color-mix(in srgb, var(--flow) 16%, var(--material-solid)); stroke: var(--flow); stroke-width: 2; }
+.energy-node text { text-anchor: middle; dominant-baseline: central; fill: var(--text); font-size: 12px; font-weight: var(--weight-semibold); letter-spacing: -0.01em; }
+.energy-node text.small { font-size: 10.5px; font-weight: normal; fill: var(--flow); }
+.energy-node text.caption { fill: var(--muted); font-size: 12px; font-weight: normal; }
+.energy-node-icon { color: var(--flow); }
+.energy-ring { fill: none; stroke: var(--flow); stroke-width: 5; }
+@media (prefers-reduced-motion: reduce) { .energy-pulse { animation: none; stroke-dasharray: none; opacity: 0.6; } }
+
+/* A phone: tighter cards, smaller tiles, the range across the width. */
 @media (max-width: 640px) {
-  .energy-today { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-10); margin-bottom: var(--space-12); }
-  .energy-today .card { padding: var(--space-12) var(--space-14); }
-  .energy-today b { font-size: var(--text-3xl); }
   .energy .chart-grid { gap: var(--space-10); }
   .energy .chart-card { padding: var(--space-14); gap: var(--space-8); }
   .energy .chart-head { gap: var(--space-10); }
@@ -2863,6 +2926,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .wallpaper-remove::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .appearance { display: grid; gap: var(--space-16); }
 .appearance .group { margin-top: var(--space-10); flex-wrap: wrap; }
+/* Language & Region: a label, its choices and their help, one under the other. */
+.region-field { display: grid; justify-items: start; gap: var(--space-6); margin-top: var(--space-12); }
+.region-field .group { margin-top: 0; }
+.region-field .help { display: block; max-width: 60ch; }
 @media (max-width: 640px) {
   /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
      edge, so neither row is ragged; a button never shrinks below its text, it moves to the next row. */
@@ -2870,6 +2937,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
   .appearance .group button { flex: 1 1 5.5rem; padding: 7px var(--space-10); border-radius: var(--radius-md); }
   /* The save message under the cards stays clear of the floating menu button. */
   .appearance + .status-line { margin-inline-end: calc(70px + env(safe-area-inset-right)); }
+  /* Language & Region: the choices in even columns, a long one (a time zone) on two lines rather than past the edge. */
+  .region-field { justify-items: stretch; }
+  .region-field .group { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+  .region-field .group button { white-space: normal; text-align: start; justify-content: flex-start; min-width: 0; }
 }
 .link-card { display: flex; align-items: center; gap: var(--space-14); margin-top: var(--space-16); padding: var(--space-16) var(--space-18); color: var(--text); text-decoration: none; }
 .link-card svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -3864,7 +3935,21 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); background: var(--control); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 .status-footer > .link svg { width: 17px; height: 17px; }
-@media (max-width: 640px) { .status-footer { position: static; justify-content: flex-start; } }
+/* Icon only, a circle: its words stay its accessible name (its aria-label). */
+.status-footer > .link { justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 50%; }
+.status-footer > .link span { display: none; }
+.status-footer > .link svg { width: 19px; height: 19px; }
+/* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
+   size, within thumb reach; its words stay its accessible name. */
+@media (max-width: 640px) {
+  .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); margin: 0; }
+  body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (54px + var(--space-10))); }
+  .status-footer > .link { justify-content: center; width: 54px; height: 54px; min-width: 54px; min-height: 54px; padding: 0; border-radius: 50%; color: var(--text); box-shadow: var(--shadow-thick); }
+  .status-footer > .link span { display: none; }
+  .status-footer > .link svg { width: 23px; height: 23px; }
+  /* Room at the page's end, so its last card scrolls clear of the button. */
+  #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(54px + var(--space-10)); }
+}
 
 /* Homeswift: at the side menu's foot (a wide window), opening upward over it; in a phone's ☰ panel, under Account,
    opening in place. One quiet line, the health's dot and the version, a dot when an update waits. */
@@ -5240,3 +5325,122 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .editor-row .trigger-head { min-width: 0; }
 .editor-row .trigger-head > select { min-width: 0; max-width: 100%; }
 .trigger-enabled { gap: var(--space-8); }
+
+/* Account-wide house artwork: native radio choices with comparable previews. */
+.house-style-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--space-12); border: 0; padding: 0; margin: var(--space-16) 0 0; min-width: 0; }
+.house-style-choice { display: grid; align-content: start; gap: var(--space-8); padding: var(--space-8); border: 2px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); cursor: pointer; min-width: 0; }
+.house-style-choice:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--material-solid)); }
+.house-style-choice:focus-within { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+.house-style-choice img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: contain; border-radius: var(--radius-sm); background: var(--material-solid); }
+.house-style-name { display: flex; align-items: center; gap: var(--space-8); padding: 0 var(--space-4); }
+.house-style-name input { width: var(--space-18); height: var(--space-18); min-height: 0; padding: 0; margin: 0; box-shadow: none; accent-color: var(--accent-fill); flex: none; }
+.house-style-description { color: var(--muted); font-size: var(--text-sm); padding: 0 var(--space-4) var(--space-4); }
+.house-style-card .status-line:empty { display: none; }
+.house-style-choices:disabled { opacity: 0.65; }
+
+/* Contributions to the home's load, rather than total production or battery charging. */
+.energy-supply { display: grid; gap: var(--space-10); margin-top: var(--space-16); padding-top: var(--space-12); border-top: 1px solid var(--line); font-size: var(--text-sm); }
+.energy-supply-bar { display: flex; height: var(--space-8); overflow: hidden; border-radius: var(--radius-pill); background: var(--line); }
+.energy-supply-bar i { display: block; height: 100%; background: var(--flow); }
+.energy-supply-shares { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: var(--space-12); }
+.energy-supply-shares > div { display: grid; grid-template-columns: auto 1fr; gap: var(--space-4) var(--space-6); align-items: center; }
+.energy-supply-shares b { grid-column: 2; font-weight: var(--weight-figure); }
+.energy-supply-shares small { grid-column: 2; color: var(--muted); }
+
+/* Image-led house card, with a raised reading panel overlapping only the garden edge. */
+/* The picture reaches the card's edges: the card's side padding, as a variable, is what the story bleeds by. */
+.energy .chart-card.energy-flow { --flow-pad: var(--space-20); padding: 0 var(--flow-pad); border: 0; box-shadow: var(--shadow); }
+@media (max-width: 640px) { .energy .chart-card.energy-flow { --flow-pad: var(--space-14); } }
+.energy-house-story { margin: 0 calc(-1 * var(--flow-pad)); }
+.energy-house-story .energy-house img { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.energy-house-details { position: relative; margin-top: calc(-1 * var(--space-24)); padding: calc(var(--space-24) + var(--space-16)) var(--flow-pad) var(--space-20); border-radius: var(--radius); background: var(--material-solid); box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08); }
+.energy-house-badge { position: absolute; top: -22px; left: var(--flow-pad); display: grid; place-items: center; width: 44px; height: 44px; border: 5px solid var(--material-solid); border-radius: var(--radius-pill); background: var(--series-1); color: #fff; }
+.energy-house-badge svg { width: var(--space-20); height: var(--space-20); }
+.energy-house-readings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); }
+@container (max-width: 680px) { .energy-house-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 280px) { .energy-house-readings { grid-template-columns: minmax(0, 1fr); } }
+
+/* In House view the artwork is the card's first content, right against its top edge. */
+.energy-flow { margin-bottom: var(--space-16); }
+.energy-house-details { display: grid; gap: var(--space-16); }
+.energy-house-details .chart-head { margin: 0; }
+/* A wide window, with the menu down its left: the picture on the left, the details panel beside it on the right,
+   overlapping the picture's edge as it overlaps its foot otherwise; the readings two by two in the panel. The same
+   breakpoint as the menu's, so the card changes layout when the page does. */
+@media (min-width: 1180px) {
+  .energy-house-story { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); align-items: center; }
+  .energy-house-story .energy-house img, .energy-diagram-scene { border-radius: var(--radius-lg) 0 0 var(--radius-lg); }
+  .energy-house-details { align-self: stretch; align-content: center; margin: 0 0 0 calc(-1 * var(--space-24));
+    padding: var(--space-24) var(--flow-pad) var(--space-24) calc(var(--space-24) + var(--space-16)); box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08); }
+  .energy-house-badge { top: var(--space-24); left: -22px; }
+  .energy-house-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* The panel and its badge cover the picture's right edge: Now/Today goes to the diagram's other corner. */
+  .energy-diagram-period { right: auto; left: var(--space-12); }
+  /* The panel is narrow: the House/Diagram switch shows its icons alone, so it fits on the title's row. */
+  .energy-house-title-row { flex-wrap: nowrap; }
+  .energy-house-title-row .chart-head { flex: 1 1 auto; }
+  .energy-house-title-row .energy-flow-bar button { width: 40px; min-width: 40px; height: 32px; min-height: 32px; padding: 0; justify-content: center; }
+  .energy-house-title-row .energy-flow-bar button span { display: none; }
+}
+/* The details under the card slide down on demand: a grid row from 0fr to 1fr animates the height without measuring it. */
+.energy-more { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 260ms cubic-bezier(0.23, 1, 0.32, 1), opacity 200ms ease; }
+.energy-more.open { grid-template-rows: 1fr; opacity: 1; }
+.energy-more > div { min-height: 0; overflow: hidden; display: grid; gap: var(--space-14); }
+.energy-more.open > div { padding-top: var(--space-14); }
+.energy-more-toggle { justify-self: center; margin: var(--space-10) 0 var(--space-14); background: none; box-shadow: none; color: var(--muted); }
+.energy-more-toggle::before { transition: rotate 200ms cubic-bezier(0.23, 1, 0.32, 1); }
+.energy-more-toggle[aria-expanded="true"]::before { rotate: 180deg; }
+@media (prefers-reduced-motion: reduce) { .energy-more, .energy-more-toggle::before { transition: none; } }
+
+/* The title and the House/Diagram switch on one row, the switch at the right: the same in both views, so nothing jumps.
+   Now/Today belongs to the diagram and sits in its corner. On a narrow card the switch goes under the title. */
+.energy-house-title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-12); }
+.energy-house-title-row .chart-head { flex: 1 1 10rem; min-width: 0; }
+.energy-diagram-period { position: absolute; top: var(--space-12); right: var(--space-12); z-index: 1; }
+.energy-house-title-row .energy-flow-bar { flex: none; }
+}
+
+/* Photographic artwork reaches the edge without the glass frame used by the simple model. */
+.energy-flow:has(.energy-house.photo) { border: 0; background: none; box-shadow: var(--shadow); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* Both views occupy the same canvas and keep the heading/switch in the same lower panel. */
+.energy-diagram-scene { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--space-16) var(--space-12) calc(var(--space-24) + var(--space-24)); background: var(--material-thin); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.energy-diagram-scene .energy-diagram { width: 100%; height: 100%; min-height: 0; max-width: 560px; }
+/* Beside the title they sit at the right (the row spreads them); under it, at the left, in line with the title. */
+.energy-house-title-row .energy-flow-bar { display: flex; flex-wrap: wrap; gap: var(--space-8); justify-content: flex-start; }
+
+/* Tighten the simple illustration's empty left margin without separating its live wiring. */
+.energy-house.simple .energy-house-scene:has(> img) { overflow: hidden; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.energy-house.simple .energy-house-scene > img,
+.energy-house.simple .energy-house-scene > .energy-house-lines { transform: scale(1.08); transform-origin: right 55%; }
+
+/* Identical, evenly spaced solar modules in the live artwork and the Appearance thumbnails. */
+.house-style-artwork { position: relative; aspect-ratio: 3 / 2; }
+.energy-solar-panels { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.energy-house.simple .energy-house-scene > .energy-solar-panels { transform: scale(1.08); transform-origin: right 55%; }
+
+/* Photo marker editor: the whole image remains visible and tap coordinates match its bounds. */
+.house-photo-field { display: grid; gap: var(--space-6); margin-block: var(--space-16); min-width: 0; }
+.house-photo-field input, .house-photo-field textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.house-photo-editor { position: relative; margin-block: var(--space-20); cursor: crosshair; }
+.house-photo-editor > img { display: block; width: 100%; height: auto; border-radius: var(--radius-md); }
+.house-photo-marker { position: absolute; transform: translate(-50%, -50%); width: 40px; height: 40px; min-height: 40px; padding: var(--space-8); border-radius: 50%; border: 2px solid white; color: #132130; background: var(--series-1); box-shadow: 0 2px 12px #0007; }
+.house-photo-marker.marker-solar { background: var(--series-4); }
+.house-photo-marker.marker-battery { background: var(--series-3); }
+.house-photo-marker.marker-grid { background: var(--series-7); }
+.house-marker-choices, .house-photo-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.house-marker-choices [aria-pressed="true"] { outline: 2px solid var(--accent, #287fea); outline-offset: 2px; }
+.house-marker-choices .placed::after { content: "✓"; margin-left: var(--space-4); }
+.house-marker-positions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-20); }
+.house-photo-editor[hidden], .house-photo-marker[hidden] { display: none; }
+.custom-house-card { overflow: hidden; }
+.custom-house-card .house-photo-field textarea { min-height: 76px; height: 76px; resize: vertical; font: inherit; }
+
+.house-photo-editor > img { user-select: none; -webkit-user-drag: none; }
+.house-photo-marker { touch-action: none; user-select: none; cursor: grab; }
+.house-photo-marker.dragging { cursor: grabbing; }
+.house-photo-marker > svg { pointer-events: none; }
+.house-photo-marker:hover, .house-photo-marker:active { transform: translate(-50%, -50%); }
+.house-photo-editor .house-photo-marker,
+.house-photo-editor .house-photo-marker:hover,
+.house-photo-editor .house-photo-marker:active:not(:disabled) { transform: translate(-50%, -50%); transition: none; }

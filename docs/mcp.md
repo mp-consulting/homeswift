@@ -422,8 +422,9 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   accessory caches, the plugins' files, the web UI's users (docs/ui.md, Backups). They are downloaded and
   restored from the web UI.
 - **The bridge block.** `update_bridge_settings` changes config.json's `bridge` block (`name`, `port`, `pin`,
-  `manufacturer`, `model`, `firmwareRevision`; null removes one, an automatic port) and restarts homeswift to
-  apply it. The device ID is not one of them: a new one is a new bridge to the Home app.
+  `manufacturer`, `model`, `firmwareRevision`, `historyDays`, `historyYears`, `timeZone` (Home Time, an IANA zone),
+  `language` (the Home Language: `en`, `fr`, `es` or `pt`); null removes one, an automatic port) and restarts homeswift to
+  apply it, unless only `language` changed. The device ID is not one of them: a new one is a new bridge to the Home app.
 - **The audit log.** `get_audit_log` reads it back, newest first, filtered by `tool`, `client` (or the
   principal), `outcome` (`ok`, `failed`, `notConfirmed`) and `since`; the web UI's own changes are there too,
   as client `web UI`.

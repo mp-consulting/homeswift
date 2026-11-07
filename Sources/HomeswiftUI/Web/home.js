@@ -8,12 +8,11 @@
   let app = null;
 
   // Stable Sunday-based ids for storage, localized labels and display order for people.
-  const weekdayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", timeZone: "UTC" });
-  const weekdayFullFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", timeZone: "UTC" });
+  const weekdayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", timeZone: "UTC" });
+  const weekdayFullFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", timeZone: "UTC" });
   const weekdays = Array.from({ length: 7 }, (_, day) => weekdayFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
   const weekdayNames = Array.from({ length: 7 }, (_, day) => weekdayFullFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
-  const weekLocale = new Intl.Locale(HomeswiftI18n.locale);
-  const firstWeekday = (weekLocale.getWeekInfo?.() ?? weekLocale.weekInfo)?.firstDay ?? 1;
+  const firstWeekday = HomeswiftI18n.firstWeekday;
   const weekdayOrder = Array.from({ length: 7 }, (_, offset) => (firstWeekday + offset) % 7);
   const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
   const displayName = (accessory) => accessory.displayName || accessory.name;
@@ -773,8 +772,8 @@
 
   // ---- Scenes ----------------------------------------------------------------------------------------
 
-  const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" });
-  const dateTimeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+  const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit" });
+  const dateTimeFormat = HomeswiftI18n.dateTimeFormat({ dateStyle: "medium", timeStyle: "short" });
 
   function describeDays(days) {
     if (!days || !days.length || days.length === 7) return t("every day");
@@ -989,7 +988,7 @@
       const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
         value: value ?? characteristic.value ?? min, "aria-label": characteristicName(characteristic.type) });
       const output = el("output", { class: "scene-slider-value" });
-      const format = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+      const format = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { maximumFractionDigits: 0 });
       const paint = () => {
         const raw = Number(slider.value);
         const unit = characteristic.unit === "celsius" ? " °C" : characteristic.type === "Hue" ? "°" : characteristic.unit === "percentage" || ["Brightness", "Saturation", "Rotation Speed", "Target Position", "Volume"].includes(characteristic.type) ? " %" : "";
@@ -1110,7 +1109,7 @@
     const sun = ["sunrise", "sunset"].includes(value);
     const kind = el("select", { "aria-label": t("When") }, el("option", { value: "time", text: t("At") }), el("option", { value: "sunrise", text: t("Sunrise") }), el("option", { value: "sunset", text: t("Sunset") }));
     kind.value = sun ? value : "time";
-    const time = el("input", { type: "time", value: sun ? "00:00" : value || "18:00", "aria-label": t("Time") });
+    const time = el("input", { type: "time", value: sun ? "00:00" : value || "18:00", "aria-label": t("Time"), title: HomeswiftCommon.homeTimeTitle() });
     time.classList.toggle("hidden", sun);
     kind.addEventListener("change", () => time.classList.toggle("hidden", kind.value !== "time"));
     const node = el("span", { class: "group-inline" }, kind, time);
@@ -1137,7 +1136,7 @@
       el("label", { class: "toggle compact trigger-enabled" }, el("span", { class: "switch" }, enabled, el("span")), el("span", { text: t("Enabled") }))), body);
     const draw = (shown) => {
       if (shown.type === "time") {
-        const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
+        const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time"), title: HomeswiftCommon.homeTimeTitle() });
         const days = daysPicker(shown.days);
         body.replaceChildren(at, days);
         row.readBody = () => ({ at: at.value, days: days.read() });
@@ -1648,7 +1647,7 @@
         el("span", { class: "switch" }, box, el("span")));
 
     });
-    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
+    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
     // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
     const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
     const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
@@ -1675,7 +1674,7 @@
           el("h2", { text: t("Events") }),
           el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
           el("div", { class: "notification-event-list" }, events),
-          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
+          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime, HomeswiftCommon.homeTimeNoteText())),
           el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
             t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
           el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),

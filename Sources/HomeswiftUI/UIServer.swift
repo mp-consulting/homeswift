@@ -107,6 +107,9 @@ public final class UIServer: Sendable {
         chat = AssistantChat(catalog: catalog, storeURL: usersURL.deletingLastPathComponent().appendingPathComponent("ui-chats.json"), logger: options.logger)
         directory = usersURL.deletingLastPathComponent()
         preferences = PreferencesStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-preferences.json"))
+        // A browser's notifications in the Language its user chose.
+        let chosen = preferences
+        catalog.setUserLanguages { user in chosen.language(for: user) }
         auditLog = catalog.auditLog()
         layout = catalog.home.wall
     }
@@ -595,6 +598,10 @@ public final class UIServer: Sendable {
             }
             throttle.succeeded(request.remote)
             logger.info("Web UI account created", metadata: ["username": "\(username)"])
+            // The first account's language becomes the Home Language, unless config.json names one.
+            let language = Self.language(request).map(HomeLanguage.resolve)
+            let catalog = catalog
+            Task { await catalog.adoptHomeLanguage(language) }
             return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username), secure: request.secure)])
         case (.POST, "login"):
             if let refused = refuseCrossSite(request) { return refused }
@@ -860,7 +867,20 @@ public final class UIServer: Sendable {
                 let from = request.query["from"].flatMap(Self.date(iso:)) ?? to.addingTimeInterval(-3600)
                 guard from < to else { return .error(400, "from must be before to") }
                 let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
-                return .json(Self.energyJSON(metrics.energy(from: from, to: to, timeZone: timeZone), timeZone: timeZone))
+                var report = Self.energyJSON(metrics.energy(from: from, to: to, timeZone: timeZone), timeZone: timeZone)
+                // With a Location, the sunrise and sunset of `to`'s day, so the Energy flow card's house turns to night
+                // after sunset: the times only, never where the home is.
+                if let location = catalog.host.configuration.location, var object = report.objectValue {
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = timeZone
+                    let at = { (event: Solar.Event) -> JSONValue in
+                        Solar.onLocalDay(event, of: to, latitude: location.latitude, longitude: location.longitude, calendar: calendar)
+                            .map { .string(Timestamp.iso8601($0)) } ?? .null
+                    }
+                    object["sun"] = ["sunrise": at(.sunrise), "sunset": at(.sunset)]
+                    report = .object(object)
+                }
+                return .json(report)
             case ["metrics"]:
                 // `from` and `to` (now when left out) as ISO 8601, the last hour without them; `bridge` (a device ID,
                 // or `all`) or `accessory`: whose request and handler durations. Memory and CPU are the process's.
@@ -1498,6 +1518,7 @@ public final class UIServer: Sendable {
                 ["date": .string(day.string(from: one.start)), "minutes": .number(Double(one.minutes)),
                  "solar": kWh(one.solar), "home": kWh(one.home), "gridImport": kWh(one.gridImport), "gridExport": kWh(one.gridExport),
                  "batteryCharge": kWh(one.batteryCharge), "batteryDischarge": kWh(one.batteryDischarge), "homeFromSolar": kWh(one.homeFromSolar),
+                 "homeFromGrid": kWh(one.homeFromGrid), "homeFromBattery": kWh(one.homeFromBattery),
                  "solarShare": one.solarShare.map { .number(($0 * 1000).rounded() / 1000) } ?? .null]
             }),
         ]

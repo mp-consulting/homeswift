@@ -80,6 +80,10 @@ public struct EnergyDay: Sendable, Equatable {
     public var batteryDischarge = 0.0
     /// The part of `home` solar covered as it was produced: each minute, the lesser of the two.
     public var homeFromSolar = 0.0
+    /// The rest of `home` split as the long-term archive splits it (`EnergyPeriod`): the grid's import first, the
+    /// batteries the remainder; each minute.
+    public var homeFromGrid = 0.0
+    public var homeFromBattery = 0.0
 
     public init(start: Date) { self.start = start }
 
@@ -100,6 +104,13 @@ public struct EnergyDay: Sendable, Equatable {
             if battery > 0 { batteryCharge += battery * hours * kilo } else { batteryDischarge += -battery * hours * kilo }
         }
         if let solar = watts[.solar], let home = watts[.home] { homeFromSolar += max(0, min(solar, home)) * hours * kilo }
+        // Only with the grid's reading, as the archive splits: without it the rest is not split.
+        if let home = watts[.home], let imported = watts[.grid] {
+            let rest = max(0, max(0, home) - max(0, min(watts[.solar] ?? 0, home)))
+            let grid = min(max(0, imported), rest)
+            homeFromGrid += grid * hours * kilo
+            if watts[.battery] != nil { homeFromBattery += (rest - grid) * hours * kilo }
+        }
     }
 }
 

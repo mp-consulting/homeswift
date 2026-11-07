@@ -1,20 +1,37 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftPlugin
 import NIOConcurrencyHelpers
 
-/// Each user's choices for the pages: the appearance (`theme`, `wallpaper`, `temperatureUnit`, `language`) and the Status
+/// Each user's choices for the pages (Preferences, GLOSSARY.md): the appearance (`theme`, `wallpaper`, `temperatureUnit`), the
+/// Language (`language`), the Regional Formats (`timeFormat`, `dateFormat`, `numberFormat`, `firstWeekday`) and whether
+/// times show in Home Time or the device's (`timeZone`), and the Status
 /// page's widgets (`dashboard`: their `order` and those `hidden`). Kept in `ui-preferences.json` next to
 /// config.json, owner-only, so they follow the user from one browser to the next; their own wallpapers are images
 /// under `ui-wallpapers/<user>/`, `wallpaperImages` lists them and `wallpaperImage` is the one shown. Glass UI keeps its theme and units in config.json and its dashboard layout in
 /// `.uix-dashboard.json`, for everyone; here each user has their own.
 final class PreferencesStore: Sendable {
+    static let energyHouseStyles: Set<String> = ["simple", "realistic", "beach", "cabin", "apartment", "snow", "christmas", "halloween", "custom"]
     static let themes: Set<String> = ["auto", "light", "dark"]
     /// The backdrops the stylesheet draws (`[data-wallpaper]`), and `custom`, the user's own image.
     static let wallpapers: Set<String> = ["none", "aurora", "sunset", "ocean", "forest", "graphite", "silk", "prism", "ribbon", "lagoon", "ember", "midnight", "custom"]
     static let temperatureUnits: Set<String> = ["c", "f"]
     /// The pages' language (i18n.js): the browser's, or one of the UI's four.
-    static let languages: Set<String> = ["auto", "en", "fr", "es", "pt"]
+    static let languages = Set(["auto"] + HomeLanguage.all)
+    /// The Regional Formats (i18n.js): "auto" follows the Language and the browser's region.
+    static let timeFormats: Set<String> = ["auto", "12", "24"]
+    static let dateFormats: Set<String> = ["auto", "dmy", "mdy", "ymd"]
+    /// 1,234.5, 1.234,5 and 1 234,5.
+    static let numberFormats: Set<String> = ["auto", "point", "comma", "space"]
+    static let firstWeekdays: Set<String> = ["auto", "mon", "sat", "sun"]
+    /// Timestamps in Home Time, or in the device's own time zone. Rules (Tariffs, schedules) stay in Home Time.
+    static let timeZones: Set<String> = ["home", "device"]
+    /// The preferences that are one of a few words.
+    static let choices: [String: Set<String>] = [
+        "theme": themes, "wallpaper": wallpapers, "temperatureUnit": temperatureUnits, "language": languages,
+        "timeFormat": timeFormats, "dateFormat": dateFormats, "numberFormat": numberFormats, "firstWeekday": firstWeekdays, "timeZone": timeZones,
+    ]
     /// An uploaded wallpaper, after the page has scaled it down.
     static let maximumWallpaperBytes = 2_500_000
     /// How many images of their own a user keeps.
@@ -33,8 +50,12 @@ final class PreferencesStore: Sendable {
 
     /// The user's choices, with the defaults for what they never chose.
     func preferences(for user: String) -> JSONValue {
-        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto", "dashboard": ["order": [], "hidden": []]]
+        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto",
+                                              "timeFormat": "auto", "dateFormat": "auto", "numberFormat": "auto", "firstWeekday": "auto", "timeZone": "home",
+                                              "energyHouseStyle": "realistic", "dashboard": ["order": [], "hidden": []]]
         for (key, value) in state.withLockedValue({ $0[user]?.objectValue ?? [:] }) { object[key] = value }
+        // Not a choice: the zone "home" means, which the pages format times in.
+        object["homeTimeZone"] = .string(HomeTime.zone.identifier)
         let images = wallpaperIDs(for: user)
         object["wallpaperImages"] = .array(images.map(JSONValue.string))
         // Chosen before there could be several: the image kept then.
@@ -44,6 +65,11 @@ final class PreferencesStore: Sendable {
         return .object(object)
     }
 
+    /// The Language the user chose; nil for automatic (the browser's). Reads only the kept choices: no wallpapers.
+    func language(for user: String) -> String? {
+        state.withLockedValue { $0[user]?["language"]?.stringValue }.flatMap { $0 == "auto" ? nil : $0 }
+    }
+
     /// Changes the keys `change` has, after checking them; answers all of the user's choices.
     @discardableResult
     func update(_ user: String, with change: JSONValue) throws -> JSONValue {
@@ -51,10 +77,11 @@ final class PreferencesStore: Sendable {
         var accepted: [String: JSONValue] = [:]
         for (key, value) in fields {
             switch key {
-            case "theme": accepted[key] = try Self.choice(value, in: Self.themes, key)
-            case "wallpaper": accepted[key] = try Self.choice(value, in: Self.wallpapers, key)
-            case "temperatureUnit": accepted[key] = try Self.choice(value, in: Self.temperatureUnits, key)
-            case "language": accepted[key] = try Self.choice(value, in: Self.languages, key)
+            // The house style is a choice too, but a photo of one's own must be there before it is chosen.
+            case "energyHouseStyle":
+                if value == "custom", preferences(for: user)["customHouse"] == nil { throw PreferencesError("upload your house photo first") }
+                accepted[key] = try Self.choice(value, in: Self.energyHouseStyles, key)
+            case _ where Self.choices[key] != nil: accepted[key] = try Self.choice(value, in: Self.choices[key] ?? [], key)
             case "dashboard": accepted[key] = try Self.dashboard(value)
             // The Assistant chat's model, one of the provider's; null goes back to the block's.
             case "assistantModel":
@@ -81,6 +108,7 @@ final class PreferencesStore: Sendable {
     /// Forgets a removed user's choices and wallpaper: a new account by the same name starts with the defaults.
     func forget(user: String) {
         try? FileManager.default.removeItem(at: wallpaperFolder(for: user))
+        try? FileManager.default.removeItem(at: houseFolder(for: user))
         try? save { $0[user] = nil }
     }
 
@@ -91,6 +119,73 @@ final class PreferencesStore: Sendable {
             try OwnerOnlyFile.write(JSONValue.object(next).encoded(pretty: true), to: url)
             all = next
         }
+    }
+
+    // MARK: The user's house photo and normalized equipment positions
+
+    private func houseFolder(for user: String) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent("ui-houses")
+            .appendingPathComponent(Data(user.utf8).map { String(format: "%02x", $0) }.joined())
+    }
+
+    func housePhoto(for user: String, version: String) -> (data: Data, type: String)? {
+        guard preferences(for: user)["customHouse"]?["version"]?.stringValue == version,
+              Self.isID(version), let data = try? Data(contentsOf: houseFolder(for: user).appendingPathComponent(version)),
+              let type = Self.imageType(data) else { return nil }
+        return (data, type)
+    }
+
+    func saveHouse(_ body: JSONValue, for user: String) throws -> JSONValue {
+        guard let name = body["name"]?.stringValue, name.count <= 80,
+              let description = body["description"]?.stringValue, description.count <= 500,
+              let width = body["width"]?.intValue, let height = body["height"]?.intValue,
+              (1...8192).contains(width), (1...8192).contains(height) else { throw PreferencesError("invalid house details or image dimensions") }
+        var markers: [String: JSONValue] = [:]
+        for role in ["solar", "battery", "grid", "home"] {
+            guard let point = body["markers"]?[role]?.arrayValue, point.count == 2,
+                  point.allSatisfy({ if let n = $0.doubleValue { return n.isFinite && (0...1).contains(n) }; return false }) else {
+                throw PreferencesError("place each equipment marker inside the photo")
+            }
+            markers[role] = .array(point)
+        }
+        let previous = preferences(for: user)["customHouse"]?["version"]?.stringValue
+        var version = previous
+        if let text = body["data"]?.stringValue {
+            guard let data = Data(base64Encoded: text), data.count <= Self.maximumWallpaperBytes,
+                  Self.imageType(data) != nil else { throw PreferencesError("choose a JPEG, PNG or WebP image under 2.5 MB") }
+            version = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16).description
+            try OwnerOnlyFile.write(data, to: houseFolder(for: user).appendingPathComponent(version!))
+        }
+        guard let version, housePhotoExists(user, version) else { throw PreferencesError("upload your house photo first") }
+        do {
+            try save { all in
+                var object = all[user]?.objectValue ?? [:]
+                object["energyHouseStyle"] = "custom"
+                object["customHouse"] = .object(["name": .string(name), "description": .string(description),
+                    "width": .number(Double(width)), "height": .number(Double(height)), "markers": .object(markers), "version": .string(version)])
+                all[user] = .object(object)
+            }
+        } catch {
+            if version != previous { try? FileManager.default.removeItem(at: houseFolder(for: user).appendingPathComponent(version)) }
+            throw error
+        }
+        if let previous, previous != version { try? FileManager.default.removeItem(at: houseFolder(for: user).appendingPathComponent(previous)) }
+        return preferences(for: user)
+    }
+
+    private func housePhotoExists(_ user: String, _ version: String) -> Bool {
+        Self.isID(version) && FileManager.default.fileExists(atPath: houseFolder(for: user).appendingPathComponent(version).path)
+    }
+
+    func removeHouse(for user: String) throws -> JSONValue {
+        try save { all in
+            var object = all[user]?.objectValue ?? [:]
+            object.removeValue(forKey: "customHouse")
+            if object["energyHouseStyle"] == "custom" { object["energyHouseStyle"] = "realistic" }
+            all[user] = .object(object)
+        }
+        try? FileManager.default.removeItem(at: houseFolder(for: user))
+        return preferences(for: user)
     }
 
     // MARK: The user's own wallpapers
@@ -223,6 +318,13 @@ extension UIServer {
                 return .json(preferences.preferences(for: username))
             case (.PUT, []):
                 return .json(try preferences.update(username, with: body))
+            case (.PUT, ["house"]):
+                return .json(try preferences.saveHouse(body, for: username))
+            case (.DELETE, ["house"]):
+                return .json(try preferences.removeHouse(for: username))
+            case (.GET, _) where route.count == 2 && route[0] == "house":
+                guard let image = preferences.housePhoto(for: username, version: route[1]) else { return .error(404, "no house photo of your own") }
+                return .data(status: 200, contentType: image.type, body: image.data, headers: ["Cache-Control": "private, no-store"])
             case (.GET, _) where route.first == "wallpaper" && route.count <= 2:
                 guard let image = preferences.wallpaper(for: username, id: route.count == 2 ? route[1] : nil) else { return .error(404, "no wallpaper of your own") }
                 // Its address changes with the image (?v=), so the browser may keep it.

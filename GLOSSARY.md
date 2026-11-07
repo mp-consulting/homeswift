@@ -13,6 +13,31 @@ _Avoid_: Global settings, server settings
 A Bridge Setting: where the home is, for the times of the sun and the weather.
 _Avoid_: Coordinates, position, scene location
 
+**Home Time**:
+A Bridge Setting: the time zone the home is in, the host's unless a person sets one. Tariffs, energy by the hour,
+Automations and the log all run on it, and their times are always written in it; other timestamps on the pages show
+in it too unless a person chooses their device's own.
+_Avoid_: Server time, local time, bridge timezone
+
+**Home Language**:
+A Bridge Setting: the language for what the bridge writes with no one reader, such as notifications on shared
+channels and the daily digest. Someone who is known to be reading gets their own Language instead.
+_Avoid_: Default language, server language, system locale
+
+**Preferences**:
+What one person chooses for how the pages look to them, the same on all their devices: theme, wallpaper,
+temperature unit, Language and Regional Formats. They change nothing for anyone else.
+_Avoid_: Profile, user settings
+
+**Language**:
+A Preference: the language a person reads the pages, the Assistant's answers and their own notifications in.
+_Avoid_: Locale, localization
+
+**Regional Formats**:
+A Preference: how a person's dates, times, numbers and weeks are written (12- or 24-hour, day/month order,
+decimal separator, first day of the week). Each follows the Language and the device's region unless the person picks one.
+_Avoid_: Locale, localization, number format settings
+
 **Plugin Settings**:
 What a person sets for one plugin instance as a whole, such as a host or a polling interval. Its account's
 credentials are not Plugin Settings: they come from Authorization, and change only by setting it up again.

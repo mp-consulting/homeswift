@@ -225,7 +225,7 @@ extension HomeswiftCatalog {
 
     /// The keys of config.json's `bridge` block a form may change. `username`, the HomeKit identity, is not one:
     /// a new one is a new bridge to the Home app.
-    public static let bridgeSettingKeys = ["name", "port", "pin", "manufacturer", "model", "firmwareRevision", "historyDays", "historyYears"]
+    public static let bridgeSettingKeys = ["name", "port", "pin", "manufacturer", "model", "firmwareRevision", "historyDays", "historyYears", "timeZone", "language"]
 
     /// The bridge block as config.json has it, with what runs: the port the server listens on and how it advertises.
     public func bridgeSettingsJSON() throws -> JSONValue {
@@ -242,6 +242,9 @@ extension HomeswiftCatalog {
         return [
             "bridge": bridge, "deviceId": .string(host.mainBridge.server.deviceID), "listeningPort": host.mainBridge.server.port.map { .number(Double($0)) } ?? .null,
             "advertiser": .string(advertiser), "addresses": .array(addresses),
+            // Home Time as it runs (a change applies at the restart), and the host's own zone, which an empty setting keeps.
+            "timeZone": .string(HomeTime.zone.identifier), "hostTimeZone": .string(HomeTime.host.identifier),
+            "language": .string(host.configuration.homeLanguage ?? "en"),
         ]
     }
 
@@ -258,10 +261,27 @@ extension HomeswiftCatalog {
                 throw CatalogError("\(key) must be a whole number from \(range.lowerBound) to \(range.upperBound), or null for the default")
             }
         }
+        if let zone = settings["timeZone"], !zone.isNull, zone.stringValue?.isEmpty != true {
+            guard let identifier = zone.stringValue, HomeTime.isValid(identifier) else { throw CatalogError("timeZone must be an IANA time zone, such as Europe/Paris, or null for the host's") }
+        }
+        if let language = settings["language"], !language.isNull, language.stringValue?.isEmpty != true {
+            guard let code = language.stringValue, HomeLanguage.all.contains(code) else { throw CatalogError("language must be one of \(HomeLanguage.all.joined(separator: ", ")), or null for English") }
+        }
         return try await updateBridgeBlock(dryRun: dryRun) { bridge in
             for (key, value) in settings {
                 if value.isNull || value.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == true { bridge.removeValue(forKey: key) } else { bridge[key] = value }
             }
+        }
+    }
+
+    /// The Home Language from the first account's language (its page's), when config.json names none: a new bridge
+    /// writes in the language of whoever set it up. No restart and no backup: it is a live Bridge Setting.
+    public func adoptHomeLanguage(_ language: String?) async {
+        guard host.configuration.homeLanguage == nil, let language, HomeLanguage.all.contains(language) else { return }
+        do {
+            _ = try await updateBridgeBlock(dryRun: false, backup: false) { bridge in bridge["language"] = .string(language) }
+        } catch {
+            logger.warning("Could not set the Home Language: \(error)")
         }
     }
 
@@ -318,13 +338,16 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "update_bridge_settings", title: "Change the bridge settings",
                 description: "Changes config.json's bridge block: name, port (null for an automatic one), pin (the setup code, XXX-XX-XXX), manufacturer, model, firmwareRevision, "
-                    + "historyDays (how long the History keeps each change and the Logbook its entries, 1 to 90, 14 by default) and historyYears (the History's hourly figures, 1 to 20, 10 by default). "
-                    + "The device ID stays. homeswift restarts to apply it; every connection drops for a few seconds. dryRun previews.",
+                    + "historyDays (how long the History keeps each change and the Logbook its entries, 1 to 90, 14 by default), historyYears (the History's hourly figures, 1 to 20, 10 by default), "
+                    + "timeZone (Home Time: the home's IANA time zone, such as Europe/Paris, which Tariffs, Automations, the History and the log run on; null for the host's) "
+                    + "and language (the Home Language, en, fr, es or pt: notifications on shared channels and the daily digest; null for English). "
+                    + "The device ID stays. homeswift restarts to apply it (a change of language alone does not); every connection drops for a few seconds. dryRun previews.",
                 inputSchema: ["type": "object", "required": ["settings"], "properties": [
                     "settings": ["type": "object", "additionalProperties": false, "properties": [
                         "name": ["type": "string", "minLength": 1], "port": ["type": ["integer", "null"], "minimum": 1, "maximum": 65535],
                         "pin": ["type": "string", "pattern": "^\\d{3}-\\d{2}-\\d{3}$"], "manufacturer": ["type": "string"], "model": ["type": "string"], "firmwareRevision": ["type": "string"],
                         "historyDays": ["type": ["integer", "null"], "minimum": 1, "maximum": 90], "historyYears": ["type": ["integer", "null"], "minimum": 1, "maximum": 20],
+                        "timeZone": ["type": ["string", "null"], "maxLength": 64], "language": ["type": ["string", "null"], "enum": .array(HomeLanguage.all.map(JSONValue.string) + [.null])],
                     ]],
                 ]],
                 scope: .admin, destructive: true, supportsDryRun: true

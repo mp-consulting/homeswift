@@ -131,6 +131,10 @@ HomeswiftUI, JSON, MCP, OAuth, plugins' and brands' names, units.
 | template (scene) | modèle | plantilla | modelo |
 | room | pièce | habitación | divisão |
 | the Home app | l'app Maison | la app Casa | a app Casa |
+| Home Time (the home's time zone) | heure de la maison | hora de la casa | hora da casa |
+| Home Language | langue de la maison | idioma de la casa | idioma da casa |
+| Language & Region | Langue et région | Idioma y región | Idioma e região |
+| time zone | fuseau horaire | zona horaria | fuso horário |
 | Status | État | Estado | Estado |
 | Accessories | Accessoires | Accesorios | Acessórios |
 | Scenes | Scènes | Escenas | Cenas |

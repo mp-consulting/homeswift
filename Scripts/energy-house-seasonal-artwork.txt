@@ -1,0 +1,42 @@
+Seasonal house artwork
+
+Created with the built-in image generation tool, then encoded as WebP. Uniform solar panels and animated wiring are rendered by the application.
+
+Repository: /Users/powermike/Documents/Dev.nosync/homeswift
+Assets: Sources/HomeswiftUI/Web/energy-house-{snow,christmas,halloween}{,-night,-no-battery,-no-battery-night}.webp
+
+snow Prompt
+Create an IN THE SNOW winter variant of this energy dashboard house. Exact 1536x1024 landscape photorealistic architectural cutaway. Preserve camera, framing, two-storey open front, all rooms, floors, inverter left, tall battery below, electrical board right, utility pole and neutral conduits at IDENTICAL pixel positions. Quiet snowy garden and trees, fresh snow on ground and roof edges, crisp pale winter daytime sky, warm inviting interiors with cozy throws. Keep the full photovoltaic panel array snow-free and evenly spaced. No holiday decorations, no people, no glowing electrical wires, no text, no watermark. Equipment and indoor rooms remain visible and unoccluded. Real full-size home.
+
+snow NightPrompt
+Precise night lighting edit of this Snow house dashboard asset. Preserve exact 1536x1024 dimensions, composition, every room, device, solar panel, conduit and all geometry at identical pixel positions. Change only outdoor lighting to deep blue winter night with cool moonlit snow and softly glowing warm 2700K interiors. Solar panels remain visible and snow-free. No additional objects, no glowing energy wires, no text, no cropping.
+
+snow NoBatteryPrompt
+Precise object removal for Snow house dashboard. Remove ONLY tall white floor-standing battery at x215-286,y718-856 in this 1536x1024 image and short conduit leading upward to inverter. Fill with matching plaster wall and snowy ground. Keep smaller inverter above, all other neutral conduits, exact geometry, furniture, snow, daylight, dimensions and composition unchanged. No glowing wires, no text, no crop.
+
+snow NightNoBatteryPrompt
+Precise object removal for Snow house NIGHT dashboard. Remove ONLY tall white floor-standing battery at x215-286,y718-856 in this 1536x1024 image and short conduit leading upward to inverter. Fill with matching plaster wall and snowy ground in moonlight. Keep smaller inverter above, all other neutral conduits, exact geometry, furniture, snow, night lighting, dimensions and composition unchanged. No glowing energy wires, no text, no crop.
+
+christmas Prompt
+Create a CHRISTMAS variant of this energy dashboard house. Exact 1536x1024 landscape photorealistic architectural cutaway. Preserve camera, framing, two-storey open front, all floor edges, inverter left, tall battery below, electrical board right, utility pole and neutral conduits at IDENTICAL pixel positions. Tasteful Christmas decor: warm white fairy lights along roof eaves, green garland and wreath, decorated Christmas tree visible in downstairs living room, red and cream cushions, snowy winter garden with soft daylight. Preserve a completely visible snow-free evenly spaced solar array. Keep devices and wiring routes unoccluded. Cozy realistic rooms, elegant decorations, no cartoon characters, no people, no text or watermark, no glowing electrical energy wires (decorative fairy lights allowed). Real full-size house.
+
+christmas NightPrompt
+Precise night lighting edit of this Christmas house dashboard asset. Preserve exact 1536x1024 dimensions, composition, every room, festive decoration, device, solar panel, conduit and all geometry at identical pixel positions. Change only outdoor lighting to deep blue winter night with moonlit snow, warmly glowing fairy lights, Christmas tree and inviting 2700K interiors. Solar panels remain snow-free. No new objects, no glowing electrical energy wires, no text, no cropping.
+
+christmas NoBatteryPrompt
+Precise object removal for Christmas house dashboard. Remove ONLY tall white floor-standing battery at x215-286,y718-856 in this 1536x1024 image and short conduit leading upward to inverter. Fill with matching plaster wall and ground. Keep smaller inverter above, all other neutral conduits, exact geometry, furniture, decorations, snow, daylight, dimensions and composition unchanged. No glowing energy wires, no text, no crop.
+
+christmas NightNoBatteryPrompt
+Precise object removal for Christmas house NIGHT dashboard. Remove ONLY tall white floor-standing battery at x215-286,y718-856 in this 1536x1024 image and short conduit leading upward to inverter. Fill with matching plaster wall and ground in night light. Keep smaller inverter above, all other neutral conduits, exact geometry, furniture, Christmas decorations and lights, snow, night lighting, dimensions and composition unchanged. No glowing energy wires, no text, no crop.
+
+halloween Prompt
+Create a HALLOWEEN variant of this energy dashboard house. Exact 1536x1024 landscape photorealistic architectural cutaway. Preserve camera, framing, two-storey open front, all rooms and floor edges, inverter left, tall battery below, electrical board right, utility pole and neutral conduits at IDENTICAL pixel positions. Tasteful cozy autumn Halloween scene: orange and amber trees, fallen leaves, pumpkins and a few carved jack-o-lanterns near the garden path, subtle autumn wreath and small seasonal decorations indoors. Warm late afternoon daylight, detailed lived-in rooms. Evenly spaced rooftop solar array fully visible. Equipment and wiring paths remain clear. No people, no monsters, no gore, no text, no watermark, no glowing electrical energy wiring. Photorealistic real full-size home, not miniature.
+
+halloween NightPrompt
+Precise night lighting edit of this Halloween house dashboard asset. Preserve exact 1536x1024 dimensions, composition, every room, pumpkin, decoration, device, solar panel, conduit and all geometry at identical pixel positions. Change only outdoor lighting to autumn night: deep indigo sky, dim moonlit foliage, amber glowing jack-o-lanterns and cozy warm 2700K interiors. Solar panels remain visible. No new objects, no glowing electrical energy wires, no text, no cropping.
+
+halloween NoBatteryPrompt
+Precise object removal for Halloween house dashboard. Remove ONLY tall white floor-standing battery at x215-286,y718-856 in this 1536x1024 image and short conduit leading upward to inverter. Fill with matching plaster wall and ground. Keep smaller inverter above, all other neutral conduits, exact geometry, furniture, pumpkins and decorations, autumn trees, daylight, dimensions and composition unchanged. No glowing energy wires, no text, no crop.
+
+halloween NightNoBatteryPrompt
+Precise object removal for Halloween house NIGHT dashboard. Remove ONLY tall white floor-standing battery at x215-286,y718-856 in this 1536x1024 image and short conduit leading upward to inverter. Fill with matching plaster wall and ground in night light. Keep smaller inverter above, all other neutral conduits, exact geometry, furniture, glowing pumpkins, decorations, autumn trees, night lighting, dimensions and composition unchanged. No glowing energy wires, no text, no crop.

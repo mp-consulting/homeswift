@@ -17,7 +17,7 @@
   /// A number as charted: a temperature in the user's unit.
   const chartValue = (series, value) => series.unit === "celsius" ? HomeswiftCommon.temperature(value).value : value;
   const unitText = (series) => series.unit === "celsius" ? HomeswiftCommon.temperature(0).unit : { percentage: "%", lux: "lx", seconds: "s", arcdegrees: "°" }[series.unit] ?? "";
-  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.numberLocale).charAt(1);
   const number = (value) => String(Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10).replace(".", decimal);
   /// A characteristic's title: its name, and its service's when that says more (a second outlet, a sensor of a station).
   const title = (series, accessory) => {
@@ -57,7 +57,7 @@
     async function load() {
       const mine = ++asked;
       charts.classList.add("loading");
-      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const timeZone = HomeswiftI18n.timeZone;
       const energy = accessory.consumption && window.HomeswiftAdmin?.consumptionCards ? HomeswiftAdmin.consumptionCards(accessory, rangeHours[range]) : Promise.resolve([]);
       let found;
       try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?${new URLSearchParams({ range, timeZone })}`); }
@@ -203,10 +203,10 @@
       list.classList.remove("loading");
       count.textContent = tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", found.entries.length, { days: String(found.days) });
       if (!found.entries.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
-      const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
+      const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
       // Hours and minutes read at a glance; the seconds are in the time's tooltip.
-      const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-      const exactFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+      const exactFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const days = new Map();
       for (const entry of found.entries) {
         const date = new Date(entry.time);

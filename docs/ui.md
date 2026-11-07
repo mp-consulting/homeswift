@@ -99,7 +99,24 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
 
 ![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
 
-- **Today**: solar produced, home use, the share of it solar covered, and grid import, as figures.
+- **Energy flow**: where the power goes, followed live (the last minutes asked every ten seconds while the page is
+  visible; the bridge counts the minute under way). On top, the **House**: a cutaway picture in the viewer's House
+  style (Appearance: **Realistic** or **Simple**; `energy-house*.webp`, each with a layout file saying where its wiring
+  lands), its wiring lit in the colour of the source feeding the home (solar yellow, the battery green, the grid
+  purple, in proportion when they share), faster for more power. It is by day between the day's sunrise and sunset at
+  the bridge's Location (the energy report's `sun`, the times alone) and at night after; without a Location, by the
+  hour and solar. Or the **Diagram**: solar, the grid, the battery and the home as circles with dots running between
+  them, **Now** (watts) or **Today** (the day's energy so far, split as the bridge splits it), framed to the parts the
+  home has. Under it, a panel with the title and the House/Diagram switch, each part's reading (from or to the grid,
+  charging or discharging and the battery's level) and **Powering the home**, each source's share. A home metered at
+  the grid alone uses what the grid brings in. **More details** unfolds today's biggest users (the devices measured
+  on their own, up to six, each with its kWh and share of the home's) and **What powered the home today**, a band of
+  the day coloured by the source that covered most of the home's use. The choices are kept in the browser; with
+  reduced motion nothing moves.
+
+  ![The Energy flow card's house](images/status/energy-flow.png)
+
+  ![The Energy flow card on a phone](images/status/energy-flow-phone.png)
 - **Power**: solar, the home, the grid (importing above zero, exporting below) and the batteries (charging above
   zero), each added up across devices, and each device's battery level. Its own range: 24 hours (the default), today,
   yesterday or 7 days (`?energy=7d`). Where the bridge recorded nothing (before it ran, while it was stopped), the power
@@ -473,6 +490,9 @@ switches and a **Send a test**, under a Save bar.
   uses the provider's quota). Glass UI's update and rollback events have no counterpart here: plugins are compiled in.
 - **Limits**: the same event about the same thing goes once per 15 minutes, 12 notifications an hour at most, 5 tests
   a minute.
+- **Language**: the shared channels (the webhook, ntfy, Pushover, Telegram) have no one reader and are written in the
+  Home Language (Settings › Bridge); Web Push goes to each browser in its account's Language, or the page's when the
+  browser subscribed. The daily digest is in the Home Language. An automation's message goes as it was written.
 - **A tap** opens the page a notification is about (the Logs for a plugin's error, the Status page, an automation),
   on ntfy (`Click`), Pushover (its link), Web Push and a webhook (`url`). **Address in notifications** is the web UI's
   address those links use, when the one it starts on (this machine's address on the network) is not the one your phone
@@ -692,7 +712,11 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
 
 - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup
   code, manufacturer, model, firmware, and how long the History is kept: **History kept (days)** and **Hourly history
-  kept (years)**; saving restarts homeswift; the device ID stays). The setup code shows as the
+  kept (years)**; **Home Time**, the home's time zone, which Tariffs, Automations, the History and the log run on (the
+  host's when empty: set it when a container runs in UTC, which the Status page's System card points out); the **Home
+  Language**, for notifications on the shared channels (ntfy, Pushover, Telegram, the webhook) and the daily digest,
+  set to the first account's language when the bridge was set up; saving restarts homeswift, except for the Home
+  Language alone; the device ID stays). The setup code shows as the
   bridge runs with it, whether config.json keeps it sealed or in the vault, with a copy button and the pairing QR code;
   it is written back only when it changes. Then the network (the addresses, the
   advertiser), each server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
@@ -800,19 +824,34 @@ marked as you type.
 
 ### Appearance
 
-![Appearance: the theme, the wallpapers, your own images with their ✕, the units and the language](images/ui/appearance.png)
+![Appearance: the theme, the wallpapers, your own images with their ✕, the units, and Language & Region](images/ui/appearance.png)
 
 `/appearance`, from the account menu. Each user's own, kept in `ui-preferences.json` (owner-only) and applied on every
 browser they sign in to; a browser remembers the last ones it saw, so a page opens in them at once.
 
 - **Theme**: Automatic (the system's light or dark appearance), Light or Dark.
+- **House style**: choose **Simple**, a clean model, **Realistic**, detailed rooms with warm lighting, **Beach house**, an airy coastal home beside the ocean, **Woodland cabin**, a cozy timber home among the trees, **Rooftop apartment**, a penthouse with an elevated city terrace, or the seasonal **Snow**, **Christmas**, and **Halloween** (a haunted house with tombstones and mist) scenes, for the Energy flow card. Preview tiles show all eight choices. Realistic is the default; the choice follows your account across browsers. All eight keep live readings, day/night artwork and the mobile layout with readings below the house. Solar modules have even sizes and spacing in both the live card and the previews, with the same roof geometry across day/night and battery variants.
 - **Wallpaper**, behind the glass of every page: photographic Aurora, Sunset, Ocean, Forest and Graphite presets; original abstract Silk, Prism, Ribbon, Lagoon, Ember and Midnight designs; or one of up to 12 images of your own. Drop images on
   the card's zone or choose them, several at once: each is scaled down to 2,560 pixels, kept under
   `ui-wallpapers/<user>/` (JPEG, PNG or WebP, checked by its bytes) and shown as it is added. A tap on its tile shows it
   again; the ✕ on its corner removes it, and removing the one shown leaves no wallpaper.
 - **Temperatures** in °C or °F, on accessory cards and plugin pages. HomeKit and the Home app keep their own setting.
-- **Language**: English, French, Spanish or Portuguese, or Automatic, the browser's ([translations.md](translations.md)).
-  The Assistant answers in it. The selector uses the same flag icons as sign-in; Automatic uses a globe.
+- **Language & Region**:
+  - **Language**: English, French, Spanish or Portuguese, or Automatic, the browser's ([translations.md](translations.md)).
+    The Assistant answers in it, and so do the browser notifications this account's devices receive. The selector uses
+    the same flag icons as sign-in; Automatic uses a globe.
+  - The **Regional Formats**: **Time format** (12- or 24-hour), **Date format** (31/12/2026, 12/31/2026 or 2026-12-31:
+    numeric dates only; a month written out stays the language's), **Numbers** (1,234.5, 1.234,5 or 1 234,5) and **First
+    day of the week**. Each is Automatic until chosen: the Language and the browser's region decide, as before.
+  - **Time zone**: **Home Time**, the bridge's (the default), or **This device**'s, for the log, the History and other
+    moments. Tariffs, Automations' times and schedules are always written and shown in Home Time
+    ([ADR 0008](adr/0008-rules-are-written-in-home-time.md)); with the device's zone chosen and different, their pages
+    say so beside the fields.
+
+  A change reloads the page, which reads these as it opens. The JSON API, the MCP tools and exports never use them:
+  they write ISO 8601 with Home Time's offset and plain numbers.
+
+![House style choices in Appearance](images/ui/house-style.png)
 
 ### Addresses
 
@@ -1122,3 +1161,5 @@ Quick controls groups its heading, page link and shortcuts in one card. Saved sc
 with readable names; the row scrolls horizontally on a phone. Scenes without artwork keep a plain tile.
 
 ![Quick controls on a phone](images/ui/quick-controls-phone.png)
+
+In **Appearance → Your house**, upload a JPEG, PNG or WebP photo, add a name and details, and place the Solar panels, Battery, Electrical board and Home markers. Select a marker and tap the photo, or adjust its horizontal and vertical position with the keyboard-accessible sliders. Save and use photo keeps the picture and marker positions privately for your account. Animated paths start at the marked source equipment and meet at Home; readings still come from connected devices. Replace a photo to start its marker placement again, or remove it to return to the realistic house.
