@@ -109,6 +109,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Web UI: the menu's entry for scenes and automations is **Automations**, and it opens there, with Scenes as the
+  second tab. It stays highlighted on either tab.
 - Web UI on a phone: the Automation editor fits a 375-pixel screen. A Notify step and the trigger's kind menu no longer
   widen the page past the screen's edge, and Save, Cancel and Delete are one bar at the bottom, as in the scene editor.
 - Helpers: a lock, a garage door or an alarm is no longer offered as a source. A Helper would show its state as a

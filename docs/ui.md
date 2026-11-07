@@ -314,7 +314,7 @@ a page to keep on a phone's home screen.
 
 ### Scenes and templates
 
-**Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand, from the Home app or by an
+**Scenes** (`/scenes`, a tab beside Automations; Glass UI's scenes): accessory values set together, by hand, from the Home app or by an
 Automation (docs/adr/0007-scenes-and-automations-are-separate.md). A Scene has no trigger of its own: what runs on its
 own is an Automation, on the page's **Automations** tab ([Automations](#automations)).
 
@@ -411,7 +411,7 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 
 ### Automations
 
-**Automations** (`/automations`, a tab beside Scenes; GLOSSARY.md): what the bridge does on its own. When any of its
+**Automations** (`/automations`, in the menu, with Scenes as its second tab; GLOSSARY.md): what the bridge does on its own. When any of its
 **Triggers** fires and all its **Conditions** hold, its **Steps** run in order.
 
 - **Triggers**: a time of day on chosen days; sunrise or sunset with an offset (-12 to +12 hours); a cron expression
