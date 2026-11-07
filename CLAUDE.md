@@ -29,6 +29,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Scripts/ui-screenshots.mjs` | Retakes docs/ui.md's page screenshots (`docs/images/ui`) from a throwaway bridge of paused demonstration blocks, made and removed by the script (docs/ui.md, "Screenshots") |
 | `Scripts/plugin-screenshots.mjs` | Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots (`docs/images/plugins`) from a throwaway bridge against a fake Hue Bridge and a fake DIRIGERA hub with demonstration names |
 | `Scripts/site-languages.mjs` | Writes `site/fr/`, `es/` and `pt/index.html` from `site/index.html` (its `data-i18n` and `data-i18n-html` text) and the site's catalogs; fails on a missing translation, `--check` on a stale page |
+| `Scripts/site-version.mjs` | Writes `PluginHost.version` into the bridge page's version and Package.swift snippet (all four languages) and the README's snippet; `--check` fails when one is stale |
 | `Scripts/restore-mtimes.swift` | Dates each file by its last commit: CI restores `.build` from its cache (`.github/workflows/ci.yml`), and a checkout dated now would rebuild all of the package's own code |
 | `Scripts/forget-changed-targets.sh` | Drops the cached build of the targets changed since the commit the restored cache was built from (its key's last part), so CI compiles them whole rather than trusting dates |
 | `Scripts/new-plugin.swift` | Creates `Plugins/<Name>/` (a skeleton on a fake API that builds and passes its tests; `--service` picks the HAP services and characteristics from `Definitions.swift`, `--list` shows them), its targets in `Package.swift` and its registration in `Plugins.swift` |
@@ -181,7 +182,8 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
 ## Releases
 
 A release is a tag: SwiftPM resolves versions from `vX.Y.Z` tags. Bump `PluginHost.version` (shown by
-`homeswift --version` and as the bridge's firmware revision), move the `[Unreleased]` section of CHANGELOG.md
+`homeswift --version` and as the bridge's firmware revision), run `node Scripts/site-version.mjs` (the bridge page's
+version and its and the README's Package.swift snippets follow it; CI's `--check` fails otherwise), move the `[Unreleased]` section of CHANGELOG.md
 under the new version, commit, then `gh release create vX.Y.Z --title X.Y.Z --notes-file <section>` (the title is the bare version) and push the tag. There
 are no binaries to sign yet. The Homebrew formula (`mp-consulting/homebrew-tap`, `Formula/homeswift.rb`) builds
 `homeswift` and `homeswift-demo` from the release tarball and installs `THIRD-PARTY-NOTICES.md` and `LICENSES`.
