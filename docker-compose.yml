@@ -20,6 +20,9 @@ services:
       # AVAHI_INTERFACES: eth0
     volumes:
       - /volume1/docker/homeswift:/homeswift
+      # The Zigbee and Z-Wave sticks plugged in, shown on the Status page (only once one is plugged in: Docker would
+      # otherwise make the folder).
+      # - /dev/serial/by-id:/dev/serial/by-id:ro
       # Advertise through DSM's own Avahi instead of one in the container (docs/synology.md, "Bonjour").
       # - /run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket
     # Hardware video encoding for UniFi Protect cameras on an Intel NAS (Quick Sync).

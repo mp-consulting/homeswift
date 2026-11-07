@@ -2,8 +2,8 @@
 
 The nodes of a Z-Wave network in HomeKit, through **zwave-js-server**: the WebSocket server that
 [Z-Wave JS UI](https://github.com/zwave-js/zwave-js-ui) and Home Assistant's Z-Wave JS add-on run, on port 3000 by
-default. The plugin brings in the nodes on the network and includes new ones from **Add accessories**; excluding
-nodes, their configuration parameters and firmware updates stay in Z-Wave JS UI.
+default. The plugin brings in the nodes on the network, and includes and removes them from **Add accessories**;
+their configuration parameters and firmware updates stay in Z-Wave JS UI.
 
 Written from zwave-js-server's protocol documentation (its README: `set_api_schema`, `start_listening`,
 `node.set_value` and the events); no code was ported from another project. It has no Homebridge plugin to replace, so
@@ -50,8 +50,11 @@ Once a network is connected, **Add a Z-Wave device…** asks which network the d
 address), starts an inclusion there for two minutes and waits while you put the device in inclusion mode (most take
 three quick presses of their button). The plugin grants the security classes the device asks for; a device that
 asks for S2 Authenticated or Access Control (a lock, a garage door) then needs the five-digit PIN printed on it or its
-box, which Setup asks for. Setup is done once the node is added; its accessory comes when its interview is over. A
-device still in another network must leave it first: exclude it there, or reset it to its factory settings.
+box, which Setup asks for. Setup is done once the node is added; its accessory comes when its interview is over.
+
+**Remove a device from the network**, among the same choices, runs an exclusion: put the device in exclusion mode
+(most take the same presses) and it leaves, with its accessory. A device still in another network leaves that one the
+same way, which readies it to join this one; a factory reset does too.
 
 ## In HomeKit
 

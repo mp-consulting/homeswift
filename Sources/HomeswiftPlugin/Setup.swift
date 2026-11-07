@@ -328,11 +328,21 @@ public struct SetupOutcome: Sendable {
     /// the settings go under it rather than under the one discovery gave. Required to finish Add by address
     /// (`SetupRequest.Target.newDevice`): the device the plugin probed at the address.
     public var deviceID: String?
+    /// A Join that took a device out of the plugin's network rather than adding one (a Z-Wave exclusion): nothing is
+    /// written, and the web UI says the device left.
+    public var removed = false
 
     public init(credentials: JSONValue? = nil, settings: [String: JSONValue] = [:], deviceID: String? = nil) {
         self.credentials = credentials
         self.settings = settings
         self.deviceID = deviceID
+    }
+
+    /// A device taken out of the plugin's network: `deviceID` when it was one of the plugin's.
+    public static func removed(deviceID: String? = nil) -> SetupOutcome {
+        var outcome = SetupOutcome(deviceID: deviceID)
+        outcome.removed = true
+        return outcome
     }
 
     /// With the plugin's own credentials type, encoded.

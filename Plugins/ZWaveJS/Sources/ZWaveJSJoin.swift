@@ -10,10 +10,19 @@ import HomeswiftPlugin
 // plugin grants those the device requests. For S2 Authenticated and Access Control (locks, garage doors), it then asks
 // for the PIN printed on the device: Setup asks the person. It is done with the node's Device Id once zwave-js has added
 // it; its accessory comes when its interview is over, as every node's does.
+//
+// The same Setup also takes a device out of a network (an exclusion, `controller.begin_exclusion`): the person picks
+// "Remove a device from …" and puts the device in exclusion mode, which for most is the same presses as inclusion. A
+// device of another network leaves it too, which readies it for this one. It ends with `SetupOutcome.removed`.
 
 /// What an inclusion has seen so far.
 struct Inclusion: Sendable {
     var homeID: String
+    /// Taking a device out of the network rather than adding one.
+    var excluding = false
+    /// The exclusion took a device out: the node, when it was one of this network's.
+    var removed = false
+    var removedNodeID: Int?
     /// When the plugin stops it.
     var deadline: ContinuousClock.Instant
     /// A device answered: the controller stopped looking, and the time no longer runs out (zwave-js has its own for S2).
@@ -36,6 +45,8 @@ extension ZWaveJSPlugin {
     static let inclusionPoll = 2
     /// The choice that adds a server by its address instead.
     static let addressChoice = "address"
+    /// The choice that removes a device from a network: `remove:<homeId>`.
+    static let removePrefix = "remove:"
 
     /// A Join's step, or nil for Add by address: no network connected, or the person picked a server's address.
     func joinStep(_ request: SetupRequest) async throws -> SetupStep? {
@@ -46,9 +57,16 @@ extension ZWaveJSPlugin {
             return .ask(SetupPrompt(
                 message: "Which Z-Wave network does the device join?",
                 fields: [.choice("network", label: "Network", options: connected.map { SetupOption($0, label: Self.serverName(homeID: $0)) }
-                    + [SetupOption(Self.addressChoice, label: "Another zwave-js-server, by its address")], value: connected[0])]))
+                    + [SetupOption(Self.addressChoice, label: "Another zwave-js-server, by its address")]
+                    + connected.map { SetupOption(Self.removePrefix + $0, label: "Remove a device from the network", detail: Self.serverName(homeID: $0)) },
+                    value: connected[0])]))
         }
         if homeID == Self.addressChoice { return nil }
+        if homeID.hasPrefix(Self.removePrefix) {
+            let network = String(homeID.dropFirst(Self.removePrefix.count))
+            guard connected.contains(network) else { throw SetupError("Z-Wave network \(network) is not connected: check zwave-js-server, then try again") }
+            return try await exclude(request, homeID: network)
+        }
         guard connected.contains(homeID) else { throw SetupError("Z-Wave network \(homeID) is not connected: check zwave-js-server, then try again") }
         return try await include(request, homeID: homeID)
     }
@@ -57,7 +75,7 @@ extension ZWaveJSPlugin {
     func include(_ request: SetupRequest, homeID: String) async throws -> SetupStep {
         let state: JSONValue = ["network": .string(homeID), "including": true]
         guard request.state["including"] != nil else {
-            try await beginInclusion(homeID)
+            try await begin(homeID, excluding: false)
             return .ask(waitPrompt(), state: state)
         }
         guard let current = inclusion, current.homeID == homeID else {
@@ -87,11 +105,44 @@ extension ZWaveJSPlugin {
         return .ask(waitPrompt(), state: state)
     }
 
+    /// The first step starts the exclusion; the others say where it is.
+    func exclude(_ request: SetupRequest, homeID: String) async throws -> SetupStep {
+        let state: JSONValue = ["network": .string(Self.removePrefix + homeID), "excluding": true]
+        guard request.state["excluding"] != nil else {
+            try await begin(homeID, excluding: true)
+            return .ask(exclusionPrompt(), state: state)
+        }
+        guard let current = inclusion, current.homeID == homeID, current.excluding else {
+            throw SetupError("The removal stopped: start again to remove a device")
+        }
+        if let failure = current.failure {
+            await endInclusion()
+            throw SetupError(failure)
+        }
+        if current.removed {
+            inclusion = nil
+            current.closer?.cancel()
+            return .done(.removed(deviceID: current.removedNodeID.map { Self.deviceID(homeID: homeID, nodeID: $0) }))
+        }
+        guard ContinuousClock.now < current.deadline else {
+            await endInclusion()
+            throw SetupError("No device left the network: put it in exclusion mode close to the controller, then try again")
+        }
+        return .ask(exclusionPrompt(), state: state)
+    }
+
+    private func exclusionPrompt() -> SetupPrompt {
+        let left = max(0, Int(((inclusion?.deadline ?? .now) - .now).components.seconds))
+        return SetupPrompt(
+            message: "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.",
+            waitSeconds: left, retryAfter: Self.inclusionPoll)
+    }
+
     private func waitPrompt() -> SetupPrompt {
         let left = max(0, Int(((inclusion?.deadline ?? .now) - .now).components.seconds))
         return SetupPrompt(
             message: "Put the device in inclusion mode: most devices take three quick presses of their button. Its manual says how.",
-            warning: "A device that was in another Z-Wave network must leave it first: exclude it there, or reset it to its factory settings.",
+            warning: "A device that was in another Z-Wave network must leave it first: choose Remove a device from the network, or reset it to its factory settings.",
             waitSeconds: left, retryAfter: Self.inclusionPoll)
     }
 
@@ -101,13 +152,16 @@ extension ZWaveJSPlugin {
             values: ["dsk": dsk], fields: [SetupField("pin", label: "PIN", kind: .code)])
     }
 
-    func beginInclusion(_ homeID: String) async throws {
+    /// Starts an inclusion, or an exclusion (zwave-js's default strategy: the device's provisioning entry kept, disabled).
+    func begin(_ homeID: String, excluding: Bool) async throws {
         await endInclusion()
         let started: JSONValue
         do {
-            started = try await command(homeID, "controller.begin_inclusion", ["options": ["strategy": 0]])
+            started = excluding
+                ? try await command(homeID, "controller.begin_exclusion")
+                : try await command(homeID, "controller.begin_inclusion", ["options": ["strategy": 0]])
         } catch {
-            throw SetupError("Z-Wave JS could not start an inclusion: \(error)")
+            throw SetupError(excluding ? "Z-Wave JS could not start removing a device: \(error)" : "Z-Wave JS could not start an inclusion: \(error)")
         }
         // Older schemas answer `{ success }`.
         guard started["success"]?.boolValue != false else {
@@ -119,8 +173,8 @@ extension ZWaveJSPlugin {
             guard !Task.isCancelled else { return }
             await self?.inclusionTimedOut()
         }
-        inclusion = Inclusion(homeID: homeID, deadline: deadline, closer: closer)
-        logger.info("Including a device into the Z-Wave network \(homeID) for \(Self.inclusionSeconds) seconds")
+        inclusion = Inclusion(homeID: homeID, excluding: excluding, deadline: deadline, closer: closer)
+        logger.info("\(excluding ? "Removing a device from" : "Including a device into") the Z-Wave network \(homeID) for \(Self.inclusionSeconds) seconds")
     }
 
     /// The inclusion is over: stopped on the controller, unless zwave-js stopped it already.
@@ -128,8 +182,8 @@ extension ZWaveJSPlugin {
         guard let current = inclusion else { return }
         inclusion = nil
         current.closer?.cancel()
-        guard current.nodeID == nil else { return }
-        _ = try? await command(current.homeID, "controller.stop_inclusion")
+        guard current.nodeID == nil, !current.removed else { return }
+        _ = try? await command(current.homeID, current.excluding ? "controller.stop_exclusion" : "controller.stop_inclusion")
     }
 
     /// The time is up: stopped, unless a device is being included.
@@ -148,6 +202,21 @@ extension ZWaveJSPlugin {
     /// The controller's events while an inclusion runs.
     func followInclusion(_ name: String, _ event: JSONValue) async {
         guard let homeID = inclusion?.homeID else { return }
+        if inclusion?.excluding == true {
+            switch name {
+            case "node removed":
+                inclusion?.removed = true
+                inclusion?.removedNodeID = event["node"]?["nodeId"]?.intValue ?? event["nodeId"]?.intValue
+            case "exclusion stopped":
+                // zwave-js stops once a device left; a device of another network leaves no node removed here.
+                if inclusion?.failure == nil { inclusion?.removed = true }
+            case "exclusion failed":
+                inclusion?.failure = "Z-Wave JS could not remove the device: keep it close to the controller and try again"
+            default:
+                break
+            }
+            return
+        }
         switch name {
         case "grant security classes":
             // The classes the device asks for, granted as asked; the person's PIN, when S2 needs one, comes next.

@@ -662,6 +662,8 @@ public struct HomeswiftCatalog: Sendable {
     public static func systemJSON() -> JSONValue {
         var info = machine
         info["systemUptimeSeconds"] = .number(ProcessInfo.processInfo.systemUptime.rounded())
+        // Zigbee and Z-Wave sticks plugged in (SerialAdapters.swift).
+        info["radios"] = SerialAdapters.json
         return .object(info)
     }
 

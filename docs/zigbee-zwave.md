@@ -14,7 +14,7 @@ docker-compose.yml has them as optional services, all on host networking like th
 | `zigbee` | `mosquitto`, `zigbee2mqtt` | The MQTT broker, answering on the NAS itself only (localhost:1883), and Zigbee2MQTT on your Zigbee stick |
 | `zwave` | `zwave-js` | zwave-js-server on your Z-Wave stick, port 3000, announced over mDNS |
 
-1. Find your stick's name: `ls /dev/serial/by-id` over SSH. Put it in the service's `devices:` line, before the colon.
+1. Find your stick's name: `ls /dev/serial/by-id` over SSH, or the Status page's Homeswift card once the bridge runs. Put it in the service's `devices:` line, before the colon.
 2. For Zigbee, name the stick's chip in `ZIGBEE2MQTT_CONFIG_SERIAL_ADAPTER` when Zigbee2MQTT does not recognise it:
    `ember` (Sonoff Dongle-E, Home Assistant SkyConnect and Connect ZBT-1), `zstack` (Sonoff Dongle-P), `deconz` (ConBee).
 3. For Z-Wave, make the network keys once (below) and set `RF_REGION` to your region.
@@ -44,7 +44,11 @@ Keep a copy somewhere safe: without them, the secured devices must be included a
 3. **Add a Zigbee device…** lets devices join for two minutes: reset the device, or hold its button until its light
    blinks. Setup is done once Zigbee2MQTT has read what it does.
 4. **Add a Z-Wave device…** includes one into the network: put it in inclusion mode (often three presses of its
-   button). A lock or a garage door asks for the five-digit PIN printed on it or its box.
+   button). A lock or a garage door asks for the five-digit PIN printed on it or its box. **Remove a device from the
+   network**, among its choices, takes one out (an exclusion), also from another network it was in.
+
+The Status page's Homeswift card lists the Zigbee and Z-Wave sticks plugged in, by the names to put in the `devices:`
+lines. In the container it sees them once docker-compose.yml's `/dev/serial/by-id` line is turned on.
 
 Each device then shows as an accessory, in the Home app and on the wall, like any other.
 
@@ -56,6 +60,6 @@ Zigbee2MQTT and Z-Wave JS add-ons work too: point Setup at Home Assistant's brok
 
 ## What stays in their own pages
 
-Firmware updates, network maps, a Z-Wave device's configuration parameters and removing (excluding) a Z-Wave device:
+Firmware updates, network maps and a Z-Wave device's configuration parameters:
 Zigbee2MQTT's page (port 8099 in docker-compose.yml) and Z-Wave JS UI do these. Forgetting a device in Homeswift
 only forgets it here: it stays in its network.

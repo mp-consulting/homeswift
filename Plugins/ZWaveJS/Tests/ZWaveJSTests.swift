@@ -86,9 +86,9 @@ final class FakeServer: Sendable {
             result = .object(["state": .object(dump)])
         case "node.set_value":
             result = .object(["result": .object(["status": .number(Double(status))])])
-        case "controller.begin_inclusion":
+        case "controller.begin_inclusion", "controller.begin_exclusion":
             result = ["success": true]
-        case "controller.grant_security_classes", "controller.validate_dsk_and_enter_pin", "controller.stop_inclusion":
+        case "controller.grant_security_classes", "controller.validate_dsk_and_enter_pin", "controller.stop_inclusion", "controller.stop_exclusion":
             result = .object([:])
         default:
             socket.receive(text: JSONValue.object(["type": "result", "messageId": id, "success": false, "errorCode": "unknown_command"]).text())
@@ -759,7 +759,7 @@ struct ZWaveJSTests {
         let home = FakeServer.homeID
         // The network, or another server by its address.
         guard case .ask(let pick, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
-        #expect(pick.fields.map(\.key) == ["network"] && pick.fields[0].options.map(\.value) == [home, "address"])
+        #expect(pick.fields.map(\.key) == ["network"] && pick.fields[0].options.map(\.value) == [home, "address", "remove:\(home)"])
         guard case .ask(let address, _) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["network": "address"])) else {
             Issue.record("no prompt"); return
         }
@@ -796,6 +796,26 @@ struct ZWaveJSTests {
         #expect(outcome.deviceID == "\(home)-20")
         #expect(await plugin.inclusion == nil)
         #expect(!environment.server.commands.contains { $0["command"] == "controller.stop_inclusion" })
+        await host.stop()
+    }
+
+    @Test func joinRemovesADeviceFromTheNetwork() async throws {
+        let host = try await started()
+        let plugin = try #require(environment.plugin)
+        let home = FakeServer.homeID
+        guard case .ask(let wait, let state) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["network": "remove:\(home)"])) else {
+            Issue.record("no prompt"); return
+        }
+        #expect(wait.retryAfter == 2 && wait.fields.isEmpty)
+        #expect(environment.server.commands.contains { $0["command"] == "controller.begin_exclusion" })
+        guard case .ask = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("no wait"); return }
+        environment.server.controller("node removed", ["node": ["nodeId": 10], "reason": 0])
+        environment.server.controller("exclusion stopped")
+        #expect(await eventually { await plugin.inclusion?.removed == true })
+        #expect(await eventually { host.accessory(id(10)) == nil })
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("not done"); return }
+        #expect(outcome.removed && outcome.deviceID == "\(home)-10")
+        #expect(!environment.server.commands.contains { $0["command"] == "controller.stop_exclusion" })
         await host.stop()
     }
 

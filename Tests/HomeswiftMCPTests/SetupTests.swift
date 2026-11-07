@@ -338,6 +338,8 @@ actor AddressablePlugin: HomeswiftPlugin {
             guard host == "192.0.2.10" else { throw SetupError("Nothing answered at \(host)") }
             // A plugin that forgets to say which device it reached.
             if request.answer("port") == "1" { return .done(SetupOutcome()) }
+            // A device taken out of the network instead: nothing is written.
+            if request.answer("port") == "2" { return .done(.removed(deviceID: "EV-0009")) }
             return .ask(SetupPrompt(message: "Enter the charger's password", fields: [SetupField("password", label: "Password", kind: .secret)]), state: ["host": .string(host)])
         }
     }
@@ -384,6 +386,18 @@ struct AddByAddressTests {
         #expect(await eventually { Set(setup.host.platforms.flatMap(\.accessoryIDs)).contains("Addressable:EV-0001") })
         let listed = try await setup.catalog.discoverDevices(platform: "Addressable", name: "Chargers")["devices"]?.arrayValue?.first
         #expect(listed?["deviceID"] == "EV-0001" && listed?["status"] == "setUp" && listed?["address"] == "192.0.2.10")
+    }
+
+    @Test func aSetupThatRemovesADeviceWritesNothing() async throws {
+        try await setup.host.start()
+        defer { Task { await setup.host.stop() } }
+        func block() throws -> JSONValue? { try setup.catalog.readConfig()["platforms"]?.arrayValue?.first { $0["platform"] == "Addressable" } }
+        let before = try block()
+        let first = try await setup.catalog.startSetup(platform: "Addressable", name: "Chargers", deviceID: nil, addByAddress: true)
+        let session = try #require(first["session"]?.stringValue)
+        let done = try await setup.catalog.continueSetup(session, answers: ["host": "192.0.2.10", "port": "2"])
+        #expect(done["status"] == "done" && done["removed"] == true && done["deviceID"] == "EV-0009" && done["accessoryID"] == nil)
+        #expect(try block() == before)
     }
 
     @Test func addByAddressIsRefusedWhereItDoesNotApply() async throws {
