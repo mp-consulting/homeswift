@@ -51,11 +51,13 @@ several endpoints (a double relay) gets a service per endpoint. The controller's
 
 | Command class | In HomeKit |
 |---|---|
-| Binary Switch | Switch, or Outlet when the node meters energy; `showAs` picks `switch`, `outlet` or `lightbulb` |
-| Multilevel Switch | Lightbulb with Brightness; Window Covering for a motor (Window Covering or Motor Control device class) |
-| Color Switch | Hue and Saturation on the light (red, green and blue; warm and cold white are set to 0 with a colour) |
-| Binary Sensor | Motion, Contact (Door/Window, Tilt), Leak (Water), Smoke, Carbon Monoxide (CO); `Any` and `General Purpose` are left out |
-| Notification | Motion (Home Security), Contact (Access Control's door state), Leak, Smoke and Carbon Monoxide; preferred to Binary Sensor's |
+| Binary Switch | Switch, or Outlet when the node meters energy; `showAs` picks `switch`, `outlet`, `lightbulb` or `fan` |
+| Multilevel Switch | Lightbulb with Brightness; Fan with Rotation Speed for a fan controller (Fan Switch device class); Window Covering for a motor (Window Covering or Motor Control device class); `showAs` picks `lightbulb` or `fan` |
+| Color Switch | Hue and Saturation on the light (red, green and blue; warm and cold white are set to 0 with a colour); Color Temperature when it has both warm and cold white, from 2700 K (all warm) to 6500 K (all cold), with Adaptive Lighting |
+| Barrier Operator | Garage Door Opener: open, closed, opening, closing and stopped; Target Door State is guarded as every garage door is by the bridge's own surfaces |
+| Sound Switch | A Siren switch: on plays the default tone, off stops it |
+| Binary Sensor | Motion, Contact (Door/Window, Tilt), Leak (Water), Smoke, Carbon Monoxide (CO); `General Purpose` (else `Any`) is a Contact on a node with no other sensor |
+| Notification | Motion (Home Security), Contact (Access Control's door state), Leak, Smoke, Carbon Monoxide and Carbon Dioxide (CO2); preferred to Binary Sensor's. Home Security's cover removed is Status Tampered on the node's sensors |
 | Multilevel Sensor | Temperature (°F converted), Humidity, Light (in lux) |
 | Meter | Eve's Current and Total Consumption on the switch (or a service of their own), declared as the accessory's Meter, so the Status page's Energy section counts it; energy produced counts as Returned |
 | Door Lock | Lock Mechanism (secured or not, unknown, and the target), guarded as every lock is by the bridge's own surfaces; an endpoint with Door Lock is its lock whatever else it has, and an Entry Control node's switch (a door strike, a gate) is a guarded switch whatever `showAs` says |
@@ -68,8 +70,12 @@ server is away (the plugin reconnects with a backoff, logging the outage once). 
 nothing is polled. A node included or removed in Z-Wave JS UI comes or goes on its own (`node added`, once it is ready,
 and `node removed`), and one removed while the bridge was away leaves at the next connection.
 
-Not yet: colour temperature (warm and cold white channels), fans, sirens, garage doors, the Notification types beyond
-those above, and the Binary Sensor types that say nothing of what they sense.
+Adaptive Lighting, once turned on in the Home app, sets the white every minute and with the brightness; a white or a colour
+set elsewhere (Z-Wave JS UI, a scene on the node) turns it off, as setting one in the Home app does. Its schedule is kept
+across restarts.
+
+Not yet: a single white channel's temperature (an RGBW bulb's white is set to 0 with a colour), a fan's own speeds
+(Thermostat Fan Mode), tones other than the default one, and the Notification types beyond those above.
 
 ## Settings
 
@@ -77,12 +83,13 @@ those above, and the Binary Sensor types that say nothing of what they sense.
 |---|---|---|
 | `host` | a server | Where zwave-js-server answers |
 | `port` | a server | Its WebSocket port, 3000 by default |
-| `showAs` | a Binary Switch | `switch`, `outlet` or `lightbulb` |
+| `showAs` | a switch | A Binary Switch as `switch`, `outlet`, `lightbulb` or `fan`; a Multilevel Switch as `lightbulb` or `fan` |
 
 ## Tests
 
 `swift test --filter ZWaveJSTests` runs the plugin against a fake zwave-js-server (a `FakeWebSocket` from
 `HomeswiftNetworkTestSupport`) that replays a `start_listening` state, `Tests/Fixtures/start_listening.json`, written in
 the shape zwave-js-server's documentation gives it (a dimmable colour bulb, a metered plug, a multisensor, a lock, a
-thermostat, a door sensor, a scene remote, a roller shutter and a dead leak sensor), and its events. No device or
+thermostat, a door sensor, a scene remote, a roller shutter, a dead leak sensor, a tunable white bulb, a fan
+controller, a garage door controller, a siren, a dry contact input and a CO2 detector), and its events. No device or
 server is reached.

@@ -239,6 +239,8 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
             logger.debug("Node \(nodeID) (\(name)) has nothing HomeKit shows")
             return false
         }
+        // Adaptive Lighting's schedule survives restarts; the controller lives as long as the accessory.
+        if let adaptiveLighting = built.adaptiveLighting { context.configureController(adaptiveLighting, accessoryID: accessoryID) }
         do {
             try context.add(built.accessory)
         } catch {

@@ -1065,6 +1065,539 @@
       "propertyKeyName": "Sensor status"
      }
     ]
+   },
+   {
+    "nodeId": 11,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Hallway Ceiling",
+    "location": "",
+    "label": "ZWA001",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Aeotec",
+     "label": "ZWA001",
+     "description": "LED Bulb 6 Multi-White"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 17,
+      "label": "Multilevel Switch"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Multilevel Power Switch"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 11,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "currentValue",
+      "propertyName": "currentValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 80
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "targetValue",
+      "propertyName": "targetValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "min": 0,
+       "max": 99
+      },
+      "value": 80
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 255,
+      "propertyKey": 0,
+      "propertyKeyName": "Warm White"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 0,
+      "propertyKey": 1,
+      "propertyKeyName": "Cold White"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "currentColor",
+      "propertyName": "currentColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": {
+       "warmWhite": 255,
+       "coldWhite": 0
+      }
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 51,
+      "commandClassName": "Color Switch",
+      "property": "targetColor",
+      "propertyName": "targetColor",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": true
+      },
+      "value": {
+       "warmWhite": 255,
+       "coldWhite": 0
+      }
+     }
+    ]
+   },
+   {
+    "nodeId": 12,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Bedroom Fan",
+    "location": "",
+    "label": "FS20Z",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Leviton",
+     "label": "FS20Z",
+     "description": "Fan Speed Control"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 17,
+      "label": "Multilevel Switch"
+     },
+     "specific": {
+      "key": 8,
+      "label": "Fan Switch"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 12,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "currentValue",
+      "propertyName": "currentValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 66
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 38,
+      "commandClassName": "Multilevel Switch",
+      "property": "targetValue",
+      "propertyName": "targetValue",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "min": 0,
+       "max": 99
+      },
+      "value": 66
+     }
+    ]
+   },
+   {
+    "nodeId": 13,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Garage Door",
+    "location": "",
+    "label": "ZW110",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Nortek",
+     "label": "ZW110",
+     "description": "Garage Door Controller"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 64,
+      "label": "Entry Control"
+     },
+     "specific": {
+      "key": 7,
+      "label": "Secure Barrier Add-on"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 13,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 102,
+      "commandClassName": "Barrier Operator",
+      "property": "currentState",
+      "propertyName": "currentState",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "Closed",
+        "252": "Closing",
+        "253": "Stopped",
+        "254": "Opening",
+        "255": "Open"
+       }
+      },
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 102,
+      "commandClassName": "Barrier Operator",
+      "property": "targetState",
+      "propertyName": "targetState",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "states": {
+        "0": "Closed",
+        "255": "Open"
+       }
+      },
+      "value": 0
+     }
+    ]
+   },
+   {
+    "nodeId": 14,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Patio Siren",
+    "location": "",
+    "label": "ZSE50",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Zooz",
+     "label": "ZSE50",
+     "description": "Siren and Chime"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 16,
+      "label": "Binary Switch"
+     },
+     "specific": {
+      "key": 5,
+      "label": "Siren"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 14,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 121,
+      "commandClassName": "Sound Switch",
+      "property": "toneId",
+      "propertyName": "toneId",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": true,
+       "min": 0,
+       "max": 255
+      },
+      "value": 0
+     }
+    ]
+   },
+   {
+    "nodeId": 15,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Shed Input",
+    "location": "",
+    "label": "ZW097",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Aeotec",
+     "label": "ZW097",
+     "description": "Dry Contact Sensor"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 32,
+      "label": "Binary Sensor"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Routing Binary Sensor"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 15,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 48,
+      "commandClassName": "Binary Sensor",
+      "property": "General Purpose",
+      "propertyName": "General Purpose",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": false
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 48,
+      "commandClassName": "Binary Sensor",
+      "property": "Any",
+      "propertyName": "Any",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": false
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 113,
+      "commandClassName": "Notification",
+      "property": "Home Security",
+      "propertyName": "Home Security",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "idle",
+        "3": "Tampering, product cover removed"
+       }
+      },
+      "value": 0,
+      "propertyKey": "Cover status",
+      "propertyKeyName": "Cover status"
+     },
+     {
+      "endpoint": 0,
+      "commandClass": 128,
+      "commandClassName": "Battery",
+      "property": "level",
+      "propertyName": "level",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "any",
+       "readable": true,
+       "writeable": false
+      },
+      "value": 90
+     }
+    ]
+   },
+   {
+    "nodeId": 16,
+    "index": 0,
+    "status": 4,
+    "ready": true,
+    "isListening": true,
+    "isRouting": true,
+    "isSecure": false,
+    "manufacturerId": 134,
+    "productId": 96,
+    "productType": 3,
+    "firmwareVersion": "1.10",
+    "name": "Office Air",
+    "location": "",
+    "label": "ZCO2",
+    "isControllerNode": false,
+    "interviewStage": "Complete",
+    "deviceConfig": {
+     "manufacturer": "Heiman",
+     "label": "ZCO2",
+     "description": "CO2 Detector"
+    },
+    "deviceClass": {
+     "basic": {
+      "key": 4,
+      "label": "Routing Slave"
+     },
+     "generic": {
+      "key": 7,
+      "label": "Notification Sensor"
+     },
+     "specific": {
+      "key": 1,
+      "label": "Notification Sensor"
+     }
+    },
+    "endpoints": [
+     {
+      "nodeId": 16,
+      "index": 0
+     }
+    ],
+    "values": [
+     {
+      "endpoint": 0,
+      "commandClass": 113,
+      "commandClassName": "Notification",
+      "property": "CO2 Alarm",
+      "propertyName": "CO2 Alarm",
+      "ccVersion": 1,
+      "metadata": {
+       "type": "number",
+       "readable": true,
+       "writeable": false,
+       "states": {
+        "0": "idle",
+        "2": "Carbon dioxide detected"
+       }
+      },
+      "value": 0,
+      "propertyKey": "Sensor status",
+      "propertyKeyName": "Sensor status"
+     }
+    ]
    }
   ]
  }
