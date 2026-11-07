@@ -24,7 +24,7 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Forty-one plugins come with it, from Elgato Key
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Forty-two plugins come with it, from Elgato Key
 Lights to UniFi Protect cameras, Shelly, Zigbee2MQTT and Sonos, Philips Hue and IKEA DIRIGERA straight from their bridges, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
 lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. See
@@ -187,6 +187,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired on Add accessories) |
 | [Philips Hue Sync Box](Plugins/HueSyncBox) | `PhilipsHueSyncBoxPlatform` | Experimental: the Hue Play HDMI Sync Box's syncing, modes, HDMI inputs, intensities and entertainment areas (set up with its button on Add accessories) |
 | [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired on Add accessories) |
+| [Presence](Plugins/Presence) | `Presence` | Who is home: a Person per person in the home, known by the phones and watches they carry on the network (ARP and a probe), and Anyone Home, as occupancy sensors (Persons added on Add accessories) |
 | [Reolink](Plugins/Reolink) | `Reolink` | Experimental: Reolink cameras, doorbells, NVRs and Home Hubs on the LAN: live video, HomeKit Secure Video, motion and AI detections by push, floodlights, sirens and IR lights |
 | [Renault](Plugins/Renault) | `Renault` | Experimental: Renault, Dacia and Alpine cars through MyRenault: battery, charging, plug, climate, horn and lights, temperatures (signed in on Add accessories, with the e-mailed code) |
 | [Reolink](Plugins/Reolink) | `Reolink` | Experimental: Reolink cameras, doorbells, NVRs and Home Hubs on the LAN: live video, HomeKit Secure Video, motion and AI detections by push, floodlights, sirens and IR lights |

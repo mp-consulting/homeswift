@@ -455,6 +455,15 @@ button.busy::after {
 .account-who { flex: 1; min-width: 0; }
 .account-who p { margin: 3px 0 0; }
 .account-lead { margin: var(--space-4) 0 0; }
+/* "You are home" (Presence): on the Status page a card, under the account's name a line. */
+.presence-card { display: grid; gap: var(--space-12); }
+.presence-line { display: flex; align-items: center; gap: var(--space-12); min-width: 0; }
+.presence-line .who { display: grid; gap: 2px; min-width: 0; }
+.presence-line .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence-line .muted { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.account-presence { display: grid; gap: var(--space-8); margin-top: var(--space-12); }
+.account-presence .tile { width: 32px; height: 32px; }
+.account-presence .tile svg { width: 18px; height: 18px; }
 .account-password { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; margin-top: var(--space-16); }
 .account-fields .field:first-child { margin-top: 0; }
 /* A form card starts at its title and ends at its buttons: no heading margin above, no empty message line below. */
@@ -4296,7 +4305,18 @@ select option:disabled { color: var(--muted); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }
 .setup-option .muted { font-size: var(--text-sm); }
-.setup-choices-list { display: grid; gap: var(--space-8); max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+/* A long list of options to pick (a Person's devices, a Helper's sources) scrolls within the sheet. */
+.setup-choices-list { display: grid; gap: var(--space-8); max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
+.setup-choice .setup-option { margin: 0; }
+/* On a phone the sheet scrolls, not the list within it. */
+@media (max-width: 640px) { .setup-choices-list { max-height: none; overflow: visible; } }
+.setup-option strong { overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); }
+.setup-option-badge { font-size: var(--text-2xs); padding: 1px var(--space-8); }
+/* A word of caution beside a step's message (a phone's private Wi-Fi address). */
+.setup-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12);
+  border-radius: var(--radius-md); background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent); }
+.setup-warning svg { width: 18px; height: 18px; color: var(--warn); margin-top: 1px; }
+.setup-warning p { margin: 0; font-size: var(--text-sm); line-height: 1.45; }
 /* The sheet's head: what is being set up, and where it stands (a stage per screen: signing in, the devices, done). */
 .setup-sheet-head { display: flex; align-items: center; gap: var(--space-12); margin-bottom: var(--space-12); }
 .admin-dialog.sheet .setup-sheet-head h2 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.015em; }

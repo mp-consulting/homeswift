@@ -348,7 +348,7 @@ extension HomeswiftCatalog {
                 description: "Answers the prompt of a Setup in progress with its fields' values by key (a PIN, a one-time code, a redirect address); a field "
                     + "of kind choice takes one of its options' values, one of kind choices a list of them. A field "
                     + "of kind secret (a password, a key) takes only a vault: reference, never the secret: ask the person to add it on the Vault page, or to "
-                    + "finish in the web UI. Answers the next prompt (with error when an answer did not work), or status done.",
+                    + "finish in the web UI. A field of kind choices takes any of its options' values, as an array. Answers the next prompt (with error when an answer did not work), or status done.",
                 inputSchema: ["type": "object", "required": ["session"], "properties": ["session": ["type": "string"], "answers": ["type": "object"]]],
                 scope: .admin
             ) { call in

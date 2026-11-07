@@ -1591,6 +1591,21 @@
     },
   });
 
+  // Presence's Persons and Anyone Home (GLOSSARY.md, "Presence"): occupancy sensors that read as Home or Away, lit while
+  // home, a person's glyph or a house's.
+  register({
+    name: "presence", types: ["OccupancySensor"], match: (ctx) => ctx.accessory.platform === "Presence",
+    icon: (ctx) => ctx.accessory.id === "Presence:anyone" ? "house" : "user", tone: "teal", size: "small",
+    build(ctx, primary) {
+      const occupied = ctx.take(primary, "Occupancy Detected");
+      const home = () => occupied?.value === 1 || occupied?.value === true;
+      const anyone = ctx.accessory.id === "Presence:anyone";
+      const word = () => home() ? (anyone ? t("Someone home") : t("Home [presence]")) : (anyone ? t("Nobody home") : t("Away [presence]"));
+      // Anyone Home's name asks the question: its small tile answers Yes or No.
+      return { on: home, hero: () => el("span", { class: "w-hero-word" }, word()), status: () => [anyone ? (home() ? t("Yes") : t("No")) : word(), ""] };
+    },
+  });
+
   // The weather (the Weather plugin, or any Temperature sensor with Eve's Condition): the temperature and the sky's
   // icon, the condition in words; from medium up the humidity, the wind and the last hour's rain, then the pressure
   // and the UV index. Conditions are Open-Meteo's words in English, translated here.
@@ -1807,6 +1822,7 @@
 
   /// The Device Kinds plugins declare (lowercased, letters only), by what they are.
   const kindIcons = {
+    person: "user", anyone: "house",
     camera: "camera", thirdpartycamera: "camera", chime: "bell", viewer: "tv", tv: "tv", nvr: "bridge", controller: "bridge", rfbridge: "bridge",
     wingman: "bridge", weather: "cloud", hub: "lock", reader: "lock", light: "bulb", sensor: "sensor", leak: "drop", switch: "switch", single: "switch",
     multi: "switch", panel: "switch", outlet: "outlet", fan: "fan", heater: "thermo", thermo: "thermo", thermostat: "thermo",
@@ -2460,7 +2476,8 @@
     brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
     /// paused plugin's camera, a device not set up yet); undefined for a kind none fits.
-    deviceIcon: (device) => categoryIcons[device?.category]?.[0] ?? kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")],
+    // The plugin's Device Kind says more than the HAP category, when the wall has a glyph for it (a Person's sensor).
+    deviceIcon: (device) => kindIcons[String(device?.kind ?? "").toLowerCase().replace(/[^a-z]/g, "")] ?? categoryIcons[device?.category]?.[0],
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {

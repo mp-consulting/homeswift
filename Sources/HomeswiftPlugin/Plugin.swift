@@ -556,6 +556,22 @@ public final class PluginContext: @unchecked Sendable {
     }
     private let logsBox = NIOLockedValueBox<LogBuffer?>(nil)
 
+    /// Who of the Persons is home, the host's (`PluginHost.presence`): the Presence plugin publishes on it. A context
+    /// without a host has a board of its own.
+    public internal(set) var presence: PresenceBoard {
+        get { presenceBox.withLockedValue { $0 } }
+        set { presenceBox.withLockedValue { $0 = newValue } }
+    }
+    private let presenceBox = NIOLockedValueBox(PresenceBoard())
+
+    /// The web UI's users, to link something to one of them (a Person); empty without a web UI.
+    public var webUsers: [WebUser] { webUsersSource() }
+    var webUsersSource: @Sendable () -> [WebUser] {
+        get { webUsersBox.withLockedValue { $0 } }
+        set { webUsersBox.withLockedValue { $0 = newValue } }
+    }
+    private let webUsersBox = NIOLockedValueBox<@Sendable () -> [WebUser]>({ [] })
+
     /// The Location, a Bridge Setting (GLOSSARY.md): where the home is, as config.json has it now (it changes without a
     /// restart, so read it at each use). nil until a person sets it under Settings, or in a library or a test that gives none.
     public var location: Location? { locationSource() }

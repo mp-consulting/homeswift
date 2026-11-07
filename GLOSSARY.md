@@ -231,6 +231,17 @@ A Bridge Setting: what the home pays per kWh of electricity, or per m³ of gas o
 it is paid for the energy it sends back. Changing it starts a new Tariff; past ones keep their prices.
 _Avoid_: Price, rate, contract, cost settings
 
+## Presence
+
+**Person**:
+Someone who lives in the home, known to the bridge by the devices they carry. A Person is home while one of those
+devices is on the network, and away after a grace period without any.
+_Avoid_: User, member, occupant, host
+
+**Anyone Home**:
+Whether at least one Person is home.
+_Avoid_: Occupancy, somebody home, home mode
+
 ## Automations
 
 **Scene**:

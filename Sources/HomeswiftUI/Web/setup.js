@@ -296,7 +296,7 @@
     const row = el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
       tile(glyph, excluded ? "grey" : needs ? "orange" : "blue"),
       el("div", { class: "who" }, el("strong", { text: device.name }),
-        el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
+        el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model ? t(device.model) : null, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       needs
         ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, known, trigger: event.currentTarget, after: reload }) })
@@ -349,6 +349,11 @@
       ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
   }
 
+  /// An option's words: its label, a badge beside it ("Private address"), what it means beneath.
+  const optionText = (option) => el("span", {},
+    el("strong", {}, el("span", { text: t(option.label) }), option.badge ? el("span", { class: "pill status away setup-option-badge", text: t(option.badge) }) : null),
+    option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null);
+
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
   /// picked; a long one without meanings to read is a menu. `multiple` (a `choices` field, a Helper's sources): checkboxes,
   /// those the block has ticked. It reads as an input does: `value`, the option picked or "" (those ticked, one per line),
@@ -356,9 +361,11 @@
   function choice(field, { multiple = false } = {}) {
     if (!multiple && field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
     const picked = new Set(multiple ? (field.value ?? "").split("\n") : [field.value]);
-    const inputs = field.options.map((option) => el("input", { type: multiple ? "checkbox" : "radio", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
-    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, inputs[index],
-      el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)));
+    // An optional single choice can be left unmade: Not chosen comes first.
+    const choices = !multiple && field.optional ? [{ value: "", label: "Not chosen" }, ...field.options] : field.options;
+    if (!multiple && field.optional && field.value == null) picked.add("");
+    const inputs = choices.map((option) => el("input", { type: multiple ? "checkbox" : "radio", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
+    const options = choices.map((option, index) => el("label", { class: "setup-option" }, inputs[index], optionText(option)));
     // A long list scrolls on its own, so the fields after it stay in reach.
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
@@ -367,6 +374,9 @@
     node.focus = () => (inputs.find((input) => input.checked) ?? inputs[0])?.focus();
     return node;
   }
+
+  /// A word of caution beside a step's message: what to do first for it to work.
+  const warning = (text, values) => el("div", { class: "setup-warning", role: "note" }, HomeswiftCommon.icon("warning"), el("p", { text: t(text, values ?? {}) }));
 
   /// A wait with nothing to type or open: a button to press on the device.
   const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url && !prompt.page;
@@ -585,6 +595,7 @@
           : /^\/[^/]/.test(prompt.page ?? "") ? el("a", { class: "button primary", href: prompt.page, target: "_blank", rel: "noopener", actionIcon: "open", text: t("Open the setting") }) : null;
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
+          prompt.warning ? warning(prompt.warning, prompt.values) : null,
           link,
           ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
             : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title" }, t(field.label),

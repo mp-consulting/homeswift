@@ -119,7 +119,8 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   connection whose bytes arrive as a stream, for a binary protocol of the device's own), `SSDP` (an M-SEARCH and a
   listener for UPnP devices), `CoAPMessage` (the CoAP codec, for CoIoT status multicasts), `FCMReceiver` (an FCM
   web-push registration and receiver, for clouds that push to their phone app), `ARPTable` and `MACAddress` (the MAC
-  behind a LAN address, in one spelling for accessory ids). A plugin depends on it rather than adding a
+  behind a LAN address, in one spelling for accessory ids), `TCPReachabilityProbe` (whether a host answers, by a TCP
+  connection accepted or refused: ICMP needs privileges the bridge does not have). A plugin depends on it rather than adding a
   package; its tests take `FakeMQTTConnection` and `FakeWebSocket` from the `HomeswiftNetworkTestSupport` target.
 - **Helpers.** `Service(optional:)` with a type the service has already (`.targetTemperature.with(minValue: 30)`)
   changes its props; `accessory.takeValues(from: cached)` keeps the last values of a rebuilt accessory;
@@ -132,6 +133,10 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), `EveHistory` is
   fakegato-history for the Eve app, and `context.logs` is the bridge's log from now on (`LogBuffer.observe`), for a
   plugin that acts on log lines (Dummy's log triggers); nil in a library or a test that gives the host none.
+  `context.presence` is the host's `PresenceBoard` (who of the Persons is home, GLOSSARY.md "Presence"): the Presence
+  plugin publishes on it, and the web UI, Automations and notifications read it and follow its `PresenceEvent`s (a Person
+  arriving or leaving, Anyone Home changing). `context.webUsers` lists the web UI's users, for a plugin that links
+  something to one of them (a Person to the user they are); empty without a web UI.
 - **Other plugins' accessories.** `context.hostAccessories` is every accessory on the bridge, main and child bridges and
   those published on their own, whichever plugin added it; `context.hostAccessory(id:)` finds one by its id.
   `context.observeHostChanges { accessory, characteristic, value in … }` calls back on every change of any of them and
@@ -450,6 +455,9 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   keeps it once done. A short list of fixed answers (EcoFlow's region) is a choice too, not text to type. A country or a language is a
   choice of `SetupOption.countries()` (each country's ISO code, or what the plugin sends for it, such as eWeLink's
   calling codes) or `SetupOption.languages()`: the web UI shows a long choice as a menu, named in the reader's language.
+  A prompt's `warning` is a caution the sheet shows apart from its message (a phone's private Wi-Fi address set to
+  Fixed), and an option's `badge` a word set apart beside its label ("Private address"), in English with their
+  translations as the message's.
 - **What it gives**: `SetupOutcome.credentials` (tokens, keys, a device's password) go to the vault, read back with
   `context.credentials(for:as:)`; `settings` are merged into the block for the account (a `null` takes a key out,
   one the credentials now hold) or into the device's Accessory Settings; `deviceID` names the device when the

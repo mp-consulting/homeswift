@@ -200,15 +200,18 @@ public struct SetupOption: Sendable, Codable, Equatable {
     public var value: String
     public var label: String
     public var detail: String?
+    /// A word set apart beside it, for people, in English: "Private address".
+    public var badge: String?
     /// The ISO 3166 country the option is (`GB`).
     public var country: String?
     /// The language tag the option is (`fr-FR`).
     public var language: String?
 
-    public init(_ value: String, label: String, detail: String? = nil, country: String? = nil, language: String? = nil) {
+    public init(_ value: String, label: String, detail: String? = nil, badge: String? = nil, country: String? = nil, language: String? = nil) {
         self.value = value
         self.label = label
         self.detail = detail
+        self.badge = badge
         self.country = country
         self.language = language
     }
@@ -249,6 +252,9 @@ public struct SetupPrompt: Sendable, Codable, Equatable {
     /// The values of `message`'s `{name}` placeholders.
     public var values: [String: String]
     public var fields: [SetupField]
+    /// A caution shown apart from the message, for people, in English as the message is: "Set the phone's private
+    /// Wi-Fi address to Fixed." nil for none.
+    public var warning: String?
     /// A Browser Redirect's page to open.
     public var url: String?
     /// A page of the web UI the step needs a person to visit, by its path (`/settings#location` for the Location):
@@ -259,11 +265,15 @@ public struct SetupPrompt: Sendable, Codable, Equatable {
     public var waitSeconds: Int?
     public var retryAfter: Int?
 
-    public init(message: String, values: [String: String] = [:], fields: [SetupField] = [], url: String? = nil, page: String? = nil, waitSeconds: Int? = nil, retryAfter: Int? = nil) {
+    public init(
+        message: String, values: [String: String] = [:], fields: [SetupField] = [], warning: String? = nil, url: String? = nil, page: String? = nil,
+        waitSeconds: Int? = nil, retryAfter: Int? = nil
+    ) {
         self.page = page
         self.message = message
         self.values = values
         self.fields = fields
+        self.warning = warning
         self.url = url
         self.waitSeconds = waitSeconds
         self.retryAfter = retryAfter
