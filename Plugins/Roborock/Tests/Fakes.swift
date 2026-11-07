@@ -133,6 +133,7 @@ final class FakeCloud: HTTPSending {
 final class FakeRobot: Sendable {
     struct State {
         var methods: [String] = []
+        var calls: [(method: String, params: JSONValue)] = []
         var answers: [String: JSONValue] = [:]
         var silent: Set<String> = []
         var connections = 0
@@ -154,6 +155,9 @@ final class FakeRobot: Sendable {
     }
 
     var methods: [String] { state.withLockedValue { $0.methods } }
+    /// The requests with their params, in order.
+    var calls: [(method: String, params: JSONValue)] { state.withLockedValue { $0.calls } }
+    func params(of method: String) -> JSONValue? { calls.last { $0.method == method }?.params }
     var connections: Int { state.withLockedValue { $0.connections } }
 
     func answer(_ method: String, with result: JSONValue) { state.withLockedValue { $0.answers[method] = result } }
@@ -178,6 +182,7 @@ final class FakeRobot: Sendable {
             let method = try #require(inner["method"]?.stringValue), id = try #require(inner["id"]?.intValue)
             let (answer, silent) = state.withLockedValue { state -> (JSONValue, Bool) in
                 state.methods.append(method)
+                state.calls.append((method, inner["params"] ?? .null))
                 return (state.answers[method] ?? ["ok"], state.silent.contains(method))
             }
             guard !silent else { continue }

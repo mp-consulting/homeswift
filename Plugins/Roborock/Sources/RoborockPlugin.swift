@@ -69,7 +69,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
     public static let platform = "RoborockVacuumPlatform"
     public static let name = "Roborock"
     public static let icon: String? = "vacuum"
-    public static let summary: String? = "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes"
+    public static let summary: String? = "Robot vacuums: clean, suction and mop, rooms, dock, battery, mop washing, scenes and brushes"
 
     let configuration: Configuration
     let context: PluginContext
@@ -499,7 +499,10 @@ public actor RoborockPlugin: HomeswiftPlugin {
         let actions = VacuumActions(
             setActive: { [weak self] duid, active in await self?.setActive(duid, active) },
             setDockWash: { [weak self] duid, on in try await self?.setDockWash(duid, on) },
-            runScene: { [weak self] id in await self?.runScene(id) })
+            runScene: { [weak self] id in await self?.runScene(id) },
+            setSuction: { [weak self] duid, code in try await self?.command(duid, "set_custom_mode", [.number(Double(code))]) },
+            setWater: { [weak self] duid, code in try await self?.command(duid, "set_water_box_custom_mode", [.number(Double(code))]) },
+            findMe: { [weak self] duid in try await self?.command(duid, "find_me") })
         return VacuumAccessory(
             device: device, model: home.model(of: device), language: language, timings: timings, actions: actions, accessoryID: Self.accessoryID(duid: device.duid))
     }
@@ -636,6 +639,23 @@ public actor RoborockPlugin: HomeswiftPlugin {
             cancelSceneRun(duid)
             await send(duid, "app_charge")
         }
+    }
+
+    /// A command HomeKit asked for: a failure fails the write, and the status is read again either way so the robot's
+    /// own value shows (RoborockModes.md section 1.3).
+    func command(_ duid: String, _ method: String, _ params: JSONValue = []) async throws {
+        defer { Task { [weak self] in await self?.refreshStatus(duid) } }
+        do {
+            _ = try await request(duid, method, params)
+        } catch {
+            throw HAPStatusError(.serviceCommunicationFailure)
+        }
+    }
+
+    /// get_status on a 1.0 robot (the messenger shows every answer).
+    func refreshStatus(_ duid: String) async {
+        guard home?.device(duid)?.version == .v1 else { return }
+        await send(duid, "get_status")
     }
 
     /// The dock's mop wash (section 6.3). A command that fails fails the write, so On keeps what the robot does.
