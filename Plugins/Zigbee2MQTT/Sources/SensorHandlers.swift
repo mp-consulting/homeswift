@@ -17,7 +17,6 @@ enum EveTypes {
     static let current = float("Current", "E863F126-079E-48FF-8F27-9C2605A29F52", max: 100, step: 0.001)
     static let totalConsumption = float("Total Consumption", "E863F10C-079E-48FF-8F27-9C2605A29F52", max: 4_294_967_295, step: 0.001)
     static let totalProduction = float("Total Production", "E863F10C-079E-48FF-8F27-9C2605A29F52", max: 4_294_967_295, step: 0.001)
-    static let energyService = ServiceType(name: "EveEnergy", uuid: HAPUUID("00000001-0000-1777-8000-775D67EC4377"), required: [], optional: [.name])
 }
 
 // MARK: Basic sensors (9.6)
@@ -242,13 +241,13 @@ extension ServiceBuilder {
             func first(_ names: [String]) -> String? { names.lazy.compactMap { name in entries.first { $0.name == name }?.property }.first }
             let readings = quantities.compactMap { quantity in first(quantity.names).map { (property: $0, characteristic: quantity.characteristic) } }
             // Voltage alone (a battery's, usually) is no meter.
-            if readings.contains(where: { $0.characteristic != EveTypes.voltage }), claim(EveTypes.energyService, subtype: endpoint) {
-                let service = service(EveTypes.energyService, subtype: endpoint, extra: readings.map { Characteristic($0.characteristic, value: .double(0)) })
+            if readings.contains(where: { $0.characteristic != EveTypes.voltage }), claim(EveService.energy, subtype: endpoint) {
+                let service = service(EveService.energy, subtype: endpoint, extra: readings.map { Characteristic($0.characteristic, value: .double(0)) })
                 add(ElectricalHandler(service: service, readings: readings, link: link))
             }
             let productionSubtype = endpoint.map { "\($0) produced" } ?? "produced"
-            if let property = first(produced), claim(EveTypes.energyService, subtype: productionSubtype) {
-                let service = service(EveTypes.energyService, subtype: productionSubtype, extra: [Characteristic(EveTypes.totalProduction, value: .double(0))])
+            if let property = first(produced), claim(EveService.energy, subtype: productionSubtype) {
+                let service = service(EveService.energy, subtype: productionSubtype, extra: [Characteristic(EveTypes.totalProduction, value: .double(0))])
                 add(ElectricalHandler(service: service, readings: [(property, EveTypes.totalProduction)], link: link))
             }
         }

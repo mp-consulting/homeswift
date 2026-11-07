@@ -181,6 +181,17 @@ struct HTTPHeaderTests {
         #expect(hostHeader(host: "tv.local", port: 80, defaultPort: 80) == "tv.local")
     }
 
+    @Test func readsTheHostAndPortOfATypedAddress() {
+        func split(_ text: String) -> [String] { hostAndPort(text, defaultPort: 3000).map { [$0.host, String($0.port)] } ?? [] }
+        #expect(split("192.168.1.20") == ["192.168.1.20", "3000"])
+        #expect(split(" hub.local:3001 ") == ["hub.local", "3001"])
+        #expect(split("[fd00::1]") == ["fd00::1", "3000"])
+        #expect(split("[fd00::1]:3001") == ["fd00::1", "3001"])
+        #expect(split("fd00::1") == ["fd00::1", "3000"])
+        #expect(split("ws://192.168.1.20:3001/") == ["192.168.1.20", "3001"])
+        #expect(split("[fd00::1]x").isEmpty && split("").isEmpty)
+    }
+
     @Test func errorsDoNotCarryAURLsPassword() throws {
         let error = #expect(throws: MQTTError.self) {
             try MQTTConfiguration(url: URL(string: "mqtts2://user:s3cret@broker:8883")!, clientID: "x")

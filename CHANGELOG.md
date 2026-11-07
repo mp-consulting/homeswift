@@ -116,6 +116,8 @@ All notable changes to this project are documented here. The format follows
   keeps working.
 - Web UI: Forget on a Helper (a device its plugin makes rather than finds) says that it deletes it for good, instead of
   that the plugin finds it again.
+- ESPHome and Z-Wave JS: an IPv6 address typed without brackets in Add by address is the host, no longer read as a
+  host and a port.
 - Charts: a 24-hour chart of a Meter's consumption at phone width labels its hours as the narrow ticks only (7, 13,
   19), no longer mixing in the wide ones (10:00, 16:00) between them.
 - Web UI: a History chart's legend reads Maximum, Average and Minimum in French, Spanish and Portuguese, the words a
