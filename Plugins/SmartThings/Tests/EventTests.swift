@@ -120,34 +120,62 @@ struct EventTests {
 
     /// No more than 12 status reads or command requests a minute per device (section 6.1): a minute is 500 ms here, and
     /// the 13th request of a burst waits for it.
-    /// Twelve requests a minute per device, on a virtual clock: the test moves the time, so the counts are exact.
+    /// Twelve requests a minute per device, on a virtual clock that moves only when the test moves it, and only once the
+    /// state it waits for is reached: how slowly the machine schedules the tasks (all of Linux's tests share one process)
+    /// can delay the test but never change its counts.
     @Test func eachDeviceGetsTwelveRequestsAMinute() async throws {
+        let clock = ManualClock()
+        let limiter = RateLimiter(limit: 12, window: .seconds(60), clock: clock.limiterClock)
+        let granted = NIOLockedValueBox<[String: Int]>([:])
+        let count: @Sendable (String) -> Int = { key in granted.withLockedValue { $0[key, default: 0] } }
+        let all = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<30 {
+                    group.addTask { if (try? await limiter.acquire("d")) != nil { granted.withLockedValue { $0["d", default: 0] += 1 } } }
+                }
+                // Another device has its own twelve.
+                group.addTask { if (try? await limiter.acquire("e")) != nil { granted.withLockedValue { $0["e", default: 0] += 1 } } }
+            }
+        }
+        // At the start: twelve through, eighteen waiting for the window; the other device is not held up.
+        _ = await eventually(timeout: .seconds(60)) { count("d") == 12 && clock.sleepers == 18 && count("e") == 1 }
+        #expect(count("d") == 12)
+        #expect(clock.sleepers == 18)
+        #expect(count("e") == 1)
+        // A window later: twelve more, six still waiting.
+        clock.advance(by: .seconds(60))
+        _ = await eventually(timeout: .seconds(60)) { count("d") == 24 && clock.sleepers == 6 }
+        #expect(count("d") == 24)
+        #expect(clock.sleepers == 6)
+        // A second short of the next window: nothing more.
+        clock.advance(by: .seconds(59))
+        #expect(count("d") == 24)
+        #expect(clock.sleepers == 6)
+        clock.advance(by: .seconds(1))
+        await all.value
+        #expect(count("d") == 30)
+        #expect(await limiter.waits == 24)
+    }
+
+    /// The API reads a device's status through its limiter: the thirteenth read of a minute waits for the window.
+    @Test func statusReadsGoThroughTheDeviceLimiter() async throws {
         let cloud = FakeSmartThings()
         cloud.answer("GET", "/v1/devices/d/status", ["components": [:]])
-        cloud.answer("GET", "/v1/devices/e/status", ["components": [:]])
         let clock = ManualClock()
         let limiter = RateLimiter(limit: 12, window: .seconds(60), clock: clock.limiterClock)
         let api = try await TestAPI.make(cloud, limiter: limiter)
         let sent: @Sendable () -> Int = { cloud.sent("GET", "/v1/devices/d/status").count }
         let all = Task {
             await withTaskGroup(of: Void.self) { group in
-                for _ in 0..<30 { group.addTask { _ = try? await api.status(deviceID: "d") } }
-                // Another device has its own twelve.
-                group.addTask { _ = try? await api.status(deviceID: "e") }
+                for _ in 0..<13 { group.addTask { _ = try? await api.status(deviceID: "d") } }
             }
         }
-        // At the start: twelve sent, eighteen waiting for the window; the other device is not held up.
-        #expect(await eventually { sent() == 12 && clock.sleepers == 18 && cloud.sent("GET", "/v1/devices/e/status").count == 1 })
-        // A window later: twelve more, six still waiting.
+        _ = await eventually(timeout: .seconds(60)) { sent() == 12 && clock.sleepers == 1 }
+        #expect(sent() == 12)
+        #expect(clock.sleepers == 1)
         clock.advance(by: .seconds(60))
-        #expect(await eventually { sent() == 24 && clock.sleepers == 6 })
-        // A second short of the next window: nothing more.
-        clock.advance(by: .seconds(59))
-        #expect(sent() == 24 && clock.sleepers == 6)
-        clock.advance(by: .seconds(1))
         await all.value
-        #expect(sent() == 30)
-        #expect(await limiter.waits == 24)
+        #expect(sent() == 13)
     }
 
     /// A 429 backs off the whole plugin: reads are not sent until it passes.
