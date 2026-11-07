@@ -311,7 +311,7 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   that is what the Assistant needs to compose a wall ("arrange my wall by room"). An open Accessories page draws
   the wall again when it or the rooms change, whoever changed them (a `layout` event on the web UI's event stream).
 - **Automations** (GLOSSARY.md; [docs/ui.md](ui.md#automations)). `list_automations` lists each Automation's triggers
-  (`time`, `sun`, `cron`, `characteristic`, `stays` with `forSeconds`, `threshold` with `direction`), conditions,
+  (`time`, `sun`, `cron`, `characteristic`, `stays` with `forSeconds`, `threshold` with `direction`, `presence` with a Person's or Anyone Home's `id` and `arriving`), conditions,
   steps (`scene`, `set`, `wait`, `waitUntil`, `notify` with up to three `buttons`, `tool`), `mode` (`restart` or `single`), whether it is on, whether
   it touches a lock, a garage door or an alarm (`security`) and its last run with each step's result, and the plugins'
   actions a `tool` step may call (`tools`: those that need no confirmation, with their input schemas).

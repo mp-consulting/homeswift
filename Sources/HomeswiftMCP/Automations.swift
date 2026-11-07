@@ -11,8 +11,8 @@ import NIOConcurrencyHelpers
 //
 // Triggers: a time of day on chosen days, sunrise or sunset with an offset, cron, an accessory's value changing (or
 // starting to compare with a value), a value that stays in a state for a while, a number crossing a threshold.
-// `AutomationRules.triggerKinds` is where a kind is added: a Person arriving or leaving and Anyone Home come with the
-// Presence plugin, as a `presence` trigger read from it.
+// `AutomationRules.triggerKinds` is where a kind is added. A Person arriving or leaving, or Anyone Home changing, is a
+// `presence` trigger, fired by the host's `PresenceBoard` (the Presence plugin publishes on it).
 //
 // Steps: apply a Scene, set a value, wait, wait until a value, notify, call a plugin's action (one its plugin does not
 // mark as needing confirmation). Locks, garage doors and alarms are never set: a Step on one, or the part of a Scene
@@ -102,7 +102,9 @@ struct AutomationRunning: Sendable {
 enum AutomationRules {
     static let maxAutomations = 200
     static let maxSteps = 30
-    static let triggerKinds: Set<String> = ["time", "sun", "cron", "characteristic", "stays", "threshold"]
+    static let triggerKinds: Set<String> = ["time", "sun", "cron", "characteristic", "stays", "threshold", "presence"]
+    /// Anyone Home's accessory id, a `presence` trigger's `id` for the first arrival or the last departure.
+    static let anyoneHome = "Presence:anyone"
     static let stepKinds: Set<String> = ["scene", "set", "wait", "waitUntil", "notify", "tool"]
     /// The longest wait, and the longest a value is watched for.
     static let longestWait: Double = 86_400
@@ -132,8 +134,16 @@ enum AutomationRules {
             trigger.enabled = object["enabled"]?.boolValue == false ? false : nil
             return trigger
         case "presence":
-            // The extension point for the Presence plugin: a Person arriving or leaving, Anyone Home changing.
-            throw CatalogError("\(label): Person and Anyone Home triggers need the Presence plugin, which this homeswift does not have yet")
+            // A Person (their accessory's id) arriving or leaving; Anyone Home's for the first arrival or the last departure.
+            guard let id = object["id"]?.stringValue, id.hasPrefix("Presence:"), id.count <= 128 else {
+                throw CatalogError("\(label): id is a Person's accessory id (Presence:person-…) or Anyone Home's (\(anyoneHome))")
+            }
+            guard let arriving = object["arriving"]?.boolValue else { throw CatalogError("\(label): arriving is true (comes home) or false (leaves)") }
+            var trigger = SceneTrigger(type: "presence")
+            trigger.id = id
+            trigger.arriving = arriving
+            trigger.enabled = object["enabled"]?.boolValue == false ? false : nil
+            return trigger
         default:
             return try SceneRules.trigger(value, index: index)
         }
@@ -635,6 +645,20 @@ extension HomeswiftCatalog {
         }
     }
 
+    /// Someone came or went (the host's `PresenceBoard`): starts the Automations whose `presence` trigger it is.
+    func automationPresenceChanged(_ event: PresenceEvent) {
+        let (id, arriving): (String, Bool)
+        switch event {
+        case .arrived(let person): (id, arriving) = (person.id, true)
+        case .left(let person): (id, arriving) = (person.id, false)
+        case .anyoneHome(let home): (id, arriving) = (AutomationRules.anyoneHome, home)
+        }
+        for automation in home.automations.value.automations where automation.isEnabled {
+            guard automation.triggers.contains(where: { $0.type == "presence" && $0.isEnabled && $0.id == id && $0.arriving == arriving }) else { continue }
+            start(automation, trigger: "presence")
+        }
+    }
+
     /// A `stays` trigger's value now matches (a timer starts, unless one runs) or no longer does (its timer ends).
     private func stays(_ automation: Automation, trigger: SceneTrigger, index: Int, matches: Bool) {
         let key = "\(automation.id)|\(index)"
@@ -744,7 +768,8 @@ extension HomeswiftCatalog {
             "triggers": ["type": "array", "maxItems": 10, "items": ["type": "object"], "description": .string(
                 "Any of them starts it. {type: time, at: HH:mm, days: [0-6, 0 Sunday]}; {type: sun, event: sunrise|sunset, offsetMinutes, days}; {type: cron, cron}; "
                 + "{type: characteristic, id, characteristic, operator: changes|eq|neq|gt|gte|lt|lte, value}; {type: stays, id, characteristic, operator, value, forSeconds}; "
-                + "{type: threshold, id, characteristic, direction: above|below, value}")],
+                + "{type: threshold, id, characteristic, direction: above|below, value}; "
+                + "{type: presence, id: a Person's accessory id (Presence:person-…) or Presence:anyone (Anyone Home), arriving: true|false}")],
             "conditions": ["type": "array", "maxItems": 10, "items": ["type": "object"], "description": .string(
                 "All must hold when a trigger fires. {type: time, after, before: HH:mm|sunrise|sunset}; {type: characteristic, id, characteristic, operator, value}")],
             "steps": ["type": "array", "minItems": 1, "maxItems": 30, "items": ["type": "object"], "description": .string(

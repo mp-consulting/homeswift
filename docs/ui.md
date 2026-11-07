@@ -418,8 +418,8 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
   (`30 7 * * 1-5`; five fields, or six with seconds, which are ignored); an accessory's value that changes or starts to
   compare with a value (the motion sensor turns on); a value that **stays** so for a while (the door open for ten
   minutes); a number that **crosses a threshold** (the temperature rises above 26). Timed triggers run on the minute;
-  one on a value fires at most once per 5 seconds. A Person arriving or leaving, and Anyone Home, come with the Presence
-  plugin.
+  one on a value fires at most once per 5 seconds. With the Presence plugin, a Person who **comes home** or **leaves**, or
+  Anyone Home: the first Person coming home, the last one leaving.
 - **Conditions**: a time window (`sunset` to `23:00`, across midnight too) or an accessory's value. **Run now** ignores
   them. Sunrise and sunset are for the Location, a Bridge Setting under [Settings](#settings); without one, the
   Triggers' help links to it.

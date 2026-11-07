@@ -13777,6 +13777,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic, value: String(trigger.value) };
           return trigger.direction === "below" ? t("When {who} {characteristic} falls below {value}", vars) : t("When {who} {characteristic} rises above {value}", vars);
         }
+        case "presence": {
+          if (trigger.id === anyoneHome) return trigger.arriving ? t("When the first Person comes home") : t("When the last Person leaves");
+          const vars = { who: names.get(trigger.id) || trigger.id };
+          return trigger.arriving ? t("When {who} comes home", vars) : t("When {who} leaves", vars);
+        }
         default: return trigger.type;
       }
     })();
@@ -13800,7 +13805,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return scene.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
   }
   /// What a trigger shows as: a clock for a time or a cron, the sun, a sensor for an accessory's value.
-  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor", stays: "sensor", threshold: "sensor" };
+  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor", stays: "sensor", threshold: "sensor", presence: "user" };
+  /// Anyone Home's accessory (Presence): a `presence` trigger on it fires at the first arrival or the last departure.
+  const anyoneHome = "Presence:anyone";
 
   /// A scene's details in a sheet, from its tile's menu: what it is, each action, its locks and doors, its last run,
   /// and Edit.
@@ -14064,6 +14071,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("option", { value: "time", text: t("At a time") }), el("option", { value: "sun", text: t("Sunrise or sunset") }),
       el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "stays", text: t("When a value stays for a while") }),
       el("option", { value: "threshold", text: t("When a number crosses a threshold") }), el("option", { value: "cron", text: t("Cron") }));
+    // Presence's Persons and Anyone Home, when the bridge has them (or the trigger names one already).
+    const people = accessories.filter((one) => one.platform === "Presence")
+      .sort((a, b) => (a.id === anyoneHome) - (b.id === anyoneHome) || displayName(a).localeCompare(displayName(b)));
+    if (people.length || trigger.type === "presence") type.insertBefore(el("option", { value: "presence", text: t("When someone comes home or leaves") }), type.querySelector('[value="cron"]'));
     type.value = trigger.type;
     // Whether the trigger counts, in the row's head with its kind: apart from a Value switch in its fields.
     const enabled = el("input", { type: "checkbox", role: "switch", checked: trigger.enabled !== false });
@@ -14114,6 +14125,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const value = el("input", { type: "number", step: "any", value: shown.value ?? 0, "aria-label": t("Value") });
         body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Direction"), direction), field(t("Value"), value));
         row.readBody = () => ({ ...pick.read(), direction: direction.value, value: Number(value.value) });
+      } else if (shown.type === "presence") {
+        const who = el("select", { "aria-label": t("Who") }, people.map((one) => el("option", { value: one.id, text: one.id === anyoneHome ? t("Anyone") : displayName(one) })));
+        if (shown.id && !people.some((one) => one.id === shown.id)) who.append(el("option", { value: shown.id, text: shown.id }));
+        who.value = shown.id ?? people.find((one) => one.id !== anyoneHome)?.id ?? people[0]?.id ?? "";
+        const event = el("select", { "aria-label": t("Event") });
+        // Anyone Home's words: the first to come home, the last to leave.
+        const words = () => event.replaceChildren(
+          el("option", { value: "true", text: who.value === anyoneHome ? t("The first comes home") : t("Comes home") }),
+          el("option", { value: "false", text: who.value === anyoneHome ? t("The last leaves") : t("Leaves") }));
+        words();
+        event.value = String(shown.arriving ?? true);
+        who.addEventListener("change", () => { const was = event.value; words(); event.value = was; });
+        body.replaceChildren(field(t("Who"), who), field(t("Event"), event));
+        row.readBody = () => ({ id: who.value, arriving: event.value === "true" });
       } else {
         const cron = el("input", { type: "text", value: shown.cron || "0 7 * * 1-5", placeholder: "0 7 * * 1-5", "aria-label": t("Cron expression"), class: "mono" });
         body.replaceChildren(cron);
@@ -18095,6 +18120,16 @@ HomeswiftI18n.add("es", {
   "Open the setting": "Abrir el ajuste",
   "Needs a Bridge Setting": "Necesita un ajuste del puente",
   "Waiting for it…": "Esperando…",
+  "When someone comes home or leaves": "Cuando alguien llega o se va",
+  "When the first Person comes home": "Cuando llega la primera Persona",
+  "When the last Person leaves": "Cuando se va la última Persona",
+  "When {who} comes home": "Cuando {who} llega a casa",
+  "When {who} leaves": "Cuando {who} se va",
+  "Anyone": "Alguien",
+  "Comes home": "Llega a casa",
+  "Leaves": "Se va",
+  "The first comes home": "Llega la primera",
+  "The last leaves": "Se va la última",
 });
 
 """#),
@@ -21375,6 +21410,16 @@ HomeswiftI18n.add("fr", {
   "Open the setting": "Ouvrir le réglage",
   "Needs a Bridge Setting": "Demande un réglage du pont",
   "Waiting for it…": "Ça attend…",
+  "When someone comes home or leaves": "Quand quelqu'un arrive ou part",
+  "When the first Person comes home": "Quand la première Personne arrive",
+  "When the last Person leaves": "Quand la dernière Personne part",
+  "When {who} comes home": "Quand {who} arrive",
+  "When {who} leaves": "Quand {who} part",
+  "Anyone": "Quelqu'un",
+  "Comes home": "Arrive",
+  "Leaves": "Part",
+  "The first comes home": "La première arrive",
+  "The last leaves": "La dernière part",
 });
 
 """#),
@@ -24655,6 +24700,16 @@ HomeswiftI18n.add("pt", {
   "Open the setting": "Abrir a definição",
   "Needs a Bridge Setting": "Precisa de uma definição da ponte",
   "Waiting for it…": "À espera…",
+  "When someone comes home or leaves": "Quando alguém chega ou sai",
+  "When the first Person comes home": "Quando chega a primeira Pessoa",
+  "When the last Person leaves": "Quando sai a última Pessoa",
+  "When {who} comes home": "Quando {who} chega a casa",
+  "When {who} leaves": "Quando {who} sai",
+  "Anyone": "Alguém",
+  "Comes home": "Chega a casa",
+  "Leaves": "Sai",
+  "The first comes home": "Chega a primeira",
+  "The last leaves": "Sai a última",
 });
 
 """#),
