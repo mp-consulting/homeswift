@@ -247,9 +247,12 @@ struct PluginTests {
         let captcha: Bool
         let list: JSONValue
         let refuse: Bool
+        /// The device list's HTTP status instead of an answer (a server error).
+        let listStatus: Int?
 
-        init(pendingPolls: Int = 1, flag: Int = 8, captcha: Bool = false, list: JSONValue = ["list": []], refuse: Bool = false) {
+        init(pendingPolls: Int = 1, flag: Int = 8, captcha: Bool = false, list: JSONValue = ["list": []], refuse: Bool = false, listStatus: Int? = nil) {
             self.refuse = refuse
+            self.listStatus = listStatus
             self.pendingPolls = pendingPolls
             self.flag = flag
             self.captcha = captcha
@@ -293,6 +296,7 @@ struct PluginTests {
                 return HomeswiftNetwork.HTTPResponse(status: 302, headers: [("Location", "https://account.xiaomi.com/pass/serviceLoginAuth2/end?x=1"), ("Set-Cookie", "userId=42; Path=/")])
             case url.hasPrefix("https://de.api.io.mi.com/app/home/device_list"), url.hasPrefix("https://api.io.mi.com/app/home/device_list"):
                 if refuse { return HomeswiftNetwork.HTTPResponse(status: 401) }
+                if let listStatus { return HomeswiftNetwork.HTTPResponse(status: listStatus) }
                 let fields = URLEncoding.fields(String(decoding: request.body ?? Data(), as: UTF8.self))
                 guard let nonce = fields["_nonce"], let signed = MiCloudSigning.signedNonce(ssecurity: fields["ssecurity"] ?? "", nonce: nonce) else {
                     return HomeswiftNetwork.HTTPResponse(status: 401)
@@ -442,6 +446,68 @@ struct PluginTests {
         #expect(plugin.context.accountRefusal == nil)
         #expect(try await plugin.discover().isEmpty)
         #expect(plugin.context.accountRefusal == "The Xiaomi session expired; sign in again.")
+        await host.stop()
+    }
+
+    /// A cloud that fails (HTTP 503) is not a refused session: the account stays set up.
+    @Test func serverErrorIsNotARefusal() async throws {
+        useCloud(FakeCloud(listStatus: 503))
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        await plugin.keep(MiSession(json: ["ssecurity": .string(FakeCloud.ssecurity), "userId": "42", "serviceToken": "old"])!)
+        #expect(try await plugin.discover().isEmpty)
+        #expect(plugin.context.accountRefusal == nil)
+        await host.stop()
+    }
+
+    /// A homebridge-miot block's account, without a session: the plugin signs in with its password (here Xiaomi asks for
+    /// a code, so the account needs a person).
+    @Test func blockPasswordSignsIn() async throws {
+        useCloud(FakeCloud())
+        let host = try await environment.start(settings: ["micloud": ["username": "user@example.com", "password": "secret-password", "country": "de"]])
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.accountAuthorized() == true)
+        #expect(try await plugin.discover().isEmpty)
+        #expect(environment.http.count("https://account.xiaomi.com/pass/serviceLoginAuth2") == 1)
+        #expect(plugin.context.accountRefusal == "Xiaomi asks for a code to sign in; sign in again.")
+        await host.stop()
+    }
+
+    /// A write the device refuses fails, so HomeKit keeps the value the device has.
+    @Test func refusedWriteFails() async throws {
+        let device = lamp()
+        let host = try await environment.start(settings: block([entry()]))
+        #expect(await eventually { environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.on]?.value == .bool(true) })
+        let on = try #require(environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.on])
+        device.state.withLockedValue { $0.writeCode = -4005 }
+        await #expect(throws: (any Error).self) { try await on.write(.bool(false)) }
+        #expect(on.value == .bool(true))
+        #expect(device["2.1"] == .bool(true))
+        await host.stop()
+    }
+
+    /// A device without deviceId keeps its accessory when it is off at the next start: its did was kept.
+    @Test func learnedDIDOutlivesARestart() async throws {
+        let device = lamp()
+        let first = try await environment.start(settings: block([entry(did: "", extra: ["deviceId": NSNull()])]))
+        #expect(await eventually { environment.accessory(first, did: Self.did) != nil })
+        await first.stop()
+        device.silent = true
+        let second = try await environment.start(settings: block([entry(did: "", extra: ["deviceId": NSNull()])]))
+        #expect(await eventually { environment.accessory(second, did: Self.did) != nil })
+        #expect(await eventually(timeout: .seconds(10)) { environment.accessory(second, did: Self.did)?.isUnavailable == true })
+        await second.stop()
+    }
+
+    /// Setup's probe of a running device's address leaves the running device its replies.
+    @Test func probeLeavesTheRunningDevice() async throws {
+        let device = lamp()
+        let host = try await environment.start(settings: block([entry()]))
+        #expect(await eventually { environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.brightness]?.value == .int(40) })
+        let plugin = try #require(environment.plugin)
+        _ = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["ip": "192.168.1.50", "token": Self.token]))
+        device["2.2"] = 80
+        #expect(await eventually { environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.brightness]?.value == .int(80) })
         await host.stop()
     }
 

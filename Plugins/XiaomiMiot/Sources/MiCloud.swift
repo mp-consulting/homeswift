@@ -302,6 +302,12 @@ struct MiCloud: Sendable {
         return try await http.send(request)
     }
 
+    /// An `https` address on `xiaomi.com` or `mi.com` (or a subdomain).
+    static func isXiaomiHTTPS(_ address: String) -> Bool {
+        guard let url = URL(string: address), url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }
+        return ["xiaomi.com", "mi.com"].contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
     // MARK: QR code (4.3)
 
     struct QRLogin: Sendable, Equatable {
@@ -352,6 +358,7 @@ struct MiCloud: Sendable {
 
     /// `GET <location>`: the response's `serviceToken` cookie completes the session.
     private func serviceToken(location: String, identity: Identity, jar: Jar) async throws -> String {
+        guard Self.isXiaomiHTTPS(location) else { throw CloudError.failed("Xiaomi's sign-in led outside Xiaomi") }
         let response = try await request(location, identity: identity, jar: jar)
         guard let token = Self.cookies(from: response)["serviceToken"], !token.isEmpty else {
             throw CloudError.failed("Xiaomi did not give a service token (HTTP \(response.status))")
@@ -426,6 +433,7 @@ struct MiCloud: Sendable {
     /// Opens the two-factor page, finds the account's identities, and has the code sent by email.
     func startTwoFactor(notification: String, identity: Identity, jar: Jar) async throws -> TwoFactor {
         var jar = jar
+        guard Self.isXiaomiHTTPS(notification) else { throw CloudError.failed("Xiaomi's sign-in led outside Xiaomi") }
         let page = try await request(notification, identity: identity, jar: jar)
         jar.merge(Self.cookies(from: page)) { $1 }
         guard let context = URLComponents(string: notification)?.queryItems?.first(where: { $0.name == "context" })?.value else {
@@ -482,6 +490,8 @@ struct MiCloud: Sendable {
         var location = next
         while let current = location, hops < 10 {
             hops += 1
+            // The session's cookies go to Xiaomi's own hosts, over HTTPS only.
+            guard Self.isXiaomiHTTPS(current) else { throw CloudError.failed("Xiaomi's sign-in led outside Xiaomi") }
             let response = try await request(current, identity: identity, jar: jar)
             jar.merge(Self.cookies(from: response)) { $1 }
             if let pragma = response.header("extension-pragma"), let fields = try? JSONValue(string: pragma), let found = fields["ssecurity"]?.stringValue {
@@ -492,7 +502,7 @@ struct MiCloud: Sendable {
                                  loginMethod: "password_2fa", identity: identity, country: country, now: now())
             }
             if let redirect = response.header("Location"), !redirect.isEmpty {
-                location = redirect.hasPrefix("http") ? redirect : Self.accountHost + redirect
+                location = redirect.hasPrefix("/") ? Self.accountHost + redirect : redirect
             } else if response.status == 200, !refetchedTips, String(decoding: response.body, as: UTF8.self).contains("Xiaomi Account - Tips") {
                 // The tips page: fetched once more.
                 refetchedTips = true
@@ -531,6 +541,8 @@ struct MiCloud: Sendable {
             ("Accept-Encoding", "identity"), ("MIOT-ENCRYPT-ALGORITHM", "ENCRYPT-RC4"), ("Cookie", Self.cookieHeader(cookies)),
         ], body: Data(URLEncoding.form(signed.fields).utf8), timeout: .seconds(15))
         let response = try await http.send(request)
+        // A server that fails or is busy is not a refused session (docs/plugins.md, "Setup").
+        if response.status >= 500 || response.status == 429 { throw CloudError.failed("Xiaomi's cloud answered HTTP \(response.status)") }
         guard response.isSuccess else { throw CloudError.refused }
         guard let plain = MiCloudSigning.decrypt(String(decoding: response.body, as: UTF8.self), signedNonce: signed.signedNonce),
               let json = try? JSONValue(data: plain) else { throw CloudError.refused }

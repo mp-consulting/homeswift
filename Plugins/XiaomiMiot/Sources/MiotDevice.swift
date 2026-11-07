@@ -397,9 +397,9 @@ actor MiotDevice: MiotDeviceIO {
         }
         let code = result[0]?["code"]?.intValue ?? 0
         guard code == 0 || code == 1 else {
-            // HomeKit gets the last known value back with the next poll.
+            // The write fails, so HomeKit keeps the value it had: polls would not correct it, the device's being unchanged.
             logger.warning("\(name) refused \(property.name): code \(code)")
-            return
+            throw HAPStatusError(.invalidValueInRequest)
         }
         if property.isReadable { apply([property.key: coerced], fromDevice: false) }
     }

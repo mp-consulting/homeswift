@@ -4,7 +4,7 @@ import HomeswiftPlugin
 import Logging
 
 // The MIoT spec registry (docs/clean-room/XiaomiMiot.md section 6.1): a model's instance spec is fetched from
-// miot-spec.org once, kept on the bridge (`spec_<model>.json` in the plugin's folder) and used from then on, also while
+// miot-spec.org once, kept on the bridge (`spec_<model>.json` in the plugin's folder, `jsonFile("spec/<model>.json")`) and used from then on, also while
 // the registry cannot be reached. Nothing is bundled.
 actor SpecRegistry {
     static let base = "https://miot-spec.org/miot-spec-v2"
@@ -32,6 +32,7 @@ actor SpecRegistry {
     private var memory: [String: MiotSpec] = [:]
     private var released: (list: [Instance], at: Date)?
     private var all: (list: [Instance], at: Date)?
+    private var downloads: [String: Task<[Instance], any Error>] = [:]
     /// Models whose list was checked for a newer version today.
     private var checked: [String: Date] = [:]
 
@@ -93,16 +94,25 @@ actor SpecRegistry {
 
     private func releasedList() async throws -> [Instance] {
         if let released, now().timeIntervalSince(released.at) < 86_400 { return released.list }
-        let list = try await instances(status: "released")
+        let list = try await download("released")
         released = (list, now())
         return list
     }
 
     private func allList() async throws -> [Instance] {
         if let all, now().timeIntervalSince(all.at) < 86_400 { return all.list }
-        let list = try await instances(status: "all")
+        let list = try await download("all")
         all = (list, now())
         return list
+    }
+
+    /// One download of a list at a time: devices starting together wait for the same one (the released list is about 2 MB).
+    private func download(_ status: String) async throws -> [Instance] {
+        if let running = downloads[status] { return try await running.value }
+        let task = Task { try await self.instances(status: status) }
+        downloads[status] = task
+        defer { downloads[status] = nil }
+        return try await task.value
     }
 
     private func instances(status: String) async throws -> [Instance] {

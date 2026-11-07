@@ -22,9 +22,8 @@ extension XiaomiMiotPlugin {
                 return PluginWebResponse(try await device.describe())
             case ("POST", "set_property"):
                 let device = try device(for: request.body["did"]?.stringValue ?? request.query["did"])
-                guard let property = request.body["property"]?.stringValue ?? request.body["property"]?.doubleValue.map({ String($0) }) else {
-                    return .error(400, "property is required")
-                }
+                // An id is text ("3.10"): as a number it would read 3.1.
+                guard let property = request.body["property"]?.stringValue else { return .error(400, "property is required, as text") }
                 guard let value = request.body["value"], !value.isNull else { return .error(400, "value is required") }
                 return PluginWebResponse(try await device.setProperty(property, value))
             case ("POST", "run_action"):

@@ -43,49 +43,82 @@ extension XiaomiMiotPlugin {
     }
 
     public func accountAuthorized() async -> Bool? {
-        if session() != nil { return true }
-        let credentials = accountCredentials
-        return credentials?["username"]?.stringValue != nil && credentials?["password"]?.stringValue != nil
+        session() != nil || storedLogin() != nil
     }
 
-    /// The account's devices in the configured region, kept 5 minutes (3.5). A refused session is signed in again when
-    /// the password is known (4.6), refreshed for a QR session, or said refused.
+    /// The account's username and password: Setup's (the vault), else a homebridge-miot block's `micloud` not yet moved.
+    func storedLogin() -> (username: String, password: String)? {
+        let credentials = accountCredentials
+        if let username = credentials?["username"]?.stringValue?.nonEmpty, let password = credentials?["password"]?.stringValue?.nonEmpty {
+            return (username, password)
+        }
+        if let username = configuration.micloud["username"]?.stringValue?.nonEmpty, let password = configuration.micloud["password"]?.stringValue?.nonEmpty {
+            return (username, password)
+        }
+        return nil
+    }
+
+    /// The account's devices in the configured region, kept 5 minutes (3.5). Without a session, a known password signs
+    /// in; a refused session is signed in again with the password (4.6), refreshed for a QR session, or said refused.
     func accountDevices() async -> [CloudDevice] {
         if let cloudList, dependencies.now().timeIntervalSince(cloudList.at) < dependencies.cloudListAge { return cloudList.devices }
-        guard let session = session() else { return [] }
         let country = configuration.country
+        let session: MiSession
+        if let kept = self.session() {
+            session = kept
+        } else if storedLogin() != nil, let signedIn = await renew(nil) {
+            keep(signedIn)
+            session = signedIn
+        } else {
+            return []
+        }
         do {
-            let list = try await cloud.devices(session: session, country: country)
-            cloudList = (list, dependencies.now())
-            remember(list)
-            logger.info("Found \(list.count) devices in the Xiaomi account (\(country))")
-            return list
+            return listed(try await cloud.devices(session: session, country: country), country: country)
         } catch MiCloud.CloudError.refused {
             guard let renewed = await renew(session) else {
                 context.accountRefused("The Xiaomi session expired; sign in again.")
                 return []
             }
             keep(renewed)
-            let list = (try? await cloud.devices(session: renewed, country: country)) ?? []
-            cloudList = (list, dependencies.now())
-            remember(list)
-            return list
+            do {
+                return listed(try await cloud.devices(session: renewed, country: country), country: country)
+            } catch {
+                logger.warning("Could not list the Xiaomi account's devices: \(error)")
+                return []
+            }
         } catch {
             logger.warning("Could not list the Xiaomi account's devices: \(error)")
             return []
         }
     }
 
-    /// A new session without a person: the password again, or a QR session's refresh.
-    private func renew(_ session: MiSession) async -> MiSession? {
-        let credentials = accountCredentials
-        if let username = credentials?["username"]?.stringValue, let password = credentials?["password"]?.stringValue {
-            if case .signedIn(let renewed)? = try? await cloud.passwordLogin(username: username, password: password, identity: session.identity,
-                                                                              country: configuration.country) {
-                return renewed
+    private func listed(_ list: [CloudDevice], country: String) -> [CloudDevice] {
+        cloudList = (list, dependencies.now())
+        remember(list)
+        logger.info("Found \(list.count) devices in the Xiaomi account (\(country))")
+        return list
+    }
+
+    /// A new session without a person: the password (again), or a QR session's refresh. A sign-in that wants a code
+    /// says the account refused: a person has to sign in.
+    private func renew(_ session: MiSession?) async -> MiSession? {
+        if let login = storedLogin() {
+            let identity = session?.identity ?? MiCloud.Identity.random()
+            do {
+                switch try await cloud.passwordLogin(username: login.username, password: login.password, identity: identity, country: configuration.country) {
+                case .signedIn(let renewed):
+                    return renewed
+                case .twoFactor:
+                    context.accountRefused("Xiaomi asks for a code to sign in; sign in again.")
+                }
+            } catch is MiCloud.PasswordError {
+                context.accountRefused("Xiaomi did not take the account's password; sign in again.")
+            } catch {
+                logger.warning("Could not sign in to the Xiaomi account: \(error)")
             }
             return nil
         }
+        guard let session else { return nil }
         return try? await cloud.refresh(session)
     }
 
@@ -331,20 +364,16 @@ extension XiaomiMiotPlugin {
         return .done(SetupOutcome(credentials: ["token": .string(token.hex)], settings: settings, deviceID: probed.did))
     }
 
-    /// A hello and `miIO.info` at the address with the token: the did and the model.
+    /// A hello and `miIO.info` at the address with the token: the did (from the reply the token verified) and the model.
+    /// On a socket of its own, so a running device at that address keeps its replies.
     func probe(address: String, token: MiioToken) async throws -> (did: String, model: String?) {
-        let hub = hub ?? MiioHub(network: dependencies.network, logger: logger)
+        let hub = MiioHub(network: dependencies.network, logger: logger)
         let client = MiioClient(host: address, token: token, hub: hub, timings: dependencies.timings.miio, logger: logger)
         await client.attach()
-        defer {
-            Task {
-                await client.detach()
-                if self.hub == nil { await hub.close() }
-            }
-        }
+        defer { Task { await hub.close() } }
         do {
             let info = try await client.info()
-            guard let did = await client.deviceID else { throw MiioError.invalidReply }
+            guard let did = await client.verifiedDeviceID else { throw MiioError.invalidReply }
             return (String(did), info["model"]?.stringValue)
         } catch MiioError.wrongToken {
             throw SetupError("That token does not open the device at \(address).")

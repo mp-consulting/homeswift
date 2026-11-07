@@ -128,6 +128,8 @@ final class FakeMiioDevice: @unchecked Sendable {
         var stamp: UInt32 = 0x1000
         /// Errors to answer, in turn, before the next answers.
         var errors: [(code: Int, message: String)] = []
+        /// set_properties answers this code per item (a refusal) instead of 0.
+        var writeCode = 0
     }
 
     init(ip: String, did: UInt32, token: String, model: String, spec: MiotSpec? = nil) {
@@ -202,8 +204,8 @@ final class FakeMiioDevice: @unchecked Sendable {
             if state.unknownMIoT { return "unknown_method" }
             return .array((params.arrayValue ?? []).map { item in
                 let key = PropertyKey(siid: item["siid"]?.intValue ?? 0, piid: item["piid"]?.intValue ?? 0)
-                state.properties[key] = item["value"] ?? .null
-                return ["did": item["did"] ?? .null, "siid": .number(Double(key.siid)), "piid": .number(Double(key.piid)), "code": 0]
+                if state.writeCode == 0 { state.properties[key] = item["value"] ?? .null }
+                return ["did": item["did"] ?? .null, "siid": .number(Double(key.siid)), "piid": .number(Double(key.piid)), "code": .number(Double(state.writeCode))]
             })
         case "action":
             return ["code": 0, "out": []]

@@ -80,6 +80,7 @@ public actor XiaomiMiotPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        learnedDIDs = context.jsonFile("learned-dids.json", as: [String: String].self).load() ?? [:]
         registry = SpecRegistry(http: dependencies.http, file: { model in context.jsonFile("spec/\(model).json", as: SpecRegistry.Stored.self) },
                                 logger: dependencies.logger ?? context.logger, now: dependencies.now)
     }
@@ -162,26 +163,46 @@ public actor XiaomiMiotPlugin: HomeswiftPlugin {
 
     private func startDevices() async {
         let hub = sharedHub()
-        var keep = Set<String>()
-        for configured in configuredDevices() {
-            guard !Task.isCancelled else { return }
-            var configured = configured
-            if configured.did == nil {
-                // homebridge-miot learns the did from the hello reply.
-                guard let did = await learnDID(ip: configured.ip, token: configured.token) else {
-                    logger.warning("The device at \(configured.ip) did not answer; its did is unknown, so it is not added yet")
-                    continue
-                }
-                learnedDIDs[configured.ip] = did
-                configured.did = did
+        var configured = configuredDevices()
+        // homebridge-miot learns a did from the device: all at once, so one that does not answer delays no other.
+        let unknown = configured.filter { $0.did == nil }
+        if !unknown.isEmpty {
+            let asking = unknown.map { device in Task { (device.ip, await self.learnDID(ip: device.ip, token: device.token)) } }
+            for task in asking {
+                let (ip, did) = await task.value
+                if let did { rememberDID(did, ip: ip) }
             }
-            guard let did = configured.did, !context.isExcluded(did), devices[did] == nil else { continue }
-            let device = makeDevice(did: did, configured: configured, hub: hub)
-            devices[did] = device
-            keep.insert(context.accessoryID(of: did))
-            await device.start()
+            configured = configuredDevices()
         }
-        _ = await context.removeAccessories(keeping: keep)
+        var keep = Set<String>()
+        var unresolved = false
+        for device in configured {
+            guard !Task.isCancelled else { return }
+            guard let did = device.did else {
+                unresolved = true
+                logger.warning("The device at \(device.ip) did not answer; its did is unknown, so it is not added yet")
+                continue
+            }
+            guard !context.isExcluded(did) else { continue }
+            keep.insert(context.accessoryID(of: did))
+            guard devices[did] == nil else { continue }
+            let running = makeDevice(did: did, configured: device, hub: hub)
+            devices[did] = running
+            await running.start()
+        }
+        // A device whose did is unknown may be one of the cached accessories: none is removed until all are known.
+        if !unresolved { _ = await context.removeAccessories(keeping: keep) }
+    }
+
+    /// The dids learned from devices, by address, kept so a device that is off at the next start keeps its accessory.
+    var learnedDIDFile: JSONFile<[String: String]> { context.jsonFile("learned-dids.json", as: [String: String].self) }
+
+    func rememberDID(_ did: String, ip: String) {
+        learnedDIDs[ip] = did
+        var saved = learnedDIDFile.load() ?? [:]
+        guard saved[ip] != did else { return }
+        saved[ip] = did
+        try? learnedDIDFile.save(saved)
     }
 
     func makeDevice(did: String, configured: ConfiguredDevice, hub: MiioHub) -> MiotDevice {
@@ -208,12 +229,9 @@ public actor XiaomiMiotPlugin: HomeswiftPlugin {
     }
 
     /// Asks the device at `ip` who it is: the did of its hello reply.
+    /// The did of a verified reply: a hello alone proves nothing. Nil when the device does not answer.
     func learnDID(ip: String, token: MiioToken) async -> String? {
-        let client = MiioClient(host: ip, token: token, hub: sharedHub(), timings: dependencies.timings.miio, logger: logger)
-        await client.attach()
-        defer { Task { await client.detach() } }
-        _ = try? await client.info()
-        return await client.deviceID.map { String($0) }
+        try? await probe(address: ip, token: token).did
     }
 
     // MARK: What is known of the account's devices (not secret)

@@ -76,6 +76,15 @@ import Testing
     }
 
     /// Section 10: what the account lists that is out of scope.
+    /// The sign-in's cookies only go to Xiaomi's hosts over HTTPS.
+    @Test func xiaomiHosts() {
+        #expect(MiCloud.isXiaomiHTTPS("https://account.xiaomi.com/identity/result/check"))
+        #expect(MiCloud.isXiaomiHTTPS("https://sts.api.io.mi.com/sts?ticket=1"))
+        #expect(!MiCloud.isXiaomiHTTPS("http://account.xiaomi.com/pass"))
+        #expect(!MiCloud.isXiaomiHTTPS("https://xiaomi.com.example.net/"))
+        #expect(!MiCloud.isXiaomiHTTPS("https://evilmi.com/"))
+    }
+
     @Test func outOfScope() throws {
         func device(_ fields: [String: JSONValue]) -> CloudDevice {
             var base: [String: JSONValue] = ["did": "1", "localip": "192.168.1.9", "ssid": "Home", "model": "zhimi.fan.za5"]

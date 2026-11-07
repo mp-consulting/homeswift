@@ -331,7 +331,8 @@ extension MiotSpec {
     }
 
     /// Device types and models out of scope (section 10): cameras, doorbells, speakers, gateways, IR remotes.
-    static let skippedDeviceTypes: Set<String> = ["camera", "video-doorbell", "speaker", "gateway"]
+    /// Not published (section 10); locks and doors too, which only `set_security_accessory` may write (CLAUDE.md).
+    static let skippedDeviceTypes: Set<String> = ["camera", "video-doorbell", "speaker", "gateway", "lock", "door"]
 
     static func isSkippedModel(_ model: String) -> Bool {
         model.contains(".ir.") || model.hasPrefix("miir.")

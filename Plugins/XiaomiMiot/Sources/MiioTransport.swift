@@ -142,6 +142,8 @@ actor MiioClient {
 
     /// The did the device gives in its replies; the configured one until it answered.
     private(set) var deviceID: UInt32?
+    /// The did of the last reply the token verified; nil until one came.
+    private(set) var verifiedDeviceID: UInt32?
     private var stamp: (value: UInt32, at: ContinuousClock.Instant)?
     private var lastPacket: ContinuousClock.Instant?
     private var lastID = 0
@@ -299,12 +301,12 @@ actor MiioClient {
         pending.removeValue(forKey: id)?.resume(throwing: MiioError.timeout)
     }
 
-    /// A packet from the device's address.
+    /// A packet from the device's address. A hello reply carries no checksum: it gives the did and stamp requests are
+    /// sent with, while only a reply the token verifies (its header is in the checksum) proves the did (`verifiedDeviceID`).
     func receive(_ data: Data) {
         guard let packet = MiioPacket(data) else { return }
-        lastPacket = now()
-        if packet.stamp > 0 { stamp = (packet.stamp, now()) }
         if packet.isHandshake {
+            note(packet)
             if deviceID != packet.deviceID { deviceID = packet.deviceID }
             handshakeWaiter?.resume(returning: true)
             handshakeWaiter = nil
@@ -315,6 +317,8 @@ actor MiioClient {
             logger.debug("Dropped a packet from \(host) that the token does not open")
             return
         }
+        note(packet)
+        verifiedDeviceID = packet.deviceID
         guard let reply = try? JSONValue(data: plain), let id = reply["id"]?.intValue else {
             logger.debug("Dropped a reply from \(host) that is not JSON")
             return
@@ -325,6 +329,11 @@ actor MiioClient {
         } else {
             continuation.resume(returning: reply["result"] ?? .null)
         }
+    }
+
+    private func note(_ packet: MiioPacket) {
+        lastPacket = now()
+        if packet.stamp > 0 { stamp = (packet.stamp, now()) }
     }
 
     /// `unknown_method`, or a list or object holding it.
