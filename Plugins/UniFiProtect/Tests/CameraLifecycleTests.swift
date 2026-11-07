@@ -40,6 +40,33 @@ extension CameraStreamingTests {
         await recording.updateRecordingActive(false)
     }
 
+    @Test func aCameraCleanedUpStopsItsTimeshiftBufferAtOnce() async throws {
+        let environment = ProtectTestEnvironment(timeScale: 1, ffmpeg: FakeFfmpegKit())
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        _ = await controller(environment, host, Self.cameraID)
+        let device = await environment.device("camera-id")
+        let recording = try #require(await recording(device))
+        await recording.updateRecordingConfiguration(Self.recordingConfiguration())
+        let activation = Task { await recording.updateRecordingActive(true) }
+        let socket = try #require(await eventually { environment.webSockets.connections.contains { $0.path.contains("livestream") } }
+            ? environment.webSockets.connections.last { $0.path.contains("livestream") } : nil)
+        socket.push(ProtocolTests.livePacket(250, Data("init".utf8)))
+        await activation.value
+        let timeshift = await recording.timeshift
+        #expect(await timeshift.isStarted)
+        // Stopped when cleanup returns, not by a task after it: a livestream event handled later would read the camera's
+        // log through a controller that may be gone.
+        #expect(await Self.cleanUp(device) == false)
+    }
+
+    /// Cleans up a camera and says whether its timeshift buffer is still started, in one step on the plugin's actor.
+    @ProtectActor static func cleanUp(_ device: ProtectDevice?) -> Bool? {
+        guard let camera = device as? ProtectCamera, let timeshift = camera.stream?.hksv?.timeshift else { return nil }
+        camera.cleanup()
+        return timeshift.isStarted
+    }
+
     @Test func consumersStartingTogetherShareOneSession() async throws {
         let environment = ProtectTestEnvironment(timeScale: 1, ffmpeg: FakeFfmpegKit())
         let host = try await environment.start()

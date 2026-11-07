@@ -155,7 +155,7 @@ final class ProtectLivestreamListener {
     private let livestream: ProtectLivestream
     private let token: Int
     private let continuation: AsyncStream<ProtectLivestream.Event>.Continuation
-    private var task: Task<Void, Never>?
+    private let task: Task<Void, Never>
 
     init(_ livestream: ProtectLivestream, _ handler: @escaping @ProtectActor (ProtectLivestream.Event) -> Void) {
         self.livestream = livestream
@@ -163,8 +163,13 @@ final class ProtectLivestreamListener {
         let (events, continuation) = AsyncStream.makeStream(of: ProtectLivestream.Event.self, bufferingPolicy: .bufferingNewest(ProtectSettings.segmentQueueMaxLength))
         self.continuation = continuation
         token = livestream.observe { event in continuation.yield(event) }
+        // `cancel()` and the handler run on the plugin's actor: once cancelled, what was already queued is dropped, since
+        // the handler's owner may be going away with its controller.
         task = Task { @ProtectActor in
-            for await event in events { handler(event) }
+            for await event in events {
+                guard !Task.isCancelled else { break }
+                handler(event)
+            }
         }
     }
 
@@ -172,7 +177,11 @@ final class ProtectLivestreamListener {
     func cancel() {
         livestream.removeObserver(token)
         continuation.finish()
-        task?.cancel()
-        task = nil
+        task.cancel()
+    }
+
+    /// Returns once the listener has handled its last event: after `cancel()`, or when the livestream's events end.
+    func finished() async {
+        await task.value
     }
 }
