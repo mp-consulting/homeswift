@@ -1511,6 +1511,7 @@ public final class UIServer: Sendable {
                 ["date": .string(day.string(from: one.start)), "minutes": .number(Double(one.minutes)),
                  "solar": kWh(one.solar), "home": kWh(one.home), "gridImport": kWh(one.gridImport), "gridExport": kWh(one.gridExport),
                  "batteryCharge": kWh(one.batteryCharge), "batteryDischarge": kWh(one.batteryDischarge), "homeFromSolar": kWh(one.homeFromSolar),
+                 "homeFromGrid": kWh(one.homeFromGrid), "homeFromBattery": kWh(one.homeFromBattery),
                  "solarShare": one.solarShare.map { .number(($0 * 1000).rounded() / 1000) } ?? .null]
             }),
         ]

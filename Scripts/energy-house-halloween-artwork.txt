@@ -1,0 +1,17 @@
+Haunted Halloween artwork
+
+Created using the built-in image generation tool; encoded as WebP. This replaces the earlier autumn Halloween scene.
+
+Saved in /Users/powermike/Documents/Dev.nosync/homeswift/Sources/HomeswiftUI/Web/ as energy-house-halloween.webp, energy-house-halloween-night.webp, energy-house-halloween-no-battery.webp, and energy-house-halloween-no-battery-night.webp.
+
+creepyHalloweenPrompt
+Make this Halloween house MUCH CREEPIER and haunted, with prominent TOMBSTONES. Exact 1536x1024 photorealistic dashboard cutaway asset. Preserve exact camera, two-storey outline, every floor edge, solar panel array, inverter at left, battery below, electrical board at right, utility pole and neutral conduits at identical pixel positions for overlay wiring. Transform facade to aged dark gray stone with creeping ivy, interior into eerie antique dark wood and faded Victorian furnishings while keeping all rooms visible. Surroundings: twisted bare trees, ominous overcast slate sky, low drifting ground fog, dead autumn leaves. Add several very visible weathered crooked stone tombstones with carved skull motifs in the foreground lower left and lower right, beside amber glowing jack-o-lanterns. Tombstones must remain outside the cutaway, not block rooms, battery or board. Unsettling atmospheric haunted house, dim amber candle-like room light, cinematic realism. Keep even rooftop solar panels clear and intact. No people, no gore, no text, no watermark, no glowing electrical energy wires. This is the DAY/overcast dusk variant, so outdoor architectural details remain readable.
+
+creepyHalloweenNightPrompt
+Precise night lighting edit of this creepy haunted Halloween house dashboard. Preserve exact 1536x1024 dimensions, camera, every room, tombstone, pumpkin, tree, device, solar panel and conduit at identical pixel positions. Change only outdoor lighting to a sinister deep blue-black moonlit night, silver fog around the tombstones, glowing amber jack-o-lanterns and dim candlelit Victorian interiors. Keep tombstones, rooms and energy equipment readable. Keep roof panels unobscured. No additional objects, no glowing energy wiring, no text, no cropping.
+
+creepyHalloweenNoBatteryPrompt
+Precise object removal for this creepy haunted house dashboard. Remove ONLY the tall white battery at x215-286,y718-856 and its short conduit upward to the inverter. Fill with matching weathered dark stone wall. Keep the small inverter above. Preserve exact 1536x1024 dimensions, camera, all tombstones, pumpkins, fog, trees, Victorian rooms, other equipment and conduits, solar array and overcast lighting at identical pixel positions. No text, no crop, no extra changes.
+
+creepyHalloweenNightNoBatteryPrompt
+undefined

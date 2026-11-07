@@ -471,10 +471,8 @@
     openEvents();
     // The user's theme, wallpaper and units; a page showing temperatures draws again when the unit changed.
     const shownUnit = HomeswiftCommon.preferences().temperatureUnit;
-    const shownHouse = HomeswiftCommon.preferences().energyHouseStyle;
     HomeswiftCommon.loadPreferences().then((preferences) => {
-      if ((preferences.temperatureUnit !== shownUnit && ["/", "/status", "/accessories"].includes(location.pathname))
-        || (preferences.energyHouseStyle !== shownHouse && location.pathname === "/status")) route();
+      if (preferences.temperatureUnit !== shownUnit && ["/", "/status", "/accessories"].includes(location.pathname)) route();
     });
     route();
   }
@@ -1595,8 +1593,8 @@
     ];
     for (const one of utilities) one.node.hidden = true;
     consumersMore.addEventListener("click", () => { consumersAll = !consumersAll; if (lastConsumption) fillConsumers(lastConsumption); });
-    const today = el("div", { class: "energy-today" });
     // Where the power flows now, or flowed today: the house or the diagram.
+    // One figure at a time: each in its own unit, not scaled to a series' top.
     const flow = HomeswiftEnergyFlow.card({ watts: (value) => formatWatts(value), kWh: (value) => formatKWh(value), percent: formatPercent });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
     const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
@@ -1604,7 +1602,6 @@
     const rangeBar = el("div", { class: "filter-bar" }, range.control);
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
-      today,
       flow.node,
       rangeBar,
       el("div", { class: "chart-grid" }, power.node, levels.node),
@@ -1618,8 +1615,8 @@
     /// Shown when a plugin records the home's energy or some meter has a history; the home's charts only for the first.
     function showSection() {
       section.hidden = !hasRoles && !hasMeters;
-      for (const node of [today, rangeBar, pointTable, days.node]) node.hidden = !hasRoles;
-      if (!hasRoles) flow.node.hidden = true;
+      for (const node of [rangeBar, pointTable, days.node]) node.hidden = !hasRoles;
+      if (!hasRoles) flow.node.hidden = true;   // with roles, the card decides from the report
       if (!hasRoles) { power.node.hidden = true; levels.node.hidden = true; }
       // Without the home's energy there is no first day to stop at: the meters' periods go back as far as asked.
       if (!hasRoles) previous.disabled = false;
@@ -1693,7 +1690,6 @@
       }
       lastReport = report;
       if (pointTable.open) fillPoints();
-      fillToday(report.days[0], report.roles);
       flow.update(report);
       // The history moves on with today; a period in the past stays as it is.
       if (!anchor || !historyAsked) loadHistory();
@@ -1976,22 +1972,6 @@
             const one = known(bar) ? bar[field] : null;
             return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
           })))))));
-    }
-
-    /// Today's figures, each with its label: solar produced, the home's use, the share solar covered, the grid's import.
-    function fillToday(day, present) {
-      const has = (role) => present.includes(role);
-      // Each with its entity's icon and colour, as the charts draw it.
-      const figure = (icon, tone, label, value, note) => el("div", { class: "card" }, tile(icon, tone),
-        el("div", {}, el("span", { text: label }), el("b", { text: value }), note ? el("small", { text: note }) : null));
-      const known = Boolean(day?.minutes);
-      const kWh = (value) => known ? formatKWh(value) : "–";
-      today.replaceChildren(...[
-        has("solar") ? figure("sun", "yellow", t("Solar today"), kWh(day?.solar)) : null,
-        has("home") ? figure("house", "blue", t("Home used today"), kWh(day?.home)) : null,
-        has("solar") && has("home") ? figure("leaf", "green", t("Home from solar"), known && day.solarShare != null ? formatPercent(day.solarShare * 100) : "–", t("As it was produced")) : null,
-        has("grid") ? figure("pylon", "violet", t("Grid import today"), kWh(day?.gridImport), known ? t("{value} exported", { value: formatKWh(day.gridExport) }) : null) : null,
-      ].filter(Boolean));
     }
 
     /// The power and levels at each point, newest first.
@@ -4871,21 +4851,16 @@
 
   views.appearance = async (main) => {
     let preferences = await HomeswiftCommon.loadPreferences();
-    const message = el("p", { class: "status-line muted", role: "status" });
-    const houseMessage = el("p", { class: "status-line muted house-style-status", role: "status" });
-    const choose = async (change) => {
-      message.className = "status-line muted";
-      message.textContent = t("Saving…");
-      if (change.energyHouseStyle) { houseMessage.className = "status-line muted house-style-status"; houseMessage.textContent = message.textContent; }
+    const message = HomeswiftCommon.statusLine();
+    const houseMessage = HomeswiftCommon.statusLine();
+    /// Saves a choice and says so on `line`: the page's own status line, or the card's that made it.
+    const choose = async (change, line = message) => {
+      HomeswiftCommon.say(line, t("Saving…"));
       try {
         preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: change }));
-        message.textContent = t("Saved for your account, on every browser.");
-        if (change.energyHouseStyle) houseMessage.textContent = message.textContent;
-        draw();
-      } catch (e) {
-        message.className = "status-line error"; message.textContent = e.message;
-        if (change.energyHouseStyle) { houseMessage.className = "status-line error house-style-status"; houseMessage.textContent = e.message; draw(); }
-      }
+        HomeswiftCommon.say(line, t("Saved for your account, on every browser."));
+      } catch (e) { HomeswiftCommon.say(line, e.message, "error"); }
+      draw();
     };
     const segmented = (label, value, options, key) => el("div", { class: "group", role: "radiogroup", "aria-label": label },
       options.map(([option, text]) => el("button", { type: "button", role: "radio", actionIcon: key === "language" ? undefined : key === "temperatureUnit" ? "thermo" : "sun", class: option === value ? "on" : "", "aria-checked": String(option === value),
@@ -4954,18 +4929,26 @@
           el("p", { class: "muted", text: t("Choose how the house looks in Energy flow. Your readings and animations stay the same.") }),
           el("fieldset", { class: "house-style-choices", "aria-label": t("House style") },
             [["simple", t("Simple"), t("A clean model with clear energy paths."), "energy-house-simple"],
-             ["realistic", t("Realistic"), t("Detailed rooms with warm lighting."), "energy-house"]].map(([value, title, description, asset]) =>
+             ["realistic", t("Realistic"), t("Detailed rooms with warm lighting."), "energy-house"],
+             ["beach", t("Beach house"), t("An airy coastal home beside the ocean."), "energy-house-beach"],
+             ["cabin", t("Woodland cabin"), t("A cozy timber home among the trees."), "energy-house-cabin"],
+             ["apartment", t("Rooftop apartment"), t("A penthouse terrace above the city."), "energy-house-apartment"],
+             ["snow", t("Snow"), t("A cozy home in a quiet winter landscape."), "energy-house-snow"],
+             ["christmas", t("Christmas"), t("Festive lights and a warmly decorated home."), "energy-house-christmas"],
+             ["halloween", t("Halloween"), t("A haunted house with tombstones and mist."), "energy-house-halloween"]].map(([value, title, description, asset]) =>
               el("label", { class: "house-style-choice" },
-                el("img", { src: `/${asset}.webp`, alt: "", width: 320, height: 220, loading: "lazy" }),
+                el("div", { class: "house-style-artwork" },
+                  el("img", { src: `/${asset}.webp`, alt: "", width: 320, height: 220, loading: "lazy" }), HomeswiftEnergyFlow.solarPanels(value)),
                 el("span", { class: "house-style-name" },
-                  el("input", { type: "radio", name: "energyHouseStyle", value, checked: (preferences.energyHouseStyle || "realistic") === value,
+                  el("input", { type: "radio", name: "energyHouseStyle", value, checked: preferences.energyHouseStyle === value,
                     onchange: async (event) => {
                       if (!event.target.checked) return;
                       event.target.closest("fieldset").disabled = true;
-                      await choose({ energyHouseStyle: value });
+                      await choose({ energyHouseStyle: value }, houseMessage);
                       body.querySelector('input[name="energyHouseStyle"]:checked')?.focus({ preventScroll: true });
                     } }), el("strong", { text: title })),
                 el("span", { class: "house-style-description", text: description })))), houseMessage),
+        HomeswiftHouseEditor({ preferences, api, scaledImage, saved: result => { preferences = HomeswiftCommon.applyPreferences(result); draw(); HomeswiftCommon.say(houseMessage, t("Saved for your account, on every browser.")); } }),
         el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("image"), el("span", { text: t("Wallpaper") })),
           el("p", { class: "muted", text: t("Behind the glass of every page.") }),
           el("div", { class: "wallpapers", role: "radiogroup", "aria-label": t("Wallpaper") },

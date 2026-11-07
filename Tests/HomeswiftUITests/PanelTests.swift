@@ -154,8 +154,11 @@ struct PanelTests {
         #expect(defaults.json?["language"] == "auto")
         #expect(defaults.json?["energyHouseStyle"] == "realistic")
         #expect(try await browser.put("/api/preferences", ["energyHouseStyle": "simple"]).json?["energyHouseStyle"] == "simple")
+        for style in ["beach", "cabin", "apartment", "snow", "christmas", "halloween"] {
+            #expect(try await browser.put("/api/preferences", ["energyHouseStyle": .string(style)]).json?["energyHouseStyle"] == .string(style))
+        }
         #expect(try await browser.put("/api/preferences", ["energyHouseStyle": "unknown"]).status == 400)
-        #expect(PreferencesStore(url: environment.directory.appendingPathComponent("ui-preferences.json")).preferences(for: "local")["energyHouseStyle"] == "simple")
+        #expect(PreferencesStore(url: environment.directory.appendingPathComponent("ui-preferences.json")).preferences(for: "local")["energyHouseStyle"] == "halloween")
         #expect(PreferencesStore(url: environment.directory.appendingPathComponent("ui-preferences.json")).preferences(for: "another-user")["energyHouseStyle"] == "realistic")
 
         #expect(try await browser.put("/api/preferences", ["language": "pt"]).json?["language"] == "pt")
