@@ -20,6 +20,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Home Assistant** plugin (experimental, tested against a fake server): a Home Assistant server's lights, switches,
+  covers, locks, thermostats, sensors, fans, media players' power, scenes, scripts, buttons, valves, alarm panels and
+  humidifiers over its WebSocket API, one accessory per HA device; set up from Add accessories with a long-lived access
+  token, entities that come back from this bridge through HA's HomeKit Controller skipped, and a `mirror` setting for
+  entities HA's own HomeKit bridge already publishes.
 - The Status page's Energy section opens on an **Energy flow** card, followed live: a cutaway house whose wiring
   lights up in the colour of what feeds the home (solar, the battery, the grid, in proportion when they share), by
   day or after sunset at the bridge's Location by night, in each user's **House style** (Appearance: realistic,
