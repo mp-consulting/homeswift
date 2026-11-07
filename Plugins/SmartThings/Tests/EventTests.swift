@@ -38,7 +38,8 @@ struct EventTests {
         // The first list is the welcome's.
         #expect(cloud.sent("GET", "/v1/devices").isEmpty)
         cloud.push(Self.event("CONTROL_EVENT", "welcome"))
-        #expect(await eventually { host.accessory(Fixture.lamp) != nil })
+        // The remote is the list's last device: once it is there, every device is.
+        #expect(await eventually { host.accessory(Fixture.remote) != nil })
         let plugin = try #require(environment.plugin)
         #expect(await plugin.sseActive)
 
@@ -119,29 +120,34 @@ struct EventTests {
 
     /// No more than 12 status reads or command requests a minute per device (section 6.1): a minute is 500 ms here, and
     /// the 13th request of a burst waits for it.
+    /// Twelve requests a minute per device, on a virtual clock: the test moves the time, so the counts are exact.
     @Test func eachDeviceGetsTwelveRequestsAMinute() async throws {
         let cloud = FakeSmartThings()
         cloud.answer("GET", "/v1/devices/d/status", ["components": [:]])
         cloud.answer("GET", "/v1/devices/e/status", ["components": [:]])
-        let window = Duration.milliseconds(500)
-        let limiter = RateLimiter(limit: 12, window: window)
+        let clock = ManualClock()
+        let limiter = RateLimiter(limit: 12, window: .seconds(60), clock: clock.limiterClock)
         let api = try await TestAPI.make(cloud, limiter: limiter)
-        let started = ContinuousClock.now
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<30 { group.addTask { _ = try? await api.status(deviceID: "d") } }
-            // Another device has its own twelve.
-            group.addTask { _ = try? await api.status(deviceID: "e") }
+        let sent: @Sendable () -> Int = { cloud.sent("GET", "/v1/devices/d/status").count }
+        let all = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<30 { group.addTask { _ = try? await api.status(deviceID: "d") } }
+                // Another device has its own twelve.
+                group.addTask { _ = try? await api.status(deviceID: "e") }
+            }
         }
-        let times = cloud.sent("GET", "/v1/devices/d/status").map(\.at).sorted()
-        #expect(times.count == 30)
-        #expect(await limiter.waits >= 18)
-        // Thirty requests need two waits of a window; a request's send may lag its slot by the scheduler's jitter.
-        #expect(times[29] - started >= window * 2 - .milliseconds(20))
-        // At most twelve before the first window ends and 24 before the second: a send lagging its slot only comes later,
-        // so the counts hold however busy the machine is.
-        #expect(times.filter { $0 < started + window }.count <= 12)
-        #expect(times.filter { $0 < started + window * 2 }.count <= 24)
-        #expect(cloud.sent("GET", "/v1/devices/e/status").count == 1)
+        // At the start: twelve sent, eighteen waiting for the window; the other device is not held up.
+        #expect(await eventually { sent() == 12 && clock.sleepers == 18 && cloud.sent("GET", "/v1/devices/e/status").count == 1 })
+        // A window later: twelve more, six still waiting.
+        clock.advance(by: .seconds(60))
+        #expect(await eventually { sent() == 24 && clock.sleepers == 6 })
+        // A second short of the next window: nothing more.
+        clock.advance(by: .seconds(59))
+        #expect(sent() == 24 && clock.sleepers == 6)
+        clock.advance(by: .seconds(1))
+        await all.value
+        #expect(sent() == 30)
+        #expect(await limiter.waits == 24)
     }
 
     /// A 429 backs off the whole plugin: reads are not sent until it passes.
@@ -164,5 +170,41 @@ struct EventTests {
         let api = try await TestAPI.make(cloud) { _ in try #require(TokenResponse(["access_token": "fresh", "refresh_token": "r2", "expires_in": 86399])) }
         _ = try await api.status(deviceID: "d")
         #expect(cloud.sent("GET", "/v1/devices/d/status").map(\.authorization) == ["Bearer access", "Bearer fresh"])
+    }
+}
+
+/// A clock that moves only when the test says: sleepers wake when it reaches their time.
+final class ManualClock: Sendable {
+    private struct State {
+        var now: Duration = .zero
+        var sleepers: [(until: Duration, wake: CheckedContinuation<Void, Never>)] = []
+    }
+    private let state = NIOLockedValueBox(State())
+
+    var sleepers: Int { state.withLockedValue { $0.sleepers.count } }
+
+    var limiterClock: LimiterClock {
+        LimiterClock(now: { [self] in state.withLockedValue { $0.now } }, sleep: { [self] duration in await sleep(duration) })
+    }
+
+    func sleep(_ duration: Duration) async {
+        await withCheckedContinuation { (wake: CheckedContinuation<Void, Never>) in
+            let now = state.withLockedValue { state -> Bool in
+                guard duration > .zero else { return true }
+                state.sleepers.append((state.now + duration, wake))
+                return false
+            }
+            if now { wake.resume() }
+        }
+    }
+
+    func advance(by duration: Duration) {
+        let woken = state.withLockedValue { state -> [CheckedContinuation<Void, Never>] in
+            state.now += duration
+            let due = state.sleepers.filter { $0.until <= state.now }
+            state.sleepers.removeAll { $0.until <= state.now }
+            return due.map(\.wake)
+        }
+        for wake in woken { wake.resume() }
     }
 }

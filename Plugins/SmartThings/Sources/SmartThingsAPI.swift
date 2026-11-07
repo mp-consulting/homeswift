@@ -19,21 +19,35 @@ struct SmartThingsTiming: Sendable {
 
 /// Requests a minute per key (a device, the SSE API): SmartThings allows 12 status reads or command requests a minute
 /// per device, and 20 SSE calls a minute (docs/clean-room/SmartThings.md, 6.1). A request over the limit waits for a slot.
+/// The limiter's time: how long since it started, and a sleep. The bridge's is the continuous clock; tests move a
+/// virtual one, so what is sent in which window does not depend on how busy the machine is.
+struct LimiterClock: Sendable {
+    var now: @Sendable () -> Duration
+    var sleep: @Sendable (Duration) async throws -> Void
+
+    static var continuous: LimiterClock {
+        let origin = ContinuousClock.now
+        return LimiterClock(now: { ContinuousClock.now - origin }, sleep: { try await Task.sleep(for: $0) })
+    }
+}
+
 actor RateLimiter {
     let limit: Int
     let window: Duration
-    private var sent: [String: [ContinuousClock.Instant]] = [:]
-    /// How many requests waited for a slot: for tests.
+    let clock: LimiterClock
+    private var sent: [String: [Duration]] = [:]
+    /// How many times a request waited for a slot: for tests.
     private(set) var waits = 0
 
-    init(limit: Int, window: Duration) {
+    init(limit: Int, window: Duration, clock: LimiterClock = .continuous) {
         self.limit = limit
         self.window = window
+        self.clock = clock
     }
 
     func acquire(_ key: String) async throws {
         while true {
-            let now = ContinuousClock.now
+            let now = clock.now()
             var stamps = sent[key, default: []].filter { now - $0 < window }
             if stamps.count < limit {
                 stamps.append(now)
@@ -45,7 +59,7 @@ actor RateLimiter {
             sent[key] = stamps
             waits += 1
             let wait = window - (now - stamps[0])
-            try await Task.sleep(for: max(wait, .milliseconds(1)))
+            try await clock.sleep(max(wait, .milliseconds(1)))
         }
     }
 }

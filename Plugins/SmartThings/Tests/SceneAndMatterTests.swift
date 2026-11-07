@@ -101,9 +101,11 @@ struct SceneAndMatterTests {
         environment.cloud.answer("GET", "/v1/devices", Self.matterDevices)
         let host = try await environment.start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { host.accessory("bbbb0000-0000-4000-8000-0000000000c1") != nil })
+        // Both other Matter devices are shown (the list's accessories reach the host one after the other), the copies not.
+        #expect(await eventually {
+            host.accessory("bbbb0000-0000-4000-8000-0000000000c1") != nil && host.accessory("cccc0000-0000-4000-8000-0000000000c2")?.service(.switch) != nil
+        })
         #expect(host.accessory("aaaa0000-0000-4000-8000-0000000000b0") == nil && host.accessory("aaaa0000-0000-4000-8000-0000000000b1") == nil)
-        #expect(host.accessory("cccc0000-0000-4000-8000-0000000000c2")?.service(.switch) != nil)
         let plugin = try #require(environment.plugin)
         let ids = try await plugin.discover().map(\.deviceID)
         #expect(!ids.contains("aaaa0000-0000-4000-8000-0000000000b0") && ids.contains("bbbb0000-0000-4000-8000-0000000000c1"))
