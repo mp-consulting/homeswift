@@ -318,7 +318,7 @@ struct ImouTests {
     }
 
     @Test func addByAddressChecksTheAddressThenTheCodeAndKeysTheCameraByItsSerial() async throws {
-        #expect(ImouPlugin.addsDevicesByAddress)
+        #expect(ImouPlugin.newDevices == .byAddress)
         let host = try await environment.start([:])
         let plugin = try #require(environment.plugin)
         guard case .ask(let first, let none) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }

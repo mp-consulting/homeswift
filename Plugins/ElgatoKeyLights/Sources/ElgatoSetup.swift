@@ -47,7 +47,7 @@ extension ElgatoKeyLightsPlugin {
 
     /// A light Bonjour does not reach can be added by its address (Add by address): the light's host and port go in its
     /// Accessory Settings (`host`, `port`), under the MAC it answers with.
-    public static let addsDevicesByAddress = true
+    public static let newDevices: NewDevices? = .byAddress
 
     /// Add by address: asks for the light's host (and a port, 9123 by default), asks the light there who it is, and
     /// keeps where it answers in its Accessory Settings, by its MAC. A light found by Bonjour needs nothing.

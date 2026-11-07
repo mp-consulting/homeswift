@@ -56,7 +56,7 @@ extension APsystemsECUPlugin {
     }
 
     /// An ECU is added by its address (Add by address).
-    public static let addsDevicesByAddress = true
+    public static let newDevices: NewDevices? = .byAddress
 
     /// Add by address: asks for the ECU's host (and a port, 8899 by default), asks the ECU there who it is with the
     /// system query, and keeps where it answers in its Accessory Settings, under its ECU id.

@@ -503,7 +503,7 @@ struct ElgatoKeyLightsTests {
     /// Add by address: the light's host asked, the light there asked who it is, and its host kept in its Accessory
     /// Settings under its MAC; nothing answering, or a bad port, is said and asked again.
     @Test func addByAddressProbesTheLightAndKeepsItsHost() async throws {
-        #expect(ElgatoKeyLightsPlugin.addsDevicesByAddress)
+        #expect(ElgatoKeyLightsPlugin.newDevices == .byAddress)
         await environment.light.set(macAddress: "3c:6a:9d:04:0a:0b")
         await environment.light.set(unreachableHosts: ["192.0.2.50"])
         let host = try environment.host(settings: [:])

@@ -246,3 +246,30 @@ import Testing
         livestream.stop()
     }
 }
+
+/// A livestream's listener after `cancel()`: what the livestream sent before it, and the listener had not handled yet,
+/// is dropped. The handler of a camera's timeshift buffer logs through the camera's controller, which may be gone by
+/// then (a camera torn down with its controller).
+extension LivestreamSessionTests {
+    @Test func aCancelledListenerHandlesNothingMore() async throws {
+        let controller = FakeController(), sockets = FakeWebSocketConnector()
+        let api = await makeAPI(controller, sockets)
+        let livestream = ProtectLivestream(api: api, log: ProtectLog(logger: testLogger))
+        #expect(await livestream.start(cameraID: "cam", channel: 0))
+        let handled = NIOLockedValueBox<[String]>([])
+        let listener = await Self.stopAndCancel(livestream) { event in
+            handled.withLockedValue { $0.append("\(event)") }
+        }
+        await listener.finished()
+        #expect(handled.withLockedValue { $0 }.isEmpty)
+    }
+
+    /// On the plugin's actor, so the listener's task cannot run in between: the livestream's `close` is queued for the
+    /// listener, which is then cancelled.
+    @ProtectActor static func stopAndCancel(_ livestream: ProtectLivestream, _ handler: @escaping @ProtectActor (ProtectLivestream.Event) -> Void) -> ProtectLivestreamListener {
+        let listener = ProtectLivestreamListener(livestream, handler)
+        livestream.stop()
+        listener.cancel()
+        return listener
+    }
+}

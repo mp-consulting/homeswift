@@ -132,6 +132,9 @@ class ProtectCamera: ProtectDevice {
     override func cleanup() {
         cleanupSensors()
         timers.cancel(id + ".Access.Unlock")
+        // The timeshift buffer stops listening now, not in the task below: a livestream event it would handle later
+        // reads the camera's log, whose controller may be gone by then.
+        stream?.hksv?.timeshift.stop()
         if let stream, stream.isRecording {
             Task { await stream.updateRecordingActive(false) }
         }

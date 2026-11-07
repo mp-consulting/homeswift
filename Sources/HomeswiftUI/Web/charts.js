@@ -353,7 +353,8 @@
         const every = slot < 24 ? Math.ceil(24 / slot) : 1;
         if (index % every !== 0 && index !== bars.length - 1) return;
         const label = svg("text", { x: x(index), y: height - 6, class: bar.current ? "tick current" : "tick", "text-anchor": "middle" });
-        label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
+        // A bar given a narrow label ("" for one to leave bare) shows only that one under a narrow slot.
+        label.textContent = slot < 64 && bar.narrow != null ? bar.narrow : bar.label;
         root.append(label);
       });
       frame.querySelector("svg")?.remove();

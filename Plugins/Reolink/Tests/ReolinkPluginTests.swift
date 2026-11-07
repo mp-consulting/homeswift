@@ -369,7 +369,7 @@ final class ReolinkEnvironment: Sendable {
     }
 
     @Test func addByAddressProbesTheHostAndKeysItByItsDeviceId() async throws {
-        #expect(ReolinkPlugin.addsDevicesByAddress)
+        #expect(ReolinkPlugin.newDevices == .byAddress)
         let environment = ReolinkEnvironment()
         let host = try await environment.start([:])
         let plugin = try #require(environment.plugin)
