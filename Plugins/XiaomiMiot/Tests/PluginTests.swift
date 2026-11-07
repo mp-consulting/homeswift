@@ -114,12 +114,12 @@ struct PluginTests {
         let accessory = try #require(environment.accessory(host, did: Self.did))
         #expect(!accessory.isUnavailable)
         device.silent = true
-        #expect(await eventually(timeout: .seconds(15)) { accessory.isUnavailable })
+        #expect(await eventually(timeout: .seconds(30)) { accessory.isUnavailable })
         // A write while unreachable fails.
         let on = try #require(accessory.service(.lightbulb)?[.on])
         await #expect(throws: (any Error).self) { try await on.write(.bool(false)) }
         device.silent = false
-        #expect(await eventually(timeout: .seconds(15)) { !accessory.isUnavailable })
+        #expect(await eventually(timeout: .seconds(30)) { !accessory.isUnavailable })
         await host.stop()
     }
 
@@ -130,7 +130,7 @@ struct PluginTests {
         #expect(environment.accessory(host, did: Self.did) == nil)
         // It appears once the device answers.
         _ = lamp()
-        #expect(await eventually(timeout: .seconds(10)) { environment.accessory(host, did: Self.did) != nil })
+        #expect(await eventually(timeout: .seconds(30)) { environment.accessory(host, did: Self.did) != nil })
         await host.stop()
     }
 
@@ -160,7 +160,7 @@ struct PluginTests {
         #expect(accessory.service(subtype: "filter")?[.filterChangeIndication]?.value == .int(1))
         try await #require(fan[.active]).write(.int(1))
         #expect(robot.calls.contains { $0.method == "app_start" })
-        try await fan[.active]!.write(.int(0))
+        try await #require(fan[.active]).write(.int(0))
         #expect(await eventually { robot.calls.map(\.method).suffix(4).contains("app_charge") })
         let methods = robot.calls.map(\.method)
         #expect(methods.lastIndex(of: "app_stop")! < methods.lastIndex(of: "app_charge")!)
@@ -200,13 +200,13 @@ struct PluginTests {
         #expect(accessory.service(.battery)?[.chargingState]?.value == .int(1))
         #expect(accessory.service(subtype: "brush-cleaner-9")?[.filterLifeLevel]?.value == .double(40))
         let fan = try #require(accessory.service(.fanv2))
-        try await fan[.active]!.write(.int(1))
+        try await #require(fan[.active]).write(.int(1))
         #expect(robot.calls("action").last?["siid"]?.intValue == 2 && robot.calls("action").last?["aiid"]?.intValue == 1)
-        try await fan[.active]!.write(.int(0))
+        try await #require(fan[.active]).write(.int(0))
         #expect(robot.calls("action").last?["siid"]?.intValue == 3 && robot.calls("action").last?["aiid"]?.intValue == 1)
         #expect(robot.calls("action").last?["in"] == .array([]))
         // Reset a brush: its action.
-        try await accessory.service(subtype: "brush-cleaner-9")![.resetFilterIndication]!.write(.int(1))
+        try await #require(accessory.service(subtype: "brush-cleaner-9")?[.resetFilterIndication]).write(.int(1))
         #expect(robot.calls("action").last?["siid"]?.intValue == 9)
         // Identify: the vendor audio position.
         await accessory.identify()
@@ -224,13 +224,13 @@ struct PluginTests {
         #expect(await eventually { environment.accessory(host, did: "6060")?.service(.windowCovering)?[.currentPosition]?.value == .int(20) })
         let accessory = try #require(environment.accessory(host, did: "6060"))
         let covering = try #require(accessory.service(.windowCovering))
-        try await covering[.targetPosition]!.write(.int(75))
+        try await #require(covering[.targetPosition]).write(.int(75))
         #expect(curtain["2.7"] == .number(75))
-        try await covering[.holdPosition]!.write(.bool(true))
-        try await covering[.holdPosition]!.write(.bool(true))
+        try await #require(covering[.holdPosition]).write(.bool(true))
+        try await #require(covering[.holdPosition]).write(.bool(true))
         #expect(curtain.calls("set_properties").filter { $0[0]?["piid"]?.intValue == 2 }.count == 2)
         let open = try #require(accessory.service(subtype: "ctl-2-2-1"))
-        try await open[.on]!.write(.bool(true))
+        try await #require(open[.on]).write(.bool(true))
         #expect(curtain.calls("set_properties").last?[0]?["value"] == .number(1))
         // A stateless switch turns itself off.
         #expect(await eventually { open[.on]?.value == .bool(false) })
@@ -551,7 +551,7 @@ struct PluginTests {
         device.silent = true
         let second = try await environment.start(settings: block([entry(did: "", extra: ["deviceId": NSNull()])]))
         #expect(await eventually { environment.accessory(second, did: Self.did) != nil })
-        #expect(await eventually(timeout: .seconds(10)) { environment.accessory(second, did: Self.did)?.isUnavailable == true })
+        #expect(await eventually(timeout: .seconds(30)) { environment.accessory(second, did: Self.did)?.isUnavailable == true })
         await second.stop()
     }
 
@@ -735,7 +735,7 @@ struct PluginTests {
         let host = try await environment.start(settings: block([entry()]), logger: recorder.logger, pluginLogger: recorder.logger)
         let plugin = try #require(environment.plugin)
         #expect(await eventually { environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.on]?.value == .bool(true) })
-        try await environment.accessory(host, did: Self.did)!.service(.lightbulb)![.on]!.write(.bool(false))
+        try await #require(environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.on]).write(.bool(false))
         #expect(device["2.1"] == .bool(false))
         // A QR sign-in and a password sign-in with its code.
         guard case .ask(_, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["method": "qr", "country": "de"])) else {

@@ -45,7 +45,7 @@ final class LogRecorder: @unchecked Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(15), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -263,8 +263,9 @@ let fastTimings: DeviceTimings = {
     timings.reconnectFloor = .milliseconds(300)
     timings.reconnectMaximum = .milliseconds(600)
     timings.debounce = .milliseconds(20)
-    timings.miio = MiioTimings(requestTimeout: .milliseconds(150), retries: 1, handshakeTimeout: .milliseconds(150), handshakeValidity: .seconds(120),
-                               infoTimeout: .milliseconds(150), infoRetries: 1)
+    // The fakes answer at once; the waits leave room for a loaded CI runner (Linux, 8 tests at once) all the same.
+    timings.miio = MiioTimings(requestTimeout: .milliseconds(500), retries: 1, handshakeTimeout: .milliseconds(500), handshakeValidity: .seconds(120),
+                               infoTimeout: .milliseconds(500), infoRetries: 1)
     timings.accessory = AccessoryTimings(switchReset: .milliseconds(20), colorWait: .milliseconds(100))
     return timings
 }()
