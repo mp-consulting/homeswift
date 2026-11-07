@@ -658,7 +658,8 @@ extension HomeswiftCatalog {
         }
         let changes = host.observeChanges { accessory, characteristic, value in catalog.characteristicChanged(accessory, characteristic, value) }
         let lines = logs.observe { line in catalog.logLineForNotifications(line) }
-        home.running.withLockedValue { $0 = RunningHome(ticker: ticker, observations: [changes, lines]) }
+        let presence = host.presence.observe { event in catalog.automationPresenceChanged(event) }
+        home.running.withLockedValue { $0 = RunningHome(ticker: ticker, observations: [changes, lines, presence]) }
         if !restarted {
             Task { await catalog.notify(.bridgeStarted, title: "Homeswift started", message: "Homeswift \(PluginHost.version) is running with \(catalog.located().count) accessories.", path: "/status") }
         }

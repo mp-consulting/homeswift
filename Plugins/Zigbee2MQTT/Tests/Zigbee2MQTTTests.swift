@@ -385,7 +385,7 @@ struct Zigbee2MQTTTests {
         #expect(await eventually { environment.published("0x0000000000000008/set").last == #"{"state_l2":"ON"}"# })
         environment.send("plug", #"{"state_l1":"ON","power":12.5,"energy":3.25,"voltage":230}"#)
         #expect(await eventually { switches[0].characteristic(.on).value == .bool(true) })
-        let meter = try #require(plug.service(EveTypes.energyService))
+        let meter = try #require(plug.service(EveService.energy))
         #expect(await eventually { meter.characteristic(EveTypes.consumption).value == .double(12.5) })
         #expect(await eventually { meter.characteristic(EveTypes.voltage).value == .double(230) })
         // Every electrical property is asked for, whatever its access.

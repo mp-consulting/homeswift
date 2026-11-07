@@ -57,6 +57,9 @@ public struct SceneTrigger: Codable, Sendable, Equatable {
     public var forSeconds: Int?
     /// `threshold`: `above` or `below` the number in `value`.
     public var direction: String?
+    /// `presence`: true when the Person in `id` comes home, false when they leave; for Anyone Home (`Presence:anyone`),
+    /// true when the first Person comes home, false once the last has left.
+    public var arriving: Bool?
 
     public var isEnabled: Bool { enabled != false }
 }

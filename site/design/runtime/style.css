@@ -4812,9 +4812,11 @@ select option:disabled { color: var(--muted); }
   .scene-flow-body input, .scene-flow-body select { font-size: 16px; }
   .scene-flow-body select, .scene-flow-body button { min-height: 44px; }
   .scene-flow-body .scene-condition-remove { width: auto; align-self: flex-end; padding-inline: var(--space-14); }
-  .scene-editor > .save-bar { position: sticky; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-8); gap: var(--space-8); box-shadow: var(--shadow-control); }
-  .scene-editor > .save-bar > .spacer { display: none; }
-  .scene-editor > .save-bar > :is(button, a) { flex: 1; justify-content: center; min-height: 44px; padding-inline: var(--space-8); font-size: var(--text-sm); }
+  /* The automation editor's Save, Cancel and Delete as the scene editor's: one bar of equal buttons, kept in reach. */
+  .automation-editor { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+  :is(.scene-editor, .automation-editor) > .save-bar { position: sticky; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-8); gap: var(--space-8); box-shadow: var(--shadow-control); }
+  :is(.scene-editor, .automation-editor) > .save-bar > .spacer { display: none; }
+  :is(.scene-editor, .automation-editor) > .save-bar > :is(button, a) { flex: 1; justify-content: center; min-height: 44px; padding-inline: var(--space-8); font-size: var(--text-sm); }
 }
 @media (pointer: coarse) {
   .scene-flow button, .scene-action-summary { -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
@@ -4828,10 +4830,10 @@ select option:disabled { color: var(--muted); }
 .location-search-results button { text-align: left; justify-content: flex-start; white-space: normal; min-height: 44px; }
 
 @media (max-width: 640px) {
-  .scene-editor > .save-bar { position: fixed; left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 64px); bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: var(--space-4); gap: var(--space-4); }
+  :is(.scene-editor, .automation-editor) > .save-bar { position: fixed; left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 64px); bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: var(--space-4); gap: var(--space-4); }
 }
 @media (max-width: 400px) {
-  .scene-editor > .save-bar > :is(button, a) { flex-direction: column; gap: var(--space-4); padding-inline: var(--space-4); }
+  :is(.scene-editor, .automation-editor) > .save-bar > :is(button, a) { flex-direction: column; gap: var(--space-4); padding-inline: var(--space-4); }
 }
 
 .location-search { padding: var(--space-16); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-solid); }
@@ -5203,7 +5205,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-draft .who p { margin: 2px 0 0; }
 .automation-draft-row { display: flex; gap: var(--space-8); align-items: center; }
 .automation-draft-row input { flex: 1 1 auto; min-width: 0; }
-.automation-editor { display: grid; gap: var(--space-14); }
+.automation-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
 .automation-editor > .card { margin: 0; }
 .automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
 .automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
@@ -5233,4 +5235,8 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 
 /* A trigger's head: its kind, and whether it is enabled, above its fields. */
 .editor-row .trigger-head { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
+/* On a phone the kind's menu (its longest option is long) shrinks to the card rather than widening the page. */
+.automation-editor .editor-list { grid-template-columns: minmax(0, 1fr); }
+.editor-row .trigger-head { min-width: 0; }
+.editor-row .trigger-head > select { min-width: 0; max-width: 100%; }
 .trigger-enabled { gap: var(--space-8); }

@@ -245,4 +245,16 @@ struct AdaptiveLightingTests {
         #expect(ColorUtils.colorTemperatureToHueAndSaturation(50) == (hue: 222, saturation: 19))
         #expect(ColorUtils.colorTemperatureToHueAndSaturation(153.5, rounded: false) == (hue: 283.6, saturation: 2.8))
     }
+
+    @Test func colorUtilsConvertsHueAndSaturationToAndFromRGB() {
+        #expect(ColorUtils.rgb(hue: 0, saturation: 100) == (1, 0, 0))
+        #expect(ColorUtils.rgb(hue: 240, saturation: 100) == (0, 0, 1))
+        #expect(ColorUtils.rgb(hue: -120, saturation: 150) == (0, 0, 1))
+        #expect(ColorUtils.rgb(hue: 60, saturation: 0) == (1, 1, 1))
+        let (hue, saturation) = ColorUtils.hueSaturation(red: 0, green: 255, blue: 0)
+        #expect(hue == 120 && saturation == 100)
+        #expect(ColorUtils.hueSaturation(red: 1, green: 0, blue: 0.5).hue == 330)
+        let grey = ColorUtils.hueSaturation(red: 0.5, green: 0.5, blue: 0.5)
+        #expect(grey.hue == nil && grey.saturation == 0)
+    }
 }

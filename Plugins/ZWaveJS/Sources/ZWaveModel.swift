@@ -18,6 +18,8 @@ enum CommandClass {
     static let thermostatSetpoint = 0x43
     static let centralScene = 0x5B
     static let doorLock = 0x62
+    static let barrierOperator = 0x66
+    static let soundSwitch = 0x79
     static let manufacturerSpecific = 0x72
     static let notification = 0x71
     static let battery = 0x80
@@ -25,7 +27,7 @@ enum CommandClass {
     /// What the plugin reads: a node's other values (configuration, versions, associations) are not kept.
     static let read: Set<Int> = [
         binarySwitch, multilevelSwitch, binarySensor, multilevelSensor, meter, colorSwitch, thermostatMode, thermostatOperatingState,
-        thermostatSetpoint, centralScene, doorLock, manufacturerSpecific, notification, battery,
+        thermostatSetpoint, centralScene, doorLock, barrierOperator, soundSwitch, manufacturerSpecific, notification, battery,
     ]
 }
 
@@ -168,6 +170,11 @@ struct ZNode: Sendable {
     var isCover: Bool {
         genericClass == 0x09 || (genericClass == 0x11 && [0x05, 0x06, 0x07].contains(specificClass ?? -1))
             || (specificLabel ?? "").localizedCaseInsensitiveContains("motor control")
+    }
+
+    /// A fan's Multilevel Switch: the Fan Switch specific class of Multilevel Switch.
+    var isFan: Bool {
+        (genericClass == 0x11 && specificClass == 0x08) || (specificLabel ?? "").localizedCaseInsensitiveContains("fan")
     }
 
     /// A lock, a door strike or a gate: the Entry Control device class, or a node with Door Lock.

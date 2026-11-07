@@ -48,6 +48,9 @@
     <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
     <symbol id="i-unlock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.7-1.5"/></symbol>
     <symbol id="i-gh" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 8-11h-6z"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8" width="17" height="4.5" rx="1"/><path d="M5.5 12.5V20h13v-7.5M12 8v12M12 8c-1-3-4.5-4-5.3-2.2C6 7.4 9 8 12 8zm0 0c1-3 4.5-4 5.3-2.2C18 7.4 15 8 12 8z"/></symbol>
   </defs>
 </svg>
 
@@ -58,6 +61,7 @@
       <a href="/pt/">Agentes de IA</a>
       <a href="#performance">Desempenho</a>
       <a href="#features">Funcionalidades</a>
+      <a href="#history">Histórico</a>
       <a href="#plugins">Plugins</a>
       <a href="#install">Instalação</a>
       <a href="https://github.com/mp-consulting/homeswift/tree/main/docs">Docs</a>
@@ -70,6 +74,7 @@
   <div class="band hero">
     <div class="wrap">
       <div class="hero-copy">
+        <a class="news" href="#history"><b>Novo</b><span>Histórico, diário de bordo, Z-Wave e sensores Bluetooth</span></a>
         <p class="eyebrow">O Homebridge, reescrito em Swift</p>
         <h1>Todos os dispositivos, na app&nbsp;Casa.</h1>
         <p class="lede">O Homeswift leva para o HomeKit as luzes, os aparelhos de ar condicionado, as câmaras e as fechaduras que a Apple nunca certificou. Um único binário pequeno executa a configuração e os plugins do Homebridge, sem Node.js nem npm, e em repouso ocupa cerca de 10&nbsp;MB.</p>
@@ -202,6 +207,26 @@
           <h3>Corre onde a casa corre</h3>
           <p>Um contentor para amd64 e arm64, um pacote Synology para o DSM 7, ou um simples binário em macOS 14 e Linux.</p>
         </article>
+          <article class="card">
+            <div class="glyph tone-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 8-11h-6z"/></svg></div>
+            <h3>Automações que sabem quem está em casa</h3>
+            <p>Acionadas por uma hora, o sol, uma alteração ou alguém a chegar a casa, seguidas de passos por ordem. Uma notificação pode trazer botões, e uma fechadura nunca se mexe sem perguntar.</p>
+          </article>
+          <article class="card">
+            <div class="glyph tone-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h18" stroke-dasharray="2 3"/><path d="m3 18 5-5 4 3 5-8 4 4"/></svg></div>
+            <h3>Sensores feitos de outros sensores</h3>
+            <p>Uma temperatura acima de um limiar, a média de três termómetros, uma porta aberta há mais de dez minutos: acessórios que a ponte tira de outros.</p>
+          </article>
+          <article class="card">
+            <div class="glyph tone-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5h12L6 19h12"/></svg></div>
+            <h3>Z-Wave, ao lado de tudo o resto</h3>
+            <p>Os nós do seu servidor Z-Wave JS, de reguladores e fechaduras a termóstatos e contadores, na mesma app Casa que o resto.</p>
+          </article>
+          <article class="card">
+            <div class="glyph tone-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 7 10 10-5 4V3l5 4L7 17"/></svg></div>
+            <h3>Sensores Bluetooth, onde houver um ESP32</h3>
+            <p>Os proxies Bluetooth do ESPHome ouvem sensores BTHome, Xiaomi e Govee, incluindo os cifrados, em cada divisão com um proxy.</p>
+          </article>
       </div>
     </div>
   </section>
@@ -339,6 +364,53 @@
     </div>
   </section>
 
+  <section class="band" id="history">
+    <div class="wrap dev">
+      <div>
+        <p class="eyebrow">Histórico</p>
+        <h2 class="dev-title">A sua casa lembra-se.</h2>
+        <p class="lede graph-lede">O que cada acessório fez e quem o pediu, guardado no seu próprio disco durante o tempo que escolher.</p>
+        <ul>
+          <li>Os estados a cada alteração e as leituras hora a hora, durante anos: o separador Histórico de um acessório desenha-as em 24 horas, uma semana ou um ano.</li>
+          <li>O diário de bordo diz quem o fez: a app Casa, alguém na interface web, um cliente de IA, uma automação ou o próprio dispositivo.</li>
+          <li>Contadores de gás e água ao lado da eletricidade na página Estado, hora a hora durante anos, cada um com o seu tarifário.</li>
+          <li>O tempo onde fica a casa, do Open-Meteo, sem conta nem chave.</li>
+          <li>Algo errado? Transfira os diagnósticos: um só ficheiro para anexar a um pedido, com cada segredo ocultado.</li>
+        </ul>
+        <p class="small history-more"><a href="https://github.com/mp-consulting/homeswift/blob/main/CHANGELOG.md">Todas as novidades, no registo de alterações</a></p>
+      </div>
+      <!-- A drawing (demonstration names), not a screenshot: an accessory's History tab over a week (lowest to highest
+           as a band, the average a line), the Logbook with each change's source, and the gas and water Meters. -->
+      <div class="history-stage" aria-hidden="true">
+        <div class="history-sheet">
+          <div class="history-head">
+            <i class="tone-orange"><svg><use href="#i-thermo"/></svg></i>
+            <div><b>Sala</b><small>Temperatura · 21,4°</small></div>
+            <span class="history-tabs"><span>24 h</span><span class="on">Semana</span><span>Ano</span></span>
+          </div>
+          <svg class="history-chart" viewBox="0 0 320 100">
+            <path class="h-grid" d="M30 25H320M30 55H320M30 85H320"/>
+            <text x="0" y="29">23°</text><text x="0" y="59">21°</text><text x="0" y="89">19°</text>
+            <path class="h-band" d="M40 41.5 86 35.5 132 46 178 29.5 224 25 270 37 314 32.5V68.5L270 73 224 61 178 65.5 132 82 86 71.5 40 77.5Z"/>
+            <path class="h-line" d="M40 58 86 52 132 62.5 178 46 224 41.5 270 53.5 314 49"/>
+            <circle class="h-dot" cx="314" cy="49" r="4"/>
+          </svg>
+        </div>
+        <div class="history-log">
+          <div class="history-log-head"><b>Diário de bordo</b><span>Hoje</span></div>
+          <div class="log-row"><time>18:42</time><span><b>Porta da entrada</b> destrancada</span><em class="src-home">App Casa · Alex</em></div>
+          <div class="log-row"><time>18:40</time><span><b>Luz do hall</b> acesa · 60 %</span><em class="src-auto">Automação</em></div>
+          <div class="log-row"><time>18:40</time><span><b>Alex</b> chegou a casa</span><em class="src-device">Presença</em></div>
+          <div class="log-row"><time>07:15</time><span><b>Estore do quarto</b> aberto</span><em class="src-ai">Claude</em></div>
+        </div>
+        <div class="history-meters">
+          <div class="meter gas"><div><b>Gás</b><small>1,8 m³ hoje</small></div><svg viewBox="0 0 76 26"><rect x="0" y="12" width="8" height="14" rx="2"/><rect x="11" y="8" width="8" height="18" rx="2"/><rect x="22" y="14" width="8" height="12" rx="2"/><rect x="33" y="6" width="8" height="20" rx="2"/><rect x="44" y="4" width="8" height="22" rx="2"/><rect x="55" y="10" width="8" height="16" rx="2"/><rect class="now" x="66" y="9" width="8" height="17" rx="2"/></svg></div>
+          <div class="meter water"><div><b>Água</b><small>0,31 m³ hoje</small></div><svg viewBox="0 0 76 26"><rect x="0" y="16" width="8" height="10" rx="2"/><rect x="11" y="14" width="8" height="12" rx="2"/><rect x="22" y="17" width="8" height="9" rx="2"/><rect x="33" y="11" width="8" height="15" rx="2"/><rect x="44" y="15" width="8" height="11" rx="2"/><rect x="55" y="13" width="8" height="13" rx="2"/><rect class="now" x="66" y="14" width="8" height="12" rx="2"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="plugins">
     <div class="wrap">
       <div class="section-head">
@@ -356,7 +428,7 @@
         <div class="plugin"><span class="mono">DY</span><div><strong>Dyson Pure Cool</strong><span>Purificadores e ventoinhas</span></div></div>
         <div class="plugin"><span class="mono">EF</span><div><strong>EcoFlow</strong><span>Estações de energia, baterias</span></div></div>
         <div class="plugin"><span class="mono">EK</span><div><strong>Elgato Key Lights</strong><span>Key Light, Ring Light</span></div></div>
-        <div class="plugin"><span class="mono">ES</span><div><strong>ESPHome</strong><span>Interruptores, luzes, sensores</span></div></div>
+        <div class="plugin"><span class="mono">ES</span><div><strong>ESPHome</strong><span>Interruptores, luzes, sensores Bluetooth</span></div></div>
         <div class="plugin"><span class="mono">eW</span><div><strong>eWeLink</strong><span>Interruptores e tomadas Sonoff</span></div></div>
         <div class="plugin"><span class="mono">GN</span><div><strong>Google Nest</strong><span>Termóstatos, câmaras</span></div></div>
         <div class="plugin"><span class="mono">GV</span><div><strong>Govee</strong><span>Luzes</span></div></div>
@@ -428,7 +500,7 @@ https://github.com/mp-consulting/homeswift/releases/latest
 <pre><span class="c">// Package.swift: crie um acessório próprio sobre a biblioteca.</span>
 dependencies: [
     .<span class="t">package</span>(url: <span class="s">"https://github.com/mp-consulting/homeswift.git"</span>,
-             from: <span class="s">"0.12.0"</span>),
+             from: <span class="s">"0.23.0"</span>),
 ]</pre>
           </div>
         </div>
@@ -475,6 +547,19 @@ print(<span class="s">"Setup code:"</span>, server.setupCode)  <span class="c">/
       </div>
     </div>
   </section>
+  <section class="band" id="sponsor">
+    <div class="wrap sponsor">
+      <div class="sponsor-copy">
+        <p class="eyebrow">Patrocinar</p>
+        <h2>Mantenha o Homeswift gratuito.</h2>
+        <p class="lede">O Homeswift é gratuito e de código aberto, sem conta nem nuvem própria. O seu apoio paga os dispositivos em que os plugins são testados, e o tempo para escrever os próximos.</p>
+      </div>
+      <div class="cta sponsor-cta">
+        <a class="btn btn-primary" href="https://github.com/sponsors/mp-consulting"><svg aria-hidden="true"><use href="#i-heart"/></svg>Patrocinar no GitHub</a>
+        <a class="btn btn-plain" href="https://paypal.me/mickaelpalma"><svg aria-hidden="true"><use href="#i-gift"/></svg>Doar com PayPal</a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="band">
@@ -486,6 +571,7 @@ print(<span class="s">"Setup code:"</span>, server.setupCode)  <span class="c">/
       <a href="https://github.com/mp-consulting/homeswift/tree/main/docs">Docs</a>
       <a href="/design/?lang=pt">Sistema de design</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/CHANGELOG.md">Novidades</a>
+      <a href="https://github.com/sponsors/mp-consulting">Patrocinar</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/CONTRIBUTING.md">Contribuir</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/LICENSE">Licença MIT</a>
       <a href="/pt/privacy.html">Privacidade</a>

@@ -58,6 +58,9 @@
     <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.4 7 10 4-1.6 7-5.5 7-10V6l-7-3z"/></symbol>
     <symbol id="i-gh" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 8-11h-6z"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8" width="17" height="4.5" rx="1"/><path d="M5.5 12.5V20h13v-7.5M12 8v12M12 8c-1-3-4.5-4-5.3-2.2C6 7.4 9 8 12 8zm0 0c1-3 4.5-4 5.3-2.2C18 7.4 15 8 12 8z"/></symbol>
   </defs>
 </svg>
 
@@ -80,6 +83,7 @@
   <div class="band hero home-hero">
     <div class="wrap">
       <div class="hero-copy">
+        <a class="news" href="#automations"><b data-i18n>Nuevo</b><span data-i18n>Automatizaciones que saben quién está en casa</span></a>
         <p class="eyebrow" data-i18n>El servidor MCP para tu casa</p>
         <h1 data-i18n>Deja que tu IA lleve la casa.</h1>
         <p class="lede" data-i18n>Conecta Claude, o cualquier agente que hable MCP, y podrá ver y manejar todos los dispositivos de tu app Casa. Aun así, pregunta antes de desbloquear, registra todo lo que hace y nunca acepta órdenes del nombre de un dispositivo.</p>
@@ -263,10 +267,53 @@ se reinicia cada noche a las 03:00…</span></pre>
     </div>
   </section>
 
+  <section class="band" id="automations">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow" data-i18n>Nuevo: automatizaciones</p>
+        <h2 data-i18n>Automatizaciones que saben quién está en casa.</h2>
+        <p class="lede" data-i18n>Di lo que debe pasar y el asistente redacta la automatización para que la revises: cuándo, solo si, y qué hacer. La presencia sabe quién está en casa por los teléfonos que lleva cada uno, y una notificación puede preguntarte antes.</p>
+      </div>
+      <!-- A drawing (demonstration names), not a screenshot: an Automation as the Automations page shows it, the
+           notification it sends with its buttons, and the Persons it watches. -->
+      <div class="auto-stage" aria-hidden="true">
+        <div class="auto-card">
+          <div class="auto-head">
+            <span class="auto-glyph"><svg><use href="#i-bolt"/></svg></span>
+            <div><strong data-i18n>El último en salir</strong><small data-i18n>Automatización · Activada</small></div>
+            <span class="auto-switch"></span>
+          </div>
+          <ol class="auto-steps">
+            <li><span class="auto-kind" data-i18n>Cuándo</span><span data-i18n>Todos se han ido de casa</span></li>
+            <li><span class="auto-kind" data-i18n>Solo si</span><span data-i18n>La puerta del garaje está abierta</span></li>
+            <li><span class="auto-kind" data-i18n>Luego</span><span data-i18n>Apagar todas las luces y enchufes</span></li>
+            <li><span class="auto-kind" data-i18n>Luego</span><span data-i18n>Notificar, con dos botones</span></li>
+          </ol>
+        </div>
+        <div class="auto-side">
+          <div class="notif">
+            <div class="notif-head"><svg><use href="#logo"/></svg><strong>Homeswift</strong><small data-i18n>ahora</small></div>
+            <p data-i18n>Todos se han ido y la puerta del garaje está abierta.</p>
+            <div class="notif-actions"><span data-i18n>Cerrarla</span><span data-i18n>Dejarla abierta</span></div>
+          </div>
+          <div class="persons">
+            <div class="person"><span class="avatar">A</span><div><strong>Alex</strong><small data-i18n>Fuera · 4 min</small></div></div>
+            <div class="person"><span class="avatar two">S</span><div><strong>Sam</strong><small data-i18n>Fuera · 1 h</small></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="asks">
+        <div class="ask"><q data-i18n>Cuando salga el último, apágalo todo.</q><p data-i18n>La presencia sabe quién está en casa por los teléfonos en la red. El asistente redacta la automatización; tú la revisas y la guardas.</p></div>
+        <div class="ask"><q data-i18n>Pregúntame antes de cerrar el garaje por la noche.</q><p data-i18n>La notificación lleva los botones, en ntfy, Telegram o el navegador. Para una puerta de garaje, una cerradura o una alarma, un toque abre una confirmación tras tu inicio de sesión.</p></div>
+        <div class="ask"><q data-i18n>Avísame cuando la lavadora termine.</q><p data-i18n>Un activador cuando la potencia del enchufe se queda por debajo de 5 W durante cinco minutos, y luego una notificación. Ningún dispositivo nuevo, solo el enchufe.</p></div>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="scenes">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow" data-i18n>Novedad de la 0.9</p>
+        <p class="eyebrow" data-i18n>Plantillas de escenas</p>
         <h2 data-i18n>Prepara la escena.</h2>
         <p class="lede" data-i18n>Plantillas de escenas para las luces de una habitación: ambientes tranquilos como la luz de velas, efectos como una chimenea o un amanecer que las luces de cada marca reproducen por sí mismas (efectos de Hue, escenas de Govee, fundidos de IKEA, escenas de SONOFF L2, Ambilight siguiendo la música) y secuencias temporizadas como una sirena de policía. Explora 143 paletas fotográficas en 28 temas, prueba una en una habitación y guárdala como escena, en Homeswift o en tu puente Hue o tu hub de IKEA, con una imagen tuya y un interruptor en la app Casa. Cualquier ejecución se puede deshacer: las luces vuelven a como estaban.</p>
       </div>
@@ -370,6 +417,19 @@ docker run -d --name homeswift --network host \
       </div>
     </div>
   </section>
+  <section class="band" id="sponsor">
+    <div class="wrap sponsor">
+      <div class="sponsor-copy">
+        <p class="eyebrow" data-i18n>Patrocinar</p>
+        <h2 data-i18n>Que Homeswift siga siendo gratis.</h2>
+        <p class="lede" data-i18n>Homeswift es gratis y de código abierto, sin cuenta ni nube propia. Tu apoyo paga los dispositivos con los que se prueban los plugins, y el tiempo de escribir los siguientes.</p>
+      </div>
+      <div class="cta sponsor-cta">
+        <a class="btn btn-primary" href="https://github.com/sponsors/mp-consulting" data-i18n><svg aria-hidden="true"><use href="#i-heart"/></svg>Patrocinar en GitHub</a>
+        <a class="btn btn-plain" href="https://paypal.me/mickaelpalma" data-i18n><svg aria-hidden="true"><use href="#i-gift"/></svg>Donar con PayPal</a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="band">
@@ -382,6 +442,7 @@ docker run -d --name homeswift --network host \
       <a href="https://github.com/mp-consulting/homeswift/blob/main/docs/ai.md" data-i18n>El asistente</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/docs/mcp.md" data-i18n>Servidor MCP</a>
       <a href="bridge.html" data-i18n>El puente</a>
+      <a href="https://github.com/sponsors/mp-consulting" data-i18n>Patrocinar</a>
       <a href="privacy.html" data-i18n>Privacidad</a>
     </nav>
     <nav class="langs" aria-label="Idioma" data-i18n>

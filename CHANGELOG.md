@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Automations: a Person who comes home or leaves is a Trigger, and so is Anyone Home (the first Person coming home, the
+  last one leaving), `{"type": "presence", "id", "arriving"}`, chosen in the editor as **When someone comes home or
+  leaves**, by MCP clients and by the Assistant's drafts.
 - Presence (platform `Presence`, experimental): the Persons who live in the home, each known by the devices they carry,
   and an occupancy sensor for each, home while one of their devices is on the network (the ARP table and a TCP probe of
   its address) and away once none has been for a grace period (`graceMinutes`, 10 by default); Anyone Home, occupied
@@ -63,9 +66,10 @@ All notable changes to this project are documented here. The format follows
 - MCP: `get_logbook`; `get_accessory_history` reads the History of every characteristic, with the Eve history where it
   goes further back.
 - Z-Wave JS plugin (experimental): the nodes already on a Z-Wave network, through zwave-js-server's WebSocket API, the
-  server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run. Switches and outlets, dimmers, colour lights, window
-  coverings, door locks, thermostats, motion, contact, leak, smoke and CO sensors, temperature, humidity and light,
-  batteries, Central Scene buttons, and meters that count in the Energy section. The server is found over mDNS or added
+  server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run. Switches and outlets, dimmers, colour lights, white
+  lights' colour temperature with Adaptive Lighting, fans, window coverings, garage doors, sirens, door locks,
+  thermostats, motion, contact, leak, smoke, CO and CO2 sensors with their tamper status, temperature, humidity and
+  light, batteries, Central Scene buttons, and meters that count in the Energy section. The server is found over mDNS or added
   by its address; a dead node answers No Response. Including and excluding nodes stays in Z-Wave JS UI.
 - Diagnostics: **Download diagnostics** in a plugin's and an accessory's ⋯ menu (administrators) saves one JSON file to
   attach to an issue. It holds the versions and platform, the Plugin Settings and Accessory Settings with their secrets
@@ -105,11 +109,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Web UI on a phone: the Automation editor fits a 375-pixel screen. A Notify step and the trigger's kind menu no longer
+  widen the page past the screen's edge, and Save, Cancel and Delete are one bar at the bottom, as in the scene editor.
 - Helpers: a lock, a garage door or an alarm is no longer offered as a source. A Helper would show its state as a
   plain sensor, which the Matter bridge shows even when it hides security accessories. A Helper already reading one
   keeps working.
 - Web UI: Forget on a Helper (a device its plugin makes rather than finds) says that it deletes it for good, instead of
   that the plugin finds it again.
+- ESPHome and Z-Wave JS: an IPv6 address typed without brackets in Add by address is the host, no longer read as a
+  host and a port.
 - Charts: a 24-hour chart of a Meter's consumption at phone width labels its hours as the narrow ticks only (7, 13,
   19), no longer mixing in the wide ones (10:00, 16:00) between them.
 - Web UI: a History chart's legend reads Maximum, Average and Minimum in French, Spanish and Portuguese, the words a
