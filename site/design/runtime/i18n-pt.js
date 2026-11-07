@@ -3274,4 +3274,7 @@ HomeswiftI18n.add("pt", {
   "Open the setting": "Abrir a definição",
   "Needs a Bridge Setting": "Precisa de uma definição da ponte",
   "Waiting for it…": "À espera…",
+  "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Isto elimina-o com todas as definições: o nome, a divisão e as definições de {plugin} para ele.",
+  "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sai da app Casa com a divisão, as cenas e as automatizações, de vez: {plugin} não o consegue voltar a encontrar.",
+  "Deletes it and its settings for good: {plugin} cannot find it again.": "Elimina-o de vez com as definições: {plugin} não o consegue voltar a encontrar.",
 });

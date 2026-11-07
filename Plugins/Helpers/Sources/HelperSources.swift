@@ -42,13 +42,16 @@ enum SourceStates {
 
 extension Array where Element == Accessory {
     /// The characteristics of these accessories a Helper may read, `matching` a test, sorted by label. A Helper never reads
-    /// itself (`except`), and only what tells of changes (events) and is not a button press.
+    /// itself (`except`), and only what tells of changes (events) and is not a button press. A lock's, a garage door's or an
+    /// alarm's service (one with a security control) is not offered: a Helper would republish its state as a plain sensor,
+    /// which Matter shows even when its security accessories are hidden (`exposeSecurity`).
     func sourceCandidates(except excluded: String? = nil, matching test: (CharacteristicType) -> Bool) -> [SourceCandidate] {
         var found: [SourceCandidate] = []
         for accessory in self where accessory.id != excluded {
             var counts: [HAPUUID: Int] = [:]
             for service in accessory.services { counts[service.type.uuid, default: 0] += 1 }
-            for service in accessory.services where service.type.uuid != ServiceType.accessoryInformation.uuid {
+            for service in accessory.services where service.type.uuid != ServiceType.accessoryInformation.uuid
+                && !service.characteristics.contains(where: \.isSecurityControl) {
                 var label: String?
                 for characteristic in service.characteristics where characteristic.iid > 0 {
                     let type = characteristic.type

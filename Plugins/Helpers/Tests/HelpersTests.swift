@@ -36,6 +36,7 @@ struct FakeSources: HomeswiftPlugin {
             sensor("bedroom", "Bedroom", .temperatureSensor, .currentTemperature, .double(18)),
             sensor("door", "Front door", .contactSensor, .contactSensorState, .int(0)),
             sensor("plug", "Plug", .outlet, .on, .bool(true), extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(40))]),
+            sensor("lock", "Back door lock", .lockMechanism, .lockCurrentState, .int(1)),
         ]
     }
 
@@ -283,6 +284,21 @@ struct HelpersTests {
         }
         #expect(outcome.settings["on"] == 25.5)
         #expect(outcome.settings["off"] == 25.5)
+        await host.stop()
+    }
+
+    /// A lock's (a security control's) state is never offered: a Helper would show it, as a plain sensor, where Matter hides
+    /// security accessories.
+    @Test func aLockIsNotOfferedAsASource() async throws {
+        let host = try await environment.start(helpers: [:])
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { host.mainBridge.server.accessory(id: "Fake:lock") != nil })
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["rule": "stays"], state: .null)) else {
+            Issue.record("no prompt"); return
+        }
+        let labels = prompt.fields.first { $0.key == "source" }?.options.map(\.label) ?? []
+        #expect(labels.contains("Front door"))
+        #expect(!labels.contains("Back door lock"))
         await host.stop()
     }
 

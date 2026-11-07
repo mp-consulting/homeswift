@@ -278,6 +278,8 @@ extension HomeswiftCatalog {
             "onBridge": .bool(target.located != nil), "settings": .object(storedSettings(target, block: block)), "fields": .object(fields),
         ]
         if let located = target.located { answer["name"] = .string(located.accessory.name) }
+        // A plugin that makes its devices rather than finds them (a Helper): forgetting one deletes it for good.
+        if let label = host.registry.entry(for: target.platform)?.newDeviceLabel { answer["addLabel"] = .string(label) }
         if let source = target.located?.accessory.mirroredFrom { answer["mirroredFrom"] = .string(source) }
         // Separate Functions: offered for an accessory doing several things; a separated Function names its accessory.
         if let located = target.located {

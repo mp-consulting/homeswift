@@ -3274,4 +3274,7 @@ HomeswiftI18n.add("es", {
   "Open the setting": "Abrir el ajuste",
   "Needs a Bridge Setting": "Necesita un ajuste del puente",
   "Waiting for it…": "Esperando…",
+  "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Esto lo elimina con todos sus ajustes: su nombre, su habitación y los ajustes de {plugin} para él.",
+  "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sale de la app Casa con su habitación, escenas y automatizaciones, para siempre: {plugin} no puede volver a encontrarlo.",
+  "Deletes it and its settings for good: {plugin} cannot find it again.": "Lo elimina para siempre con sus ajustes: {plugin} no puede volver a encontrarlo.",
 });

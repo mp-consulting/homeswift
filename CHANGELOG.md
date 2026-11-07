@@ -102,6 +102,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Helpers: a lock, a garage door or an alarm is no longer offered as a source. A Helper would show its state as a
+  plain sensor, which the Matter bridge shows even when it hides security accessories. A Helper already reading one
+  keeps working.
+- Web UI: Forget on a Helper (a device its plugin makes rather than finds) says that it deletes it for good, instead of
+  that the plugin finds it again.
 - Web UI: a History chart's legend reads Maximum, Average and Minimum in French, Spanish and Portuguese, the words a
   chart uses, rather than "la plus haute" or "el más alto", which agreed with no word on the chart.
 - Web UI: the chat's mic on an iPhone or iPad. It started listening on the finger's press, which Safari does not count as

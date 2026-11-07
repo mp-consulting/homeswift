@@ -18095,6 +18095,9 @@ HomeswiftI18n.add("es", {
   "Open the setting": "Abrir el ajuste",
   "Needs a Bridge Setting": "Necesita un ajuste del puente",
   "Waiting for it…": "Esperando…",
+  "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Esto lo elimina con todos sus ajustes: su nombre, su habitación y los ajustes de {plugin} para él.",
+  "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sale de la app Casa con su habitación, escenas y automatizaciones, para siempre: {plugin} no puede volver a encontrarlo.",
+  "Deletes it and its settings for good: {plugin} cannot find it again.": "Lo elimina para siempre con sus ajustes: {plugin} no puede volver a encontrarlo.",
 });
 
 """#),
@@ -21375,6 +21378,9 @@ HomeswiftI18n.add("fr", {
   "Open the setting": "Ouvrir le réglage",
   "Needs a Bridge Setting": "Demande un réglage du pont",
   "Waiting for it…": "Ça attend…",
+  "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Cela le supprime avec tous ses réglages : son nom, sa pièce et les réglages de {plugin} pour lui.",
+  "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Il quitte l’app Maison avec sa pièce, ses scènes et ses automatisations, définitivement : {plugin} ne peut pas le retrouver.",
+  "Deletes it and its settings for good: {plugin} cannot find it again.": "Le supprime définitivement avec ses réglages : {plugin} ne peut pas le retrouver.",
 });
 
 """#),
@@ -24655,6 +24661,9 @@ HomeswiftI18n.add("pt", {
   "Open the setting": "Abrir a definição",
   "Needs a Bridge Setting": "Precisa de uma definição da ponte",
   "Waiting for it…": "À espera…",
+  "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Isto elimina-o com todas as definições: o nome, a divisão e as definições de {plugin} para ele.",
+  "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sai da app Casa com a divisão, as cenas e as automatizações, de vez: {plugin} não o consegue voltar a encontrar.",
+  "Deletes it and its settings for good: {plugin} cannot find it again.": "Elimina-o de vez com as definições: {plugin} não o consegue voltar a encontrar.",
 });
 
 """#),
@@ -27014,8 +27023,11 @@ HomeswiftI18n.add("pt", {
       const forget = el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Forget"), onclick: async (event) => {
         const button = event.currentTarget;
         if (!await confirmAction({ title: t("Forget {name}?", { name: answer.name ?? id }),
-          text: [t("This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.", { plugin }),
-            t("It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.", { plugin })],
+          // A device the plugin makes (a Helper) cannot be found again: it is deleted.
+          text: answer.addLabel ? [t("This deletes it and all its settings: its name, room and {plugin}'s settings for it.", { plugin }),
+            t("It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.", { plugin })]
+            : [t("This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.", { plugin }),
+              t("It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.", { plugin })],
           confirmLabel: t("Forget"), confirmIcon: "trash" })) return;
         HomeswiftCommon.busyButton(button, async () => {
           await api(accessoryPath(id, plugin), { method: "DELETE" });
@@ -27026,7 +27038,8 @@ HomeswiftI18n.add("pt", {
       const danger = el("section", { class: "settings-section settings-danger" },
         dangerRow(excluded ? t("Excluded") : t("Exclude"), excluded ? t("{plugin} makes no accessory of it: it is out of the Home app, the wall and Matter.", { plugin })
           : t("Out of the Home app, the wall and Matter, until you include it again from {plugin}'s devices.", { plugin }), exclude),
-        dangerRow(t("Forget"), t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
+        dangerRow(t("Forget"), answer.addLabel ? t("Deletes it and its settings for good: {plugin} cannot find it again.", { plugin })
+          : t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
 
       // The renderer's own buttons (a list's Add) never submit a form around the editor.
       for (const button of pluginSection?.querySelectorAll("button:not([type])") ?? []) button.type = "button";
