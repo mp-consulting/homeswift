@@ -44,6 +44,12 @@ All notable changes to this project are documented here. The format follows
   `get_system_info` gives them as `radios`.
 - docker-compose.yml runs Zigbee2MQTT with its MQTT broker, and zwave-js-server, beside the bridge, under the
   `zigbee` and `zwave` profiles: docs/zigbee-zwave.md.
+- Xiaomi (platform `miot`, experimental): Mi Home Wi-Fi devices on the local network over miIO, each mapped to HomeKit
+  from its MIoT spec (lights with Adaptive Lighting, plugs, purifiers, humidifiers, fans, heaters, air conditioners,
+  curtains, sensors), and robot vacuums, MIoT or the older Roborock-family ones; Setup signs in to the Xiaomi account
+  with a QR code or a password and an emailed code, or takes a token per device or Add by address. A homebridge-miot
+  block loads as it is; its extra switches (buzzer, LED, modes, screen, motor) are now off unless turned on. The
+  plugin's page and the Assistant read and set every property of a device's spec.
 
 ## [0.24.0] - 2026-11-07
 
