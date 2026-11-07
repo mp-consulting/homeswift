@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xiaomi</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* A card per device; under it, on demand, its spec: every property with its value and a control, every action. */
+  .device { display: grid; gap: 12px; align-content: start; animation: materialize var(--normal) var(--ease-out); }
+  .device.redrawn { animation: none; }
+  .device.is-offline { opacity: 0.75; }
+  .spec { margin-top: 16px; display: grid; gap: 14px; }
+  .spec h3 { margin: 0 0 6px; font-size: 0.9375rem; }
+  .spec .vendor { font-weight: normal; }
+  .prop { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .prop .who { flex: 1; min-width: 200px; }
+  .prop .who code { font-size: 0.75rem; }
+  .prop .value { font-variant-numeric: tabular-nums; min-width: 80px; text-align: right; overflow-wrap: anywhere; }
+  .prop select, .prop input[type="number"] { max-width: 160px; }
+  .hint { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.8125rem; }
+  @media (prefers-reduced-motion: reduce) { .device { animation: none; } }
+</style>
+</head>
+<body>
+<header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
+<main>
+  <div class="page-head">
+    <span class="tile large tone-orange" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 15V9h4a2 2 0 0 1 2 2v4M12 12v3"/></svg></span>
+    <div class="who">
+      <h1>Xiaomi</h1>
+      <p class="muted" data-i18n>Your Mi Home devices on the local network. Properties shows everything a device's spec has, including what HomeKit does not show, and lets you change it.</p>
+    </div>
+  </div>
+  <div id="account"></div>
+  <div class="section-head"><h2 data-i18n>Devices</h2><div class="actions"><a class="button" id="settings-link" data-i18n data-action-icon="gear">Settings</a></div></div>
+  <div id="devices" class="grid"></div>
+  <div id="excluded" class="actions"></div>
+  <section id="spec-panel" class="card hidden" aria-live="polite"></section>
+  <p class="hint" data-i18n>Extra switches (buzzer, LED, modes, fan levels) are off by default: turn them on in a device's settings.</p>
+</main>
+<script src="/common.js"></script>
+<script src="/plugin.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
