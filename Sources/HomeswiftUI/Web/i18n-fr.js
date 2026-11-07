@@ -3370,4 +3370,6 @@ HomeswiftI18n.add("fr", {
   "From the grid": "Depuis le réseau",
   "Discharging": "En décharge",
   "What powered the home today": "Ce qui a alimenté la maison aujourd’hui",
+  "Today's biggest users": "Les plus gros consommateurs du jour",
+  "{share} of the home": "{share} de la maison",
 });

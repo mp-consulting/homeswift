@@ -286,7 +286,14 @@ const energyDemo = `(() => {
     const answer = (body) => Promise.resolve(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
     if (url.pathname === "/api/metrics/energy") return answer(report(Date.parse(url.searchParams.get("from")) || Date.now() - 864e5, Date.parse(url.searchParams.get("to")) || Date.now()));
     if (url.pathname === "/api/metrics/energy/history") return answer(history());
-    if (url.pathname === "/api/metrics/consumption") return answer(consumption());
+    if (url.pathname === "/api/metrics/consumption") {
+      // As the bridge answers: \`kind\` keeps one kind of Meter; \`hours\` (the Energy flow card's today) scales the week down.
+      const found = consumption(), kind = url.searchParams.get("kind"), hours = Number(url.searchParams.get("hours"));
+      found.meters = found.meters.filter((one) => !kind || (one.kind ?? "electricity") === kind);
+      if (hours > 0) found.meters = found.meters.map((one) => ({ ...one, consumption: Math.round(one.consumption * hours / (8 * 24) * 100) / 100,
+        returned: one.returned == null ? null : Math.round(one.returned * hours / (8 * 24) * 100) / 100 }));
+      return answer(found);
+    }
     return original(input, init);
   };
 })();`;

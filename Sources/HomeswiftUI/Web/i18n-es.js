@@ -3370,4 +3370,6 @@ HomeswiftI18n.add("es", {
   "From the grid": "Desde la red",
   "Discharging": "Descargando",
   "What powered the home today": "Lo que ha alimentado la casa hoy",
+  "Today's biggest users": "Los que más consumen hoy",
+  "{share} of the home": "{share} de la casa",
 });

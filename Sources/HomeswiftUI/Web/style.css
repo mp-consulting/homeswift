@@ -1613,7 +1613,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-cable .energy-cable-halo { stroke: #fff; stroke-width: 9; opacity: 0.45; }
 .energy-cable-line { stroke-width: 3.5; opacity: 0.3; }
 /* A line carrying power glows, as a lit wire would: its colour, a soft light around it. */
-.energy-cable.on .energy-cable-line { opacity: 0.9; filter: drop-shadow(0 0 3px var(--flow)) drop-shadow(0 0 7px var(--flow)); }
+.energy-cable.on .energy-cable-halo { stroke: var(--flow); stroke-width: 12; opacity: 0.28; filter: blur(3px); }
+.energy-cable.on .energy-cable-line { stroke-width: 4.5; opacity: 1; filter: drop-shadow(0 0 3px var(--flow)) drop-shadow(0 0 7px var(--flow)); }
 .energy-pulse { stroke-width: 7; filter: drop-shadow(0 0 4px var(--flow)) drop-shadow(0 0 10px var(--flow)); stroke-dasharray: 7 93; animation: energy-pulse var(--duration, 2s) linear infinite; }
 .energy-pulse.back { animation-direction: reverse; }
 @keyframes energy-pulse { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
@@ -1635,6 +1636,19 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-sky .sun { fill: var(--series-4); }
 .energy-sky .ray { stroke: var(--series-4); stroke-width: 3; stroke-linecap: round; }
 .energy-sky .moon { fill: #f3e9c6; stroke: color-mix(in srgb, #c9b98a 70%, transparent); stroke-width: 1.5; }
+/* The appliances: today's biggest users, a tile each, its kWh and a bar of its use beside the biggest. */
+.energy-devices { display: grid; gap: var(--space-8); padding-top: var(--space-10); border-top: 1px solid var(--line); }
+.energy-devices-title { font-size: var(--text-sm); }
+.energy-devices ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--space-8); }
+.energy-devices li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px var(--space-8); padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius-sm); background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); }
+.energy-device-icon { grid-row: span 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-xs); color: var(--flow);
+  background: color-mix(in srgb, var(--flow) 16%, var(--material-solid)); }
+.energy-device-icon svg { width: 17px; height: 17px; }
+.energy-device-name { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.energy-devices li b { font-size: var(--text-base); font-weight: var(--weight-figure); }
+.energy-device-bar { grid-column: 1 / -1; height: 4px; border-radius: var(--radius-pill); background: linear-gradient(90deg, var(--series-1) var(--share), var(--line) var(--share)); }
+.energy-devices li small { grid-column: 1 / -1; font-size: var(--text-2xs); color: var(--muted); }
 /* The day's phases: a band of today, a colour where each source covered most of the home's use, a mark at now. */
 .energy-day { display: grid; gap: var(--space-6); padding-top: var(--space-10); border-top: 1px solid var(--line); }
 .energy-day-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-4) var(--space-12); font-size: var(--text-sm); }

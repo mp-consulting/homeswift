@@ -8,7 +8,7 @@
   "use strict";
 
   const { t } = HomeswiftI18n;
-  const { el, tile, icon } = HomeswiftCommon;
+  const { el, tile, icon, api } = HomeswiftCommon;
   const ns = "http://www.w3.org/2000/svg";
   const svg = (tag, attrs = {}, ...children) => {
     const node = document.createElementNS(ns, tag);
@@ -92,10 +92,11 @@
     });
     const body = el("div", { class: "energy-flow-body" });
     const day = el("div", { class: "energy-day" });
+    const devices = el("div", { class: "energy-devices", hidden: true });
     const node = el("div", { class: "card chart-card energy-flow" },
       el("div", { class: "chart-head" }, tile("house", "blue"), el("div", { class: "who" }, el("strong", { text: t("Energy flow") }), note)),
       el("div", { class: "energy-flow-bar" }, views.node, spans.node),
-      body, day);
+      body, devices, day);
     const layouts = new Map();   // the house's layout files, by image
 
     function draw() {
@@ -121,6 +122,44 @@
       if (view === "house") house(figures, has, amount, when);
       else diagram(figures, has, amount, live);
       phases(has);
+      appliances();
+    }
+
+    // The appliances ---------------------------------------------------------------------------------------------------------
+
+    /// An appliance's icon, guessed from its name; a plug otherwise.
+    const applianceIcon = (name) => [[/\b(tv|t[ée]l[ée]|television|fernseh)/i, "tv"], [/(light|lamp|lampe|bulb|ampoule|luz|l[âa]mpada)/i, "bulb"],
+      [/(fan|ventil|air|clim|cool|a\/c)/i, "fan"], [/(heat|boiler|chauff|radiat|calef|aquec|thermo)/i, "thermo"],
+      [/(wash|dish|lave|lava|s[èe]che|dry)/i, "drop"], [/(vacuum|aspir|robot)/i, "vacuum"], [/(car|ev\b|charg|wallbox|borne|tesla)/i, "bolt"],
+      [/(speaker|sonos|enceinte|altavoz)/i, "speaker"]].find(([pattern]) => pattern.test(name))?.[1] ?? "outlet";
+    let devicesAsked = 0;
+
+    /// Under the view, the devices measured on their own (Meters of no role) that used the most today, each with its kWh
+    /// and its share of the home's; asked of the bridge at most once a minute, hidden without any.
+    async function appliances() {
+      if (!report.roles.includes("home") || Date.now() - devicesAsked < 55000) return;
+      devicesAsked = Date.now();
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      let found;
+      try {
+        found = await api(`/api/metrics/consumption?${new URLSearchParams({ hours: ((Date.now() - midnight) / 36e5).toFixed(3), kind: "electricity",
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })}`);
+      } catch { devices.hidden = true; return; }
+      const top = (found.meters ?? []).filter((one) => !one.role && (one.kind ?? "electricity") === "electricity" && one.consumption > 0).sort((a, b) => b.consumption - a.consumption).slice(0, 6);
+      devices.hidden = !top.length;
+      if (!top.length) return;
+      const home = report.days[0]?.home ?? null;
+      const most = top[0].consumption;
+      devices.replaceChildren(el("strong", { class: "energy-devices-title", text: t("Today's biggest users") }),
+        el("ul", {}, top.map((one) => {
+          const name = one.label ? `${one.name} · ${one.label}` : one.name;
+          const share = home > 0 ? Math.min(100, one.consumption / home * 100) : null;
+          return el("li", {}, el("span", { class: "energy-device-icon tone-1", "aria-hidden": "true" }, icon(applianceIcon(name))),
+            el("span", { class: "energy-device-name", text: name, title: name }),
+            el("b", { text: format.kWh(one.consumption) }),
+            el("i", { class: "energy-device-bar", style: `--share: ${(one.consumption / most * 100).toFixed(1)}%`, "aria-hidden": "true" }),
+            share != null ? el("small", { text: t("{share} of the home", { share: format.percent(share) }) }) : null);
+        })));
     }
 
     // The day's phases ------------------------------------------------------------------------------------------------------
@@ -213,6 +252,9 @@
       const solarOut = f.sh + f.sb + f.sg;
       const overlay = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "energy-house-lines", "aria-hidden": "true" },
         cable("solar", cables.solar, solarOut, true),
+        cable("home", cables.home, figures.home, true),
+        cable("home", cables.homeUpper, figures.home, true),
+        cable("home", cables.homeLower, figures.home, true),
         cable("battery", cables.battery, figures.discharge || figures.charge, figures.discharge > 0),
         cable("grid", cables.meter, figures.imported || figures.exported, figures.exported > 0),
         cable("grid", cables.grid, figures.imported || figures.exported, figures.exported > 0));
