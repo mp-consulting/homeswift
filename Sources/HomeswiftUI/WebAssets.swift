@@ -13514,7 +13514,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   async function runScene(scene, button) {
     let confirmSecurity = false;
     if (scene.security) {
-      const which = scene.actions.filter((a) => a.security).map((a) => `${a.name || a.id}: ${a.characteristic}`).join(", ");
+      const which = scene.actions.filter((a) => a.security).map((a) => `${a.name || a.id}: ${characteristicName(a.characteristic)}`).join(", ");
       if (!await HomeswiftCommon.confirmDialog(t("{scene} changes a lock, a door or an alarm ({which}). Run it?", { scene: scene.name, which }))) return;
       confirmSecurity = true;
     }
@@ -13523,7 +13523,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
       if (!result.ok && result.results) {
-        const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
+        const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${characteristicName(r.characteristic)}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
         HomeswiftCommon.showAlert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
       return result;
@@ -13755,6 +13755,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (seconds >= 60 && seconds % 60 === 0) return t("{n} min", { n: seconds / 60 });
     return t("{n} s", { n: seconds });
   }
+  /// A characteristic's name in the page's language, as the rows under All controls give it ("On" is Power here).
+  const characteristicName = (type) => type === "On" ? t("Power")
+    : window.HomeswiftWidgets?.characteristicName && type ? HomeswiftWidgets.characteristicName(type) : type;
   /// A trigger's value as the controls word it: Motion, Unsecured, On rather than true or 0.
   const worded = (trigger) => window.HomeswiftWidgets?.valueText ? HomeswiftWidgets.valueText({ type: trigger.characteristic, value: trigger.value }) : String(trigger.value);
   function describeTrigger(trigger, names) {
@@ -13764,18 +13767,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         case "sun": return describeSun(trigger.event, trigger.offsetMinutes, describeDays(trigger.days));
         case "cron": return t("Cron {expression}", { expression: trigger.cron });
         case "characteristic": {
-          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic };
+          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: characteristicName(trigger.characteristic) };
           if (trigger.operator === "changes") return t("When {who} {characteristic} changes", vars);
           const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
           return t("When {who} {characteristic} {comparison} {value}", { ...vars, comparison, value: worded(trigger) });
         }
         case "stays": {
           const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
-          return t("When {who} {characteristic} {comparison} {value} for {duration}", { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic,
+          return t("When {who} {characteristic} {comparison} {value} for {duration}", { who: names.get(trigger.id) || trigger.id, characteristic: characteristicName(trigger.characteristic),
             comparison, value: worded(trigger), duration: describeSeconds(trigger.forSeconds) });
         }
         case "threshold": {
-          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic, value: String(trigger.value) };
+          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: characteristicName(trigger.characteristic), value: String(trigger.value) };
           return trigger.direction === "below" ? t("When {who} {characteristic} falls below {value}", vars) : t("When {who} {characteristic} rises above {value}", vars);
         }
         case "presence": {
@@ -13818,7 +13821,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.recall }) : action.name || action.recall }),
       el("span", { class: "value", text: t("Hub scene") })) : el("div", { class: "control" },
       el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
-      el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
+      el("span", { class: "value", text: `${characteristicName(action.characteristic)} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
     app.openSheet((done) => el("div", { class: "account-form scene-details" },
       el("h2", { id, text: scene.name }),
       el("p", { class: "muted", text: sceneSummary(scene, names) }),
@@ -13942,7 +13945,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const min = characteristic.minValue ?? (temperature ? 140 : 0);
       const max = characteristic.maxValue ?? (temperature ? 500 : characteristic.type === "Hue" ? 360 : 100);
       const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
-        value: value ?? characteristic.value ?? min, "aria-label": t(characteristic.type) });
+        value: value ?? characteristic.value ?? min, "aria-label": characteristicName(characteristic.type) });
       const output = el("output", { class: "scene-slider-value" });
       const format = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
       const paint = () => {
@@ -13958,10 +13961,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return wrap;
     }
     const labels = app.enumLabels[characteristic?.type];
+    // Eve's weather Condition: one of Open-Meteo's words, as the weather widget names them; a saved word it does not
+    // know stays a choice.
+    const words = characteristic?.type === "Condition" && characteristic.format === "string" ? window.HomeswiftWidgets?.weatherConditions?.() : null;
     let input;
     if (characteristic?.format === "bool") {
-      input = el("input", { type: "checkbox", role: "switch", checked: Boolean(value ?? characteristic.value), "aria-label": t(characteristic.type) });
+      input = el("input", { type: "checkbox", role: "switch", checked: Boolean(value ?? characteristic.value), "aria-label": characteristicName(characteristic.type) });
       input.read = () => input.checked;
+    } else if (words) {
+      const saved = value ?? characteristic.value;
+      const choices = typeof saved === "string" && saved && !words.some(([word]) => word === saved) ? [...words, [saved, saved]] : words;
+      input = el("select", {}, choices.map(([word, label]) => el("option", { value: word, text: label })));
+      input.value = typeof saved === "string" && saved ? saved : choices[0][0];
+      input.read = () => input.value;
     } else if (characteristic && (characteristic.validValues || labels)) {
       const values = characteristic.validValues || labels.map((_, index) => index);
       input = el("select", {}, values.map((v) => el("option", { value: v, text: app.labelFor(characteristic.type, v) })));
@@ -14010,10 +14022,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const fill = (keepType, keepValue) => {
       const found = options.find((a) => a.id === accessory.value);
       const chars = found ? list(found) : [];
-      const controlName = (type) => type === "On" ? t("Power") : type;
-      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${controlName(c.type)} (${c.serviceName})` : controlName(c.type) })));
+      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${characteristicName(c.type)} (${c.serviceName})` : characteristicName(c.type) })));
       // An accessory that is gone keeps the characteristic it was saved with.
-      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: controlName(keepType ?? characteristic) }));
+      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: characteristicName(keepType ?? characteristic) }));
       const index = Math.max(0, chars.findIndex((c) => c.type === keepType && (!service || c.service === service)));
       kind.value = String(index);
       current = chars[index] || null;
@@ -18134,6 +18145,40 @@ HomeswiftI18n.add("es", {
   "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Esto lo elimina con todos sus ajustes: su nombre, su habitación y los ajustes de {plugin} para él.",
   "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sale de la app Casa con su habitación, escenas y automatizaciones, para siempre: {plugin} no puede volver a encontrarlo.",
   "Deletes it and its settings for good: {plugin} cannot find it again.": "Lo elimina para siempre con sus ajustes: {plugin} no puede volver a encontrarlo.",
+  "Air Pressure": "Presión atmosférica",
+  "Air Quality PPM": "Calidad del aire (ppm)",
+  "Characteristic Value Active Transition Count": "Transiciones activas",
+  "Closed Captions": "Subtítulos",
+  "Closed Duration": "Tiempo cerrado",
+  "Configured Name": "Nombre configurado",
+  "Current Consumption": "Consumo actual",
+  "Current Media State": "Estado de la reproducción",
+  "Current Visibility State": "Visibilidad",
+  "Diagonal Field Of View": "Campo de visión diagonal",
+  "Electric Current": "Intensidad eléctrica",
+  "Event Snapshots Active": "Instantáneas por evento",
+  "Identifier": "Identificador",
+  "Input Device Type": "Tipo de dispositivo de entrada",
+  "Input Source Type": "Tipo de fuente",
+  "Is Configured": "Configurada",
+  "Last Activation": "Última activación",
+  "Manually Disabled": "Desactivado manualmente",
+  "Open Duration": "Tiempo abierto",
+  "Periodic Snapshots Active": "Instantáneas periódicas",
+  "Picture Mode": "Modo de imagen",
+  "Rain Last Hour": "Lluvia de la última hora",
+  "Reset Total": "Reinicio del total",
+  "Sleep Discovery Mode": "Detección en reposo",
+  "Target Media State": "Reproducción pedida",
+  "Target Visibility State": "Visibilidad pedida",
+  "Third Party Camera Active": "Cámara activa para otras apps",
+  "Times Opened": "Número de aperturas",
+  "Total Consumption": "Consumo total",
+  "UV Index": "Índice UV",
+  "Valve Position": "Posición de la válvula",
+  "Voltage": "Tensión",
+  "Volume Control Type": "Tipo de control del volumen",
+  "Wind Speed": "Velocidad del viento",
 });
 
 """#),
@@ -21427,6 +21472,40 @@ HomeswiftI18n.add("fr", {
   "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Cela le supprime avec tous ses réglages : son nom, sa pièce et les réglages de {plugin} pour lui.",
   "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Il quitte l’app Maison avec sa pièce, ses scènes et ses automatisations, définitivement : {plugin} ne peut pas le retrouver.",
   "Deletes it and its settings for good: {plugin} cannot find it again.": "Le supprime définitivement avec ses réglages : {plugin} ne peut pas le retrouver.",
+  "Air Pressure": "Pression atmosphérique",
+  "Air Quality PPM": "Qualité de l'air (ppm)",
+  "Characteristic Value Active Transition Count": "Transitions actives",
+  "Closed Captions": "Sous-titres",
+  "Closed Duration": "Durée de fermeture",
+  "Configured Name": "Nom configuré",
+  "Current Consumption": "Consommation actuelle",
+  "Current Media State": "État de la lecture",
+  "Current Visibility State": "Visibilité",
+  "Diagonal Field Of View": "Champ de vision diagonal",
+  "Electric Current": "Courant électrique",
+  "Event Snapshots Active": "Instantanés sur événement",
+  "Identifier": "Identifiant",
+  "Input Device Type": "Type d'appareil d'entrée",
+  "Input Source Type": "Type de source",
+  "Is Configured": "Configurée",
+  "Last Activation": "Dernière activation",
+  "Manually Disabled": "Désactivé manuellement",
+  "Open Duration": "Durée d'ouverture",
+  "Periodic Snapshots Active": "Instantanés périodiques",
+  "Picture Mode": "Mode d'image",
+  "Rain Last Hour": "Pluie de la dernière heure",
+  "Reset Total": "Remise à zéro du total",
+  "Sleep Discovery Mode": "Détection en veille",
+  "Target Media State": "Lecture demandée",
+  "Target Visibility State": "Visibilité demandée",
+  "Third Party Camera Active": "Caméra active pour d'autres apps",
+  "Times Opened": "Nombre d'ouvertures",
+  "Total Consumption": "Consommation totale",
+  "UV Index": "Indice UV",
+  "Valve Position": "Position de la vanne",
+  "Voltage": "Tension",
+  "Volume Control Type": "Type de réglage du volume",
+  "Wind Speed": "Vitesse du vent",
 });
 
 """#),
@@ -24720,6 +24799,40 @@ HomeswiftI18n.add("pt", {
   "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Isto elimina-o com todas as definições: o nome, a divisão e as definições de {plugin} para ele.",
   "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sai da app Casa com a divisão, as cenas e as automatizações, de vez: {plugin} não o consegue voltar a encontrar.",
   "Deletes it and its settings for good: {plugin} cannot find it again.": "Elimina-o de vez com as definições: {plugin} não o consegue voltar a encontrar.",
+  "Air Pressure": "Pressão atmosférica",
+  "Air Quality PPM": "Qualidade do ar (ppm)",
+  "Characteristic Value Active Transition Count": "Transições ativas",
+  "Closed Captions": "Legendas",
+  "Closed Duration": "Tempo fechado",
+  "Configured Name": "Nome configurado",
+  "Current Consumption": "Consumo atual",
+  "Current Media State": "Estado da reprodução",
+  "Current Visibility State": "Visibilidade",
+  "Diagonal Field Of View": "Campo de visão diagonal",
+  "Electric Current": "Corrente elétrica",
+  "Event Snapshots Active": "Instantâneos por evento",
+  "Identifier": "Identificador",
+  "Input Device Type": "Tipo de dispositivo de entrada",
+  "Input Source Type": "Tipo de fonte",
+  "Is Configured": "Configurada",
+  "Last Activation": "Última ativação",
+  "Manually Disabled": "Desativado manualmente",
+  "Open Duration": "Tempo aberto",
+  "Periodic Snapshots Active": "Instantâneos periódicos",
+  "Picture Mode": "Modo de imagem",
+  "Rain Last Hour": "Chuva na última hora",
+  "Reset Total": "Reposição do total",
+  "Sleep Discovery Mode": "Deteção em repouso",
+  "Target Media State": "Reprodução pedida",
+  "Target Visibility State": "Visibilidade pedida",
+  "Third Party Camera Active": "Câmara ativa para outras apps",
+  "Times Opened": "Número de aberturas",
+  "Total Consumption": "Consumo total",
+  "UV Index": "Índice UV",
+  "Valve Position": "Posição da válvula",
+  "Voltage": "Tensão",
+  "Volume Control Type": "Tipo de controlo do volume",
+  "Wind Speed": "Velocidade do vento",
 });
 
 """#),
@@ -35956,9 +36069,12 @@ self.addEventListener("notificationclick", (event) => {
     valueText(one) {
       const format = one.format ?? (typeof one.value === "boolean" ? "bool" : undefined);
       if (enumLabels[one.type]) return labelFor(one.type, one.value);
+      if (one.type === "Condition" && weatherConditions[one.value]) return weatherConditions[one.value][0];
       if (format !== "float" && typeof one.value === "number" && (one.minValue === 0 && one.maxValue === 1 || String(one.validValues) === "0,1")) return one.value ? t("On [setting]") : t("Off [setting]");
       return formatValue({ ...one, format });
     },
+    /// Eve's weather Condition words the weather widget knows, as [word, its translation].
+    weatherConditions: () => Object.entries(weatherConditions).map(([word, [label]]) => [word, label]),
     /// A characteristic's name as the rows under All controls give it.
     characteristicName: (type) => rowLabels[type] ?? typeName(type),
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
