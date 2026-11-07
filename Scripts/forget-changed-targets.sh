@@ -1,14 +1,15 @@
 #!/bin/sh
-# Drops, from a build restored from CI's cache, what was built of the targets a pull request changes: their objects and
-# modules are compiled whole instead. Scripts/restore-mtimes.swift dates files by their last commit, which can be older
-# than the base's cached build: the macOS runner kept a stale object of a file the branch changed (HAPServer.swift) and
-# failed to link, even with that file dated now.
-# Run after the cache is restored, with the key it came from as $CACHE_KEY: main's keys end with the commit they were
-# built from, which is what the checkout is compared with, so a pull request on another pull request's branch rebuilds
-# both branches' changes. Without such a commit, a pull request's merge commit is compared with its base; anything else
-# does nothing.
+# Drops, from a build restored from CI's cache, what was built of the targets changed since that build: their objects
+# and modules are compiled whole instead. Scripts/restore-mtimes.swift dates files by their last commit, which can be
+# older than the cached build: the macOS runner kept a stale object of a file that changed (HAPServer.swift) and failed
+# to link, even with that file dated now.
+# The commit a build was made from is in .build/.built-from (written before each save). It is what the checkout is
+# compared with, a pull request's own cache included: after the branch merges main, main's changes are newer than the
+# pull request's first build, and their files' commit dates are older. A cache saved before .built-from existed falls
+# back to its key (main's keys end with their commit), then to a pull request's merge commit against its base.
 set -e
-built=${CACHE_KEY##*-}
+built=$(cat .build/.built-from 2>/dev/null || true)
+[ -n "$built" ] || built=${CACHE_KEY##*-}
 if printf '%s' "$built" | grep -qE '^[0-9a-f]{40}$' && git cat-file -e "$built^{commit}" 2>/dev/null; then
   base=$built
 elif git rev-parse --verify --quiet HEAD^2 >/dev/null; then
