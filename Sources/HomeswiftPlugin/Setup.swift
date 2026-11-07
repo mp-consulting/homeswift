@@ -374,6 +374,35 @@ public enum SetupStep: Sendable {
     }
 }
 
+/// A Join's window (GLOSSARY.md, "Join"): how long the plugin's network takes a device, and the timer that runs out
+/// when nobody finished it. The plugin keeps it while the Setup polls; `cancel()` once the Join is over.
+public struct JoinWindow: Sendable {
+    /// How long a network stays open for a Join, as Zigbee2MQTT's own frontend opens it.
+    public static let defaultSeconds = 120
+    /// How often Setup asks how a Join goes (`SetupPrompt.retryAfter`).
+    public static let poll = 2
+
+    public let deadline: ContinuousClock.Instant
+    private let timer: Task<Void, Never>
+
+    /// Opens a window of `seconds`: `onExpire` runs shortly after it ends (a last poll may still be on its way), unless
+    /// `cancel()` came first.
+    public init(seconds: Int = defaultSeconds, onExpire: @escaping @Sendable () async -> Void) {
+        let deadline = ContinuousClock.now + .seconds(seconds)
+        self.deadline = deadline
+        timer = Task {
+            try? await Task.sleep(until: deadline + .seconds(5))
+            guard !Task.isCancelled else { return }
+            await onExpire()
+        }
+    }
+
+    public var isOpen: Bool { ContinuousClock.now < deadline }
+    /// What a Button Press prompt counts down (`SetupPrompt.waitSeconds`).
+    public var secondsLeft: Int { max(0, Int((deadline - .now).components.seconds)) }
+    public func cancel() { timer.cancel() }
+}
+
 /// A step of Setup the bridge hands a plugin.
 public struct SetupRequest: Sendable {
     public enum Target: Sendable, Equatable {

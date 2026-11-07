@@ -3086,6 +3086,8 @@ HomeswiftI18n.add("es", {
   "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.": "Pon el dispositivo en modo de exclusión: en la mayoría, las mismas pulsaciones de su botón que para añadirlo. Su manual explica cómo.",
   "Z-Wave JS could not remove the device: keep it close to the controller and try again": "Z-Wave JS no ha podido quitar el dispositivo: mantenlo cerca del controlador y vuelve a intentarlo",
   "The device left the network.": "El dispositivo ha abandonado la red.",
+  "The removal ended.": "La retirada ha terminado.",
+  "A device that was in exclusion mode has left its network, and can join this one. Otherwise, try again.": "Un dispositivo que estaba en modo de exclusión ha abandonado su red y puede unirse a esta. Si no, vuelve a intentarlo.",
   "It can join this network, or another, again.": "Puede volver a unirse a esta red o a otra.",
   "Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices": "Zigbee2MQTT no está conectado: configura primero su broker MQTT y después añade dispositivos",
   "Zigbee2MQTT closed its network: start again to add a device": "Zigbee2MQTT ha cerrado su red: vuelve a empezar para añadir un dispositivo",

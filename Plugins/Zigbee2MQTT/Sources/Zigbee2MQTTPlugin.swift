@@ -150,7 +150,7 @@ public actor Zigbee2MQTTPlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
-        joining?.closer?.cancel()
+        joining?.window.cancel()
         tasks.cancelAll()
         deviceListTimer?.cancel()
         for device in devices.values { device.refresh?.cancel() }

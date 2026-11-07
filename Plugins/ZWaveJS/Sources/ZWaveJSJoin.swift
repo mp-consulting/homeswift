@@ -23,8 +23,8 @@ struct Inclusion: Sendable {
     /// The exclusion took a device out: the node, when it was one of this network's.
     var removed = false
     var removedNodeID: Int?
-    /// When the plugin stops it.
-    var deadline: ContinuousClock.Instant
+    /// How long it runs before the plugin stops it.
+    var window: JoinWindow
     /// A device answered: the controller stopped looking, and the time no longer runs out (zwave-js has its own for S2).
     var found = false
     /// The DSK zwave-js shows while it waits for the PIN (`12345-…`, the first five digits hidden): Setup asks for them.
@@ -35,14 +35,9 @@ struct Inclusion: Sendable {
     var lowSecurity = false
     /// Why it stopped, for people.
     var failure: String?
-    /// Stops the inclusion once the time is up.
-    var closer: Task<Void, Never>?
 }
 
 extension ZWaveJSPlugin {
-    /// How long the controller includes: as long as Zigbee2MQTT lets devices join.
-    static let inclusionSeconds = 120
-    static let inclusionPoll = 2
     /// The choice that adds a server by its address instead.
     static let addressChoice = "address"
     /// The choice that removes a device from a network: `remove:<homeId>`.
@@ -87,7 +82,7 @@ extension ZWaveJSPlugin {
         }
         if let nodeID = current.nodeID {
             inclusion = nil
-            current.closer?.cancel()
+            current.window.cancel()
             if current.lowSecurity { logger.warning("Node \(nodeID) joined without the security it asked for: include it again for S2") }
             return .done(SetupOutcome(deviceID: Self.deviceID(homeID: homeID, nodeID: nodeID)))
         }
@@ -98,7 +93,7 @@ extension ZWaveJSPlugin {
             try await command(homeID, "controller.validate_dsk_and_enter_pin", ["pin": .string(pin)])
             return .ask(waitPrompt(), state: state)
         }
-        guard current.found || ContinuousClock.now < current.deadline else {
+        guard current.found || current.window.isOpen else {
             await endInclusion()
             throw SetupError("No device joined: put it in inclusion mode close to the controller, then try again")
         }
@@ -121,10 +116,10 @@ extension ZWaveJSPlugin {
         }
         if current.removed {
             inclusion = nil
-            current.closer?.cancel()
+            current.window.cancel()
             return .done(.removed(deviceID: current.removedNodeID.map { Self.deviceID(homeID: homeID, nodeID: $0) }))
         }
-        guard ContinuousClock.now < current.deadline else {
+        guard current.window.isOpen else {
             await endInclusion()
             throw SetupError("No device left the network: put it in exclusion mode close to the controller, then try again")
         }
@@ -132,18 +127,18 @@ extension ZWaveJSPlugin {
     }
 
     private func exclusionPrompt() -> SetupPrompt {
-        let left = max(0, Int(((inclusion?.deadline ?? .now) - .now).components.seconds))
+        let left = inclusion?.window.secondsLeft ?? 0
         return SetupPrompt(
             message: "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.",
-            waitSeconds: left, retryAfter: Self.inclusionPoll)
+            waitSeconds: left, retryAfter: JoinWindow.poll)
     }
 
     private func waitPrompt() -> SetupPrompt {
-        let left = max(0, Int(((inclusion?.deadline ?? .now) - .now).components.seconds))
+        let left = inclusion?.window.secondsLeft ?? 0
         return SetupPrompt(
             message: "Put the device in inclusion mode: most devices take three quick presses of their button. Its manual says how.",
             warning: "A device that was in another Z-Wave network must leave it first: choose Remove a device from the network, or reset it to its factory settings.",
-            waitSeconds: left, retryAfter: Self.inclusionPoll)
+            waitSeconds: left, retryAfter: JoinWindow.poll)
     }
 
     private func pinPrompt(_ dsk: String) -> SetupPrompt {
@@ -167,21 +162,15 @@ extension ZWaveJSPlugin {
         guard started["success"]?.boolValue != false else {
             throw SetupError("Z-Wave JS could not start an inclusion: another inclusion or exclusion may be running")
         }
-        let deadline = ContinuousClock.now + .seconds(Self.inclusionSeconds)
-        let closer = Task { [weak self] in
-            try? await Task.sleep(until: deadline + .seconds(5))
-            guard !Task.isCancelled else { return }
-            await self?.inclusionTimedOut()
-        }
-        inclusion = Inclusion(homeID: homeID, excluding: excluding, deadline: deadline, closer: closer)
-        logger.info("\(excluding ? "Removing a device from" : "Including a device into") the Z-Wave network \(homeID) for \(Self.inclusionSeconds) seconds")
+        inclusion = Inclusion(homeID: homeID, excluding: excluding, window: JoinWindow { [weak self] in await self?.inclusionTimedOut() })
+        logger.info("\(excluding ? "Removing a device from" : "Including a device into") the Z-Wave network \(homeID) for \(JoinWindow.defaultSeconds) seconds")
     }
 
     /// The inclusion is over: stopped on the controller, unless zwave-js stopped it already.
     func endInclusion() async {
         guard let current = inclusion else { return }
         inclusion = nil
-        current.closer?.cancel()
+        current.window.cancel()
         guard current.nodeID == nil, !current.removed else { return }
         _ = try? await command(current.homeID, current.excluding ? "controller.stop_exclusion" : "controller.stop_inclusion")
     }
@@ -208,7 +197,8 @@ extension ZWaveJSPlugin {
                 inclusion?.removed = true
                 inclusion?.removedNodeID = event["node"]?["nodeId"]?.intValue ?? event["nodeId"]?.intValue
             case "exclusion stopped":
-                // zwave-js stops once a device left; a device of another network leaves no node removed here.
+                // zwave-js stops once a device left; a device of another network leaves no node removed here, and a stop
+                // made elsewhere looks the same: the outcome names no device, and the page says only that it ended.
                 if inclusion?.failure == nil { inclusion?.removed = true }
             case "exclusion failed":
                 inclusion?.failure = "Z-Wave JS could not remove the device: keep it close to the controller and try again"

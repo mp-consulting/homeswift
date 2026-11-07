@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 
@@ -54,7 +55,9 @@ extension PresencePlugin {
                         state: .object(settings))
         }
         settings["devices"] = .array(picked.map(JSONValue.string))
-        let id = Self.personPrefix + String(format: "%08x", UInt32.random(in: .min ... .max))
+        // A new id, never one a Person has already (as a Helper's is made).
+        var id: String
+        repeat { id = Self.personPrefix + Secrets.hex(Secrets.randomBytes(4)) } while context.allAccessorySettings[id] != nil
         logger.info("Added the Person \(name)")
         return .done(SetupOutcome(settings: settings, deviceID: id))
     }

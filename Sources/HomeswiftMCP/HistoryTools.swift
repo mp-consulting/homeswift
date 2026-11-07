@@ -11,7 +11,7 @@ extension HomeswiftCatalog {
     /// `people` false leaves out who a user or an MCP client is, as the audit log keeps them from all but administrators.
     static func sourceJSON(_ source: ChangeSource, people: Bool = true) -> JSONValue {
         var object: [String: JSONValue] = ["kind": .string(source.kind)]
-        if !people, source.kind == "user" || source.kind == "mcp" { return .object(object) }
+        if !people, source.namesSomeone { return .object(object) }
         if let name = source.name { object["name"] = .string(source.kind == "homeApp" ? String(name.prefix(8)) : name) }
         return .object(object)
     }
@@ -104,7 +104,9 @@ extension HomeswiftCatalog {
             guard let found = find(id: accessory) else { throw CatalogError("No accessory with that id", notFound: true) }
             ids = ids.map { $0.intersection([found.accessory.id]) } ?? [found.accessory.id]
         }
-        let nameFilter = people || !(sourceKind == "user" || sourceKind == "mcp") ? sourceName : nil
+        // Without `people`, a name filters only a kind that is not a person or an MCP client (an Automation, a Scene):
+        // a name alone, or with those kinds, would say which changes a user made though the answer leaves their name out.
+        let nameFilter = people || sourceKind.map({ !ChangeSource.kindsNamingSomeone.contains($0) }) == true ? sourceName : nil
         let query = LogbookQuery(from: since, to: until, accessories: ids, sourceKind: sourceKind, sourceName: nameFilter, limit: min(max(limit, 1), 1000))
         let entries = history.logbook(query)
         return [

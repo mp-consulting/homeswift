@@ -12930,25 +12930,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       count.textContent = tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", found.entries.length, { days: String(found.days) });
       if (!found.entries.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
       const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
-      const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      // Hours and minutes read at a glance; the seconds are in the time's tooltip.
+      const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const exactFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const days = new Map();
       for (const entry of found.entries) {
         const date = new Date(entry.time);
         const key = dayFormat.format(date);
         if (!days.has(key)) days.set(key, []);
-        days.get(key).push(row(entry, date, timeFormat));
+        days.get(key).push(row(entry, date, timeFormat, exactFormat));
       }
       list.replaceChildren(...[...days].map(([day, rows]) => el("section", { class: "logbook-day" }, el("h3", { text: day }), el("ul", { class: "logbook-list" }, rows))));
     }
 
-    function row(entry, date, timeFormat) {
+    function row(entry, date, timeFormat, exactFormat) {
       const series = { characteristic: entry.characteristic, kind: typeof entry.value === "number" ? "number" : "state" };
       const live = byID.get(entry.accessory);
       const characteristic = live?.services?.flatMap((service) => service.characteristics ?? []).find((one) => one.type === entry.characteristic);
       if (characteristic) Object.assign(series, { unit: characteristic.unit, minValue: characteristic.minValue, maxValue: characteristic.maxValue, validValues: characteristic.validValues });
       const what = t("{characteristic}: {value}", { characteristic: HomeswiftWidgets.characteristicName(entry.characteristic), value: valueText(series, entry.value) });
       return el("li", { class: "logbook-entry" },
-        el("time", { datetime: entry.time, text: timeFormat.format(date) }),
+        el("time", { datetime: entry.time, title: exactFormat.format(date), text: timeFormat.format(date) }),
         el("span", { class: "tile", "aria-hidden": "true" }, HomeswiftCommon.icon(icons.get(entry.accessory) ?? "accessory")),
         el("div", { class: "who" }, el("strong", { text: entry.name }), el("span", { class: "muted", text: [what, entry.room].filter(Boolean).join(" · ") })),
         el("span", { class: `pill source source-${entry.source.kind}`, title: entry.source.kind === "homeApp" ? t("Pairing {id}", { id: entry.source.name }) : sourceText(entry.source) },
@@ -17950,6 +17952,8 @@ HomeswiftI18n.add("es", {
   "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.": "Pon el dispositivo en modo de exclusión: en la mayoría, las mismas pulsaciones de su botón que para añadirlo. Su manual explica cómo.",
   "Z-Wave JS could not remove the device: keep it close to the controller and try again": "Z-Wave JS no ha podido quitar el dispositivo: mantenlo cerca del controlador y vuelve a intentarlo",
   "The device left the network.": "El dispositivo ha abandonado la red.",
+  "The removal ended.": "La retirada ha terminado.",
+  "A device that was in exclusion mode has left its network, and can join this one. Otherwise, try again.": "Un dispositivo que estaba en modo de exclusión ha abandonado su red y puede unirse a esta. Si no, vuelve a intentarlo.",
   "It can join this network, or another, again.": "Puede volver a unirse a esta red o a otra.",
   "Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices": "Zigbee2MQTT no está conectado: configura primero su broker MQTT y después añade dispositivos",
   "Zigbee2MQTT closed its network: start again to add a device": "Zigbee2MQTT ha cerrado su red: vuelve a empezar para añadir un dispositivo",
@@ -21309,6 +21313,8 @@ HomeswiftI18n.add("fr", {
   "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.": "Mettez l’appareil en mode exclusion : pour la plupart, les mêmes appuis sur leur bouton que pour l’ajouter. Sa notice explique comment.",
   "Z-Wave JS could not remove the device: keep it close to the controller and try again": "Z-Wave JS n’a pas pu retirer l’appareil : gardez-le près du contrôleur et réessayez",
   "The device left the network.": "L’appareil a quitté le réseau.",
+  "The removal ended.": "Le retrait est terminé.",
+  "A device that was in exclusion mode has left its network, and can join this one. Otherwise, try again.": "Un appareil qui était en mode exclusion a quitté son réseau, et peut rejoindre celui-ci. Sinon, réessayez.",
   "It can join this network, or another, again.": "Il peut de nouveau rejoindre ce réseau, ou un autre.",
   "Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices": "Zigbee2MQTT n’est pas connecté : configurez d’abord son broker MQTT, puis ajoutez des appareils",
   "Zigbee2MQTT closed its network: start again to add a device": "Zigbee2MQTT a refermé son réseau : recommencez pour ajouter un appareil",
@@ -24668,6 +24674,8 @@ HomeswiftI18n.add("pt", {
   "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.": "Ponha o dispositivo em modo de exclusão: na maioria, os mesmos toques no botão que para o adicionar. O manual explica como.",
   "Z-Wave JS could not remove the device: keep it close to the controller and try again": "O Z-Wave JS não conseguiu remover o dispositivo: mantenha-o perto do controlador e tente novamente",
   "The device left the network.": "O dispositivo saiu da rede.",
+  "The removal ended.": "A remoção terminou.",
+  "A device that was in exclusion mode has left its network, and can join this one. Otherwise, try again.": "Um dispositivo que estava em modo de exclusão saiu da sua rede e pode juntar-se a esta. Caso contrário, tente novamente.",
   "It can join this network, or another, again.": "Pode voltar a juntar-se a esta rede ou a outra.",
   "Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices": "O Zigbee2MQTT não está ligado: configure primeiro o seu broker MQTT e depois adicione dispositivos",
   "Zigbee2MQTT closed its network: start again to add a device": "O Zigbee2MQTT fechou a sua rede: recomece para adicionar um dispositivo",
@@ -28116,12 +28124,13 @@ HomeswiftI18n.add("pt", {
 
       /// The end: what reached the Home app, when the sheet knows. A device's Setup ends on its Accessory Settings
       /// (settings.js), the fields its plugin declares as the wall's sheet draws them, each saved as it is changed.
-      function finish(added = null, accessory = null, removed = false) {
+      /// `removed`: "left" when a device of this network left it, "ended" when an exclusion ended without saying which.
+      function finish(added = null, accessory = null, removed = null) {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
         // A device added by address is named once its settings have loaded: the sheet's title and the line say it.
-        const named = el("strong", { text: removed ? t("The device left the network.") : device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
+        const named = el("strong", { text: removed === "left" ? t("The device left the network.") : removed ? t("The removal ended.") : device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
           : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
         const onTitle = (name) => {
           if (!adding || !name) return;
@@ -28132,7 +28141,8 @@ HomeswiftI18n.add("pt", {
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, named),
-            el("p", { class: "muted", text: removed ? t("It can join this network, or another, again.") : added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
+            el("p", { class: "muted", text: removed === "left" ? t("It can join this network, or another, again.")
+              : removed ? t("A device that was in exclusion mode has left its network, and can join this one. Otherwise, try again.") : added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
           editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
@@ -28215,7 +28225,7 @@ HomeswiftI18n.add("pt", {
           if (picking) pick({ keep: () => true });
           // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
           else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title, accessory: answer.accessoryID });
-          else if (answer.removed) finish(null, null, true);
+          else if (answer.removed) finish(null, null, answer.deviceID ? "left" : "ended");
           else finish(null, answer.accessoryID);
           return;
         }
