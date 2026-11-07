@@ -435,6 +435,7 @@ let package = Package(
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
                 .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),

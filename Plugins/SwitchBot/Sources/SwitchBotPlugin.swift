@@ -12,8 +12,10 @@ import NIOConcurrencyHelpers
 ///
 /// A block of `@switchbot/homebridge-switchbot` (4.x's `credentials` and `options`, or 5.x's flatter shape) loads
 /// unchanged; what the bridge writes is the canonical shape (SwitchBotSettings.swift): the token and secret in the
-/// vault, each device's options in `_accessories` by its Device Id, 4.x's seed `<deviceId>-<deviceType>`. Bluetooth is
-/// not supported. See README.md in this directory.
+/// vault, each device's options in `_accessories` by its Device Id, 4.x's seed `<deviceId>-<deviceType>`. Devices whose
+/// `connectionType` is `BLE` or `BLE/OpenAPI` are reached over Bluetooth LE where the spec pins their frames
+/// (SwitchBotBluetooth.swift, BLEProtocol.swift); without a token, the block's devices are reached over Bluetooth alone.
+/// See README.md in this directory.
 public actor SwitchBotPlugin: HomeswiftPlugin {
     /// What the plugin uses to reach the cloud and to wait; tests swap them.
     struct Dependencies: Sendable {
@@ -25,6 +27,10 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         var webhookHost = "0.0.0.0"
         /// The webhook listener's port when not the URL's; tests pass 0.
         var webhookPort: Int?
+        /// The Bluetooth adapter, shared with the other plugins (nil where this process may not use it); tests pass a fake.
+        var bleCentral: @Sendable (Logger) throws -> (any BLECentral)? = { try Bluetooth.systemCentral(logger: $0) }
+        /// Bluetooth's timeouts (not scaled: they bound a radio, not a wait of the plugin's).
+        var bleTiming = SwitchBotBluetooth.Timing()
     }
 
     public static let platform = "SwitchBot"
@@ -52,13 +58,29 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         var interval: Duration
         /// The interval while it moves (`updateRate`) or a write waits.
         var update: Duration
+        /// Its Bluetooth side, when its `connectionType` asks for Bluetooth and the spec pins its frames.
+        var ble: BLEDevice?
+        /// Whether the cloud reaches it: the only way, or the fallback of `BLE/OpenAPI`.
+        var cloud = true
+        /// Between two connected status reads (`blePollIntervalMs`), and whether they are made (`blePollingEnabled`).
+        var bleInterval: Duration = .seconds(600)
+        var blePolling = true
     }
 
     private(set) var entries: [String: Entry] = [:]
     /// Device ids (normalised) to Device Ids, for webhooks and linked meters.
     private var byCloudID: [String: String] = [:]
     private var pollTasks: [String: Task<Void, Never>] = [:]
-    private var failing: Set<String> = []
+    var failing: Set<String> = []
+    /// Bluetooth, once a device needs it: nil until then, or when this process may not use it.
+    var bluetooth: SwitchBotBluetooth?
+    var bluetoothTried = false
+    /// MACs (12 upper-case hex digits) to Device Ids, for advertisements.
+    var byMAC: [String: String] = [:]
+    /// The last sequence number each MAC advertised.
+    var sequences: [String: UInt8] = [:]
+    /// Devices whose Bluetooth problem was logged.
+    var bluetoothWarned: Set<String> = []
     /// The cloud's last device list, for Setup and the settings.
     private(set) var latest: DeviceList?
     private var webhook: WebhookServer?
@@ -103,6 +125,12 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     public func start() async throws {
         guard let keys else {
+            // Without a token, the block's devices are reached over Bluetooth alone (§4.3).
+            if let local = localDeviceList() {
+                logger.info("No OpenAPI token: \(local.devices.count) device\(local.devices.count == 1 ? "" : "s") of the block over Bluetooth only")
+                tasks.add { [weak self] in await self?.apply(local) }
+                return
+            }
             logger.warning("No OpenAPI token and secret: run Setup with the token and secret from the SwitchBot app (Profile, Preferences, App Version tapped ten times, Developer Options)")
             return
         }
@@ -121,6 +149,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             registeredWebhookURL = nil
         }
         await budget.save()
+        await bluetooth?.stop()
         for entry in entries.values { (entry.accessory as? LightAccessory)?.adaptiveLighting = nil }
     }
 
@@ -152,6 +181,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         latest = list
         var kept = Set<String>()
         var polled: [String] = []
+        var bluetoothPolled: [String] = []
         var adds: [(DeviceInfo, Family?, RemoteFamily?)] = []
         for raw in list.devices {
             guard let info = physicalInfo(raw), !info.leftOut else { continue }
@@ -176,7 +206,9 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             do {
                 if entries[info.deviceID] == nil { try await add(info, family: family, remote: remote) }
                 kept.insert(id)
-                if entries[info.deviceID]?.polled == true { polled.append(info.deviceID) }
+                if let entry = entries[info.deviceID], entry.polled {
+                    if entry.ble == nil { polled.append(info.deviceID) } else { bluetoothPolled.append(info.deviceID) }
+                }
             } catch {
                 logger.error("Could not add \(info.name): \(error)")
             }
@@ -198,11 +230,20 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
                 if pollTasks[deviceID] == nil { startPolling(deviceID, after: scaled(Double(index) * 0.2)) }
             }
         }
+        // Devices on Bluetooth stay out of the day's requests: a connected read (a lock's info) at once, an advertising
+        // device checked once its interval passed.
+        for (index, deviceID) in bluetoothPolled.enumerated() where pollTasks[deviceID] == nil {
+            guard let entry = entries[deviceID], let ble = entry.ble else { continue }
+            startPolling(deviceID, after: ble.model.hasRead ? scaled(Double(index) * 0.2) : entry.interval)
+        }
     }
 
     private func forget(_ deviceID: String) {
         pollTasks.removeValue(forKey: deviceID)?.cancel()
-        if let entry = entries.removeValue(forKey: deviceID) { byCloudID.removeValue(forKey: normalizedID(entry.info.id)) }
+        if let entry = entries.removeValue(forKey: deviceID) {
+            byCloudID.removeValue(forKey: normalizedID(entry.info.id))
+            if let mac = entry.ble?.mac { byMAC.removeValue(forKey: mac) }
+        }
     }
 
     /// The device's entry in the Homebridge-shaped list, by its id compared as 4.x compares it.
@@ -300,7 +341,12 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         let logger = deviceLogger(info.options)
         let debounce = scaled(info.options.number("pushRate") ?? configuration.debounceSeconds)
         let update = scaled(max(info.options.number("updateRate") ?? configuration.platformOptions.number("updateRate") ?? 5, 1))
-        let usable = isUsable(info)
+        var route = route(info)
+        if route.bluetooth != nil {
+            await openBluetooth()
+            if bluetooth == nil, route.cloud { route.bluetooth = nil }
+        }
+        let usable = (usable: route.usable, reason: route.reason)
         let link = makeLink(info, usable: usable.usable)
         let accessory: DeviceAccessory
         if let remote {
@@ -345,22 +391,20 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         }
         let external = (accessory as? RemoteAccessory)?.isExternal ?? info.options.flag("external")
         if external { try await context.publishExternal(hap) } else { try context.add(hap) }
+        let pollMilliseconds = info.options.number("blePollIntervalMs") ?? configuration.blePollIntervalMs ?? 600_000
         entries[info.deviceID] = Entry(
             info: info, accessory: accessory, hap: hap, polled: !info.isRemote && usable.usable,
-            interval: scaled(max(info.options.number("refreshRate") ?? configuration.refreshRate, Self.minimumRefreshRate)), update: update)
+            interval: scaled(max(info.options.number("refreshRate") ?? configuration.refreshRate, Self.minimumRefreshRate)), update: update,
+            ble: route.bluetooth, cloud: route.cloud, bleInterval: scaled(max(pollMilliseconds, 60_000) / 1000),
+            blePolling: info.options.bool("blePollingEnabled") ?? configuration.blePollingEnabled ?? true)
         byCloudID[normalizedID(info.id)] = info.deviceID
+        if let ble = route.bluetooth {
+            byMAC[ble.mac] = info.deviceID
+            logger.debug("\(info.type) \(info.name): over Bluetooth at \(colonMAC(ble.mac))\(route.cloud ? ", the cloud as its fallback" : "")")
+        }
     }
 
-    /// Whether requests reach the device: the cloud must serve it (`enableCloudService`) and its `connectionType` be
-    /// the cloud's (`OpenAPI`, `BLE/OpenAPI`; an IR remote's exactly `OpenAPI`).
-    func isUsable(_ info: DeviceInfo) -> (usable: Bool, reason: String) {
-        let connection = info.options.string("connectionType") ?? "OpenAPI"
-        if info.isRemote { return connection == "OpenAPI" ? (true, "") : (false, "its connectionType is \(connection)") }
-        if connection == "Disabled" { return (false, "its connectionType is Disabled") }
-        if connection == "BLE" { return (false, "Bluetooth is not supported: set its connectionType to OpenAPI") }
-        if info.options.bool("enableCloudService") == false { return (false, "Cloud Services is off for it in the SwitchBot app") }
-        return (true, "")
-    }
+    // The route of each device (`connectionType`) is in SwitchBotPlugin+Bluetooth.swift.
 
     /// The last temperature of each meter, by normalised id, for linked air conditioners.
     nonisolated let meterTemperatures = NIOLockedValueBox<[String: (type: String, celsius: Double)]>([:])
@@ -374,7 +418,9 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     /// Sends commands in turn; a refusal is logged and stops the rest. The cloud's silence throws, as No Response.
     func send(_ commands: [Command], to info: DeviceInfo) async throws -> Bool {
-        guard let client, let entry = entries[info.deviceID] else { throw HAPStatusError(.serviceCommunicationFailure) }
+        guard let entry = entries[info.deviceID] else { throw HAPStatusError(.serviceCommunicationFailure) }
+        if entry.ble != nil, let accepted = try await sendOverBluetooth(commands, entry: entry) { return accepted }
+        guard let client, entry.cloud else { throw HAPStatusError(.serviceCommunicationFailure) }
         let logger = entry.accessory.logger
         var accepted = true
         for command in commands {
@@ -400,7 +446,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         return accepted
     }
 
-    private func markUnreachable(_ deviceID: String, _ unreachable: Bool) {
+    func markUnreachable(_ deviceID: String, _ unreachable: Bool) {
         // Unreachable, not unavailable: No Response shows, and HomeKit's next write still tries the cloud (an IR remote is
         // never polled, so only a write can find it answering again).
         guard let entry = entries[deviceID], entry.hap.isUnreachable != unreachable else { return }
@@ -409,7 +455,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     // MARK: Polling
 
-    private func startPolling(_ deviceID: String, after delay: Duration) {
+    func startPolling(_ deviceID: String, after delay: Duration) {
         pollTasks[deviceID]?.cancel()
         pollTasks[deviceID] = Task { [weak self] in
             var wait = delay
@@ -423,10 +469,18 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     /// One status of a device, then the wait before the next: its interval, or `updateRate` while it moves.
     func poll(_ deviceID: String) async -> Duration? {
-        guard let entry = entries[deviceID], let client else { return nil }
+        guard let entry = entries[deviceID] else { return nil }
         let info = entry.info
         let logger = entry.accessory.logger
         if entry.accessory.isWriting { return entry.update }
+        if entry.ble != nil {
+            switch await pollOverBluetooth(entry) {
+            case .next(let wait): return wait
+            case .stop: return nil
+            case .cloud: break
+            }
+        }
+        guard entry.cloud, let client else { return nil }
         let allowed = await budget.allowsPoll { used in
             logger.warning("\(used) SwitchBot requests made today: polls stop until midnight, keeping the rest for commands")
         }
@@ -449,7 +503,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         return entry.accessory.isMoving ? entry.update : entry.interval
     }
 
-    private func show(_ status: [String: JSONValue], on entry: Entry, webhook: Bool) {
+    func show(_ status: [String: JSONValue], on entry: Entry, webhook: Bool) {
         // A write waiting for its debounce or on its way wins over a report that crossed it: the refresh after its
         // command shows what the device did.
         guard !entry.accessory.isWriting || entry.accessory is SensorAccessory else { return }
