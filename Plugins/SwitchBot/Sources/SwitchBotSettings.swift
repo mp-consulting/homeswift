@@ -35,6 +35,10 @@ extension SwitchBotPlugin {
     }
 
     /// The device keys `_accessories` takes, as `accessorySchema` declares them.
+    /// The device keys that are credentials: moved with the rest, sealed by the runtime (secret-named), never declared in
+    /// the form (no schema declares a secret).
+    static let secretDeviceKeys: Set<String> = ["encryptionKey", "encryptionKeyId", "botPassword"]
+
     static let deviceKeys: Set<String> = [
         "configDeviceType", "connectionType", "refreshRate", "updateRate", "pushRate", "webhook", "offline",
         "external", "firmware", "logging", "disableCaching", "type", "mode", "doublePress", "pushRatePress", "allowPush", "hide_temperature",

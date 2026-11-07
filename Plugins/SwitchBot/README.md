@@ -91,9 +91,11 @@ that name their `configDeviceType` are added and reached over Bluetooth alone. D
 requests; one on `BLE/OpenAPI` spends them only when Bluetooth fails.
 
 - **Keys.** A Smart Lock needs its **encryption key** (32 hex digits) and **key id** (2) from the SwitchBot app's device
-  information page; SwitchBot publishes no API that gives them. Enter them in its Accessory Settings (`encryptionKey`,
-  `encryptionKeyId`; a Homebridge block's `keyId` is read): both are sealed, masked and never logged. A lock without them
-  stays on the cloud. A Strip Light given a key talks encrypted too.
+  information page; SwitchBot publishes no API that gives them. They are credentials, so no form shows them: put them in
+  config.json under the lock's entry in `_accessories` (`encryptionKey`, `encryptionKeyId`; a Homebridge block's `keyId`
+  and a Bot's `botPassword` are read the same way). The bridge seals them in the vault at its next start, masks them and
+  never logs them. A lock without them stays on the cloud. A Strip Light given a key talks encrypted too. Setup asking
+  for them is not done yet (see Gaps).
 - **Options.** `maxRetry` (5) attempts per command, with a backoff; `blePollingEnabled` (on) and `blePollIntervalMs`
   (600000, at least 60000) read the state of plugs, lights and locks besides their advertisements. A device read from its
   advertisements alone that is not heard for its `refreshRate` shows No Response (`BLE`) or is asked of the cloud
@@ -130,6 +132,7 @@ Webhook events match `deviceMac` whatever its spelling.
 
 ## Gaps
 
+- Setup does not ask for a lock's encryption key and key id or a Bot's password yet: they go in config.json (above).
 - **Bluetooth** is experimental and tested only against a fake adapter. Open points of the spec: the Smart Lock's
   advertisement offsets disagree on SwitchBot's page, so its state comes from the connected read only; AES-GCM locks follow
   the protocol but no published vector checks them (they are checked against swift-crypto's AES-GCM); the Plug Mini's

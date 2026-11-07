@@ -151,8 +151,8 @@ import Testing
             "run: swift Scripts/embed-assets.swift plugin Plugins/SwitchBot SwitchBotPlugin")
         let schema = try JSONValue(string: try #require(SwitchBotPlugin.configurationSchemaJSON))
         #expect(schema["pluginAlias"] == "SwitchBot")
-        // Every key canonicalSettings moves is declared.
+        // Every key canonicalSettings moves is declared, but the credentials, which no form shows.
         let declared = Set(schema["accessorySchema"]?["properties"]?.objectValue?.keys.map { $0 } ?? [])
-        #expect(SwitchBotPlugin.deviceKeys.union(SwitchBotPlugin.remoteKeys).subtracting(declared).isEmpty)
+        #expect(SwitchBotPlugin.deviceKeys.union(SwitchBotPlugin.remoteKeys).subtracting(declared) == SwitchBotPlugin.secretDeviceKeys)
     }
 }

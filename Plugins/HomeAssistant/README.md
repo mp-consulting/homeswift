@@ -65,7 +65,7 @@ them each entity becomes an accessory of its own.
 | `domains` | The domains taken, all of the table's by default |
 | `includeEntities`, `excludeEntities` | Entity ids or patterns with `*` and `?`: shown even when hidden or a configuration or diagnostic entity, or left out |
 | `mirror` | Entities shown in Homeswift's web UI, scenes, automations and MCP tools but never published to Apple Home (`Accessory.mirroredFrom`): entity ids, patterns, or `all` |
-| `lockPasscode`, `alarmPasscode` | The code sent with `lock.lock`/`unlock` and with the alarm's arm and disarm services, for those that ask for one (secret-named keys: sealed and masked) |
+| `lockPasscode`, `alarmPasscode` | Not in the form (credentials never are): set in config.json, sealed in the vault at the next start. The code sent with `lock.lock`/`unlock` and with the alarm's arm and disarm services, for those that ask for one (secret-named keys: sealed and masked) |
 | `verifyTLS` | `false` for an `https` address with a self-signed certificate: the first certificate seen is trusted, then pinned |
 
 ## Running it beside Home Assistant's own HomeKit bridge

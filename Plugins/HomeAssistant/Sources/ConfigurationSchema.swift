@@ -24,11 +24,6 @@ extension HomeAssistantPlugin {
         "placeholder": "http://homeassistant.local:8123",
         "description": "The address of Home Assistant, as you open it in a browser. Setup finds it on the network or asks for it."
       },
-      "accessToken": {
-        "title": "Access token",
-        "type": "string",
-        "description": "A long-lived access token, made in Home Assistant under your profile, Security. Setup keeps it in the vault; leave this empty."
-      },
       "serverId": {
         "title": "Server id",
         "type": "string",
@@ -176,16 +171,6 @@ extension HomeAssistantPlugin {
           "title": "Entity",
           "description": "An entity id or a pattern"
         }
-      },
-      "lockPasscode": {
-        "title": "Lock code",
-        "type": "string",
-        "description": "The code sent with lock and unlock, for locks that ask for one."
-      },
-      "alarmPasscode": {
-        "title": "Alarm code",
-        "type": "string",
-        "description": "The code sent to arm and disarm alarm panels, for those that ask for one."
       },
       "verifyTLS": {
         "title": "Check the certificate",

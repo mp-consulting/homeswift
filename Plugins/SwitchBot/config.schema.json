@@ -246,32 +246,6 @@
         "minimum": 1,
         "maximum": 10
       },
-      "encryptionKey": {
-        "type": "string",
-        "title": "Encryption key",
-        "description": "32 hex digits from the SwitchBot app's device information page; a lock needs it on Bluetooth",
-        "x-kinds": [
-          "lock",
-          "light"
-        ]
-      },
-      "encryptionKeyId": {
-        "type": "string",
-        "title": "Key ID",
-        "description": "2 hex digits beside the encryption key in the SwitchBot app (keyId in a Homebridge block)",
-        "x-kinds": [
-          "lock",
-          "light"
-        ]
-      },
-      "botPassword": {
-        "type": "string",
-        "title": "Bot password",
-        "description": "The 4 letters or digits set in the SwitchBot app, for a Bot on Bluetooth",
-        "x-kinds": [
-          "bot"
-        ]
-      },
       "blePollingEnabled": {
         "type": "boolean",
         "title": "Bluetooth status reads",

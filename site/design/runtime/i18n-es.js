@@ -82,7 +82,7 @@ HomeswiftI18n.add("es", {
   "Home Assistant's devices come with the server: they need no setup of their own": "Los dispositivos de Home Assistant vienen con el servidor: no necesitan configuración propia",
   "Z-Wave lights, switches, sensors, locks and thermostats from Z-Wave JS": "Luces, interruptores, sensores, cerraduras y termostatos Z-Wave de Z-Wave JS",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscina: iniciar y detener la limpieza, temperatura del agua y filtro",
-  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robots aspiradores: limpieza, vuelta a la base, batería, lavado de la mopa, escenas y cepillos",
+  "Robot vacuums: clean, suction and mop, rooms, dock, battery, mop washing, scenes and brushes": "Robots aspiradores: limpieza, succión y fregado, habitaciones, vuelta a la base, batería, lavado de la mopa, escenas y cepillos",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
