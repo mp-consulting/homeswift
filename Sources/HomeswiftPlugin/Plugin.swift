@@ -167,7 +167,8 @@ public protocol HomeswiftPlugin: Sendable {
     static var accountRequirement: AccountRequirement { get }
 
     /// How a person adds a device the plugin does not find by itself (`NewDevices`): `.byAddress` (GLOSSARY.md, "Add by
-    /// address"), or `.made(label:)` for devices the plugin makes rather than finds (a Helper, a Person). The Add
+    /// address"), `.made(label:)` for devices the plugin makes rather than finds (a Helper, a Person), or `.joined(label:)`
+    /// for devices that join the plugin's own radio network (Zigbee, Z-Wave). The Add
     /// accessories page offers it on the instance, and `start_setup` takes `addByAddress`. Its Setup is `authorize` with
     /// `SetupRequest.Target.newDevice`, with or without an account. Defaults to nil: only the devices it finds.
     static var newDevices: NewDevices? { get }

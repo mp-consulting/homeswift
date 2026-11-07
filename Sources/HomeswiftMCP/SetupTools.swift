@@ -207,7 +207,7 @@ extension HomeswiftCatalog {
                 let step = try await plugin.authorize(request)
                 if case .done(let outcome) = step {
                     // Add by address ends on the device the plugin reached: without it, nothing is saved.
-                    if session.target == .newDevice, outcome.deviceID?.isEmpty != false {
+                    if session.target == .newDevice, !outcome.removed, outcome.deviceID?.isEmpty != false {
                         throw SetupError("\(session.platform) did not say which device it reached")
                     }
                     if let credentials = outcome.credentials { try context.saveCredentials(credentials, for: session.deviceID(of: outcome)) }
@@ -236,6 +236,13 @@ extension HomeswiftCatalog {
     /// and starts the plugin afresh when the write did not, so it uses the credentials now in the vault. A device added
     /// by address is included: named by the person, it is no longer Excluded.
     private func finish(_ session: SetupSession, outcome: SetupOutcome) async throws -> JSONValue {
+        // A device that left the plugin's network: nothing to write; the plugin forgets its accessory itself.
+        if outcome.removed {
+            logger.info("Setup removed a device", metadata: ["platform": "\(session.platform)", "name": "\(session.name)", "device": "\(outcome.deviceID ?? "unknown")"])
+            var answer: [String: JSONValue] = ["status": "done", "removed": true, "platform": .string(session.platform), "name": .string(session.name)]
+            if let deviceID = outcome.deviceID { answer["deviceID"] = .string(deviceID) }
+            return .object(answer)
+        }
         let deviceID = session.deviceID(of: outcome)
         let adding = session.target == .newDevice
         var applied: JSONValue?
@@ -308,7 +315,8 @@ extension HomeswiftCatalog {
                     + "accountAuthorization says what the plugin's account needs (start_setup without a deviceID); accountState where it stands (none, setUp, notSetUp, refused); "
                     + "needsAuthorization that it must be set up (again) before the devices work; accountRequired false that the devices work without it, accountAdds what it adds. "
                     + "addByAddress true: the plugin also takes a device it cannot find, by its address (start_setup with addByAddress); with addLabel, "
-                    + "one it makes rather than finds (Add a Helper…: a sensor worked out from other accessories), its first prompt asking what it needs.",
+                    + "one it makes rather than finds (Add a Helper…: a sensor worked out from other accessories), its first prompt asking what it needs, "
+                    + "or one that joins the plugin's own radio network (Add a Zigbee device…: a buttonPress wait while the person resets the device; done with removed true when the person chose to take a device out of the network instead).",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance)],
                 scope: .admin, readOnly: true
             ) { call in

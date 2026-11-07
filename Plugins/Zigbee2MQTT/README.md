@@ -53,6 +53,14 @@ homebridge-z2m block works as it is:
   bridge moves it to that device's Accessory Settings (`_accessories`, by Device Id), where the Settings page edits it.
 - `exclude_grouped_devices`: devices in a group appear only through the group.
 
+## Adding devices
+
+**Add a Zigbee device…** on Add accessories lets devices join Zigbee2MQTT's network for two minutes
+(`bridge/request/permit_join`) and waits while you reset the device or hold its button. It follows Zigbee2MQTT's
+`bridge/event` messages and is done once the device that joined has been interviewed; the network closes again then,
+or when the time is up. Zigbee2MQTT's own web page is not needed for it. docs/zigbee-zwave.md runs Zigbee2MQTT and its
+broker beside the bridge.
+
 ## Behaviour worth knowing
 
 - **Availability works**, and shows No Response: for a device Zigbee2MQTT reports offline (`{"state":"offline"}` or

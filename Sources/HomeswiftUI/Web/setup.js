@@ -420,12 +420,12 @@
 
       /// The end: what reached the Home app, when the sheet knows. A device's Setup ends on its Accessory Settings
       /// (settings.js), the fields its plugin declares as the wall's sheet draws them, each saved as it is changed.
-      function finish(added = null, accessory = null) {
+      function finish(added = null, accessory = null, removed = false) {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
         // A device added by address is named once its settings have loaded: the sheet's title and the line say it.
-        const named = el("strong", { text: device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
+        const named = el("strong", { text: removed ? t("The device left the network.") : device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
           : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
         const onTitle = (name) => {
           if (!adding || !name) return;
@@ -436,7 +436,7 @@
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, named),
-            el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
+            el("p", { class: "muted", text: removed ? t("It can join this network, or another, again.") : added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
           editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
@@ -519,6 +519,7 @@
           if (picking) pick({ keep: () => true });
           // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
           else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title, accessory: answer.accessoryID });
+          else if (answer.removed) finish(null, null, true);
           else finish(null, answer.accessoryID);
           return;
         }

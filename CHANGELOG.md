@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Zigbee and Z-Wave devices are added from **Add accessories**, without opening Zigbee2MQTT or Z-Wave JS UI: **Add a
+  Zigbee device…** lets devices join Zigbee2MQTT's network for two minutes and is done once the device is interviewed;
+  **Add a Z-Wave device…** includes one into a network set up, granting the security classes it asks for and asking
+  for its S2 PIN, or takes one out of the network (an exclusion). Setup's Join (GLOSSARY.md):
+  `NewDevices.joined(label:)` for plugins whose devices join their own radio network, `SetupOutcome.removed` for one
+  that left it.
+- The Status page's Homeswift card lists the Zigbee and Z-Wave USB sticks plugged in (`/dev/serial/by-id`), and
+  `get_system_info` gives them as `radios`.
+- docker-compose.yml runs Zigbee2MQTT with its MQTT broker, and zwave-js-server, beside the bridge, under the
+  `zigbee` and `zwave` profiles: docs/zigbee-zwave.md.
+
 ## [0.24.0] - 2026-11-07
 
 ### Added

@@ -1825,7 +1825,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     cpus: [t("Processors"), t("This machine's processor cores.")],
     memory: [t("Memory"), t("This machine's memory.")],
     update: [t("Update available"), t("Whether a newer homeswift release is out.")],
+    radios: [t("USB radios"), t("Zigbee and Z-Wave sticks plugged into this machine, by their lasting names: put one in docker-compose.yml's devices line for Zigbee2MQTT or zwave-js-server.")],
   };
+  /// A USB stick's radio, for people.
+  const radioNames = { zigbee: () => t("Zigbee"), zwave: () => t("Z-Wave"), both: () => t("Zigbee and Z-Wave") };
   const factRow = (key, value) => { const [label, tip] = factInfo[key]; return [label, value, tip]; };
   /// What a top node is: built in, a child bridge, an accessory of its own (a camera on its own HomeKit server), or a bridge.
   function topType(top) {
@@ -1866,7 +1869,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       facts: [factRow("version", model.status.version), factRow("bridges", model.counts.bridges), factRow("plugins", model.counts.plugins),
         factRow("accessories", model.counts.accessories), factRow("paused", model.counts.paused), factRow("host", system.hostname), factRow("os", system.os),
         factRow("cpus", system.cpus), factRow("memory", system.memoryBytes ? `${Math.round(system.memoryBytes / 2 ** 30)} GB` : ""),
-        factRow("update", model.status.update?.available ? t("Yes") : t("No"))] };
+        factRow("update", model.status.update?.available ? t("Yes") : t("No"))],
+      // The Zigbee and Z-Wave sticks plugged in, each by its lasting name.
+      sections: system.radios?.length ? [{ name: factInfo.radios[0], rows: system.radios.map((one) =>
+        [radioNames[one.radio]?.() ?? one.radio, one.path.replace(/^\/dev\/serial\/by-id\//, ""), factInfo.radios[1]]) }] : [] };
   }
   /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
   const accessoryItems = (leaves) => leaves.map((one) => ({ icon: accessoryIcon(one), name: one.name, status: deviceStatus(one),
@@ -17930,6 +17936,38 @@ HomeswiftI18n.add("es", {
   "Anyone Home": "Alguien en casa",
   "Sensors the bridge works out from your other accessories": "Sensores que el puente calcula a partir de tus otros accesorios",
   "Add a Helper…": "Añadir un ayudante…",
+  "Add a Zigbee device…": "Añadir un dispositivo Zigbee…",
+  "Add a Z-Wave device…": "Añadir un dispositivo Z-Wave…",
+  "USB radios": "Radios USB",
+  "Zigbee and Z-Wave sticks plugged into this machine, by their lasting names: put one in docker-compose.yml's devices line for Zigbee2MQTT or zwave-js-server.": "Las memorias Zigbee y Z-Wave conectadas a esta máquina, por su nombre permanente: pon una en la línea devices de docker-compose.yml para Zigbee2MQTT o zwave-js-server.",
+  "Zigbee": "Zigbee",
+  "Z-Wave": "Z-Wave",
+  "Zigbee and Z-Wave": "Zigbee y Z-Wave",
+  "A device that was in another Z-Wave network must leave it first: choose Remove a device from the network, or reset it to its factory settings.": "Un dispositivo que estaba en otra red Z-Wave debe abandonarla primero: elige Quitar un dispositivo de la red o restablece sus ajustes de fábrica.",
+  "Remove a device from the network": "Quitar un dispositivo de la red",
+  "The removal stopped: start again to remove a device": "La retirada se ha detenido: vuelve a empezar para quitar un dispositivo",
+  "No device left the network: put it in exclusion mode close to the controller, then try again": "Ningún dispositivo ha abandonado la red: ponlo en modo de exclusión cerca del controlador y vuelve a intentarlo",
+  "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.": "Pon el dispositivo en modo de exclusión: en la mayoría, las mismas pulsaciones de su botón que para añadirlo. Su manual explica cómo.",
+  "Z-Wave JS could not remove the device: keep it close to the controller and try again": "Z-Wave JS no ha podido quitar el dispositivo: mantenlo cerca del controlador y vuelve a intentarlo",
+  "The device left the network.": "El dispositivo ha abandonado la red.",
+  "It can join this network, or another, again.": "Puede volver a unirse a esta red o a otra.",
+  "Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices": "Zigbee2MQTT no está conectado: configura primero su broker MQTT y después añade dispositivos",
+  "Zigbee2MQTT closed its network: start again to add a device": "Zigbee2MQTT ha cerrado su red: vuelve a empezar para añadir un dispositivo",
+  "No device joined: reset it close to the coordinator, then try again": "Ningún dispositivo se ha unido: restablécelo cerca del coordinador y vuelve a intentarlo",
+  "Reset the device, or hold its button until its light blinks: Zigbee2MQTT lets it join for two minutes.": "Restablece el dispositivo, o mantén pulsado su botón hasta que su luz parpadee: Zigbee2MQTT le deja unirse durante dos minutos.",
+  "A device that was in another Zigbee network leaves it as it resets.": "Un dispositivo que estaba en otra red Zigbee la abandona al restablecerse.",
+  "{name} joined: Zigbee2MQTT is reading what it does. Keep a battery device awake by pressing its button now and then.": "{name} se ha unido: Zigbee2MQTT está leyendo lo que hace. Mantén despierto un dispositivo con pilas pulsando su botón de vez en cuando.",
+  "Zigbee2MQTT could not read what the device does: keep it close to the coordinator, reset it and try again": "Zigbee2MQTT no ha podido leer lo que hace el dispositivo: mantenlo cerca del coordinador, restablécelo y vuelve a intentarlo",
+  "Which Z-Wave network does the device join?": "¿A qué red Z-Wave se une el dispositivo?",
+  "Another zwave-js-server, by its address": "Otro zwave-js-server, por su dirección",
+  "The inclusion stopped: start again to add a device": "La inclusión se ha detenido: vuelve a empezar para añadir un dispositivo",
+  "The PIN is five digits": "El PIN tiene cinco dígitos",
+  "No device joined: put it in inclusion mode close to the controller, then try again": "Ningún dispositivo se ha unido: ponlo en modo de inclusión cerca del controlador y vuelve a intentarlo",
+  "Put the device in inclusion mode: most devices take three quick presses of their button. Its manual says how.": "Pon el dispositivo en modo de inclusión: la mayoría necesitan tres pulsaciones rápidas de su botón. Su manual explica cómo.",
+  "Enter the five-digit PIN printed on the device or its box: the first, often underlined, digits of its key {dsk}.": "Introduce el PIN de cinco dígitos impreso en el dispositivo o su caja: los primeros dígitos, a menudo subrayados, de su clave {dsk}.",
+  "Z-Wave JS could not start an inclusion: another inclusion or exclusion may be running": "Z-Wave JS no ha podido iniciar la inclusión: puede que haya otra inclusión o exclusión en curso",
+  "Z-Wave JS could not include the device: reset it, keep it close to the controller and try again": "Z-Wave JS no ha podido incluir el dispositivo: restablécelo, mantenlo cerca del controlador y vuelve a intentarlo",
+  "The inclusion stopped before a device joined: start again to add one": "La inclusión se ha detenido antes de que se uniera un dispositivo: vuelve a empezar para añadir uno",
   "None added yet.": "Ninguno añadido todavía.",
   "What should the Helper do?": "¿Qué debe hacer el ayudante?",
   "Kind of Helper": "Tipo de ayudante",
@@ -21257,6 +21295,38 @@ HomeswiftI18n.add("fr", {
   "Anyone Home": "Quelqu'un à la maison",
   "Sensors the bridge works out from your other accessories": "Des capteurs que le pont déduit de vos autres accessoires",
   "Add a Helper…": "Ajouter un auxiliaire…",
+  "Add a Zigbee device…": "Ajouter un appareil Zigbee…",
+  "Add a Z-Wave device…": "Ajouter un appareil Z-Wave…",
+  "USB radios": "Radios USB",
+  "Zigbee and Z-Wave sticks plugged into this machine, by their lasting names: put one in docker-compose.yml's devices line for Zigbee2MQTT or zwave-js-server.": "Les clés Zigbee et Z-Wave branchées sur cette machine, par leur nom durable : mettez-en une dans la ligne devices de docker-compose.yml pour Zigbee2MQTT ou zwave-js-server.",
+  "Zigbee": "Zigbee",
+  "Z-Wave": "Z-Wave",
+  "Zigbee and Z-Wave": "Zigbee et Z-Wave",
+  "A device that was in another Z-Wave network must leave it first: choose Remove a device from the network, or reset it to its factory settings.": "Un appareil qui était dans un autre réseau Z-Wave doit d’abord le quitter : choisissez Retirer un appareil du réseau, ou rétablissez ses réglages d’usine.",
+  "Remove a device from the network": "Retirer un appareil du réseau",
+  "The removal stopped: start again to remove a device": "Le retrait s’est arrêté : recommencez pour retirer un appareil",
+  "No device left the network: put it in exclusion mode close to the controller, then try again": "Aucun appareil n’a quitté le réseau : mettez-le en mode exclusion près du contrôleur, puis réessayez",
+  "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.": "Mettez l’appareil en mode exclusion : pour la plupart, les mêmes appuis sur leur bouton que pour l’ajouter. Sa notice explique comment.",
+  "Z-Wave JS could not remove the device: keep it close to the controller and try again": "Z-Wave JS n’a pas pu retirer l’appareil : gardez-le près du contrôleur et réessayez",
+  "The device left the network.": "L’appareil a quitté le réseau.",
+  "It can join this network, or another, again.": "Il peut de nouveau rejoindre ce réseau, ou un autre.",
+  "Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices": "Zigbee2MQTT n’est pas connecté : configurez d’abord son broker MQTT, puis ajoutez des appareils",
+  "Zigbee2MQTT closed its network: start again to add a device": "Zigbee2MQTT a refermé son réseau : recommencez pour ajouter un appareil",
+  "No device joined: reset it close to the coordinator, then try again": "Aucun appareil n’a rejoint le réseau : réinitialisez-le près du coordinateur, puis réessayez",
+  "Reset the device, or hold its button until its light blinks: Zigbee2MQTT lets it join for two minutes.": "Réinitialisez l’appareil, ou maintenez son bouton jusqu’à ce que son voyant clignote : Zigbee2MQTT le laisse rejoindre le réseau pendant deux minutes.",
+  "A device that was in another Zigbee network leaves it as it resets.": "Un appareil qui était dans un autre réseau Zigbee le quitte en se réinitialisant.",
+  "{name} joined: Zigbee2MQTT is reading what it does. Keep a battery device awake by pressing its button now and then.": "{name} a rejoint le réseau : Zigbee2MQTT lit ce qu’il sait faire. Gardez un appareil sur pile éveillé en appuyant de temps en temps sur son bouton.",
+  "Zigbee2MQTT could not read what the device does: keep it close to the coordinator, reset it and try again": "Zigbee2MQTT n’a pas pu lire ce que sait faire l’appareil : gardez-le près du coordinateur, réinitialisez-le et réessayez",
+  "Which Z-Wave network does the device join?": "Quel réseau Z-Wave l’appareil rejoint-il ?",
+  "Another zwave-js-server, by its address": "Un autre zwave-js-server, par son adresse",
+  "The inclusion stopped: start again to add a device": "L’inclusion s’est arrêtée : recommencez pour ajouter un appareil",
+  "The PIN is five digits": "Le code PIN compte cinq chiffres",
+  "No device joined: put it in inclusion mode close to the controller, then try again": "Aucun appareil n’a rejoint le réseau : mettez-le en mode inclusion près du contrôleur, puis réessayez",
+  "Put the device in inclusion mode: most devices take three quick presses of their button. Its manual says how.": "Mettez l’appareil en mode inclusion : la plupart demandent trois appuis rapides sur leur bouton. Sa notice explique comment.",
+  "Enter the five-digit PIN printed on the device or its box: the first, often underlined, digits of its key {dsk}.": "Saisissez le code PIN à cinq chiffres imprimé sur l’appareil ou sa boîte : les premiers chiffres, souvent soulignés, de sa clé {dsk}.",
+  "Z-Wave JS could not start an inclusion: another inclusion or exclusion may be running": "Z-Wave JS n’a pas pu lancer l’inclusion : une autre inclusion ou exclusion est peut-être en cours",
+  "Z-Wave JS could not include the device: reset it, keep it close to the controller and try again": "Z-Wave JS n’a pas pu inclure l’appareil : réinitialisez-le, gardez-le près du contrôleur et réessayez",
+  "The inclusion stopped before a device joined: start again to add one": "L’inclusion s’est arrêtée avant qu’un appareil ne rejoigne le réseau : recommencez pour en ajouter un",
   "None added yet.": "Aucun ajouté pour l’instant.",
   "What should the Helper do?": "Que doit faire l’auxiliaire ?",
   "Kind of Helper": "Type d’auxiliaire",
@@ -24584,6 +24654,38 @@ HomeswiftI18n.add("pt", {
   "Anyone Home": "Alguém em casa",
   "Sensors the bridge works out from your other accessories": "Sensores que a ponte calcula a partir dos seus outros acessórios",
   "Add a Helper…": "Adicionar um auxiliar…",
+  "Add a Zigbee device…": "Adicionar um dispositivo Zigbee…",
+  "Add a Z-Wave device…": "Adicionar um dispositivo Z-Wave…",
+  "USB radios": "Rádios USB",
+  "Zigbee and Z-Wave sticks plugged into this machine, by their lasting names: put one in docker-compose.yml's devices line for Zigbee2MQTT or zwave-js-server.": "As pens Zigbee e Z-Wave ligadas a esta máquina, pelo seu nome permanente: ponha uma na linha devices do docker-compose.yml para o Zigbee2MQTT ou o zwave-js-server.",
+  "Zigbee": "Zigbee",
+  "Z-Wave": "Z-Wave",
+  "Zigbee and Z-Wave": "Zigbee e Z-Wave",
+  "A device that was in another Z-Wave network must leave it first: choose Remove a device from the network, or reset it to its factory settings.": "Um dispositivo que estava noutra rede Z-Wave tem de sair dela primeiro: escolha Remover um dispositivo da rede ou reponha as definições de fábrica.",
+  "Remove a device from the network": "Remover um dispositivo da rede",
+  "The removal stopped: start again to remove a device": "A remoção parou: recomece para remover um dispositivo",
+  "No device left the network: put it in exclusion mode close to the controller, then try again": "Nenhum dispositivo saiu da rede: ponha-o em modo de exclusão perto do controlador e tente novamente",
+  "Put the device in exclusion mode: for most devices, the same presses of their button as to add it. Its manual says how.": "Ponha o dispositivo em modo de exclusão: na maioria, os mesmos toques no botão que para o adicionar. O manual explica como.",
+  "Z-Wave JS could not remove the device: keep it close to the controller and try again": "O Z-Wave JS não conseguiu remover o dispositivo: mantenha-o perto do controlador e tente novamente",
+  "The device left the network.": "O dispositivo saiu da rede.",
+  "It can join this network, or another, again.": "Pode voltar a juntar-se a esta rede ou a outra.",
+  "Zigbee2MQTT is not connected: set up its MQTT broker first, then add devices": "O Zigbee2MQTT não está ligado: configure primeiro o seu broker MQTT e depois adicione dispositivos",
+  "Zigbee2MQTT closed its network: start again to add a device": "O Zigbee2MQTT fechou a sua rede: recomece para adicionar um dispositivo",
+  "No device joined: reset it close to the coordinator, then try again": "Nenhum dispositivo se juntou: reponha-o perto do coordenador e tente novamente",
+  "Reset the device, or hold its button until its light blinks: Zigbee2MQTT lets it join for two minutes.": "Reponha o dispositivo, ou mantenha o seu botão premido até a luz piscar: o Zigbee2MQTT deixa-o juntar-se durante dois minutos.",
+  "A device that was in another Zigbee network leaves it as it resets.": "Um dispositivo que estava noutra rede Zigbee sai dela ao ser reposto.",
+  "{name} joined: Zigbee2MQTT is reading what it does. Keep a battery device awake by pressing its button now and then.": "{name} juntou-se: o Zigbee2MQTT está a ler o que faz. Mantenha um dispositivo a pilhas acordado premindo o seu botão de vez em quando.",
+  "Zigbee2MQTT could not read what the device does: keep it close to the coordinator, reset it and try again": "O Zigbee2MQTT não conseguiu ler o que o dispositivo faz: mantenha-o perto do coordenador, reponha-o e tente novamente",
+  "Which Z-Wave network does the device join?": "A que rede Z-Wave se junta o dispositivo?",
+  "Another zwave-js-server, by its address": "Outro zwave-js-server, pelo seu endereço",
+  "The inclusion stopped: start again to add a device": "A inclusão parou: recomece para adicionar um dispositivo",
+  "The PIN is five digits": "O PIN tem cinco algarismos",
+  "No device joined: put it in inclusion mode close to the controller, then try again": "Nenhum dispositivo se juntou: ponha-o em modo de inclusão perto do controlador e tente novamente",
+  "Put the device in inclusion mode: most devices take three quick presses of their button. Its manual says how.": "Ponha o dispositivo em modo de inclusão: a maioria precisa de três toques rápidos no seu botão. O manual explica como.",
+  "Enter the five-digit PIN printed on the device or its box: the first, often underlined, digits of its key {dsk}.": "Introduza o PIN de cinco algarismos impresso no dispositivo ou na sua caixa: os primeiros algarismos, muitas vezes sublinhados, da sua chave {dsk}.",
+  "Z-Wave JS could not start an inclusion: another inclusion or exclusion may be running": "O Z-Wave JS não conseguiu iniciar a inclusão: pode estar a decorrer outra inclusão ou exclusão",
+  "Z-Wave JS could not include the device: reset it, keep it close to the controller and try again": "O Z-Wave JS não conseguiu incluir o dispositivo: reponha-o, mantenha-o perto do controlador e tente novamente",
+  "The inclusion stopped before a device joined: start again to add one": "A inclusão parou antes de um dispositivo se juntar: recomece para adicionar um",
   "None added yet.": "Nenhum adicionado ainda.",
   "What should the Helper do?": "O que deve fazer o auxiliar?",
   "Kind of Helper": "Tipo de auxiliar",
@@ -28014,12 +28116,12 @@ HomeswiftI18n.add("pt", {
 
       /// The end: what reached the Home app, when the sheet knows. A device's Setup ends on its Accessory Settings
       /// (settings.js), the fields its plugin declares as the wall's sheet draws them, each saved as it is changed.
-      function finish(added = null, accessory = null) {
+      function finish(added = null, accessory = null, removed = false) {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
         // A device added by address is named once its settings have loaded: the sheet's title and the line say it.
-        const named = el("strong", { text: device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
+        const named = el("strong", { text: removed ? t("The device left the network.") : device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
           : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
         const onTitle = (name) => {
           if (!adding || !name) return;
@@ -28030,7 +28132,7 @@ HomeswiftI18n.add("pt", {
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, named),
-            el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
+            el("p", { class: "muted", text: removed ? t("It can join this network, or another, again.") : added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
           editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
@@ -28113,6 +28215,7 @@ HomeswiftI18n.add("pt", {
           if (picking) pick({ keep: () => true });
           // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
           else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title, accessory: answer.accessoryID });
+          else if (answer.removed) finish(null, null, true);
           else finish(null, answer.accessoryID);
           return;
         }

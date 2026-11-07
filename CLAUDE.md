@@ -47,6 +47,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `docs/matter.md` | The Matter bridge: configuration, adding it to an ecosystem, the mapping table, security |
 | `docs/mcp.md` | The MCP server: configuration, claude.ai over OAuth, scopes, confirmations, resources, prompts, security |
 | `docs/ui.md` | The web UI: configuration, pages, security, what plugin authors ship |
+| `docs/zigbee-zwave.md` | Zigbee2MQTT, its broker and zwave-js-server beside the bridge (docker-compose.yml's `zigbee` and `zwave` profiles), and adding their devices from Add accessories (Join) |
 | `docs/translations.md` | The web UI's languages (English, French, Spanish, Portuguese): `i18n.js`, the catalogs `i18n-<lang>.js`, `t()`/`tn()`, plugins' `Web/i18n.js`, the style and the glossary |
 | `docs/widgets.md` | The Accessories page's widgets: sizes, the wall, Adaptive Lighting, paused plugins, what a plugin does to get good widgets; screenshots in `docs/images/widgets` |
 | `Tests/HomeswiftUITests` | Users and sessions, embedded assets are current, the server end to end with a cookie-keeping client |

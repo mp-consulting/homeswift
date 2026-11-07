@@ -17,6 +17,8 @@ struct BrokerLogin: Codable, Sendable, Equatable {
 // the devices and groups come with Zigbee2MQTT and need nothing more, and an Excluded one is never an accessory.
 extension Zigbee2MQTTPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
+    /// Join (GLOSSARY.md): Zigbee2MQTT's network opened from Add accessories (Zigbee2MQTTJoin.swift).
+    public static let newDevices: NewDevices? = .joined(label: "Add a Zigbee device…")
 
     /// Set up once the block names a broker, whether Setup or a pasted Homebridge block did.
     public func accountAuthorized() async -> Bool? { (try? Settings(configuration.block)) != nil }
@@ -52,6 +54,7 @@ extension Zigbee2MQTTPlugin {
     /// The broker's address, Zigbee2MQTT's base topic, and a login if the broker asks for one; checked by reading
     /// Zigbee2MQTT's device list there.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
+        if request.isNewDevice { return try await join(request) }
         try request.requireAccount("Zigbee2MQTT devices come with the broker: they need no setup of their own")
         var mqtt = configuration.block["mqtt"]?.objectValue ?? [:]
         guard let server = request.answer("server") else {

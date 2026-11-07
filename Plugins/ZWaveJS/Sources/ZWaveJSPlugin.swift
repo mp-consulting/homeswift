@@ -5,8 +5,8 @@ import HomeswiftPlugin
 import Logging
 
 /// Z-Wave devices from zwave-js-server, the WebSocket server Z-Wave JS UI and Home Assistant's Z-Wave JS add-on run
-/// (port 3000 by default). The plugin brings in the nodes already on the Z-Wave network; including and excluding nodes
-/// stays in Z-Wave JS UI. Written from zwave-js-server's protocol documentation, not ported from another plugin.
+/// (port 3000 by default). The plugin brings in the nodes on the Z-Wave network, and includes new ones from Add
+/// accessories (ZWaveJSJoin.swift); excluding nodes stays in Z-Wave JS UI. Written from zwave-js-server's protocol documentation, not ported from another plugin.
 ///
 /// A server is a device of its own (Device Kind `server`, Device Id its home id) whose Accessory Settings give its
 /// `host` and `port`: found over mDNS (`_zwave-js-server._tcp`) and set up, or added by its address. Each node is an
@@ -74,6 +74,8 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     }
 
     var servers: [String: Server] = [:]
+    /// A Join in progress (ZWaveJSJoin.swift).
+    var inclusion: Inclusion?
     /// Each node's accessory, by Device Id.
     var accessories: [String: NodeAccessory] = [:]
 
@@ -132,6 +134,7 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
+        inclusion?.closer?.cancel()
         tasks.cancelAll()
         for server in servers.values { await server.client?.close() }
     }
@@ -299,6 +302,7 @@ public actor ZWaveJSPlugin: HomeswiftPlugin {
     }
 
     func handleController(_ name: String, _ event: JSONValue, homeID: String) async {
+        if inclusion?.homeID == homeID { await followInclusion(name, event) }
         switch name {
         case "node added":
             guard let state = event["node"], let node = ZNode(state), !node.isControllerNode else { return }

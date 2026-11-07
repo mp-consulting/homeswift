@@ -1816,7 +1816,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     cpus: [t("Processors"), t("This machine's processor cores.")],
     memory: [t("Memory"), t("This machine's memory.")],
     update: [t("Update available"), t("Whether a newer homeswift release is out.")],
+    radios: [t("USB radios"), t("Zigbee and Z-Wave sticks plugged into this machine, by their lasting names: put one in docker-compose.yml's devices line for Zigbee2MQTT or zwave-js-server.")],
   };
+  /// A USB stick's radio, for people.
+  const radioNames = { zigbee: () => t("Zigbee"), zwave: () => t("Z-Wave"), both: () => t("Zigbee and Z-Wave") };
   const factRow = (key, value) => { const [label, tip] = factInfo[key]; return [label, value, tip]; };
   /// What a top node is: built in, a child bridge, an accessory of its own (a camera on its own HomeKit server), or a bridge.
   function topType(top) {
@@ -1857,7 +1860,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       facts: [factRow("version", model.status.version), factRow("bridges", model.counts.bridges), factRow("plugins", model.counts.plugins),
         factRow("accessories", model.counts.accessories), factRow("paused", model.counts.paused), factRow("host", system.hostname), factRow("os", system.os),
         factRow("cpus", system.cpus), factRow("memory", system.memoryBytes ? `${Math.round(system.memoryBytes / 2 ** 30)} GB` : ""),
-        factRow("update", model.status.update?.available ? t("Yes") : t("No"))] };
+        factRow("update", model.status.update?.available ? t("Yes") : t("No"))],
+      // The Zigbee and Z-Wave sticks plugged in, each by its lasting name.
+      sections: system.radios?.length ? [{ name: factInfo.radios[0], rows: system.radios.map((one) =>
+        [radioNames[one.radio]?.() ?? one.radio, one.path.replace(/^\/dev\/serial\/by-id\//, ""), factInfo.radios[1]]) }] : [] };
   }
   /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
   const accessoryItems = (leaves) => leaves.map((one) => ({ icon: accessoryIcon(one), name: one.name, status: deviceStatus(one),

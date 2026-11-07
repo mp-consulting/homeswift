@@ -86,6 +86,10 @@ final class FakeServer: Sendable {
             result = .object(["state": .object(dump)])
         case "node.set_value":
             result = .object(["result": .object(["status": .number(Double(status))])])
+        case "controller.begin_inclusion", "controller.begin_exclusion":
+            result = ["success": true]
+        case "controller.grant_security_classes", "controller.validate_dsk_and_enter_pin", "controller.stop_inclusion", "controller.stop_exclusion":
+            result = .object([:])
         default:
             socket.receive(text: JSONValue.object(["type": "result", "messageId": id, "success": false, "errorCode": "unknown_command"]).text())
             return
@@ -96,6 +100,14 @@ final class FakeServer: Sendable {
     /// An event as the server sends it.
     func send(event: JSONValue) {
         socket?.receive(text: JSONValue.object(["type": "event", "event": event]).text())
+    }
+
+    /// A controller event, as the server sends it.
+    func controller(_ name: String, _ fields: [String: JSONValue] = [:]) {
+        var event = fields
+        event["source"] = "controller"
+        event["event"] = .string(name)
+        send(event: .object(event))
     }
 
     func valueUpdated(node: Int, commandClass: Int, endpoint: Int = 0, property: JSONValue, propertyKey: JSONValue? = nil, value: JSONValue) {
@@ -504,7 +516,7 @@ struct ZWaveJSTests {
     }
 
     @Test func addByAddressKeysTheServerByItsHomeID() async throws {
-        #expect(ZWaveJSPlugin.newDevices == .byAddress)
+        #expect(ZWaveJSPlugin.newDevices == .joined(label: "Add a Z-Wave device…"))
         let host = try await environment.start(settings: [:])
         let context = try #require(host.context(platform: ZWaveJSPlugin.platform, name: ZWaveJSPlugin.name))
         let plugin = ZWaveJSPlugin(configuration: .init(), context: context, dependencies: environment.dependencies)
@@ -737,6 +749,92 @@ struct ZWaveJSTests {
         #expect(NodeBuilder.doorState(barrier: 0) == 1 && NodeBuilder.doorState(barrier: 255) == 0 && NodeBuilder.doorState(barrier: 50) == 0)
         #expect(NodeBuilder.doorState(barrier: 252) == 3 && NodeBuilder.doorState(barrier: 253) == 4 && NodeBuilder.doorState(barrier: 254) == 2)
         #expect(NodeBuilder.doorState(barrier: 120) == nil)
+    }
+
+    // MARK: Join
+
+    @Test func joinIncludesADeviceWithItsPIN() async throws {
+        let host = try await started()
+        let plugin = try #require(environment.plugin)
+        let home = FakeServer.homeID
+        // The network, or another server by its address.
+        guard case .ask(let pick, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { Issue.record("no prompt"); return }
+        #expect(pick.fields.map(\.key) == ["network"] && pick.fields[0].options.map(\.value) == [home, "address", "remove:\(home)"])
+        guard case .ask(let address, _) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["network": "address"])) else {
+            Issue.record("no prompt"); return
+        }
+        #expect(address.fields.map(\.key) == ["host", "port"])
+        // The inclusion starts, and Setup waits as a Button Press does.
+        guard case .ask(let wait, let state) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["network": home])) else {
+            Issue.record("no prompt"); return
+        }
+        #expect(wait.retryAfter == 2 && (wait.waitSeconds ?? 0) > 100 && wait.fields.isEmpty)
+        let begin = try #require(environment.server.commands.last { $0["command"] == "controller.begin_inclusion" })
+        #expect(begin["options"]?["strategy"] == 0)
+        // The device answers and asks for S2: granted as asked, then its PIN.
+        environment.server.controller("node found", ["node": ["nodeId": 20]])
+        environment.server.controller("grant security classes", ["requested": ["securityClasses": [1, 2], "clientSideAuth": false]])
+        #expect(await eventually { environment.server.commands.contains { $0["command"] == "controller.grant_security_classes" } })
+        let grant = try #require(environment.server.commands.last { $0["command"] == "controller.grant_security_classes" })
+        #expect(grant["inclusionGrant"]?["securityClasses"] == [1, 2] && grant["inclusionGrant"]?["clientSideAuth"] == false)
+        environment.server.controller("validate dsk and enter pin", ["dsk": "-12345-23456-34567-45678-56789-61234-71234"])
+        #expect(await eventually { await plugin.inclusion?.dsk != nil })
+        guard case .ask(let pin, let pinState) = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("no prompt"); return }
+        #expect(pin.fields.map(\.key) == ["pin"] && pin.values["dsk"] == "-12345-23456-34567-45678-56789-61234-71234" && pin.waitSeconds == nil)
+        await #expect(throws: SetupError("The PIN is five digits")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["pin": "123"], state: pinState))
+        }
+        guard case .ask = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["pin": "54321"], state: pinState)) else {
+            Issue.record("no wait"); return
+        }
+        #expect(environment.server.commands.last { $0["command"] == "controller.validate_dsk_and_enter_pin" }?["pin"] == "54321")
+        // zwave-js stops looking once a device answers: no failure for that.
+        environment.server.controller("inclusion stopped")
+        environment.server.controller("node added", ["node": ["nodeId": 20], "result": ["lowSecurity": false]])
+        #expect(await eventually { await plugin.inclusion?.nodeID == 20 })
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("not done"); return }
+        #expect(outcome.deviceID == "\(home)-20")
+        #expect(await plugin.inclusion == nil)
+        #expect(!environment.server.commands.contains { $0["command"] == "controller.stop_inclusion" })
+        await host.stop()
+    }
+
+    @Test func joinRemovesADeviceFromTheNetwork() async throws {
+        let host = try await started()
+        let plugin = try #require(environment.plugin)
+        let home = FakeServer.homeID
+        guard case .ask(let wait, let state) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["network": "remove:\(home)"])) else {
+            Issue.record("no prompt"); return
+        }
+        #expect(wait.retryAfter == 2 && wait.fields.isEmpty)
+        #expect(environment.server.commands.contains { $0["command"] == "controller.begin_exclusion" })
+        guard case .ask = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("no wait"); return }
+        environment.server.controller("node removed", ["node": ["nodeId": 10], "reason": 0])
+        environment.server.controller("exclusion stopped")
+        #expect(await eventually { await plugin.inclusion?.removed == true })
+        #expect(await eventually { host.accessory(id(10)) == nil })
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, state: state)) else { Issue.record("not done"); return }
+        #expect(outcome.removed && outcome.deviceID == "\(home)-10")
+        #expect(!environment.server.commands.contains { $0["command"] == "controller.stop_exclusion" })
+        await host.stop()
+    }
+
+    @Test func joinSaysWhenTheInclusionFails() async throws {
+        let host = try await started()
+        let plugin = try #require(environment.plugin)
+        guard case .ask(_, let state) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["network": FakeServer.homeID])) else {
+            Issue.record("no prompt"); return
+        }
+        environment.server.controller("inclusion stopped")
+        #expect(await eventually { await plugin.inclusion?.failure != nil })
+        await #expect(throws: SetupError("The inclusion stopped before a device joined: start again to add one")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, state: state))
+        }
+        #expect(environment.server.commands.contains { $0["command"] == "controller.stop_inclusion" })
+        await #expect(throws: SetupError("The inclusion stopped: start again to add a device")) {
+            try await plugin.authorize(SetupRequest(target: .newDevice, state: state))
+        }
+        await host.stop()
     }
 
     /// The plugin's directory, from this file's.

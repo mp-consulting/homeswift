@@ -2,8 +2,8 @@
 
 The nodes of a Z-Wave network in HomeKit, through **zwave-js-server**: the WebSocket server that
 [Z-Wave JS UI](https://github.com/zwave-js/zwave-js-ui) and Home Assistant's Z-Wave JS add-on run, on port 3000 by
-default. The plugin brings in the nodes already on the network; including and excluding nodes, their configuration
-parameters and firmware updates stay in Z-Wave JS UI.
+default. The plugin brings in the nodes on the network, and includes and removes them from **Add accessories**;
+their configuration parameters and firmware updates stay in Z-Wave JS UI.
 
 Written from zwave-js-server's protocol documentation (its README: `set_api_schema`, `start_listening`,
 `node.set_value` and the events); no code was ported from another project. It has no Homebridge plugin to replace, so
@@ -14,10 +14,11 @@ works: it is tested against a fake zwave-js-server, not yet against real devices
 
 ## Setting it up
 
-In Z-Wave JS UI, turn on **Settings → Home Assistant → WS Server** (the Home Assistant add-on runs it already). Then add
-the Z-Wave JS plugin in the web UI, and on **Add accessories**:
+Run zwave-js-server: on its own beside the bridge (docs/zigbee-zwave.md, which needs no Z-Wave JS UI at all), or in
+Z-Wave JS UI with **Settings → Home Assistant → WS Server** turned on (the Home Assistant add-on runs it already). Then
+add the Z-Wave JS plugin in the web UI, and on **Add accessories**:
 
-**Add by address…** asks for its host and port (3000 by default). A server that announces itself over mDNS
+**Add a Z-Wave device…** with no network connected yet asks for the server's host and port (3000 by default). A server that announces itself over mDNS
 (`_zwave-js-server._tcp`, unless its discovery is turned off in those settings) is filled in: check it is yours, since
 anyone on the network can announce one.
 
@@ -42,6 +43,18 @@ then shows as a device of its own, which can be Excluded.
 ```
 
 Several networks (several sticks) are several servers, each set up the same way.
+
+## Adding devices
+
+Once a network is connected, **Add a Z-Wave device…** asks which network the device joins (or another server, by its
+address), starts an inclusion there for two minutes and waits while you put the device in inclusion mode (most take
+three quick presses of their button). The plugin grants the security classes the device asks for; a device that
+asks for S2 Authenticated or Access Control (a lock, a garage door) then needs the five-digit PIN printed on it or its
+box, which Setup asks for. Setup is done once the node is added; its accessory comes when its interview is over.
+
+**Remove a device from the network**, among the same choices, runs an exclusion: put the device in exclusion mode
+(most take the same presses) and it leaves, with its accessory. A device still in another network leaves that one the
+same way, which readies it to join this one; a factory reset does too.
 
 ## In HomeKit
 
