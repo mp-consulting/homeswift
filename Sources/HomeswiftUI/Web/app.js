@@ -3782,6 +3782,9 @@
   function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
+    /// A choice's title: the schema's words, or for one the plugin gives from the home (`x-catalog`) its title as it is (an
+    /// accessory's name) and its detail in the web UI's catalogs' words (what it reads, a state).
+    const choiceTitle = (o) => o["x-catalog"] ? [o.title, o["x-detail"] && t(o["x-detail"])].filter(Boolean).join(" · ") : tr(o.title) ?? String(o.enum[0]);
     const schema = root.schema || root;
     const properties = schema.properties || {};
     const requiredTop = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -3797,6 +3800,8 @@
 
     const field = (key, property, current, required, index, fallback) => {
       const made = makeField(key, property, current, required, index, fallback);
+      // Shown, not changed (`readOnly`: a Helper's kind, set when it was added).
+      if (property.readOnly) for (const control of made.element.querySelectorAll("input, select, textarea, button")) control.disabled = true;
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
@@ -3855,7 +3860,7 @@
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
-      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
+      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
       // A value config.json has that is not among the choices stays one, so a save does not drop it.
       if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
@@ -3956,7 +3961,7 @@
         // A list of choices (`items` an `enum`, or a `oneOf` of them) is a set of checkboxes, written in the choices'
         // order, unless `uniqueItems: false` lets a choice come twice; a value config.json has that is not a choice
         // stays, ticked.
-        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) }))
+        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) }))
           : Array.isArray(items.enum) ? items.enum.map((v) => ({ value: v, title: String(v) })) : null;
         if (choices && property.uniqueItems !== false) {
           const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);

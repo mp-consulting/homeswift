@@ -40,6 +40,7 @@ extension PluginHost {
                 location: locationReader)
             context.accessorySettingsBox.withLockedValue { $0 = draft.accessorySettings }
             context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }
+            attachHost(context)
         }
         let plugin = try await entry.make(json, context)
         do {

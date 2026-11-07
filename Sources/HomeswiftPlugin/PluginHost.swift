@@ -746,9 +746,7 @@ public final class PluginHost: @unchecked Sendable {
         }
         let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, meterReadings: meterReadings, assistantBackground: entry.assistantBackground,
                                        location: locationReader)
-        context.publishedServers = { [weak self] in
-            self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
-        }
+        attachHost(context)
         context.logs = options.logs
         context.naming.setNames(block.accessoryNames)
         context.applySeparations(block.separatedFunctions)
@@ -764,6 +762,17 @@ public final class PluginHost: @unchecked Sendable {
         context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
         context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }
         return Instance(entry: entry, block: block, context: context)
+    }
+
+    /// Gives a context the host's servers: what they publish (`hostAccessories`) and their changes.
+    func attachHost(_ context: PluginContext) {
+        context.publishedServers = { [weak self] in
+            self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
+        }
+        context.hostFeeds = HostFeeds(
+            find: { [weak self] id in self?.bridges.lazy.compactMap { $0.server.accessory(id: id) }.first },
+            changes: { [weak self] observer in self?.observeChanges(observer) ?? Observation {} },
+            structure: { [weak self] observer in self?.observeStructure(observer) ?? Observation {} })
     }
 
     /// Lists a new bridge and follows its changes and timings.

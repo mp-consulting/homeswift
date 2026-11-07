@@ -604,33 +604,43 @@ public struct HomeswiftCatalog: Sendable {
         let configured = Set(host.configuration.platforms.map(\.platform))
         let running = host.platforms
         let accounts = await host.accountStates()
-        return [
-            "platforms": .array(running.map { instance in
-                let account = accounts["\(instance.platform)/\(instance.name)"] ?? AccountState.none
-                let requirement = host.registry.entry(for: instance.platform)?.accountRequirement ?? .required
-                // Paused, its accessories show No Response by design: only a running one is looked at.
-                let accessories = instance.paused ? [] : host.context(platform: instance.platform, name: instance.name)?.accessories ?? []
-                return [
-                    "platform": .string(instance.platform), "name": .string(instance.name), "plugin": .string(instance.pluginName), "bridge": .string(instance.bridge.name),
-                    "accessories": .number(Double(instance.accessoryIDs.count)), "paused": .bool(instance.paused),
-                    "accountState": .string(account.rawValue), "needsAuthorization": .bool(!instance.paused && account.needsAuthorization(requirement)),
-                    "noneResponding": .bool(!accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
-                ]
-            }),
-            "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
-            // The Assistant is a runtime block, not a compiled-in plugin, but it can be added, so it is listed as one.
-            "plugins": .array(host.registry.entries.map { entry in
-                [
-                    "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
-                    "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
-                    "accountAuthorization": .string(entry.accountAuthorization.rawValue),
-                    "accountRequired": .bool(entry.accountRequirement.isRequired), "accountAdds": entry.accountRequirement.adds.map(JSONValue.string) ?? .null,
-                    "addByAddress": .bool(entry.addsDevicesByAddress),
-                    "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
-                ]
-            } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
-                                                                              "icon": .string(Self.assistantIcon), "summary": .string(Self.assistantSummary), "tools": .array([])]] : [])),
-        ]
+        let platforms: [JSONValue] = running.map { instance in
+            let account = accounts["\(instance.platform)/\(instance.name)"] ?? AccountState.none
+            let requirement = host.registry.entry(for: instance.platform)?.accountRequirement ?? .required
+            // Paused, its accessories show No Response by design: only a running one is looked at.
+            let accessories = instance.paused ? [] : host.context(platform: instance.platform, name: instance.name)?.accessories ?? []
+            let fields: [String: JSONValue] = [
+                "platform": .string(instance.platform), "name": .string(instance.name), "plugin": .string(instance.pluginName), "bridge": .string(instance.bridge.name),
+                "accessories": .number(Double(instance.accessoryIDs.count)), "paused": .bool(instance.paused),
+                "accountState": .string(account.rawValue), "needsAuthorization": .bool(!instance.paused && account.needsAuthorization(requirement)),
+                "noneResponding": .bool(!accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
+            ]
+            return .object(fields)
+        }
+        let unknown: [JSONValue] = configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)
+        var plugins: [JSONValue] = host.registry.entries.map { entry in
+            let tools: [JSONValue] = entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }
+            var fields: [String: JSONValue] = [
+                "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
+                "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
+                "accountAuthorization": .string(entry.accountAuthorization.rawValue),
+            ]
+            fields["accountRequired"] = .bool(entry.accountRequirement.isRequired)
+            fields["accountAdds"] = entry.accountRequirement.adds.map(JSONValue.string) ?? .null
+            fields["addByAddress"] = .bool(entry.addsDevicesByAddress)
+            fields["addLabel"] = entry.newDeviceLabel.map(JSONValue.string) ?? .null
+            fields["tools"] = .array(tools)
+            return .object(fields)
+        }
+        // The Assistant is a runtime block, not a compiled-in plugin, but it can be added, so it is listed as one.
+        if host.registry.entry(for: AIConfiguration.platform) == nil {
+            let assistant: [String: JSONValue] = [
+                "platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
+                "icon": .string(Self.assistantIcon), "summary": .string(Self.assistantSummary), "tools": .array([]),
+            ]
+            plugins.append(.object(assistant))
+        }
+        return .object(["platforms": .array(platforms), "unknownPlatforms": .array(unknown), "plugins": .array(plugins)])
     }
 
     /// What does not change while the process runs, read once: `ProcessInfo.hostName` can block on a DNS lookup.

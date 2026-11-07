@@ -11,6 +11,7 @@ import HomeswiftElgatoKeyLights
 import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
+import HomeswiftHelpers
 import HomeswiftHueSyncBox
 import HomeswiftIPCameras
 import HomeswiftImou
@@ -86,6 +87,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(RenaultPlugin.self)
     registry.register(ImouPlugin.self)
     registry.register(ReolinkPlugin.self)
+    registry.register(HelpersPlugin.self)
     registry.register(WeatherPlugin.self)
     registry.register(ZWaveJSPlugin.self)
     return registry

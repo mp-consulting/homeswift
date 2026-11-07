@@ -6142,6 +6142,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
+    /// A choice's title: the schema's words, or for one the plugin gives from the home (`x-catalog`) its title as it is (an
+    /// accessory's name) and its detail in the web UI's catalogs' words (what it reads, a state).
+    const choiceTitle = (o) => o["x-catalog"] ? [o.title, o["x-detail"] && t(o["x-detail"])].filter(Boolean).join(" · ") : tr(o.title) ?? String(o.enum[0]);
     const schema = root.schema || root;
     const properties = schema.properties || {};
     const requiredTop = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -6157,6 +6160,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const field = (key, property, current, required, index, fallback) => {
       const made = makeField(key, property, current, required, index, fallback);
+      // Shown, not changed (`readOnly`: a Helper's kind, set when it was added).
+      if (property.readOnly) for (const control of made.element.querySelectorAll("input, select, textarea, button")) control.disabled = true;
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
@@ -6215,7 +6220,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
-      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
+      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
       // A value config.json has that is not among the choices stays one, so a save does not drop it.
       if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
@@ -6316,7 +6321,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // A list of choices (`items` an `enum`, or a `oneOf` of them) is a set of checkboxes, written in the choices'
         // order, unless `uniqueItems: false` lets a choice come twice; a value config.json has that is not a choice
         // stays, ticked.
-        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) }))
+        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: choiceTitle(o) }))
           : Array.isArray(items.enum) ? items.enum.map((v) => ({ value: v, title: String(v) })) : null;
         if (choices && property.uniqueItems !== false) {
           const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -17823,6 +17828,46 @@ HomeswiftI18n.add("es", {
   "Separate": "Separar",
   "Join back": "Volver a unir",
   "A Function of {name}: its other settings are there.": "Una función de {name}: sus otros ajustes están allí.",
+  "Sensors the bridge works out from your other accessories": "Sensores que el puente calcula a partir de tus otros accesorios",
+  "Add a Helper…": "Añadir un ayudante…",
+  "None added yet.": "Ninguno añadido todavía.",
+  "What should the Helper do?": "¿Qué debe hacer el ayudante?",
+  "Kind of Helper": "Tipo de ayudante",
+  "Threshold": "Umbral",
+  "Combine": "Combinación",
+  "Stays": "Duración",
+  "On when a reading goes above or below a value": "Activado cuando una lectura sube por encima o baja por debajo de un valor",
+  "The lowest, highest or average of several sensors": "El más bajo, el más alto o la media de varios sensores",
+  "On when something stays in a state for a while": "Activado cuando algo permanece un rato en un estado",
+  "No accessory has a reading to watch yet": "Ningún accesorio tiene todavía una lectura que vigilar",
+  "Pick the reading to watch, and where the Helper turns on and off.": "Elige la lectura que vigilar y dónde se activa y desactiva el ayudante.",
+  "Reading to watch": "Lectura que vigilar",
+  "Turns on": "Se activa",
+  "On value": "Valor de activación",
+  "Off value (leave empty for the on value)": "Valor de desactivación (vacío: el de activación)",
+  "Enter a number for the on value": "Escribe un número para el valor de activación",
+  "Enter a number for the off value": "Escribe un número para el valor de desactivación",
+  "The off value must be at most the on value": "El valor de desactivación debe ser como mucho el de activación",
+  "The off value must be at least the on value": "El valor de desactivación debe ser como mínimo el de activación",
+  "No accessory has a temperature, humidity, light level or power to combine yet": "Ningún accesorio tiene todavía temperatura, humedad, luminosidad o potencia que combinar",
+  "What should the Helper combine?": "¿Qué debe combinar el ayudante?",
+  "Measure": "Medida",
+  "Pick the sensors to combine, and how.": "Elige los sensores que combinar y cómo.",
+  "Sensors": "Sensores",
+  "Lowest": "El más bajo",
+  "Highest": "El más alto",
+  "Pick at least one sensor": "Elige al menos un sensor",
+  "No accessory has a state to wait on yet": "Ningún accesorio tiene todavía un estado que esperar",
+  "Pick what to wait on.": "Elige qué esperar.",
+  "The Helper turns on once {source} has stayed in this state for as long as you say.": "El ayudante se activa cuando {source} ha permanecido en este estado tanto tiempo como indiques.",
+  "For longer than (minutes)": "Durante más de (minutos)",
+  "Pick a state": "Elige un estado",
+  "Enter the minutes as a number from 0 to 10080 (a week)": "Escribe los minutos, un número de 0 a 10080 (una semana)",
+  "Give the Helper a name": "Pon un nombre al ayudante",
+  "Pick one of the accessories listed": "Elige uno de los accesorios de la lista",
+  "When it rises above the on value": "Cuando sube por encima del valor de activación",
+  "When it falls below the on value": "Cuando baja por debajo del valor de activación",
+  "Occupancy": "Presencia",
   "Choose the model": "Elegir el modelo",
   "Model: {model}. Choose another": "Modelo: {model}. Elegir otro",
   "The provider's list could not be read: {error}": "No se ha podido leer la lista del proveedor: {error}",
@@ -17850,13 +17895,11 @@ HomeswiftI18n.add("es", {
   "Each change is kept {days} days, and the hourly figures of numbers {years} years.": "Cada cambio se guarda {days} días, y las cifras por hora de los valores numéricos, {years} años.",
   "Each change of every accessory, and the Logbook. 14 days when empty.": "Cada cambio de cada accesorio, y la bitácora. 14 días si está vacío.",
   "Everyone and everything": "Todos y todo",
-  "Highest": "Máximo",
   "History kept (days)": "Historial guardado (días)",
   "Homeswift users": "Usuarios de Homeswift",
   "Hourly history kept (years)": "Historial por hora guardado (años)",
   "Its values over time. The Logbook says who changed them.": "Sus valores a lo largo del tiempo. La bitácora dice quién los cambió.",
   "Logbook": "Bitácora",
-  "Lowest": "Mínimo",
   "MCP clients": "Clientes MCP",
   "Nothing changed in this range.": "Nada cambió en este periodo.",
   "Pairing {id}": "Emparejamiento {id}",
@@ -21039,6 +21082,46 @@ HomeswiftI18n.add("fr", {
   "Separate": "Séparer",
   "Join back": "Réunir",
   "A Function of {name}: its other settings are there.": "Une fonction de {name} : ses autres réglages sont là-bas.",
+  "Sensors the bridge works out from your other accessories": "Des capteurs que le pont déduit de vos autres accessoires",
+  "Add a Helper…": "Ajouter un auxiliaire…",
+  "None added yet.": "Aucun ajouté pour l’instant.",
+  "What should the Helper do?": "Que doit faire l’auxiliaire ?",
+  "Kind of Helper": "Type d’auxiliaire",
+  "Threshold": "Seuil",
+  "Combine": "Combinaison",
+  "Stays": "Durée",
+  "On when a reading goes above or below a value": "Activé quand une mesure passe au-dessus ou en dessous d’une valeur",
+  "The lowest, highest or average of several sensors": "La plus basse, la plus haute ou la moyenne de plusieurs capteurs",
+  "On when something stays in a state for a while": "Activé quand quelque chose reste un moment dans un état",
+  "No accessory has a reading to watch yet": "Aucun accessoire n’a encore de mesure à surveiller",
+  "Pick the reading to watch, and where the Helper turns on and off.": "Choisissez la mesure à surveiller, et où l’auxiliaire s’active et se désactive.",
+  "Reading to watch": "Mesure à surveiller",
+  "Turns on": "S’active",
+  "On value": "Valeur d’activation",
+  "Off value (leave empty for the on value)": "Valeur de désactivation (vide : la valeur d’activation)",
+  "Enter a number for the on value": "Saisissez un nombre pour la valeur d’activation",
+  "Enter a number for the off value": "Saisissez un nombre pour la valeur de désactivation",
+  "The off value must be at most the on value": "La valeur de désactivation doit être au plus la valeur d’activation",
+  "The off value must be at least the on value": "La valeur de désactivation doit être au moins la valeur d’activation",
+  "No accessory has a temperature, humidity, light level or power to combine yet": "Aucun accessoire n’a encore de température, d’humidité, de luminosité ou de puissance à combiner",
+  "What should the Helper combine?": "Que doit combiner l’auxiliaire ?",
+  "Measure": "Mesure",
+  "Pick the sensors to combine, and how.": "Choisissez les capteurs à combiner, et comment.",
+  "Sensors": "Capteurs",
+  "Lowest": "La plus basse",
+  "Highest": "La plus haute",
+  "Pick at least one sensor": "Choisissez au moins un capteur",
+  "No accessory has a state to wait on yet": "Aucun accessoire n’a encore d’état à attendre",
+  "Pick what to wait on.": "Choisissez ce qu’il faut attendre.",
+  "The Helper turns on once {source} has stayed in this state for as long as you say.": "L’auxiliaire s’active une fois que {source} est resté dans cet état aussi longtemps que vous l’indiquez.",
+  "For longer than (minutes)": "Pendant plus de (minutes)",
+  "Pick a state": "Choisissez un état",
+  "Enter the minutes as a number from 0 to 10080 (a week)": "Saisissez les minutes, un nombre de 0 à 10080 (une semaine)",
+  "Give the Helper a name": "Donnez un nom à l’auxiliaire",
+  "Pick one of the accessories listed": "Choisissez l’un des accessoires de la liste",
+  "When it rises above the on value": "Quand elle passe au-dessus de la valeur d’activation",
+  "When it falls below the on value": "Quand elle passe en dessous de la valeur d’activation",
+  "Occupancy": "Présence",
   "Choose the model": "Choisir le modèle",
   "Model: {model}. Choose another": "Modèle : {model}. En choisir un autre",
   "The provider's list could not be read: {error}": "La liste du fournisseur n'a pas pu être lue : {error}",
@@ -21066,13 +21149,11 @@ HomeswiftI18n.add("fr", {
   "Each change is kept {days} days, and the hourly figures of numbers {years} years.": "Chaque changement est gardé {days} jours, et les chiffres horaires des valeurs numériques {years} ans.",
   "Each change of every accessory, and the Logbook. 14 days when empty.": "Chaque changement de chaque accessoire, et le journal de bord. 14 jours si vide.",
   "Everyone and everything": "Tout le monde, tout",
-  "Highest": "Maximum",
   "History kept (days)": "Historique gardé (jours)",
   "Homeswift users": "Utilisateurs de Homeswift",
   "Hourly history kept (years)": "Historique horaire gardé (années)",
   "Its values over time. The Logbook says who changed them.": "Ses valeurs dans le temps. Le journal de bord dit qui les a changées.",
   "Logbook": "Journal de bord",
-  "Lowest": "Minimum",
   "MCP clients": "Clients MCP",
   "Nothing changed in this range.": "Rien n'a changé sur cette période.",
   "Pairing {id}": "Jumelage {id}",
@@ -24255,6 +24336,46 @@ HomeswiftI18n.add("pt", {
   "Separate": "Separar",
   "Join back": "Voltar a juntar",
   "A Function of {name}: its other settings are there.": "Uma função de {name}: as outras definições estão lá.",
+  "Sensors the bridge works out from your other accessories": "Sensores que a ponte calcula a partir dos seus outros acessórios",
+  "Add a Helper…": "Adicionar um auxiliar…",
+  "None added yet.": "Nenhum adicionado ainda.",
+  "What should the Helper do?": "O que deve fazer o auxiliar?",
+  "Kind of Helper": "Tipo de auxiliar",
+  "Threshold": "Limiar",
+  "Combine": "Combinação",
+  "Stays": "Duração",
+  "On when a reading goes above or below a value": "Ativado quando uma leitura sobe acima ou desce abaixo de um valor",
+  "The lowest, highest or average of several sensors": "O mais baixo, o mais alto ou a média de vários sensores",
+  "On when something stays in a state for a while": "Ativado quando algo fica algum tempo num estado",
+  "No accessory has a reading to watch yet": "Nenhum acessório tem ainda uma leitura para vigiar",
+  "Pick the reading to watch, and where the Helper turns on and off.": "Escolha a leitura a vigiar e onde o auxiliar se ativa e desativa.",
+  "Reading to watch": "Leitura a vigiar",
+  "Turns on": "Ativa-se",
+  "On value": "Valor de ativação",
+  "Off value (leave empty for the on value)": "Valor de desativação (vazio: o de ativação)",
+  "Enter a number for the on value": "Introduza um número para o valor de ativação",
+  "Enter a number for the off value": "Introduza um número para o valor de desativação",
+  "The off value must be at most the on value": "O valor de desativação deve ser no máximo o de ativação",
+  "The off value must be at least the on value": "O valor de desativação deve ser no mínimo o de ativação",
+  "No accessory has a temperature, humidity, light level or power to combine yet": "Nenhum acessório tem ainda temperatura, humidade, luminosidade ou potência para combinar",
+  "What should the Helper combine?": "O que deve combinar o auxiliar?",
+  "Measure": "Medida",
+  "Pick the sensors to combine, and how.": "Escolha os sensores a combinar e como.",
+  "Sensors": "Sensores",
+  "Lowest": "O mais baixo",
+  "Highest": "O mais alto",
+  "Pick at least one sensor": "Escolha pelo menos um sensor",
+  "No accessory has a state to wait on yet": "Nenhum acessório tem ainda um estado a aguardar",
+  "Pick what to wait on.": "Escolha o que aguardar.",
+  "The Helper turns on once {source} has stayed in this state for as long as you say.": "O auxiliar ativa-se quando {source} fica neste estado durante o tempo que indicar.",
+  "For longer than (minutes)": "Durante mais de (minutos)",
+  "Pick a state": "Escolha um estado",
+  "Enter the minutes as a number from 0 to 10080 (a week)": "Introduza os minutos, um número de 0 a 10080 (uma semana)",
+  "Give the Helper a name": "Dê um nome ao auxiliar",
+  "Pick one of the accessories listed": "Escolha um dos acessórios da lista",
+  "When it rises above the on value": "Quando sobe acima do valor de ativação",
+  "When it falls below the on value": "Quando desce abaixo do valor de ativação",
+  "Occupancy": "Presença",
   "Choose the model": "Escolher o modelo",
   "Model: {model}. Choose another": "Modelo: {model}. Escolher outro",
   "The provider's list could not be read: {error}": "Não foi possível ler a lista do fornecedor: {error}",
@@ -24282,13 +24403,11 @@ HomeswiftI18n.add("pt", {
   "Each change is kept {days} days, and the hourly figures of numbers {years} years.": "Cada alteração é guardada {days} dias, e os valores horários dos números {years} anos.",
   "Each change of every accessory, and the Logbook. 14 days when empty.": "Cada alteração de cada acessório, e o diário de bordo. 14 dias se vazio.",
   "Everyone and everything": "Todos e tudo",
-  "Highest": "Máximo",
   "History kept (days)": "Histórico guardado (dias)",
   "Homeswift users": "Utilizadores do Homeswift",
   "Hourly history kept (years)": "Histórico horário guardado (anos)",
   "Its values over time. The Logbook says who changed them.": "Os seus valores ao longo do tempo. O diário de bordo indica quem os alterou.",
   "Logbook": "Diário de bordo",
-  "Lowest": "Mínimo",
   "MCP clients": "Clientes MCP",
   "Nothing changed in this range.": "Nada mudou neste período.",
   "Pairing {id}": "Emparelhamento {id}",
@@ -26741,7 +26860,10 @@ HomeswiftI18n.add("pt", {
       }
 
       // The plugin's own Accessory Settings, by the same renderer as its Plugin Settings.
-      const own = Object.entries(fields).filter(([, field]) => !field.core);
+      // In the order the schema declares them (the answer's object has none of its own).
+      const declaredOrder = Object.keys(schemaFile?.accessorySchema?.properties ?? {});
+      const rank = (key) => { const at = declaredOrder.indexOf(key); return at < 0 ? declaredOrder.length : at; };
+      const own = Object.entries(fields).filter(([, field]) => !field.core).sort(([a], [b]) => rank(a) - rank(b));
       let pluginSection = null;
       if (own.length) {
         const properties = Object.fromEntries(own.map(([key, field]) => [key, field.schema]));
@@ -27113,7 +27235,7 @@ HomeswiftI18n.add("pt", {
       list,
       // A device the plugin does not find, added by its address: the Add accessories page's sheet.
       plugin?.addByAddress ? el("div", { class: "setup-add-address" },
-        el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
+        el("button", { type: "button", actionIcon: "plus", text: HomeswiftSetup.addLabel(plugin), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, adding: true, trigger: event.currentTarget, after: () => load() }) })) : null);
     let loading = 0;
     async function load() {
       const run = ++loading;
@@ -27127,7 +27249,7 @@ HomeswiftI18n.add("pt", {
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
           : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.")
-            : plugin?.addByAddress ? t("No devices found yet: add one by its address.") : t("No devices found") })]));
+            : plugin?.addByAddress ? HomeswiftSetup.noneAdded(plugin) : t("No devices found") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -27280,6 +27402,10 @@ HomeswiftI18n.add("pt", {
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
+  /// What adding a device the plugin does not find is called: its own words ("Add a Helper…"), else Add by address.
+  const addLabel = (plugin) => plugin?.addLabel ? t(plugin.addLabel) : t("Add by address…");
+  /// What an instance that adds its devices that way says before it has any.
+  const noneAdded = (plugin) => plugin?.addLabel ? t("None added yet.") : t("No devices found yet: add one by its address.");
   /// How a plugin connects, in a few words: a sign-in, a button on a hub, nothing.
   const howItConnects = (plugin) => plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : methods[plugin.accountAuthorization][0]();
 
@@ -27350,7 +27476,7 @@ HomeswiftI18n.add("pt", {
     // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
+      plugin.addByAddress ? { label: addLabel(plugin), icon: "plus", onSelect: () => addByAddress() } : null,
       action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => openAccount() } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
@@ -27403,11 +27529,11 @@ HomeswiftI18n.add("pt", {
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? noneAdded(plugin)
           : t("No devices found") }));
         // Under its devices, a way to add one the plugin does not find.
         if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
-          el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
+          el("button", { type: "button", actionIcon: "plus", text: addLabel(plugin), onclick: (event) => addByAddress(event.currentTarget) })));
         list.replaceChildren(...rows);
         const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
@@ -27521,17 +27647,21 @@ HomeswiftI18n.add("pt", {
   }
 
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
-  /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
-  /// "", and `focus()`.
-  function choice(field) {
-    if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
-    const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
+  /// picked; a long one without meanings to read is a menu. `multiple` (a `choices` field, a Helper's sources): checkboxes,
+  /// those the block has ticked. It reads as an input does: `value`, the option picked or "" (those ticked, one per line),
+  /// and `focus()`.
+  function choice(field, { multiple = false } = {}) {
+    if (!multiple && field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
+    const picked = new Set(multiple ? (field.value ?? "").split("\n") : [field.value]);
+    const inputs = field.options.map((option) => el("input", { type: multiple ? "checkbox" : "radio", name: `setup-${field.key}`, value: option.value, checked: picked.has(option.value) }));
+    const options = field.options.map((option, index) => el("label", { class: "setup-option" }, inputs[index],
+      el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null)));
+    // A long list scrolls on its own, so the fields after it stay in reach.
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
-      ...field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
-        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
-    Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
-    node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
+      ...(options.length > 6 ? [el("div", { class: "setup-choices-list" }, ...options)] : options));
+    Object.defineProperty(node, "value", { get: () => inputs.filter((input) => input.checked).map((input) => input.value).join("\n") });
+    node.focus = () => (inputs.find((input) => input.checked) ?? inputs[0])?.focus();
     return node;
   }
 
@@ -27544,7 +27674,7 @@ HomeswiftI18n.add("pt", {
   /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
   /// whatever else the plugin needs, then ends on the device's settings as any device's does.
   function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? (adding ? t("Add by address") : block.name);
+    const title = device?.name ?? (adding ? addLabel(plugin).replace(/…$/, "") : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
@@ -27726,6 +27856,7 @@ HomeswiftI18n.add("pt", {
         // A field shows what the plugin knows already, or, asked again after an error, what was answered (the server's).
         const inputs = prompt.fields.map((field) => {
           if (field.kind === "choice") return [field, choice(field)];
+          if (field.kind === "choices") return [field, choice(field, { multiple: true })];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
             class: field.kind === "code" ? "setup-code" : "",
@@ -27759,7 +27890,7 @@ HomeswiftI18n.add("pt", {
           error,
           el("div", { class: "actions" }, cancel, submit));
         // After an error, the first field, its text selected to type it again; else the first one left to fill.
-        const first = answer.error ? inputs.find(([field]) => field.kind !== "choice")?.[1] : null;
+        const first = answer.error ? inputs.find(([field]) => !field.kind.startsWith("choice"))?.[1] : null;
         if (first) { first.focus(); first.select(); }
         else (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }
@@ -27808,7 +27939,7 @@ HomeswiftI18n.add("pt", {
   /// Method ("Needs sign-in"); nil for a plugin without an account.
   const accountState = (method) => accountActions[method]?.[3]() ?? null;
 
-  window.HomeswiftSetup = { view, resume, setUp, accountState };
+  window.HomeswiftSetup = { view, resume, setUp, accountState, addLabel, noneAdded };
 })();
 
 """#),
@@ -32101,13 +32232,17 @@ select option:disabled { color: var(--muted); }
 .setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }
-.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); background: none; }
 .setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
-.setup-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-step .setup-choice:not(:first-child) { margin-top: var(--space-14); }
+.setup-option { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 160ms var(--ease-out); }
+.setup-option:active { transform: scale(0.98); }
+@media (prefers-reduced-motion: reduce) { .setup-option:active { transform: none; } }
 .setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }
 .setup-option .muted { font-size: var(--text-sm); }
+.setup-choices-list { display: grid; gap: var(--space-8); max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 /* The sheet's head: what is being set up, and where it stands (a stage per screen: signing in, the devices, done). */
 .setup-sheet-head { display: flex; align-items: center; gap: var(--space-12); margin-bottom: var(--space-12); }
 .admin-dialog.sheet .setup-sheet-head h2 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.015em; }
@@ -32151,8 +32286,13 @@ select option:disabled { color: var(--muted); }
 .setup-pick:not(:has(input:checked)) .tile { filter: grayscale(1); opacity: 0.55; }
 .setup-pick:not(:has(input:checked)) .who { opacity: 0.6; }
 /* The sheet's buttons stay in reach under a long list. */
-.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-14) 0 var(--space-20);
-  background: linear-gradient(to bottom, transparent, var(--material-solid) 30%); }
+.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-16) 0 var(--space-20);
+  background: linear-gradient(to bottom, transparent, var(--material-solid) var(--space-8)); }
+/* Opaque from 8px above the buttons: only the space above that fades, so nothing scrolls through under them. */
+@media (max-width: 640px) {
+  .setup-step > .actions:last-child { bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom)));
+    margin-bottom: calc(-1 * (var(--space-18) + env(safe-area-inset-bottom))); padding-bottom: calc(var(--space-18) + env(safe-area-inset-bottom)); }
+}
 .setup-pick input { margin: 0; }
 .setup-pick .who { display: grid; min-width: 0; }
 .setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -84,7 +84,7 @@ extension HomeswiftCatalog {
             "accountSetUp": .bool(found.accountState == .none || found.accountState == .setUp),
             "accountState": .string(found.accountState.rawValue), "accountRequired": .bool(requirement.isRequired),
             "accountAdds": requirement.adds.map(JSONValue.string) ?? .null, "needsAuthorization": .bool(found.accountState.needsAuthorization(requirement)),
-            "addByAddress": .bool(entry?.addsDevicesByAddress ?? false),
+            "addByAddress": .bool(entry?.addsDevicesByAddress ?? false), "addLabel": entry?.newDeviceLabel.map(JSONValue.string) ?? .null,
             "devices": .array(found.devices.map { device in
                 let accessoryID = "\(platform):\(device.deviceID)"
                 var json: [String: JSONValue] = [
@@ -142,10 +142,11 @@ extension HomeswiftCatalog {
         guard let session = setupSessions.session(id) else { throw CatalogError("No Setup in progress with id \(id): it ended or expired, start it again") }
         var texts: [String: String] = [:]
         // What was answered, secrets left out: a step asked again shows it, to correct rather than type again.
-        let answered = answers.compactMapValues { $0.stringValue }
+        // A `choices` field takes a list of values as well as one per line.
+        let answered = answers.compactMapValues { $0.stringValue ?? $0.arrayValue.map { $0.compactMap(\.stringValue).joined(separator: "\n") } }
         let asking = { (error: String) in self.asking(session, error: error, answers: answered) }
         for field in session.prompt.fields {
-            guard let value = answers[field.key], let text = value.stringValue ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
+            guard let value = answers[field.key], let text = answered[field.key] ?? (value.isNull ? nil : value.text()), !text.isEmpty else {
                 guard field.optional || session.prompt.waitSeconds != nil else { return asking("\(field.label) is missing") }
                 continue
             }
@@ -306,7 +307,8 @@ extension HomeswiftCatalog {
                     + "its accessoryID and excluded, and leave out one of its parts with parts). kind is its Device Kind, which decides its Plugin Accessory Settings. "
                     + "accountAuthorization says what the plugin's account needs (start_setup without a deviceID); accountState where it stands (none, setUp, notSetUp, refused); "
                     + "needsAuthorization that it must be set up (again) before the devices work; accountRequired false that the devices work without it, accountAdds what it adds. "
-                    + "addByAddress true: the plugin also takes a device it cannot find, by its address (start_setup with addByAddress).",
+                    + "addByAddress true: the plugin also takes a device it cannot find, by its address (start_setup with addByAddress); with addLabel, "
+                    + "one it makes rather than finds (Add a Helper…: a sensor worked out from other accessories), its first prompt asking what it needs.",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance)],
                 scope: .admin, readOnly: true
             ) { call in
@@ -316,7 +318,7 @@ extension HomeswiftCatalog {
                 name: "start_setup", title: "Set up a device",
                 description: "Starts the Setup of a device discover_devices found (deviceID), of the plugin's account (no deviceID), or of a device the "
                     + "plugin cannot find, added by its address (addByAddress true, for a plugin whose discover_devices says addByAddress: the first prompt asks "
-                    + "for its host and what else it needs; done gives its deviceID and accessoryID), and answers its first "
+                    + "for its host and what else it needs, or, for a plugin with an addLabel, what the new one is; done gives its deviceID and accessoryID), and answers its first "
                     + "prompt: a message for the person, the fields to answer with continue_setup, a page to open (browserRedirect) or a wait (buttonPress: "
                     + "tell the person to press the button, then call continue_setup every retryAfter seconds). status done means it is set up. A plugin not "
                     + "added yet (list_plugins: a platform with no block of that name) is added when its account's Setup, or its first device added by address, is done.",
@@ -343,7 +345,8 @@ extension HomeswiftCatalog {
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",
-                description: "Answers the prompt of a Setup in progress with its fields' values by key (a PIN, a one-time code, a redirect address). A field "
+                description: "Answers the prompt of a Setup in progress with its fields' values by key (a PIN, a one-time code, a redirect address); a field "
+                    + "of kind choice takes one of its options' values, one of kind choices a list of them. A field "
                     + "of kind secret (a password, a key) takes only a vault: reference, never the secret: ask the person to add it on the Vault page, or to "
                     + "finish in the web UI. Answers the next prompt (with error when an answer did not work), or status done.",
                 inputSchema: ["type": "object", "required": ["session"], "properties": ["session": ["type": "string"], "answers": ["type": "object"]]],
