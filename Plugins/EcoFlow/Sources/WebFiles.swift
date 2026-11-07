@@ -19,14 +19,14 @@ extension EcoFlowPlugin {
   // Devices already on the page: a card animates in once, not again at every refresh.
   const shown = new Set();
   // Whole watts everywhere: the readings are never shown with decimals.
-  const whole = (value) => Math.round(Math.abs(value)).toLocaleString(HomeswiftI18n.locale);
+  const whole = (value) => Math.round(Math.abs(value)).toLocaleString(HomeswiftI18n.numberLocale);
   // Figures are text nodes, never HTML: the number and its unit each in their own element.
   const figure = (number, unit) => el("span", {}, number, el("small", { text: ` ${unit}` }));
   // Power: whole watts below a kilowatt; from 1,000 W, kilowatts with two decimals (1.43 kW, or 1,43 kW in French).
   const power = (value) => {
     const magnitude = Math.abs(value);
     if (magnitude >= 1000) {
-      return { number: (magnitude / 1000).toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), unit: "kW" };
+      return { number: (magnitude / 1000).toLocaleString(HomeswiftI18n.numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), unit: "kW" };
     }
     return { number: whole(value), unit: "W" };
   };

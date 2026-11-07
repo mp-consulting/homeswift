@@ -22,8 +22,8 @@ enum WebAssets {
 
   const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
-  const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-  const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const dateTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const fullDate = HomeswiftI18n.dateTimeFormat({ year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
   const size = (bytes) => HomeswiftCommon.byteSize(bytes);
 
@@ -96,7 +96,7 @@ enum WebAssets {
   // ---- The Location: a Bridge Setting (bridge.location), for sunrise and sunset and the weather ----------------
 
   const { statusLine, say, field } = HomeswiftCommon;
-  const timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
+  const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit" });
 
   /// A small raster map with no third-party scripts. Only visible tiles are requested.
   function locationMap(initial, changed) {
@@ -350,9 +350,9 @@ enum WebAssets {
     const cell = (text, control, extra = null) => el("label", { class: `tariff-cell${extra ? " with-unit" : ""}` }, el("span", { class: "tariff-cell-label", text }), control, extra);
     const addRow = (period = { from: "00:00", to: "24:00", price: "" }) => {
       const name = el("input", { type: "text", value: period.name ?? "", placeholder: t("Name, such as Peak"), maxLength: 40, "aria-label": t("Period name") });
-      const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From") });
+      const from = el("input", { type: "time", value: period.from === "24:00" ? "00:00" : period.from, "aria-label": t("From"), title: HomeswiftCommon.homeTimeTitle() });
       // 24:00 is the end of the day: a time input shows it as 00:00.
-      const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To") });
+      const to = el("input", { type: "time", value: period.to === "24:00" ? "00:00" : period.to, "aria-label": t("To"), title: HomeswiftCommon.homeTimeTitle() });
       const days = el("select", { "aria-label": t("Days") }, daysChoices.map(([value, text]) => el("option", { value, text, selected: (period.days ?? []).join(",") === value })));
       const price = el("input", { type: "number", min: 0, step: "any", inputMode: "decimal", value: period.price, placeholder: perUnit, "aria-label": perUnit, required: true });
       const row = el("div", { class: "tariff-period" }, cell(t("Name"), name), cell(t("From"), from), cell(t("To"), to), cell(t("Days"), days),
@@ -370,7 +370,7 @@ enum WebAssets {
     const save = el("button", { type: "submit", class: "primary", actionIcon: "check", text: t("Save the tariff") });
     const earlier = mine.slice(0, -1).reverse();
     const startDate = (text) => HomeswiftCommon.parseDay(text);
-    const longDay = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric" });
+    const longDay = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "long", year: "numeric" });
     return el("form", { class: "card form-card tariff-card", onsubmit: async (event) => {
       event.preventDefault();
       const tariff = { start: start.value, currency: currency.value.trim().toUpperCase(), periods: [...rows.children].map((row) => row.read()),
@@ -393,6 +393,7 @@ enum WebAssets {
         electricity ? field(t("Export price"), el("span", { class: "tariff-cell with-unit" }, exportPrice, unit("kWh")), t("What a kWh sent back to the grid is paid, if it is.")) : null),
       el("div", { class: "field" }, el("span", { class: "field-title", text: t("Prices") }),
         el("span", { class: "help", text: t("Each part of the week once: a period ending before it starts runs past midnight.") }),
+        HomeswiftCommon.homeTimeNote(),
         el("div", { class: "tariff-period tariff-period-head", "aria-hidden": "true" },
           ...[t("Name"), t("From"), t("To"), t("Days"), perUnit].map((text) => el("span", { text })), el("span")),
         rows, el("div", { class: "actions start" }, add)),
@@ -415,15 +416,26 @@ enum WebAssets {
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
       historyDays: input("historyDays", { type: "number", min: 1, max: 90, step: 1, placeholder: "14" }),
       historyYears: input("historyYears", { type: "number", min: 1, max: 20, step: 1, placeholder: "10" }),
+      // Home Time: the host's zone unless one is named; the zones this browser knows.
+      timeZone: el("select", { name: "timeZone", "aria-label": t("Home Time") },
+        el("option", { value: "", text: t("The host's ({zone})", { zone: settings.hostTimeZone || "?" }) }),
+        [...new Set([...(Intl.supportedValuesOf?.("timeZone") ?? []), ...(bridge.timeZone ? [bridge.timeZone] : [])])].sort()
+          .map((zone) => el("option", { value: zone, text: zone.replaceAll("_", " ") }))),
+      // The Home Language: notifications on shared channels and the daily digest.
+      language: el("select", { name: "language", "aria-label": t("Home Language") },
+        HomeswiftI18n.languages.map((code) => el("option", { value: code, text: `${HomeswiftI18n.flags[code]} ${HomeswiftI18n.names[code]}` }))),
     };
+    fields.timeZone.value = bridge.timeZone ?? "";
+    fields.language.value = bridge.language ?? "en";
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
-    // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.
-    const shownPin = fields.pin.value;
+    // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it; so is the
+    // Home Language, so a bridge that names none keeps following its first account's until someone picks one.
+    const shownPin = fields.pin.value, shownLanguage = fields.language.value;
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : ["port", "historyDays", "historyYears"].includes(key) ? Number(value) : value];
-    }).filter(([key, value]) => key !== "pin" || value !== shownPin));
+    }).filter(([key, value]) => (key !== "pin" || value !== shownPin) && (key !== "language" || value !== shownLanguage)));
     const copied = el("span", { class: "visually-hidden", role: "status" });
     const copyIcon = HomeswiftCommon.icon("copy"), doneIcon = HomeswiftCommon.icon("check");
     copyIcon.classList.add("copy-icon");
@@ -494,7 +506,10 @@ enum WebAssets {
       if (JSON.stringify(next) === initial) { message.className = "status-line muted"; message.textContent = t("Nothing changed."); return; }
       try { await checkPort(); }
       catch (error) { portStatus.className = "help error"; portStatus.textContent = error.message; fields.port.focus(); return; }
-      if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
+      // The Home Language alone applies at once; everything else in the block is the bridge's identity and restarts it.
+      const before = JSON.parse(initial);
+      const live = Object.keys({ ...before, ...next }).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(next[key])).every((key) => key === "language");
+      if (!live && !(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
         text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
           "pin" in next ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
@@ -520,7 +535,9 @@ enum WebAssets {
           qr),
         field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision),
         field(t("History kept (days)"), fields.historyDays, t("Each change of every accessory, and the Logbook. 14 days when empty.")),
-        field(t("Hourly history kept (years)"), fields.historyYears, t("The hourly lowest, average and highest of numbers. 10 years when empty."))),
+        field(t("Hourly history kept (years)"), fields.historyYears, t("The hourly lowest, average and highest of numbers. 10 years when empty.")),
+        field(t("Home Time"), fields.timeZone, t("The home's time zone: Tariffs, Automations, the History and the log run on it. Empty uses the host's.")),
+        field(t("Home Language"), fields.language, t("For what has no one reader: notifications on ntfy, Pushover, Telegram and the webhook, and the daily digest."))),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
     portStatus.style.display = "block";
@@ -1349,14 +1366,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// returned below it; by hour over a day, by day beyond.
   async function consumptionCards(accessory, hours) {
     if (!accessory.consumption) return [];
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timeZone = HomeswiftI18n.timeZone;
     let found;
     try { found = await api(`/api/metrics/consumption?${new URLSearchParams({ accessory: accessory.id, hours, timeZone })}`); }
     catch (e) { return [el("p", { class: "error", text: e.message })]; }
     const hourly = found.step === "hour";
-    const hourFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-    const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
-    const longFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
+    const hourFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+    const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
+    const longFormat = HomeswiftI18n.dateTimeFormat(hourly ? { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "long", day: "numeric", month: "long" });
     const dateOf = (text) => HomeswiftCommon.parseDay(text);
     return found.meters.map((meter) => {
       // Gas and water in m³ at their own Tariff; electricity in kWh at the grid's price.
@@ -1380,7 +1397,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const date = dateOf(bar.date);
         // Every third hour labelled, every day.
         const label = hourly ? (index % 3 ? "" : hourFormat.format(date)) : dayFormat.format(date);
-        return { label, narrow: hourly ? (index % 6 ? "" : String(date.getHours())) : String(date.getDate()), title: longFormat.format(date), values: bar.hours ? bar : null };
+        return { label, narrow: String(hourly ? (index % 6 ? "" : HomeswiftI18n.zoned(date).hours) : HomeswiftI18n.zoned(date).day), title: longFormat.format(date), values: bar.hours ? bar : null };
       });
       HomeswiftChart.stackedBars(body, { title, format, unit: (max) => max < 1 ? (utility ? 0.01 : 0.001) : 1, bars, hourly,
         // Gas in orange, as on its card; water and electricity in blue.
@@ -3061,7 +3078,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!iso) return "";
     const date = new Date(iso);
     const today = new Date().toDateString() === date.toDateString();
-    const format = new Intl.DateTimeFormat(HomeswiftI18n.locale, today ? { hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+    const format = HomeswiftI18n.dateTimeFormat(today ? { hour: "2-digit", minute: "2-digit", hour12: false } : { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
     return format.format(date);
   }
 
@@ -3387,7 +3404,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "facts" },
           fact(t("CPUs"), status.system.cpus),
           fact(t("Assistant"), status.assistant ? `${status.assistant.provider} · ${status.assistant.model}` : t("Off [setting]")),
-          fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0))),
+          fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0)),
+          status.homeTime ? fact(t("Home Time"), status.homeTime.zone) : null),
+        // A container runs in UTC unless told: Tariffs and Automations would then run hours off.
+        isAdmin() && status.homeTime?.universal && !status.homeTime.set ? el("p", { class: "status-line warn home-time-warning" },
+          HomeswiftCommon.icon("warning"), el("span", { text: t("Home Time is UTC, the host's. If the home is elsewhere, set its time zone, or Tariffs and Automations run at the wrong hours.") }), " ",
+          el("a", { href: "/settings/bridge", text: t("Set Home Time") })) : null,
         el("div", { class: "fact wide" }, el("span", { text: t("Configuration") }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
         isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
@@ -3528,7 +3550,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const shown = (digest) => {
       body.replaceChildren(HomeswiftCommon.markdown(digest.text));
-      const when = new Date(digest.generatedAt).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+      const when = HomeswiftI18n.formatDate(new Date(digest.generatedAt), { dateStyle: "medium", timeStyle: "short" });
       note.textContent = digest.model ? t("Written {when} by {model}", { when, model: digest.model }) : t("Written {when}", { when });
       foot.hidden = false;
     };
@@ -3588,7 +3610,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       HomeswiftCommon.icon("forward"));
     const rows = [
       ...problems.slice(0, 3).map((problem) => row(problem.state === "expiring" ? "warn" : "bad", problem.entry, says[problem.state]?.(problem) ?? problem.state,
-        { class: "vault-status-row mono-name", title: problem.expires ? new Date(problem.expires).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : null })),
+        { class: "vault-status-row mono-name", title: problem.expires ? HomeswiftI18n.formatDate(new Date(problem.expires), { dateStyle: "full", timeStyle: "short" }) : null })),
       problems.length > 3 ? el("p", { class: "muted vault-status-more", text: tn("And {n} more", "And {n} more", problems.length - 3) }) : null,
       vault.inConfig ? row("info", tn("{n} secret is still in config.json", "{n} secrets are still in config.json", vault.inConfig), t("Move [to the vault]")) : null,
     ].filter(Boolean);
@@ -3635,7 +3657,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   function updateCardContent(update, draw, embedded = false) {
-    const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
+    const released = update.publishedAt ? HomeswiftI18n.formatDate(new Date(update.publishedAt), {}) : null;
     let command = null;
     if (update.command) {
       const copy = el("button", { actionIcon: "copy", type: "button", text: t("Copy"), onclick: async () => {
@@ -3861,9 +3883,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// requests and the plugins' device calls, each its average, longest and count; a rule between the groups.
     function fillTable() {
       if (!shown) return;
-      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const time = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
       const cell = (value, format, start = false) => el("td", { class: [value == null ? "empty" : "", start ? "group-start" : ""].join(" ").trim(), text: value == null ? "–" : format(value) });
-      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString(HomeswiftI18n.locale))];
+      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString(HomeswiftI18n.numberLocale))];
       const group = (text, span, start = true) => el("th", { scope: "colgroup", colSpan: span, class: start ? "group-start" : "", text });
       const column = (text, start = false) => el("th", { scope: "col", class: start ? "group-start" : "", text });
       table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
@@ -3889,7 +3911,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const params = new URLSearchParams(location.search);
     const range = HomeswiftCommon.rangeControl(params, { presets: [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
       fallback: "24h", names: { since: "energy", from: "energy-from", to: "energy-to" }, changed: () => load() });
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timeZone = HomeswiftI18n.timeZone;
     // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
     // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
     const roles = [
@@ -4064,17 +4086,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     /// One period earlier (-1) or later (1): 7 days, a month or a year. The period of today is the latest.
     function move(direction) {
-      const base = anchor ?? new Date();
-      const date = view === "week" ? new Date(base.getFullYear(), base.getMonth(), base.getDate() + 7 * direction)
-        : view === "month" ? new Date(base.getFullYear(), base.getMonth() + direction, 1) : new Date(base.getFullYear() + direction, 0, 1);
+      // Days where the pages show times (Home Time, or the device's), as the bridge counts them with `timeZone`.
+      const base = zoned(anchor ?? new Date());
+      const date = view === "week" ? zonedDate(base.year, base.month, base.day + 7 * direction)
+        : view === "month" ? zonedDate(base.year, base.month + direction, 1) : zonedDate(base.year + direction, 0, 1);
       anchor = containsToday(date) ? null : date;
       loadHistory();
     }
     function containsToday(date) {
-      const now = new Date();
-      if (view === "year") return date.getFullYear() >= now.getFullYear();
-      if (view === "month") return date.getFullYear() * 12 + date.getMonth() >= now.getFullYear() * 12 + now.getMonth();
-      return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const now = zoned(new Date()), day = zoned(date);
+      if (view === "year") return day.year >= now.year;
+      if (view === "month") return day.year * 12 + day.month >= now.year * 12 + now.month;
+      return date >= HomeswiftI18n.startOfDay(new Date());
     }
     /// The period's history, and its consumption by device; a poll while an import runs (`poll`) leaves the consumption
     /// until the import is done.
@@ -4176,16 +4199,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     /// A bar of the period's chart, by its date (YYYY-MM-DD, or YYYY-MM over a year): its labels, Today and Yesterday by
     /// name, and whether it is the one now.
+    /// Today and yesterday as YYYY-MM-DD, worked out once a minute rather than for every bar.
+    let named = { at: 0 };
+    function todayAndYesterday() {
+      if (Date.now() - named.at > 60000) {
+        const now = zoned(new Date());
+        named = { at: Date.now(), today: isoDay(new Date()), yesterday: isoDay(zonedDate(now.year, now.month, now.day - 1)) };
+      }
+      return named;
+    }
     function periodBar(date) {
       const monthly = view === "year";
-      const today = isoDay(new Date()), yesterday = isoDay(new Date(Date.now() - 86400000));
+      const { today, yesterday } = todayAndYesterday();
       const [year, month, day] = date.split("-").map(Number);
-      const when = new Date(year, month - 1, day || 1);
+      const when = zonedDate(year, month - 1, day || 1);
       const name = (format) => monthly ? format.format(when)
         : date === today ? t("Today") : date === yesterday && format === dayFormat ? t("Yesterday") : format.format(when);
       return {
-        label: monthly ? shortMonth.format(when) : view === "month" ? String(when.getDate()) : name(shortDay),
-        narrow: monthly ? narrowMonth.format(when) : String(when.getDate()),
+        label: monthly ? shortMonth.format(when) : view === "month" ? String(day) : name(shortDay),
+        narrow: monthly ? narrowMonth.format(when) : String(day),
         title: name(monthly ? monthYear : dayFormat),
         current: monthly ? date === today.slice(0, 7) : date === today,
       };
@@ -4223,7 +4255,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// seconds); one done: what it covers and when it last ran, quietly; one failed: why.
     function fillImports(imports) {
       clearTimeout(importPoll);
-      const longDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "long", year: "numeric" });
+      const longDay = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "long", year: "numeric" });
       const day = (text) => longDay.format(parseDay(text));
       importsNode.replaceChildren(...imports.map((one) => {
         if (one.state === "running") {
@@ -4265,7 +4297,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ].filter(Boolean);
       // The legend names each colour once: an entity is the same colour above the line and below it.
       const legend = [...new Map(segments.map((one) => [one.tone, { tone: one.tone, label: { 4: t("Solar"), 3: t("Batteries"), 7: t("Grid"), 8: t("Not split") }[one.tone] }])).values()];
-      const dateOf = (bar) => { const [year, month, day] = bar.date.split("-").map(Number); return new Date(year, month - 1, day || 1); };
+      const dateOf = (bar) => { const [year, month, day] = bar.date.split("-").map(Number); return zonedDate(year, month - 1, day || 1); };
       const chartBars = bars.map((bar) => ({ ...periodBar(bar.date), values: known(bar) ? bar : null }));
       const key = view + "\n" + segments.map((one) => one.label).join("\n");
       days.titleNode.textContent = monthly ? t("Energy by month") : t("Energy by day");
@@ -4280,7 +4312,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
       // The period, and the way to the ones around it: none before the history's first hour, none after today.
       const first = dateOf(bars[0]), last = dateOf(bars.at(-1));
-      periodLabel.textContent = monthly ? String(first.getFullYear()) : view === "month" ? monthYear.format(first) : rangeFormat.formatRange(first, last);
+      periodLabel.textContent = monthly ? String(zoned(first).year) : view === "month" ? monthYear.format(first) : rangeFormat.formatRange(first, last);
       previous.disabled = !earliest || first <= earliest;
       next.disabled = !anchor;
 
@@ -4332,8 +4364,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ].filter(Boolean);
       dayTable.replaceChildren(dayTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
         el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: monthly ? t("Month") : t("Day") }), columns.map(([title]) => el("th", { scope: "col", text: title })))),
-        el("tbody", {}, [...bars].reverse().map((bar) => el("tr", {},
-          el("th", { scope: "row", class: "time", text: periodBar(bar.date).title }),
+        el("tbody", {}, [...bars].reverse().map((bar, index) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: chartBars[bars.length - 1 - index].title }),
           columns.map(([, field, format]) => {
             const one = known(bar) ? bar[field] : null;
             return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
@@ -4343,7 +4375,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// The power and levels at each point, newest first.
     function fillPoints() {
       if (!lastReport) return;
-      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const time = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
       const present = roles.filter((role) => lastReport.roles.includes(role.id));
       const rows = new Map();
       for (const point of lastReport.power) rows.set(point.t, { ...point });
@@ -4360,20 +4392,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     load();
     return section;
   }
-  const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
-  const shortMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "short" });
-  const narrowMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "narrow" });
-  const monthYear = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
-  const rangeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short" });
+  const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short" });
+  const shortMonth = HomeswiftI18n.dateTimeFormat({ month: "short" });
+  const narrowMonth = HomeswiftI18n.dateTimeFormat({ month: "narrow" });
+  const monthYear = HomeswiftI18n.dateTimeFormat({ month: "long", year: "numeric" });
+  const rangeFormat = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "short" });
   const { isoDay, parseDay } = HomeswiftCommon;
-  const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+  const { zoned, zonedDate } = HomeswiftI18n;
+  const shortDay = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
 
   /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
   function formatWatts(watts, top = Math.abs(watts)) {
     const kilo = Math.max(Math.abs(watts), top) >= 1000;
     const value = kilo ? watts / 1000 : watts;
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
-    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
+    return `${value.toLocaleString(HomeswiftI18n.numberLocale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
   const formatKWh = (value, top) => HomeswiftCommon.kWh(value, top);
   const formatCubicMetres = (value, top) => HomeswiftCommon.cubicMetres(value, top);
@@ -5852,7 +5885,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const usage = el("div", { class: "usage" }, el("p", { class: "muted", text: t("Loading…") }));
     const money = (usd) => usd == null ? "–" : usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
-    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString(HomeswiftI18n.locale);
+    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString(HomeswiftI18n.numberLocale);
     const meter = (label, used, limit, format) => {
       const share = Math.min(1, limit ? used / limit : 0);
       return el("div", { class: `budget-meter${share >= 1 ? " over" : share >= 0.8 ? " near" : ""}` },
@@ -5862,7 +5895,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     const table = (title, rows) => rows.length ? el("div", { class: "table-scroll" }, el("table", {},
       el("thead", {}, el("tr", {}, [title, t("Requests"), t("Tokens"), t("Cost")].map((text) => el("th", { text })))),
-      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString(HomeswiftI18n.locale) }),
+      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString(HomeswiftI18n.numberLocale) }),
         el("td", { text: tokens(summary) }), el("td", { text: money(summary.costUsd) })))))) : null;
     async function loadUsage() {
       let answer;
@@ -5870,18 +5903,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const report = answer.usage;
       const budget = report.budget || {};
       const meters = [
-        budget.dailyTokens ? meter(t("Tokens today"), report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.dailyTokens ? meter(t("Tokens today"), report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString(HomeswiftI18n.numberLocale)) : null,
         budget.dailyUsd ? meter(t("Spent today"), report.today.costUsd ?? 0, budget.dailyUsd, money) : null,
-        budget.monthlyTokens ? meter(t("Tokens this month"), report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.monthlyTokens ? meter(t("Tokens this month"), report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString(HomeswiftI18n.numberLocale)) : null,
         budget.monthlyUsd ? meter(t("Spent this month"), report.thisMonth.costUsd ?? 0, budget.monthlyUsd, money) : null,
       ].filter(Boolean);
       const byModel = Object.entries(report.monthByModel || {}).sort(([, a], [, b]) => b.requests - a.requests);
       const byUser = Object.entries(report.byUser?.thisMonth || {}).sort(([, a], [, b]) => b.requests - a.requests);
       usage.replaceChildren(...[
         el("div", { class: "stats" },
-          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests today") })),
+          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString(HomeswiftI18n.numberLocale) }), el("span", { text: t("Requests today") })),
           el("div", { class: "stat" }, el("b", { text: money(report.today.costUsd) }), el("span", { text: t("Cost today") })),
-          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests this month") })),
+          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString(HomeswiftI18n.numberLocale) }), el("span", { text: t("Requests this month") })),
           el("div", { class: "stat" }, el("b", { text: money(report.thisMonth.costUsd) }), el("span", { text: t("Cost this month") }))),
         report.exceeded ? el("p", { class: "error", text: HomeswiftI18n.message(report.exceeded) }) : null,
         meters.length ? el("div", { class: "budget-meters" }, meters) : el("p", { class: "muted", text: t("No budget: requests are not limited.") }),
@@ -6201,8 +6234,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// which it writes as `M H * * d,d`; an expression that says more than that stays as it is, under Custom.
     const scheduleField = (wrap, current) => {
       // The week from Sunday (1 January 2023 was one), in the page's language.
-      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short" });
-      const names = [0, 1, 2, 3, 4, 5, 6].map((day) => weekday.format(new Date(2023, 0, 1 + day)));
+      const weekday = HomeswiftI18n.dateTimeFormat({ weekday: "short", timeZone: "UTC" });
+      const names = [0, 1, 2, 3, 4, 5, 6].map((day) => weekday.format(new Date(Date.UTC(2023, 0, 1 + day))));
       const text = typeof current === "string" ? current.trim() : "";
       const simple = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+(\*|[0-7](?:,[0-7])*)$/.exec(text);
       const fits = simple && Number(simple[1]) < 60 && Number(simple[2]) < 24;
@@ -6210,7 +6243,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("option", { value: "never", text: t("Never") }), el("option", { value: "time", text: t("At a time") }), el("option", { value: "custom", text: t("Custom (cron)") }));
       mode.value = !text ? "never" : fits ? "time" : "custom";
       const pad = (n) => String(n).padStart(2, "0");
-      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": t("Time") });
+      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": t("Time"), title: HomeswiftCommon.homeTimeTitle() });
       const chosen = new Set(fits && simple[3] !== "*" ? simple[3].split(",").map((day) => Number(day) % 7) : []);
       const days = el("span", { class: "days", role: "group", "aria-label": t("Days (none: every day)") }, names.map((name, day) => {
         const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
@@ -6848,7 +6881,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// it may do and when it last came; its ⋯ menu disconnects it. With the MCP server on, the address to give them.
   function connectedAppsCard(apps) {
     if (!apps || (!apps.mcp && !apps.apps.length)) return null;
-    const when = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" }) : t("Never");
+    const when = (iso) => iso ? HomeswiftI18n.formatDate(new Date(iso), { dateStyle: "medium", timeStyle: "short" }) : t("Never");
     const scopes = { read: t("Read"), control: t("Control"), admin: t("Admin") };
     const rows = apps.apps.map((app) => el("div", { class: "server-head connected-app" },
       tile("key", app.scope === "admin" ? "orange" : "teal"),
@@ -7039,8 +7072,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const [users, tokens] = await Promise.all([api("/api/users"), api("/api/tokens")]);
     const admins = users.filter((user) => user.admin).length;
     // A card's facts are a third of its width: the day alone ("24 Oct 2026"), the time in the tooltip.
-    const when = (iso) => iso ? new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { day: "numeric", month: "short", year: "numeric" }) : t("Never");
-    const whenFull = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : t("Never");
+    const when = (iso) => iso ? HomeswiftI18n.formatDate(new Date(iso), { day: "numeric", month: "short", year: "numeric" }) : t("Never");
+    const whenFull = (iso) => iso ? HomeswiftI18n.formatDate(new Date(iso), { dateStyle: "full", timeStyle: "short" }) : t("Never");
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
     // A choice as a switch, as the rest of the UI's on and off.
     const checkbox = (label, checked, help) => {
@@ -7213,6 +7246,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // and the temperature unit, as Glass UI offers them. Each user's own, saved on the bridge (/api/preferences) and
   // applied at once, on every page, plugins' included.
 
+  /// The Language & Region card's choices: an icon each, and the examples they show, in the page's language.
+  /// Each choice's icon; the languages show their flags instead.
+  const choiceIcons = { theme: "sun", temperatureUnit: "thermo", timeFormat: "clock", dateFormat: "calendar", numberFormat: "hash", firstWeekday: "calendar", timeZone: "location" };
+  // The examples are raw Intl on purpose: each shows its own format, not the one the user has now.
+  const sample = (options) => new Intl.DateTimeFormat(HomeswiftI18n.locale, { ...options, timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 1, 13, 30)));
+  const weekdayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", timeZone: "UTC" });
+  /// A time zone by its city: Europe/Lisbon is Lisbon, America/Argentina/Buenos_Aires is Buenos Aires.
+  const city = (zone) => String(zone ?? "").split("/").pop().replaceAll("_", " ");
+  /// 0 for Sunday; 4 January 2026 was one.
+  const weekdayName = (day) => weekdayFormat.format(new Date(Date.UTC(2026, 0, 4 + day)));
+
   const wallpaperChoices = [["none", t("None")], ["aurora", t("Aurora")], ["sunset", t("Sunset")], ["ocean", t("Ocean")], ["forest", t("Forest")], ["graphite", t("Graphite")], ["silk", t("Silk")], ["prism", t("Prism")], ["ribbon", t("Ribbon")], ["lagoon", t("Lagoon")], ["ember", t("Ember")], ["midnight", t("Midnight")]];
 
   views.appearance = async (main) => {
@@ -7229,8 +7273,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       draw();
     };
     const segmented = (label, value, options, key) => el("div", { class: "group", role: "radiogroup", "aria-label": label },
-      options.map(([option, text]) => el("button", { type: "button", role: "radio", actionIcon: key === "language" ? undefined : key === "temperatureUnit" ? "thermo" : "sun", class: option === value ? "on" : "", "aria-checked": String(option === value),
+      options.map(([option, text]) => el("button", { type: "button", role: "radio", actionIcon: choiceIcons[key], class: option === value ? "on" : "", "aria-checked": String(option === value),
         onclick: () => { if (option !== value) choose({ [key]: option }); } }, key === "language" ? flag(option === "auto" ? null : option) : null, el("span", { text }))));
+
+    /// A row of the Language & Region card: its label, the choices (the bridge always answers every preference) and help.
+    const regionChoice = (key, label, options, help) => el("div", { class: "field region-field" }, el("span", { class: "field-title", text: label }),
+      segmented(label, preferences[key], options, key), help ? el("span", { class: "help", text: help }) : null);
 
     const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", multiple: true, class: "hidden" });
     /// Wallpapers of the viewer's own, from the picker or dropped on the zone, one after the other: the bridge
@@ -7328,11 +7376,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("thermo"), el("span", { text: t("Temperatures") })),
           el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),
           segmented(t("Temperature unit"), preferences.temperatureUnit, [["c", t("Celsius (°C)")], ["f", t("Fahrenheit (°F)")]], "temperatureUnit")),
-        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("globe"), el("span", { text: t("Language") })),
-          el("p", { class: "muted", text: t("The pages' language and the one the Assistant answers in. Automatic follows the browser.") }),
+        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("globe"), el("span", { text: t("Language & Region") })),
+          el("p", { class: "muted", text: t("The pages' language, the one the Assistant and your notifications answer in, and how dates, times and numbers are written. Automatic follows the language and the browser.") }),
           // Each language in its own name, so whoever reads the page finds theirs.
-          segmented(t("Language"), preferences.language || "auto",
-            [["auto", t("Automatic")], ...HomeswiftI18n.languages.map((code) => [code, HomeswiftI18n.names[code]])], "language")));
+          regionChoice("language", t("Language"), [["auto", t("Automatic")], ...HomeswiftI18n.languages.map((code) => [code, HomeswiftI18n.names[code]])]),
+          regionChoice("timeFormat", t("Time format"), [["auto", t("Automatic")], ["12", sample({ hour: "numeric", minute: "2-digit", hourCycle: "h12" })], ["24", sample({ hour: "2-digit", minute: "2-digit", hourCycle: "h23" })]]),
+          regionChoice("dateFormat", t("Date format"), [["auto", t("Automatic")], ["dmy", "31/12/2026"], ["mdy", "12/31/2026"], ["ymd", "2026-12-31"]]),
+          regionChoice("numberFormat", t("Numbers"), [["auto", t("Automatic")], ["point", "1,234.5"], ["comma", "1.234,5"], ["space", "1 234,5"]]),
+          regionChoice("firstWeekday", t("First day of the week"), [["auto", t("Automatic")], ["mon", weekdayName(1)], ["sat", weekdayName(6)], ["sun", weekdayName(0)]]),
+          regionChoice("timeZone", t("Time zone"), [["home", t("Home Time ({zone})", { zone: city(preferences.homeTimeZone) })], ["device", t("This device ({zone})", { zone: city(HomeswiftI18n.deviceTimeZone) })]],
+            t("How the log, the History and other moments show. Tariffs, Automations and schedules are always set in Home Time."))));
     }
     draw();
     show(main, pageHead(t("Appearance"), t("How the web UI looks for you, on every browser you sign in to.")), body, message);
@@ -7451,7 +7504,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const levelRank = { trace: 0, debug: 1, info: 2, notice: 3, warning: 4, error: 5, critical: 6 };
   // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
   const latestLines = 2000, rangeLines = 10000;
-  const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   /// A line with what filtering reads, worked out once: its date and its text in lower case, its payload included.
   const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text} ${line.details ?? ""}`.toLowerCase() });
   // All: every line; Info: info and above; Warnings: warnings only; Errors: errors only (critical ones too).
@@ -8356,6 +8409,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const place = data.location ? t("Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.latitude}, ${data.location.longitude}` })
       : t("Sunrise and sunset need the home's Location, which is not set yet.");
     const setLocation = data.location ? null : el("a", { href: "/settings/bridge#location", text: t("Set the Location in Settings") });
+    // Beside the Triggers when this user shows times in a zone that is not Home Time.
+    const homeTimeNote = HomeswiftCommon.homeTimeNote();
     const section = (title, glyph, help, ...content) => el("section", { class: "card automation-section" },
       el("div", { class: "automation-section-head" }, el("span", { class: "tile tone-violet", "aria-hidden": "true" }, HomeswiftCommon.icon(glyph)),
         el("div", { class: "who" }, el("h3", { text: title }), el("p", { class: "muted" }, ...[].concat(help).filter(Boolean)))), ...content);
@@ -8381,7 +8436,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "card form-card" }, el("div", { class: "fields" }, field(t("Name"), name), field(t("Mode"), mode)),
         toggle(enabled, t("On"), t("Off, its triggers do nothing; Run now still runs it.")),
         toggle(homeKit, t("A switch in the Home app"), t("On the Homeswift Scenes accessory: the switch turns the automation on and off."))),
-      section(t("Triggers"), "play", [t("Any of these starts it. {place}", { place }), setLocation && " ", setLocation], triggerList,
+      section(t("Triggers"), "play", [t("Any of these starts it. {place}", { place }), setLocation && " ", setLocation, homeTimeNote && " ", homeTimeNote], triggerList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
       section(t("Conditions"), "shield", t("A trigger's run goes ahead only when all of these hold. Run now ignores them."), conditionList,
         el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition({ type: "time", after: "sunset", before: "23:00" }) })),
@@ -8571,7 +8626,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return;
     }
     const line = statusLine();
-    const until = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
+    const until = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit" }).format(new Date(data.expires));
     const stateText = { used: t("Already used"), expired: t("Expired") };
     const buttons = data.buttons.map((button) => {
       // What acts is the primary choice; a page to open, a quieter one.
@@ -8901,7 +8956,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       still.src = next;
       if (stillURL) URL.revokeObjectURL(stillURL);
       stillURL = next;
-      stillBadge.textContent = new Date().toLocaleTimeString(HomeswiftI18n.locale, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      stillBadge.textContent = HomeswiftI18n.formatDate(new Date(), { hour: "numeric", minute: "2-digit", second: "2-digit" });
     }
 
     async function snapshots(signal) {
@@ -9156,11 +9211,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const steps = [60e3, 300e3, 900e3, 1800e3, 3600e3, 2 * 3600e3, 3 * 3600e3, 6 * 3600e3, 12 * 3600e3, 86400e3];
     const step = steps.find((s) => span / s <= count) ?? 86400e3;
     const first = new Date(Math.ceil(from / step) * step);
-    // Day and half-day steps fall on local midnight and noon, not UTC's.
+    // Day and half-day steps fall on midnight and noon where the pages show times (Home Time, or the device's), not UTC's.
     if (step >= 12 * 3600e3) {
-      const local = new Date(from);
-      local.setHours(step >= 86400e3 ? 0 : Math.ceil(local.getHours() / 12) * 12, 0, 0, 0);
-      if (local < from) local.setTime(local.getTime() + step);
+      const at = HomeswiftI18n.zoned(from);
+      let local = HomeswiftI18n.zonedDate(at.year, at.month, at.day, step >= 86400e3 ? 0 : Math.ceil(at.hours / 12) * 12);
+      if (local < from) local = new Date(local.getTime() + step);
       first.setTime(local.getTime());
     }
     const ticks = [];
@@ -9170,7 +9225,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// The value axis's labels, highest last as `ticks` are ordered: the unit written once, on the top tick (`40 MB`, then
   /// `30`, `20`…), and a decimal every tick has as zeros dropped (`40.0 MB` reads `40 MB`). `format(value, scale)`
   /// writes a value with its unit after a space, or a sign glued to it (`%`).
-  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.numberLocale).charAt(1);
   function axisLabels(ticks, format, scale) {
     let labels = ticks.map((value) => format(value, scale));
     const zeros = new RegExp(`\\${decimal}0+(?=\\D*$)`);
@@ -9184,12 +9239,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A tick's label: the day at midnight, else the time.
   const tickLabel = (time) => {
     const date = new Date(time);
-    return date.getHours() === 0 && date.getMinutes() === 0 ? dayName.format(date) : hourMinute.format(date);
+    const at = HomeswiftI18n.zoned(date);
+    return at.hours === 0 && at.minutes === 0 ? dayName.format(date) : hourMinute.format(date);
   };
 
-  const hourMinute = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-  const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
-  const fullTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const hourMinute = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayName = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
+  const fullTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
   /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 to 7, the palette's slots, or "accent" for a series alone),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
@@ -10034,7 +10090,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let chats;
     try { chats = await api("/api/assistant/chats"); } catch (e) { list.replaceChildren(el("p", { class: "chat-error", text: e.message })); return; }
     if (!historyOpen) return;
-    const when = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+    const when = HomeswiftI18n.dateTimeFormat({ dateStyle: "medium", timeStyle: "short" });
     const rows = chats.map((chat) => {
       const row = el("div", { class: `chat-history-row${chat.current ? " current" : ""}` },
         el("button", { type: "button", class: "chat-history-open", onclick: () => openChat(chat) },
@@ -10149,7 +10205,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// the changes asked for, without the tools' arguments or answers.
   function transcript() {
     const status = { running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") };
-    const lines = [`# ${t("Assistant")}${info.model ? ` · ${info.model}` : ""} · ${new Date().toLocaleString(HomeswiftI18n.locale)}`, ""];
+    const lines = [`# ${t("Assistant")}${info.model ? ` · ${info.model}` : ""} · ${HomeswiftI18n.formatDate(new Date(), { year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })}`, ""];
     for (const item of items) {
       switch (item.kind) {
       case "user": lines.push(`**${t("You")}:** ${item.text}`, ""); break;
@@ -10281,7 +10337,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!waiting) thinking?.remove();
     const provider = providerNames[info.provider] || info.provider || t("Assistant");
     const cost = usage && usage.cost != null && usage.cost > 0
-      ? new Intl.NumberFormat(HomeswiftI18n.locale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
+      ? new Intl.NumberFormat(HomeswiftI18n.numberLocale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
     note.textContent = listening ? t("Listening… tap the mic again when you are done.") : voiceNote
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
@@ -10654,6 +10710,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    hash: '<path d="M9 4 7 20M17 4l-2 16M4.5 9h16M3.5 15h16"/>',
     workflow: '<rect x="3" y="3.5" width="6" height="5" rx="1.5"/><rect x="15" y="9.5" width="6" height="5" rx="1.5"/><rect x="3" y="15.5" width="6" height="5" rx="1.5"/><path d="M9 6h3a1.5 1.5 0 0 1 1.5 1.5V12M9 18h3a1.5 1.5 0 0 0 1.5-1.5V12M13.5 12H15"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
@@ -11889,11 +11948,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (next) { try { localStorage.setItem(preferenceKey, JSON.stringify(preferences)); } catch {} }
     // Another language is another catalog, which i18n.js loads before the page's scripts: the page opens again in it.
     // Only once this browser kept the choice, or the page would open again in the browser's language, and again.
-    const I18N = window.HomeswiftI18n;
-    if (next && I18N && I18N.resolve(preferences.language) !== I18N.language) {
+    // So do the other Regional Formats and the time zones, which i18n.js reads as the page opens.
+    const changed = window.HomeswiftI18n?.differs(preferences);
+    if (next && changed) {
       let kept = null;
-      try { kept = JSON.parse(localStorage.getItem(preferenceKey) || "{}").language; } catch {}
-      if (kept === preferences.language) { location.reload(); return preferences; }
+      try { kept = JSON.parse(localStorage.getItem(preferenceKey) || "{}")[changed]; } catch {}
+      if (kept === preferences[changed]) { location.reload(); return preferences; }
     }
     document.dispatchEvent(new CustomEvent("homeswift:preferences", { detail: preferences }));
     return preferences;
@@ -11918,6 +11978,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (preferences.temperatureUnit === "f") return { value: Math.round((value * 1.8 + 32) * 10) / 10, unit: "°F" };
     return { value: Math.round(value * 10) / 10, unit: "°C" };
   }
+  /// Rules (Tariffs, Automations' times, schedules) are written in Home Time, whatever zone the user shows times in
+  /// (docs/adr/0008-rules-are-written-in-home-time.md): a time field's title says so, and `homeTimeNote` says it aloud
+  /// when the user shows times in a device zone that is not the home's.
+  const homeTimeTitle = () => t("In Home Time ({zone})", { zone: HomeswiftI18n.homeTimeZone });
+  const homeTimeNoteText = () => HomeswiftI18n.timeZone === HomeswiftI18n.homeTimeZone ? null
+    : t("Times here are in Home Time ({zone}), not this device's.", { zone: HomeswiftI18n.homeTimeZone });
+  const homeTimeNote = () => { const text = homeTimeNoteText(); return text ? el("span", { class: "help home-time-note", text }) : null; };
   /// "just now", "4 min ago", "2 h ago", or the date: a Date, a time in milliseconds or an ISO 8601 string.
   function ago(date) {
     const when = new Date(date);
@@ -11925,7 +11992,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (seconds < 45) return t("just now");
     if (seconds < 3600) return t("{minutes} min ago", { minutes: Math.round(seconds / 60) });
     if (seconds < 86400) return t("{hours} h ago", { hours: Math.round(seconds / 3600) });
-    return when.toLocaleDateString(HomeswiftI18n.locale, { month: "short", day: "numeric" });
+    return HomeswiftI18n.formatDate(when, { month: "short", day: "numeric" });
   }
   /// "21.5 °C" or "70.7 °F".
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
@@ -12021,14 +12088,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// a choice other than `fallback` under `names` (`since`, `from`, `to`); `chosen()` says one is; `reset()` goes back to
   /// `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
   function rangeControl(params, { presets, fallback, names = { since: "since", from: "from", to: "to" }, earliestDays = 8, changed }) {
-    const parse = (text) => { const date = text ? new Date(text) : null; return date && !isNaN(date) ? date : null; };
+    // The address keeps the wall clock where the pages show times (YYYY-MM-DDTHH:mm, `isoMinute`).
+    const parse = (text) => parseDay(text);
     const asked = params.get(names.since);
     let value = presets.some(([one]) => one === asked) || (asked === "custom" && parse(params.get(names.from))) ? asked : fallback;
     let custom = { from: parse(params.get(names.from)) ?? new Date(Date.now() - 3600000), to: parse(params.get(names.to)) };
     const presetButtons = presets.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => choose(one) }));
     const customButton = el("button", { type: "button", role: "radio", class: "range-custom", "aria-haspopup": "dialog", "aria-expanded": "false", onclick: (event) => open(event.currentTarget) });
     const control = el("div", { class: "group range-control", role: "radiogroup", "aria-label": t("Time range") }, presetButtons, customButton);
-    const shortTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const shortTime = HomeswiftI18n.dateTimeFormat({ day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
     const describe = () => custom.to ? shortTime.formatRange(custom.from, custom.to) : t("Since {time}", { time: shortTime.format(custom.from) });
 
     function mark() {
@@ -12081,23 +12149,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     function open(anchor) {
       if (popover) { close(); return; }
+      // The calendar's Dates are wall clocks where the pages show times (`HomeswiftI18n.wallClock`): local fields, the
+      // device's zone to format them.
+      const wall = HomeswiftI18n.wallClock;
       const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const today = midnight(new Date());
+      const today = midnight(wall(new Date()));
       const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - earliestDays);
       const pad = (n) => String(n).padStart(2, "0");
       const clock = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-      let start = midnight(custom.from), end = midnight(custom.to ?? new Date()), picking = false;
+      let start = midnight(wall(custom.from)), end = midnight(wall(custom.to ?? new Date())), picking = false;
       let month = new Date(end.getFullYear(), end.getMonth(), 1);
-      const fromTime = el("input", { type: "time", value: clock(custom.from), "aria-label": t("From") });
-      const toTime = el("input", { type: "time", value: clock(custom.to ?? new Date()), "aria-label": t("To"), disabled: !custom.to });
+      const fromTime = el("input", { type: "time", value: clock(wall(custom.from)), "aria-label": t("From") });
+      const toTime = el("input", { type: "time", value: clock(wall(custom.to ?? new Date())), "aria-label": t("To"), disabled: !custom.to });
       const untilNow = el("input", { type: "checkbox", checked: !custom.to });
       untilNow.addEventListener("change", () => { toTime.disabled = untilNow.checked; });
       const title = el("strong", { class: "range-month" });
       const grid = el("div", { class: "range-days", role: "grid" });
       const message = el("p", { class: "range-message muted", text: t("Pick the first day, then the last."), role: "status" });
-      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "narrow" });
-      const monthName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
-      const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
+      const timeZone = HomeswiftI18n.deviceTimeZone;
+      const weekday = HomeswiftI18n.dateTimeFormat({ weekday: "narrow", timeZone });
+      const monthName = HomeswiftI18n.dateTimeFormat({ month: "long", year: "numeric", timeZone });
+      const dayName = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long", timeZone });
+      // The week starts on the day the user's Regional Formats say (0 for Sunday, as getDay counts).
+      const firstDay = HomeswiftI18n.firstWeekday % 7;
       const step = (months) => { month = new Date(month.getFullYear(), month.getMonth() + months, 1); render(); };
       const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous month"), onclick: () => step(-1) }, icon("back"));
       const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next month"), onclick: () => step(1) }, icon("forward"));
@@ -12106,9 +12180,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         title.textContent = monthName.format(month);
         previous.disabled = month <= new Date(earliest.getFullYear(), earliest.getMonth(), 1);
         next.disabled = month >= new Date(today.getFullYear(), today.getMonth(), 1);
-        // Weeks start on Monday; the days of the months around fill the first and last weeks.
-        const first = new Date(month.getFullYear(), month.getMonth(), 1 - (month.getDay() + 6) % 7);
-        const heads = [...Array(7)].map((_, index) => el("span", { class: "range-weekday", "aria-hidden": "true", text: weekday.format(new Date(2024, 0, 1 + index)) }));
+        // The days of the months around fill the first and last weeks.
+        const first = new Date(month.getFullYear(), month.getMonth(), 1 - (month.getDay() - firstDay + 7) % 7);
+        // 7 January 2024 was a Sunday.
+        const heads = [...Array(7)].map((_, index) => el("span", { class: "range-weekday", "aria-hidden": "true", text: weekday.format(new Date(2024, 0, 7 + firstDay + index)) }));
         const days = [...Array(42)].map((_, index) => {
           const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
           const time = date.getTime();
@@ -12130,7 +12205,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         render();
       }
       function apply() {
-        const at = (day, text) => { const [h, m] = text.split(":").map(Number); return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h || 0, m || 0); };
+        const at = (day, text) => { const [h, m] = text.split(":").map(Number); return HomeswiftI18n.zonedDate(day.getFullYear(), day.getMonth(), day.getDate(), h || 0, m || 0); };
         const from = at(start, fromTime.value), to = untilNow.checked ? null : at(end, toTime.value);
         if (from >= (to ?? new Date())) { message.textContent = t("The start must be before the end."); message.classList.add("error"); return; }
         custom = { from, to };
@@ -12167,19 +12242,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return {
       control,
       span() {
-        const now = new Date(), midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const now = new Date(), day = HomeswiftI18n.zoned(now), midnight = HomeswiftI18n.startOfDay(now);
         if (value === "latest") return null;
         if (value === "custom") return [custom.from, custom.to && custom.to < now ? custom.to : null];
         return { "1h": [new Date(now - 3600000), null], "6h": [new Date(now - 6 * 3600000), null], "24h": [new Date(now - 86400000), null],
-          today: [midnight, null], yesterday: [new Date(midnight - 86400000), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
+          today: [midnight, null], yesterday: [HomeswiftI18n.zonedDate(day.year, day.month, day.day - 1), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
       },
       address(query) {
         if (value === fallback) return;
         query.set(names.since, value);
         if (value !== "custom") return;
-        const local = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-        query.set(names.from, local(custom.from));
-        if (custom.to) query.set(names.to, local(custom.to));
+        query.set(names.from, isoMinute(custom.from));
+        if (custom.to) query.set(names.to, isoMinute(custom.to));
       },
       chosen: () => value !== fallback,
       reset() { close(); choose(fallback, true); },
@@ -12276,9 +12350,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// in the unit, whole when it is.
   function measure(value, top, { unit, small, digits }) {
     const size = Math.abs(value);
-    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.locale)} ${small}`;
+    if (top == null ? size > 0 && size < 1 : top < 1) return `${Math.round(value * 1000).toLocaleString(HomeswiftI18n.numberLocale)} ${small}`;
     const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? digits : size < 100 ? 1 : 0;
-    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} ${unit}`;
+    return `${value.toLocaleString(HomeswiftI18n.numberLocale, { minimumFractionDigits: places, maximumFractionDigits: places })} ${unit}`;
   }
   /// Kilowatt-hours as every page shows energy.
   const kWh = (value, top) => measure(value, top, { unit: "kWh", small: "Wh", digits: 2 });
@@ -12287,7 +12361,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function cubicMetres(value, top) {
     const size = Math.abs(value);
     const places = (top != null && Number.isInteger(value)) || value === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: places, maximumFractionDigits: places })} m³`;
+    return `${value.toLocaleString(HomeswiftI18n.numberLocale, { minimumFractionDigits: places, maximumFractionDigits: places })} m³`;
   }
 
   /// A form's status line, what it says (`kind`: muted, ok or error), and a labelled field with its help: the pages'
@@ -12299,22 +12373,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// An amount of money in `currency` (ISO 4217), as the viewer's language writes it; with the code itself for one it
   /// does not know.
   function money(amount, currency) {
-    try { return amount.toLocaleString(HomeswiftI18n.locale, { style: "currency", currency }); }
-    catch { return `${amount.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
+    try { return amount.toLocaleString(HomeswiftI18n.numberLocale, { style: "currency", currency }); }
+    catch { return `${amount.toLocaleString(HomeswiftI18n.numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`; }
   }
 
-  /// A local day as YYYY-MM-DD, and back (null for anything else): `parseDay` reads `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm`.
-  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  /// A day in the zone the pages show (Home Time, or the device's) as YYYY-MM-DD, a minute as YYYY-MM-DDTHH:mm, and
+  /// back (null for anything else): `parseDay` reads either.
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const isoDay = (date) => { const at = HomeswiftI18n.zoned(date); return `${at.year}-${pad2(at.month + 1)}-${pad2(at.day)}`; };
+  const isoMinute = (date) => { const at = HomeswiftI18n.zoned(date); return `${isoDay(date)}T${pad2(at.hours)}:${pad2(at.minutes)}`; };
   function parseDay(text) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):\d{2})?$/.exec(text ?? "");
-    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] ?? 0)) : null;
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(text ?? "");
+    return match ? HomeswiftI18n.zonedDate(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] ?? 0), Number(match[5] ?? 0)) : null;
   }
 
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
-    const decimal = new Intl.NumberFormat(HomeswiftI18n.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-    const whole = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+    const decimal = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const whole = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { maximumFractionDigits: 0 });
     if (scale >= 1024 ** 3) return `${decimal.format(bytes / 1024 ** 3)} GB`;
     if (scale >= 1024 ** 2) return `${decimal.format(bytes / 1024 ** 2)} MB`;
     if (scale >= 1024) return `${whole.format(Math.round(bytes / 1024))} KB`;
@@ -12374,7 +12451,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -15912,7 +15989,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A number as charted: a temperature in the user's unit.
   const chartValue = (series, value) => series.unit === "celsius" ? HomeswiftCommon.temperature(value).value : value;
   const unitText = (series) => series.unit === "celsius" ? HomeswiftCommon.temperature(0).unit : { percentage: "%", lux: "lx", seconds: "s", arcdegrees: "°" }[series.unit] ?? "";
-  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.numberLocale).charAt(1);
   const number = (value) => String(Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10).replace(".", decimal);
   /// A characteristic's title: its name, and its service's when that says more (a second outlet, a sensor of a station).
   const title = (series, accessory) => {
@@ -15952,7 +16029,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     async function load() {
       const mine = ++asked;
       charts.classList.add("loading");
-      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const timeZone = HomeswiftI18n.timeZone;
       const energy = accessory.consumption && window.HomeswiftAdmin?.consumptionCards ? HomeswiftAdmin.consumptionCards(accessory, rangeHours[range]) : Promise.resolve([]);
       let found;
       try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?${new URLSearchParams({ range, timeZone })}`); }
@@ -16098,10 +16175,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       list.classList.remove("loading");
       count.textContent = tn("{n} entry · kept {days} days", "{n} entries · kept {days} days", found.entries.length, { days: String(found.days) });
       if (!found.entries.length) { list.replaceChildren(el("p", { class: "muted empty", text: t("Nothing changed in this range.") })); return; }
-      const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
+      const dayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", day: "numeric", month: "long" });
       // Hours and minutes read at a glance; the seconds are in the time's tooltip.
-      const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-      const exactFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+      const exactFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const days = new Map();
       for (const entry of found.entries) {
         const date = new Date(entry.time);
@@ -16143,12 +16220,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let app = null;
 
   // Stable Sunday-based ids for storage, localized labels and display order for people.
-  const weekdayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", timeZone: "UTC" });
-  const weekdayFullFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", timeZone: "UTC" });
+  const weekdayFormat = HomeswiftI18n.dateTimeFormat({ weekday: "short", timeZone: "UTC" });
+  const weekdayFullFormat = HomeswiftI18n.dateTimeFormat({ weekday: "long", timeZone: "UTC" });
   const weekdays = Array.from({ length: 7 }, (_, day) => weekdayFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
   const weekdayNames = Array.from({ length: 7 }, (_, day) => weekdayFullFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
-  const weekLocale = new Intl.Locale(HomeswiftI18n.locale);
-  const firstWeekday = (weekLocale.getWeekInfo?.() ?? weekLocale.weekInfo)?.firstDay ?? 1;
+  const firstWeekday = HomeswiftI18n.firstWeekday;
   const weekdayOrder = Array.from({ length: 7 }, (_, offset) => (firstWeekday + offset) % 7);
   const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
   const displayName = (accessory) => accessory.displayName || accessory.name;
@@ -16908,8 +16984,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Scenes ----------------------------------------------------------------------------------------
 
-  const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" });
-  const dateTimeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+  const timeFormat = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit" });
+  const dateTimeFormat = HomeswiftI18n.dateTimeFormat({ dateStyle: "medium", timeStyle: "short" });
 
   function describeDays(days) {
     if (!days || !days.length || days.length === 7) return t("every day");
@@ -17124,7 +17200,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
         value: value ?? characteristic.value ?? min, "aria-label": characteristicName(characteristic.type) });
       const output = el("output", { class: "scene-slider-value" });
-      const format = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+      const format = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { maximumFractionDigits: 0 });
       const paint = () => {
         const raw = Number(slider.value);
         const unit = characteristic.unit === "celsius" ? " °C" : characteristic.type === "Hue" ? "°" : characteristic.unit === "percentage" || ["Brightness", "Saturation", "Rotation Speed", "Target Position", "Volume"].includes(characteristic.type) ? " %" : "";
@@ -17245,7 +17321,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const sun = ["sunrise", "sunset"].includes(value);
     const kind = el("select", { "aria-label": t("When") }, el("option", { value: "time", text: t("At") }), el("option", { value: "sunrise", text: t("Sunrise") }), el("option", { value: "sunset", text: t("Sunset") }));
     kind.value = sun ? value : "time";
-    const time = el("input", { type: "time", value: sun ? "00:00" : value || "18:00", "aria-label": t("Time") });
+    const time = el("input", { type: "time", value: sun ? "00:00" : value || "18:00", "aria-label": t("Time"), title: HomeswiftCommon.homeTimeTitle() });
     time.classList.toggle("hidden", sun);
     kind.addEventListener("change", () => time.classList.toggle("hidden", kind.value !== "time"));
     const node = el("span", { class: "group-inline" }, kind, time);
@@ -17272,7 +17348,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("label", { class: "toggle compact trigger-enabled" }, el("span", { class: "switch" }, enabled, el("span")), el("span", { text: t("Enabled") }))), body);
     const draw = (shown) => {
       if (shown.type === "time") {
-        const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
+        const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time"), title: HomeswiftCommon.homeTimeTitle() });
         const days = daysPicker(shown.days);
         body.replaceChildren(at, days);
         row.readBody = () => ({ at: at.value, days: days.read() });
@@ -17783,7 +17859,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: "switch" }, box, el("span")));
 
     });
-    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
+    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time"), title: HomeswiftCommon.homeTimeTitle() });
     // Where a notification's tap and buttons lead, when the web UI's own address is not the one a phone reaches.
     const address = el("input", { type: "url", value: settings.address || "", placeholder: settings.defaultAddress || "https://home.example.com", "aria-label": t("Address in notifications") });
     const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
@@ -17810,7 +17886,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("h2", { text: t("Events") }),
           el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
           el("div", { class: "notification-event-list" }, events),
-          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
+          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime, HomeswiftCommon.homeTimeNoteText())),
           el("div", { class: "notification-digest" }, field(t("Address in notifications"), address,
             t("What a tap and an automation's buttons open: the web UI as your phone reaches it. Empty: {address}.", { address: settings.defaultAddress || t("this machine's address") }))),
           el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
@@ -21568,6 +21644,25 @@ HomeswiftI18n.add("es", {
   "Mark Home where the energy paths should meet. Only connected energy sources appear in the live view.": "Coloca Casa donde deban unirse los flujos de energía. Solo las fuentes conectadas aparecen en la vista en directo.",
   "Drop a house photo here, or ": "Arrastra una foto de tu casa aquí, o ",
   "choose a photo": "elige una foto",
+  "In Home Time ({zone})": "En hora de la casa ({zone})",
+  "Times here are in Home Time ({zone}), not this device's.": "Aquí las horas están en hora de la casa ({zone}), no en la de este dispositivo.",
+  "Language & Region": "Idioma y región",
+  "The pages' language, the one the Assistant and your notifications answer in, and how dates, times and numbers are written. Automatic follows the language and the browser.": "El idioma de las páginas, el del Asistente y tus notificaciones, y cómo se escriben fechas, horas y números. Automático sigue el idioma y el navegador.",
+  "Time format": "Formato de hora",
+  "Date format": "Formato de fecha",
+  "Numbers": "Números",
+  "First day of the week": "Primer día de la semana",
+  "Time zone": "Zona horaria",
+  "Home Time ({zone})": "Hora de la casa ({zone})",
+  "This device ({zone})": "Este dispositivo ({zone})",
+  "How the log, the History and other moments show. Tariffs, Automations and schedules are always set in Home Time.": "Para el registro, el historial y otros momentos. Las tarifas, las automatizaciones y las programaciones van siempre en hora de la casa.",
+  "Home Time": "Hora de la casa",
+  "Home Language": "Idioma de la casa",
+  "The host's ({zone})": "La del host ({zone})",
+  "The home's time zone: Tariffs, Automations, the History and the log run on it. Empty uses the host's.": "La zona horaria de la casa: la usan las tarifas, las automatizaciones, el historial y el registro. Vacío usa la del host.",
+  "For what has no one reader: notifications on ntfy, Pushover, Telegram and the webhook, and the daily digest.": "Para lo que no tiene un único lector: las notificaciones en ntfy, Pushover, Telegram y el webhook, y el resumen diario.",
+  "Home Time is UTC, the host's. If the home is elsewhere, set its time zone, or Tariffs and Automations run at the wrong hours.": "La hora de la casa es UTC, la del host. Si la casa está en otro sitio, indica su zona horaria o las tarifas y las automatizaciones irán a horas equivocadas.",
+  "Set Home Time": "Ajustar la hora de la casa",
 });
 
 """#),
@@ -24978,6 +25073,25 @@ HomeswiftI18n.add("fr", {
   "Mark Home where the energy paths should meet. Only connected energy sources appear in the live view.": "Placez Maison là où les circuits doivent se rejoindre. Seules les sources connectées apparaissent dans la vue en direct.",
   "Drop a house photo here, or ": "Déposez une photo de votre maison ici, ou ",
   "choose a photo": "choisissez une photo",
+  "In Home Time ({zone})": "En heure de la maison ({zone})",
+  "Times here are in Home Time ({zone}), not this device's.": "Les heures sont ici en heure de la maison ({zone}), pas celle de cet appareil.",
+  "Language & Region": "Langue et région",
+  "The pages' language, the one the Assistant and your notifications answer in, and how dates, times and numbers are written. Automatic follows the language and the browser.": "La langue des pages, celle de l'Assistant et de vos notifications, et l'écriture des dates, des heures et des nombres. Automatique suit la langue et le navigateur.",
+  "Time format": "Format de l'heure",
+  "Date format": "Format de date",
+  "Numbers": "Nombres",
+  "First day of the week": "Premier jour de la semaine",
+  "Time zone": "Fuseau horaire",
+  "Home Time ({zone})": "Heure de la maison ({zone})",
+  "This device ({zone})": "Cet appareil ({zone})",
+  "How the log, the History and other moments show. Tariffs, Automations and schedules are always set in Home Time.": "Pour le journal, l'historique et les autres moments. Les tarifs, les automatisations et les planifications sont toujours en heure de la maison.",
+  "Home Time": "Heure de la maison",
+  "Home Language": "Langue de la maison",
+  "The host's ({zone})": "Celui de l'hôte ({zone})",
+  "The home's time zone: Tariffs, Automations, the History and the log run on it. Empty uses the host's.": "Le fuseau horaire de la maison : les tarifs, les automatisations, l'historique et le journal l'utilisent. Vide, celui de l'hôte.",
+  "For what has no one reader: notifications on ntfy, Pushover, Telegram and the webhook, and the daily digest.": "Pour ce qui n'a pas de lecteur unique : les notifications sur ntfy, Pushover, Telegram et le webhook, et le résumé du jour.",
+  "Home Time is UTC, the host's. If the home is elsewhere, set its time zone, or Tariffs and Automations run at the wrong hours.": "L'heure de la maison est UTC, celle de l'hôte. Si la maison est ailleurs, indiquez son fuseau horaire, sinon les tarifs et les automatisations tournent aux mauvaises heures.",
+  "Set Home Time": "Régler l'heure de la maison",
 });
 
 """#),
@@ -28388,6 +28502,25 @@ HomeswiftI18n.add("pt", {
   "Mark Home where the energy paths should meet. Only connected energy sources appear in the live view.": "Marque Casa onde os percursos de energia se devem encontrar. Só as fontes ligadas aparecem na vista em direto.",
   "Drop a house photo here, or ": "Largue uma fotografia da sua casa aqui, ou ",
   "choose a photo": "escolha uma fotografia",
+  "In Home Time ({zone})": "Em hora da casa ({zone})",
+  "Times here are in Home Time ({zone}), not this device's.": "Aqui as horas estão em hora da casa ({zone}), não na deste dispositivo.",
+  "Language & Region": "Idioma e região",
+  "The pages' language, the one the Assistant and your notifications answer in, and how dates, times and numbers are written. Automatic follows the language and the browser.": "O idioma das páginas, o do Assistente e das notificações, e a forma de escrever datas, horas e números. Automático segue o idioma e o navegador.",
+  "Time format": "Formato da hora",
+  "Date format": "Formato da data",
+  "Numbers": "Números",
+  "First day of the week": "Primeiro dia da semana",
+  "Time zone": "Fuso horário",
+  "Home Time ({zone})": "Hora da casa ({zone})",
+  "This device ({zone})": "Este dispositivo ({zone})",
+  "How the log, the History and other moments show. Tariffs, Automations and schedules are always set in Home Time.": "Para o registo, o histórico e outros momentos. As tarifas, as automações e os agendamentos estão sempre em hora da casa.",
+  "Home Time": "Hora da casa",
+  "Home Language": "Idioma da casa",
+  "The host's ({zone})": "A do anfitrião ({zone})",
+  "The home's time zone: Tariffs, Automations, the History and the log run on it. Empty uses the host's.": "O fuso horário da casa: usado pelas tarifas, automações, histórico e registo. Vazio usa o do anfitrião.",
+  "For what has no one reader: notifications on ntfy, Pushover, Telegram and the webhook, and the daily digest.": "Para o que não tem um único leitor: as notificações no ntfy, Pushover, Telegram e no webhook, e o resumo diário.",
+  "Home Time is UTC, the host's. If the home is elsewhere, set its time zone, or Tariffs and Automations run at the wrong hours.": "A hora da casa é UTC, a do anfitrião. Se a casa estiver noutro lado, defina o fuso horário, ou as tarifas e as automações funcionam às horas erradas.",
+  "Set Home Time": "Definir a hora da casa",
 });
 
 """#),
@@ -28409,10 +28542,10 @@ HomeswiftI18n.add("pt", {
   /// The region a language's dates and numbers take when the browser names none: Spain's Spanish, Portugal's Portuguese.
   const regions = { en: "en-US", fr: "fr-FR", es: "es-ES", pt: "pt-PT" };
 
-  /// The user's choice, kept by common.js with their other preferences ("auto" follows the browser).
-  function chosen() {
-    try { return JSON.parse(localStorage.getItem("homeswift.preferences") || "{}").language || "auto"; } catch { return "auto"; }
-  }
+  /// The user's Preferences as common.js keeps them in this browser (the server's, last seen).
+  const kept = (() => { try { return JSON.parse(localStorage.getItem("homeswift.preferences") || "{}") || {}; } catch { return {}; } })();
+  /// The user's choice of language ("auto" follows the browser).
+  const chosen = () => kept.language || "auto";
   const browser = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"]).map((tag) => String(tag));
   /// "fr", "es", "pt" or "en" for a preference: a language of the four, or the browser's first one of them.
   function resolve(preference) {
@@ -28428,6 +28561,135 @@ HomeswiftI18n.add("pt", {
   const locale = browser.find((tag) => tag.toLowerCase().split("-")[0] === language && tag.includes("-")) || regions[language];
   document.documentElement.lang = locale;
 
+  // ---- Regional Formats and Home Time (GLOSSARY.md) ----------------------------------------------------------------
+  // Each is "auto" unless the user picked one on the Appearance page: the Language and the browser's region decide.
+  const choice = (key, allowed) => (allowed.includes(kept[key]) ? kept[key] : "auto");
+  const timeFormat = choice("timeFormat", ["12", "24"]);
+  const dateFormat = choice("dateFormat", ["dmy", "mdy", "ymd"]);
+  const numberFormat = choice("numberFormat", ["point", "comma", "space"]);
+  const firstWeekdayChoice = choice("firstWeekday", ["mon", "sat", "sun"]);
+  /// Numbers: the locale whose separators the user chose (1,234.5, 1.234,5, 1 234,5), else the page's.
+  const numberLocale = { point: "en-US", comma: "de-DE", space: "fr-FR" }[numberFormat] || locale;
+  const deviceTimeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const knownZone = (zone) => { try { return typeof zone === "string" && zone && new Intl.DateTimeFormat("en", { timeZone: zone }) && true; } catch { return false; } };
+  /// Home Time, the bridge's zone, unless the user chose the device's (rules are always written in Home Time).
+  const homeTimeZone = knownZone(kept.homeTimeZone) ? kept.homeTimeZone : deviceTimeZone;
+  const timeZone = kept.timeZone === "device" ? deviceTimeZone : homeTimeZone;
+  /// The week's first day, 1 (Monday) to 7 (Sunday), as Intl.Locale's weekInfo counts.
+  const firstWeekday = { mon: 1, sat: 6, sun: 7 }[firstWeekdayChoice] || (() => {
+    try { const one = new Intl.Locale(locale); return (one.getWeekInfo?.() ?? one.weekInfo)?.firstDay ?? 1; } catch { return 1; }
+  })();
+
+  /// A date's numeric day, month and year in the order the user chose; text months ("7 Nov") stay the language's.
+  const orders = { dmy: ["day", "month", "year"], mdy: ["month", "day", "year"], ymd: ["year", "month", "day"] };
+  function reorder(parts) {
+    if (dateFormat === "auto") return parts;
+    const places = parts.flatMap((part, index) => (["day", "month", "year"].includes(part.type) && /^\d+$/.test(part.value) ? [index] : []));
+    if (places.length < 2) return parts;
+    for (let index = places[0]; index <= places[places.length - 1]; index++) {
+      if (!places.includes(index) && parts[index].type !== "literal") return parts;
+    }
+    const present = places.map((index) => parts[index]);
+    const ordered = orders[dateFormat].map((type) => present.find((part) => part.type === type)).filter(Boolean);
+    const out = parts.slice();
+    places.forEach((index, at) => { out[index] = ordered[at]; });
+    // Year first is written with hyphens, as ISO 8601 does.
+    if (dateFormat === "ymd") for (let index = places[0] + 1; index < places[places.length - 1]; index++) if (out[index].type === "literal") out[index] = { type: "literal", value: "-" };
+    return out;
+  }
+
+  const dateFormats = new Map();
+  /// An Intl.DateTimeFormat in the page's language with the user's Regional Formats, in Home Time (or the device's zone,
+  /// as the user chose) unless `options` names a zone. Use it, `formatDate` and `zoned` for every date the pages show.
+  function dateTimeFormat(options = {}) {
+    const key = JSON.stringify(options);
+    if (dateFormats.has(key)) return dateFormats.get(key);
+    const settled = { ...options };
+    if (!("timeZone" in settled)) settled.timeZone = timeZone;
+    // A chosen order with the four-digit year: the short style's two digits read badly year first.
+    if (dateFormat !== "auto" && settled.dateStyle === "short") {
+      delete settled.dateStyle;
+      Object.assign(settled, { year: "numeric", month: "2-digit", day: "2-digit" });
+      if (settled.timeStyle) { Object.assign(settled, { hour: "numeric", minute: "2-digit", ...(settled.timeStyle === "short" ? {} : { second: "2-digit" }) }); delete settled.timeStyle; }
+    }
+    if (timeFormat !== "auto" && ("hour" in settled || "timeStyle" in settled)) {
+      delete settled.hour12;
+      settled.hourCycle = timeFormat === "12" ? "h12" : "h23";
+      // "5:39 pm", not "05:39 pm": a 12-hour clock writes its hour without a leading zero.
+      if (timeFormat === "12" && settled.hour === "2-digit") settled.hour = "numeric";
+    }
+    const format = new Intl.DateTimeFormat(locale, settled);
+    const join = (parts) => parts.map((part) => part.value).join("");
+    const made = dateFormat === "auto" ? format : {
+      format: (date) => join(reorder(format.formatToParts(date))),
+      formatToParts: (date) => reorder(format.formatToParts(date)),
+      formatRange: (from, to) => {
+        const [a, b] = [join(reorder(format.formatToParts(from))), join(reorder(format.formatToParts(to)))];
+        return a === b ? a : `${a} – ${b}`;
+      },
+      resolvedOptions: () => format.resolvedOptions(),
+    };
+    dateFormats.set(key, made);
+    return made;
+  }
+  /// A date (a Date, milliseconds or an ISO 8601 string) as `dateTimeFormat(options)` writes it.
+  const formatDate = (date, options) => dateTimeFormat(options).format(date instanceof Date ? date : new Date(date));
+
+  // Calendar arithmetic in the zone the pages show: what Date's getHours() and new Date(y, m, d) do in the device's.
+  const fields = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", second: "numeric", weekday: "short" });
+  const weekdays = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const fieldNames = { hour: "hours", minute: "minutes", second: "seconds" };
+  /// The zone is the device's (most users): Date's own local fields are the answer, without Intl.
+  const local = timeZone === deviceTimeZone;
+  /// A moment's wall-clock fields in that zone: `year`, `month` (0 to 11, as Date's), `day`, `hours`, `minutes`,
+  /// `seconds` and `weekday` (0 for Sunday).
+  function zoned(date) {
+    const moment = date instanceof Date ? date : new Date(date);
+    if (local) {
+      return { year: moment.getFullYear(), month: moment.getMonth(), day: moment.getDate(), hours: moment.getHours(),
+        minutes: moment.getMinutes(), seconds: moment.getSeconds(), weekday: moment.getDay() };
+    }
+    const out = {};
+    for (const part of fields.formatToParts(moment)) {
+      if (part.type === "weekday") out.weekday = weekdays[part.value];
+      else if (part.type !== "literal") out[fieldNames[part.type] || part.type] = Number(part.value);
+    }
+    out.month -= 1;
+    return out;
+  }
+  /// The moment a wall-clock time is in that zone, as `new Date(year, month, day, hours, minutes, seconds)` would be in
+  /// the device's (fields may overflow: day 0 is the month before's last). A time a clock change skips moves forward.
+  function zonedDate(year, month, day = 1, hours = 0, minutes = 0, seconds = 0) {
+    if (local) return new Date(year, month, day, hours, minutes, seconds);
+    const wall = Date.UTC(year, month, day, hours, minutes, seconds);
+    const offset = (moment) => {
+      const at = zoned(new Date(moment));
+      return Date.UTC(at.year, at.month, at.day, at.hours, at.minutes, at.seconds) - moment;
+    };
+    let moment = wall - offset(wall);
+    const again = wall - offset(moment);
+    if (again !== moment) moment = Math.max(moment, again);
+    return new Date(moment);
+  }
+  /// Midnight of the day `date` is in, in that zone.
+  const startOfDay = (date) => { const at = zoned(date); return zonedDate(at.year, at.month, at.day); };
+  /// For the range picker's calendar, written with Date's local fields: a Date whose device-local fields are the zone's
+  /// wall clock at `date` (format it with `timeZone: deviceTimeZone`; `zonedDate` turns its fields back into a moment).
+  const wallClock = (date) => { const at = zoned(date); return new Date(at.year, at.month, at.day, at.hours, at.minutes, at.seconds); };
+
+  /// What the page opened with, resolved: a choice, its default, or the zone it took for Home Time. `differs` names the
+  /// first preference the user now has otherwise (null when none): the page must open again to take it.
+  const opened = { timeFormat, dateFormat, numberFormat, firstWeekday: firstWeekdayChoice, timeZone: kept.timeZone === "device" ? "device" : "home" };
+  function differs(preferences) {
+    if (resolve(preferences.language) !== language) return "language";
+    const key = Object.keys(opened).find((one) => preferences[one] != null && preferences[one] !== opened[one]);
+    if (key) return key;
+    // Home Time moved on the bridge; a zone this browser cannot use (i18n.js takes the device's then) is no change.
+    const zone = preferences.homeTimeZone;
+    return zone != null && zone !== kept.homeTimeZone && knownZone(zone) && zone !== homeTimeZone ? "homeTimeZone" : null;
+  }
+
   const catalog = Object.create(null);
   const plural = new Intl.PluralRules(locale);
 
@@ -28435,7 +28697,7 @@ HomeswiftI18n.add("pt", {
   const format = (vars) => {
     if (!vars) return vars;
     const out = {};
-    for (const [key, value] of Object.entries(vars)) out[key] = typeof value === "number" ? value.toLocaleString(locale) : value;
+    for (const [key, value] of Object.entries(vars)) out[key] = typeof value === "number" ? value.toLocaleString(numberLocale) : value;
     return out;
   };
 
@@ -28512,7 +28774,10 @@ HomeswiftI18n.add("pt", {
     if (resolve(code) !== language) location.reload();
   }
 
-  window.HomeswiftI18n = { languages, names, flags, language, locale, t, tn, message, add, translate, resolve, choose };
+  window.HomeswiftI18n = {
+    languages, names, flags, language, locale, t, tn, message, add, translate, resolve, choose,
+    numberLocale, timeZone, homeTimeZone, deviceTimeZone, firstWeekday, dateTimeFormat, formatDate, zoned, zonedDate, startOfDay, wallClock, differs,
+  };
 
   // The catalog before the page's other scripts: a parser-inserted script written here runs before the next one.
   if (language !== "en" && document.readyState === "loading") {
@@ -28902,7 +29167,7 @@ HomeswiftI18n.add("pt", {
   }
 
   const sizeText = (bytes) => (bytes == null ? "" : HomeswiftCommon.byteSize(bytes));
-  const importDate = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+  const importDate = HomeswiftI18n.dateTimeFormat({ dateStyle: "medium", timeStyle: "short" });
   const dateText = (iso) => {
     const date = iso ? new Date(iso) : null;
     return date && !isNaN(date) ? importDate.format(date) : "";
@@ -34740,6 +35005,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .wallpaper-remove::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .appearance { display: grid; gap: var(--space-16); }
 .appearance .group { margin-top: var(--space-10); flex-wrap: wrap; }
+/* Language & Region: a label, its choices and their help, one under the other. */
+.region-field { display: grid; justify-items: start; gap: var(--space-6); margin-top: var(--space-12); }
+.region-field .group { margin-top: 0; }
+.region-field .help { display: block; max-width: 60ch; }
 @media (max-width: 640px) {
   /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
      edge, so neither row is ragged; a button never shrinks below its text, it moves to the next row. */
@@ -34747,6 +35016,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
   .appearance .group button { flex: 1 1 5.5rem; padding: 7px var(--space-10); border-radius: var(--radius-md); }
   /* The save message under the cards stays clear of the floating menu button. */
   .appearance + .status-line { margin-inline-end: calc(70px + env(safe-area-inset-right)); }
+  /* Language & Region: the choices in even columns, a long one (a time zone) on two lines rather than past the edge. */
+  .region-field { justify-items: stretch; }
+  .region-field .group { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+  .region-field .group button { white-space: normal; text-align: start; justify-content: flex-start; min-width: 0; }
 }
 .link-card { display: flex; align-items: center; gap: var(--space-14); margin-top: var(--space-16); padding: var(--space-16) var(--space-18); color: var(--text); text-decoration: none; }
 .link-card svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -37385,7 +37658,7 @@ self.addEventListener("notificationclick", (event) => {
   /// else in sentence case.
   const typeName = (type) => { const translated = HomeswiftI18n.message(type); return translated !== type ? translated : sentence(type); };
   /// A number as the page's language writes it: "21,5" in French.
-  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.numberLocale).charAt(1);
   const num = (value) => typeof value === "number" ? String(value).replace(".", decimal) : value;
   /// The text for an enumerated value, or the value itself.
   function labelFor(type, value) {

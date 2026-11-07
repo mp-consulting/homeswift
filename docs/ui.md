@@ -490,6 +490,9 @@ switches and a **Send a test**, under a Save bar.
   uses the provider's quota). Glass UI's update and rollback events have no counterpart here: plugins are compiled in.
 - **Limits**: the same event about the same thing goes once per 15 minutes, 12 notifications an hour at most, 5 tests
   a minute.
+- **Language**: the shared channels (the webhook, ntfy, Pushover, Telegram) have no one reader and are written in the
+  Home Language (Settings › Bridge); Web Push goes to each browser in its account's Language, or the page's when the
+  browser subscribed. The daily digest is in the Home Language. An automation's message goes as it was written.
 - **A tap** opens the page a notification is about (the Logs for a plugin's error, the Status page, an automation),
   on ntfy (`Click`), Pushover (its link), Web Push and a webhook (`url`). **Address in notifications** is the web UI's
   address those links use, when the one it starts on (this machine's address on the network) is not the one your phone
@@ -709,7 +712,11 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
 
 - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup
   code, manufacturer, model, firmware, and how long the History is kept: **History kept (days)** and **Hourly history
-  kept (years)**; saving restarts homeswift; the device ID stays). The setup code shows as the
+  kept (years)**; **Home Time**, the home's time zone, which Tariffs, Automations, the History and the log run on (the
+  host's when empty: set it when a container runs in UTC, which the Status page's System card points out); the **Home
+  Language**, for notifications on the shared channels (ntfy, Pushover, Telegram, the webhook) and the daily digest,
+  set to the first account's language when the bridge was set up; saving restarts homeswift, except for the Home
+  Language alone; the device ID stays). The setup code shows as the
   bridge runs with it, whether config.json keeps it sealed or in the vault, with a copy button and the pairing QR code;
   it is written back only when it changes. Then the network (the addresses, the
   advertiser), each server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
@@ -817,7 +824,7 @@ marked as you type.
 
 ### Appearance
 
-![Appearance: the theme, the wallpapers, your own images with their ✕, the units and the language](images/ui/appearance.png)
+![Appearance: the theme, the wallpapers, your own images with their ✕, the units, and Language & Region](images/ui/appearance.png)
 
 `/appearance`, from the account menu. Each user's own, kept in `ui-preferences.json` (owner-only) and applied on every
 browser they sign in to; a browser remembers the last ones it saw, so a page opens in them at once.
@@ -829,8 +836,20 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
   `ui-wallpapers/<user>/` (JPEG, PNG or WebP, checked by its bytes) and shown as it is added. A tap on its tile shows it
   again; the ✕ on its corner removes it, and removing the one shown leaves no wallpaper.
 - **Temperatures** in °C or °F, on accessory cards and plugin pages. HomeKit and the Home app keep their own setting.
-- **Language**: English, French, Spanish or Portuguese, or Automatic, the browser's ([translations.md](translations.md)).
-  The Assistant answers in it. The selector uses the same flag icons as sign-in; Automatic uses a globe.
+- **Language & Region**:
+  - **Language**: English, French, Spanish or Portuguese, or Automatic, the browser's ([translations.md](translations.md)).
+    The Assistant answers in it, and so do the browser notifications this account's devices receive. The selector uses
+    the same flag icons as sign-in; Automatic uses a globe.
+  - The **Regional Formats**: **Time format** (12- or 24-hour), **Date format** (31/12/2026, 12/31/2026 or 2026-12-31:
+    numeric dates only; a month written out stays the language's), **Numbers** (1,234.5, 1.234,5 or 1 234,5) and **First
+    day of the week**. Each is Automatic until chosen: the Language and the browser's region decide, as before.
+  - **Time zone**: **Home Time**, the bridge's (the default), or **This device**'s, for the log, the History and other
+    moments. Tariffs, Automations' times and schedules are always written and shown in Home Time
+    ([ADR 0008](adr/0008-rules-are-written-in-home-time.md)); with the device's zone chosen and different, their pages
+    say so beside the fields.
+
+  A change reloads the page, which reads these as it opens. The JSON API, the MCP tools and exports never use them:
+  they write ISO 8601 with Home Time's offset and plain numbers.
 
 ![House style choices in Appearance](images/ui/house-style.png)
 

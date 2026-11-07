@@ -108,7 +108,8 @@ let answer = ' Bedroom ', prompted, routes = 0, failure = false;
 const roomRequests = [];
 const roomContext = { window: {},
   HomeswiftCommon: { promptDialog: async (message, value) => { prompted = { message, value }; return answer; } },
-  HomeswiftI18n: { locale: 'en', t: key => key } };
+  // What home.js reads from i18n.js as it loads: its formatters and the week's first day.
+  HomeswiftI18n: { locale: 'en', numberLocale: 'en', firstWeekday: 1, t: key => key, dateTimeFormat: (options) => new Intl.DateTimeFormat('en', options) } };
 vm.runInNewContext(readFileSync('Sources/HomeswiftUI/Web/home.js', 'utf8'), roomContext);
 roomContext.window.HomeswiftHome.install({ views: {}, route: () => { routes++; },
   api: async (path, options) => {

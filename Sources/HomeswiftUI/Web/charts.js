@@ -46,11 +46,11 @@
     const steps = [60e3, 300e3, 900e3, 1800e3, 3600e3, 2 * 3600e3, 3 * 3600e3, 6 * 3600e3, 12 * 3600e3, 86400e3];
     const step = steps.find((s) => span / s <= count) ?? 86400e3;
     const first = new Date(Math.ceil(from / step) * step);
-    // Day and half-day steps fall on local midnight and noon, not UTC's.
+    // Day and half-day steps fall on midnight and noon where the pages show times (Home Time, or the device's), not UTC's.
     if (step >= 12 * 3600e3) {
-      const local = new Date(from);
-      local.setHours(step >= 86400e3 ? 0 : Math.ceil(local.getHours() / 12) * 12, 0, 0, 0);
-      if (local < from) local.setTime(local.getTime() + step);
+      const at = HomeswiftI18n.zoned(from);
+      let local = HomeswiftI18n.zonedDate(at.year, at.month, at.day, step >= 86400e3 ? 0 : Math.ceil(at.hours / 12) * 12);
+      if (local < from) local = new Date(local.getTime() + step);
       first.setTime(local.getTime());
     }
     const ticks = [];
@@ -60,7 +60,7 @@
   /// The value axis's labels, highest last as `ticks` are ordered: the unit written once, on the top tick (`40 MB`, then
   /// `30`, `20`…), and a decimal every tick has as zeros dropped (`40.0 MB` reads `40 MB`). `format(value, scale)`
   /// writes a value with its unit after a space, or a sign glued to it (`%`).
-  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.numberLocale).charAt(1);
   function axisLabels(ticks, format, scale) {
     let labels = ticks.map((value) => format(value, scale));
     const zeros = new RegExp(`\\${decimal}0+(?=\\D*$)`);
@@ -74,12 +74,13 @@
   /// A tick's label: the day at midnight, else the time.
   const tickLabel = (time) => {
     const date = new Date(time);
-    return date.getHours() === 0 && date.getMinutes() === 0 ? dayName.format(date) : hourMinute.format(date);
+    const at = HomeswiftI18n.zoned(date);
+    return at.hours === 0 && at.minutes === 0 ? dayName.format(date) : hourMinute.format(date);
   };
 
-  const hourMinute = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
-  const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
-  const fullTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const hourMinute = HomeswiftI18n.dateTimeFormat({ hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayName = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric" });
+  const fullTime = HomeswiftI18n.dateTimeFormat({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
   /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 to 7, the palette's slots, or "accent" for a series alone),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and

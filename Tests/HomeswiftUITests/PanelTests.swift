@@ -163,6 +163,16 @@ struct PanelTests {
 
         #expect(try await browser.put("/api/preferences", ["language": "pt"]).json?["language"] == "pt")
         #expect(try await browser.put("/api/preferences", ["language": "de"]).status == 400)
+        // The Regional Formats and the time zone: Automatic and Home Time until chosen; Home Time's zone comes along.
+        #expect(defaults.json?["timeFormat"] == "auto")
+        #expect(defaults.json?["timeZone"] == "home")
+        #expect(defaults.json?["homeTimeZone"]?.stringValue == TimeZone.current.identifier)
+        let regional = try await browser.put("/api/preferences", ["timeFormat": "24", "dateFormat": "ymd", "numberFormat": "space", "firstWeekday": "mon", "timeZone": "device"])
+        #expect(regional.json?["dateFormat"] == "ymd")
+        #expect(regional.json?["timeZone"] == "device")
+        #expect(try await browser.put("/api/preferences", ["timeFormat": "13"]).status == 400)
+        #expect(try await browser.put("/api/preferences", ["timeZone": "Europe/Paris"]).status == 400)
+        #expect(try await browser.put("/api/preferences", ["homeTimeZone": "Europe/Paris"]).status == 400)
         let changed = try await browser.put("/api/preferences", ["theme": "dark", "temperatureUnit": "f", "dashboard": ["order": ["activity", "overview"], "hidden": ["system"]]])
         #expect(changed.json?["theme"] == "dark")
         #expect(changed.json?["dashboard"]?["hidden"] == ["system"])

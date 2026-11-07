@@ -348,7 +348,7 @@
   }
 
   const sizeText = (bytes) => (bytes == null ? "" : HomeswiftCommon.byteSize(bytes));
-  const importDate = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+  const importDate = HomeswiftI18n.dateTimeFormat({ dateStyle: "medium", timeStyle: "short" });
   const dateText = (iso) => {
     const date = iso ? new Date(iso) : null;
     return date && !isNaN(date) ? importDate.format(date) : "";

@@ -107,6 +107,9 @@ public final class UIServer: Sendable {
         chat = AssistantChat(catalog: catalog, storeURL: usersURL.deletingLastPathComponent().appendingPathComponent("ui-chats.json"), logger: options.logger)
         directory = usersURL.deletingLastPathComponent()
         preferences = PreferencesStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-preferences.json"))
+        // A browser's notifications in the Language its user chose.
+        let chosen = preferences
+        catalog.setUserLanguages { user in chosen.language(for: user) }
         auditLog = catalog.auditLog()
         layout = catalog.home.wall
     }
@@ -595,6 +598,10 @@ public final class UIServer: Sendable {
             }
             throttle.succeeded(request.remote)
             logger.info("Web UI account created", metadata: ["username": "\(username)"])
+            // The first account's language becomes the Home Language, unless config.json names one.
+            let language = Self.language(request).map(HomeLanguage.resolve)
+            let catalog = catalog
+            Task { await catalog.adoptHomeLanguage(language) }
             return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username), secure: request.secure)])
         case (.POST, "login"):
             if let refused = refuseCrossSite(request) { return refused }

@@ -2926,6 +2926,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .wallpaper-remove::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .appearance { display: grid; gap: var(--space-16); }
 .appearance .group { margin-top: var(--space-10); flex-wrap: wrap; }
+/* Language & Region: a label, its choices and their help, one under the other. */
+.region-field { display: grid; justify-items: start; gap: var(--space-6); margin-top: var(--space-12); }
+.region-field .group { margin-top: 0; }
+.region-field .help { display: block; max-width: 60ch; }
 @media (max-width: 640px) {
   /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
      edge, so neither row is ragged; a button never shrinks below its text, it moves to the next row. */
@@ -2933,6 +2937,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
   .appearance .group button { flex: 1 1 5.5rem; padding: 7px var(--space-10); border-radius: var(--radius-md); }
   /* The save message under the cards stays clear of the floating menu button. */
   .appearance + .status-line { margin-inline-end: calc(70px + env(safe-area-inset-right)); }
+  /* Language & Region: the choices in even columns, a long one (a time zone) on two lines rather than past the edge. */
+  .region-field { justify-items: stretch; }
+  .region-field .group { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+  .region-field .group button { white-space: normal; text-align: start; justify-content: flex-start; min-width: 0; }
 }
 .link-card { display: flex; align-items: center; gap: var(--space-14); margin-top: var(--space-16); padding: var(--space-16) var(--space-18); color: var(--text); text-decoration: none; }
 .link-card svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

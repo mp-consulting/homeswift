@@ -43,6 +43,9 @@ public struct HomeswiftConfiguration: Sendable {
         /// years (`HistoryRetention`); nil for the defaults.
         public var historyDays: Int?
         public var historyYears: Int?
+        /// Home Time (GLOSSARY.md): the home's IANA time zone (`Europe/Paris`); nil for the host's (`HomeTime`). Applied at
+        /// start: a change restarts homeswift.
+        public var timeZone: String?
 
         public init(
             name: String = "Homeswift", username: String? = nil, port: Int? = nil, pin: String? = nil,
@@ -72,6 +75,7 @@ public struct HomeswiftConfiguration: Sendable {
             advertiser = try container.decodeIfPresent(String.self, forKey: .advertiser)
             historyDays = try? container.decodeIfPresent(Int.self, forKey: .historyDays)
             historyYears = try? container.decodeIfPresent(Int.self, forKey: .historyYears)
+            timeZone = try? container.decodeIfPresent(String.self, forKey: .timeZone)
             if let one = try? container.decodeIfPresent(String.self, forKey: .bind) {
                 bind = [one]
             } else {
@@ -175,6 +179,9 @@ public struct HomeswiftConfiguration: Sendable {
     /// `bridge.location` was there but not a Location (not an object, coordinates off the Earth): left out at load, so a
     /// hand edit does not stop the bridge, and refused by `validate()` at save.
     public var invalidLocation = false
+    /// `bridge.language`, the Home Language (GLOSSARY.md): `en`, `fr`, `es` or `pt`, for what the bridge writes with no one
+    /// reader; nil when config.json names none (English). Not part of `bridge`: changing it needs no restart.
+    public var homeLanguage: String?
 
     public init(bridge: Bridge = Bridge(), platforms: [Platform] = [], disabledPlugins: [String] = []) {
         self.bridge = bridge
@@ -322,6 +329,8 @@ public struct HomeswiftConfiguration: Sendable {
                 }
                 configuration.tariffs = list
             }
+            // One of the four, as written or as a tag (fr-CA); anything else is English, as no setting is.
+            configuration.homeLanguage = ((bridge as? [String: Any])?["language"] as? String).map(HomeLanguage.resolve)
             if let location = (bridge as? [String: Any])?["location"], !(location is NSNull) {
                 if location is [String: Any], let decoded = try? decoder.decode(Location.self, from: JSONSerialization.data(withJSONObject: location)), decoded.isValid {
                     configuration.location = decoded

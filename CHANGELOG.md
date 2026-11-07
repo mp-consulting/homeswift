@@ -20,11 +20,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- The Status page's Energy section has an **Energy flow** card: a rendered cutaway house, solar on its roof, the
-  inverter, battery and meter inside and the grid's pole outside, with the latest reading's power running along its
-  conduits and a callout per part, by day or, after sunset at the bridge's Location, at night with its lights on; or a
-  diagram of solar, the grid, the battery and the home, now or for today so far; under it, today's biggest users and a
-  band of what powered the home through the day.
+- The Status page's Energy section opens on an **Energy flow** card, followed live: a cutaway house whose wiring
+  lights up in the colour of what feeds the home (solar, the battery, the grid, in proportion when they share), by
+  day or after sunset at the bridge's Location by night, in each user's **House style** (Appearance: realistic,
+  simple, beach, cabin, apartment, snow, Christmas, Halloween, or a photo of their own with its parts marked); or a
+  diagram of solar, the grid, the battery and the home, now or for today so far. Its details panel sits beside the
+  picture on a wide window; **More details** unfolds today's biggest users and what powered the home through the day.
+- **Language & Region** on Appearance: besides the Language, each user picks their Regional Formats (12- or 24-hour
+  time, the order of numeric dates, the decimal and thousands separators, the first day of the week) and whether
+  moments show in **Home Time**, the home's time zone, or the device's. Automatic keeps the language's and browser's.
+- **Home Time** and the **Home Language** are Bridge Settings: the home's time zone (the host's unless set; the
+  Status page warns about a host in UTC), which Tariffs, Automations and schedules are always written in, and the
+  language of notifications on shared channels and the daily digest, the first account's to begin with. Browser
+  notifications come in each reader's Language.
+
 - Zigbee and Z-Wave devices are added from **Add accessories**, without opening Zigbee2MQTT or Z-Wave JS UI: **Add a
   Zigbee device…** lets devices join Zigbee2MQTT's network for two minutes and is done once the device is interviewed;
   **Add a Z-Wave device…** includes one into a network set up, granting the security classes it asks for and asking
