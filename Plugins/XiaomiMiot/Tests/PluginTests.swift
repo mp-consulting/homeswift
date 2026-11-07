@@ -323,7 +323,7 @@ struct PluginTests {
         #expect(first.fields.map(\.key) == ["method", "country"])
         #expect(first.fields[0].options.map(\.value) == ["qr", "password"])
         #expect(first.fields[0].value == "qr")
-        #expect(first.fields[1].options.count == 8)
+        #expect(first.fields[1].options.count == 7)
         guard case .ask(let scan, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["method": "qr", "country": "de"])) else {
             Issue.record("expected the QR code"); return
         }
@@ -578,6 +578,19 @@ struct PluginTests {
         let result = XiaomiMiotPlugin.canonical(block, learnedAddresses: ["123456789": moved, "234567891": moved]).block
         #expect(result["_accessories"]?["123456789"]?["ip"] == "192.168.1.90")
         #expect(result["_accessories"]?["234567891"]?["ip"] == "192.168.1.77")
+    }
+
+    /// A name longer than HomeKit's 64 bytes is shortened, not refused: the accessory keeps a name.
+    @Test func longNamesAreShortened() async throws {
+        _ = lamp()
+        let long = "Lampe de chevet de la chambre d’Aleksandra Wiśniewska-Kowalczyk"
+        #expect(long.utf8.count > 64)
+        let host = try await environment.start(settings: block([entry(extra: ["name": long])]))
+        #expect(await eventually { environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.on]?.value == .bool(true) })
+        let name = try #require(environment.accessory(host, did: Self.did)?.information[.name]?.value.stringValue)
+        #expect(!name.isEmpty && name.utf8.count <= 64 && long.hasPrefix(name))
+        #expect(MiotConversions.clamped("Robot 🤖🤖🤖", bytes: 9) == "Robot")
+        await host.stop()
     }
 
     /// Add by address: the ip and the token; the hello's did is the Device Id.

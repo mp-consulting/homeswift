@@ -117,8 +117,16 @@ enum MiotConversions {
     static func homeKitName(_ name: String) -> String {
         let kept = name.map { $0.isLetter || $0.isNumber || $0 == "'" ? $0 : " " }
         let words = String(kept).split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
-        let trimmed = words.trimmingCharacters(in: CharacterSet(charactersIn: " '"))
+        let trimmed = clamped(words).trimmingCharacters(in: CharacterSet(charactersIn: " '"))
         return trimmed.isEmpty ? "Unnamed" : trimmed
+    }
+
+    /// HomeKit takes a name of at most 64 bytes of UTF-8 and refuses a longer one whole (the accessory would have none):
+    /// whole characters are dropped from the end until it fits.
+    static func clamped(_ name: String, bytes limit: Int = 64) -> String {
+        var text = name
+        while text.utf8.count > limit { text.removeLast() }
+        return text.trimmingCharacters(in: .whitespaces)
     }
 
     /// `fan:toggle` → "Toggle"; `reset-filter-life` → "Reset Filter Life".

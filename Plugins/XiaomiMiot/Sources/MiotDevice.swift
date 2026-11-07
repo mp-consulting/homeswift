@@ -170,7 +170,7 @@ actor MiotDevice: MiotDeviceIO {
     /// The spec and the accessory, once connected (9.1 step 3). False when the device cannot be published.
     private func prepare() async -> Bool {
         guard let model else {
-            problem = "the device did not say its model"
+            problem = "The device did not say its model: set its model in its settings."
             logger.warning("\(name) did not say its model; set model in its settings")
             return false
         }
@@ -186,7 +186,7 @@ actor MiotDevice: MiotDeviceIO {
             if self.spec != spec || built == nil { build(spec: spec, model: model) }
             return built != nil
         } catch {
-            problem = "no spec: \(error)"
+            problem = "miot-spec.org did not give the spec of \(model), and none is kept: Homeswift tries again at the next connection."
             logger.error("No spec for \(model) of \(name) and none kept: \(error)")
             return false
         }
@@ -228,7 +228,7 @@ actor MiotDevice: MiotDeviceIO {
             return
         }
         path = .unsupported
-        problem = "\(model ?? "the model") needs the Xiaomi cloud"
+        problem = "\(model ?? name) does not answer MIoT on the local network: it needs the Xiaomi cloud, which this plugin does not use yet."
         logger.info("\(model ?? name) needs the Xiaomi cloud; set micloud.forceMiCloud to use it")
         if context.accessory(id: accessoryID) != nil { try? await context.remove(id: accessoryID) }
         built = nil
@@ -251,7 +251,7 @@ actor MiotDevice: MiotDeviceIO {
     private func build(spec: MiotSpec, model: String) {
         if MiotSpec.skippedDeviceTypes.contains(spec.deviceType) {
             path = .unsupported
-            problem = "\(spec.deviceType) devices are not supported"
+            problem = "\(spec.deviceType) devices are not supported."
             logger.info("\(name) (\(model)) is a \(spec.deviceType): not supported")
             return
         }
@@ -262,7 +262,7 @@ actor MiotDevice: MiotDeviceIO {
             defaults: environment.defaults, handle: handle, timings: environment.timings.accessory, logger: logger,
             makeAdaptiveLighting: { context.adaptiveLighting(for: $0, accessoryID: accessoryID) })
         guard let made = builder.build() else {
-            problem = "no HomeKit mapping"
+            problem = "Nothing of this device maps to HomeKit: add what you want with propertyControl in its settings."
             logger.info("No HomeKit mapping for \(model); use propertyControl")
             path = .miot
             self.spec = spec
@@ -466,7 +466,7 @@ actor MiotDevice: MiotDeviceIO {
     func summary() -> JSONValue {
         var fields: [String: JSONValue] = [
             "deviceId": .string(did), "accessoryId": .string(accessoryID), "name": .string(name), "ip": .string(host),
-            "reachable": .bool(isReachable), "path": .string(path.rawValue), "firmware": .string(firmware), "kind": .string(kind),
+            "reachable": .bool(isReachable), "path": .string(path.rawValue), "firmware": firmware == "Unknown" ? .null : .string(firmware), "kind": .string(kind),
             "pollingInterval": .number(Double(interval.components.seconds)),
         ]
         if let model { fields["model"] = .string(model) }

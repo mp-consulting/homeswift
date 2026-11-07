@@ -254,7 +254,7 @@ public actor XiaomiMiotPlugin: HomeswiftPlugin {
         let known = self.known[did]
         let cached = context.accessory(id: context.accessoryID(of: did))
         let model = configured.options.model ?? cached?.information[.model]?.value.stringValue.flatMap { $0 == "Accessory" ? nil : $0 } ?? known?.model
-        let name = context.accessorySettings(for: did).name ?? configured.options.name ?? known?.name ?? "Miot device"
+        let name = MiotConversions.clamped(context.accessorySettings(for: did).name ?? configured.options.name ?? known?.name ?? "Miot device")
         // The plugin-wide options under the device's own (2.1, 2.4).
         var options = configured.options
         var micloud = configuration.micloud.filter { $0.key != "username" && $0.key != "password" }

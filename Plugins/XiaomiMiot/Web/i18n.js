@@ -1,6 +1,14 @@
 // The Xiaomi page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "On": "Allumé",
+    "Off": "Éteint",
+    "property is required, as text": "la propriété est requise, sous forme de texte",
+    "The device did not say its model: set its model in its settings.": "L’appareil n’a pas indiqué son modèle : renseignez son modèle dans ses réglages.",
+    "miot-spec.org did not give the spec of {0}, and none is kept: Homeswift tries again at the next connection.": "miot-spec.org n’a pas donné la spécification de {0}, et aucune n’est conservée : Homeswift réessaie à la prochaine connexion.",
+    "{0} does not answer MIoT on the local network: it needs the Xiaomi cloud, which this plugin does not use yet.": "{0} ne répond pas en MIoT sur le réseau local : il a besoin du cloud Xiaomi, que ce plugin n’utilise pas encore.",
+    "{0} devices are not supported.": "Les appareils {0} ne sont pas pris en charge.",
+    "Nothing of this device maps to HomeKit: add what you want with propertyControl in its settings.": "Rien de cet appareil ne correspond à HomeKit : ajoutez ce que vous voulez avec propertyControl dans ses réglages.",
     "Your Mi Home devices on the local network. Properties shows everything a device's spec has, including what HomeKit does not show, and lets you change it.": "Vos appareils Mi Home sur le réseau local. Propriétés affiche tout ce que la spécification d’un appareil contient, y compris ce que HomeKit n’affiche pas, et permet de le modifier.",
     "Devices": "Appareils",
     "Settings": "Réglages",
@@ -39,13 +47,16 @@ HomeswiftI18n.add({
     "{0} cannot be written": "{0} ne peut pas être modifiée",
     "{0} did not take {1}": "{0} n’a pas accepté {1}",
     "{0} did not run {1}": "{0} n’a pas lancé {1}",
-    "the device did not say its model": "l’appareil n’a pas indiqué son modèle",
-    "no spec: {0}": "pas de spécification : {0}",
-    "{0} needs the Xiaomi cloud": "{0} a besoin du cloud Xiaomi",
-    "{0} devices are not supported": "les appareils {0} ne sont pas pris en charge",
-    "no HomeKit mapping": "aucune correspondance HomeKit"
   },
   "es": {
+    "On": "Encendido",
+    "Off": "Apagado",
+    "property is required, as text": "la propiedad es obligatoria, como texto",
+    "The device did not say its model: set its model in its settings.": "El dispositivo no indicó su modelo: indica su modelo en sus ajustes.",
+    "miot-spec.org did not give the spec of {0}, and none is kept: Homeswift tries again at the next connection.": "miot-spec.org no dio la especificación de {0}, y no se guarda ninguna: Homeswift lo vuelve a intentar en la próxima conexión.",
+    "{0} does not answer MIoT on the local network: it needs the Xiaomi cloud, which this plugin does not use yet.": "{0} no responde a MIoT en la red local: necesita la nube de Xiaomi, que este plugin aún no usa.",
+    "{0} devices are not supported.": "Los dispositivos {0} no son compatibles.",
+    "Nothing of this device maps to HomeKit: add what you want with propertyControl in its settings.": "Nada de este dispositivo corresponde a HomeKit: añade lo que quieras con propertyControl en sus ajustes.",
     "Your Mi Home devices on the local network. Properties shows everything a device's spec has, including what HomeKit does not show, and lets you change it.": "Tus dispositivos Mi Home en la red local. Propiedades muestra todo lo que tiene la especificación de un dispositivo, también lo que HomeKit no muestra, y te deja cambiarlo.",
     "Devices": "Dispositivos",
     "Settings": "Ajustes",
@@ -84,13 +95,16 @@ HomeswiftI18n.add({
     "{0} cannot be written": "{0} no se puede cambiar",
     "{0} did not take {1}": "{0} no aceptó {1}",
     "{0} did not run {1}": "{0} no ejecutó {1}",
-    "the device did not say its model": "el dispositivo no indicó su modelo",
-    "no spec: {0}": "sin especificación: {0}",
-    "{0} needs the Xiaomi cloud": "{0} necesita la nube de Xiaomi",
-    "{0} devices are not supported": "los dispositivos {0} no son compatibles",
-    "no HomeKit mapping": "sin correspondencia en HomeKit"
   },
   "pt": {
+    "On": "Ligado",
+    "Off": "Desligado",
+    "property is required, as text": "a propriedade é obrigatória, como texto",
+    "The device did not say its model: set its model in its settings.": "O dispositivo não indicou o modelo: indique o modelo nas definições.",
+    "miot-spec.org did not give the spec of {0}, and none is kept: Homeswift tries again at the next connection.": "O miot-spec.org não deu a especificação de {0}, e nenhuma está guardada: o Homeswift tenta de novo na próxima ligação.",
+    "{0} does not answer MIoT on the local network: it needs the Xiaomi cloud, which this plugin does not use yet.": "{0} não responde a MIoT na rede local: precisa da nuvem Xiaomi, que este plugin ainda não usa.",
+    "{0} devices are not supported.": "Os dispositivos {0} não são suportados.",
+    "Nothing of this device maps to HomeKit: add what you want with propertyControl in its settings.": "Nada deste dispositivo corresponde ao HomeKit: adicione o que quiser com propertyControl nas definições.",
     "Your Mi Home devices on the local network. Properties shows everything a device's spec has, including what HomeKit does not show, and lets you change it.": "Os seus dispositivos Mi Home na rede local. Propriedades mostra tudo o que a especificação de um dispositivo tem, incluindo o que o HomeKit não mostra, e permite alterá-lo.",
     "Devices": "Dispositivos",
     "Settings": "Definições",
@@ -129,10 +143,5 @@ HomeswiftI18n.add({
     "{0} cannot be written": "{0} não pode ser alterada",
     "{0} did not take {1}": "{0} não aceitou {1}",
     "{0} did not run {1}": "{0} não executou {1}",
-    "the device did not say its model": "o dispositivo não indicou o modelo",
-    "no spec: {0}": "sem especificação: {0}",
-    "{0} needs the Xiaomi cloud": "{0} precisa da nuvem Xiaomi",
-    "{0} devices are not supported": "os dispositivos {0} não são suportados",
-    "no HomeKit mapping": "sem correspondência no HomeKit"
   }
 });

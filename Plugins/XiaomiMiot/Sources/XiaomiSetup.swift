@@ -192,17 +192,19 @@ extension XiaomiMiotPlugin {
     static let regionOptions: [SetupOption] = [
         SetupOption("cn", label: "Mainland China"), SetupOption("de", label: "Europe"), SetupOption("us", label: "United States"),
         SetupOption("ru", label: "Russia"), SetupOption("tw", label: "Taiwan"), SetupOption("sg", label: "Singapore"),
-        SetupOption("in", label: "India"), SetupOption("i2", label: "i2"),
+        SetupOption("in", label: "India"),
     ]
 
     private func authorizeAccount(_ request: SetupRequest) async throws -> SetupStep {
         guard let method = request.choice("method", among: ["qr", "password"]), let country = request.choice("country", among: MiCloud.regions) else {
-            return .ask(SetupPrompt(message: "Choose how Homeswift signs in to your Xiaomi account, and its region.", fields: [
+            return .ask(SetupPrompt(message: "Choose how Homeswift signs in to your Xiaomi account, and the region your Mi Home app uses.", fields: [
                 .choice("method", label: "Sign in with", options: [
                     SetupOption("qr", label: "QR code", detail: "Scanned with the Mi Home app on your phone."),
                     SetupOption("password", label: "Password", detail: "The account's email and password, then a code Xiaomi sends by email."),
                 ], value: "qr"),
-                .choice("country", label: "Region", options: Self.regionOptions, value: configuration.country),
+                // `i2`, which no source explains, is offered only to a block that already uses it.
+                .choice("country", label: "Region", options: Self.regionOptions + (configuration.country == "i2" ? [SetupOption("i2", label: "i2")] : []),
+                        value: configuration.country),
             ]))
         }
         let step = method == "qr" ? try await qrStep(request, country: country) : try await passwordStep(request, country: country)
@@ -335,7 +337,7 @@ extension XiaomiMiotPlugin {
         }
         guard let address else { throw SetupError("Homeswift does not know where the device is. Use Add by address.") }
         guard let text = request.secret("token") else {
-            return .ask(SetupPrompt(message: "Enter the device's token: 32 hexadecimal characters.",
+            return .ask(SetupPrompt(message: "Enter the device's token: 32 hexadecimal characters. Signing in to your Xiaomi account finds it for you.",
                                     fields: [SetupField("token", label: "Token", kind: .secret)]))
         }
         guard let token = MiioToken(hex: text) else { throw SetupError("A token is 32 hexadecimal characters.") }

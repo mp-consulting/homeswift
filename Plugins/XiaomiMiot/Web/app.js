@@ -19,7 +19,7 @@
     return el("div", { class: `card device${device.reachable ? "" : " is-offline"}` },
       el("div", { class: "server-head" },
         tile(kindIcons[device.kind] || "generic", device.reachable ? "orange" : "grey"),
-        el("div", { class: "who" }, el("strong", { text: device.name }), el("div", { class: "muted", text: [device.model, device.deviceId].filter(Boolean).join(" · ") })),
+        el("div", { class: "who" }, el("strong", { class: "device-name", text: device.name, title: device.name }), el("div", { class: "muted", text: [device.model, device.deviceId].filter(Boolean).join(" · ") })),
         el("span", { class: `pill status ${kind}`, text: state })),
       el("div", { class: "facts" },
         fact(t("Address"), device.ip || "—"),
@@ -32,7 +32,7 @@
         device: { model: device.model, path: device.path },
       }) : null,
       el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: device.spec || "" }),
+        el("span", { class: "muted urn", text: device.spec || "" }),
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: device.name }), () => [
           device.spec && device.reachable ? { label: t("Properties"), icon: "sliders", onSelect: () => openSpec(device) } : null,
           { label: t("Settings"), icon: "gear", href: settingsOf(device.accessoryId) },
@@ -80,11 +80,20 @@
 
   // MARK: A device's spec
 
+  // The spec's units as people write them; a unit not here is shown as the spec names it.
+  const units = { percentage: "%", celsius: "°C", fahrenheit: "°F", kelvin: "K", seconds: "s", minutes: "min", hours: "h", days: "d",
+    lux: "lx", ppm: "ppm", ppb: "ppb", "μg/m3": "µg/m³", "mg/m3": "mg/m³", watt: "W", kWh: "kWh", pascal: "Pa", metre: "m", arcdegrees: "°" };
+  const hex = (rgb) => `#${Math.max(0, Math.min(0xffffff, Number(rgb) || 0)).toString(16).padStart(6, "0").toUpperCase()}`;
+
   function describeValue(property, value) {
     if (value === null || value === undefined) return "—";
+    if (property.format === "bool") return value ? t("On") : t("Off");
+    if (property.unit === "rgb") return hex(value);
     const entry = (property.values || []).find((item) => item.value === value);
-    const text = entry && entry.description ? `${entry.description} (${value})` : String(value);
-    return property.unit && property.unit !== "none" ? `${text} ${property.unit}` : text;
+    const text = entry && entry.description ? `${entry.description} (${value})` : typeof value === "number" ? value.toLocaleString(HomeswiftI18n.locale) : String(value);
+    if (!property.unit || property.unit === "none") return text;
+    const unit = units[property.unit] || property.unit;
+    return unit === "%" ? `${text} %` : `${text} ${unit}`;
   }
 
   async function write(device, property, value, row) {
@@ -98,12 +107,17 @@
 
   function control(device, property, row) {
     if (!property.access.includes("write")) return null;
-    const label = t("Change {name}", { name: property.name });
+    const label = t("Change {name}", { name: property.description || property.name });
     if (property.format === "bool") {
       const box = el("input", { type: "checkbox", "aria-label": label });
       box.checked = property.value === true;
       box.addEventListener("change", () => write(device, property, box.checked, row));
-      return box;
+      return el("label", { class: "switch" }, box, el("span", {}));
+    }
+    if (property.unit === "rgb") {
+      const picker = el("input", { type: "color", value: hex(property.value).toLowerCase(), "aria-label": label });
+      picker.addEventListener("change", () => write(device, property, parseInt(picker.value.slice(1), 16), row));
+      return picker;
     }
     if (property.values && property.values.length) {
       const select = el("select", { "aria-label": label },

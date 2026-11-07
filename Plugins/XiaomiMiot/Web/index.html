@@ -19,6 +19,11 @@
   .prop .who code { font-size: 0.75rem; }
   .prop .value { font-variant-numeric: tabular-nums; min-width: 80px; text-align: right; overflow-wrap: anywhere; }
   .prop select, .prop input[type="number"] { max-width: 160px; }
+  /* A device's name is how a person tells it apart: on two lines rather than one cut short (the whole name in its title
+     and the Properties panel's heading). The spec's URN has no spaces to break at. */
+  .device .who .device-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  .device .urn { min-width: 0; overflow-wrap: anywhere; font-size: 0.75rem; }
+  .prop input[type="color"] { width: 48px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; }
   .hint { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.8125rem; }
   @media (prefers-reduced-motion: reduce) { .device { animation: none; } }
 </style>
