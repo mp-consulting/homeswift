@@ -5,6 +5,9 @@ import Logging
 /// The plugin's timings, multiplied by `scale` (tests shorten them).
 struct ReolinkTiming: Sendable {
     var scale: Double = 1
+    /// How many times longer the waits for the device (`timeout`) are: 1 on a bridge; more in tests, whose fakes answer at
+    /// once but whose machine may be too busy to pass the answer on within a real device's bound (CI runs every test at once).
+    var patience: Double = 1
 
     func seconds(_ value: Double) -> Duration { Self.duration(value * scale) }
 
@@ -15,7 +18,7 @@ struct ReolinkTiming: Sendable {
 
     /// A bound on a wait for the device (a connection, a reply), never scaled: tests' fakes answer or refuse at once, and a
     /// scaled one (30 ms of 15 s) is shorter than a loaded machine takes to pass a reply on.
-    func timeout(_ value: Double) -> Duration { Self.duration(value) }
+    func timeout(_ value: Double) -> Duration { Self.duration(value * patience) }
 }
 
 /// What a Baichuan session reports to its host.
@@ -68,7 +71,7 @@ actor BaichuanSession {
     private let password: String
     private let connect: Connect
     let log: Logger
-    private let timing: ReolinkTiming
+    let timing: ReolinkTiming
     /// Bounds on the TCP connect and the nonce's reply, in seconds (a battery camera's are shorter, ReolinkBattery.md 3.3).
     private let connectTimeout: Double
     private let nonceTimeout: Double

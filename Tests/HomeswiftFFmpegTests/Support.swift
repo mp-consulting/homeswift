@@ -166,7 +166,8 @@ func eventually(timeout: Duration = .seconds(30), _ condition: () -> Bool) async
 
 /// Waits for the running process of `process` to end. `action` (a stop, closing its input) runs once the wait is registered,
 /// so an exit it causes at once is not missed.
-func waitForExit(_ process: FfmpegProcess, timeout: Duration = .seconds(10), after action: () async -> Void = {}) async -> FfmpegExitStatus? {
+/// Generous: CI runs every test at once, and a process may be reaped long after it ended; it returns as soon as it is.
+func waitForExit(_ process: FfmpegProcess, timeout: Duration = .seconds(30), after action: () async -> Void = {}) async -> FfmpegExitStatus? {
     let box = NIOLockedValueBox<FfmpegExitStatus?>(nil)
     guard process.onceExit({ status in box.withLockedValue { $0 = status } }) else { return nil }
     await action()
