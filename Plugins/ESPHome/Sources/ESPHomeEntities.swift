@@ -614,39 +614,14 @@ enum Temperature {
     }
 }
 
-/// Hue and saturation against RGB channels (0…1), at full value.
+/// Hue and saturation against RGB channels (0…1), at full value, through `ColorUtils`.
 enum Color {
     static func hueSaturation(red: Double, green: Double, blue: Double) -> (hue: Double, saturation: Double) {
-        let maximum = max(red, green, blue), minimum = min(red, green, blue)
-        let delta = maximum - minimum
-        guard maximum > 0, delta > 0 else { return (0, 0) }
-        var hue: Double
-        if maximum == red {
-            hue = (green - blue) / delta
-        } else if maximum == green {
-            hue = (blue - red) / delta + 2
-        } else {
-            hue = (red - green) / delta + 4
-        }
-        hue *= 60
-        if hue < 0 { hue += 360 }
-        return (hue, delta / maximum * 100)
+        let (hue, saturation) = ColorUtils.hueSaturation(red: red, green: green, blue: blue)
+        return (hue ?? 0, saturation)
     }
 
     static func rgb(hue: Double, saturation: Double) -> (red: Double, green: Double, blue: Double) {
-        let s = min(max(saturation, 0), 100) / 100
-        let h = (hue.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) / 60
-        let chroma = s
-        let x = chroma * (1 - abs(h.truncatingRemainder(dividingBy: 2) - 1))
-        let m = 1 - chroma
-        let (r, g, b): (Double, Double, Double) = switch Int(h) {
-        case 0: (chroma, x, 0)
-        case 1: (x, chroma, 0)
-        case 2: (0, chroma, x)
-        case 3: (0, x, chroma)
-        case 4: (x, 0, chroma)
-        default: (chroma, 0, x)
-        }
-        return (min(max(r + m, 0), 1), min(max(g + m, 0), 1), min(max(b + m, 0), 1))
+        ColorUtils.rgb(hue: hue, saturation: saturation)
     }
 }

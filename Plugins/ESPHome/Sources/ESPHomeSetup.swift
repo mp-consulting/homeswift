@@ -137,18 +137,7 @@ extension ESPHomePlugin {
 
     /// `host`, `host:port`, `[v6]` or `[v6]:port`.
     static func split(_ address: String) -> (String, Int)? {
-        let text = address.trimmingCharacters(in: .whitespaces)
-        if text.hasPrefix("["), let close = text.firstIndex(of: "]") {
-            let host = String(text[text.index(after: text.startIndex)..<close])
-            let rest = text[text.index(after: close)...]
-            if rest.isEmpty { return (host, ESPHomeEndpoint.defaultPort) }
-            guard rest.hasPrefix(":"), let port = Int(rest.dropFirst()) else { return nil }
-            return (host, port)
-        }
-        let parts = text.split(separator: ":")
-        if parts.count == 2, let port = Int(parts[1]) { return (String(parts[0]), port) }
-        if parts.count > 2 { return (text, ESPHomeEndpoint.defaultPort) }
-        return text.isEmpty ? nil : (text, ESPHomeEndpoint.defaultPort)
+        hostAndPort(address, defaultPort: ESPHomeEndpoint.defaultPort).map { ($0.host, $0.port) }
     }
 }
 

@@ -216,8 +216,12 @@ struct HostToolTests {
         let lamp = try #require(environment.host.mainBridge.server.accessories.first { $0.id == "Devices:lamp" })
         lamp.service(.lightbulb)?.characteristic(.on).value = .bool(false)
 
-        let logbook = try await client.tool("get_logbook", ["accessory": "Devices:lamp"])["structuredContent"]
-        let entries = logbook?["entries"]?.arrayValue ?? []
+        // The device's change reaches the History a moment later: wait for it.
+        @Sendable func logbook() async -> [JSONValue] {
+            (try? await client.tool("get_logbook", ["accessory": "Devices:lamp"])["structuredContent"]?["entries"]?.arrayValue) ?? []
+        }
+        #expect(await eventually { await logbook().count == 2 })
+        let entries = await logbook()
         #expect(entries.compactMap { $0["source"]?["kind"]?.stringValue } == ["device", "mcp"])
         // Which client: an administrator's to know.
         #expect(entries.last?["source"]?["name"] == nil)

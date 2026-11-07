@@ -556,7 +556,7 @@
   async function runScene(scene, button) {
     let confirmSecurity = false;
     if (scene.security) {
-      const which = scene.actions.filter((a) => a.security).map((a) => `${a.name || a.id}: ${a.characteristic}`).join(", ");
+      const which = scene.actions.filter((a) => a.security).map((a) => `${a.name || a.id}: ${characteristicName(a.characteristic)}`).join(", ");
       if (!await HomeswiftCommon.confirmDialog(t("{scene} changes a lock, a door or an alarm ({which}). Run it?", { scene: scene.name, which }))) return;
       confirmSecurity = true;
     }
@@ -565,7 +565,7 @@
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
       if (!result.ok && result.results) {
-        const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
+        const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${characteristicName(r.characteristic)}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
         HomeswiftCommon.showAlert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
       return result;
@@ -797,6 +797,9 @@
     if (seconds >= 60 && seconds % 60 === 0) return t("{n} min", { n: seconds / 60 });
     return t("{n} s", { n: seconds });
   }
+  /// A characteristic's name in the page's language, as the rows under All controls give it ("On" is Power here).
+  const characteristicName = (type) => type === "On" ? t("Power")
+    : window.HomeswiftWidgets?.characteristicName && type ? HomeswiftWidgets.characteristicName(type) : type;
   /// A trigger's value as the controls word it: Motion, Unsecured, On rather than true or 0.
   const worded = (trigger) => window.HomeswiftWidgets?.valueText ? HomeswiftWidgets.valueText({ type: trigger.characteristic, value: trigger.value }) : String(trigger.value);
   function describeTrigger(trigger, names) {
@@ -806,18 +809,18 @@
         case "sun": return describeSun(trigger.event, trigger.offsetMinutes, describeDays(trigger.days));
         case "cron": return t("Cron {expression}", { expression: trigger.cron });
         case "characteristic": {
-          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic };
+          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: characteristicName(trigger.characteristic) };
           if (trigger.operator === "changes") return t("When {who} {characteristic} changes", vars);
           const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
           return t("When {who} {characteristic} {comparison} {value}", { ...vars, comparison, value: worded(trigger) });
         }
         case "stays": {
           const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
-          return t("When {who} {characteristic} {comparison} {value} for {duration}", { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic,
+          return t("When {who} {characteristic} {comparison} {value} for {duration}", { who: names.get(trigger.id) || trigger.id, characteristic: characteristicName(trigger.characteristic),
             comparison, value: worded(trigger), duration: describeSeconds(trigger.forSeconds) });
         }
         case "threshold": {
-          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic, value: String(trigger.value) };
+          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: characteristicName(trigger.characteristic), value: String(trigger.value) };
           return trigger.direction === "below" ? t("When {who} {characteristic} falls below {value}", vars) : t("When {who} {characteristic} rises above {value}", vars);
         }
         case "presence": {
@@ -860,7 +863,7 @@
       el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.recall }) : action.name || action.recall }),
       el("span", { class: "value", text: t("Hub scene") })) : el("div", { class: "control" },
       el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
-      el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
+      el("span", { class: "value", text: `${characteristicName(action.characteristic)} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
     app.openSheet((done) => el("div", { class: "account-form scene-details" },
       el("h2", { id, text: scene.name }),
       el("p", { class: "muted", text: sceneSummary(scene, names) }),
@@ -984,7 +987,7 @@
       const min = characteristic.minValue ?? (temperature ? 140 : 0);
       const max = characteristic.maxValue ?? (temperature ? 500 : characteristic.type === "Hue" ? 360 : 100);
       const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
-        value: value ?? characteristic.value ?? min, "aria-label": t(characteristic.type) });
+        value: value ?? characteristic.value ?? min, "aria-label": characteristicName(characteristic.type) });
       const output = el("output", { class: "scene-slider-value" });
       const format = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
       const paint = () => {
@@ -1000,10 +1003,19 @@
       return wrap;
     }
     const labels = app.enumLabels[characteristic?.type];
+    // Eve's weather Condition: one of Open-Meteo's words, as the weather widget names them; a saved word it does not
+    // know stays a choice.
+    const words = characteristic?.type === "Condition" && characteristic.format === "string" ? window.HomeswiftWidgets?.weatherConditions?.() : null;
     let input;
     if (characteristic?.format === "bool") {
-      input = el("input", { type: "checkbox", role: "switch", checked: Boolean(value ?? characteristic.value), "aria-label": t(characteristic.type) });
+      input = el("input", { type: "checkbox", role: "switch", checked: Boolean(value ?? characteristic.value), "aria-label": characteristicName(characteristic.type) });
       input.read = () => input.checked;
+    } else if (words) {
+      const saved = value ?? characteristic.value;
+      const choices = typeof saved === "string" && saved && !words.some(([word]) => word === saved) ? [...words, [saved, saved]] : words;
+      input = el("select", {}, choices.map(([word, label]) => el("option", { value: word, text: label })));
+      input.value = typeof saved === "string" && saved ? saved : choices[0][0];
+      input.read = () => input.value;
     } else if (characteristic && (characteristic.validValues || labels)) {
       const values = characteristic.validValues || labels.map((_, index) => index);
       input = el("select", {}, values.map((v) => el("option", { value: v, text: app.labelFor(characteristic.type, v) })));
@@ -1052,10 +1064,9 @@
     const fill = (keepType, keepValue) => {
       const found = options.find((a) => a.id === accessory.value);
       const chars = found ? list(found) : [];
-      const controlName = (type) => type === "On" ? t("Power") : type;
-      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${controlName(c.type)} (${c.serviceName})` : controlName(c.type) })));
+      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${characteristicName(c.type)} (${c.serviceName})` : characteristicName(c.type) })));
       // An accessory that is gone keeps the characteristic it was saved with.
-      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: controlName(keepType ?? characteristic) }));
+      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: characteristicName(keepType ?? characteristic) }));
       const index = Math.max(0, chars.findIndex((c) => c.type === keepType && (!service || c.service === service)));
       kind.value = String(index);
       current = chars[index] || null;

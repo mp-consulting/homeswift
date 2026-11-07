@@ -2502,9 +2502,12 @@
     valueText(one) {
       const format = one.format ?? (typeof one.value === "boolean" ? "bool" : undefined);
       if (enumLabels[one.type]) return labelFor(one.type, one.value);
+      if (one.type === "Condition" && weatherConditions[one.value]) return weatherConditions[one.value][0];
       if (format !== "float" && typeof one.value === "number" && (one.minValue === 0 && one.maxValue === 1 || String(one.validValues) === "0,1")) return one.value ? t("On [setting]") : t("Off [setting]");
       return formatValue({ ...one, format });
     },
+    /// Eve's weather Condition words the weather widget knows, as [word, its translation].
+    weatherConditions: () => Object.entries(weatherConditions).map(([word, [label]]) => [word, label]),
     /// A characteristic's name as the rows under All controls give it.
     characteristicName: (type) => rowLabels[type] ?? typeName(type),
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.

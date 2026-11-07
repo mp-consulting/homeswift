@@ -111,6 +111,10 @@ All notable changes to this project are documented here. The format follows
 
 - Web UI: the menu's entry for scenes and automations is **Automations**, and it opens there, with Scenes as the
   second tab. It stays highlighted on either tab.
+- Web UI: the Scene and Automation editors name an accessory's controls in the page's language, as the rows under All
+  controls do ("Vitesse du vent", "Power"), in their menus and in the triggers' summaries; 34 of HomeKit's names that
+  had no translation (the weather's, the energy meters', the televisions') have one in French, Spanish and Portuguese.
+  A trigger or condition on the weather's Condition picks one of its words from a menu rather than typing it.
 - Web UI on a phone: the Automation editor fits a 375-pixel screen. A Notify step and the trigger's kind menu no longer
   widen the page past the screen's edge, and Save, Cancel and Delete are one bar at the bottom, as in the scene editor.
 - Helpers: a lock, a garage door or an alarm is no longer offered as a source. A Helper would show its state as a
@@ -118,6 +122,8 @@ All notable changes to this project are documented here. The format follows
   keeps working.
 - Web UI: Forget on a Helper (a device its plugin makes rather than finds) says that it deletes it for good, instead of
   that the plugin finds it again.
+- ESPHome and Z-Wave JS: an IPv6 address typed without brackets in Add by address is the host, no longer read as a
+  host and a port.
 - Charts: a 24-hour chart of a Meter's consumption at phone width labels its hours as the narrow ticks only (7, 13,
   19), no longer mixing in the wide ones (10:00, 16:00) between them.
 - Web UI: a History chart's legend reads Maximum, Average and Minimum in French, Spanish and Portuguese, the words a

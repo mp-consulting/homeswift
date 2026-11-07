@@ -2,6 +2,13 @@ import Foundation
 import Homeswift
 import NIOConcurrencyHelpers
 
+/// The Eve app's custom services that plugins add.
+public enum EveService {
+    /// Eve Energy's service: a meter's characteristics (`EveCharacteristic.currentConsumption`, `totalConsumption`) on a
+    /// service of their own, for a meter with no switch to put them on.
+    public static let energy = ServiceType(name: "EveEnergy", uuid: HAPUUID("00000001-0000-1777-8000-775D67EC4377"), required: [], optional: [.name])
+}
+
 /// The Eve app's custom characteristics that plugins add to their services (energy meters, contact sensors).
 ///
 /// The UUIDs, formats and bounds of homebridge-govee's and homebridge-ewelink's definitions. HAP has no units

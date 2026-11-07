@@ -2,10 +2,15 @@
 # Runs Scripts/test.sh for CI (on macOS every test bundle at once, elsewhere `swift test`) with a watchdog: when the tests
 # write nothing for HANG_MINUTES (8 by default), to their output or the bundles' logs, it prints the stacks of the test
 # processes (macOS `sample`, Linux `gdb` when installed) and fails, instead of waiting for the job's timeout. A hang
-# then shows where it waits. Arguments go to Scripts/test.sh.
+# then shows where it waits. It caps how many tests run at once (below). Arguments go to Scripts/test.sh.
 set -uo pipefail
 
 HANG_MINUTES="${HANG_MINUTES:-8}"
+# At most this many tests run at once. CI runs every test in one process (macOS's combined bundle, Linux's `swift test`),
+# and Swift Testing otherwise starts all of them together: on a 3-core runner, thousands of tests then share the CPU and
+# a test's `eventually` or timeout runs out before the code it waits for gets to run. 8 keeps the runner busy while tests
+# wait on I/O, and costs a few seconds.
+export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-8}"
 LOG="$(mktemp -t swift-test.XXXXXX)"
 export TEST_LOG_DIR="$(mktemp -d -t swift-test-logs.XXXXXX)"
 
