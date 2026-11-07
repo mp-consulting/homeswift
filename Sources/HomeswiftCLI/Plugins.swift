@@ -27,6 +27,7 @@ import HomeswiftReolink
 import HomeswiftRing
 import HomeswiftRoborock
 import HomeswiftShelly
+import HomeswiftSmartThings
 import HomeswiftSonos
 import HomeswiftSwitchBot
 import HomeswiftTPLinkSmarthome
@@ -92,5 +93,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(HelpersPlugin.self)
     registry.register(WeatherPlugin.self)
     registry.register(ZWaveJSPlugin.self)
+    registry.register(SmartThingsPlugin.self)
     return registry
 }

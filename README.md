@@ -24,7 +24,7 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Forty-two plugins come with it, from Elgato Key
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Forty-three plugins come with it, from Elgato Key
 Lights to UniFi Protect cameras, Shelly, Zigbee2MQTT and Sonos, Philips Hue and IKEA DIRIGERA straight from their bridges, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
 lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. See
@@ -194,6 +194,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Ring](Plugins/Ring) | `Ring` | Experimental: Ring alarm, Smart Lighting, cameras and doorbells (snapshots, motion, rings by push; no live video yet), chimes and intercoms |
 | [Roborock](Plugins/Roborock) | `RoborockVacuumPlatform` | Experimental: Roborock robot vacuums, on the LAN with the cloud's MQTT as a fallback: clean, dock, mop washing, scenes, brushes and filter |
 | [Shelly](Plugins/Shelly) | `ShellyNG`, `Shelly` | Experimental: Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters (WebSocket RPC), and Gen 1 devices (CoIoT and HTTP) |
+| [SmartThings](Plugins/SmartThings) | `HomeBridgeSmartThings` | Experimental: Samsung SmartThings through its cloud, signed in with your own app (a SmartThings Developer plan is needed): lights, switches, climate, locks, sensors, Samsung appliances, TVs and scenes, live by server-sent events |
 | [Somfy TaHoma](Plugins/Tahoma) | `Tahoma` | Experimental: Somfy TaHoma and Connexoon (cloud or the gateway's local API), Atlantic Cozytouch and other Overkiz setups: shutters, blinds, awnings, garage doors, gates, locks, alarms, lights, sensors, heaters and water heaters, and scenarios |
 | [Sonos](Plugins/Sonos) | `ZP` | Experimental Sonos zones over UPnP: play, volume and groups, a Speakers service per zone, LEDs, alarms, and a TV per zone with the favourites as inputs |
 | [SwitchBot](Plugins/SwitchBot) | `SwitchBot` | Experimental SwitchBot Bots, curtains, blinds, meters, sensors, locks, lights, plugs and IR remotes, through SwitchBot's cloud and its webhook |

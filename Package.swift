@@ -56,6 +56,7 @@ let package = Package(
         .library(name: "HomeswiftHelpers", targets: ["HomeswiftHelpers"]),
         .library(name: "HomeswiftWeather", targets: ["HomeswiftWeather"]),
         .library(name: "HomeswiftZWaveJS", targets: ["HomeswiftZWaveJS"]),
+        .library(name: "HomeswiftSmartThings", targets: ["HomeswiftSmartThings"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
     ],
@@ -558,12 +559,26 @@ let package = Package(
             ],
             path: "Plugins/ZWaveJS/Sources"
         ),
+        .target(
+            name: "HomeswiftSmartThings",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/SmartThings/Sources"
+        ),
         // The `homeswift` bridge: reads config.json and runs the plugins compiled in (Plugins.swift lists them).
         // The target is not named "homeswift": that is "Homeswift" on a case-insensitive file system.
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftNetwork", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftHueSyncBox", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftAPsystemsECU", "HomeswiftMagicHome", "HomeswiftRenault", "HomeswiftImou", "HomeswiftReolink", "HomeswiftHelpers", "HomeswiftPresence", "HomeswiftWeather", "HomeswiftZWaveJS",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftNetwork", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing", "HomeswiftDummy", "HomeswiftGoogleNestSDM", "HomeswiftRoborock", "HomeswiftTado", "HomeswiftSwitchBot", "HomeswiftTuya", "HomeswiftSonos", "HomeswiftIPCameras", "HomeswiftRing", "HomeswiftHueSyncBox", "HomeswiftTahoma", "HomeswiftV2CTrydan", "HomeswiftAPsystemsECU", "HomeswiftMagicHome", "HomeswiftRenault", "HomeswiftImou", "HomeswiftReolink", "HomeswiftHelpers", "HomeswiftPresence", "HomeswiftWeather", "HomeswiftZWaveJS", "HomeswiftSmartThings",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -1057,6 +1072,16 @@ let package = Package(
             ],
             path: "Plugins/ZWaveJS/Tests",
             exclude: ["Fixtures"]
+        ),
+        .testTarget(
+            name: "SmartThingsTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftSmartThings",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/SmartThings/Tests"
         ),
     ]
 )
