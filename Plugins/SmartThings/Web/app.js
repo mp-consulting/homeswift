@@ -20,18 +20,26 @@
     "Cycle": t("Cycle"), "Setpoint": t("Setpoint"), "Operation time": t("Operation time"), "Rapid freezing": t("Rapid freezing"), "Ice maker": t("Ice maker"),
     "Movement": t("Movement"), "Cleaning mode": t("Cleaning mode"), "Turbo mode": t("Turbo mode"), "Remote control": t("Remote control"),
   };
-  const VALUES = { "allowed": t("allowed"), "not allowed": t("not allowed") };
+  const VALUES = {
+    "allowed": t("allowed"), "not allowed": t("not allowed"), "on": t("On"), "off": t("Off"), "run": t("Running"), "running": t("Running"),
+    "stop": t("Stopped"), "stopped": t("Stopped"), "pause": t("Paused"), "paused": t("Paused"),
+  };
+  const count = new Intl.NumberFormat(HomeswiftI18n.locale);
+  // A value SmartThings sends as an identifier (weightSensing, Table_02_Course_Cotton) read as words.
+  const words = (value) => /^[A-Za-z][A-Za-z0-9_]*$/.test(value)
+    ? value.replace(/_/g, " ").replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase()).replace(/ ([A-Z])(?=[a-z])/g, (_, c) => ` ${c.toLowerCase()}`)
+    : value;
   const clock = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" });
 
   function detail(item) {
     const [base, part] = item.label.split(" (");
     const label = (LABELS[base] ?? base) + (part ? ` (${part}` : "");
-    const value = base === "Finishes at" ? clock.format(new Date(item.value)) : VALUES[item.value] ?? item.value;
+    const value = base === "Finishes at" ? clock.format(new Date(item.value)) : VALUES[item.value.toLowerCase()] ?? words(item.value);
     return fact(label, value);
   }
 
   function deviceCard(device) {
-    const kind = KINDS[device.kind] ?? device.kind;
+    const kind = KINDS[device.kind] ?? words(device.kind);
     const settings = el("a", { class: "button small", href: homeswift.accessorySettings(device.accessoryId), actionIcon: "gear", text: t("Settings"),
       "aria-label": t("Settings of {name}", { name: device.name }) });
     const details = device.details.length ? el("div", { class: "facts live" }, ...device.details.map(detail)) : null;
@@ -48,10 +56,10 @@
     const updates = status.events ? t("Live, through SmartThings' event stream")
       : t("Every {seconds} s, one call for all devices", { seconds: Math.round(status.pollSeconds) });
     return [
-      el("div", { class: "facts" },
+      el("div", { class: "facts lead" },
         fact(t("Location"), status.location ?? "—"),
         fact(t("Updates"), updates),
-        fact(t("Requests since start"), String(status.requests))),
+        fact(t("Requests since start"), count.format(status.requests))),
       status.eventsNote === "refused" ? el("p", { class: "muted", text: t("SmartThings refused the event stream: updates come by polling for now.") }) : null,
       status.eventsNote === "flagged" ? el("p", { class: "muted", text: t("SmartThings flagged this bridge on the event stream: updates come by polling; it tries again in an hour.") }) : null,
       !status.sseGranted && !status.personalToken ? el("p", { class: "muted", text: t("Your app has no sse scope: add it, then sign in again, for live updates and buttons.") }) : null,

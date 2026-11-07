@@ -98,7 +98,7 @@ extension SmartThingsPlugin {
             let detected = settings.callbackServerExternalAddress ?? dependencies.addresses().first ?? "127.0.0.1"
             guard let clientID, let clientSecret, let sse = request.choice("sse", among: ["yes", "no"]) else {
                 return .ask(SetupPrompt(
-                    message: "Enter the OAuth-In app you made for SmartThings (a SmartThings Developer plan is needed). Add {redirectURI} to its Redirect URIs, unless you change the callback server's address or port.",
+                    message: "Make an OAuth-In app for SmartThings, with the SmartThings CLI (smartthings apps:create) or the Developer Center: the scopes r:devices:*, x:devices:*, r:locations:*, r:scenes:*, x:scenes:* and sse, and {redirectURI} as its Redirect URI (unless you change the callback server's address or port below). Then enter its client id and secret.",
                     values: ["redirectURI": SmartThingsOAuth.redirectURI(address: detected, port: settings.callbackServerPort)],
                     fields: [
                         SetupField("client_id", label: "OAuth Client Id", value: settings.clientID),
@@ -109,7 +109,8 @@ extension SmartThingsPlugin {
                         ], value: "yes"),
                         SetupField("callbackServerExternalAddress", label: "Callback server address", optional: true),
                         SetupField("callbackServerPort", label: "Callback server port", optional: true),
-                    ]))
+                    ],
+                    warning: "SmartThings shows the client secret only once, when the app is made. Its API needs a SmartThings Developer plan."))
             }
             let typedAddress = request.answer("callbackServerExternalAddress")
             let typedPort = request.answer("callbackServerPort")

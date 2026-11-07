@@ -119,6 +119,13 @@ enum Appliance: String, Sendable {
         return nil
     }
 
+    /// A temperature as a person reads it: no trailing ".0", and SmartThings' "C"/"F" as °C/°F.
+    static func reading(_ value: Double, unit: String?) -> String {
+        let number = value.rounded() == value ? String(Int(saturating: value) ?? 0) : String(format: "%.1f", value)
+        let symbol = switch unit?.uppercased() { case "C": "°C"; case "F": "°F"; case let other?: other; case nil: "" }
+        return symbol.isEmpty ? number : "\(number) \(symbol)"
+    }
+
     /// The values that have no HomeKit characteristic (section 8.9).
     static func details(_ appliance: Appliance, _ status: DeviceStatus, now: Date) -> [DeviceDetail] {
         var list: [DeviceDetail] = []
@@ -141,7 +148,7 @@ enum Appliance: String, Sendable {
             add("Job", status.string("main", "ovenOperatingState", "ovenJobState"))
             add("Mode", status.string("main", "ovenMode", "ovenMode"))
             if let setpoint = status.number("main", "ovenSetpoint", "ovenSetpoint") {
-                add("Setpoint", "\(Int(saturating: setpoint) ?? 0) \(status.unit("main", "ovenSetpoint", "ovenSetpoint") ?? "")".trimmingCharacters(in: .whitespaces))
+                add("Setpoint", Self.reading(setpoint, unit: status.unit("main", "ovenSetpoint", "ovenSetpoint")))
             }
             if let minutes = remainingMinutes(.oven, status, now: now, completion: completionTime(.oven, status)) { add("Remaining", "\(minutes) min") }
             if let progress = status.number("main", "ovenOperatingState", "progress") { add("Progress", "\(Int(saturating: progress) ?? 0) %") }
@@ -149,7 +156,7 @@ enum Appliance: String, Sendable {
         case .refrigerator:
             for (component, capabilities) in status.components.sorted(by: { $0.key < $1.key }) {
                 if let setpoint = capabilities["refrigerationSetpoint"]?["refrigerationSetpoint"], let value = setpoint.value.doubleValue {
-                    add("Setpoint (\(component))", "\(value) \(setpoint.unit ?? "")".trimmingCharacters(in: .whitespaces))
+                    add("Setpoint (\(component))", Self.reading(value, unit: setpoint.unit))
                 }
                 if let rapid = capabilities["rapidCooling"]?["rapidCooling"]?.value.stringValue { add("Rapid cooling (\(component))", rapid) }
             }

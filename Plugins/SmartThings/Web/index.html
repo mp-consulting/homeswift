@@ -14,9 +14,19 @@
   .device { margin: 0; display: grid; gap: 10px; min-width: 0; }
   .devices:not(.drawn) .device { animation: materialize var(--normal) var(--ease-out); }
   .device-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
-  .device-head .who { flex: 1; min-width: 0; }
-  .device-head .muted { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The name keeps room to read: at phone width the pill and Settings go under it rather than squeezing it. */
+  .device-head .who { flex: 1 1 14rem; min-width: 0; }
+  .device-head strong { overflow-wrap: anywhere; }
+  .device-head .muted { font-size: 0.8125rem; overflow-wrap: anywhere; }
+  .device-head .pill { flex-shrink: 0; }
   .facts.live { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  /* A location's or a cycle's name is read whole: it wraps rather than ends in an ellipsis. */
+  #status .fact b, .facts.live .fact b { white-space: normal; overflow-wrap: break-word; }
+  /* At phone width the location takes its own row, the two others share one (style.css does it for .facts at 640px). */
+  @media (max-width: 640px) {
+    #status .facts.lead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #status .facts.lead > :first-child { grid-column: 1 / -1; }
+  }
   .left-out { display: grid; gap: 8px; }
   .left-out p { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
   @media (prefers-reduced-motion: reduce) { .devices .device { animation: none; } }
