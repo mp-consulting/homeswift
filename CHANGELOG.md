@@ -33,6 +33,14 @@ All notable changes to this project are documented here. The format follows
   Status page warns about a host in UTC), which Tariffs, Automations and schedules are always written in, and the
   language of notifications on shared channels and the daily digest, the first account's to begin with. Browser
   notifications come in each reader's Language.
+- **SmartThings** plugin (`HomeBridgeSmartThings`, new, experimental): Samsung SmartThings devices through its cloud
+  API, signed in on Add accessories with your own OAuth-In app (a SmartThings Developer plan is needed since November
+  2026): lights with Adaptive Lighting, switches, outlets, fans, thermostats, air conditioners and purifiers, locks,
+  garage doors, shades, valves, sensors, buttons and security systems, Samsung washers, dryers, dishwashers, ovens,
+  fridges and robot vacuums (a power or Start switch and a Running sensor), TVs published on their own, and scenes.
+  Updates come by server-sent events, else by one device list call per period; rotated refresh tokens are saved to
+  the vault before use, and copies of Homeswift's own accessories through its Matter bridge are skipped. A clean-room
+  implementation compatible with the blocks of homebridge-smartthings-oauth and homebridge-smartthings-ik.
 
 - Zigbee and Z-Wave devices are added from **Add accessories**, without opening Zigbee2MQTT or Z-Wave JS UI: **Add a
   Zigbee device…** lets devices join Zigbee2MQTT's network for two minutes and is done once the device is interviewed;

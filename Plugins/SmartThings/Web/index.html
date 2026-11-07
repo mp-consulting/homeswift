@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartThings</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* The location's devices with what HomeKit cannot show (an appliance's cycle, its time left), how updates come, and
+     what was left out. Read only: signing in is Setup's, each device's options are its settings. */
+  .page-head { align-items: center; }
+  .devices { display: grid; gap: 12px; }
+  .device { margin: 0; display: grid; gap: 10px; min-width: 0; }
+  .devices:not(.drawn) .device { animation: materialize var(--normal) var(--ease-out); }
+  .device-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+  /* The name keeps room to read: at phone width the pill and Settings go under it rather than squeezing it. */
+  .device-head .who { flex: 1 1 14rem; min-width: 0; }
+  .device-head strong { overflow-wrap: anywhere; }
+  .device-head .muted { font-size: 0.8125rem; overflow-wrap: anywhere; }
+  .device-head .pill { flex-shrink: 0; }
+  .facts.live { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  /* A location's or a cycle's name is read whole: it wraps rather than ends in an ellipsis. */
+  #status .fact b, .facts.live .fact b { white-space: normal; overflow-wrap: break-word; }
+  /* At phone width the location takes its own row, the two others share one (style.css does it for .facts at 640px). */
+  @media (max-width: 640px) {
+    #status .facts.lead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #status .facts.lead > :first-child { grid-column: 1 / -1; }
+  }
+  .left-out { display: grid; gap: 8px; }
+  .left-out p { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
+  @media (prefers-reduced-motion: reduce) { .devices .device { animation: none; } }
+</style>
+</head>
+<body>
+<header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
+<main>
+  <div class="page-head">
+    <span id="head-tile"></span>
+    <div class="who">
+      <h1>SmartThings</h1>
+      <p class="muted" data-i18n>The devices of your SmartThings location, through Samsung's cloud.</p>
+    </div>
+  </div>
+  <p id="loading" class="muted" data-i18n>Reading SmartThings…</p>
+  <div id="setup"></div>
+  <section id="status" class="card hidden"></section>
+  <section id="devices-section" class="hidden">
+    <div class="section-head"><h2 data-i18n>Your devices</h2></div>
+    <div id="devices" class="devices"></div>
+  </section>
+  <section id="left-out-section" class="hidden">
+    <div class="section-head"><h2 data-i18n>Left out</h2></div>
+    <div id="left-out" class="card left-out"></div>
+  </section>
+</main>
+<script src="/common.js"></script>
+<script src="/plugin.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
