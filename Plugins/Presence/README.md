@@ -80,8 +80,9 @@ the bridge needs for mDNS anyway (docs/synology.md). On a bridged network no Per
 The plugin publishes who is home on the host's `PresenceBoard` (`PluginHost.presence`, `context.presence`): each Person
 with their state, since when, and their web UI user; it tells its observers when a Person arrives or leaves and when
 Anyone Home changes (`PresenceEvent`). The web UI's `GET /api/presence` answers the signed-in user's own Persons and
-Anyone Home, never the others or their devices. Automations can take these as Triggers (a Person arriving or leaving,
-Anyone Home changing); until they do, the occupancy sensors' changes work as an accessory's Trigger.
+Anyone Home, never the others or their devices. Automations take these as Triggers: a Person who comes home or leaves,
+and Anyone Home (the first Person coming home, the last one leaving), `{"type": "presence", "id": "Presence:person-…" or
+"Presence:anyone", "arriving": true or false}`.
 
 ## Tests
 

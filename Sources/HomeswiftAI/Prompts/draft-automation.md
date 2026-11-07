@@ -19,7 +19,9 @@ A trigger is one of: {"type": "time", "at": "HH:mm", "days": [0-6, Sunday is 0; 
 "<five fields>"}; {"type": "characteristic", "id": "<accessory id>", "characteristic": "<its name>", "operator":
 "changes", "eq", "neq", "gt", "gte", "lt" or "lte", "value": <with a comparison>}; {"type": "stays", "id", "characteristic",
 "operator", "value", "forSeconds": 1-86400} (a value that stays so for that long); {"type": "threshold", "id",
-"characteristic", "direction": "above" or "below", "value": <number>}.
+"characteristic", "direction": "above" or "below", "value": <number>}; {"type": "presence", "id": "<a Person's accessory id,
+or Anyone Home's>", "arriving": true or false} (a Person comes home or leaves; for Anyone Home, the first comes home or
+the last leaves).
 A condition is {"type": "time", "after": "HH:mm" or "sunrise" or "sunset", "before": the same} or {"type":
 "characteristic", "id", "characteristic", "operator", "value"}.
 A step is {"type": "scene", "scene": "<scene id>"}; {"type": "set", "id", "characteristic", "value"}; {"type": "wait",

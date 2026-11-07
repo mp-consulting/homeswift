@@ -13778,6 +13778,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic, value: String(trigger.value) };
           return trigger.direction === "below" ? t("When {who} {characteristic} falls below {value}", vars) : t("When {who} {characteristic} rises above {value}", vars);
         }
+        case "presence": {
+          if (trigger.id === anyoneHome) return trigger.arriving ? t("When the first Person comes home") : t("When the last Person leaves");
+          const vars = { who: names.get(trigger.id) || trigger.id };
+          return trigger.arriving ? t("When {who} comes home", vars) : t("When {who} leaves", vars);
+        }
         default: return trigger.type;
       }
     })();
@@ -13801,7 +13806,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return scene.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
   }
   /// What a trigger shows as: a clock for a time or a cron, the sun, a sensor for an accessory's value.
-  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor", stays: "sensor", threshold: "sensor" };
+  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor", stays: "sensor", threshold: "sensor", presence: "user" };
+  /// Anyone Home's accessory (Presence): a `presence` trigger on it fires at the first arrival or the last departure.
+  const anyoneHome = "Presence:anyone";
 
   /// A scene's details in a sheet, from its tile's menu: what it is, each action, its locks and doors, its last run,
   /// and Edit.
@@ -14065,6 +14072,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("option", { value: "time", text: t("At a time") }), el("option", { value: "sun", text: t("Sunrise or sunset") }),
       el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "stays", text: t("When a value stays for a while") }),
       el("option", { value: "threshold", text: t("When a number crosses a threshold") }), el("option", { value: "cron", text: t("Cron") }));
+    // Presence's Persons and Anyone Home, when the bridge has them (or the trigger names one already).
+    const people = accessories.filter((one) => one.platform === "Presence")
+      .sort((a, b) => (a.id === anyoneHome) - (b.id === anyoneHome) || displayName(a).localeCompare(displayName(b)));
+    if (people.length || trigger.type === "presence") type.insertBefore(el("option", { value: "presence", text: t("When someone comes home or leaves") }), type.querySelector('[value="cron"]'));
     type.value = trigger.type;
     // Whether the trigger counts, in the row's head with its kind: apart from a Value switch in its fields.
     const enabled = el("input", { type: "checkbox", role: "switch", checked: trigger.enabled !== false });
@@ -14115,6 +14126,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const value = el("input", { type: "number", step: "any", value: shown.value ?? 0, "aria-label": t("Value") });
         body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Direction"), direction), field(t("Value"), value));
         row.readBody = () => ({ ...pick.read(), direction: direction.value, value: Number(value.value) });
+      } else if (shown.type === "presence") {
+        const who = el("select", { "aria-label": t("Who") }, people.map((one) => el("option", { value: one.id, text: one.id === anyoneHome ? t("Anyone") : displayName(one) })));
+        if (shown.id && !people.some((one) => one.id === shown.id)) who.append(el("option", { value: shown.id, text: shown.id }));
+        who.value = shown.id ?? people.find((one) => one.id !== anyoneHome)?.id ?? people[0]?.id ?? "";
+        const event = el("select", { "aria-label": t("Event") });
+        // Anyone Home's words: the first to come home, the last to leave.
+        const words = () => event.replaceChildren(
+          el("option", { value: "true", text: who.value === anyoneHome ? t("The first comes home") : t("Comes home") }),
+          el("option", { value: "false", text: who.value === anyoneHome ? t("The last leaves") : t("Leaves") }));
+        words();
+        event.value = String(shown.arriving ?? true);
+        who.addEventListener("change", () => { const was = event.value; words(); event.value = was; });
+        body.replaceChildren(field(t("Who"), who), field(t("Event"), event));
+        row.readBody = () => ({ id: who.value, arriving: event.value === "true" });
       } else {
         const cron = el("input", { type: "text", value: shown.cron || "0 7 * * 1-5", placeholder: "0 7 * * 1-5", "aria-label": t("Cron expression"), class: "mono" });
         body.replaceChildren(cron);
@@ -18096,6 +18121,16 @@ HomeswiftI18n.add("es", {
   "Open the setting": "Abrir el ajuste",
   "Needs a Bridge Setting": "Necesita un ajuste del puente",
   "Waiting for it…": "Esperando…",
+  "When someone comes home or leaves": "Cuando alguien llega o se va",
+  "When the first Person comes home": "Cuando llega la primera Persona",
+  "When the last Person leaves": "Cuando se va la última Persona",
+  "When {who} comes home": "Cuando {who} llega a casa",
+  "When {who} leaves": "Cuando {who} se va",
+  "Anyone": "Alguien",
+  "Comes home": "Llega a casa",
+  "Leaves": "Se va",
+  "The first comes home": "Llega la primera",
+  "The last leaves": "Se va la última",
   "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Esto lo elimina con todos sus ajustes: su nombre, su habitación y los ajustes de {plugin} para él.",
   "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sale de la app Casa con su habitación, escenas y automatizaciones, para siempre: {plugin} no puede volver a encontrarlo.",
   "Deletes it and its settings for good: {plugin} cannot find it again.": "Lo elimina para siempre con sus ajustes: {plugin} no puede volver a encontrarlo.",
@@ -21379,6 +21414,16 @@ HomeswiftI18n.add("fr", {
   "Open the setting": "Ouvrir le réglage",
   "Needs a Bridge Setting": "Demande un réglage du pont",
   "Waiting for it…": "Ça attend…",
+  "When someone comes home or leaves": "Quand quelqu'un arrive ou part",
+  "When the first Person comes home": "Quand la première Personne arrive",
+  "When the last Person leaves": "Quand la dernière Personne part",
+  "When {who} comes home": "Quand {who} arrive",
+  "When {who} leaves": "Quand {who} part",
+  "Anyone": "Quelqu'un",
+  "Comes home": "Arrive",
+  "Leaves": "Part",
+  "The first comes home": "La première arrive",
+  "The last leaves": "La dernière part",
   "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Cela le supprime avec tous ses réglages : son nom, sa pièce et les réglages de {plugin} pour lui.",
   "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Il quitte l’app Maison avec sa pièce, ses scènes et ses automatisations, définitivement : {plugin} ne peut pas le retrouver.",
   "Deletes it and its settings for good: {plugin} cannot find it again.": "Le supprime définitivement avec ses réglages : {plugin} ne peut pas le retrouver.",
@@ -24662,6 +24707,16 @@ HomeswiftI18n.add("pt", {
   "Open the setting": "Abrir a definição",
   "Needs a Bridge Setting": "Precisa de uma definição da ponte",
   "Waiting for it…": "À espera…",
+  "When someone comes home or leaves": "Quando alguém chega ou sai",
+  "When the first Person comes home": "Quando chega a primeira Pessoa",
+  "When the last Person leaves": "Quando sai a última Pessoa",
+  "When {who} comes home": "Quando {who} chega a casa",
+  "When {who} leaves": "Quando {who} sai",
+  "Anyone": "Alguém",
+  "Comes home": "Chega a casa",
+  "Leaves": "Sai",
+  "The first comes home": "Chega a primeira",
+  "The last leaves": "Sai a última",
   "This deletes it and all its settings: its name, room and {plugin}'s settings for it.": "Isto elimina-o com todas as definições: o nome, a divisão e as definições de {plugin} para ele.",
   "It leaves the Home app with its room, scenes and automations, for good: {plugin} cannot find it again.": "Sai da app Casa com a divisão, as cenas e as automatizações, de vez: {plugin} não o consegue voltar a encontrar.",
   "Deletes it and its settings for good: {plugin} cannot find it again.": "Elimina-o de vez com as definições: {plugin} não o consegue voltar a encontrar.",
@@ -32898,9 +32953,11 @@ select option:disabled { color: var(--muted); }
   .scene-flow-body input, .scene-flow-body select { font-size: 16px; }
   .scene-flow-body select, .scene-flow-body button { min-height: 44px; }
   .scene-flow-body .scene-condition-remove { width: auto; align-self: flex-end; padding-inline: var(--space-14); }
-  .scene-editor > .save-bar { position: sticky; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-8); gap: var(--space-8); box-shadow: var(--shadow-control); }
-  .scene-editor > .save-bar > .spacer { display: none; }
-  .scene-editor > .save-bar > :is(button, a) { flex: 1; justify-content: center; min-height: 44px; padding-inline: var(--space-8); font-size: var(--text-sm); }
+  /* The automation editor's Save, Cancel and Delete as the scene editor's: one bar of equal buttons, kept in reach. */
+  .automation-editor { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+  :is(.scene-editor, .automation-editor) > .save-bar { position: sticky; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: var(--material-solid); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-8); gap: var(--space-8); box-shadow: var(--shadow-control); }
+  :is(.scene-editor, .automation-editor) > .save-bar > .spacer { display: none; }
+  :is(.scene-editor, .automation-editor) > .save-bar > :is(button, a) { flex: 1; justify-content: center; min-height: 44px; padding-inline: var(--space-8); font-size: var(--text-sm); }
 }
 @media (pointer: coarse) {
   .scene-flow button, .scene-action-summary { -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
@@ -32914,10 +32971,10 @@ select option:disabled { color: var(--muted); }
 .location-search-results button { text-align: left; justify-content: flex-start; white-space: normal; min-height: 44px; }
 
 @media (max-width: 640px) {
-  .scene-editor > .save-bar { position: fixed; left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 64px); bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: var(--space-4); gap: var(--space-4); }
+  :is(.scene-editor, .automation-editor) > .save-bar { position: fixed; left: max(14px, env(safe-area-inset-left)); right: calc(max(14px, env(safe-area-inset-right)) + 64px); bottom: max(14px, env(safe-area-inset-bottom)); margin: 0; padding: var(--space-4); gap: var(--space-4); }
 }
 @media (max-width: 400px) {
-  .scene-editor > .save-bar > :is(button, a) { flex-direction: column; gap: var(--space-4); padding-inline: var(--space-4); }
+  :is(.scene-editor, .automation-editor) > .save-bar > :is(button, a) { flex-direction: column; gap: var(--space-4); padding-inline: var(--space-4); }
 }
 
 .location-search { padding: var(--space-16); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-solid); }
@@ -33289,7 +33346,7 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .automation-draft .who p { margin: 2px 0 0; }
 .automation-draft-row { display: flex; gap: var(--space-8); align-items: center; }
 .automation-draft-row input { flex: 1 1 auto; min-width: 0; }
-.automation-editor { display: grid; gap: var(--space-14); }
+.automation-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
 .automation-editor > .card { margin: 0; }
 .automation-steps { list-style: none; padding: 0; margin: 0 0 var(--space-10); counter-reset: step; }
 .automation-step { counter-increment: step; position: relative; padding-left: 32px; align-items: start; }
@@ -33319,6 +33376,10 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 
 /* A trigger's head: its kind, and whether it is enabled, above its fields. */
 .editor-row .trigger-head { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-10); flex-wrap: wrap; }
+/* On a phone the kind's menu (its longest option is long) shrinks to the card rather than widening the page. */
+.automation-editor .editor-list { grid-template-columns: minmax(0, 1fr); }
+.editor-row .trigger-head { min-width: 0; }
+.editor-row .trigger-head > select { min-width: 0; max-width: 100%; }
 .trigger-enabled { gap: var(--space-8); }
 
 """#),

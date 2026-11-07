@@ -171,12 +171,34 @@ struct AutomationTests {
         }
         #expect(throws: CatalogError.self) { try catalog.saveAutomation(["name": "No steps", "triggers": [["type": "time", "at": "07:00"]], "steps": []]) }
         #expect(throws: CatalogError.self) { try catalog.saveAutomation(["name": "Unknown tool", "triggers": [["type": "time", "at": "07:00"]], "steps": [["type": "tool", "tool": "Nobody_do"]]]) }
-        do {
-            _ = try catalog.saveAutomation(["name": "Home", "triggers": [["type": "presence", "person": "Alex"]], "steps": step])
-            Issue.record("a presence trigger was taken")
-        } catch let error as CatalogError {
-            #expect(error.description.contains("Presence plugin"))
+        // A presence trigger names a Person's or Anyone Home's accessory, and whether they come or go.
+        for trigger: JSONValue in [["type": "presence", "person": "Alex", "arriving": true], ["type": "presence", "id": "Devices:lamp", "arriving": true],
+                                   ["type": "presence", "id": "Presence:person-1"]] {
+            #expect(throws: CatalogError.self) { try catalog.saveAutomation(["name": "Home", "triggers": [trigger], "steps": step]) }
         }
+    }
+
+    @Test func aPersonComingHomeOrTheLastLeavingRunsIt() async throws {
+        let environment = try await environment()
+        let catalog = environment.catalog
+        catalog.startHome(restarted: true)
+        defer { Task { await catalog.stopHome(restarting: true); await environment.stop() } }
+        let step: JSONValue = [["type": "set", "id": "Devices:lamp", "characteristic": "On", "value": true]]
+        _ = try catalog.saveAutomation(["name": "Welcome", "triggers": [["type": "presence", "id": "Presence:person-1", "arriving": true]], "steps": step])
+        _ = try catalog.saveAutomation(["name": "All gone", "triggers": [["type": "presence", "id": "Presence:anyone", "arriving": false]], "steps": step])
+        let board = catalog.host.presence
+        let away = PersonPresence(id: "Presence:person-1", name: "Alex", isHome: false)
+        var home = away
+        home.isHome = true
+        board.publish([away])
+        board.publish([home])
+        let ran = { @Sendable (name: String) in catalog.home.automations.value.automations.first { $0.name == name }?.lastRun }
+        #expect(await eventually { ran("Welcome")?.trigger == "presence" })
+        #expect(ran("All gone") == nil)
+        board.publish([away])
+        #expect(await eventually { ran("All gone")?.ok == true })
+        let saved = try #require(catalog.automationsJSON()["automations"]?.arrayValue?.first { $0["name"] == "Welcome" })
+        #expect(saved["triggers"]?[0]?["arriving"] == true)
     }
 
     @Test func theToolsListSaveRunAndDelete() async throws {
