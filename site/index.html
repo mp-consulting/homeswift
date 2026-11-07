@@ -64,6 +64,9 @@
     <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.4 7 10 4-1.6 7-5.5 7-10V6l-7-3z"/></symbol>
     <symbol id="i-gh" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 14h6l-1 7 8-11h-6z"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8" width="17" height="4.5" rx="1"/><path d="M5.5 12.5V20h13v-7.5M12 8v12M12 8c-1-3-4.5-4-5.3-2.2C6 7.4 9 8 12 8zm0 0c1-3 4.5-4 5.3-2.2C18 7.4 15 8 12 8z"/></symbol>
   </defs>
 </svg>
 
@@ -86,6 +89,7 @@
   <div class="band hero home-hero">
     <div class="wrap">
       <div class="hero-copy">
+        <a class="news" href="#automations"><b data-i18n>New</b><span data-i18n>Automations that know who’s home</span></a>
         <p class="eyebrow" data-i18n>The MCP server for your home</p>
         <h1 data-i18n>Let your AI run the house.</h1>
         <p class="lede" data-i18n>Connect Claude, or any agent that speaks MCP, and it can see and run every device in your Home app. It still asks before it unlocks, writes down everything it does, and never takes orders from a device’s name.</p>
@@ -269,10 +273,53 @@ nightly restart runs at 03:00…</span></pre>
     </div>
   </section>
 
+  <section class="band" id="automations">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow" data-i18n>New: Automations</p>
+        <h2 data-i18n>Automations that know who’s home.</h2>
+        <p class="lede" data-i18n>Say what should happen and the assistant drafts the automation for you to check: when, only if, then what. Presence knows who is home by the phones they carry, and a notification can ask you first.</p>
+      </div>
+      <!-- A drawing (demonstration names), not a screenshot: an Automation as the Automations page shows it, the
+           notification it sends with its buttons, and the Persons it watches. -->
+      <div class="auto-stage" aria-hidden="true">
+        <div class="auto-card">
+          <div class="auto-head">
+            <span class="auto-glyph"><svg><use href="#i-bolt"/></svg></span>
+            <div><strong data-i18n>Last one out</strong><small data-i18n>Automation · On</small></div>
+            <span class="auto-switch"></span>
+          </div>
+          <ol class="auto-steps">
+            <li><span class="auto-kind" data-i18n>When</span><span data-i18n>Everyone has left home</span></li>
+            <li><span class="auto-kind" data-i18n>Only if</span><span data-i18n>The Garage Door is open</span></li>
+            <li><span class="auto-kind" data-i18n>Then</span><span data-i18n>Turn off every light and plug</span></li>
+            <li><span class="auto-kind" data-i18n>Then</span><span data-i18n>Notify, with two buttons</span></li>
+          </ol>
+        </div>
+        <div class="auto-side">
+          <div class="notif">
+            <div class="notif-head"><svg><use href="#logo"/></svg><strong>Homeswift</strong><small data-i18n>now</small></div>
+            <p data-i18n>Everyone has left and the Garage Door is open.</p>
+            <div class="notif-actions"><span data-i18n>Close it</span><span data-i18n>Leave it open</span></div>
+          </div>
+          <div class="persons">
+            <div class="person"><span class="avatar">A</span><div><strong>Alex</strong><small data-i18n>Away · 4 min</small></div></div>
+            <div class="person"><span class="avatar two">S</span><div><strong>Sam</strong><small data-i18n>Away · 1 h</small></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="asks">
+        <div class="ask"><q data-i18n>When the last person leaves, turn everything off.</q><p data-i18n>Presence knows who is home by the phones on the network. The assistant drafts the automation; you check it and save.</p></div>
+        <div class="ask"><q data-i18n>Ask me before closing the garage at night.</q><p data-i18n>The notification carries the buttons, on ntfy, Telegram or the browser. For a garage door, a lock or an alarm, a tap opens a confirmation behind your sign-in.</p></div>
+        <div class="ask"><q data-i18n>Tell me when the washing machine is done.</q><p data-i18n>A trigger on the plug’s power staying under 5 W for five minutes, then a notification. No new device, just the plug.</p></div>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="scenes">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow" data-i18n>New in 0.9</p>
+        <p class="eyebrow" data-i18n>Scene templates</p>
         <h2 data-i18n>Set the scene.</h2>
         <p class="lede" data-i18n>Scene templates for a room’s lights: calm ambiances such as candlelight, effects such as a fireplace or a sunrise that each brand’s lights play natively (Hue effects, Govee scenes, IKEA fades, SONOFF L2 scenes, Ambilight following the music), and timed sequences such as a police siren. Browse 143 photographic palettes in 28 themes, try one on a room, and save it as a scene, in Homeswift or on your Hue Bridge or IKEA hub, with a picture of your own and a switch in the Home app. Any run can be undone: the lights go back as they were.</p>
       </div>
@@ -376,6 +423,19 @@ docker run -d --name homeswift --network host \
       </div>
     </div>
   </section>
+  <section class="band" id="sponsor">
+    <div class="wrap sponsor">
+      <div class="sponsor-copy">
+        <p class="eyebrow" data-i18n>Sponsor</p>
+        <h2 data-i18n>Keep Homeswift free.</h2>
+        <p class="lede" data-i18n>Homeswift is free and open source, with no account and no cloud of its own. Sponsoring pays for the devices plugins are tested on, and the time to write the next ones.</p>
+      </div>
+      <div class="cta sponsor-cta">
+        <a class="btn btn-primary" href="https://github.com/sponsors/mp-consulting" data-i18n><svg aria-hidden="true"><use href="#i-heart"/></svg>Sponsor on GitHub</a>
+        <a class="btn btn-plain" href="https://paypal.me/mickaelpalma" data-i18n><svg aria-hidden="true"><use href="#i-gift"/></svg>Donate with PayPal</a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="band">
@@ -388,6 +448,7 @@ docker run -d --name homeswift --network host \
       <a href="https://github.com/mp-consulting/homeswift/blob/main/docs/ai.md" data-i18n>The Assistant</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/docs/mcp.md" data-i18n>MCP server</a>
       <a href="bridge.html" data-i18n>The bridge</a>
+      <a href="https://github.com/sponsors/mp-consulting" data-i18n>Sponsor</a>
       <a href="privacy.html" data-i18n>Privacy</a>
     </nav>
     <nav class="langs" aria-label="Language" data-i18n>
