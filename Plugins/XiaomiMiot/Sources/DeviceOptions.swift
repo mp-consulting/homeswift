@@ -27,7 +27,7 @@ struct DeviceOptions: Sendable, Equatable {
 
     var ip: String? { raw["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty }
     var model: String? { raw["model"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty }
-    var deviceID: String? { raw["deviceId"].flatMap { $0.stringValue ?? $0.intValue.map(String.init) }?.nonEmpty }
+    var deviceID: String? { raw["deviceId"]?.idText }
     var name: String? { raw["name"]?.stringValue?.nonEmpty }
     var token: String? { raw["token"]?.stringValue?.nonEmpty }
     var deviceEnabled: Bool { flag("deviceEnabled", default: true) }
@@ -86,4 +86,9 @@ struct DeviceOptions: Sendable, Equatable {
 
 extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+extension JSONValue {
+    /// An id written as text or as an integer (a did, a user id, an action's `siid.aiid` as a number); nil when empty.
+    var idText: String? { (stringValue ?? intValue.map(String.init))?.nonEmpty }
 }

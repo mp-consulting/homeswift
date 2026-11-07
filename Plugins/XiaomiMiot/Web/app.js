@@ -5,7 +5,7 @@
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, tile, request, explain, poll, renderKeyed, setupCard, drawHidden } = homeswift;
+  const { $, el, tile, fact, request, explain, poll, renderKeyed, setupCard, drawHidden } = homeswift;
 
   const list = $("#devices");
   const panel = $("#spec-panel");
@@ -13,8 +13,6 @@
   const settingsOf = (accessoryID) => homeswift.accessorySettings(accessoryID);
   const kindIcons = { light: "bulb", outlet: "outlet", switch: "switch", airPurifier: "wind", humidifier: "drop", dehumidifier: "drop", fan: "fan",
     ceilingFan: "fan", heater: "flame", airConditioner: "thermo", curtain: "blind", sensor: "sensor", airMonitor: "sensor", vacuum: "vacuum" };
-
-  const fact = (label, value) => el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: value, title: value }));
 
   function deviceCard(device) {
     const [state, kind] = device.problem ? [t("Not published"), "away"] : device.reachable ? [t("Responding"), "on"] : [t("Not responding"), "away"];
@@ -24,7 +22,7 @@
         el("div", { class: "who" }, el("strong", { text: device.name }), el("div", { class: "muted", text: [device.model, device.deviceId].filter(Boolean).join(" · ") })),
         el("span", { class: `pill status ${kind}`, text: state })),
       el("div", { class: "facts" },
-        fact(t("Address"), device.ip),
+        fact(t("Address"), device.ip || "—"),
         fact(t("Firmware"), device.firmware || "—"),
         fact(t("Commands"), device.path === "legacy" ? t("miIO vacuum") : "MIoT")),
       device.problem ? el("p", { class: "muted note", text: HomeswiftI18n.message(device.problem) }) : null,
@@ -50,13 +48,19 @@
     return node;
   }
 
+  // The account's card, drawn again only when that changes.
+  let accountShown;
+
   async function refresh() {
     try {
       const { devices, excluded = [], accountSetUp } = await request("devices");
-      $("#account").replaceChildren(accountSetUp ? "" : setupCard({
-        title: t("Your Xiaomi account"),
-        text: t("Optional: signing in finds your devices and their tokens. Devices added with a token work without it."),
-      }));
+      if (accountSetUp !== accountShown) {
+        accountShown = accountSetUp;
+        $("#account").replaceChildren(accountSetUp ? "" : setupCard({
+          title: t("Your Xiaomi account"),
+          text: t("Optional: signing in finds your devices and their tokens. Devices added with a token work without it."),
+        }));
+      }
       drawHidden($("#excluded"), excluded.map((device) => device.name), (name) => {
         const device = excluded.find((entry) => entry.name === name);
         if (device) location.href = settingsOf(device.accessoryId);
@@ -67,7 +71,8 @@
         }
         return;
       }
-      renderKeyed(list, devices, (device) => device.deviceId, card);
+      // The last poll's time changes every poll: left out, a card is drawn again only when what it shows changed.
+      renderKeyed(list, devices.map(({ lastPoll, ...device }) => device), (device) => device.deviceId, card);
     } catch (e) {
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
@@ -93,14 +98,15 @@
 
   function control(device, property, row) {
     if (!property.access.includes("write")) return null;
+    const label = t("Change {name}", { name: property.name });
     if (property.format === "bool") {
-      const box = el("input", { type: "checkbox", "aria-label": t("Change {name}", { name: property.name }) });
+      const box = el("input", { type: "checkbox", "aria-label": label });
       box.checked = property.value === true;
       box.addEventListener("change", () => write(device, property, box.checked, row));
       return box;
     }
     if (property.values && property.values.length) {
-      const select = el("select", { "aria-label": t("Change {name}", { name: property.name }) },
+      const select = el("select", { "aria-label": label },
         ...property.values.map((item) => el("option", { value: JSON.stringify(item.value), text: item.description || String(item.value) })));
       select.value = JSON.stringify(property.value);
       select.addEventListener("change", () => write(device, property, JSON.parse(select.value), row));
@@ -108,7 +114,7 @@
     }
     if (property.range) {
       const [min, max, step] = property.range;
-      const input = el("input", { type: "number", min, max, step: step || 1, value: property.value ?? "", "aria-label": t("Change {name}", { name: property.name }) });
+      const input = el("input", { type: "number", min, max, step: step || 1, value: property.value ?? "", "aria-label": label });
       input.addEventListener("change", () => write(device, property, Number(input.value), row));
       return input;
     }

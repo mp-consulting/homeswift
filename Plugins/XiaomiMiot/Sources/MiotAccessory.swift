@@ -65,8 +65,9 @@ protocol MiotDeviceIO: AnyObject, Sendable {
 struct AccessoryTimings: Sendable {
     /// A stateless switch turns itself off, a value switch turned off back on, after this.
     var switchReset: Duration = .milliseconds(100)
-    /// How long a Hue waits for its Saturation (and the other way round).
-    var colorWait: Duration = .seconds(1)
+    /// How long a Hue write waits for its Saturation (and the other way round) to be sent with it as one colour: the
+    /// Home app writes both of a change at once (7.2 allows up to 1 s).
+    var colorWait: Duration = LightChangeBatcher.defaultWindow
 }
 
 /// What a device's spec becomes in HomeKit.
@@ -133,6 +134,12 @@ final class MiotAccessoryBuilder {
     var deviceType: String { spec.deviceType }
     var kind: String { MiotSpec.kind(deviceType: deviceType) }
     var main: MiotSpec.Service? { spec.mainService }
+    var quirks: ModelQuirks { MiotSpec.quirks(model: model) }
+
+    /// A vendor property a quirk names, when the spec has it.
+    func property(_ vendor: VendorProperty?) -> MiotSpec.Property? {
+        vendor.flatMap { spec.anyProperty($0.property, in: $0.service) }
+    }
 
     // MARK: Building
 
@@ -413,14 +420,20 @@ final class MiotAccessoryBuilder {
                 Self.set(saturation, .double(Double(s)))
             }
             if color.isWritable {
-                let pending = ColorWrite(wait: timings.colorWait)
+                // Hue and Saturation written together are sent as one colour (7.2); one alone goes with the other's shown value.
+                // The characteristics are held weakly: they hold the writer through their handlers.
+                let writer = LightChangeBatcher(window: timings.colorWait) { [weak hue, weak saturation] changes in
+                    let rgb = MiotConversions.rgb(hue: changes.hue ?? hue?.value.doubleValue ?? 0,
+                                                  saturation: changes.saturation ?? saturation?.value.doubleValue ?? 0)
+                    try await handle.write(color, .number(Double(rgb)))
+                }
                 hue.onWrite { value in
-                    guard let both = await pending.set(hue: value.doubleValue, saturation: nil, current: (hue.value.doubleValue ?? 0, saturation.value.doubleValue ?? 0)) else { return }
-                    try await handle.write(color, .number(Double(MiotConversions.rgb(hue: both.hue, saturation: both.saturation))))
+                    guard let wanted = value.doubleValue else { return }
+                    try await writer.set(.hue(wanted))
                 }
                 saturation.onWrite { value in
-                    guard let both = await pending.set(hue: nil, saturation: value.doubleValue, current: (hue.value.doubleValue ?? 0, saturation.value.doubleValue ?? 0)) else { return }
-                    try await handle.write(color, .number(Double(MiotConversions.rgb(hue: both.hue, saturation: both.saturation))))
+                    guard let wanted = value.doubleValue else { return }
+                    try await writer.set(.saturation(wanted))
                 }
             }
         }
@@ -501,9 +514,8 @@ final class MiotAccessoryBuilder {
         category = .airPurifier
         guard let purifier = spec.service("air-purifier") else { return buildGeneric() }
         let on = purifier.property("on"), mode = purifier.property("mode"), status = purifier.property("status")
-        // zhimi.airpurifier.ma4 (7.9): the speed is the vendor favourite level, the motor's speed says it is idle.
-        let favorite = model == "zhimi.airpurifier.ma4" ? spec.anyProperty("favorite-fan-level", in: "motor-speed") : nil
-        let motor = model == "zhimi.airpurifier.ma4" ? spec.anyProperty("motor1-speed", in: "motor-speed") : nil
+        // A curated override (7.9): the speed is a vendor favourite level, set in the Favorite mode; a motor's speed says it is idle.
+        let favorite = property(quirks.speed?.level), motor = property(quirks.speed?.idleAtZero)
         let service = Service(.airPurifier, name: name, isPrimary: true)
         bindActive(service, on: on)
         let current = service.characteristic(.currentAirPurifierState)
@@ -608,9 +620,8 @@ final class MiotAccessoryBuilder {
         let on = fan.property("on")
         let service = Service(.fanv2, name: name, isPrimary: true)
         bindActive(service, on: on)
-        // zhimi.fan.za5 (7.9): the speed is the vendor `speed-level`, idle while `speed-now` is 0.
-        let speedLevel = model == "zhimi.fan.za5" ? spec.anyProperty("speed-level", in: "custom-service") : nil
-        let speedNow = model == "zhimi.fan.za5" ? spec.anyProperty("speed-now", in: "custom-service") : nil
+        // A curated override (7.9): the speed is a vendor range, idle while another property is 0.
+        let speedLevel = property(quirks.speed?.level), speedNow = property(quirks.speed?.idleAtZero)
         let current = service.characteristic(adding: .currentFanState)
         bind([on, speedNow]) { values, _ in
             guard let on, let isOn = Self.bool(values[on.key]) else { return }
@@ -1025,35 +1036,5 @@ final class MiotAccessoryBuilder {
             service.characteristic(.resetFilterIndication).onWrite { _ in try await handle.run(reset) }
         }
         return service
-    }
-}
-
-/// Hue and Saturation written together (7.2): each waits up to `wait` for the other; the first to have both sends.
-actor ColorWrite {
-    private let wait: Duration
-    private var hue: Double?
-    private var saturation: Double?
-    private var generation = 0
-
-    init(wait: Duration) { self.wait = wait }
-
-    /// The colour to send now, or nil when the other write sends it.
-    func set(hue newHue: Double?, saturation newSaturation: Double?, current: (hue: Double, saturation: Double)) async -> (hue: Double, saturation: Double)? {
-        if let newHue { hue = newHue }
-        if let newSaturation { saturation = newSaturation }
-        generation += 1
-        let mine = generation
-        if let hue, let saturation {
-            self.hue = nil
-            self.saturation = nil
-            return (hue, saturation)
-        }
-        try? await Task.sleep(for: wait)
-        // Another write came meanwhile: it sends.
-        guard generation == mine, hue != nil || saturation != nil else { return nil }
-        let both = (hue ?? current.hue, saturation ?? current.saturation)
-        hue = nil
-        saturation = nil
-        return both
     }
 }

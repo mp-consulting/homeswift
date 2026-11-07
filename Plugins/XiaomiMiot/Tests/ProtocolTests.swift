@@ -99,6 +99,10 @@ struct ProtocolTests {
         let dirty = Data(#"{"a":"b\#u{01}\#u{7f}\#u{85}c"}"#.utf8) + Data([0])
         #expect(String(decoding: MiioPacket.clean(dirty), as: UTF8.self) == #"{"a":"bc"}"#)
         #expect(String(decoding: MiioPacket.clean(Data("x\n\ry".utf8)), as: UTF8.self) == "x\n\ry")
+        // Nothing to remove: the data as it came, UTF-8 included; bytes that are not UTF-8 are cleaned as text.
+        let clean = Data(#"{"name":"Lampe café","on":true}"#.utf8)
+        #expect(MiioPacket.clean(clean) == clean)
+        #expect(MiioPacket.clean(Data([0x61, 0xFF, 0x62])) == Data("a\u{FFFD}b".utf8))
     }
 
     /// 5.6: ids start at 1, a retry adds 100, 10000 wraps to 1.

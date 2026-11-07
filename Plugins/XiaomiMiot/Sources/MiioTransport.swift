@@ -148,7 +148,11 @@ actor MiioClient {
     private var lastPacket: ContinuousClock.Instant?
     private var lastID = 0
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
+    /// Each pending request's send and timeout, cancelled when its reply comes.
+    private var timers: [Int: Task<Void, Never>] = [:]
     private var handshakeWaiter: CheckedContinuation<Bool, Never>?
+    /// The waiting handshake's hello and timeout, cancelled when the reply comes.
+    private var handshakeTimer: Task<Void, Never>?
     private var handshakeGeneration = 0
     /// Packets that came but failed the checksum or the decryption, since the last request began.
     private var rejected = 0
@@ -173,8 +177,12 @@ actor MiioClient {
         await hub.unregister(host: host, client: self)
         for continuation in pending.values { continuation.resume(throwing: CancellationError()) }
         pending.removeAll()
+        for timer in timers.values { timer.cancel() }
+        timers.removeAll()
         handshakeWaiter?.resume(returning: false)
         handshakeWaiter = nil
+        handshakeTimer?.cancel()
+        handshakeTimer = nil
     }
 
     /// Follows the device to a new address (the hello broadcast or the cloud list saw it there).
@@ -256,9 +264,10 @@ actor MiioClient {
         let generation = handshakeGeneration
         return await withCheckedContinuation { continuation in
             handshakeWaiter?.resume(returning: false)
+            handshakeTimer?.cancel()
             // Waiting before it goes out: the reply may come at once.
             handshakeWaiter = continuation
-            Task { [weak self] in
+            handshakeTimer = Task { [weak self] in
                 do {
                     try await hub.send(MiioPacket.hello, to: host)
                 } catch {
@@ -267,6 +276,7 @@ actor MiioClient {
                     return
                 }
                 try? await Task.sleep(for: timeout)
+                guard !Task.isCancelled else { return }
                 await self?.handshakeTimedOut(generation)
             }
         }
@@ -276,6 +286,7 @@ actor MiioClient {
         // Only the handshake still waiting: a reply may have come meanwhile, or another handshake begun.
         guard generation == handshakeGeneration, let waiter = handshakeWaiter else { return }
         handshakeWaiter = nil
+        handshakeTimer = nil
         waiter.resume(returning: false)
     }
 
@@ -284,7 +295,7 @@ actor MiioClient {
         return try await withCheckedThrowingContinuation { continuation in
             // Waiting before it goes out: the reply may come at once.
             pending[id] = continuation
-            Task { [weak self] in
+            timers[id] = Task { [weak self] in
                 do {
                     try await hub.send(packet, to: host)
                 } catch {
@@ -292,12 +303,14 @@ actor MiioClient {
                     return
                 }
                 try? await Task.sleep(for: timeout)
+                guard !Task.isCancelled else { return }
                 await self?.expire(id)
             }
         }
     }
 
     private func expire(_ id: Int) {
+        timers[id] = nil
         pending.removeValue(forKey: id)?.resume(throwing: MiioError.timeout)
     }
 
@@ -310,6 +323,8 @@ actor MiioClient {
             if deviceID != packet.deviceID { deviceID = packet.deviceID }
             handshakeWaiter?.resume(returning: true)
             handshakeWaiter = nil
+            handshakeTimer?.cancel()
+            handshakeTimer = nil
             return
         }
         guard packet.verifies(with: token), let plain = try? packet.decrypt(with: token) else {
@@ -324,6 +339,7 @@ actor MiioClient {
             return
         }
         guard let continuation = pending.removeValue(forKey: id) else { return }
+        timers.removeValue(forKey: id)?.cancel()
         if let error = reply["error"], error.objectValue != nil {
             continuation.resume(throwing: MiioError.device(code: error["code"]?.intValue ?? 0, message: error["message"]?.stringValue ?? ""))
         } else {

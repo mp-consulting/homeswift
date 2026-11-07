@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
@@ -91,18 +92,9 @@ enum MiCloudSigning {
         return ([("data", encryptedData), ("rc4_hash__", encryptedHash), ("signature", signature), ("ssecurity", ssecurity), ("_nonce", nonce)], signedNonce)
     }
 
-    /// The legacy unsigned form's signature (4.7, `unencryptedRequests`): base64 of HMAC-SHA-256 keyed with the decoded
-    /// signed nonce over `<path>&<signed nonce>&<nonce>&data=<data>`. Homeswift does not send that form; kept for its
-    /// vector (12.9).
-    static func legacySignature(path: String, signedNonce: String, nonce: String, data: String) -> String? {
-        guard let key = Data(base64Encoded: signedNonce) else { return nil }
-        let text = "\(path)&\(signedNonce)&\(nonce)&data=\(data)"
-        return Data(HMAC<SHA256>.authenticationCode(for: Data(text.utf8), using: SymmetricKey(data: key))).base64EncodedString()
-    }
-
     /// The password as the account wants it: uppercase hex MD5 of its UTF-8 (12.10).
     static func passwordHash(_ password: String) -> String {
-        Insecure.MD5.hash(data: Data(password.utf8)).map { String(format: "%02X", $0) }.joined()
+        Secrets.hex(Insecure.MD5.hash(data: Data(password.utf8))).uppercased()
     }
 }
 
@@ -117,8 +109,7 @@ struct MiSession: Sendable, Equatable {
     var timestamp: Double
     var loggedInAt: String?
     var loginMethod: String
-    var agentID: String
-    var clientID: String
+    var identity: MiCloud.Identity
     var country: String?
 
     init(ssecurity: String, userID: String, cUserID: String?, serviceToken: String, passToken: String?, loginMethod: String, identity: MiCloud.Identity,
@@ -131,15 +122,14 @@ struct MiSession: Sendable, Equatable {
         timestamp = (now.timeIntervalSince1970 * 1000).rounded()
         loggedInAt = ISO8601DateFormatter().string(from: now)
         self.loginMethod = loginMethod
-        agentID = identity.agentID
-        clientID = identity.clientID
+        self.identity = identity
         self.country = country
     }
 
     /// From the file or the vault; userId may be a number.
     init?(json: JSONValue) {
         guard let ssecurity = json["ssecurity"]?.stringValue, let serviceToken = json["serviceToken"]?.stringValue,
-              let userID = json["userId"].flatMap({ $0.stringValue ?? $0.intValue.map(String.init) }) else { return nil }
+              let userID = json["userId"]?.idText else { return nil }
         self.ssecurity = ssecurity
         self.serviceToken = serviceToken
         self.userID = userID
@@ -148,24 +138,23 @@ struct MiSession: Sendable, Equatable {
         timestamp = json["timestamp"]?.doubleValue ?? 0
         loggedInAt = json["loggedInAt"]?.stringValue
         loginMethod = json["loginMethod"]?.stringValue ?? "unknown"
-        agentID = json["agentId"]?.stringValue ?? MiCloud.Identity.random().agentID
-        clientID = json["clientId"]?.stringValue ?? MiCloud.Identity.random().clientID
+        identity = MiCloud.Identity(json: json) ?? .random()
         country = json["country"]?.stringValue
     }
 
     var json: JSONValue {
-        var fields: [String: JSONValue] = [
-            "ssecurity": .string(ssecurity), "userId": .string(userID), "serviceToken": .string(serviceToken), "timestamp": .number(timestamp),
-            "loginMethod": .string(loginMethod), "agentId": .string(agentID), "clientId": .string(clientID),
-        ]
+        var fields = identity.fields
+        fields["ssecurity"] = .string(ssecurity)
+        fields["userId"] = .string(userID)
+        fields["serviceToken"] = .string(serviceToken)
+        fields["timestamp"] = .number(timestamp)
+        fields["loginMethod"] = .string(loginMethod)
         if let cUserID { fields["cUserId"] = .string(cUserID) }
         if let passToken { fields["passToken"] = .string(passToken) }
         if let loggedInAt { fields["loggedInAt"] = .string(loggedInAt) }
         if let country { fields["country"] = .string(country) }
         return .object(fields)
     }
-
-    var identity: MiCloud.Identity { MiCloud.Identity(agentID: agentID, clientID: clientID) }
 }
 
 /// A device of the account's list (4.9).
@@ -177,12 +166,11 @@ struct CloudDevice: Sendable, Equatable {
     var ip: String?
     var mac: String?
     var ssid: String?
-    var isOnline: Bool?
     var firmware: String?
     var parentID: String?
 
     init?(json: JSONValue) {
-        guard let did = json["did"].flatMap({ $0.stringValue ?? $0.intValue.map(String.init) }), !did.isEmpty else { return nil }
+        guard let did = json["did"]?.idText else { return nil }
         self.did = did
         token = json["token"]?.stringValue?.nonEmpty
         name = json["name"]?.stringValue?.nonEmpty
@@ -190,9 +178,8 @@ struct CloudDevice: Sendable, Equatable {
         ip = json["localip"]?.stringValue?.nonEmpty
         mac = json["mac"]?.stringValue?.nonEmpty
         ssid = json["ssid"]?.stringValue?.nonEmpty
-        isOnline = json["isOnline"]?.boolValue
         firmware = json["extra"]?["fw_version"]?.stringValue?.nonEmpty
-        parentID = json["parent_id"].flatMap { $0.stringValue ?? $0.intValue.map(String.init) }?.nonEmpty
+        parentID = json["parent_id"]?.idText
     }
 
     /// Out of scope (section 10): BLE (`blt.`), sub-devices behind a gateway, devices without a LAN address or Wi-Fi.
@@ -202,11 +189,7 @@ struct CloudDevice: Sendable, Equatable {
     }
 
     /// The MAC as the Serial Number (uppercase hex, no separators).
-    var serialNumber: String? {
-        guard let mac else { return nil }
-        let hex = mac.uppercased().filter(\.isHexDigit)
-        return hex.count == 12 ? hex : nil
-    }
+    var serialNumber: String? { mac.flatMap(MiCloud.serialNumber(mac:)) }
 }
 
 /// The Xiaomi account: sign-in and the device list (section 4).
@@ -226,7 +209,26 @@ struct MiCloud: Sendable {
                      clientID: String((0..<6).map { _ in "ABCDEFGHIJKLMNOPQRSTUVWXYZ".randomElement()! }))
         }
 
+        init(agentID: String, clientID: String) {
+            self.agentID = agentID
+            self.clientID = clientID
+        }
+
+        /// From a session file or a Setup step's state (`agentId`, `clientId`).
+        init?(json: JSONValue) {
+            guard let agentID = json["agentId"]?.stringValue, let clientID = json["clientId"]?.stringValue else { return nil }
+            self.init(agentID: agentID, clientID: clientID)
+        }
+
+        /// As a session file and a Setup step's state keep it.
+        var fields: [String: JSONValue] { ["agentId": .string(agentID), "clientId": .string(clientID)] }
+
         var userAgent: String { "Android-7.1.1-1.0.0-ONEPLUS A3010-136-\(agentID) APP/com.xiaomi.mihome APPV/10.5.201" }
+    }
+
+    /// A MAC as the Serial Number: uppercase hex without separators.
+    static func serialNumber(mac: String) -> String? {
+        MACAddress.canonical(mac)?.filter { $0 != ":" }
     }
 
     enum CloudError: Error, CustomStringConvertible, Equatable {
@@ -275,6 +277,15 @@ struct MiCloud: Sendable {
         return jar
     }
 
+    /// The account's cookies a session's requests carry: `userId`, and `cUserId` and `passToken` when known, over `jar`.
+    static func sessionJar(userID: String, cUserID: String?, passToken: String?, over jar: Jar = [:]) -> Jar {
+        var jar = jar
+        jar["userId"] = userID
+        if let cUserID { jar["cUserId"] = cUserID }
+        if let passToken { jar["passToken"] = passToken }
+        return jar
+    }
+
     static func cookieHeader(_ jar: Jar) -> String {
         jar.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
     }
@@ -291,6 +302,8 @@ struct MiCloud: Sendable {
 
     private func request(_ url: String, method: String = "GET", identity: Identity, jar: Jar, form: [(String, String)]? = nil,
                          headers: [(String, String)] = [], timeout: Duration = .seconds(15)) async throws -> HTTPResponse {
+        // The session's cookies go to Xiaomi's own hosts, over HTTPS only: every hop of a sign-in, wherever it leads.
+        guard Self.isXiaomiHTTPS(url) else { throw CloudError.failed("Xiaomi's sign-in led outside Xiaomi") }
         guard let address = URL(string: url) else { throw CloudError.failed("bad address") }
         var cookies = jar
         cookies["sdkVersion"] = Self.sdkVersion
@@ -313,7 +326,6 @@ struct MiCloud: Sendable {
     struct QRLogin: Sendable, Equatable {
         var qr: String
         var longPoll: String
-        var loginURL: String
         var timeout: Int
     }
 
@@ -326,7 +338,7 @@ struct MiCloud: Sendable {
         guard response.isSuccess, let json = Self.accountJSON(response.body), let qr = json["qr"]?.stringValue, let longPoll = json["lp"]?.stringValue else {
             throw CloudError.failed("Xiaomi did not make a QR code (HTTP \(response.status))")
         }
-        return QRLogin(qr: qr, longPoll: longPoll, loginURL: json["loginUrl"]?.stringValue ?? qr, timeout: json["timeout"]?.intValue ?? 120)
+        return QRLogin(qr: qr, longPoll: longPoll, timeout: json["timeout"]?.intValue ?? 120)
     }
 
     enum PollResult: Sendable, Equatable {
@@ -343,22 +355,13 @@ struct MiCloud: Sendable {
             return .pending
         }
         guard response.status == 200 else { throw CloudError.failed("the QR code login failed (HTTP \(response.status))") }
-        guard let json = Self.accountJSON(response.body), let ssecurity = json["ssecurity"]?.stringValue,
-              let userID = json["userId"].flatMap({ $0.stringValue ?? $0.intValue.map(String.init) }), let location = json["location"]?.stringValue else {
-            return .pending
-        }
-        let cUserID = json["cUserId"]?.stringValue, passToken = json["passToken"]?.stringValue
-        var jar: Jar = ["userId": userID]
-        if let cUserID { jar["cUserId"] = cUserID }
-        if let passToken { jar["passToken"] = passToken }
-        let serviceToken = try await serviceToken(location: location, identity: identity, jar: jar)
-        return .scanned(MiSession(ssecurity: ssecurity, userID: userID, cUserID: cUserID, serviceToken: serviceToken, passToken: passToken,
-                                  loginMethod: "qr", identity: identity, country: country, now: now()))
+        // Not confirmed yet: the body has no session.
+        guard let session = try await finish(Self.accountJSON(response.body), method: "qr", identity: identity, jar: [:], country: country) else { return .pending }
+        return .scanned(session)
     }
 
     /// `GET <location>`: the response's `serviceToken` cookie completes the session.
     private func serviceToken(location: String, identity: Identity, jar: Jar) async throws -> String {
-        guard Self.isXiaomiHTTPS(location) else { throw CloudError.failed("Xiaomi's sign-in led outside Xiaomi") }
         let response = try await request(location, identity: identity, jar: jar)
         guard let token = Self.cookies(from: response)["serviceToken"], !token.isEmpty else {
             throw CloudError.failed("Xiaomi did not give a service token (HTTP \(response.status))")
@@ -418,13 +421,10 @@ struct MiCloud: Sendable {
     /// A body with `ssecurity`, `userId` and `location`: the service token from the location.
     private func finish(_ json: JSONValue?, method: String, identity: Identity, jar: Jar, country: String) async throws -> MiSession? {
         guard let json, let ssecurity = json["ssecurity"]?.stringValue, ssecurity.count > 4,
-              let userID = json["userId"].flatMap({ $0.stringValue ?? $0.intValue.map(String.init) }), let location = json["location"]?.stringValue,
+              let userID = json["userId"]?.idText, let location = json["location"]?.stringValue,
               !location.isEmpty else { return nil }
-        var jar = jar
-        jar["userId"] = userID
         let cUserID = json["cUserId"]?.stringValue, passToken = json["passToken"]?.stringValue
-        if let cUserID { jar["cUserId"] = cUserID }
-        if let passToken { jar["passToken"] = passToken }
+        let jar = Self.sessionJar(userID: userID, cUserID: cUserID, passToken: passToken, over: jar)
         let token = try await serviceToken(location: location, identity: identity, jar: jar)
         return MiSession(ssecurity: ssecurity, userID: userID, cUserID: cUserID, serviceToken: token, passToken: passToken, loginMethod: method,
                          identity: identity, country: country, now: now())
@@ -433,7 +433,6 @@ struct MiCloud: Sendable {
     /// Opens the two-factor page, finds the account's identities, and has the code sent by email.
     func startTwoFactor(notification: String, identity: Identity, jar: Jar) async throws -> TwoFactor {
         var jar = jar
-        guard Self.isXiaomiHTTPS(notification) else { throw CloudError.failed("Xiaomi's sign-in led outside Xiaomi") }
         let page = try await request(notification, identity: identity, jar: jar)
         jar.merge(Self.cookies(from: page)) { $1 }
         guard let context = URLComponents(string: notification)?.queryItems?.first(where: { $0.name == "context" })?.value else {
@@ -490,8 +489,6 @@ struct MiCloud: Sendable {
         var location = next
         while let current = location, hops < 10 {
             hops += 1
-            // The session's cookies go to Xiaomi's own hosts, over HTTPS only.
-            guard Self.isXiaomiHTTPS(current) else { throw CloudError.failed("Xiaomi's sign-in led outside Xiaomi") }
             let response = try await request(current, identity: identity, jar: jar)
             jar.merge(Self.cookies(from: response)) { $1 }
             if let pragma = response.header("extension-pragma"), let fields = try? JSONValue(string: pragma), let found = fields["ssecurity"]?.stringValue {
@@ -518,8 +515,7 @@ struct MiCloud: Sendable {
     /// A QR session's refresh (4.6): `serviceLogin` with its `userId` and `passToken` may answer at once.
     func refresh(_ session: MiSession) async throws -> MiSession? {
         guard let passToken = session.passToken else { return nil }
-        var jar: Jar = ["userId": session.userID, "passToken": passToken]
-        if let cUserID = session.cUserID { jar["cUserId"] = cUserID }
+        var jar = Self.sessionJar(userID: session.userID, cUserID: session.cUserID, passToken: passToken)
         let response = try await request("\(Self.accountHost)/pass/serviceLogin?sid=xiaomiio&_json=true", identity: session.identity, jar: jar)
         jar.merge(Self.cookies(from: response)) { $1 }
         return try await finish(Self.accountJSON(response.body), method: session.loginMethod, identity: session.identity, jar: jar, country: session.country ?? "cn")
@@ -533,7 +529,7 @@ struct MiCloud: Sendable {
         guard let signed = MiCloudSigning.fields(url: url, data: data.text, ssecurity: session.ssecurity, nonce: nonce) else { throw CloudError.refused }
         guard let address = URL(string: url) else { throw CloudError.failed("bad address") }
         let cookies: Jar = [
-            "sdkVersion": Self.sdkVersion, "deviceId": session.clientID, "userId": session.userID, "yetAnotherServiceToken": session.serviceToken,
+            "sdkVersion": Self.sdkVersion, "deviceId": session.identity.clientID, "userId": session.userID, "yetAnotherServiceToken": session.serviceToken,
             "serviceToken": session.serviceToken, "locale": "en", "channel": "MI_APP_STORE",
         ]
         let request = HTTPRequest(method: "POST", url: address, headers: [

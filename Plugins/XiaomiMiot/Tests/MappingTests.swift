@@ -79,6 +79,24 @@ import Testing
         try? FileManager.default.removeItem(at: directory)
     }
 
+    /// Devices of one model starting together: one fetch of its spec, one list of each status.
+    @Test func registryFetchesAModelOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("miot-registry-\(UUID().uuidString)")
+        let http = FakeHTTP()
+        let registry = SpecRegistry(http: http, file: { JSONFile(url: directory.appendingPathComponent("spec_\($0).json")) }, logger: testLogger)
+        let types = try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<5 { group.addTask { try await registry.spec(model: "cuco.plug.v3").type } }
+            return try await group.reduce(into: Set<String>()) { $0.insert($1) }
+        }
+        #expect(types.count == 1)
+        #expect(http.count("https://miot-spec.org/miot-spec-v2/instance?type=") == 1)
+        #expect(http.count("https://miot-spec.org/miot-spec-v2/instances?status=released") == 1)
+        // A refresh the same day asks nothing; the list is kept a day.
+        _ = try await registry.spec(model: "cuco.plug.v3", refresh: true)
+        #expect(http.count("https://miot-spec.org/miot-spec-v2/instances") == 1)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     /// 6.3: homebridge-miot's names: a second service of a name gets its siid, items their own names.
     @Test func names() {
         let spec = Fixture.spec("dreame.vacuum.p2009")

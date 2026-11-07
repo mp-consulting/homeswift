@@ -145,7 +145,7 @@ actor MiotDevice: MiotDeviceIO {
                 legacy?.accessory.information.characteristic(.firmwareRevision).value = .string(version)
             }
             // The device's MAC is its Serial Number when the cloud gave none.
-            if serialNumber == did, let mac = info["mac"]?.stringValue.map({ $0.uppercased().filter(\.isHexDigit) }), mac.count == 12 {
+            if serialNumber == did, let mac = info["mac"]?.stringValue.flatMap(MiCloud.serialNumber(mac:)) {
                 serialNumber = mac
                 for accessory in [built?.accessory, legacy?.accessory].compactMap({ $0 }) {
                     accessory.information.characteristic(.serialNumber).value = .string(mac)
@@ -249,7 +249,7 @@ actor MiotDevice: MiotDeviceIO {
     // MARK: Building
 
     private func build(spec: MiotSpec, model: String) {
-        if MiotSpec.skippedDeviceTypes.contains(spec.deviceType) || spec.deviceType == "vacuum-cleaner" {
+        if MiotSpec.skippedDeviceTypes.contains(spec.deviceType) {
             path = .unsupported
             problem = "\(spec.deviceType) devices are not supported"
             logger.info("\(name) (\(model)) is a \(spec.deviceType): not supported")
@@ -333,7 +333,7 @@ actor MiotDevice: MiotDeviceIO {
 
     /// The values of `keys` the device answers (an item with an error keeps the old value).
     func readProperties(_ keys: [PropertyKey]) async throws -> PropertyValues {
-        let size = options.propertyChunkSize ?? (model == "zhimi.airp.cpa4" ? 3 : 14)
+        let size = options.propertyChunkSize ?? MiotSpec.quirks(model: model).chunkSize ?? 14
         var read: PropertyValues = [:]
         var start = 0
         while start < keys.count {
@@ -406,7 +406,7 @@ actor MiotDevice: MiotDeviceIO {
 
     func run(_ action: MiotSpec.Action, inputs: [JSONValue]) async throws {
         guard isReachable else { throw HAPStatusError(.serviceCommunicationFailure) }
-        let plain = model == "ijai.vacuum.v3" || model == "ijai.vacuum.v18"
+        let plain = MiotSpec.quirks(model: model).plainActionInputs
         var entries: [OrderedJSON] = []
         for (index, input) in inputs.enumerated() where !input.isNull {
             if let piid = input["piid"]?.intValue, let value = input["value"] {
@@ -455,12 +455,18 @@ actor MiotDevice: MiotDeviceIO {
         await client.move(to: newHost)
     }
 
+    /// Its Device Kind: its spec's device type; a vacuum on the legacy path; else its model's.
+    var kind: String {
+        if let spec { return MiotSpec.kind(deviceType: spec.deviceType) }
+        if path == .legacy { return "vacuum" }
+        return model.map(MiotSpec.kind(model:)) ?? "other"
+    }
+
     /// What the page lists.
     func summary() -> JSONValue {
         var fields: [String: JSONValue] = [
             "deviceId": .string(did), "accessoryId": .string(accessoryID), "name": .string(name), "ip": .string(host),
-            "reachable": .bool(isReachable), "path": .string(path.rawValue), "firmware": .string(firmware),
-            "kind": .string(spec.map { MiotSpec.kind(deviceType: $0.deviceType) } ?? (path == .legacy ? "vacuum" : model.map(MiotSpec.kind(model:)) ?? "other")),
+            "reachable": .bool(isReachable), "path": .string(path.rawValue), "firmware": .string(firmware), "kind": .string(kind),
             "pollingInterval": .number(Double(interval.components.seconds)),
         ]
         if let model { fields["model"] = .string(model) }

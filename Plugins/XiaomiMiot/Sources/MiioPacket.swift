@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 import _CryptoExtras
 
@@ -9,26 +10,26 @@ import _CryptoExtras
 /// A device's token: 16 bytes, written as 32 hexadecimal characters. Never logged.
 struct MiioToken: Sendable, Equatable {
     let bytes: [UInt8]
+    /// key = MD5(token) (section 5.4).
+    let key: [UInt8]
+    /// IV = MD5(key ‖ token) (section 5.4; not OpenMiHome's MD5(MD5(key) ‖ token)).
+    let iv: [UInt8]
 
     /// From 32 hexadecimal characters, either case; nil otherwise.
     init?(hex: String) {
         let text = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count == 32, let bytes = Self.decode(text) else { return nil }
-        self.bytes = bytes
+        self.init(bytes: bytes)
     }
 
     init(bytes: [UInt8]) {
         self.bytes = bytes
+        key = Array(Insecure.MD5.hash(data: bytes))
+        iv = Array(Insecure.MD5.hash(data: key + bytes))
     }
 
     /// The token as lowercase hex, as it is stored.
-    var hex: String { bytes.map { String(format: "%02x", $0) }.joined() }
-
-    /// key = MD5(token) (section 5.4).
-    var key: [UInt8] { Array(Insecure.MD5.hash(data: bytes)) }
-
-    /// IV = MD5(key ‖ token) (section 5.4; not OpenMiHome's MD5(MD5(key) ‖ token)).
-    var iv: [UInt8] { Array(Insecure.MD5.hash(data: key + bytes)) }
+    var hex: String { Secrets.hex(bytes) }
 
     static func decode(_ hex: String) -> [UInt8]? {
         var bytes: [UInt8] = []
@@ -99,7 +100,11 @@ struct MiioPacket: Sendable, Equatable {
 
     /// MD5 over header bytes 0–15, the token, then the ciphertext (section 5.5).
     static func checksum(header: [UInt8], token: MiioToken, ciphertext: [UInt8]) -> [UInt8] {
-        Array(Insecure.MD5.hash(data: header + token.bytes + ciphertext))
+        var md5 = Insecure.MD5()
+        md5.update(data: header)
+        md5.update(data: token.bytes)
+        md5.update(data: ciphertext)
+        return Array(md5.finalize())
     }
 
     /// A request: the JSON payload encrypted, then the header with its checksum.
@@ -134,6 +139,7 @@ struct MiioPacket: Sendable, Equatable {
     /// One trailing NUL dropped, then the control characters 0x00–0x09, 0x0B–0x0C, 0x0E–0x1F and 0x7F–0x9F removed (some
     /// devices send invalid JSON). The range 0x80–0x9F is the C1 controls as characters, not UTF-8 continuation bytes.
     static func clean(_ data: Data) -> Data {
+        if !needsCleaning(data) { return data }
         var bytes = [UInt8](data)
         if bytes.last == 0 { bytes.removeLast() }
         let text = String(decoding: bytes, as: UTF8.self)
@@ -146,6 +152,23 @@ struct MiioPacket: Sendable, Equatable {
         var result = String.UnicodeScalarView()
         result.append(contentsOf: kept)
         return Data(String(result).utf8)
+    }
+
+    /// Whether `clean` would change the data: a trailing NUL, a control byte it removes, a C1 control (`C2 80`–`C2 9F`),
+    /// or bytes that are not UTF-8.
+    private static func needsCleaning(_ data: Data) -> Bool {
+        if data.last == 0 { return true }
+        var ascii = true, previous: UInt8 = 0
+        for byte in data {
+            switch byte {
+            case 0x00...0x09, 0x0B...0x0C, 0x0E...0x1F, 0x7F: return true
+            case 0x80...0x9F where previous == 0xC2: return true
+            case 0x80...: ascii = false
+            default: break
+            }
+            previous = byte
+        }
+        return !ascii && String(data: data, encoding: .utf8) == nil
     }
 
     private static func uint16(_ bytes: [UInt8], _ offset: Int) -> UInt16 {

@@ -12,11 +12,14 @@ extension XiaomiMiotPlugin {
             case ("GET", "devices"):
                 var list: [JSONValue] = []
                 for (_, device) in devices.sorted(by: { $0.key < $1.key }) { list.append(await device.summary()) }
+                let known = known
                 let excluded: [JSONValue] = context.excludedDeviceIDs.sorted().map { did in
                     ["deviceId": .string(did), "accessoryId": .string(context.accessoryID(of: did)),
-                     "name": .string(context.accessorySettings(for: did).name ?? knownDevices.load()?[did]?.name ?? did)]
+                     "name": .string(context.accessorySettings(for: did).name ?? known[did]?.name ?? did)]
                 }
-                return PluginWebResponse(["devices": .array(list), "excluded": .array(excluded), "accountSetUp": .bool(session() != nil)])
+                // The vault's names only: whether the account has credentials, none of them opened.
+                let accountSetUp = context.haveCredentials([nil]).contains(nil)
+                return PluginWebResponse(["devices": .array(list), "excluded": .array(excluded), "accountSetUp": .bool(accountSetUp)])
             case ("GET", "properties"):
                 let device = try device(for: request.query["did"] ?? request.body["did"]?.stringValue)
                 return PluginWebResponse(try await device.describe())

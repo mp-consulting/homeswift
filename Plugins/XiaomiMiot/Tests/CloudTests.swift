@@ -69,13 +69,6 @@ import Testing
         #expect(MiotSpec.kind(model: device.model ?? "") == "light")
     }
 
-    /// 12.9 (reference only): the legacy unsigned form's signature.
-    @Test func legacySignature() {
-        #expect(MiCloudSigning.legacySignature(path: "/home/device_list", signedNonce: Self.signedNonce, nonce: Self.nonce, data: Self.data)
-            == "JbxFY1bUVgANhq7Ncm2kpKLkJUFoszxRc0Y4TO1X3CM=")
-    }
-
-    /// Section 10: what the account lists that is out of scope.
     /// The sign-in's cookies only go to Xiaomi's hosts over HTTPS.
     @Test func xiaomiHosts() {
         #expect(MiCloud.isXiaomiHTTPS("https://account.xiaomi.com/identity/result/check"))
@@ -85,6 +78,7 @@ import Testing
         #expect(!MiCloud.isXiaomiHTTPS("https://evilmi.com/"))
     }
 
+    /// Section 10: what the account lists that is out of scope.
     @Test func outOfScope() throws {
         func device(_ fields: [String: JSONValue]) -> CloudDevice {
             var base: [String: JSONValue] = ["did": "1", "localip": "192.168.1.9", "ssid": "Home", "model": "zhimi.fan.za5"]

@@ -338,6 +338,9 @@ struct PluginTests {
         #expect(outcome.credentials?["session"]?["loginMethod"] == "qr")
         #expect(outcome.credentials?["session"]?["userId"] == "42")
         #expect(outcome.settings["micloud"]?["country"] == "de")
+        // Nothing is kept before the bridge saves the outcome's credentials, the session's only store.
+        #expect(await plugin.session() == nil)
+        try plugin.context.saveCredentials(try #require(outcome.credentials))
         #expect(await plugin.session()?.ssecurity == FakeCloud.ssecurity)
         // Time up: expired.
         environment.now.withLockedValue { $0 = $0.addingTimeInterval(400) }
@@ -486,6 +489,59 @@ struct PluginTests {
         await host.stop()
     }
 
+    /// Hue and Saturation written together go as one colour; one alone goes with the other's shown value.
+    @Test func colourWrites() async throws {
+        let device = lamp()
+        let host = try await environment.start(settings: block([entry()]))
+        #expect(await eventually { environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.brightness]?.value == .int(40) })
+        let light = try #require(environment.accessory(host, did: Self.did)?.service(.lightbulb))
+        let hue = try #require(light[.hue]), saturation = try #require(light[.saturation])
+        let before = device.calls("set_properties").count
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await hue.write(.double(240)) }
+            group.addTask { try await saturation.write(.double(50)) }
+            try await group.waitForAll()
+        }
+        #expect(device["2.4"] == .number(8_421_631))
+        #expect(device.calls("set_properties").count == before + 1)
+        try await hue.write(.double(0))
+        #expect(device["2.4"] == .number(Double(MiotConversions.rgb(hue: 0, saturation: 50))))
+        await host.stop()
+    }
+
+    /// homebridge-miot's session file is read once, when the account's credentials hold none: it moves into them.
+    @Test func legacySessionMovesIntoTheCredentials() async throws {
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        let folder = plugin.context.storageDirectory.appendingPathComponent(".miot_micloud")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let session: JSONValue = ["ssecurity": .string(FakeCloud.ssecurity), "userId": 42, "serviceToken": "file-token", "agentId": "ABCDEABCDEABC", "clientId": "XYZXYZ"]
+        try session.encoded().write(to: folder.appendingPathComponent("cachedSession"))
+        let read = try #require(await plugin.session())
+        #expect(read.serviceToken == "file-token" && read.userID == "42" && read.identity == MiCloud.Identity(agentID: "ABCDEABCDEABC", clientID: "XYZXYZ"))
+        #expect(plugin.context.credentials()?["session"]?["serviceToken"] == "file-token")
+        #expect(plugin.context.credentials()?["session"]?["agentId"] == "ABCDEABCDEABC")
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("cachedSession").path))
+        await host.stop()
+    }
+
+    /// A device the hello finds at another address moves there, and runs there after a restart.
+    @Test func movedDeviceKeepsItsAddress() async throws {
+        let device = lamp(ip: "192.168.1.60")
+        let first = try await environment.start(settings: block([entry(ip: "192.168.1.50")]))
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.device(Self.did) != nil })
+        _ = try await plugin.discover()
+        #expect(await eventually { environment.accessory(first, did: Self.did)?.service(.lightbulb)?[.brightness]?.value == .int(40) })
+        await first.stop()
+        let second = try await environment.start(settings: block([entry(ip: "192.168.1.50")]))
+        let restarted = try #require(environment.plugin)
+        #expect(await restarted.configuredDevices().first?.ip == "192.168.1.60")
+        device["2.2"] = 70
+        #expect(await eventually { environment.accessory(second, did: Self.did)?.service(.lightbulb)?[.brightness]?.value == .int(70) })
+        await second.stop()
+    }
+
     /// A device without deviceId keeps its accessory when it is off at the next start: its did was kept.
     @Test func learnedDIDOutlivesARestart() async throws {
         let device = lamp()
@@ -509,6 +565,19 @@ struct PluginTests {
         device["2.2"] = 80
         #expect(await eventually { environment.accessory(host, did: Self.did)?.service(.lightbulb)?[.brightness]?.value == .int(80) })
         await host.stop()
+    }
+
+    /// A learned address holds while the settings still name the old one; an address a person writes since wins.
+    @Test func settingsAddressWinsOverALearnedOne() {
+        let moved = XiaomiMiotPlugin.Moved(from: "192.168.1.50", to: "192.168.1.77")
+        #expect(moved.address(configured: "192.168.1.50") == "192.168.1.77")
+        #expect(moved.address(configured: "192.168.1.77") == "192.168.1.77")
+        #expect(moved.address(configured: nil) == "192.168.1.77")
+        #expect(moved.address(configured: "192.168.1.90") == nil)
+        let block: JSONValue = ["_accessories": ["123456789": ["ip": "192.168.1.90"], "234567891": ["ip": "192.168.1.50"]]]
+        let result = XiaomiMiotPlugin.canonical(block, learnedAddresses: ["123456789": moved, "234567891": moved]).block
+        #expect(result["_accessories"]?["123456789"]?["ip"] == "192.168.1.90")
+        #expect(result["_accessories"]?["234567891"]?["ip"] == "192.168.1.77")
     }
 
     /// Add by address: the ip and the token; the hello's did is the Device Id.

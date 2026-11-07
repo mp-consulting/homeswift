@@ -1236,3 +1236,12 @@ These answer section 14 and bind the implementation. [Homeswift]
    `assistantActions` over the same routes (`properties`: read a device's properties by name or `siid.piid`;
    `set_property` and `run_action`: write one / run one, both `confirm: true`). Writes are sent over the LAN as any
    HomeKit write.
+10. **Where the session is kept** (amends 3.6): in the account's vault credentials only (`{"session": …}`, beside the
+    password way's `username` and `password`). homebridge-miot's `.miot_micloud/cachedSession` is read once, through
+    `context.secretFile("cachedSession", legacyFile:)`, moved into the credentials, and never written.
+11. **Learned state** (amends 9.2): the did a `devices[]` entry without `deviceId` answered with (by its address) and
+    the address a device was seen at (by did, with the address its settings named then) are kept in `learned.json`, so
+    a device that is off at the next start keeps its accessory and a moved one is reached where it was seen. An address
+    a person writes in the settings afterwards wins over a learned one.
+12. **Hue and saturation** (7.2): sent together through the bridge's `LightChangeBatcher`, its default window (30 ms)
+    within the spec's "up to 1 s".

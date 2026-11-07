@@ -209,21 +209,16 @@ extension MiotAccessoryBuilder {
 
     func valueSwitch(_ property: MiotSpec.Property, value: JSONValue, name: String, link: Link? = nil, also: (@Sendable () async throws -> Void)? = nil) {
         guard property.isWritable else { return }
-        let suffix = Self.subtypeValue(value)
-        let service = Service(.switch, name: serviceName(name), subtype: subtype("ctl-\(property.siid)-\(property.iid)-\(suffix)"))
-        let on = service.characteristic(.on)
-        on.value = .bool(false)
+        let label = serviceName(name), serviceSubtype = subtype("ctl-\(property.siid)-\(property.iid)-\(Self.subtypeValue(value))")
         let handle = handle, reset = timings.switchReset
         guard property.isReadable else {
             // Write-only (a curtain's motor control): stateless.
-            on.onWrite { [weak on] wanted in
-                guard wanted.boolValue == true else { return }
-                try await handle.write(property, value)
-                Task { try? await Task.sleep(for: reset); on?.value = .bool(false) }
-            }
-            add(service)
+            statelessSwitch(name: label, subtype: serviceSubtype) { try await handle.write(property, value) }
             return
         }
+        let service = Service(.switch, name: label, subtype: serviceSubtype)
+        let on = service.characteristic(.on)
+        on.value = .bool(false)
         bind([property, link?.property]) { values, _ in
             guard let current = values[property.key] else { return }
             Self.set(on, .bool(MiotSpec.sameValue(current, value) && (link?.holds(values) ?? true)))
@@ -264,16 +259,27 @@ extension MiotAccessoryBuilder {
 
     /// A stateless switch that writes `value` and turns itself off.
     func statelessWrite(_ property: MiotSpec.Property, value: JSONValue, name: String, suffix: String) {
-        let service = Service(.switch, name: serviceName(name), subtype: subtype("ctl-\(property.siid)-\(property.iid)-\(suffix)"))
+        let handle = handle
+        statelessSwitch(name: serviceName(name), subtype: subtype("ctl-\(property.siid)-\(property.iid)-\(suffix)")) {
+            try await handle.write(property, value)
+        }
+    }
+
+    /// A switch that runs `work` when turned on, then turns itself off; `name` and `subtype` as they are.
+    func statelessSwitch(name: String, subtype: String, _ work: @escaping @Sendable () async throws -> Void) {
+        add(Self.statelessSwitch(name: name, subtype: subtype, reset: timings.switchReset, work))
+    }
+
+    static func statelessSwitch(name: String, subtype: String, reset: Duration, _ work: @escaping @Sendable () async throws -> Void) -> Service {
+        let service = Service(.switch, name: name, subtype: subtype)
         let on = service.characteristic(.on)
         on.value = .bool(false)
-        let handle = handle, reset = timings.switchReset
         on.onWrite { [weak on] wanted in
             guard wanted.boolValue == true else { return }
-            try await handle.write(property, value)
+            try await work()
             Task { try? await Task.sleep(for: reset); on?.value = .bool(false) }
         }
-        add(service)
+        return service
     }
 
     /// A range as a Lightbulb (or a Fan v2): its percentage the range's position; on is a value above the minimum, off
@@ -337,7 +343,7 @@ extension MiotAccessoryBuilder {
             entries = spec.services.filter { $0.urn.name != "device-information" }.flatMap(\.actions).map { ($0.name, nil, []) }
         case .array(let items)?:
             for item in items {
-                if let reference = item.stringValue ?? item.intValue.map(String.init) {
+                if let reference = item.idText {
                     entries.append((reference, nil, []))
                 } else if let reference = item["action"]?.stringValue {
                     entries.append((reference, item["name"]?.stringValue, item["params"]?.arrayValue ?? []))
@@ -346,23 +352,17 @@ extension MiotAccessoryBuilder {
         default:
             return
         }
-        let handle = handle, reset = timings.switchReset
+        let handle = handle
         for (index, entry) in entries.enumerated() {
             guard let action = spec.action(named: entry.reference) else {
                 logger.warning("actionButtons: \(model) has no action \(entry.reference); skipped")
                 continue
             }
             let label = entry.name ?? MiotConversions.friendlyName(action.name)
-            let service = Service(.switch, name: serviceName(label), subtype: subtype("action-\(action.siid)-\(action.iid)-\(index)"))
-            let on = service.characteristic(.on)
-            on.value = .bool(false)
             let params = entry.params
-            on.onWrite { [weak on] value in
-                guard value.boolValue == true else { return }
+            statelessSwitch(name: serviceName(label), subtype: subtype("action-\(action.siid)-\(action.iid)-\(index)")) {
                 try await handle.run(action, params)
-                Task { try? await Task.sleep(for: reset); on?.value = .bool(false) }
             }
-            add(service)
         }
     }
 
@@ -373,18 +373,12 @@ extension MiotAccessoryBuilder {
     /// Stateless switches sending raw miIO methods (2.3), the result logged at info; for MIoT and legacy devices alike.
     static func methodButtons(options: DeviceOptions, handle: DeviceHandle, timings: AccessoryTimings, logger: Logger,
                               name: (String) -> String) -> [Service] {
-        let reset = timings.switchReset
         var services: [Service] = []
         for (index, item) in options.methodButtons.enumerated() {
             guard let method = item.stringValue ?? item["method"]?.stringValue, !method.isEmpty else { continue }
             let label = item["name"]?.stringValue ?? MiotConversions.friendlyName(method)
             let params = item["params"] ?? .array([])
-            let service = Service(.switch, name: name(label), subtype: "method-\(index)")
-            let on = service.characteristic(.on)
-            on.value = .bool(false)
-            on.onWrite { [weak on] value in
-                guard value.boolValue == true else { return }
-                Task { try? await Task.sleep(for: reset); on?.value = .bool(false) }
+            services.append(statelessSwitch(name: name(label), subtype: "method-\(index)", reset: timings.switchReset) {
                 do {
                     let result = try await handle.raw(method, params)
                     logger.info("Method \(method) answered \(result.text())")
@@ -394,8 +388,7 @@ extension MiotAccessoryBuilder {
                     logger.warning("Method \(method) failed: \(error)")
                     throw HAPStatusError(.serviceCommunicationFailure)
                 }
-            }
-            services.append(service)
+            })
         }
         return services
     }

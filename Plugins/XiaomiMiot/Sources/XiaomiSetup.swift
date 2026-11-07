@@ -13,33 +13,35 @@ extension XiaomiMiotPlugin {
 
     // MARK: The account's session
 
-    /// homebridge-miot's session file, in the vault (3.6); a copy of `.miot_micloud/cachedSession` moves in when read.
-    var sessionFile: SecretFile<JSONValue> {
+    /// homebridge-miot's session file (3.6), `.miot_micloud/cachedSession`: read once, when the account's credentials hold
+    /// no session, and never written.
+    private var legacySessionFile: SecretFile<JSONValue> {
         context.secretFile("cachedSession", as: JSONValue.self,
                            legacyFile: context.storageDirectory.appendingPathComponent(".miot_micloud").appendingPathComponent("cachedSession"))
     }
 
-    /// The account's credentials: the session Setup gave, and the username and password of the password way.
+    /// The account's credentials: the session (Setup's, or one renewed since), and the username and password of the
+    /// password way. The only place the session is kept.
     var accountCredentials: JSONValue? { context.credentials() }
 
-    /// The session: the newest of Setup's and the session file's.
+    /// The session of the account's credentials; without one, homebridge-miot's file's, moved into them the first time.
     func session() -> MiSession? {
-        let fromSetup = accountCredentials?["session"].flatMap(MiSession.init(json:))
-        let fromFile = sessionFile.load().flatMap(MiSession.init(json:))
-        switch (fromSetup, fromFile) {
-        case let (setup?, file?): return file.timestamp > setup.timestamp ? file : setup
-        case let (setup?, nil): return setup
-        case let (nil, file?): return file
-        default: return nil
-        }
+        if let session = accountCredentials?["session"].flatMap(MiSession.init(json:)) { return session }
+        guard !legacySessionRead else { return nil }
+        legacySessionRead = true
+        guard let session = legacySessionFile.load().flatMap(MiSession.init(json:)) else { return nil }
+        if keep(session) { legacySessionFile.remove() }
+        return session
     }
 
-    func keep(_ session: MiSession) {
-        try? sessionFile.save(session.json)
+    /// Keeps a session in the account's credentials, beside their username and password.
+    @discardableResult
+    func keep(_ session: MiSession) -> Bool {
         var credentials = accountCredentials?.objectValue ?? [:]
         credentials["session"] = session.json
-        try? context.saveCredentials(.object(credentials))
+        guard (try? context.saveCredentials(.object(credentials))) != nil else { return false }
         logger.info("Xiaomi session saved")
+        return true
     }
 
     public func accountAuthorized() async -> Bool? {
@@ -73,18 +75,15 @@ extension XiaomiMiotPlugin {
             return []
         }
         do {
-            return listed(try await cloud.devices(session: session, country: country), country: country)
-        } catch MiCloud.CloudError.refused {
-            guard let renewed = await renew(session) else {
-                context.accountRefused("The Xiaomi session expired; sign in again.")
-                return []
-            }
-            keep(renewed)
             do {
+                return listed(try await cloud.devices(session: session, country: country), country: country)
+            } catch MiCloud.CloudError.refused {
+                guard let renewed = await renew(session) else {
+                    context.accountRefused("The Xiaomi session expired; sign in again.")
+                    return []
+                }
+                keep(renewed)
                 return listed(try await cloud.devices(session: renewed, country: country), country: country)
-            } catch {
-                logger.warning("Could not list the Xiaomi account's devices: \(error)")
-                return []
             }
         } catch {
             logger.warning("Could not list the Xiaomi account's devices: \(error)")
@@ -148,7 +147,7 @@ extension XiaomiMiotPlugin {
         for reply in replies {
             let did = String(reply.deviceID)
             guard found[did] == nil else { continue }
-            let model = configured[did]?.options.model ?? knownDevices.load()?[did]?.model
+            let model = configured[did]?.options.model ?? known[did]?.model
             found[did] = DiscoveredDevice(deviceID: did, name: configured[did]?.options.name ?? model.map { "Xiaomi \($0)" } ?? "Xiaomi device \(did)",
                                           model: model, address: reply.address, authorization: .apiKey, isSetUp: configured[did] != nil,
                                           kind: await kind(did: did, model: model))
@@ -168,7 +167,7 @@ extension XiaomiMiotPlugin {
 
     /// A device's kind: its spec's device type when kept, else its model's middle segment.
     func kind(did: String, model: String?) async -> String {
-        if let running = devices[did], case let summary = await running.summary(), let kind = summary["kind"]?.stringValue, kind != "other" { return kind }
+        if let running = devices[did], case let kind = await running.kind, kind != "other" { return kind }
         guard let model else { return "other" }
         if MiotSpec.isLegacyVacuum(model: model) { return "vacuum" }
         if let spec = await registry.cached(model: model) { return MiotSpec.kind(deviceType: spec.deviceType) }
@@ -176,7 +175,7 @@ extension XiaomiMiotPlugin {
     }
 
     public func deviceKind(of deviceID: String) async -> String? {
-        let model = context.accessorySettings(for: deviceID).plugin["model"]?.stringValue ?? knownDevices.load()?[deviceID]?.model
+        let model = context.accessorySettings(for: deviceID).plugin["model"]?.stringValue ?? known[deviceID]?.model
         return await kind(did: deviceID, model: model)
     }
 
@@ -231,14 +230,14 @@ extension XiaomiMiotPlugin {
                 logger.warning("Xiaomi did not make a QR code: \(error)")
                 throw SetupError("Xiaomi did not make a QR code. Try again in a moment.")
             }
-            let state: JSONValue = [
-                "lp": .string(login.longPoll), "qr": .string(login.qr), "loginUrl": .string(login.loginURL), "deadline": .number(now + Double(login.timeout)),
-                "agentId": .string(identity.agentID), "clientId": .string(identity.clientID),
-            ]
+            var fields = identity.fields
+            fields["lp"] = .string(login.longPoll)
+            fields["qr"] = .string(login.qr)
+            fields["deadline"] = .number(now + Double(login.timeout))
+            let state = JSONValue.object(fields)
             return .ask(qrPrompt(state, now: now), state: state)
         }
-        guard now < deadline else { throw SetupError("The QR code expired. Start again to get a new one.") }
-        let identity = MiCloud.Identity(agentID: request.state["agentId"]?.stringValue ?? "", clientID: request.state["clientId"]?.stringValue ?? "")
+        guard now < deadline, let identity = MiCloud.Identity(json: request.state) else { throw SetupError("The QR code expired. Start again to get a new one.") }
         let result: MiCloud.PollResult
         do {
             result = try await cloud.pollQR(longPoll, identity: identity, country: country, timeout: dependencies.qrPollTimeout)
@@ -250,7 +249,7 @@ extension XiaomiMiotPlugin {
         case .pending:
             return .ask(qrPrompt(request.state, now: dependencies.now().timeIntervalSince1970), state: request.state)
         case .scanned(let session):
-            try? sessionFile.save(session.json)
+            // Kept by the bridge with the outcome's credentials.
             logger.info("Signed in to the Xiaomi account with the QR code (\(country))")
             return .done(SetupOutcome(credentials: ["session": session.json], settings: accountSettings(country: country)))
         }
@@ -258,19 +257,20 @@ extension XiaomiMiotPlugin {
 
     private func qrPrompt(_ state: JSONValue, now: TimeInterval) -> SetupPrompt {
         let left = Int((state["deadline"]?.doubleValue ?? now) - now)
-        // The prompt's link opens the image of the code (15.1); `loginUrl` stays in the state.
+        // The prompt's link opens the image of the code (15.1).
         return SetupPrompt(message: "Open the QR code and scan it with the Mi Home app, then confirm on the phone.", url: state["qr"]?.stringValue,
                            waitSeconds: max(left, 1), retryAfter: 2)
     }
 
     private func passwordStep(_ request: SetupRequest, country: String) async throws -> SetupStep {
-        if let jar = request.state["jar"]?.objectValue, let context = request.state["context"]?.stringValue {
+        if let jar = request.state["jar"]?.objectValue, let context = request.state["context"]?.stringValue,
+           let username = request.state["username"]?.stringValue, let password = request.state["password"]?.stringValue {
             guard let code = request.answer("code") else { return .ask(codePrompt, state: request.state) }
-            let identity = MiCloud.Identity(agentID: request.state["agentId"]?.stringValue ?? "", clientID: request.state["clientId"]?.stringValue ?? "")
+            guard let identity = MiCloud.Identity(json: request.state) else { throw SetupError("Xiaomi did not finish the sign-in. Start again.") }
             let twoFactor = MiCloud.TwoFactor(jar: jar.compactMapValues(\.stringValue), context: context, flag: request.state["flag"]?.intValue ?? 8)
             do {
                 let session = try await cloud.verifyTwoFactor(twoFactor, code: code, identity: identity, country: country)
-                return passwordDone(session, request: request, country: country)
+                return passwordDone(session, username: username, password: password, country: country)
             } catch MiCloud.VerifyError.wrongCode {
                 throw SetupError("Xiaomi did not take that code. Check it and try again.")
             } catch {
@@ -293,8 +293,7 @@ extension XiaomiMiotPlugin {
                 state["jar"] = .object(twoFactor.jar.mapValues(JSONValue.string))
                 state["context"] = .string(twoFactor.context)
                 state["flag"] = .number(Double(twoFactor.flag))
-                state["agentId"] = .string(identity.agentID)
-                state["clientId"] = .string(identity.clientID)
+                state.merge(identity.fields) { $1 }
                 state["username"] = .string(username)
                 state["password"] = .string(password)
                 return .ask(codePrompt, state: .object(state))
@@ -315,10 +314,8 @@ extension XiaomiMiotPlugin {
         SetupPrompt(message: "Enter the code Xiaomi sent to your email.", fields: [SetupField("code", label: "Code", kind: .code)])
     }
 
-    private func passwordDone(_ session: MiSession, request: SetupRequest? = nil, username: String? = nil, password: String? = nil, country: String) -> SetupStep {
-        let username = username ?? request?.state["username"]?.stringValue ?? ""
-        let password = password ?? request?.state["password"]?.stringValue ?? ""
-        try? sessionFile.save(session.json)
+    /// The outcome's credentials carry the session; nothing is kept before the bridge saves them.
+    private func passwordDone(_ session: MiSession, username: String, password: String, country: String) -> SetupStep {
         logger.info("Signed in to the Xiaomi account with its password (\(country))")
         return .done(SetupOutcome(credentials: ["session": session.json, "username": .string(username), "password": .string(password)],
                                   settings: accountSettings(country: country)))

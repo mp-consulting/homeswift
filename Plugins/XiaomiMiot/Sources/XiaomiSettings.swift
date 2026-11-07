@@ -18,9 +18,9 @@ extension XiaomiMiotPlugin {
     /// The block's keys read and ignored, dropped (2.1).
     static let droppedKeys: Set<String> = ["nameLanguage", "fans"]
 
-    /// A value the runtime resolves rather than a typed secret.
+    /// A value the runtime resolves rather than a typed secret: a reference (`vault:`, `env:`, `file:`) or a sealed value.
     static func isReference(_ text: String) -> Bool {
-        ["enc:", "vault:", "env:", "file:"].contains { text.hasPrefix($0) }
+        SecretReference(text) != nil || SecretBox.isSealed(text)
     }
 
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
@@ -62,7 +62,7 @@ extension XiaomiMiotPlugin {
     }
 
     /// The block in its canonical shape, with the tokens (by did) and the account's sign-in taken out of it.
-    static func canonical(_ block: JSONValue, learnedDIDs: [String: String] = [:], learnedAddresses: [String: String] = [:])
+    static func canonical(_ block: JSONValue, learnedDIDs: [String: String] = [:], learnedAddresses: [String: Moved] = [:])
         -> (block: JSONValue, tokens: [(String, String)], username: String?, password: String?) {
         guard var fields = block.objectValue else { return (block, [], nil, nil) }
         var entries = AccessoryEntries(fields)
@@ -94,10 +94,11 @@ extension XiaomiMiotPlugin {
             if left.isEmpty { fields.removeValue(forKey: "devices") } else { fields["devices"] = .array(left) }
         }
         entries.write(into: &fields)
-        // An address the plugin saw the device at replaces the one written.
+        // An address the plugin saw the device at replaces the one written, unless a person wrote another since.
         if var accessories = fields["_accessories"]?.objectValue {
-            for (did, address) in learnedAddresses {
-                guard var entry = accessories[did]?.objectValue, entry["ip"]?.stringValue != address else { continue }
+            for (did, moved) in learnedAddresses {
+                guard var entry = accessories[did]?.objectValue, let address = moved.address(configured: entry["ip"]?.stringValue),
+                      entry["ip"]?.stringValue != address else { continue }
                 entry["ip"] = .string(address)
                 accessories[did] = .object(entry)
             }

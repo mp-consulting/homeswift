@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 // The conversions between MIoT values and HomeKit's (docs/clean-room/XiaomiMiot.md section 7.2). Rounding is
@@ -74,35 +75,17 @@ enum MiotConversions {
 
     // MARK: Colour
 
-    /// Hue (0–360) and Saturation (0–100) of a `color` value `R × 65536 + G × 256 + B`.
+    /// Hue (0–360) and Saturation (0–100) of a `color` value `R × 65536 + G × 256 + B`, rounded.
     static func hueSaturation(rgb value: Int) -> (hue: Int, saturation: Int) {
-        let r = Double((value >> 16) & 0xFF) / 255, g = Double((value >> 8) & 0xFF) / 255, b = Double(value & 0xFF) / 255
-        let high = max(r, g, b), low = min(r, g, b), delta = high - low
-        var hue = 0.0
-        if delta > 0 {
-            if high == r { hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6) }
-            else if high == g { hue = 60 * ((b - r) / delta + 2) }
-            else { hue = 60 * ((r - g) / delta + 4) }
-        }
-        if hue < 0 { hue += 360 }
-        let saturation = high == 0 ? 0 : delta / high * 100
-        return (Int(round(hue)) % 360, Int(round(saturation)))
+        let (hue, saturation) = ColorUtils.hueSaturation(red: Double((value >> 16) & 0xFF), green: Double((value >> 8) & 0xFF), blue: Double(value & 0xFF))
+        return (Int(round(hue ?? 0)) % 360, Int(round(saturation)))
     }
 
-    /// The `color` value of Hue and Saturation at full value (V = 100 %).
+    /// The `color` value of Hue and Saturation at full value (V = 100 %), each channel rounded.
     static func rgb(hue: Double, saturation: Double) -> Int {
-        let s = min(max(saturation, 0), 100) / 100, h = (hue.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360) / 60
-        let c = s, x = c * (1 - abs(h.truncatingRemainder(dividingBy: 2) - 1)), m = 1 - c
-        let (r, g, b): (Double, Double, Double) = switch Int(h) {
-        case 0: (c, x, 0)
-        case 1: (x, c, 0)
-        case 2: (0, c, x)
-        case 3: (0, x, c)
-        case 4: (x, 0, c)
-        default: (c, 0, x)
-        }
-        func channel(_ v: Double) -> Int { min(max(Int(round((v + m) * 255)), 0), 255) }
-        return channel(r) << 16 | channel(g) << 8 | channel(b)
+        let (red, green, blue) = ColorUtils.rgb(hue: hue, saturation: saturation)
+        func channel(_ value: Double) -> Int { min(max(Int(round(value * 255)), 0), 255) }
+        return channel(red) << 16 | channel(green) << 8 | channel(blue)
     }
 
     // MARK: Air quality, battery, filter

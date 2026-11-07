@@ -326,15 +326,55 @@ extension MiotSpec {
         "zhimi.fan.v3", "zhimi.fan.za3", "zhimi.fan.za4", "zhimi.fan.sa1", "zhimi.humidifier.ca1", "zhimi.humidifier.cb1",
     ]
 
+    /// What some models need that their spec does not say (5.9, 7.9), by model; one place for every model's quirks.
+    static let modelQuirks: [String: ModelQuirks] = [
+        "zhimi.airp.cpa4": ModelQuirks(chunkSize: 3),
+        "ijai.vacuum.v3": ModelQuirks(plainActionInputs: true),
+        "ijai.vacuum.v18": ModelQuirks(plainActionInputs: true),
+        // The speed is the vendor favourite level; the motor's speed says it is idle.
+        "zhimi.airpurifier.ma4": ModelQuirks(speed: SpeedOverride(level: VendorProperty(service: "motor-speed", property: "favorite-fan-level"),
+                                                                  idleAtZero: VendorProperty(service: "motor-speed", property: "motor1-speed"))),
+        // The speed is the vendor `speed-level`, idle while `speed-now` is 0.
+        "zhimi.fan.za5": ModelQuirks(speed: SpeedOverride(level: VendorProperty(service: "custom-service", property: "speed-level"),
+                                                          idleAtZero: VendorProperty(service: "custom-service", property: "speed-now"))),
+    ]
+
+    static func quirks(model: String?) -> ModelQuirks {
+        model.flatMap { modelQuirks[$0] } ?? ModelQuirks()
+    }
+
     static func needsCloud(model: String) -> Bool {
         cloudOnlyModels.contains(model) || model.hasPrefix("philips.light.")
     }
 
-    /// Device types and models out of scope (section 10): cameras, doorbells, speakers, gateways, IR remotes.
-    /// Not published (section 10); locks and doors too, which only `set_security_accessory` may write (CLAUDE.md).
-    static let skippedDeviceTypes: Set<String> = ["camera", "video-doorbell", "speaker", "gateway", "lock", "door"]
+    /// Device types and models out of scope (section 10): cameras, doorbells, speakers, gateways, IR remotes, and handheld
+    /// vacuums (`vacuum-cleaner`, 6.5). Not published (section 10); locks and doors too, which only
+    /// `set_security_accessory` may write (CLAUDE.md).
+    static let skippedDeviceTypes: Set<String> = ["camera", "video-doorbell", "speaker", "gateway", "lock", "door", "vacuum-cleaner"]
 
     static func isSkippedModel(_ model: String) -> Bool {
         model.contains(".ir.") || model.hasPrefix("miir.")
     }
+}
+
+/// A property by its service's and its own URN names, in any namespace (`anyProperty`).
+struct VendorProperty: Sendable, Equatable {
+    var service: String
+    var property: String
+}
+
+/// A curated override of the Rotation Speed (7.9): a vendor range for the speed, and a property that reads 0 while the
+/// device idles.
+struct SpeedOverride: Sendable, Equatable {
+    var level: VendorProperty
+    var idleAtZero: VendorProperty
+}
+
+/// What a model needs that its spec does not say (`MiotSpec.modelQuirks`).
+struct ModelQuirks: Sendable, Equatable {
+    /// At most this many properties a `get_properties` (5.9); 14 otherwise.
+    var chunkSize: Int?
+    /// An action's `in` values sent bare, not as `{piid, value}`.
+    var plainActionInputs = false
+    var speed: SpeedOverride?
 }
