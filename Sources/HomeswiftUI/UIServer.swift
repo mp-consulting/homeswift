@@ -866,9 +866,9 @@ public final class UIServer: Sendable {
                 if let location = catalog.host.configuration.location, var object = report.objectValue {
                     var calendar = Calendar(identifier: .gregorian)
                     calendar.timeZone = timeZone
-                    let start = calendar.startOfDay(for: to)
                     let at = { (event: Solar.Event) -> JSONValue in
-                        Solar.next(event, latitude: location.latitude, longitude: location.longitude, after: start).map { .string(Timestamp.iso8601($0)) } ?? .null
+                        Solar.onLocalDay(event, of: to, latitude: location.latitude, longitude: location.longitude, calendar: calendar)
+                            .map { .string(Timestamp.iso8601($0)) } ?? .null
                     }
                     object["sun"] = ["sunrise": at(.sunrise), "sunset": at(.sunset)]
                     report = .object(object)

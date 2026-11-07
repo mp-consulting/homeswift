@@ -474,6 +474,11 @@ try {
   // The gas and water cards under it.
   await shot("energy-flow", "/status", { ready: '[data-widget="energy"] .energy-house img', width: 1100, height: 1100, element: '[data-widget="energy"] .energy-flow', before: energyDemo })
     .then(() => toStatus("energy-flow"));
+  await shot("energy-flow-phone", "/status", { ready: '[data-widget="energy"] .energy-house img', width: 390, height: 844, mobile: true, element: '[data-widget="energy"] .energy-flow', before: energyDemo })
+    .then(() => toStatus("energy-flow-phone"));
+  // The Appearance page's House style choice, the two houses side by side.
+  await shot("house-style", "/appearance", { ready: ".house-style-card img", width: 1100, height: 900, element: ".house-style-card" })
+    .then(() => toUI("house-style"));
   await shot("energy-gas-water", "/status", { ready: '[data-widget="energy"] .energy-utilities .chart-card svg', width: 1100, height: 1400, element: '[data-widget="energy"] .energy-utilities', before: energyDemo })
     .then(() => toStatus("energy-gas-water"));
 } finally {

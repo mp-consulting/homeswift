@@ -3927,6 +3927,10 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); background: var(--control); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 .status-footer > .link svg { width: 17px; height: 17px; }
+/* Icon only, a circle: its words stay its accessible name (its aria-label). */
+.status-footer > .link { justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 50%; }
+.status-footer > .link span { display: none; }
+.status-footer > .link svg { width: 19px; height: 19px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px) {
@@ -5352,6 +5356,24 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .energy-flow { margin-bottom: var(--space-16); }
 .energy-house-details { display: grid; gap: var(--space-16); }
 .energy-house-details .chart-head { margin: 0; }
+/* A wide window, with the menu down its left: the picture on the left, the details panel beside it on the right,
+   overlapping the picture's edge as it overlaps its foot otherwise; the readings two by two in the panel. The same
+   breakpoint as the menu's, so the card changes layout when the page does. */
+@media (min-width: 1180px) {
+  .energy-house-story { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); align-items: center; }
+  .energy-house-story .energy-house img, .energy-diagram-scene { border-radius: var(--radius-lg) 0 0 var(--radius-lg); }
+  .energy-house-details { align-self: stretch; align-content: center; margin: 0 0 0 calc(-1 * var(--space-24));
+    padding: var(--space-24) var(--flow-pad) var(--space-24) calc(var(--space-24) + var(--space-16)); box-shadow: -4px 0 20px rgba(0, 0, 0, 0.08); }
+  .energy-house-badge { top: var(--space-24); left: -22px; }
+  .energy-house-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* The panel and its badge cover the picture's right edge: Now/Today goes to the diagram's other corner. */
+  .energy-diagram-period { right: auto; left: var(--space-12); }
+  /* The panel is narrow: the House/Diagram switch shows its icons alone, so it fits on the title's row. */
+  .energy-house-title-row { flex-wrap: nowrap; }
+  .energy-house-title-row .chart-head { flex: 1 1 auto; }
+  .energy-house-title-row .energy-flow-bar button { width: 40px; min-width: 40px; height: 32px; min-height: 32px; padding: 0; justify-content: center; }
+  .energy-house-title-row .energy-flow-bar button span { display: none; }
+}
 /* The details under the card slide down on demand: a grid row from 0fr to 1fr animates the height without measuring it. */
 .energy-more { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 260ms cubic-bezier(0.23, 1, 0.32, 1), opacity 200ms ease; }
 .energy-more.open { grid-template-rows: 1fr; opacity: 1; }
@@ -5390,18 +5412,18 @@ button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; 
 .energy-house.simple .energy-house-scene > .energy-solar-panels { transform: scale(1.08); transform-origin: right 55%; }
 
 /* Photo marker editor: the whole image remains visible and tap coordinates match its bounds. */
-.house-photo-field { display: grid; gap: 6px; margin-block: 16px; min-width: 0; }
+.house-photo-field { display: grid; gap: var(--space-6); margin-block: var(--space-16); min-width: 0; }
 .house-photo-field input, .house-photo-field textarea { width: 100%; min-width: 0; box-sizing: border-box; }
-.house-photo-editor { position: relative; margin-block: 20px; cursor: crosshair; }
-.house-photo-editor > img { display: block; width: 100%; height: auto; border-radius: 16px; }
-.house-photo-marker { position: absolute; transform: translate(-50%, -50%); width: 40px; height: 40px; min-height: 40px; padding: 8px; border-radius: 50%; border: 2px solid white; color: #132130; background: #52a3ff; box-shadow: 0 2px 12px #0007; }
-.house-photo-marker.marker-solar { background: #ffce36; }
-.house-photo-marker.marker-battery { background: #3febad; }
-.house-photo-marker.marker-grid { background: #ae8cff; }
-.house-marker-choices, .house-photo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.house-photo-editor { position: relative; margin-block: var(--space-20); cursor: crosshair; }
+.house-photo-editor > img { display: block; width: 100%; height: auto; border-radius: var(--radius-md); }
+.house-photo-marker { position: absolute; transform: translate(-50%, -50%); width: 40px; height: 40px; min-height: 40px; padding: var(--space-8); border-radius: 50%; border: 2px solid white; color: #132130; background: var(--series-1); box-shadow: 0 2px 12px #0007; }
+.house-photo-marker.marker-solar { background: var(--series-4); }
+.house-photo-marker.marker-battery { background: var(--series-3); }
+.house-photo-marker.marker-grid { background: var(--series-7); }
+.house-marker-choices, .house-photo-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
 .house-marker-choices [aria-pressed="true"] { outline: 2px solid var(--accent, #287fea); outline-offset: 2px; }
-.house-marker-choices .placed::after { content: "✓"; margin-left: 4px; }
-.house-marker-positions { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.house-marker-choices .placed::after { content: "✓"; margin-left: var(--space-4); }
+.house-marker-positions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-20); }
 .house-photo-editor[hidden], .house-photo-marker[hidden] { display: none; }
 .custom-house-card { overflow: hidden; }
 .custom-house-card .house-photo-field textarea { min-height: 76px; height: 76px; resize: vertical; font: inherit; }

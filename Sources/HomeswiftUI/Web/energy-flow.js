@@ -134,7 +134,8 @@
     let report = null;
     /// A row of radio buttons for one of the card's choices, kept in this browser.
     const radio = (key, label, options) => {
-      const buttons = options.map(([value, text, actionIcon]) => el("button", { type: "button", role: "radio", actionIcon, onclick: () => {
+      // Named on the button itself too, so its name stays when a narrow panel shows the icon alone.
+      const buttons = options.map(([value, text, actionIcon]) => el("button", { type: "button", role: "radio", actionIcon, "aria-label": text, title: text, onclick: () => {
         if (state[key] === value) return;
         state[key] = value;
         remember({ [key]: value });
@@ -239,7 +240,7 @@
       if (key === shown) return;
       shown = key;
       scene.style.aspectRatio = ratio;
-      scene.replaceChildren(...[make()].flat());
+      scene.replaceChildren(...[make()].flat().filter(Boolean));
     }
 
     /// The readings in the details panel, and what powers the home as a bar of its sources' shares.
