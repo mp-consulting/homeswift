@@ -152,6 +152,15 @@ struct PanelTests {
         #expect(defaults.json?["theme"] == "auto")
         #expect(defaults.json?["temperatureUnit"] == "c")
         #expect(defaults.json?["language"] == "auto")
+        #expect(defaults.json?["energyHouseStyle"] == "realistic")
+        #expect(try await browser.put("/api/preferences", ["energyHouseStyle": "simple"]).json?["energyHouseStyle"] == "simple")
+        for style in ["beach", "cabin", "apartment", "snow", "christmas", "halloween"] {
+            #expect(try await browser.put("/api/preferences", ["energyHouseStyle": .string(style)]).json?["energyHouseStyle"] == .string(style))
+        }
+        #expect(try await browser.put("/api/preferences", ["energyHouseStyle": "unknown"]).status == 400)
+        #expect(PreferencesStore(url: environment.directory.appendingPathComponent("ui-preferences.json")).preferences(for: "local")["energyHouseStyle"] == "halloween")
+        #expect(PreferencesStore(url: environment.directory.appendingPathComponent("ui-preferences.json")).preferences(for: "another-user")["energyHouseStyle"] == "realistic")
+
         #expect(try await browser.put("/api/preferences", ["language": "pt"]).json?["language"] == "pt")
         #expect(try await browser.put("/api/preferences", ["language": "de"]).status == 400)
         // The Regional Formats and the time zone: Automatic and Home Time until chosen; Home Time's zone comes along.

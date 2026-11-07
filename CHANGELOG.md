@@ -20,6 +20,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Status page's Energy section opens on an **Energy flow** card, followed live: a cutaway house whose wiring
+  lights up in the colour of what feeds the home (solar, the battery, the grid, in proportion when they share), by
+  day or after sunset at the bridge's Location by night, in each user's **House style** (Appearance: realistic,
+  simple, beach, cabin, apartment, snow, Christmas, Halloween, or a photo of their own with its parts marked); or a
+  diagram of solar, the grid, the battery and the home, now or for today so far. Its details panel sits beside the
+  picture on a wide window; **More details** unfolds today's biggest users and what powered the home through the day.
 - **Language & Region** on Appearance: besides the Language, each user picks their Regional Formats (12- or 24-hour
   time, the order of numeric dates, the decimal and thousands separators, the first day of the week) and whether
   moments show in **Home Time**, the home's time zone, or the device's. Automatic keeps the language's and browser's.

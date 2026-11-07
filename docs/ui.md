@@ -99,7 +99,24 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
 
 ![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
 
-- **Today**: solar produced, home use, the share of it solar covered, and grid import, as figures.
+- **Energy flow**: where the power goes, followed live (the last minutes asked every ten seconds while the page is
+  visible; the bridge counts the minute under way). On top, the **House**: a cutaway picture in the viewer's House
+  style (Appearance: **Realistic** or **Simple**; `energy-house*.webp`, each with a layout file saying where its wiring
+  lands), its wiring lit in the colour of the source feeding the home (solar yellow, the battery green, the grid
+  purple, in proportion when they share), faster for more power. It is by day between the day's sunrise and sunset at
+  the bridge's Location (the energy report's `sun`, the times alone) and at night after; without a Location, by the
+  hour and solar. Or the **Diagram**: solar, the grid, the battery and the home as circles with dots running between
+  them, **Now** (watts) or **Today** (the day's energy so far, split as the bridge splits it), framed to the parts the
+  home has. Under it, a panel with the title and the House/Diagram switch, each part's reading (from or to the grid,
+  charging or discharging and the battery's level) and **Powering the home**, each source's share. A home metered at
+  the grid alone uses what the grid brings in. **More details** unfolds today's biggest users (the devices measured
+  on their own, up to six, each with its kWh and share of the home's) and **What powered the home today**, a band of
+  the day coloured by the source that covered most of the home's use. The choices are kept in the browser; with
+  reduced motion nothing moves.
+
+  ![The Energy flow card's house](images/status/energy-flow.png)
+
+  ![The Energy flow card on a phone](images/status/energy-flow-phone.png)
 - **Power**: solar, the home, the grid (importing above zero, exporting below) and the batteries (charging above
   zero), each added up across devices, and each device's battery level. Its own range: 24 hours (the default), today,
   yesterday or 7 days (`?energy=7d`). Where the bridge recorded nothing (before it ran, while it was stopped), the power
@@ -813,6 +830,7 @@ marked as you type.
 browser they sign in to; a browser remembers the last ones it saw, so a page opens in them at once.
 
 - **Theme**: Automatic (the system's light or dark appearance), Light or Dark.
+- **House style**: choose **Simple**, a clean model, **Realistic**, detailed rooms with warm lighting, **Beach house**, an airy coastal home beside the ocean, **Woodland cabin**, a cozy timber home among the trees, **Rooftop apartment**, a penthouse with an elevated city terrace, or the seasonal **Snow**, **Christmas**, and **Halloween** (a haunted house with tombstones and mist) scenes, for the Energy flow card. Preview tiles show all eight choices. Realistic is the default; the choice follows your account across browsers. All eight keep live readings, day/night artwork and the mobile layout with readings below the house. Solar modules have even sizes and spacing in both the live card and the previews, with the same roof geometry across day/night and battery variants.
 - **Wallpaper**, behind the glass of every page: photographic Aurora, Sunset, Ocean, Forest and Graphite presets; original abstract Silk, Prism, Ribbon, Lagoon, Ember and Midnight designs; or one of up to 12 images of your own. Drop images on
   the card's zone or choose them, several at once: each is scaled down to 2,560 pixels, kept under
   `ui-wallpapers/<user>/` (JPEG, PNG or WebP, checked by its bytes) and shown as it is added. A tap on its tile shows it
@@ -832,6 +850,8 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
 
   A change reloads the page, which reads these as it opens. The JSON API, the MCP tools and exports never use them:
   they write ISO 8601 with Home Time's offset and plain numbers.
+
+![House style choices in Appearance](images/ui/house-style.png)
 
 ### Addresses
 
@@ -1141,3 +1161,5 @@ Quick controls groups its heading, page link and shortcuts in one card. Saved sc
 with readable names; the row scrolls horizontally on a phone. Scenes without artwork keep a plain tile.
 
 ![Quick controls on a phone](images/ui/quick-controls-phone.png)
+
+In **Appearance → Your house**, upload a JPEG, PNG or WebP photo, add a name and details, and place the Solar panels, Battery, Electrical board and Home markers. Select a marker and tap the photo, or adjust its horizontal and vertical position with the keyboard-accessible sliders. Save and use photo keeps the picture and marker positions privately for your account. Animated paths start at the marked source equipment and meet at Home; readings still come from connected devices. Replace a photo to start its marker placement again, or remove it to return to the realistic house.

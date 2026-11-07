@@ -1,0 +1,27 @@
+House artwork — Beach house, Woodland cabin and Rooftop apartment
+
+Created with the built-in image generation tool and encoded as WebP. The app renders the animated energy wiring and a shared, precisely spaced solar-module grid over the artwork. The grid uses identical module sizes and gaps within each roof's perspective, and identical geometry across that style's day/night and battery/no-battery variants. Appearance uses the same grid.
+
+Installed files (relative to the Homeswift repository):
+Sources/HomeswiftUI/Web/energy-house-{beach,cabin,apartment}.webp
+Sources/HomeswiftUI/Web/energy-house-{beach,cabin,apartment}-night.webp
+Sources/HomeswiftUI/Web/energy-house-{beach,cabin,apartment}-no-battery.webp
+Sources/HomeswiftUI/Web/energy-house-{beach,cabin,apartment}-no-battery-night.webp
+Each style also has .json wiring layouts, with and without the battery.
+
+Beach prompt set: see Scripts/energy-house-beach-artwork.txt.
+
+Cabin base prompt:
+Create a WOODLAND CABIN variant of this home energy dashboard asset. Photorealistic architectural cutaway, exact landscape 1536x1024. Preserve exact camera, framing, two-storey front-facing cutaway outline, roof and solar panel positions, floor edges, small inverter and tall battery on left, electrical board on right, utility pole and neutral conduits at their exact positions for live wiring overlays. Transform materials into a beautiful full-size timber cabin in the woods: warm cedar and pine cladding, wooden beams and floors, cozy wool throws, forest-green and ochre soft furnishings, rustic modern kitchen, richly detailed comfortable rooms. Forest of tall pines and ferns surrounds it, moss and natural stone path foreground, late afternoon sunlight through trees. No people, no text, no watermark, no baked glowing electrical wiring, no toy or miniature appearance. Keep all appliances and equipment at same positions.
+
+Cabin night prompt:
+Precise night lighting edit for woodland cabin energy dashboard asset. Preserve exact 1536x1024 dimensions and every pixel location of the cabin geometry, furniture, solar panels, inverter, battery, electrical board, pole and conduits. Change only lighting to deep blue woodland night: dim moonlit forest and roof, beautifully warm 2700K interior lights. Keep realistic materials. No glowing electrical wires, no text, no new objects, no crop.
+
+Rooftop base prompt:
+Transform this into an unmistakable ROOFTOP PENTHOUSE APARTMENT high above a city, for an energy dashboard. Photorealistic architectural cutaway, exact 1536x1024 landscape. This is NOT a ground-level detached house. Keep the broad two-level front-facing open cutaway and richly detailed living rooms at same pixel locations, with modern concrete, oak, large glass, sophisticated furniture. Replace pitched roof with a contemporary FLAT thin roof and shallow flat rooftop solar canopy occupying same upper solar footprint x240-1290,y145-250. Replace foreground courtyard with a clearly elevated rooftop terrace, glass balustrade, deck, large planters and a glimpse of the tall building facade dropping below the bottom edge. Distant skyscrapers extend BELOW the apartment, expansive city skyline seen from high elevation behind and beside it. No trees overhanging sky, no street, no ground lawn, no telephone pole. Replace right utility pole with a discreet roof service riser/meter at same x1460,y635 connection point, housed in a slim dark rooftop service column. Keep inverter left at x250,y620, tall battery below at x250,y790, electrical board right at x1240,y635 and neutral conduits at identical positions. Warm late afternoon architectural photography. No glowing wires, labels, text or watermark. Full-size rooftop home, not model. Make the rooftop setting visually obvious.
+
+Rooftop night prompt:
+Precise night lighting edit for rooftop penthouse energy dashboard asset. Preserve exact 1536x1024 dimensions and every pixel location of apartment geometry, terrace, glass balustrade, furniture, solar canopy, inverter, battery, electrical board, service riser and conduits. Change only lighting to city night: deep navy sky, illuminated city skyline far below, softly lit terrace, warm inviting 2700K interior lights. Keep realistic materials. No glowing electrical wires, no text, no new objects, no crop.
+
+Battery-free variants, applied independently to each day and night target:
+Remove ONLY tall white floor-standing battery at x215-286,y718-856 in the 1536x1024 image and short conduit leading upward to inverter. Fill with matching wall and floor materials in the original lighting. Keep smaller inverter above, all other neutral conduits, exact geometry, furniture, surroundings, lighting, dimensions and composition unchanged. No glowing wires, no text, no crop.

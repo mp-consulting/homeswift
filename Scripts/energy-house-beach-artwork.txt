@@ -1,0 +1,20 @@
+Beach house artwork
+Created with the built-in image generation tool; encoded as WebP for the app.
+
+Installed asset paths:
+Sources/HomeswiftUI/Web/energy-house-beach.webp
+Sources/HomeswiftUI/Web/energy-house-beach-night.webp
+Sources/HomeswiftUI/Web/energy-house-beach-no-battery.webp
+Sources/HomeswiftUI/Web/energy-house-beach-no-battery-night.webp
+
+Day prompt:
+Create a matching BEACH HOUSE variant of this home energy dashboard asset. Photorealistic architectural cutaway, landscape 3:2. Preserve exact camera, framing, two-storey front-facing cutaway geometry, roof and solar panel positions, floor edges, the small inverter and tall battery on left, electrical board on right, utility pole and neutral conduits at their exact locations so existing animated wiring can overlay. Change house materials to white coastal clapboard, weathered pale wood, airy linen upholstery, sea-glass blue accents and woven furnishings. Replace surrounding garden and trees with sandy dunes, dune grasses and distant turquoise ocean visible beside the house, soft sunny coastal late afternoon sky. Detailed comfortable rooms. Keep appliances and equipment in same positions. No baked glowing wiring, no text, no labels, no watermark. Full-size real house, not a toy model. Save output as a local image asset.
+
+Night prompt:
+Precise lighting-weather edit for matched Beach house dashboard asset. Keep EXACT 1536x1024 dimensions, camera, composition, solar panels, house walls, furniture, battery, inverter, board, utility pole, conduits and all geometry at the same pixel locations. Change ONLY time of day to blue-hour night: deep navy blue sky, dim cool moonlit dunes and ocean, warm inviting 2700K room lamps, realistic textures. No glowing wires, no added elements, no text, no cropping.
+
+Battery-free day prompt:
+Precise object removal for Beach house energy dashboard asset. Remove ONLY the tall floor-standing battery at bottom left (x215 to286, y718 to856 in 1536x1024) and the short conduit from its top to the inverter above. Fill with matching white clapboard and paving. Preserve the smaller white inverter above it. Keep exact 1536x1024 dimensions, camera, all remaining objects, furniture, neutral conduits, solar panels, daylight, sandy beach and ocean unchanged at identical pixel locations. No glowing wires, no text, no crop.
+
+Battery-free night prompt:
+Precise object removal for Beach house energy dashboard night asset. Remove ONLY the tall floor-standing battery at bottom left (x215 to286, y718 to856 in 1536x1024) and its short conduit up to the inverter. Fill with matching white clapboard and paving in night light. Preserve the smaller white inverter above. Keep exact 1536x1024 dimensions, camera, all remaining objects, furniture, neutral conduits, solar panels, moonlight, warm rooms, sandy beach and ocean unchanged at identical pixel locations. No glowing wires, no text, no crop.
