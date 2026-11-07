@@ -627,8 +627,8 @@ public struct HomeswiftCatalog: Sendable {
             ]
             fields["accountRequired"] = .bool(entry.accountRequirement.isRequired)
             fields["accountAdds"] = entry.accountRequirement.adds.map(JSONValue.string) ?? .null
-            fields["addByAddress"] = .bool(entry.addsDevicesByAddress)
-            fields["addLabel"] = entry.newDeviceLabel.map(JSONValue.string) ?? .null
+            fields["addByAddress"] = .bool(entry.newDevices != nil)
+            fields["addLabel"] = entry.newDevices?.label.map(JSONValue.string) ?? .null
             fields["tools"] = .array(tools)
             return .object(fields)
         }

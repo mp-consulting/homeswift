@@ -38,7 +38,7 @@ enum ZWaveDiscovery {
 // more: each is a device with its Device Kind (`light`, `cover`, `switch`, `lock`, `thermostat`, `sensor`, `button`),
 // which can be Excluded. Including a new node in the network stays in Z-Wave JS UI.
 extension ZWaveJSPlugin {
-    public static let addsDevicesByAddress = true
+    public static let newDevices: NewDevices? = .byAddress
 
     /// How long Setup's check of an address may take.
     static let probeTimeout: Duration = .seconds(8)

@@ -32,10 +32,8 @@ public struct PluginRegistry: Sendable {
         public let accountAuthorization: AuthorizationMethod
         /// Whether its devices depend on that account (`HomeswiftPlugin.accountRequirement`).
         public let accountRequirement: AccountRequirement
-        /// Whether a person can add one of its devices by address (`HomeswiftPlugin.addsDevicesByAddress`).
-        public let addsDevicesByAddress: Bool
-        /// What adding one is called when it is not by address (`HomeswiftPlugin.newDeviceLabel`).
-        public let newDeviceLabel: String?
+        /// How a person adds a device it does not find (`HomeswiftPlugin.newDevices`).
+        public let newDevices: NewDevices?
         /// `HomeswiftPlugin.deviceID(ofAccessory:)`.
         public let deviceIDOfAccessory: (@Sendable (String) -> String?)?
         /// Whether it runs Homebridge accessory blocks (`HomeswiftPlugin.runsAccessoryBlocks`).
@@ -56,7 +54,7 @@ public struct PluginRegistry: Sendable {
 
     public mutating func register<P: HomeswiftPlugin>(_ type: P.Type) {
         register(platform: P.platform, name: P.name, icon: P.icon, summary: P.summary, configurationSchemaJSON: P.configurationSchemaJSON, webFiles: P.webFiles, assistantActions: P.assistantActions, assistantBackground: P.assistantBackground, accountAuthorization: P.accountAuthorization, accountRequirement: P.accountRequirement,
-                 addsDevicesByAddress: P.addsDevicesByAddress, newDeviceLabel: P.newDeviceLabel, deviceIDOfAccessory: { P.deviceID(ofAccessory: $0) }, runsAccessoryBlocks: P.runsAccessoryBlocks) { json, context in
+                 newDevices: P.newDevices, deviceIDOfAccessory: { P.deviceID(ofAccessory: $0) }, runsAccessoryBlocks: P.runsAccessoryBlocks) { json, context in
             let configuration = try JSONDecoder().decode(P.Configuration.self, from: json)
             return try await P(configuration: configuration, context: context)
         }
@@ -71,14 +69,14 @@ public struct PluginRegistry: Sendable {
 
     public mutating func register(
         platform: String, name: String, icon: String? = nil, summary: String? = nil, configurationSchemaJSON: String? = nil, webFiles: [String: WebFile] = [:], assistantActions: [AssistantAction] = [],
-        assistantBackground: String? = nil, accountAuthorization: AuthorizationMethod = .none, accountRequirement: AccountRequirement = .required, addsDevicesByAddress: Bool = false,
-        newDeviceLabel: String? = nil, deviceIDOfAccessory: (@Sendable (String) -> String?)? = nil, runsAccessoryBlocks: Bool = false,
+        assistantBackground: String? = nil, accountAuthorization: AuthorizationMethod = .none, accountRequirement: AccountRequirement = .required, newDevices: NewDevices? = nil,
+        deviceIDOfAccessory: (@Sendable (String) -> String?)? = nil, runsAccessoryBlocks: Bool = false,
         make: @escaping @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
     ) {
         if byPlatform[platform] == nil { order.append(platform) }
         byPlatform[platform] = Entry(
-            platform: platform, name: name, icon: icon, summary: summary, configurationSchemaJSON: configurationSchemaJSON, webFiles: webFiles, assistantActions: assistantActions, assistantBackground: assistantBackground, accountAuthorization: accountAuthorization, accountRequirement: accountRequirement, addsDevicesByAddress: addsDevicesByAddress,
-            newDeviceLabel: newDeviceLabel, deviceIDOfAccessory: deviceIDOfAccessory, runsAccessoryBlocks: runsAccessoryBlocks, make: make)
+            platform: platform, name: name, icon: icon, summary: summary, configurationSchemaJSON: configurationSchemaJSON, webFiles: webFiles, assistantActions: assistantActions, assistantBackground: assistantBackground, accountAuthorization: accountAuthorization, accountRequirement: accountRequirement, newDevices: newDevices,
+            deviceIDOfAccessory: deviceIDOfAccessory, runsAccessoryBlocks: runsAccessoryBlocks, make: make)
     }
 
     /// In registration order.

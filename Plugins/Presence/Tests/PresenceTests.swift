@@ -53,7 +53,7 @@ final class TestEnvironment: Sendable {
 
     var registry: PluginRegistry {
         var registry = PluginRegistry()
-        registry.register(platform: PresencePlugin.platform, name: PresencePlugin.name, addsDevicesByAddress: true, newDeviceLabel: PresencePlugin.newDeviceLabel) { json, context in
+        registry.register(platform: PresencePlugin.platform, name: PresencePlugin.name, newDevices: PresencePlugin.newDevices) { json, context in
             let configuration = try JSONDecoder().decode(PresencePlugin.Configuration.self, from: json)
             let clock = self.clock
             let plugin = PresencePlugin(configuration: configuration, context: context, dependencies: .init(source: self.source, timeScale: 0.0005, now: { clock.now }))

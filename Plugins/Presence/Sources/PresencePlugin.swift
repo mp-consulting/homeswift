@@ -42,8 +42,7 @@ public actor PresencePlugin: HomeswiftPlugin {
     public static let name = "Presence"
     public static let icon: String? = "users"
     public static let summary: String? = "Who is home, from the phones on the network"
-    public static let addsDevicesByAddress = true
-    public static let newDeviceLabel: String? = "Add a Person…"
+    public static let newDevices: NewDevices? = .made(label: "Add a Person…")
 
     /// Anyone Home's Device Id.
     static let anyoneID = "anyone"

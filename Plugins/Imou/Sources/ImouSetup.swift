@@ -60,7 +60,7 @@ extension ImouPlugin {
     }
 
     /// A camera on the LAN alone that neither the account nor `devices` lists is added by its address (Add by address).
-    public static let addsDevicesByAddress = true
+    public static let newDevices: NewDevices? = .byAddress
 
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         switch request.target {

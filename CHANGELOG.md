@@ -92,6 +92,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Plugins: `newDevices` (`.byAddress`, or `.made(label:)` for devices a plugin makes, such as a Helper or a Person)
+  replaces `addsDevicesByAddress` and `newDeviceLabel`. `list_plugins`' and `discover_devices`' `addByAddress` and
+  `addLabel` are unchanged.
 - Scenes and Automations are separate (docs/adr/0007-scenes-and-automations-are-separate.md): a Scene is only its
   values. At the first start, each Scene with triggers or conditions becomes an Automation of the same name whose single
   Step applies it. A Scene saved with `triggers` or `conditions` is refused.

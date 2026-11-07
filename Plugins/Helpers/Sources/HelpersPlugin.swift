@@ -25,8 +25,7 @@ public actor HelpersPlugin: HomeswiftPlugin {
     public static let name = "Helpers"
     public static let icon: String? = "sensor"
     public static let summary: String? = "Sensors the bridge works out from your other accessories"
-    public static let addsDevicesByAddress = true
-    public static let newDeviceLabel: String? = "Add a Helper…"
+    public static let newDevices: NewDevices? = .made(label: "Add a Helper…")
 
     /// A running Helper: its rule, what it shows, and where its rule stands.
     struct Running {

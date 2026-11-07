@@ -155,7 +155,8 @@ _Avoid_: Candidate, scan result, found device
 **Add by address**:
 A Setup that starts from a device the person names by its address (a host, perhaps a port, a user and password) rather
 than from a Discovered Device: the plugin probes it and says its Device Id, and the device is then set up like a
-discovered one. For devices discovery cannot find; with or without an account.
+discovered one. For devices discovery cannot find; with or without an account. A plugin whose devices are made rather
+than found (a Helper, a Person) adds them through the same Setup, under its own words ("Add a Helper…").
 _Avoid_: Manual device, add manually, static device
 
 **Device Kind**:
