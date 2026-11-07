@@ -72,18 +72,19 @@ extension AccessoryBuilder {
             guard status.string(component, "switch", "switch") != "off" else { return 0 }
             return status.string(component, "airConditionerMode", "airConditionerMode").map(Self.airConditionerState) ?? 0
         }
+        @Sendable func turnOn(mode: String) async throws {
+            try await writer.send([DeviceCommand(component, "switch", "on"), DeviceCommand(component, "airConditionerMode", "setAirConditionerMode", [.string(mode)])],
+                                  set: [(component, "switch", "switch", "on"), (component, "airConditionerMode", "airConditionerMode", .string(mode))])
+        }
         thermostat.characteristic(.targetHeatingCoolingState).onWrite { value in
             let state = value.intValue ?? 0
             if state == 0 {
                 try await writer.send([DeviceCommand(component, "switch", "off")], set: [(component, "switch", "switch", "off")])
                 return
             }
-            let mode = state == 1 ? "heat" : state == 2 ? "cool" : "auto"
-            try await writer.send([DeviceCommand(component, "switch", "on"), DeviceCommand(component, "airConditionerMode", "setAirConditionerMode", [.string(mode)])],
-                                  set: [(component, "switch", "switch", "on"), (component, "airConditionerMode", "airConditionerMode", .string(mode))])
+            try await turnOn(mode: state == 1 ? "heat" : state == 2 ? "cool" : "auto")
         }
-        thermostat.characteristic(.targetTemperature).onWrite(changesOnly: true) { value in
-            guard await writer.isLatest("\(component)/targetTemperature") else { return }
+        onSlide(thermostat, .targetTemperature) { value in
             let setpoint = Convert.deviceTemperature(value.doubleValue ?? 24, unit: box.status.unit(component, "thermostatCoolingSetpoint", "coolingSetpoint") ?? unit(box.status))
             try await writer.send([DeviceCommand(component, "thermostatCoolingSetpoint", "setCoolingSetpoint", [setpoint])],
                                   set: [(component, "thermostatCoolingSetpoint", "coolingSetpoint", setpoint)])
@@ -96,9 +97,7 @@ extension AccessoryBuilder {
         fan.characteristic(.active).onWrite { value in
             if value.intValue == 1 {
                 let state = target(box.status)
-                let mode = state == 1 ? "heat" : state == 2 ? "cool" : state == 3 ? "auto" : "wind"
-                try await writer.send([DeviceCommand(component, "switch", "on"), DeviceCommand(component, "airConditionerMode", "setAirConditionerMode", [.string(mode)])],
-                                      set: [(component, "switch", "switch", "on"), (component, "airConditionerMode", "airConditionerMode", .string(mode))])
+                try await turnOn(mode: state == 1 ? "heat" : state == 2 ? "cool" : state == 3 ? "auto" : "wind")
             } else {
                 let recent = zeroSpeedAt.withLockedValue { $0.map { now().timeIntervalSince($0) < window } ?? false }
                 let auto = box.status.string(component, "airConditionerFanMode", "fanMode") == fanModes.auto && fanModes.auto != nil
@@ -106,8 +105,7 @@ extension AccessoryBuilder {
                 try await writer.send([DeviceCommand(component, "switch", "off")], set: [(component, "switch", "switch", "off")])
             }
         }
-        fan.characteristic(.rotationSpeed).onWrite(changesOnly: true) { value in
-            guard await writer.isLatest("\(component)/rotationSpeed") else { return }
+        onSlide(fan, .rotationSpeed) { value in
             let speed = value.doubleValue ?? 0
             let mode: String?
             if speed <= 0 {
@@ -194,10 +192,7 @@ extension AccessoryBuilder {
         let service = makeService(.airPurifier, component, "airPurifier", optional: [.rotationSpeed], kind: "airPurifier", category: .airPurifier)
         let writer = writer
         // Samsung purifiers beep on every command: a redundant on is not sent (changesOnly), fan mode writes are debounced.
-        service.characteristic(.active).onWrite(changesOnly: true) { value in
-            let on = value.intValue == 1
-            try await writer.send([DeviceCommand(component, "switch", on ? "on" : "off")], set: [(component, "switch", "switch", .string(on ? "on" : "off"))])
-        }
+        bindOn(service, component, characteristic: .active, changesOnly: true)
         let pending = NIOLockedValueBox<(auto: Bool?, speed: Double?)>((nil, nil))
         let latest = LatestCallGuard(delay: env.timing.seconds(0.5))
         let flush: @Sendable () async throws -> Void = {
@@ -223,10 +218,7 @@ extension AccessoryBuilder {
             try await flush()
         }
         update { status in
-            if let state = status.string(component, "switch", "switch") {
-                service.set(.active, .int(state == "on" ? 1 : 0))
-                service.set(.currentAirPurifierState, .int(state == "on" ? 2 : 0))
-            }
+            if let state = status.string(component, "switch", "switch") { service.set(.currentAirPurifierState, .int(state == "on" ? 2 : 0)) }
             if let mode = status.string(component, capability, attribute) {
                 service.set(.targetAirPurifierState, .int(mode == modes.auto ? 1 : 0))
                 if let speed = modes.speed(of: mode) { service.set(.rotationSpeed, .int(speed)) }

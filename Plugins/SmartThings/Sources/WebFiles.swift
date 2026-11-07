@@ -61,7 +61,8 @@ extension SmartThingsPlugin {
         fact(t("Location"), status.location ?? "—"),
         fact(t("Updates"), updates),
         fact(t("Requests since start"), String(status.requests))),
-      status.eventsNote ? el("p", { class: "muted", text: t("SmartThings refused the event stream: updates come by polling for now.") }) : null,
+      status.eventsNote === "refused" ? el("p", { class: "muted", text: t("SmartThings refused the event stream: updates come by polling for now.") }) : null,
+      status.eventsNote === "flagged" ? el("p", { class: "muted", text: t("SmartThings flagged this bridge on the event stream: updates come by polling; it tries again in an hour.") }) : null,
       !status.sseGranted && !status.personalToken ? el("p", { class: "muted", text: t("Your app has no sse scope: add it, then sign in again, for live updates and buttons.") }) : null,
       status.personalToken ? el("p", { class: "muted", text: t("Signed in with a personal access token, which expires within a day. Sign in with your own SmartThings app instead.") }) : null,
       status.lastError ? el("p", { class: "muted", text: t("SmartThings does not answer: the last values are kept.") }) : null,
@@ -69,20 +70,27 @@ extension SmartThingsPlugin {
   }
 
   function leftOut(diagnostics) {
-    const rows = [
+    return [
       ...diagnostics.unsupported.map((device) => el("p", { text: t("{name}: nothing HomeKit can show ({capabilities})", {
         name: device.name, capabilities: device.components.flatMap((component) => component.capabilities.map((capability) => capability.id)).join(", ") || "—",
       }) })),
       ...diagnostics.skippedCopies.map((device) => el("p", { text: t("{name}: Homeswift's own, through its Matter bridge", { name: device.name }) })),
     ];
-    return rows;
   }
 
   let drawnSetup = null;
+  // What was left out changes with the device list: it is read again when the count changes, and every fourth time.
+  let diagnostics = null, diagnosedCount = -1, ticks = 0;
   async function refresh() {
-    let status, devices, diagnostics;
+    let status, devices;
     try {
-      [status, devices, diagnostics] = await Promise.all([request("status"), request("devices"), request("diagnostics")]);
+      [status, devices] = await Promise.all([request("status"), request("devices")]);
+      const count = (devices.devices ?? []).length;
+      if (!diagnostics || count !== diagnosedCount || ticks % 4 === 0) {
+        diagnostics = await request("diagnostics");
+        diagnosedCount = count;
+      }
+      ticks += 1;
     } catch { return; /* the instance is restarting */ }
     $("#loading")?.remove();
     const needsSetup = !status.signedIn;
@@ -97,7 +105,7 @@ extension SmartThingsPlugin {
     if (!needsSetup) $("#status").replaceChildren(...statusCard(status));
     const list = devices.devices ?? [];
     $("#devices-section").classList.toggle("hidden", !list.length);
-    renderKeyed($("#devices"), list, (device) => `${device.deviceId}:${JSON.stringify(device)}`, deviceCard);
+    renderKeyed($("#devices"), list, (device) => device.deviceId, deviceCard);
     requestAnimationFrame(() => $("#devices").classList.add("drawn"));
     const rows = leftOut(diagnostics);
     $("#left-out-section").classList.toggle("hidden", !rows.length);
@@ -155,6 +163,7 @@ HomeswiftI18n.add({
     "Sign in to SmartThings again": "Se reconnecter à SmartThings",
     "Signed in with a personal access token, which expires within a day. Sign in with your own SmartThings app instead.": "Connecté avec un jeton d'accès personnel, qui expire en moins d'un jour. Connectez-vous plutôt avec votre propre app SmartThings.",
     "SmartThings does not answer: the last values are kept.": "SmartThings ne répond pas : les dernières valeurs sont conservées.",
+    "SmartThings flagged this bridge on the event stream: updates come by polling; it tries again in an hour.": "SmartThings a signalé ce pont sur le flux d'événements : les mises à jour arrivent par lecture périodique ; il réessaie dans une heure.",
     "SmartThings refused the event stream: updates come by polling for now.": "SmartThings a refusé le flux d'événements : les mises à jour arrivent par lecture périodique pour l'instant.",
     "State": "État",
     "Switch": "Interrupteur",
@@ -218,6 +227,7 @@ HomeswiftI18n.add({
     "Sign in to SmartThings again": "Volver a iniciar sesión en SmartThings",
     "Signed in with a personal access token, which expires within a day. Sign in with your own SmartThings app instead.": "Sesión iniciada con un token de acceso personal, que caduca en menos de un día. Inicia sesión mejor con tu propia app de SmartThings.",
     "SmartThings does not answer: the last values are kept.": "SmartThings no responde: se conservan los últimos valores.",
+    "SmartThings flagged this bridge on the event stream: updates come by polling; it tries again in an hour.": "SmartThings marcó este puente en el flujo de eventos: las actualizaciones llegan por lectura periódica; vuelve a intentarlo dentro de una hora.",
     "SmartThings refused the event stream: updates come by polling for now.": "SmartThings rechazó el flujo de eventos: por ahora las actualizaciones llegan por lectura periódica.",
     "State": "Estado",
     "Switch": "Interruptor",
@@ -281,6 +291,7 @@ HomeswiftI18n.add({
     "Sign in to SmartThings again": "Iniciar sessão novamente no SmartThings",
     "Signed in with a personal access token, which expires within a day. Sign in with your own SmartThings app instead.": "Sessão iniciada com um token de acesso pessoal, que expira em menos de um dia. Inicie antes sessão com a sua própria app do SmartThings.",
     "SmartThings does not answer: the last values are kept.": "O SmartThings não responde: os últimos valores são mantidos.",
+    "SmartThings flagged this bridge on the event stream: updates come by polling; it tries again in an hour.": "O SmartThings assinalou esta ponte no fluxo de eventos: as atualizações chegam por leitura periódica; tenta de novo dentro de uma hora.",
     "SmartThings refused the event stream: updates come by polling for now.": "O SmartThings recusou o fluxo de eventos: por agora as atualizações chegam por leitura periódica.",
     "State": "Estado",
     "Switch": "Interruptor",

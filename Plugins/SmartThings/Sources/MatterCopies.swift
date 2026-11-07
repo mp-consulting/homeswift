@@ -36,14 +36,14 @@ enum MatterCopies {
         return names.contains { $0.range(of: "Homeswift Bridge", options: .caseInsensitive) != nil }
     }
 
-    /// Which devices of the list are copies or Homeswift's bridge, by Device Id; `homeswiftIDs` are the bridge's own
-    /// Accessory Ids (every plugin's).
-    static func find(in devices: [SmartThingsDevice], homeswiftIDs: [String]) -> [String: Match] {
+    /// Which devices of the list are copies or Homeswift's bridge, by Device Id; `homeswiftIDs` gives the bridge's own
+    /// Accessory Ids (every plugin's), asked only when a device has the test ids.
+    static func find(in devices: [SmartThingsDevice], homeswiftIDs: () -> [String]) -> [String: Match] {
         let byID = Dictionary(devices.map { ($0.deviceID, $0) }, uniquingKeysWith: { first, _ in first })
         let bridges = devices.filter(isHomeswiftBridge)
         let bridgeIDs = Swift.Set(bridges.map(\.deviceID))
         let bridgeNetworks = Swift.Set(bridges.compactMap { $0.matter?["networkId"]?.stringValue?.lowercased() })
-        let unique = Swift.Set(homeswiftIDs.map(uniqueID))
+        let unique = devices.contains(where: hasTestIDs) ? Swift.Set(homeswiftIDs().map(uniqueID)) : []
         var found: [String: Match] = [:]
         for device in devices {
             if bridgeIDs.contains(device.deviceID) {

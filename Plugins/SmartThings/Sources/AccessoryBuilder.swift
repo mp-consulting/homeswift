@@ -13,13 +13,16 @@ struct Writer: Sendable {
 
     func send(_ commands: [DeviceCommand], set values: Set = []) async throws {
         guard env.controllable else { throw HAPStatusError(.insufficientPrivileges) }
-        try await env.send(commands, values.map { StatusBox.key($0.component, $0.capability, $0.attribute) })
+        let stamp = env.now()
+        let previous = box.stampWrite(at: stamp)
+        do {
+            try await env.send(commands, values.map { StatusBox.key($0.component, $0.capability, $0.attribute) })
+        } catch {
+            box.unstampWrite(stamp, previous: previous)
+            throw error
+        }
         box.setOptimistic(values, at: env.now())
     }
-
-    /// Waits a moment, then says whether this is still the last write for `key`: a slider's drag sends only where it
-    /// ends, so it does not spend the 12 requests a minute SmartThings allows a device (section 6.1).
-    func isLatest(_ key: String) async -> Bool { await env.sliders(key) }
 }
 
 /// Builds a device's accessory from its components' capabilities (section 7.2): device-level rules first (appliances,
@@ -33,7 +36,7 @@ struct AccessoryBuilder {
     let env: BindingEnvironment
     let context: PluginContext?
     let accessoryID: String
-    let name: String
+    var name: String { device.displayName }
 
     var services: [Service] = []
     var primary: Service?
@@ -52,7 +55,7 @@ struct AccessoryBuilder {
     var writer: Writer { Writer(box: box, env: env) }
 
     init(device: SmartThingsDevice, status: DeviceStatus, settings: SmartThingsSettings, options: DeviceOptions, box: StatusBox,
-         env: BindingEnvironment, context: PluginContext?, accessoryID: String, name: String) {
+         env: BindingEnvironment, context: PluginContext?, accessoryID: String) {
         self.device = device
         self.status = status
         self.settings = settings
@@ -61,7 +64,6 @@ struct AccessoryBuilder {
         self.env = env
         self.context = context
         self.accessoryID = accessoryID
-        self.name = name
     }
 
     // MARK: Services
@@ -95,6 +97,18 @@ struct AccessoryBuilder {
     }
 
     mutating func update(_ body: @escaping @Sendable (DeviceStatus) -> Void) { updaters.append(body) }
+
+    /// A slider's writes: after a moment only the last one of a drag is sent, so a drag does not spend the 12 requests
+    /// a minute SmartThings allows a device (section 6.1). `changesOnly` skips a write of the value already shown.
+    func onSlide(_ service: Service, _ type: CharacteristicType, changesOnly: Bool = true,
+                 _ body: @escaping @Sendable (HAPValue) async throws -> Void) {
+        let sliders = env.sliders
+        let key = "\(service.subtype ?? "")/\(type.name)"
+        service.characteristic(type).onWrite(changesOnly: changesOnly) { value in
+            guard await sliders(key) else { return }
+            try await body(value)
+        }
+    }
 
     /// The components SmartThings reports disabled (`custom.disabledComponents`, section 7.5).
     var disabledComponents: Swift.Set<String> {

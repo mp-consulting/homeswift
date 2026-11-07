@@ -12,7 +12,7 @@ extension SmartThingsPlugin {
             return PluginWebResponse([
                 "signedIn": .bool(await tokens.isSignedIn), "refusal": (await tokens.refusal).map(JSONValue.string) ?? .null,
                 "personalToken": .bool(stored?.isPersonal ?? false), "sseGranted": .bool(stored?.grantsSSE ?? false), "events": .bool(sseActive),
-                "eventsNote": sseNote.map(JSONValue.string) ?? .null, "pollSeconds": .number(pollPeriod),
+                "eventsNote": eventsNote.map { .string($0.rawValue) } ?? .null, "pollSeconds": .number(pollPeriod),
                 "requests": .number(Double(await api.requestCount)), "location": locationID.flatMap { locationNames[$0] }.map(JSONValue.string) ?? .null,
                 "lastError": lastReconcileFailure.map(JSONValue.string) ?? .null,
             ])
@@ -21,11 +21,12 @@ extension SmartThingsPlugin {
             var list: [JSONValue] = []
             for binding in bindings.values.sorted(by: { $0.device.displayName < $1.device.displayName }) {
                 let device = binding.device
+                let status = binding.box.status
                 list.append([
                     "deviceId": .string(device.deviceID), "accessoryId": .string(binding.accessory.id), "name": .string(device.displayName),
-                    "kind": .string(binding.kind), "online": .bool(binding.box.status.health != "OFFLINE"), "matter": .bool(device.isMatter),
+                    "kind": .string(binding.kind), "online": .bool(status.health != "OFFLINE"), "matter": .bool(device.isMatter),
                     "room": device.roomID.flatMap { rooms[$0] }.map(JSONValue.string) ?? .null,
-                    "details": .array(binding.details(now: now).map { ["label": .string($0.label), "value": .string($0.value)] }),
+                    "details": .array(binding.details(status, now: now).map { ["label": .string($0.label), "value": .string($0.value)] }),
                 ])
             }
             return PluginWebResponse(["devices": .array(list)])

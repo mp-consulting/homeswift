@@ -3,9 +3,6 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
-import NIOConcurrencyHelpers
-import NIOCore
-import NIOPosix
 
 /// Samsung SmartThings through its cloud API (docs/clean-room/SmartThings.md): every device of the authorized location
 /// as an accessory whose services come from its capabilities (lights, switches, outlets, fans, thermostats, air
@@ -75,7 +72,10 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
 
     // The devices.
     var bindings: [String: DeviceBinding] = [:]
-    var listed: [SmartThingsDevice] = []
+    var listed: [SmartThingsDevice] = [] {
+        didSet { listedIDs = Set(listed.map(\.deviceID)) }
+    }
+    private(set) var listedIDs = Set<String>()
     var listedAt: Date?
     var copies: [String: (device: SmartThingsDevice, match: MatterCopies.Match)] = [:]
     var unsupported: [String: SmartThingsDevice] = [:]
@@ -86,6 +86,8 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
     var rooms: [String: String] = [:]
     var roomsReadAt: Date?
     var scenes: [SmartThingsScene] = []
+    /// Whether the scenes were listed: until then, the cached scenes' accessories stay.
+    var scenesRead = false
     var sceneAccessories: [String: Accessory] = [:]
     var loggedOnce = Set<String>()
     var followUps: [String: Task<Void, Never>] = [:]
@@ -95,7 +97,7 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
 
     // The event stream.
     var sseActive = false
-    var sseNote: String?
+    var eventsNote: EventsNote?
     var subscriptionID: String?
     var lastReconcileFailure: String?
 
@@ -162,24 +164,24 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
     public func stop() async {
         stopped = true
         tasks.cancelAll()
-        rediscovery?.cancel()
-        for task in followUps.values { task.cancel() }
         followUps.removeAll()
+        rediscovery = nil
         if let subscriptionID { await api.deleteSubscription(subscriptionID) }
         await callbackServer.stop()
     }
 
-    /// The first reconciliation, then events or polling, and the proactive token refresh.
+    /// The first reconciliation (the event stream's first welcome when the token has the scope), the scenes, then
+    /// polling and the proactive token refresh.
     private func run() async {
         await readLocations()
-        await reconcile()
-        await refreshScenes()
-        tasks.add { [weak self] in await self?.refreshLoop() }
         if await tokens.grantsSSE {
             tasks.add { [weak self] in await self?.eventLoop() }
-        } else if !(await tokens.isPersonal) {
-            logger.info("The SmartThings app has no sse scope: updates come by polling")
+        } else {
+            await reconcile()
+            if !(await tokens.isPersonal) { logger.info("The SmartThings app has no sse scope: updates come by polling") }
         }
+        await refreshScenes()
+        tasks.add { [weak self] in await self?.refreshLoop() }
         await pollLoop()
     }
 
@@ -194,10 +196,8 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
             }
             do {
                 try await tokens.refresh()
-            } catch let failure as TokenStore.Failure {
-                if case .refused = failure { return }
-                try? await Task.sleep(for: timing.seconds(60))
             } catch {
+                if case TokenStore.Failure.refused? = error as? TokenStore.Failure { return }
                 try? await Task.sleep(for: timing.seconds(60))
             }
         }
@@ -286,67 +286,73 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
             lastReconcileFailure = nil
         }
         context.accountAccepted()
-        apply(items, requestedAt: requestedAt)
+        await apply(items, requestedAt: requestedAt)
     }
 
     func failed(_ error: any Error) async {
+        if case TokenStore.Failure.refused? = error as? TokenStore.Failure { return }
         let message = "\(error)"
-        if let failure = error as? TokenStore.Failure, case .refused = failure { return }
         if case SmartThingsError.http(403, _, _)? = error as? SmartThingsError {
+            // The API logged the 403 once for this kind of call.
             context.accountRefused("SmartThings refused access: check your Developer plan and the app's scopes")
+        } else if lastReconcileFailure == nil {
+            logger.warning("Could not read the SmartThings devices: \(message)")
         }
-        if lastReconcileFailure == nil { logger.warning("Could not read the SmartThings devices: \(message)") }
         lastReconcileFailure = message
     }
 
-    func apply(_ items: [JSONValue], requestedAt: Date) {
+    /// A device list: each device shown, left out or skipped; a device gone from it gets No Response, then leaves at the
+    /// next list. Then the bridge keeps only the accessories of bindings and scenes, so one cached from a device gone
+    /// while the bridge was off leaves too.
+    func apply(_ items: [JSONValue], requestedAt: Date) async {
         let pairs = items.compactMap { item in SmartThingsDevice(item).map { (item, $0) } }
         let devices = pairs.map(\.1)
         listed = devices
         listedAt = dependencies.now()
-        let found = MatterCopies.find(in: devices, homeswiftIDs: context.hostAccessories.map(\.id))
+        let found = MatterCopies.find(in: devices) { context.hostAccessories.map(\.id) }
         copies = [:]
-        var present = Set<String>()
         for (item, device) in pairs {
             let id = device.deviceID
-            present.insert(id)
+            missing[id] = nil
             if let match = found[id] {
                 copies[id] = (device, match)
-                // Found after it was shown (the host's accessories were not all up yet): it leaves the bridge now.
-                if let binding = bindings.removeValue(forKey: id) {
-                    followUps.removeValue(forKey: id)?.cancel()
-                    removeAccessory(binding.accessory.id)
-                }
-                missing[id] = nil
+                // Found after it was shown (the host's accessories were not all up yet): it leaves the bridge with this list.
+                drop(id)
                 if loggedOnce.insert("copy:\(id)").inserted {
                     logger.info("Skipping \(device.displayName): it is Homeswift's own accessory through Homeswift's Matter bridge")
                 }
                 continue
             }
-            missing[id] = nil
-            let status = DeviceStatus(listed: item)
-            let listedOut = settings.excludedByLists(device, locationNames: locationNames)
-            if context.isExcluded(id) || listedOut || device.isHub {
+            if context.isExcluded(id) || device.isHub || settings.excludedByLists(device, locationNames: locationNames) {
                 if device.isHub { unsupported[id] = device; kinds[id] = "unsupported" }
-                bindings[id] = nil
-                // The runtime takes an Excluded device's accessory off; one the block's own lists leave out goes here.
-                if listedOut || device.isHub { removeAccessory(Self.accessoryID(id)) }
+                drop(id)
                 continue
             }
-            show(device, status: status, requestedAt: requestedAt)
+            show(device, status: DeviceStatus(listed: item), requestedAt: requestedAt)
         }
         // A device gone from the list: No Response until the next list confirms, then removed.
-        for (id, binding) in bindings where !present.contains(id) {
+        for (id, binding) in bindings where !listedIDs.contains(id) {
             missing[id, default: 0] += 1
             binding.accessory.isUnavailable = true
             if missing[id, default: 0] >= 2 {
-                bindings[id] = nil
+                drop(id)
                 missing[id] = nil
-                let accessoryID = binding.accessory.id
-                Task { try? await self.context.remove(id: accessoryID) }
             }
         }
-        unsupported = unsupported.filter { present.contains($0.key) }
+        unsupported = unsupported.filter { listedIDs.contains($0.key) }
+        kinds = kinds.filter { listedIDs.contains($0.key) }
+        statusFailures = statusFailures.filter { listedIDs.contains($0.key) }
+        // Entries are `<what>:<Device Id>`.
+        loggedOnce = loggedOnce.filter { listedIDs.contains(String($0.drop { $0 != ":" }.dropFirst())) }
+        var keep = Set(bindings.values.map(\.accessory.id)).union(sceneAccessories.keys)
+        if !scenesRead { keep.formUnion(context.accessories.map(\.id).filter { $0.hasPrefix(Self.sceneIDPrefix) }) }
+        await context.removeAccessories(keeping: keep)
+    }
+
+    /// Takes a device's binding away: its accessory leaves the bridge at the end of the list (`apply`).
+    func drop(_ id: String) {
+        bindings[id] = nil
+        followUps.removeValue(forKey: id)?.cancel()
     }
 
     /// Updates a device's accessory, or builds it (again) when it is new or its shape changed.
@@ -355,16 +361,16 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
         let options = deviceOptions(device)
         let signature = Self.signature(device, status: status, options: options, settings: settings)
         if let binding = bindings[id], binding.signature == signature {
-            let previous = binding.box.status
+            // Without events, a poll notices a button's presses by its timestamp.
+            let previous = !sseActive && binding.hasEventHooks ? binding.box.status : nil
             binding.box.merge(status, requestedAt: requestedAt)
-            if !sseActive, binding.hasEventHooks { binding.pollPresses(previous: previous, current: binding.box.status) }
+            if let previous { binding.pollPresses(previous: previous, current: binding.box.status) }
             return
         }
         guard let binding = build(device, status: status, options: options, signature: signature, context: context) else {
             unsupported[id] = device
             kinds[id] = "unsupported"
-            bindings[id] = nil
-            removeAccessory(Self.accessoryID(id))
+            drop(id)
             return
         }
         unsupported[id] = nil
@@ -377,7 +383,7 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
         binding.show(binding.box.status)
         let accessory = binding.accessory
         if binding.isTelevision, settings.publishTVsAsExternal {
-            Task { [context, logger] in
+            tasks.add { [context, logger] in
                 do { try await context.publishExternal(accessory) } catch { logger.error("Could not publish \(device.displayName): \(error)") }
             }
         } else {
@@ -387,15 +393,13 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
                 logger.error("Could not add \(device.displayName): \(error)")
             }
         }
-        if device.isMatter, loggedOnce.insert("matter:\(id)").inserted {
-            logger.info("\(device.displayName) is a Matter device: it may already be in Apple Home through its own Matter pairing. If so, set it Not in Home.")
-        }
+        noteMatter(device)
     }
 
-    /// Takes an accessory the cache still has off the bridge.
-    func removeAccessory(_ accessoryID: String) {
-        guard context.accessory(id: accessoryID) != nil else { return }
-        Task { [context] in try? await context.remove(id: accessoryID) }
+    /// Says once that a Matter device may already be in Apple Home through its own Matter pairing.
+    func noteMatter(_ device: SmartThingsDevice) {
+        guard device.isMatter, loggedOnce.insert("matter:\(device.deviceID)").inserted else { return }
+        logger.info("\(device.displayName) is a Matter device: it may already be in Apple Home through its own Matter pairing. If so, set it Not in Home.")
     }
 
     func deviceOptions(_ device: SmartThingsDevice) -> DeviceOptions {
@@ -435,14 +439,13 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
                 try await self.send(deviceID: id, commands, watched: watched)
             },
             controllable: device.isControllable, sliders: LatestCallGuard(delay: timing.seconds(0.3)))
-        let name = context.map { _ in device.displayName } ?? device.displayName
         var builder = AccessoryBuilder(device: device, status: status, settings: settings, options: options, box: box, env: env, context: context,
-                                       accessoryID: Self.accessoryID(id), name: name)
+                                       accessoryID: Self.accessoryID(id))
         let isTelevision = settings.enableTelevisionService && TelevisionDetection.isTelevision(device)
         if isTelevision { builder.television() } else { builder.build() }
         guard builder.services.contains(where: { $0.type != .battery && $0.type != .serviceLabel }) else { return nil }
         let accessory = Accessory(
-            id: Self.accessoryID(id), name: name, manufacturer: device.manufacturer, model: device.model, serialNumber: id,
+            id: Self.accessoryID(id), name: device.displayName, manufacturer: device.manufacturer, model: device.model, serialNumber: id,
             firmwareRevision: device.firmware ?? "1.0.0", category: builder.category, services: builder.services)
         return DeviceBinding(device: device, accessory: accessory, kind: builder.kind ?? "unsupported", box: box, signature: signature, isTelevision: isTelevision,
                              updaters: builder.updaters, eventHooks: builder.eventHooks, details: builder.details,
@@ -451,10 +454,14 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
 
     static func accessoryID(_ deviceID: String) -> String { "\(platform):\(deviceID)" }
 
+    /// What every scene's Accessory Id starts with.
+    static let sceneIDPrefix = accessoryID("scene:")
+
     // MARK: Commands (section 5.5)
 
     /// Sends a write's commands; a status read follows when no event confirms them.
     func send(deviceID: String, _ commands: [DeviceCommand], watched: [String]) async throws {
+        guard !stopped else { throw HAPStatusError(.serviceCommunicationFailure) }
         let sentAt = dependencies.now()
         do {
             try await api.commands(deviceID: deviceID, commands)
@@ -468,7 +475,7 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
         followUps[deviceID]?.cancel()
         let delay = timing.seconds(sseActive ? 10 : 3)
         let events = sseActive
-        followUps[deviceID] = Task { [weak self] in
+        followUps[deviceID] = tasks.add { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             await self?.followUp(deviceID: deviceID, watched: watched, sentAt: sentAt, events: events)
@@ -500,7 +507,7 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
     func scheduleRediscovery(scenes refreshScenes: Bool = false) {
         guard rediscovery == nil else { return }
         let delay = timing.seconds(30)
-        rediscovery = Task { [weak self] in
+        rediscovery = tasks.add { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             await self?.rediscover(scenes: refreshScenes)
@@ -522,6 +529,7 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
             logger.debug("Could not list the SmartThings scenes: \(error)")
             return
         }
+        scenesRead = true
         var keep = Set<String>()
         for scene in scenes where !context.isExcluded("scene:\(scene.id)") {
             let id = Self.accessoryID("scene:\(scene.id)")
@@ -554,14 +562,10 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
                 logger.error("Could not add the scene \(scene.name): \(error)")
             }
         }
-        for (id, _) in sceneAccessories where !keep.contains(id) {
-            sceneAccessories[id] = nil
-            try? await context.remove(id: id)
-        }
-        // With the devices and the scenes both read, a cached accessory neither has is gone (removed while the bridge was off).
-        if listedAt != nil, lastReconcileFailure == nil {
-            keep.formUnion(bindings.values.map(\.accessory.id))
-            _ = await context.removeAccessories(keeping: keep)
+        // A scene SmartThings no longer lists leaves the bridge, one cached from an earlier run too.
+        for accessory in context.accessories where accessory.id.hasPrefix(Self.sceneIDPrefix) && !keep.contains(accessory.id) {
+            sceneAccessories[accessory.id] = nil
+            try? await context.remove(id: accessory.id)
         }
     }
 
@@ -577,12 +581,7 @@ public actor SmartThingsPlugin: HomeswiftPlugin {
 /// This host's IPv4 addresses, for the redirect URI's default.
 enum NetworkAddresses {
     @Sendable static func ipv4() -> [String] {
-        guard let devices = try? System.enumerateDevices() else { return [] }
-        var addresses: [String] = []
-        for device in devices {
-            guard let address = device.address, case .v4 = address, let ip = address.ipAddress, !ip.hasPrefix("127.") else { continue }
-            if !addresses.contains(ip) { addresses.append(ip) }
-        }
-        return addresses
+        var seen = Set<String>()
+        return localIPv4Networks().filter { !$0.isLoopback }.map { IPv4Network.dotted($0.address) }.filter { seen.insert($0).inserted }
     }
 }

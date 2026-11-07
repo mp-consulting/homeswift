@@ -52,7 +52,8 @@
         fact(t("Location"), status.location ?? "—"),
         fact(t("Updates"), updates),
         fact(t("Requests since start"), String(status.requests))),
-      status.eventsNote ? el("p", { class: "muted", text: t("SmartThings refused the event stream: updates come by polling for now.") }) : null,
+      status.eventsNote === "refused" ? el("p", { class: "muted", text: t("SmartThings refused the event stream: updates come by polling for now.") }) : null,
+      status.eventsNote === "flagged" ? el("p", { class: "muted", text: t("SmartThings flagged this bridge on the event stream: updates come by polling; it tries again in an hour.") }) : null,
       !status.sseGranted && !status.personalToken ? el("p", { class: "muted", text: t("Your app has no sse scope: add it, then sign in again, for live updates and buttons.") }) : null,
       status.personalToken ? el("p", { class: "muted", text: t("Signed in with a personal access token, which expires within a day. Sign in with your own SmartThings app instead.") }) : null,
       status.lastError ? el("p", { class: "muted", text: t("SmartThings does not answer: the last values are kept.") }) : null,
@@ -60,20 +61,27 @@
   }
 
   function leftOut(diagnostics) {
-    const rows = [
+    return [
       ...diagnostics.unsupported.map((device) => el("p", { text: t("{name}: nothing HomeKit can show ({capabilities})", {
         name: device.name, capabilities: device.components.flatMap((component) => component.capabilities.map((capability) => capability.id)).join(", ") || "—",
       }) })),
       ...diagnostics.skippedCopies.map((device) => el("p", { text: t("{name}: Homeswift's own, through its Matter bridge", { name: device.name }) })),
     ];
-    return rows;
   }
 
   let drawnSetup = null;
+  // What was left out changes with the device list: it is read again when the count changes, and every fourth time.
+  let diagnostics = null, diagnosedCount = -1, ticks = 0;
   async function refresh() {
-    let status, devices, diagnostics;
+    let status, devices;
     try {
-      [status, devices, diagnostics] = await Promise.all([request("status"), request("devices"), request("diagnostics")]);
+      [status, devices] = await Promise.all([request("status"), request("devices")]);
+      const count = (devices.devices ?? []).length;
+      if (!diagnostics || count !== diagnosedCount || ticks % 4 === 0) {
+        diagnostics = await request("diagnostics");
+        diagnosedCount = count;
+      }
+      ticks += 1;
     } catch { return; /* the instance is restarting */ }
     $("#loading")?.remove();
     const needsSetup = !status.signedIn;
@@ -88,7 +96,7 @@
     if (!needsSetup) $("#status").replaceChildren(...statusCard(status));
     const list = devices.devices ?? [];
     $("#devices-section").classList.toggle("hidden", !list.length);
-    renderKeyed($("#devices"), list, (device) => `${device.deviceId}:${JSON.stringify(device)}`, deviceCard);
+    renderKeyed($("#devices"), list, (device) => device.deviceId, deviceCard);
     requestAnimationFrame(() => $("#devices").classList.add("drawn"));
     const rows = leftOut(diagnostics);
     $("#left-out-section").classList.toggle("hidden", !rows.length);

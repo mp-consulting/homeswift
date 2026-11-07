@@ -13,6 +13,8 @@ final class StatusBox: Sendable {
         var written: [String: Date] = [:]
         /// When an event last came for an attribute: a command's follow-up read is skipped when one came.
         var evented: [String: Date] = [:]
+        /// When the bridge last sent a command to the device (`Writer.send`).
+        var lastWrite: Date?
     }
 
     private let state: NIOLockedValueBox<State>
@@ -27,11 +29,14 @@ final class StatusBox: Sendable {
 
     static func key(_ component: String, _ capability: String, _ attribute: String) -> String { "\(component)/\(capability)/\(attribute)" }
 
-    /// A whole status read at `requestedAt`: each attribute replaces the known one unless the bridge wrote it after.
+    /// A whole status read at `requestedAt`: each attribute replaces the known one unless the bridge wrote it after. The
+    /// updaters run when a value, a unit or the health changed, and after any read within two minutes of a write (a
+    /// target held while the device moved settles then).
     func merge(_ fresh: DeviceStatus, requestedAt: Date) {
-        let status = state.withLockedValue { state -> DeviceStatus in
+        let changed = state.withLockedValue { state -> DeviceStatus? in
             let expiry = requestedAt.addingTimeInterval(-120)
             state.written = state.written.filter { $0.value > expiry }
+            var changed = state.lastWrite.map { $0 > expiry } ?? false
             for (component, capabilities) in fresh.components {
                 for (capability, attributes) in capabilities {
                     for (name, value) in attributes {
@@ -48,15 +53,21 @@ final class StatusBox: Sendable {
                         if value.value.isNull, known?.value.isNull == false { continue }
                         var merged = value
                         // A value without its unit keeps the one known (an event's temperature, section 5.1).
-                        if merged.unit == nil { merged.unit = state.status.attribute(component, capability, name)?.unit }
+                        if merged.unit == nil { merged.unit = known?.unit }
+                        guard merged != known else { continue }
+                        // A new timestamp alone is kept (a poll notices button presses by it) without running the updaters.
+                        if merged.value != known?.value || merged.unit != known?.unit { changed = true }
                         state.status.set(component, capability, name, merged)
                     }
                 }
             }
-            if let health = fresh.health { state.status.health = health }
-            return state.status
+            if let health = fresh.health, health != state.status.health {
+                state.status.health = health
+                changed = true
+            }
+            return changed ? state.status : nil
         }
-        notify(status)
+        if let changed { notify(changed) }
     }
 
     /// An event: the attribute's new value, its unit kept from the last status read.
@@ -97,6 +108,24 @@ final class StatusBox: Sendable {
         notify(status)
     }
 
+    /// Stamps a command about to go to the device; returns the stamp it replaced, for `unstampWrite`.
+    func stampWrite(at date: Date) -> Date? {
+        state.withLockedValue { state in
+            defer { state.lastWrite = date }
+            return state.lastWrite
+        }
+    }
+
+    /// A command that failed: the stamp before it comes back, unless another write stamped since.
+    func unstampWrite(_ date: Date, previous: Date?) {
+        state.withLockedValue { state in if state.lastWrite == date { state.lastWrite = previous } }
+    }
+
+    /// Whether the bridge sent a command within `window` of `now`: what the device reports then may be its echo.
+    func wroteRecently(within window: TimeInterval, now: Date) -> Bool {
+        state.withLockedValue { $0.lastWrite.map { now.timeIntervalSince($0) < window } ?? false }
+    }
+
     /// Whether an event came for any of these attributes since `date`.
     func eventCame(for keys: [String], since date: Date) -> Bool {
         state.withLockedValue { state in keys.contains { (state.evented[$0] ?? .distantPast) >= date } }
@@ -118,8 +147,8 @@ struct BindingEnvironment: Sendable {
     /// Sends commands; throws `HAPStatusError` for HomeKit when SmartThings refuses or does not answer.
     var send: @Sendable (_ commands: [DeviceCommand], _ watched: [String]) async throws -> Void
     var controllable: Bool
-    /// Coalesces each slider's writes (`Writer.isLatest`).
-    var sliders = LatestCallGuard(delay: .milliseconds(300))
+    /// Coalesces each slider's writes (`AccessoryBuilder.onSlide`).
+    var sliders: LatestCallGuard
 }
 
 /// An appliance value for the web page and the Assistant (section 8.9): a label and its value.
@@ -201,7 +230,7 @@ final class DeviceBinding: Sendable {
         }
     }
 
-    func details(now: Date) -> [DeviceDetail] { detailProviders.flatMap { $0(box.status, now) } }
+    func details(_ status: DeviceStatus, now: Date) -> [DeviceDetail] { detailProviders.flatMap { $0(status, now) } }
 }
 
 // MARK: Conversions (section 7.4)
@@ -222,17 +251,16 @@ enum Convert {
     static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double { min(max(value, range.lowerBound), range.upperBound) }
 
     static func percent(_ value: Double?) -> Int? {
-        guard let value, value.isFinite else { return nil }
-        return Int(saturating: clamp(value.rounded(), 0...100))
+        value?.finite.flatMap { Int(saturating: $0.rounded(), in: 0...100) }
     }
 
     static func mireds(kelvin: Double) -> Int? {
-        guard kelvin > 0, kelvin.isFinite else { return nil }
+        guard let kelvin = kelvin.finite, kelvin > 0 else { return nil }
         return Int(saturating: (1_000_000 / kelvin).rounded())
     }
 
     static func kelvin(mireds: Double) -> Int? {
-        guard mireds > 0, mireds.isFinite else { return nil }
+        guard let mireds = mireds.finite, mireds > 0 else { return nil }
         return Int(saturating: (1_000_000 / mireds).rounded())
     }
 

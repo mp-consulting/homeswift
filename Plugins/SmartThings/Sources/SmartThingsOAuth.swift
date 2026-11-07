@@ -107,6 +107,7 @@ struct StoredTokens: Codable, Sendable, Equatable {
     var expires_in: Double?
     /// Epoch milliseconds.
     var expires_at: Double?
+    // Not read by Homeswift: kept so the file keeps aziz66's shape (section 3.7).
     var refresh_token_expires_at: Double?
     var installed_app_id: String?
     var location_id: String?

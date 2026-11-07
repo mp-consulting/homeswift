@@ -41,7 +41,7 @@ extension SmartThingsPlugin {
             scenes = (try? await api.scenes(locationID: locationID).compactMap(SmartThingsScene.init)) ?? scenes
         }
         await readRooms()
-        let found = MatterCopies.find(in: listed, homeswiftIDs: context.hostAccessories.map(\.id))
+        let found = MatterCopies.find(in: listed) { context.hostAccessories.map(\.id) }
         var devices: [DiscoveredDevice] = []
         for device in listed where found[device.deviceID] == nil {
             let id = device.deviceID
@@ -53,9 +53,7 @@ extension SmartThingsPlugin {
                 excludedBySettings: byLists || !mappable, kind: kind)
             discovered.isReachable = bindings[id]?.box.status.health != "OFFLINE"
             devices.append(discovered)
-            if device.isMatter, loggedOnce.insert("matter:\(id)").inserted {
-                logger.info("\(device.displayName) is a Matter device: it may already be in Apple Home through its own Matter pairing. If so, set it Not in Home.")
-            }
+            noteMatter(device)
         }
         for scene in scenes {
             devices.append(DiscoveredDevice(deviceID: "scene:\(scene.id)", name: scene.name, model: "SmartThings scene", isSetUp: !context.isExcluded("scene:\(scene.id)"), kind: "scene"))

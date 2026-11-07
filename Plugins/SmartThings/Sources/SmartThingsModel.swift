@@ -22,15 +22,16 @@ struct AttributeValue: Sendable, Equatable {
     }
 }
 
+/// SmartThings' timestamps: ISO 8601, with or without fractional seconds.
 enum SmartThingsDates {
+    private static let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let plain = Date.ISO8601FormatStyle()
+
     static func parse(_ text: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: text) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: text)
+        (try? fractional.parse(text)) ?? (try? plain.parse(text))
     }
+
+    static func format(_ date: Date) -> String { plain.format(date) }
 }
 
 /// A device's state: component, capability, attribute (`components.<c>.<cap>.<attr>`), and its health.
@@ -131,7 +132,8 @@ struct SmartThingsDevice: Sendable, Equatable {
     var ocf: JSONValue?
     var viper: JSONValue?
     var allowed: [String]?
-    var raw: JSONValue
+    /// A hub (`type` HUB, or a `hub` object): never an accessory.
+    let isHub: Bool
 
     init?(_ json: JSONValue) {
         guard let id = json["deviceId"]?.stringValue, !id.isEmpty else { return nil }
@@ -164,7 +166,7 @@ struct SmartThingsDevice: Sendable, Equatable {
         ocf = json["ocf"]?.nonNull
         viper = json["viper"]?.nonNull
         allowed = json["allowed"]?.arrayValue?.compactMap(\.stringValue)
-        raw = json
+        isHub = type == "HUB" || json["hub"]?.nonNull != nil
     }
 
     /// The person's name for it, else the integration's, else "SmartThings device" (sections 4.3 and 14.21).
@@ -201,7 +203,6 @@ struct SmartThingsDevice: Sendable, Equatable {
         return allowed.contains("x:devices")
     }
 
-    var isHub: Bool { type == "HUB" || raw["hub"]?.nonNull != nil }
     var isMatter: Bool { type == "MATTER" }
 }
 

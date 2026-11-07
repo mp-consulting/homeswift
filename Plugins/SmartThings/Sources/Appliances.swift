@@ -102,10 +102,15 @@ enum Appliance: String, Sendable {
         }
     }
 
-    /// Minutes left: `completionTime` minus now (floored at 0), else Samsung's `remainingTime` (section 8.2).
-    static func remainingMinutes(_ appliance: Appliance, _ status: DeviceStatus, now: Date) -> Int? {
+    /// When the cycle ends: the operating state's `completionTime`.
+    static func completionTime(_ appliance: Appliance, _ status: DeviceStatus) -> Date? {
         let capability = appliance == .oven ? "ovenOperatingState" : appliance.operatingState
-        if let capability, let text = status.string("main", capability, "completionTime"), let date = SmartThingsDates.parse(text) {
+        return capability.flatMap { status.string("main", $0, "completionTime") }.flatMap(SmartThingsDates.parse)
+    }
+
+    /// Minutes left: `completion` (its `completionTime`) minus now, floored at 0, else Samsung's `remainingTime` (section 8.2).
+    static func remainingMinutes(_ appliance: Appliance, _ status: DeviceStatus, now: Date, completion: Date?) -> Int? {
+        if let date = completion {
             return max(0, Int(saturating: (date.timeIntervalSince(now) / 60).rounded(.down)) ?? 0)
         }
         if let samsung = appliance.samsungCapability, let minutes = status.number("main", samsung, "remainingTime") {
@@ -123,10 +128,9 @@ enum Appliance: String, Sendable {
             let capability = appliance.operatingState ?? ""
             add("State", status.string("main", capability, "machineState") ?? status.string("main", appliance.samsungCapability ?? "", "machineState"))
             add("Job", status.string("main", capability, appliance.jobStateAttribute ?? "") ?? status.string("main", appliance.samsungCapability ?? "", appliance.jobStateAttribute ?? ""))
-            if let minutes = remainingMinutes(appliance, status, now: now) { add("Remaining", "\(minutes) min") }
-            if let text = status.string("main", capability, "completionTime"), let date = SmartThingsDates.parse(text) {
-                add("Finishes at", ISO8601DateFormatter().string(from: date))
-            }
+            let completion = completionTime(appliance, status)
+            if let minutes = remainingMinutes(appliance, status, now: now, completion: completion) { add("Remaining", "\(minutes) min") }
+            if let completion { add("Finishes at", SmartThingsDates.format(completion)) }
             if let progress = status.number("main", capability, "progress") { add("Progress", "\(Int(saturating: progress) ?? 0) %") }
             if let mode = appliance.modeCapability { add("Mode", status.string("main", mode, mode)) }
             if let cycle = appliance.cycleCapability {
@@ -139,7 +143,7 @@ enum Appliance: String, Sendable {
             if let setpoint = status.number("main", "ovenSetpoint", "ovenSetpoint") {
                 add("Setpoint", "\(Int(saturating: setpoint) ?? 0) \(status.unit("main", "ovenSetpoint", "ovenSetpoint") ?? "")".trimmingCharacters(in: .whitespaces))
             }
-            if let minutes = remainingMinutes(.oven, status, now: now) { add("Remaining", "\(minutes) min") }
+            if let minutes = remainingMinutes(.oven, status, now: now, completion: completionTime(.oven, status)) { add("Remaining", "\(minutes) min") }
             if let progress = status.number("main", "ovenOperatingState", "progress") { add("Progress", "\(Int(saturating: progress) ?? 0) %") }
             add("Operation time", status.string("main", "ovenOperatingState", "operationTime"))
         case .refrigerator:

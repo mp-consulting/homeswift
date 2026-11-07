@@ -83,7 +83,9 @@ struct CommandTests {
         let device = try #require(SmartThingsDevice(item))
         #expect(!device.isControllable)
         let box = StatusBox(DeviceStatus(listed: item))
-        let env = BindingEnvironment(deviceID: "ro", timing: SmartThingsTiming(scale: 0.001), logger: testLogger, now: Date.init, send: { _, _ in }, controllable: false)
+        let timing = SmartThingsTiming(scale: 0.001)
+        let env = BindingEnvironment(deviceID: "ro", timing: timing, logger: testLogger, now: Date.init, send: { _, _ in }, controllable: false,
+                                     sliders: LatestCallGuard(delay: timing.seconds(0.3)))
         let writer = Writer(box: box, env: env)
         await #expect(throws: HAPStatusError(.insufficientPrivileges)) { try await writer.send([DeviceCommand("main", "switch", "on")]) }
     }

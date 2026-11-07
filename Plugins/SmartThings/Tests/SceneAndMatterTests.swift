@@ -63,7 +63,7 @@ struct SceneAndMatterTests {
 
     @Test func copiesOfHomeswiftsOwnAccessoriesAreFound() throws {
         let devices = (Self.matterDevices["items"]?.arrayValue ?? []).compactMap(SmartThingsDevice.init)
-        let found = MatterCopies.find(in: devices, homeswiftIDs: ["ElgatoKeyLights:3C6A9D0011AA"])
+        let found = MatterCopies.find(in: devices) { ["ElgatoKeyLights:3C6A9D0011AA"] }
         #expect(found["aaaa0000-0000-4000-8000-0000000000b0"]?.isBridge == true)
         #expect(found["aaaa0000-0000-4000-8000-0000000000b1"]?.rules == ["a", "b", "c"])
         #expect(found["bbbb0000-0000-4000-8000-0000000000c1"] == nil)
@@ -74,7 +74,7 @@ struct SceneAndMatterTests {
         #expect(unique.count == 32 && unique.allSatisfy(\.isHexDigit))
         let own = try #require(SmartThingsDevice(["deviceId": "x", "type": "MATTER", "manufacturerName": "Acme",
                                                   "matter": ["vendorId": 65521, "productId": 32768, "uniqueId": .string(unique.uppercased())], "components": []]))
-        #expect(MatterCopies.find(in: [own], homeswiftIDs: [long])["x"]?.rules == ["c"])
+        #expect(MatterCopies.find(in: [own], homeswiftIDs: { [long] })["x"]?.rules == ["c"])
     }
 
 

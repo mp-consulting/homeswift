@@ -23,6 +23,7 @@ actor RateLimiter {
     let limit: Int
     let window: Duration
     private var sent: [String: [ContinuousClock.Instant]] = [:]
+    /// How many requests waited for a slot: for tests.
     private(set) var waits = 0
 
     init(limit: Int, window: Duration) {
@@ -93,8 +94,6 @@ actor SmartThingsAPI {
     private var forbiddenLogged = Set<String>()
     /// Requests sent since start: what the Developer plan's monthly quota counts.
     private(set) var requestCount = 0
-    /// The first 403 of a run of them, for the "no plan" check (section 6.3); nil after any success.
-    private(set) var forbiddenSince: Date?
     /// The pages the last device list took: what a poll costs (section 5.3).
     private(set) var lastListPages = 1
 
@@ -109,8 +108,6 @@ actor SmartThingsAPI {
         self.deviceLimiter = deviceLimiter ?? RateLimiter(limit: 12, window: timing.seconds(60))
         sseLimiter = RateLimiter(limit: 20, window: timing.seconds(60))
     }
-
-    var isBackingOff: Bool { backoffUntil.map { ContinuousClock.now < $0 } ?? false }
 
     // MARK: Calls
 
@@ -246,8 +243,16 @@ actor SmartThingsAPI {
         }
         var token = try await tokens.accessToken()
         var refreshed = false
+        var rateRetried = false
         var transientTries = 0
-        var rateTries = 0
+        let readBackoff = Backoff(initial: timing.seconds(1), maximum: timing.seconds(10), jitter: .proportional(0.2))
+        /// Waits before trying a network failure or a 5xx again; false once the tries are spent (two for a write, three for a read).
+        func retryTransient(_ tries: inout Int) async throws -> Bool {
+            tries += 1
+            guard tries < (isWrite ? 2 : 3) else { return false }
+            try await Task.sleep(for: isWrite ? timing.seconds(1) : readBackoff.delay(attempt: tries - 1))
+            return true
+        }
         while true {
             var headers: [(name: String, value: String)] = [("Authorization", "Bearer \(token)"), ("Accept", accept), ("User-Agent", Self.userAgent)]
             if body != nil { headers.append(("Content-Type", "application/json;charset=utf-8")) }
@@ -257,17 +262,12 @@ actor SmartThingsAPI {
             do {
                 response = try await http.send(request)
             } catch {
-                transientTries += 1
-                if transientTries < (isWrite ? 2 : 3) {
-                    try await Task.sleep(for: isWrite ? timing.seconds(1) : Backoff(initial: timing.seconds(1), maximum: timing.seconds(10), jitter: .proportional(0.2)).delay(attempt: transientTries - 1))
-                    continue
-                }
+                if try await retryTransient(&transientTries) { continue }
                 throw SmartThingsError.network(path: path, message: "\(error)")
             }
             switch response.status {
             case 200..<300:
                 backoffAttempt = 0
-                forbiddenSince = nil
                 if response.body.isEmpty { return .object([:]) }
                 return (try? JSONValue(data: response.body)) ?? .object([:])
             case 401 where !refreshed:
@@ -279,21 +279,16 @@ actor SmartThingsAPI {
                 backoffUntil = ContinuousClock.now + wait
                 backoffAttempt += 1
                 logger.warning("SmartThings is limiting the requests (HTTP 429): waiting \(Int((Double(wait.components.seconds) / max(timing.scale, 1e-9)).rounded())) s")
-                if isWrite, rateTries == 0, wait <= timing.seconds(5) {
-                    rateTries += 1
+                if isWrite, !rateRetried, wait <= timing.seconds(5) {
+                    rateRetried = true
                     try await Task.sleep(for: wait)
                     continue
                 }
                 throw SmartThingsError.rateLimited(path: path)
             case 500..<600:
-                transientTries += 1
-                if transientTries < (isWrite ? 2 : 3) {
-                    try await Task.sleep(for: isWrite ? timing.seconds(1) : Backoff(initial: timing.seconds(1), maximum: timing.seconds(10), jitter: .proportional(0.2)).delay(attempt: transientTries - 1))
-                    continue
-                }
+                if try await retryTransient(&transientTries) { continue }
                 throw SmartThingsError.http(status: response.status, path: path, message: Self.excerpt(response.body))
             case 403:
-                if forbiddenSince == nil { forbiddenSince = Date() }
                 let key = "\(method) \(Self.pathShape(path))"
                 if forbiddenLogged.insert(key).inserted {
                     logger.warning("SmartThings refused \(method) \(path) (HTTP 403): \(Self.excerpt(response.body)). Check the Developer plan and the app's scopes.")

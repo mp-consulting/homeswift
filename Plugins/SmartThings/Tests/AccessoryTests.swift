@@ -187,6 +187,30 @@ struct AccessoryTests {
         #expect(await eventually { host.accessory(Fixture.lock) == nil })
     }
 
+    /// A device removed while the bridge was off leaves with the first list, even when the scenes cannot be read; the
+    /// cached scenes stay until they can.
+    @Test func aDeviceGoneWhileTheBridgeWasOffLeavesAtTheFirstList() async throws {
+        let first = try await started()
+        #expect(await eventually { first.accessory("scene:\(Fixture.scene)") != nil })
+        await first.stop()
+        let cloud = environment.cloud
+        cloud.reset("GET", "/v1/devices?page=2")
+        cloud.answer("GET", "/v1/devices?page=2", ["items": .array(Fixture.page2["items"]?.arrayValue?.filter { $0["deviceId"] != .string(Fixture.lock) } ?? [])])
+        cloud.reset("GET", "/v1/scenes")
+        cloud.answer("GET", "/v1/scenes", status: 403)
+        // The devices are not listed at start: the cached accessories are all there.
+        cloud.reset("GET", "/v1/devices")
+        cloud.answer("GET", "/v1/devices", status: 400)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        #expect(host.accessory(Fixture.lock) != nil && host.accessory(Fixture.lamp) != nil)
+        cloud.reset("GET", "/v1/devices")
+        cloud.answer("GET", "/v1/devices", Fixture.page1)
+        await environment.plugin?.reconcile()
+        #expect(host.accessory(Fixture.lock) == nil)
+        #expect(host.accessory(Fixture.lamp) != nil && host.accessory("scene:\(Fixture.scene)") != nil)
+    }
+
     @Test func excludedAndListedOutDevicesAreNotAccessories() async throws {
         let host = try await started(TestEnvironment.block.merging(["IgnoreDevices": ["Front Door"]]) { $1 }, accessories: [Fixture.lamp: ["excluded": true]])
         defer { Task { await host.stop() } }
@@ -217,10 +241,11 @@ final class NIOLockedValueBoxWrapper<Value: Sendable>: Sendable {
 enum TestBuild {
     static func binding(_ device: SmartThingsDevice, status: DeviceStatus, settings: SmartThingsSettings = SmartThingsSettings(.object([:])), sent: SentCommands) -> DeviceBinding? {
         let box = StatusBox(status)
-        let env = BindingEnvironment(deviceID: device.deviceID, timing: SmartThingsTiming(scale: 0.001), logger: testLogger, now: Date.init,
-                                     send: { commands, _ in sent.append(commands) }, controllable: true)
+        let timing = SmartThingsTiming(scale: 0.001)
+        let env = BindingEnvironment(deviceID: device.deviceID, timing: timing, logger: testLogger, now: Date.init,
+                                     send: { commands, _ in sent.append(commands) }, controllable: true, sliders: LatestCallGuard(delay: timing.seconds(0.3)))
         var builder = AccessoryBuilder(device: device, status: status, settings: settings, options: DeviceOptions(), box: box, env: env, context: nil,
-                                       accessoryID: "HomeBridgeSmartThings:\(device.deviceID)", name: device.displayName)
+                                       accessoryID: "HomeBridgeSmartThings:\(device.deviceID)")
         builder.build()
         guard !builder.services.isEmpty else { return nil }
         let accessory = Accessory(id: "HomeBridgeSmartThings:\(device.deviceID)", name: device.displayName, services: builder.services)

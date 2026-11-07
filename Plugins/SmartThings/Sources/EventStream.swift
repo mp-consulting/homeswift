@@ -5,12 +5,21 @@ import NIOConcurrencyHelpers
 
 /// The server-sent events loop (docs/clean-room/SmartThings.md, 5.1): create a subscription, open it within the minute,
 /// reconcile on its first welcome, apply events; on goodbye, an end, a silence past the watchdog or an error, a new
-/// subscription after a back-off. A lasting 403 falls back to polling and tries again every 30 minutes.
+/// subscription after a back-off. A lasting 403 falls back to polling and tries again every 30 minutes. The first
+/// welcome lists the devices at start; a stream that fails before one lists them at once.
 extension SmartThingsPlugin {
     enum StreamEnd: Sendable, Equatable {
         case goodbye
         case ended
         case silent
+    }
+
+    /// Why the stream is off for a while, which the page says in its words.
+    enum EventsNote: String, Sendable {
+        /// HTTP 403: tried again in 30 minutes.
+        case refused
+        /// HTTP 418: tried again in an hour.
+        case flagged
     }
 
     func eventLoop() async {
@@ -44,12 +53,12 @@ extension SmartThingsPlugin {
                 setActive(false)
                 switch error.status {
                 case 403?:
-                    sseNote = "SmartThings refused the event stream (HTTP 403): updates come by polling; trying again in 30 minutes"
-                    logger.warning("\(sseNote ?? "")")
+                    eventsNote = .refused
+                    logger.warning("SmartThings refused the event stream (HTTP 403): updates come by polling; trying again in 30 minutes")
                     wait = timing.seconds(1800)
                 case 418?:
-                    sseNote = "SmartThings flagged this client on the event stream (HTTP 418): updates come by polling; trying again in an hour"
-                    logger.error("\(sseNote ?? "")")
+                    eventsNote = .flagged
+                    logger.error("SmartThings flagged this client on the event stream (HTTP 418): updates come by polling; trying again in an hour")
                     wait = timing.seconds(3600)
                 case 404?:
                     attempt += 1
@@ -65,6 +74,8 @@ extension SmartThingsPlugin {
                 attempt += 1
             }
             guard !Task.isCancelled, !stopped else { return }
+            // No welcome has listed the devices yet: they are shown now rather than after the wait.
+            if listedAt == nil { await reconcile() }
             try? await Task.sleep(for: wait)
         }
     }
@@ -72,7 +83,7 @@ extension SmartThingsPlugin {
     private func setActive(_ active: Bool) {
         guard sseActive != active else { return }
         sseActive = active
-        if active { sseNote = nil }
+        if active { eventsNote = nil }
     }
 
     /// Reads the stream until it says goodbye, ends, or stays silent past the watchdog.
@@ -140,7 +151,7 @@ extension SmartThingsPlugin {
     func apply(_ event: DeviceEvent) {
         guard let binding = bindings[event.deviceID] else {
             let known = copies[event.deviceID] != nil || unsupported[event.deviceID] != nil || context.isExcluded(event.deviceID)
-            if !known, listed.contains(where: { $0.deviceID == event.deviceID }) == false { scheduleRediscovery() }
+            if !known, !listedIDs.contains(event.deviceID) { scheduleRediscovery() }
             return
         }
         statusFailures[event.deviceID] = nil

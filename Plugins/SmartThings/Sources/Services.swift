@@ -78,10 +78,10 @@ extension AccessoryBuilder {
         }
     }
 
-    /// On ↔ `switch.switch`, written as `switch.on`/`off`.
-    mutating func bindOn(_ service: Service, _ component: String, characteristic: CharacteristicType = .on) {
+    /// On ↔ `switch.switch`, written as `switch.on`/`off`; `changesOnly` does not send a write of the state already shown.
+    mutating func bindOn(_ service: Service, _ component: String, characteristic: CharacteristicType = .on, changesOnly: Bool = false) {
         let writer = writer
-        service.characteristic(characteristic).onWrite { value in
+        service.characteristic(characteristic).onWrite(changesOnly: changesOnly) { value in
             let on = characteristic == .active ? value.intValue == 1 : value.boolValue == true
             try await writer.send([DeviceCommand(component, "switch", on ? "on" : "off")], set: [(component, "switch", "switch", .string(on ? "on" : "off"))])
         }
@@ -112,8 +112,7 @@ extension AccessoryBuilder {
         let writer = writer
         let box = box
         if level {
-            service.characteristic(.brightness).onWrite(changesOnly: true) { value in
-                guard await writer.isLatest("\(component)/brightness") else { return }
+            onSlide(service, .brightness) { value in
                 let level = Convert.percent(value.doubleValue) ?? 0
                 // setLevel 0 turns a light off: send the off itself (section 7.3.2).
                 if level == 0 {
@@ -126,44 +125,31 @@ extension AccessoryBuilder {
             update { status in service.set(.brightness, Convert.percent(status.number(component, "switchLevel", "level")).map { .int($0) }) }
         }
         if color {
-            // HomeKit writes hue and saturation together: one setColor 100 ms later carries both (section 7.3.2).
-            let pending = NIOLockedValueBox<(hue: Double?, saturation: Double?)>((nil, nil))
-            let latest = LatestCallGuard(delay: env.timing.seconds(0.1))
-            let flush: @Sendable () async throws -> Void = {
-                guard await latest() else { return }
-                let (hue, saturation) = pending.withLockedValue { value in defer { value = (nil, nil) }; return value }
+            // HomeKit writes hue and saturation together: one setColor 100 ms later carries both, each write waiting for it
+            // (section 7.3.2).
+            let colors = LightChangeBatcher(window: env.timing.seconds(0.1)) { changes in
                 let status = box.status
-                let stHue = hue.map { ($0 / 3.6).rounded() } ?? status.number(component, "colorControl", "hue") ?? 0
-                let stSaturation = saturation.map { $0.rounded() } ?? status.number(component, "colorControl", "saturation") ?? 0
+                let stHue = changes.hue.map { ($0 / 3.6).rounded() } ?? status.number(component, "colorControl", "hue") ?? 0
+                let stSaturation = changes.saturation.map { $0.rounded() } ?? status.number(component, "colorControl", "saturation") ?? 0
                 try await writer.send([DeviceCommand(component, "colorControl", "setColor", [["hue": .number(stHue), "saturation": .number(stSaturation)]])],
                                       set: [(component, "colorControl", "hue", .number(stHue)), (component, "colorControl", "saturation", .number(stSaturation))])
             }
-            service.characteristic(.hue).onWrite(changesOnly: true) { value in
-                pending.withLockedValue { $0.hue = value.doubleValue ?? 0 }
-                try await flush()
-            }
-            service.characteristic(.saturation).onWrite(changesOnly: true) { value in
-                pending.withLockedValue { $0.saturation = value.doubleValue ?? 0 }
-                try await flush()
-            }
+            service.characteristic(.hue).onWrite(changesOnly: true) { value in try await colors.set(.hue(value.doubleValue ?? 0)) }
+            service.characteristic(.saturation).onWrite(changesOnly: true) { value in try await colors.set(.saturation(value.doubleValue ?? 0)) }
             update { status in
                 service.set(.hue, status.number(component, "colorControl", "hue").map { .double(Convert.clamp(($0 * 3.6).rounded(), 0...360)) })
                 service.set(.saturation, status.number(component, "colorControl", "saturation").map { .double(Convert.clamp($0, 0...100)) })
             }
         }
-        // When the bridge last set the white: a colour bulb reports a new hue for it, which is not a colour set elsewhere.
-        let temperatureWrittenAt = NIOLockedValueBox<Date>(.distantPast), clock = env.now
         if temperature {
             let range = minMireds...maxMireds
-            service.characteristic(.colorTemperature).onWrite(changesOnly: true) { value in
-                guard await writer.isLatest("\(component)/colorTemperature") else { return }
+            onSlide(service, .colorTemperature) { value in
                 let mireds = Convert.clamp(value.doubleValue ?? 300, range)
                 var kelvin = Convert.kelvin(mireds: mireds) ?? 3000
                 if let limits = box.status.value(component, "colorTemperature", "colorTemperatureRange") {
                     if let low = limits["minimum"]?.doubleValue { kelvin = max(kelvin, Int(saturating: low) ?? kelvin) }
                     if let high = limits["maximum"]?.doubleValue { kelvin = min(kelvin, Int(saturating: high) ?? kelvin) }
                 }
-                temperatureWrittenAt.withLockedValue { $0 = clock() }
                 try await writer.send([DeviceCommand(component, "colorTemperature", "setColorTemperature", [.number(Double(kelvin))])],
                                       set: [(component, "colorTemperature", "colorTemperature", .number(Double(kelvin)))])
             }
@@ -180,9 +166,10 @@ extension AccessoryBuilder {
                 _ = controller?.disableIfChangedElsewhere(mireds: mireds)
             }
             if color {
-                let echo = env.timing.timeInterval(10)
+                // A colour bulb reports a new hue for a white the bridge just set: that is not a colour set elsewhere.
+                let echo = env.timing.timeInterval(10), clock = env.now
                 eventHooks[StatusBox.key(component, "colorControl", "hue")] = { [weak controller] _, _ in
-                    guard clock().timeIntervalSince(temperatureWrittenAt.withLockedValue { $0 }) > echo else { return }
+                    guard !box.wroteRecently(within: echo, now: clock()) else { return }
                     _ = controller?.disableIfChangedElsewhere(mireds: nil)
                 }
             }
@@ -197,8 +184,7 @@ extension AccessoryBuilder {
         let service = makeService(.fanv2, component, "fan", optional: [.rotationSpeed], kind: "fan", category: .fan)
         bindOn(service, component, characteristic: .active)
         let writer = writer
-        service.characteristic(.rotationSpeed).onWrite(changesOnly: true) { value in
-            guard await writer.isLatest("\(component)/rotationSpeed") else { return }
+        onSlide(service, .rotationSpeed) { value in
             let level = Convert.percent(value.doubleValue) ?? 0
             switch speed {
             case .level:
@@ -324,8 +310,7 @@ extension AccessoryBuilder {
             let value = Convert.deviceTemperature(celsius, unit: box.status.unit(component, capability, attribute) ?? unit(box.status))
             try await writer.send([DeviceCommand(component, capability, command, [value])], set: [(component, capability, attribute, value)])
         }
-        service.characteristic(.targetTemperature).onWrite(changesOnly: true) { value in
-            guard await writer.isLatest("\(component)/targetTemperature") else { return }
+        onSlide(service, .targetTemperature) { value in
             let celsius = value.doubleValue ?? 20
             switch variant {
             case .single: try await setpoint("temperatureSetpoint", "setTemperatureSetpoint", "temperatureSetpoint", celsius)
@@ -341,12 +326,10 @@ extension AccessoryBuilder {
             }
         }
         if variant == .both {
-            service.characteristic(.heatingThresholdTemperature).onWrite(changesOnly: true) { value in
-                guard await writer.isLatest("\(component)/heatingThreshold") else { return }
+            onSlide(service, .heatingThresholdTemperature) { value in
                 try await setpoint("thermostatHeatingSetpoint", "setHeatingSetpoint", "heatingSetpoint", value.doubleValue ?? 20)
             }
-            service.characteristic(.coolingThresholdTemperature).onWrite(changesOnly: true) { value in
-                guard await writer.isLatest("\(component)/coolingThreshold") else { return }
+            onSlide(service, .coolingThresholdTemperature) { value in
                 try await setpoint("thermostatCoolingSetpoint", "setCoolingSetpoint", "coolingSetpoint", value.doubleValue ?? 24)
             }
         }
@@ -414,8 +397,8 @@ extension AccessoryBuilder {
                 }
             }
         }
-        service.characteristic(.targetPosition).onWrite { value in
-            guard await writer.isLatest("\(component)/targetPosition") else { return }
+        // Every write is sent, even one of the target shown: a repeated open or close goes to the device again.
+        onSlide(service, .targetPosition, changesOnly: false) { value in
             var target = Convert.percent(value.doubleValue) ?? 0
             if level == .none { target = target >= 50 ? 100 : 0 }
             if shade, target == 0 || target == 100 {
@@ -435,8 +418,7 @@ extension AccessoryBuilder {
             }
         }
         if tilt {
-            service.characteristic(.targetHorizontalTiltAngle).onWrite(changesOnly: true) { value in
-                guard await writer.isLatest("\(component)/tilt") else { return }
+            onSlide(service, .targetHorizontalTiltAngle) { value in
                 let angle = Convert.clamp(value.doubleValue ?? 0, -90...90)
                 let tiltLevel = ((angle + 90) / 1.8).rounded()
                 try await writer.send([DeviceCommand(component, "windowShadeTiltLevel", "setShadeTiltLevel", [.number(tiltLevel)])],

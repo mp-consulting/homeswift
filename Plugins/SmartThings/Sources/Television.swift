@@ -104,7 +104,6 @@ extension AccessoryBuilder {
             try await writer.send([DeviceCommand("main", "audioVolume", value.intValue == 0 ? "volumeUp" : "volumeDown")])
         }
         @Sendable func setVolume(_ level: Int) async throws {
-            guard await writer.isLatest("main/volume") else { return }
             var commands: [DeviceCommand] = []
             var set: Writer.Set = [("main", "audioVolume", "volume", .number(Double(level)))]
             if level > 0, box.status.string("main", "audioMute", "mute") == "muted" {
@@ -115,7 +114,7 @@ extension AccessoryBuilder {
             try await writer.send(commands, set: set)
         }
         if hasVolume {
-            speaker.characteristic(.volume).onWrite(changesOnly: true) { value in try await setVolume(Convert.percent(value.doubleValue) ?? 0) }
+            onSlide(speaker, .volume) { value in try await setVolume(Convert.percent(value.doubleValue) ?? 0) }
         }
         let television = Service(.television, name: name, subtype: "main/television", optional: [.pictureMode], linked: inputServices + [speaker], isPrimary: true)
         primary = television
@@ -186,7 +185,7 @@ extension AccessoryBuilder {
                 let muted = value.boolValue != true
                 try await writer.send([DeviceCommand("main", "audioMute", muted ? "mute" : "unmute")], set: [("main", "audioMute", "mute", .string(muted ? "muted" : "unmuted"))])
             }
-            if hasVolume { slider.characteristic(.brightness).onWrite(changesOnly: true) { value in try await setVolume(Convert.percent(value.doubleValue) ?? 0) } }
+            if hasVolume { onSlide(slider, .brightness) { value in try await setVolume(Convert.percent(value.doubleValue) ?? 0) } }
             services.append(slider)
             update { status in
                 slider.set(.on, status.string("main", "audioMute", "mute").map { .bool($0 != "muted") })

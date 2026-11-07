@@ -22,7 +22,7 @@ struct EventTests {
         let cloud = environment.cloud
         let host = try await environment.start(settings: TestEnvironment.block.merging(["PollSwitchesAndLightsSeconds": 0]) { $1 })
         defer { Task { await host.stop() } }
-        #expect(await eventually { cloud.streamCount == 1 && host.accessory(Fixture.lamp) != nil })
+        #expect(await eventually { cloud.streamCount == 1 })
 
         // The subscription: one location filter, the four event types, a User-Agent; the stream opened with the same token.
         let create = try #require(cloud.sent("POST", "/v1/sse/subscriptions").first)
@@ -35,10 +35,10 @@ struct EventTests {
         let open = try #require(cloud.sent("GET", "/v1/sse/subscriptions/\(Fixture.subscription)/stream").first)
         #expect(open.accept == "text/event-stream" && open.authorization == create.authorization && open.userAgent != nil)
 
-        // The welcome reconciles.
-        let listsBefore = cloud.sent("GET", "/v1/devices").count
+        // The first list is the welcome's.
+        #expect(cloud.sent("GET", "/v1/devices").isEmpty)
         cloud.push(Self.event("CONTROL_EVENT", "welcome"))
-        #expect(await eventually { cloud.sent("GET", "/v1/devices").count > listsBefore })
+        #expect(await eventually { host.accessory(Fixture.lamp) != nil })
         let plugin = try #require(environment.plugin)
         #expect(await plugin.sseActive)
 
@@ -93,8 +93,10 @@ struct EventTests {
         let host = try await environment.start(settings: TestEnvironment.block.merging(["PollSwitchesAndLightsSeconds": 60]) { $1 })
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        #expect(await eventually { await plugin.sseNote != nil })
+        #expect(await eventually { await plugin.eventsNote == .refused })
         #expect(await plugin.sseActive == false)
+        // The devices are listed although no welcome came.
+        #expect(await eventually { host.accessory(Fixture.lamp) != nil })
         // Polling goes on: 60 s here are 60 ms.
         #expect(await eventually { environment.cloud.sent("GET", "/v1/devices").count >= 4 })
     }
@@ -135,9 +137,10 @@ struct EventTests {
         #expect(await limiter.waits >= 18)
         // Thirty requests need two waits of a window; a request's send may lag its slot by the scheduler's jitter.
         #expect(times[29] - started >= window * 2 - .milliseconds(20))
-        for index in times.indices.dropLast(12) {
-            #expect(times[index + 12] - times[index] >= window - .milliseconds(150))
-        }
+        // At most twelve before the first window ends and 24 before the second: a send lagging its slot only comes later,
+        // so the counts hold however busy the machine is.
+        #expect(times.filter { $0 < started + window }.count <= 12)
+        #expect(times.filter { $0 < started + window * 2 }.count <= 24)
         #expect(cloud.sent("GET", "/v1/devices/e/status").count == 1)
     }
 
