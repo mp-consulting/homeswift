@@ -106,7 +106,9 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
   image of each), the latest reading's power running along the conduits, faster for more, with a callout per part in
   each corner: solar, the grid (from or to it), the home and the battery (charging or discharging, and its level). The
   house is by day between the day's sunrise and sunset at the bridge's Location (the energy report's `sun`, the times
-  alone), at night under a full moon with its rooms and garden lamps lit; without a Location, by the hour and solar. **Diagram**: solar, the grid, the battery and
+  alone), at night under a full moon with its rooms and garden lamps lit; without a Location, by the hour and solar.
+  Under either view, **What powered the home today**: a band of today, midnight to midnight, coloured where solar, the
+  battery or the grid covered most of the home's use, a mark at now, and each source's share of the day so far. **Diagram**: solar, the grid, the battery and
   the home as circles, dots running between them, **Now** (the latest reading, in watts) or **Today** (the day's energy
   so far, split as the bars split it); the home's ring shows the share each source covered. With reduced motion the
   lines stay still.

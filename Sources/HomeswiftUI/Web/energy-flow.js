@@ -91,10 +91,11 @@
       draw();
     });
     const body = el("div", { class: "energy-flow-body" });
+    const day = el("div", { class: "energy-day" });
     const node = el("div", { class: "card chart-card energy-flow" },
       el("div", { class: "chart-head" }, tile("house", "blue"), el("div", { class: "who" }, el("strong", { text: t("Energy flow") }), note)),
       el("div", { class: "energy-flow-bar" }, views.node, spans.node),
-      body);
+      body, day);
     const layouts = new Map();   // the house's layout files, by image
 
     function draw() {
@@ -119,6 +120,48 @@
       const amount = live ? format.watts : format.kWh;
       if (view === "house") house(figures, has, amount, when);
       else diagram(figures, has, amount, live);
+      phases(has);
+    }
+
+    // The day's phases ------------------------------------------------------------------------------------------------------
+
+    /// Under either view, today midnight to midnight: for each reading, the source that covered most of the home's use
+    /// (solar, the battery or the grid, split as the flows are), runs of the same source joined, a marker at now. Hidden
+    /// without the home's use or without a reading today.
+    function phases(has) {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const end = new Date(start); end.setDate(end.getDate() + 1);
+      const points = has("home") ? report.power.filter((point) => point.t * 1000 >= start.getTime() && point.t * 1000 < end.getTime()) : [];
+      day.hidden = points.length < 2;
+      if (day.hidden) return;
+      const runs = [];
+      const step = (report.step || 60) * 1000;
+      for (const point of points) {
+        const f = fromReading(point, null).flows;
+        const source = [["solar", f.sh], ["battery", f.bh], ["grid", f.gh]].filter(([role]) => has(role)).sort((a, b) => b[1] - a[1])[0];
+        const role = source && source[1] > 0 ? source[0] : null;
+        const from = point.t * 1000, to = Math.min(from + step, end.getTime());
+        const last = runs.at(-1);
+        if (last && last.role === role && from - last.to <= step * 1.5) last.to = to;
+        else runs.push({ role, from, to });
+      }
+      const span = end - start;
+      const time = (ms) => new Date(ms).toLocaleTimeString(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const labels = { solar: t("Solar"), battery: t("Battery"), grid: t("Grid") };
+      const shown = runs.filter((run) => run.role);
+      const bar = el("div", { class: "energy-day-bar", role: "img",
+        "aria-label": `${t("What powered the home today")}: ${shown.map((run) => `${labels[run.role]} ${time(run.from)}–${time(run.to)}`).join(", ")}` },
+        shown.map((run) => el("i", { class: `tone-${tones[run.role]}`, title: `${labels[run.role]} ${time(run.from)}–${time(run.to)}`,
+          style: `left: ${((run.from - start) / span * 100).toFixed(3)}%; width: ${((run.to - run.from) / span * 100).toFixed(3)}%` })),
+        Date.now() < end.getTime() ? el("b", { class: "energy-day-now", style: `left: ${((Date.now() - start) / span * 100).toFixed(2)}%`, "aria-hidden": "true" }) : null);
+      // The hours under it, and each source's share of the day, its colour's key beside it.
+      const hours = el("div", { class: "energy-day-hours", "aria-hidden": "true" }, [0, 6, 12, 18, 24].map((hour) => el("span", { text: `${String(hour).padStart(2, "0")}:00` })));
+      const total = shown.reduce((sum, run) => sum + (run.to - run.from), 0) || 1;
+      const keys = el("div", { class: "energy-day-keys" }, ["solar", "battery", "grid"].filter((role) => has(role)).map((role) => {
+        const share = shown.filter((run) => run.role === role).reduce((sum, run) => sum + (run.to - run.from), 0) / total * 100;
+        return el("span", {}, el("i", { class: `key bar tone-${tones[role]}`, "aria-hidden": "true" }), labels[role], el("b", { text: format.percent(share) }));
+      }));
+      day.replaceChildren(el("div", { class: "energy-day-title" }, el("strong", { text: t("What powered the home today") }), keys), bar, hours);
     }
 
     // The house -------------------------------------------------------------------------------------------------------------

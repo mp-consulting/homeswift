@@ -3369,4 +3369,5 @@ HomeswiftI18n.add("pt", {
   "To the grid": "Para a rede",
   "From the grid": "Da rede",
   "Discharging": "A descarregar",
+  "What powered the home today": "O que alimentou a casa hoje",
 });

@@ -12467,10 +12467,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       draw();
     });
     const body = el("div", { class: "energy-flow-body" });
+    const day = el("div", { class: "energy-day" });
     const node = el("div", { class: "card chart-card energy-flow" },
       el("div", { class: "chart-head" }, tile("house", "blue"), el("div", { class: "who" }, el("strong", { text: t("Energy flow") }), note)),
       el("div", { class: "energy-flow-bar" }, views.node, spans.node),
-      body);
+      body, day);
     const layouts = new Map();   // the house's layout files, by image
 
     function draw() {
@@ -12495,6 +12496,48 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const amount = live ? format.watts : format.kWh;
       if (view === "house") house(figures, has, amount, when);
       else diagram(figures, has, amount, live);
+      phases(has);
+    }
+
+    // The day's phases ------------------------------------------------------------------------------------------------------
+
+    /// Under either view, today midnight to midnight: for each reading, the source that covered most of the home's use
+    /// (solar, the battery or the grid, split as the flows are), runs of the same source joined, a marker at now. Hidden
+    /// without the home's use or without a reading today.
+    function phases(has) {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const end = new Date(start); end.setDate(end.getDate() + 1);
+      const points = has("home") ? report.power.filter((point) => point.t * 1000 >= start.getTime() && point.t * 1000 < end.getTime()) : [];
+      day.hidden = points.length < 2;
+      if (day.hidden) return;
+      const runs = [];
+      const step = (report.step || 60) * 1000;
+      for (const point of points) {
+        const f = fromReading(point, null).flows;
+        const source = [["solar", f.sh], ["battery", f.bh], ["grid", f.gh]].filter(([role]) => has(role)).sort((a, b) => b[1] - a[1])[0];
+        const role = source && source[1] > 0 ? source[0] : null;
+        const from = point.t * 1000, to = Math.min(from + step, end.getTime());
+        const last = runs.at(-1);
+        if (last && last.role === role && from - last.to <= step * 1.5) last.to = to;
+        else runs.push({ role, from, to });
+      }
+      const span = end - start;
+      const time = (ms) => new Date(ms).toLocaleTimeString(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+      const labels = { solar: t("Solar"), battery: t("Battery"), grid: t("Grid") };
+      const shown = runs.filter((run) => run.role);
+      const bar = el("div", { class: "energy-day-bar", role: "img",
+        "aria-label": `${t("What powered the home today")}: ${shown.map((run) => `${labels[run.role]} ${time(run.from)}–${time(run.to)}`).join(", ")}` },
+        shown.map((run) => el("i", { class: `tone-${tones[run.role]}`, title: `${labels[run.role]} ${time(run.from)}–${time(run.to)}`,
+          style: `left: ${((run.from - start) / span * 100).toFixed(3)}%; width: ${((run.to - run.from) / span * 100).toFixed(3)}%` })),
+        Date.now() < end.getTime() ? el("b", { class: "energy-day-now", style: `left: ${((Date.now() - start) / span * 100).toFixed(2)}%`, "aria-hidden": "true" }) : null);
+      // The hours under it, and each source's share of the day, its colour's key beside it.
+      const hours = el("div", { class: "energy-day-hours", "aria-hidden": "true" }, [0, 6, 12, 18, 24].map((hour) => el("span", { text: `${String(hour).padStart(2, "0")}:00` })));
+      const total = shown.reduce((sum, run) => sum + (run.to - run.from), 0) || 1;
+      const keys = el("div", { class: "energy-day-keys" }, ["solar", "battery", "grid"].filter((role) => has(role)).map((role) => {
+        const share = shown.filter((run) => run.role === role).reduce((sum, run) => sum + (run.to - run.from), 0) / total * 100;
+        return el("span", {}, el("i", { class: `key bar tone-${tones[role]}`, "aria-hidden": "true" }), labels[role], el("b", { text: format.percent(share) }));
+      }));
+      day.replaceChildren(el("div", { class: "energy-day-title" }, el("strong", { text: t("What powered the home today") }), keys), bar, hours);
     }
 
     // The house -------------------------------------------------------------------------------------------------------------
@@ -18973,6 +19016,7 @@ HomeswiftI18n.add("es", {
   "To the grid": "Hacia la red",
   "From the grid": "Desde la red",
   "Discharging": "Descargando",
+  "What powered the home today": "Lo que ha alimentado la casa hoy",
 });
 
 """#),
@@ -22348,6 +22392,7 @@ HomeswiftI18n.add("fr", {
   "To the grid": "Vers le réseau",
   "From the grid": "Depuis le réseau",
   "Discharging": "En décharge",
+  "What powered the home today": "Ce qui a alimenté la maison aujourd’hui",
 });
 
 """#),
@@ -25723,6 +25768,7 @@ HomeswiftI18n.add("pt", {
   "To the grid": "Para a rede",
   "From the grid": "Da rede",
   "Discharging": "A descarregar",
+  "What powered the home today": "O que alimentou a casa hoje",
 });
 
 """#),
@@ -30772,7 +30818,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-callout b { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-lg); font-weight: var(--weight-figure); line-height: 1.1; letter-spacing: -0.01em; }
 .energy-callout > span { font-size: var(--text-xs); color: var(--muted); }
 .energy-leader line { stroke: color-mix(in srgb, var(--text) 70%, transparent); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
-.energy-leader line.halo { stroke: rgba(255, 255, 255, 0.75); stroke-width: 3.5; }
+.energy-leader line.halo { stroke: color-mix(in srgb, var(--material-solid) 80%, transparent); stroke-width: 3.5; }
 .energy-leader circle { fill: var(--flow); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .energy-callout-icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-xs); color: var(--flow); background: color-mix(in srgb, var(--flow) 18%, var(--material-solid)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--flow) 35%, transparent); flex: none; }
 .energy-callout-icon svg { width: 14px; height: 14px; }
@@ -30783,6 +30829,16 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-sky .sun { fill: var(--series-4); }
 .energy-sky .ray { stroke: var(--series-4); stroke-width: 3; stroke-linecap: round; }
 .energy-sky .moon { fill: #f3e9c6; stroke: color-mix(in srgb, #c9b98a 70%, transparent); stroke-width: 1.5; }
+/* The day's phases: a band of today, a colour where each source covered most of the home's use, a mark at now. */
+.energy-day { display: grid; gap: var(--space-6); padding-top: var(--space-10); border-top: 1px solid var(--line); }
+.energy-day-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-4) var(--space-12); font-size: var(--text-sm); }
+.energy-day-keys { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-12); color: var(--muted); font-size: var(--text-xs); }
+.energy-day-keys span { display: inline-flex; align-items: center; gap: var(--space-4); }
+.energy-day-keys b { color: var(--text); font-weight: var(--weight-semibold); }
+.energy-day-bar { position: relative; height: 14px; border-radius: var(--radius-pill); background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.energy-day-bar i { position: absolute; top: 0; bottom: 0; background: var(--flow); }
+.energy-day-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
+.energy-day-hours { display: flex; justify-content: space-between; font-size: var(--text-2xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .energy-diagram { display: block; width: 100%; max-width: 520px; margin: 0 auto; }
 .energy-line path { fill: none; stroke: var(--flow); stroke-width: 1.5; opacity: 0.18; }
 .energy-line.on path { opacity: 0.7; }
