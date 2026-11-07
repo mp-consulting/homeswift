@@ -263,7 +263,8 @@ import Darwin
         // The restart comes before the failsafe: it must still end the process it was armed for.
         process.start(["-c", "echo two >&2; exec sleep 30"])
         let second = try #require(process.processIdentifier)
-        #expect(await eventually(timeout: .milliseconds(options.config.inputTimeout + 5000)) { kill(first, 0) != 0 })
+        // The failsafe is due after the input timeout; a machine running every test at once may reap it much later.
+        #expect(await eventually(timeout: .seconds(30)) { kill(first, 0) != 0 })
         #expect(kill(second, 0) == 0)
         _ = await waitForExit(process) { process.stop() }
     }

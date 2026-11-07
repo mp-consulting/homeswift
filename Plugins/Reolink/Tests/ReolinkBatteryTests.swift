@@ -157,7 +157,7 @@ import Testing
         let device = ReolinkPlugin.Device(json: ["host": "192.168.1.50", "password": "secret", "batteryCamera": true])!
         let identity = ReolinkBatteryIdentity(uid: FakeBatteryCamera.uid, name: "Garden", model: "Argus 3 Pro", serial: "1", hardware: "", firmware: "")
         return ReolinkBatteryHost(device: device, record: record ?? .init(identity: identity, battery: nil, webhookSupported: nil),
-                                  connect: { _, _, _ in try camera.connect() }, log: testLogger, timing: ReolinkTiming(scale: 0.01), motionTimeout: 30,
+                                  connect: { _, _, _ in try camera.connect() }, log: testLogger, timing: ReolinkTiming(scale: 0.01, patience: 3), motionTimeout: 30,
                                   imageFile: image, saveRecord: { record in saved.withLockedValue { $0.append(record) } }, toJPEG: toJPEG)
     }
 

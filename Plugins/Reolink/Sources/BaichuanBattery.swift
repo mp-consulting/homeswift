@@ -168,7 +168,7 @@ extension BaichuanSession {
         let expected = (try? BXParser.parse(xml))?.first("pictureSize").flatMap { Int($0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
         var image: [UInt8] = []
         let timer = Task {
-            try? await Task.sleep(for: .seconds(timeout))
+            try? await Task.sleep(for: timing.timeout(timeout))
             continuation.finish()
         }
         defer { timer.cancel() }
