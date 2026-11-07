@@ -362,29 +362,61 @@ for row in range(n_rows):
         cell.location, cell.rotation_euler = center, (PITCH, 0, 0)
         PANELS.append(center)
 
-# Inside: the inverter, the battery and the meter on the back wall of the open room; a sofa and a television --------------------
+# Inside: on the open room's back wall, where it is seen head on, the meter (the distribution board), the inverter and the
+# battery with its gauge, the kitchen left of them; a living room before them, a bedroom and a study above. Lamps glow at night ----------------------------
 
 WALL = y1 - T
-INVERTER = Vector((2.3, WALL - 0.12, 1.55))
-span("Inverter", (INVERTER.x - 0.36, WALL - 0.22, INVERTER.z - 0.48), (INVERTER.x + 0.36, WALL, INVERTER.z + 0.48), white_box, bevel=0.02)
-span("Inverter fins", (INVERTER.x - 0.4, WALL - 0.17, INVERTER.z - 0.44), (INVERTER.x + 0.4, WALL, INVERTER.z + 0.44), graphite)
-span("Inverter display", (INVERTER.x - 0.14, WALL - 0.225, INVERTER.z + 0.16), (INVERTER.x + 0.14, WALL - 0.22, INVERTER.z + 0.3), display)
-METER = Vector((1.45, WALL - 0.08, 1.6))
-span("Meter", (METER.x - 0.2, WALL - 0.14, METER.z - 0.3), (METER.x + 0.2, WALL, METER.z + 0.3), graphite, bevel=0.015)
-span("Meter window", (METER.x - 0.1, WALL - 0.145, METER.z + 0.05), (METER.x + 0.1, WALL - 0.14, METER.z + 0.17), display)
-BAT = Vector((3.5, WALL - 0.16, 0.27))
+oak = pattern("Oak", ((0.5, 0.33, 0.18), (0.46, 0.3, 0.16)), (0.3, 0.19, 0.1), 2.0, 0.12, 0.002, "xy", 0.5, bump=0.05, grain=0.4)
+cabinet = material("Cabinet", (0.86, 0.84, 0.8), 0.45)
+counter = material("Counter", (0.12, 0.12, 0.13), 0.3)
+duvet = noise_bump(material("Duvet", (0.62, 0.36, 0.26), 0.95), 300, 0.2)
+linen = noise_bump(material("Linen", (0.9, 0.88, 0.84), 0.95), 300, 0.1)
+shade = material("Shade", (0.95, 0.9, 0.8), 0.6, **{"Emission Color": (1.0, 0.78, 0.5, 1), "Emission Strength": 8.0 if NIGHT else 0.0})
+terracotta = material("Pot", (0.55, 0.28, 0.17), 0.8)
+art = [material(f"Art {i}", color, 0.7) for i, color in enumerate(((0.75, 0.45, 0.25), (0.25, 0.4, 0.55), (0.85, 0.75, 0.5)))]
+gauge_on = material("Gauge", (0.1, 0.9, 0.5), 0.3, **{"Emission Color": (0.15, 1.0, 0.55, 1), "Emission Strength": 5.0})
+gauge_off = material("Gauge off", (0.18, 0.2, 0.2), 0.4)
+
+def lamp(name, x, y, z, radius=0.16, height=0.2):
+    """A lampshade, lit at night, with a soft light under it."""
+    cylinder(name, (x, y, z), (x, y, z + height), radius, shade, vertices=24)
+    if NIGHT:
+        data = bpy.data.lights.new(name + " light", "POINT")
+        data.energy, data.color, data.shadow_soft_size = 40, (1.0, 0.75, 0.45), 0.15
+        light = bpy.data.objects.new(name + " light", data)
+        collection.objects.link(light)
+        light.location = (x, y, z - 0.05)
+
+def picture(name, x, y0_, y1_, z0, z1, mat):
+    """A framed picture on the partition, facing the open side."""
+    span(name + " frame", (x, y0_, z0), (x + 0.04, y1_, z1), frame)
+    span(name, (x + 0.041, y0_ + 0.05, z0 + 0.05), (x + 0.045, y1_ - 0.05, z1 - 0.05), mat)
+
+# The equipment, larger than life so it reads at card size.
+METER = Vector((2.75, WALL - 0.08, 1.75))
+span("Meter", (METER.x - 0.26, WALL - 0.16, METER.z - 0.4), (METER.x + 0.26, WALL, METER.z + 0.4), graphite, bevel=0.015)
+span("Meter window", (METER.x - 0.14, WALL - 0.165, METER.z + 0.08), (METER.x + 0.14, WALL - 0.16, METER.z + 0.24), display)
+for i in range(4):   # the breakers' lights
+    span(f"Breaker {i}", (METER.x - 0.16 + i * 0.09, WALL - 0.17, METER.z - 0.2), (METER.x - 0.11 + i * 0.09, WALL - 0.16, METER.z - 0.14), led)
+INVERTER = Vector((3.6, WALL - 0.12, 1.6))
+span("Inverter", (INVERTER.x - 0.4, WALL - 0.24, INVERTER.z - 0.55), (INVERTER.x + 0.4, WALL, INVERTER.z + 0.55), white_box, bevel=0.025)
+span("Inverter fins", (INVERTER.x - 0.44, WALL - 0.18, INVERTER.z - 0.5), (INVERTER.x + 0.44, WALL, INVERTER.z + 0.5), graphite)
+span("Inverter display", (INVERTER.x - 0.18, WALL - 0.245, INVERTER.z + 0.14), (INVERTER.x + 0.18, WALL - 0.24, INVERTER.z + 0.34), display)
+BAT = Vector((4.45, WALL - 0.16, 0.27))
 if BATTERY:
-    span("Battery", (BAT.x - 0.32, WALL - 0.3, 0.27), (BAT.x + 0.32, WALL, 1.45), white_box, bevel=0.03)
-    span("Battery face", (BAT.x - 0.26, WALL - 0.305, 0.4), (BAT.x + 0.26, WALL - 0.3, 1.3), screen_mat)
-    span("Battery LED", (BAT.x - 0.16, WALL - 0.31, 1.2), (BAT.x + 0.16, WALL - 0.305, 1.22), led)
+    span("Battery", (BAT.x - 0.34, WALL - 0.34, 0.27), (BAT.x + 0.34, WALL, 1.6), white_box, bevel=0.03)
+    span("Battery face", (BAT.x - 0.27, WALL - 0.345, 0.42), (BAT.x + 0.27, WALL - 0.34, 1.45), screen_mat)
+    for i in range(5):   # the charge gauge, four bars of five lit
+        span(f"Gauge {i}", (BAT.x - 0.18, WALL - 0.35, 0.55 + i * 0.17), (BAT.x + 0.18, WALL - 0.345, 0.67 + i * 0.17), gauge_on if i < 4 else gauge_off)
 # Conduits: the panels' cable down through the upper floor, the battery's, the meter's out to the wire.
 SOLAR_RUN = [(x1 - 0.35, -1.6, RIDGE + 0.12 - 1.6 * math.tan(PITCH) - THICK), (x1 - 0.35, -1.6, FLOOR + 0.27),
-             (x1 - 0.35, -1.6, FLOOR - 0.05), (x1 - 0.35, WALL - 0.05, FLOOR - 0.05), (INVERTER.x + 0.18, WALL - 0.05, FLOOR - 0.05),
-             (INVERTER.x + 0.18, WALL - 0.05, INVERTER.z + 0.4)]
-BATTERY_RUN = [(BAT.x - 0.1, WALL - 0.05, 1.45), (BAT.x - 0.1, WALL - 0.05, 1.75), (INVERTER.x + 0.3, WALL - 0.05, 1.75)]
-METER_RUN = [(INVERTER.x - 0.3, WALL - 0.05, 1.45), (METER.x + 0.2, WALL - 0.05, 1.45)]
+             (x1 - 0.35, -1.6, FLOOR - 0.05), (x1 - 0.35, WALL - 0.05, FLOOR - 0.05), (INVERTER.x + 0.2, WALL - 0.05, FLOOR - 0.05),
+             (INVERTER.x + 0.2, WALL - 0.05, INVERTER.z + 0.55)]
+BATTERY_RUN = [(BAT.x - 0.1, WALL - 0.05, 1.6), (BAT.x - 0.1, WALL - 0.05, 2.25), (INVERTER.x + 0.35, WALL - 0.05, 2.25),
+               (INVERTER.x + 0.35, WALL - 0.05, INVERTER.z + 0.55)]
+METER_RUN = [(INVERTER.x - 0.4, WALL - 0.05, 1.4), (METER.x + 0.26, WALL - 0.05, 1.4)]
 FEED = Vector((x1 - 0.05, y1 + 0.25, H - 0.2))
-GRID_RUN = [(METER.x, WALL - 0.05, METER.z + 0.3), (METER.x, WALL - 0.05, FLOOR - 0.05), (x1 - 0.2, WALL - 0.05, FLOOR - 0.05),
+GRID_RUN = [(METER.x, WALL - 0.05, METER.z + 0.4), (METER.x, WALL - 0.05, FLOOR - 0.05), (x1 - 0.2, WALL - 0.05, FLOOR - 0.05),
             (x1 - 0.2, WALL - 0.05, H - 0.2), (x1 - 0.2, y1 + 0.1, H - 0.2), tuple(FEED)]
 for name, run_points in (("Solar conduit", SOLAR_RUN), ("Battery conduit", BATTERY_RUN if BATTERY else None),
                          ("Meter conduit", METER_RUN), ("Grid conduit", GRID_RUN)):
@@ -392,14 +424,48 @@ for name, run_points in (("Solar conduit", SOLAR_RUN), ("Battery conduit", BATTE
         tube(name, run_points, 0.025, conduit)
 span("Feed bracket", (FEED.x - 0.06, y1, FEED.z - 0.06), (FEED.x + 0.06, FEED.y + 0.04, FEED.z + 0.06), gutter)
 
+# The kitchen along the back wall, left of the equipment: a fridge, base units, a worktop, wall units.
+span("Fridge", (1.06, WALL - 0.7, 0.27), (1.6, WALL, 2.5), cabinet, bevel=0.015)
+span("Fridge handle", (1.56, WALL - 0.72, 1.2), (1.59, WALL - 0.7, 1.9), alu)
+span("Base units", (1.62, WALL - 0.62, 0.27), (2.4, WALL, 1.12), cabinet, bevel=0.01)
+span("Worktop", (1.62, WALL - 0.66, 1.12), (2.44, WALL, 1.17), counter)
+span("Wall units", (1.62, WALL - 0.36, 1.85), (2.4, WALL, 2.5), cabinet, bevel=0.01)
+for i, x in enumerate((1.85, 2.15)):
+    span(f"Jar {i}", (x - 0.06, WALL - 0.4, 1.17), (x + 0.06, WALL - 0.28, 1.37), terracotta, bevel=0.02)
+
+# The living room: a sofa facing the television, a low table on the rug, a floor lamp, a plant, pictures, a pendant.
 span("TV", (1.06, -1.4, 1.0), (1.1, 0.2, 1.9), screen_mat, bevel=0.01)
 span("TV screen", (1.101, -1.34, 1.06), (1.104, 0.14, 1.84), tv_snow)
-span("TV bench", (1.06, -1.5, 0.27), (1.5, 0.3, 0.65), frame, bevel=0.02)
-span("Sofa seat", (3.4, -2.1, 0.27), (4.3, 0.9, 0.72), fabric, bevel=0.06)
-span("Sofa back", (4.05, -2.1, 0.27), (4.4, 0.9, 1.15), fabric, bevel=0.06)
-span("Rug", (1.9, -2.0, 0.27), (3.3, 0.8, 0.285), fabric)
-span("Desk", (2.0, 1.2, FLOOR + 0.27), (3.6, WALL, FLOOR + 1.02), frame, bevel=0.01)
-span("Bed", (2.2, -2.6, FLOOR + 0.27), (4.4, -0.6, FLOOR + 0.75), fabric, bevel=0.08)
+span("TV bench", (1.06, -1.5, 0.27), (1.5, 0.3, 0.65), oak, bevel=0.02)
+span("Sofa seat", (3.4, -2.3, 0.27), (4.3, 0.7, 0.72), fabric, bevel=0.06)
+span("Sofa back", (4.05, -2.3, 0.27), (4.4, 0.7, 1.15), fabric, bevel=0.06)
+for i, y in enumerate((-1.7, -0.3)):
+    span(f"Cushion {i}", (3.85, y - 0.3, 0.72), (4.05, y + 0.3, 1.05), duvet, bevel=0.06)
+span("Rug", (1.8, -2.4, 0.27), (3.35, 0.9, 0.285), linen)
+span("Low table", (2.2, -1.3, 0.285), (2.95, -0.2, 0.62), oak, bevel=0.02)
+cylinder("Lamp stand", (4.55, -2.75, 0.27), (4.55, -2.75, 1.6), 0.02, graphite)
+lamp("Floor lamp", 4.55, -2.75, 1.6, 0.2, 0.28)
+cylinder("Plant pot", (1.45, -2.75, 0.27), (1.45, -2.75, 0.65), 0.18, terracotta)
+picture("Living picture", 1.06, 0.55, 1.55, 1.25, 2.15, art[0])
+cylinder("Pendant cord", (2.6, -0.8, 2.25), (2.6, -0.8, FLOOR - 0.02), 0.008, graphite)
+lamp("Pendant", 2.6, -0.8, 2.05, 0.22, 0.2)
+
+# Upstairs: a bed with its headboard, night tables and lamps; a desk with a screen, a chair and a lamp; a picture.
+span("Headboard", (4.42, -2.8, FLOOR + 0.27), (4.55, -0.4, FLOOR + 1.35), oak, bevel=0.02)
+span("Bed", (2.2, -2.6, FLOOR + 0.27), (4.42, -0.6, FLOOR + 0.62), linen, bevel=0.06)
+span("Duvet", (2.15, -2.65, FLOOR + 0.62), (3.6, -0.55, FLOOR + 0.72), duvet, bevel=0.05)
+for i, y in enumerate((-2.15, -1.05)):
+    span(f"Pillow {i}", (3.9, y - 0.4, FLOOR + 0.62), (4.35, y + 0.4, FLOOR + 0.8), linen, bevel=0.06)
+for i, y in enumerate((-3.0, -0.2)):
+    span(f"Night table {i}", (4.0, y - 0.22, FLOOR + 0.27), (4.45, y + 0.22, FLOOR + 0.8), oak, bevel=0.02)
+    lamp(f"Night lamp {i}", 4.22, y, FLOOR + 0.8, 0.12, 0.18)
+span("Desk", (2.0, 1.8, FLOOR + 0.27), (3.6, WALL, FLOOR + 1.02), oak, bevel=0.01)
+span("Screen", (2.5, WALL - 0.25, FLOOR + 1.1), (3.1, WALL - 0.21, FLOOR + 1.5), screen_mat, bevel=0.01)
+span("Screen stand", (2.77, WALL - 0.26, FLOOR + 1.02), (2.83, WALL - 0.2, FLOOR + 1.1), graphite)
+span("Chair", (2.55, 1.2, FLOOR + 0.27), (3.05, 1.65, FLOOR + 0.75), graphite, bevel=0.04)
+lamp("Desk lamp", 3.35, WALL - 0.3, FLOOR + 1.02, 0.1, 0.16)
+picture("Upper picture", CUT, -2.6, -1.2, FLOOR + 1.2, FLOOR + 2.0, art[1])
+picture("Upper picture 2", CUT, 0.2, 1.0, FLOOR + 1.3, FLOOR + 1.9, art[2])
 
 # The utility pole behind the house on the right, its wire sagging to the bracket ---------------------------------------------------
 
@@ -523,11 +589,11 @@ background.inputs["Strength"].default_value = 0.36 if NIGHT else 0.45
 # Camera: three-quarter view from the front right, onto the open side --------------------------------------------------------------
 
 cam_data = bpy.data.cameras.new("Camera")
-cam_data.lens = 55
+cam_data.lens = 66
 camera = bpy.data.objects.new("Camera", cam_data)
 collection.objects.link(camera)
 camera.location = (27.0, -25.0, 14.5)
-target = Vector((2.2, 0.2, 3.1))
+target = Vector((2.4, 0.4, 2.9))
 camera.rotation_euler = (target - camera.location).to_track_quat("-Z", "Y").to_euler()
 scene.camera = camera
 

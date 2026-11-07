@@ -1610,14 +1610,17 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-house img, .energy-house-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
 .energy-house-lines { pointer-events: none; overflow: visible; }
 .energy-cable polyline { fill: none; stroke: var(--flow); stroke-linecap: round; stroke-linejoin: round; }
-.energy-cable .energy-cable-halo { stroke: #fff; stroke-width: 9; opacity: 0.55; }
-.energy-cable-line { stroke-width: 3; opacity: 0.3; }
-.energy-cable.on .energy-cable-line { opacity: 0.65; }
-.energy-pulse { stroke-width: 6; stroke-dasharray: 7 93; animation: energy-pulse var(--duration, 2s) linear infinite; }
+.energy-cable .energy-cable-halo { stroke: #fff; stroke-width: 9; opacity: 0.45; }
+.energy-cable-line { stroke-width: 3.5; opacity: 0.3; }
+/* A line carrying power glows, as a lit wire would: its colour, a soft light around it. */
+.energy-cable.on .energy-cable-line { opacity: 0.9; filter: drop-shadow(0 0 3px var(--flow)) drop-shadow(0 0 7px var(--flow)); }
+.energy-pulse { stroke-width: 7; filter: drop-shadow(0 0 4px var(--flow)) drop-shadow(0 0 10px var(--flow)); stroke-dasharray: 7 93; animation: energy-pulse var(--duration, 2s) linear infinite; }
 .energy-pulse.back { animation-direction: reverse; }
 @keyframes energy-pulse { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
-.energy-callout { position: absolute; display: grid; gap: 1px; white-space: nowrap; padding-left: var(--space-8); translate: 0 -50%; }
-.energy-callout.end { transform: translateX(-100%); padding: 0 var(--space-8) 0 0; text-align: right; justify-items: end; }
+/* Each label on a soft backing of the card's own colour, so it reads over the lawn, the roof or the night. */
+.energy-callout { position: absolute; display: grid; gap: 1px; white-space: nowrap; translate: 0 -50%; padding: var(--space-6) var(--space-10);
+  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--material-solid) 86%, transparent); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08); }
+.energy-callout.end { transform: translateX(-100%); text-align: right; justify-items: end; }
 .energy-callout b { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-lg); font-weight: var(--weight-figure); line-height: 1.1; letter-spacing: -0.01em; }
 .energy-callout > span { font-size: var(--text-xs); color: var(--muted); }
 .energy-leader line { stroke: color-mix(in srgb, var(--text) 70%, transparent); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
@@ -1627,7 +1630,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-callout-icon svg { width: 14px; height: 14px; }
 @container (max-width: 420px) { .energy-callout-icon { width: 18px; height: 18px; } .energy-callout-icon svg { width: 12px; height: 12px; } }
 @container (max-width: 420px) { .energy-callout b { font-size: var(--text-base); } }
-.energy-sky { position: absolute; left: 50%; top: 9%; width: 9%; min-width: 34px; max-width: 64px; translate: -50% -50%; }
+.energy-sky { position: absolute; left: 63%; top: 10%; width: 9%; min-width: 34px; max-width: 64px; translate: -50% -50%; }
 .energy-sky svg { display: block; width: 100%; height: auto; }
 .energy-sky .sun { fill: var(--series-4); }
 .energy-sky .ray { stroke: var(--series-4); stroke-width: 3; stroke-linecap: round; }
