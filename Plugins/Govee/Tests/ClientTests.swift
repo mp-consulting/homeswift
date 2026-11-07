@@ -454,45 +454,17 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
     }
 }
 
-@Suite struct QueueWaitTests {
-    final class Box<T: Sendable>: @unchecked Sendable {
-        private let lock = NIOLock()
-        private var _value: T?
-        var value: T? { lock.withLock { _value } }
-        func set(_ value: T) { lock.withLock { _value = value } }
-    }
-
-    let queue = DispatchQueue(label: "test.queue-wait")
-
-    /// The case `withTaskCancellationHandler` alone gets wrong: the task was cancelled before the wait parked.
-    @Test func aTaskCancelledBeforeItWaitsDoesNotHang() async {
-        let wait = QueueWait<Bool>(queue: queue)
-        let result = Box<Bool>()
-        Task {
-            withUnsafeCurrentTask { $0?.cancel() }
-            result.set(await wait.wait(cancelled: false) { _ in })
-        }
-        #expect(await eventually { result.value == false })
-    }
-
-    @Test func endsWithTheValueOrTheCancellation() async {
-        let parked = Box<QueueWait<Bool>>()
-        let result = Box<Bool>()
-        let wait = QueueWait<Bool>(queue: queue)
-        Task { result.set(await wait.wait(cancelled: false) { parked.set($0) }) }
-        #expect(await eventually { parked.value != nil })
-        queue.async {
-            parked.value?.resume(true)
-            parked.value?.resume(false)
-        }
-        #expect(await eventually { result.value == true })
-
-        let cancelled = Box<Bool>()
-        let other = QueueWait<Bool>(queue: queue)
-        let task = Task { cancelled.set(await other.wait(cancelled: false) { _ in }) }
-        try? await Task.sleep(for: .milliseconds(50))
-        task.cancel()
-        #expect(await eventually { cancelled.value == false })
+/// What Linux sees (the H5075's report, parsed in HomeswiftNetworkTests) reaches a thermo-hygrometer by its MAC, as
+/// the Homebridge plugin matched it.
+@Suite struct BLEMatchingTests {
+    @Test func aLinuxReadingIsMatchedByMAC() {
+        let reading = BLESensorReading(
+            identifier: "a4:c1:38:12:34:56", address: "a4:c1:38:12:34:56", model: "GVH5075_3456", battery: 100, humidity: 50, tempInC: 20,
+            tempInF: 68, rssi: -60)
+        #expect(GoveePlugin.matches(BLETarget(address: "A4C138123456", name: nil), reading))
+        #expect(GoveePlugin.matches(BLETarget(address: "a4:c1:38:12:34:56", name: "ihoment_H5075_FFFF"), reading))
+        // The name is not enough where the address is known.
+        #expect(!GoveePlugin.matches(BLETarget(address: "a4:c1:38:00:00:01", name: "GVH5075_3456"), reading))
     }
 }
 

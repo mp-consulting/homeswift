@@ -348,7 +348,7 @@ public actor GoveePlugin: HomeswiftPlugin {
         do {
             central = try dependencies.bleCentral(logger)
         } catch {
-            if "\(error)".contains("Address family not supported") {
+            if Bluetooth.isMissing(error) {
                 logger.warning("[BLE] disabled - Bluetooth not available on this system (no hardware or driver support).")
             } else {
                 logger.warning("[BLE] \(Lang.disableClient) \(error).")
@@ -363,26 +363,9 @@ public actor GoveePlugin: HomeswiftPlugin {
         logger.info("[BLE] \(Lang.available).")
     }
 
-    /// CoreBluetooth on a Mac whose binary may use Bluetooth; on Linux a raw HCI socket on the adapter
-    /// `NOBLE_HCI_DEVICE_ID` names (hci0 by default), as noble chose it for the Homebridge plugin.
+    /// The system's adapter, shared with the other plugins that use Bluetooth (`HomeswiftNetwork`'s `Bluetooth`).
     @Sendable static func systemCentral(_ logger: Logger) throws -> (any BLECentral)? {
-        #if canImport(CoreBluetooth)
-        guard CoreBluetoothCentral.isPermitted(infoDictionary: Bundle.main.infoDictionary) else {
-            logger.info("[BLE] Bluetooth needs NSBluetoothAlwaysUsageDescription in the homeswift binary's Info.plist")
-            return nil
-        }
-        if let app = CoreBluetoothCentral.responsibleApp, !CoreBluetoothCentral.isPermitted(infoDictionary: app.infoDictionary) {
-            // macOS would abort the whole bridge at the first Bluetooth call.
-            logger.warning("[BLE] disabled: macOS holds \(app.path) responsible for homeswift, and it declares no Bluetooth use. Run homeswift on its own (launchd, brew services) or from a terminal that does, to use Bluetooth.")
-            return nil
-        }
-        return CoreBluetoothCentral(logger: logger)
-        #elseif os(Linux)
-        let device = ProcessInfo.processInfo.environment["NOBLE_HCI_DEVICE_ID"].flatMap(Govee.parseInt) ?? 0
-        return try LinuxBluetoothCentral(deviceID: device, logger: logger)
-        #else
-        return nil
-        #endif
+        try Bluetooth.systemCentral(logger: logger)
     }
 
     // MARK: Devices
