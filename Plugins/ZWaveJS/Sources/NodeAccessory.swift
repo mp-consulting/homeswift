@@ -324,6 +324,8 @@ struct NodeBuilder {
             }
         }
         temperature?.onWrite { value in
+            // Kept first, as hue and saturation are, so the node's report of it is not taken for a change made elsewhere.
+            temperature?.value = value
             guard let mireds = value.intValue, await guardian(key) else { return }
             let (warm, cold) = WhiteMix.channels(mireds: mireds)
             var color: [String: JSONValue] = ["warmWhite": .number(Double(warm)), "coldWhite": .number(Double(cold))]
