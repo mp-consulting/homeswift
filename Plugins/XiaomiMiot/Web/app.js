@@ -152,6 +152,9 @@
       action.in.length === 0 ? button : el("span", { class: "muted", text: t("Takes parameters: use actionButtons in its settings") }));
   }
 
+  // Specs often describe a service in lower case ("light").
+  const capitalized = (text) => text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+
   async function openSpec(device) {
     panel.classList.remove("hidden");
     panel.replaceChildren(el("p", { class: "muted", text: t("Reading {name}…", { name: device.name }) }));
@@ -161,10 +164,10 @@
       panel.replaceChildren(
         el("div", { class: "section-head" }, el("h2", { text: device.name }),
           el("div", { class: "actions" },
-            el("button", { actionIcon: "update", text: t("Refresh"), onclick: () => openSpec(device) }),
+            el("button", { actionIcon: "restore", text: t("Refresh"), onclick: () => openSpec(device) }),
             el("button", { actionIcon: "close", text: t("Close"), onclick: () => panel.classList.add("hidden") }))),
         el("div", { class: "spec" }, ...services.map((service) => el("div", {},
-          el("h3", {}, service.description || service.name, service.standard ? "" : el("span", { class: "muted vendor", text: ` · ${t("vendor")}` })),
+          el("h3", {}, capitalized(service.description || service.name), service.standard ? "" : el("span", { class: "muted vendor", text: ` · ${t("vendor")}` })),
           ...service.properties.map((property) => propertyRow(device, property)),
           ...service.actions.map((action) => actionRow(device, action))))));
     } catch (e) {
