@@ -13,9 +13,10 @@ struct NodeShape: Equatable, Sendable {
     var values: Set<ValueID>
 }
 
-/// How a Binary Switch shows in HomeKit (the `showAs` Accessory Setting).
+/// How a switch shows in HomeKit (the `showAs` Accessory Setting): a Binary Switch as any of them, a Multilevel Switch
+/// as a light or a fan.
 enum SwitchShape: String, Sendable {
-    case `switch`, outlet, lightbulb
+    case `switch`, outlet, lightbulb, fan
 }
 
 /// The accessory of one node: its services, built from the command classes it has, and what each value it reads
@@ -25,16 +26,20 @@ final class NodeAccessory: Sendable {
 
     let accessory: Accessory
     let shape: NodeShape
-    /// Its Device Kind: `light`, `cover`, `switch`, `lock`, `thermostat`, `sensor` or `button`.
+    /// Its Device Kind: `light`, `cover`, `switch`, `fan`, `garage`, `lock`, `thermostat`, `sensor` or `button`.
     let kind: String
+    /// A white light's Adaptive Lighting: kept as long as the accessory, its schedule saved by the plugin.
+    let adaptiveLighting: AdaptiveLightingController?
     /// What a value's update changes, by value id.
     private let updaters: [ValueID: [Updater]]
     /// What a value notification (Central Scene's key presses) sends, by value id.
     private let notifiers: [ValueID: Updater]
-    fileprivate init(accessory: Accessory, shape: NodeShape, kind: String, updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater]) {
+    fileprivate init(accessory: Accessory, shape: NodeShape, kind: String, adaptiveLighting: AdaptiveLightingController?,
+                     updaters: [ValueID: [Updater]], notifiers: [ValueID: Updater]) {
         self.accessory = accessory
         self.shape = shape
         self.kind = kind
+        self.adaptiveLighting = adaptiveLighting
         self.updaters = updaters
         self.notifiers = notifiers
     }
@@ -73,6 +78,7 @@ struct NodeBuilder {
     private var services: [Service] = []
     private var updaters: [ValueID: [NodeAccessory.Updater]] = [:]
     private var notifiers: [ValueID: NodeAccessory.Updater] = [:]
+    private var adaptiveLighting: AdaptiveLightingController?
     /// The value ids a function took, so another does not show them twice.
     private var claimed: Set<ValueID> = []
 
@@ -92,10 +98,10 @@ struct NodeBuilder {
     private let primaryTypes: Set<HAPUUID>
 
     static func primaryTypes(of node: ZNode) -> Set<HAPUUID> {
-        let actuators: [ServiceType] = [.lightbulb, .windowCovering, .outlet, .switch, .lockMechanism, .thermostat]
+        let actuators: [ServiceType] = [.lightbulb, .windowCovering, .fanv2, .garageDoorOpener, .outlet, .switch, .lockMechanism, .thermostat]
         let hasActuator = node.values.keys.contains {
-            [CommandClass.binarySwitch, CommandClass.multilevelSwitch, CommandClass.doorLock, CommandClass.thermostatMode, CommandClass.thermostatSetpoint]
-                .contains($0.commandClass)
+            [CommandClass.binarySwitch, CommandClass.multilevelSwitch, CommandClass.doorLock, CommandClass.barrierOperator, CommandClass.soundSwitch,
+             CommandClass.thermostatMode, CommandClass.thermostatSetpoint].contains($0.commandClass)
         }
         if hasActuator { return Set(actuators.map(\.uuid)) }
         return Set(SensorKind.allCases.map(\.type.uuid) + [ServiceType.temperatureSensor, .humiditySensor, .lightSensor, .statelessProgrammableSwitch].map(\.uuid))
@@ -109,6 +115,7 @@ struct NodeBuilder {
         // Actuators first, so a thermostat takes its air temperature (perhaps the root endpoint's) before the sensors.
         for endpoint in endpoints {
             let main = buildActuator(endpoint: endpoint, label: label(endpoint))
+            buildSiren(endpoint: endpoint, label: label(endpoint))
             buildThermostat(endpoint: endpoint, label: label(endpoint))
             buildMeters(endpoint: endpoint, on: main, label: label(endpoint))
         }
@@ -118,18 +125,21 @@ struct NodeBuilder {
             buildBinarySensors(endpoint: endpoint, label: label)
             buildMultilevelSensors(endpoint: endpoint, label: label)
         }
+        buildGeneralPurposeSensor(label: name)
+        buildTamper()
         buildCentralScene()
         guard !services.isEmpty else { return nil }
         buildBattery()
 
         let primary = services.first(where: \.isPrimary)
         let ordered = primary.map { primary in [primary] + services.filter { $0 !== primary } } ?? services
-        let (kind, category) = node.isEntryControl ? ("lock", .doorLock) : Self.kind(of: primary?.type)
+        // An Entry Control node's switch (a door strike) is a lock; its garage door or its lock is what it is.
+        let (kind, category) = node.isEntryControl && primary?.type.uuid == ServiceType.switch.uuid ? ("lock", .doorLock) : Self.kind(of: primary?.type)
         let accessory = Accessory(
             id: ZWaveJSPlugin.accessoryID(deviceID: deviceID), name: name, manufacturer: node.manufacturer ?? "Z-Wave",
             model: node.label ?? node.productDescription ?? "Z-Wave device", serialNumber: node.serialNumber ?? deviceID,
             firmwareRevision: node.firmwareVersion ?? "1.0.0", category: category, services: ordered)
-        let built = NodeAccessory(accessory: accessory, shape: shape, kind: kind, updaters: updaters, notifiers: notifiers)
+        let built = NodeAccessory(accessory: accessory, shape: shape, kind: kind, adaptiveLighting: adaptiveLighting, updaters: updaters, notifiers: notifiers)
         for value in node.values.values {
             if let current = value.value { built.update(value.id, current) }
         }
@@ -141,6 +151,8 @@ struct NodeBuilder {
         switch type?.uuid {
         case ServiceType.lightbulb.uuid: ("light", .lightbulb)
         case ServiceType.windowCovering.uuid: ("cover", .windowCovering)
+        case ServiceType.fanv2.uuid: ("fan", .fan)
+        case ServiceType.garageDoorOpener.uuid: ("garage", .garageDoorOpener)
         case ServiceType.outlet.uuid: ("switch", .outlet)
         case ServiceType.switch.uuid: ("switch", .switch)
         case ServiceType.lockMechanism.uuid: ("lock", .doorLock)
@@ -188,8 +200,14 @@ struct NodeBuilder {
         if let mode = node.value(CommandClass.doorLock, endpoint: endpoint, property: "currentMode") {
             return buildLock(mode, subtype: subtype, label: label)
         }
+        // A garage door or a gate: Target Door State is a security control as Lock Target State is.
+        if let state = node.value(CommandClass.barrierOperator, endpoint: endpoint, property: "currentState") {
+            return buildGarageDoor(state, subtype: subtype, label: label)
+        }
         if let level = node.value(CommandClass.multilevelSwitch, endpoint: endpoint, property: "currentValue") {
-            return node.isCover ? buildCover(level, subtype: subtype, label: label) : buildDimmer(level, endpoint: endpoint, subtype: subtype, label: label)
+            if node.isCover { return buildCover(level, subtype: subtype, label: label) }
+            let fan = showAs.map { $0 == .fan } ?? node.isFan
+            return fan ? buildFan(level, subtype: subtype, label: label) : buildDimmer(level, endpoint: endpoint, subtype: subtype, label: label)
         }
         if let state = node.value(CommandClass.binarySwitch, endpoint: endpoint, property: "currentValue") {
             return buildBinarySwitch(state, endpoint: endpoint, subtype: subtype, label: label)
@@ -203,8 +221,11 @@ struct NodeBuilder {
 
     private mutating func buildDimmer(_ level: ZValue, endpoint: Int, subtype: String, label: String) -> Service {
         let colors = colorComponents(endpoint: endpoint)
-        let hasColor = colors.contains { [2, 3, 4].contains($0.key) }
-        let service = make(.lightbulb, name: label, subtype: subtype, optional: [.brightness] + (hasColor ? [.hue, .saturation] : []))
+        let hasColor = colors.keys.contains { [2, 3, 4].contains($0) }
+        // Warm and cold white channels both: a white of any temperature between them.
+        let hasWhites = colors[0] != nil && colors[1] != nil
+        let service = make(.lightbulb, name: label, subtype: subtype, optional: [.brightness] + (hasColor ? [.hue, .saturation] : [])
+            + (hasWhites ? [.colorTemperature.with(minValue: Double(WhiteMix.coolest), maxValue: Double(WhiteMix.warmest))] : []))
         let target = writer(level.id.with(property: "targetValue"))
         let power = service.characteristic(.on), brightness = service.characteristic(.brightness)
         power.onWrite(changesOnly: true) { value in
@@ -221,7 +242,11 @@ struct NodeBuilder {
             power.value = .bool(level > 0)
             if level > 0 { brightness.value = .int(Self.percent(level: level)) }
         }
-        if hasColor { buildColor(service, colors: colors, endpoint: endpoint) }
+        if hasColor || hasWhites { buildColor(service, colors: colors, endpoint: endpoint, hasColor: hasColor, hasWhites: hasWhites) }
+        if hasWhites {
+            // Adaptive Lighting sets the Color Temperature through its write, every minute and with the brightness.
+            adaptiveLighting = AdaptiveLightingController(service, mode: .automatic)
+        }
         add(service)
         return service
     }
@@ -235,52 +260,149 @@ struct NodeBuilder {
         return components
     }
 
-    private mutating func buildColor(_ service: Service, colors: [Int: ZValue], endpoint: Int) {
-        let hue = service.characteristic(.hue), saturation = service.characteristic(.saturation)
-        let rgb = NIOLockedValueBox<[Int: Double]>([2: 255, 3: 255, 4: 255])
-        let show: @Sendable () -> Void = {
-            let (h, s) = ColorMath.hueSaturation(red: rgb.withLockedValue { $0[2] ?? 0 }, green: rgb.withLockedValue { $0[3] ?? 0 }, blue: rgb.withLockedValue { $0[4] ?? 0 })
+    /// Color Switch's components on the light: red, green and blue as Hue and Saturation, warm and cold white as its
+    /// Color Temperature. A white lit with no colour shows as the temperature; a colour as hue and saturation.
+    private mutating func buildColor(_ service: Service, colors: [Int: ZValue], endpoint: Int, hasColor: Bool, hasWhites: Bool) {
+        let hue = hasColor ? service.characteristic(.hue) : nil, saturation = hasColor ? service.characteristic(.saturation) : nil
+        let temperature = hasWhites ? service.characteristic(.colorTemperature) : nil
+        let channels = NIOLockedValueBox<[Int: Double]>([0: 0, 1: 0, 2: 255, 3: 255, 4: 255])
+        let adaptive: @Sendable () -> AdaptiveLightingController? = { [weak service] in service?.adaptiveLighting }
+        // `report`: the device said its whole colour, so a white far from the one shown was set elsewhere.
+        let show: @Sendable (_ report: Bool) -> Void = { report in
+            let now = channels.withLockedValue { $0 }
+            let red = now[2] ?? 0, green = now[3] ?? 0, blue = now[4] ?? 0
+            let white = WhiteMix.mireds(warm: now[0] ?? 0, cold: now[1] ?? 0)
+            if let temperature, let white, !hasColor || max(red, green, blue) == 0 {
+                if report { adaptive()?.disableIfChangedElsewhere(mireds: white) }
+                temperature.value = .int(white)
+                return
+            }
+            guard let hue, let saturation else { return }
+            if report { adaptive()?.disableIfChangedElsewhere(mireds: nil) }
+            let (h, s) = ColorMath.hueSaturation(red: red, green: green, blue: blue)
             if let h { hue.value = .double(h) }
             saturation.value = .double(s)
         }
-        for (key, value) in colors where [2, 3, 4].contains(key) {
+        for (key, value) in colors where (hasColor && [2, 3, 4].contains(key)) || (hasWhites && [0, 1].contains(key)) {
             on(value.id) { json in
                 guard let component = json.numberValue else { return }
-                rgb.withLockedValue { $0[key] = component }
-                show()
+                channels.withLockedValue { $0[key] = component }
+                show(false)
             }
         }
         // The whole colour as one object, which zwave-js reports beside the components.
         if let whole = node.value(CommandClass.colorSwitch, endpoint: endpoint, property: "currentColor") {
             on(whole.id) { json in
-                let names = [2: "red", 3: "green", 4: "blue"]
-                rgb.withLockedValue { rgb in
-                    for (key, name) in names { if let component = json[name]?.numberValue { rgb[key] = component } }
+                let names = [0: "warmWhite", 1: "coldWhite", 2: "red", 3: "green", 4: "blue"]
+                channels.withLockedValue { channels in
+                    for (key, name) in names { if let component = json[name]?.numberValue { channels[key] = component } }
                 }
-                show()
+                show(true)
             }
         }
         let whites = colors.keys.filter { $0 == 0 || $0 == 1 }
         let target = writer(ValueID(commandClass: CommandClass.colorSwitch, endpoint: endpoint, property: "targetColor"))
         let guardian = coalesce, key = "\(deviceID):\(endpoint):color"
-        let send: @Sendable () async throws -> Void = {
-            guard await guardian(key) else { return }
-            let (red, green, blue) = ColorMath.rgb(hue: hue.value.doubleValue ?? 0, saturation: saturation.value.doubleValue ?? 0)
-            var color: [String: JSONValue] = ["red": .number(Double(red)), "green": .number(Double(green)), "blue": .number(Double(blue))]
-            if whites.contains(0) { color["warmWhite"] = .number(0) }
-            if whites.contains(1) { color["coldWhite"] = .number(0) }
+        if let hue, let saturation {
+            let send: @Sendable () async throws -> Void = {
+                guard await guardian(key) else { return }
+                let (red, green, blue) = ColorMath.rgb(hue: hue.value.doubleValue ?? 0, saturation: saturation.value.doubleValue ?? 0)
+                var color: [String: JSONValue] = ["red": .number(Double(red)), "green": .number(Double(green)), "blue": .number(Double(blue))]
+                if whites.contains(0) { color["warmWhite"] = .number(0) }
+                if whites.contains(1) { color["coldWhite"] = .number(0) }
+                try await target(.object(color))
+            }
+            // A write's handler runs before the characteristic keeps the value: each keeps it first, so the colour sent
+            // has both halves of a write that sets the two.
+            hue.onWrite { value in
+                hue.value = value
+                try await send()
+            }
+            saturation.onWrite { value in
+                saturation.value = value
+                try await send()
+            }
+        }
+        temperature?.onWrite { value in
+            guard let mireds = value.intValue, await guardian(key) else { return }
+            let (warm, cold) = WhiteMix.channels(mireds: mireds)
+            var color: [String: JSONValue] = ["warmWhite": .number(Double(warm)), "coldWhite": .number(Double(cold))]
+            if hasColor { for name in ["red", "green", "blue"] { color[name] = .number(0) } }
             try await target(.object(color))
+            channels.withLockedValue { $0.merge([0: Double(warm), 1: Double(cold), 2: 0, 3: 0, 4: 0]) { $1 } }
         }
-        // A write's handler runs before the characteristic keeps the value: each keeps it first, so the colour sent
-        // has both halves of a write that sets the two.
-        hue.onWrite { value in
-            hue.value = value
-            try await send()
+    }
+
+    /// A fan's Multilevel Switch: Active, and its level as Rotation Speed.
+    private mutating func buildFan(_ level: ZValue, subtype: String, label: String) -> Service {
+        let service = make(.fanv2, name: label, subtype: subtype, optional: [.rotationSpeed])
+        let active = service.characteristic(.active), speed = service.characteristic(.rotationSpeed)
+        let target = writer(level.id.with(property: "targetValue"))
+        active.onWrite(changesOnly: true) { value in
+            // Active restores the last speed; Inactive is 0.
+            try await target(.number(value.intValue == 1 ? 255 : 0))
         }
-        saturation.onWrite { value in
-            saturation.value = value
-            try await send()
+        let guardian = coalesce, key = "\(deviceID):\(subtype):fan"
+        speed.onWrite { value in
+            guard let percent = value.intValue, await guardian(key) else { return }
+            try await target(.number(Double(Self.level(percent: percent))))
         }
+        on(level.id) { value in
+            guard let level = value.numberValue else { return }
+            active.value = .int(level > 0 ? 1 : 0)
+            if level > 0 { speed.value = .int(Self.percent(level: level)) }
+        }
+        add(service)
+        return service
+    }
+
+    /// Barrier Operator's states: 0 closed, 252 closing, 253 stopped, 254 opening, 255 open (1 to 99 a position
+    /// between, open), as Current Door State's 0 open, 1 closed, 2 opening, 3 closing, 4 stopped.
+    static func doorState(barrier state: Int) -> Int? {
+        switch state {
+        case 0: 1
+        case 252: 3
+        case 253: 4
+        case 254: 2
+        case 1...99, 255: 0
+        default: nil
+        }
+    }
+
+    private mutating func buildGarageDoor(_ state: ZValue, subtype: String, label: String) -> Service {
+        let service = make(.garageDoorOpener, name: label, subtype: subtype)
+        let current = service.characteristic(.currentDoorState), targetState = service.characteristic(.targetDoorState)
+        service.characteristic(.obstructionDetected).value = .bool(false)
+        // Target Door State is a security control: the bridge's own surfaces ask before they write it.
+        let target = writer(state.id.with(property: "targetState"))
+        targetState.onWrite { value in try await target(.number(value.intValue == 0 ? 255 : 0)) }
+        on(state.id) { value in
+            guard let state = value.intValue.flatMap(Self.doorState(barrier:)) else { return }
+            current.value = .int(state)
+            // Open and opening aim at open, closed and closing at closed; stopped keeps its target.
+            if state != 4 { targetState.value = .int(state == 0 || state == 2 ? 0 : 1) }
+        }
+        if let wanted = node.value(CommandClass.barrierOperator, endpoint: state.id.endpoint, property: "targetState") {
+            on(wanted.id) { value in
+                guard let wanted = value.intValue, wanted == 0 || wanted == 255 else { return }
+                targetState.value = .int(wanted == 255 ? 0 : 1)
+            }
+        }
+        add(service)
+        return service
+    }
+
+    /// Sound Switch (a siren, a chime): a switch that plays the default tone (255) and stops it (0).
+    private mutating func buildSiren(endpoint: Int, label: String) {
+        guard let tone = node.value(CommandClass.soundSwitch, endpoint: endpoint, property: "toneId") else { return }
+        let service = make(.switch, name: "\(label) Siren", subtype: "\(endpoint):siren")
+        let power = service.characteristic(.on)
+        let target = writer(tone.id)
+        power.onWrite(changesOnly: true) { value in try await target(.number(value.boolValue == true ? 255 : 0)) }
+        on(tone.id) { value in
+            if let tone = value.intValue { power.value = .bool(tone > 0) }
+        }
+        add(service)
     }
 
     private mutating func buildCover(_ level: ZValue, subtype: String, label: String) -> Service {
@@ -316,15 +438,18 @@ struct NodeBuilder {
         case .switch: .switch
         case .outlet: .outlet
         case .lightbulb: .lightbulb
+        case .fan: .fanv2
         }
         let service = make(type, name: label, subtype: subtype, optional: switchShape == .outlet ? [.outletInUse] : [])
-        let power = service.characteristic(.on)
         if switchShape == .outlet { service.characteristic(.outletInUse).value = .bool(true) }
         let target = writer(state.id.with(property: "targetValue"))
-        power.onWrite(changesOnly: true) { value in try await target(.bool(value.boolValue == true)) }
+        // A fan's Active is a number, the others' On a boolean.
+        let fan = switchShape == .fan
+        let power = service.characteristic(fan ? .active : .on)
+        power.onWrite(changesOnly: true) { value in try await target(.bool(fan ? value.intValue == 1 : value.boolValue == true)) }
         if node.isEntryControl { power.securityControl() }
         on(state.id) { value in
-            if let state = value.boolValue { power.value = .bool(state) }
+            if let state = value.boolValue { power.value = fan ? .int(state ? 1 : 0) : .bool(state) }
         }
         add(service)
         return service
@@ -490,7 +615,7 @@ struct NodeBuilder {
     // MARK: Sensors
 
     enum SensorKind: String, CaseIterable {
-        case motion, contact, leak, smoke, carbonMonoxide
+        case motion, contact, leak, smoke, carbonMonoxide, carbonDioxide
 
         var type: ServiceType {
             switch self {
@@ -499,6 +624,7 @@ struct NodeBuilder {
             case .leak: .leakSensor
             case .smoke: .smokeSensor
             case .carbonMonoxide: .carbonMonoxideSensor
+            case .carbonDioxide: .carbonDioxideSensor
             }
         }
 
@@ -509,6 +635,7 @@ struct NodeBuilder {
             case .leak: .leakDetected
             case .smoke: .smokeDetected
             case .carbonMonoxide: .carbonMonoxideDetected
+            case .carbonDioxide: .carbonDioxideDetected
             }
         }
 
@@ -519,6 +646,7 @@ struct NodeBuilder {
             case .leak: "Leak"
             case .smoke: "Smoke"
             case .carbonMonoxide: "Carbon Monoxide"
+            case .carbonDioxide: "Carbon Dioxide"
             }
         }
 
@@ -530,6 +658,8 @@ struct NodeBuilder {
 
     /// The sensors already made, by endpoint and kind: Notification's win over Binary Sensor's.
     private var sensors: Set<String> = []
+    /// Their services, which a tamper switch marks.
+    private var sensorServices: [Service] = []
 
     private mutating func sensor(_ kind: SensorKind, endpoint: Int, label: String, values: [ZValue], detected: @escaping @Sendable (JSONValue) -> Bool?) {
         let key = "\(endpoint):\(kind.rawValue)"
@@ -544,11 +674,12 @@ struct NodeBuilder {
             }
         }
         add(service)
+        sensorServices.append(service)
     }
 
     /// Notification CC's states (zwave-js names each notification type's variables): motion (Home Security 7 and 8), the
-    /// door (Access Control's Door state: 22 open, 23 closed, 5632 and 5633 open, tilted or not), water, smoke and CO
-    /// (any state but idle).
+    /// door (Access Control's Door state: 22 open, 23 closed, 5632 and 5633 open, tilted or not), water, smoke, CO and
+    /// CO2 (any state but idle).
     private mutating func buildNotificationSensors(endpoint: Int, label: String) {
         let values = node.values(CommandClass.notification, endpoint: endpoint)
         func named(_ type: String, _ variables: [String]) -> [ZValue] {
@@ -568,6 +699,30 @@ struct NodeBuilder {
         sensor(.leak, endpoint: endpoint, label: label, values: named("Water Alarm", ["Sensor status"]), detected: idle)
         sensor(.smoke, endpoint: endpoint, label: label, values: named("Smoke Alarm", ["Sensor status"]), detected: idle)
         sensor(.carbonMonoxide, endpoint: endpoint, label: label, values: named("CO Alarm", ["Sensor status"]), detected: idle)
+        sensor(.carbonDioxide, endpoint: endpoint, label: label, values: named("CO2 Alarm", ["Sensor status"]), detected: idle)
+    }
+
+    /// Binary Sensor's `General Purpose` (else `Any`), on a node that has no other sensor: a contact, as a door sensor's
+    /// input or a dry contact is, open while it is triggered.
+    private mutating func buildGeneralPurposeSensor(label: String) {
+        guard sensors.isEmpty else { return }
+        let values = node.values(CommandClass.binarySensor)
+        guard let value = values.first(where: { $0.id.propertyText == "General Purpose" }) ?? values.first(where: { $0.id.propertyText == "Any" }) else { return }
+        sensor(.contact, endpoint: value.id.endpoint, label: label, values: [value]) { $0.boolValue }
+    }
+
+    /// Home Security's cover (3, Tampering: the cover removed) as Status Tampered on the node's sensors.
+    private mutating func buildTamper() {
+        guard !sensorServices.isEmpty else { return }
+        let covers = node.values(CommandClass.notification).filter { $0.id.propertyText == "Home Security" && $0.id.propertyKeyText == "Cover status" }
+        guard !covers.isEmpty else { return }
+        let characteristics = sensorServices.map { $0.characteristic(adding: .statusTampered) }
+        for cover in covers {
+            on(cover.id) { value in
+                guard let state = value.intValue else { return }
+                for characteristic in characteristics { characteristic.value = .int(state == 3 ? 1 : 0) }
+            }
+        }
     }
 
     /// Binary Sensor's types by the property zwave-js gives each (the type's name); `Any` and `General Purpose` say
@@ -673,6 +828,26 @@ struct NodeBuilder {
         let label = Service(.serviceLabel, subtype: "scenes")
         label.characteristic(.serviceLabelNamespace).value = .int(1)
         services.append(label)
+    }
+}
+
+/// Warm and cold white channels as a Color Temperature: all cold is 6500 K, all warm 2700 K, a mix between.
+enum WhiteMix {
+    /// 6500 K and 2700 K in mireds.
+    static let coolest = 154, warmest = 370
+
+    /// The temperature the two channels make, nil when neither is lit.
+    static func mireds(warm: Double, cold: Double) -> Int? {
+        let warm = max(0, warm), cold = max(0, cold)
+        guard warm + cold > 0 else { return nil }
+        return coolest + Int((Double(warmest - coolest) * warm / (warm + cold)).rounded())
+    }
+
+    /// The channels for a temperature: the warmer, the more of warm white, their sum full.
+    static func channels(mireds: Int) -> (warm: Int, cold: Int) {
+        let share = Double(min(warmest, max(coolest, mireds)) - coolest) / Double(warmest - coolest)
+        let warm = Int((share * 255).rounded())
+        return (warm, 255 - warm)
     }
 }
 

@@ -423,7 +423,7 @@ struct ZWaveJSTests {
         #expect(await eventually { host.accessory(id(9)) == nil })
 
         var added = try #require(FakeServer.fixture["state"]?["nodes"]?.arrayValue?.first { $0["nodeId"] == 3 }?.objectValue)
-        added["nodeId"] = 11
+        added["nodeId"] = 21
         added["name"] = "Fan Plug"
         added["ready"] = false
         server.send(event: ["source": "controller", "event": "node added", "node": .object(added), "result": .object([:])])
@@ -431,19 +431,19 @@ struct ZWaveJSTests {
         server.valueUpdated(node: 3, commandClass: 37, property: "currentValue", value: true)
         #expect(await eventually { host.accessory(id(3))?.service(.outlet)?[.on]?.value == true })
         // Not ready: interviewed first.
-        #expect(host.accessory(id(11)) == nil)
+        #expect(host.accessory(id(21)) == nil)
         added["ready"] = true
-        server.send(event: ["source": "node", "event": "ready", "nodeId": 11, "nodeState": .object(added)])
-        #expect(await eventually { host.accessory(id(11))?.information.characteristic(.name).value == "Fan Plug" })
+        server.send(event: ["source": "node", "event": "ready", "nodeId": 21, "nodeState": .object(added)])
+        #expect(await eventually { host.accessory(id(21))?.information.characteristic(.name).value == "Fan Plug" })
 
         // An older schema's `ready` has no node state: the node as `node added` gave it.
         var older = added
-        older["nodeId"] = 12
+        older["nodeId"] = 22
         older["name"] = "Hall Plug"
         older["ready"] = false
         server.send(event: ["source": "controller", "event": "node added", "node": .object(older), "result": .object([:])])
-        server.send(event: ["source": "node", "event": "ready", "nodeId": 12, "args": .object([:])])
-        #expect(await eventually { host.accessory(id(12))?.information.characteristic(.name).value == "Hall Plug" })
+        server.send(event: ["source": "node", "event": "ready", "nodeId": 22, "args": .object([:])])
+        #expect(await eventually { host.accessory(id(22))?.information.characteristic(.name).value == "Hall Plug" })
 
         // A node gone while the bridge was away leaves at the next state dump.
         server.removeNode(4)
@@ -601,6 +601,122 @@ struct ZWaveJSTests {
         await host.stop()
     }
 
+    // MARK: Whites, fans, garage doors, sirens, more sensors
+
+    /// Started, with the nodes after the fixture's first ten published too.
+    func startedWithEveryNode() async throws -> PluginHost {
+        let host = try await started()
+        #expect(await eventually { host.accessory(id(16)) != nil })
+        return host
+    }
+
+    @Test func whiteChannelsAreAColorTemperatureWithAdaptiveLighting() async throws {
+        let host = try await startedWithEveryNode()
+        let server = environment.server
+        let light = try #require(host.accessory(id(11))?.service(.lightbulb, subtype: "0"))
+        // All warm white: 2700 K.
+        #expect(light[.colorTemperature]?.value == .int(370))
+        #expect(light[.hue] == nil)
+        let adaptive = try #require(light.adaptiveLighting)
+        #expect(await environment.plugin?.deviceKind(of: "\(FakeServer.homeID)-11") == "light")
+
+        try await light[.colorTemperature]!.write(.int(154), origin: nil)
+        #expect(server.setValues.last?["valueId"] == ["commandClass": 51, "endpoint": 0, "property": "targetColor"])
+        #expect(server.setValues.last?["value"] == ["warmWhite": 0, "coldWhite": 255])
+
+        // A white lit with no colour on a colour bulb is its temperature; writing one turns the colour off.
+        let colour = try #require(host.accessory(id(2))?.service(.lightbulb, subtype: "0"))
+        #expect(colour.adaptiveLighting != nil)
+        try await colour[.colorTemperature]!.write(.int(262), origin: nil)
+        #expect(server.setValues.last?["value"] == ["warmWhite": 128, "coldWhite": 127, "red": 0, "green": 0, "blue": 0])
+
+        // The device's own report near what Adaptive Lighting set keeps it on; a white set elsewhere turns it off.
+        try adaptive.activateForTesting(mireds: 300)
+        #expect(await eventually { server.setValues.last?["value"] == ["warmWhite": 172, "coldWhite": 83] })
+        #expect(light[.colorTemperature]?.value == .int(300))
+        server.valueUpdated(node: 11, commandClass: 51, property: "currentColor", value: ["warmWhite": 174, "coldWhite": 81])
+        #expect(await eventually { light[.colorTemperature]?.value == .int(301) })
+        #expect(adaptive.isAdaptiveLightingActive)
+        server.valueUpdated(node: 11, commandClass: 51, property: "currentColor", value: ["warmWhite": 255, "coldWhite": 0])
+        #expect(await eventually { !adaptive.isAdaptiveLightingActive })
+        #expect(light[.colorTemperature]?.value == .int(370))
+        await host.stop()
+    }
+
+    @Test func fansGarageDoorsAndSirens() async throws {
+        let host = try await startedWithEveryNode()
+        let server = environment.server
+        let fanAccessory = try #require(host.accessory(id(12)))
+        #expect(fanAccessory.category == .fan)
+        #expect(await environment.plugin?.deviceKind(of: "\(FakeServer.homeID)-12") == "fan")
+        let fan = try #require(fanAccessory.service(.fanv2, subtype: "0"))
+        #expect(fan[.active]?.value == 1 && fan[.rotationSpeed]?.value.doubleValue == 67)
+        try await fan[.rotationSpeed]!.write(.int(100), origin: nil)
+        #expect(server.setValues.last?["valueId"] == ["commandClass": 38, "endpoint": 0, "property": "targetValue"])
+        #expect(server.setValues.last?["value"] == 99)
+        try await fan[.active]!.write(.int(0), origin: nil)
+        #expect(server.setValues.last?["value"] == 0)
+        server.valueUpdated(node: 12, commandClass: 38, property: "currentValue", value: 0)
+        #expect(await eventually { fan[.active]?.value == 0 })
+
+        let garage = try #require(host.accessory(id(13)))
+        #expect(garage.category == .garageDoorOpener)
+        #expect(await environment.plugin?.deviceKind(of: "\(FakeServer.homeID)-13") == "garage")
+        let door = try #require(garage.service(.garageDoorOpener, subtype: "0"))
+        #expect(door[.currentDoorState]?.value == 1 && door[.targetDoorState]?.value == 1)
+        #expect(door[.targetDoorState]?.isSecurityControl == true)
+        try await door[.targetDoorState]!.write(.int(0), origin: nil)
+        #expect(server.setValues.last?["valueId"] == ["commandClass": 102, "endpoint": 0, "property": "targetState"])
+        #expect(server.setValues.last?["value"] == 255)
+        server.valueUpdated(node: 13, commandClass: 102, property: "currentState", value: 254)
+        #expect(await eventually { door[.currentDoorState]?.value == 2 && door[.targetDoorState]?.value == 0 })
+        server.valueUpdated(node: 13, commandClass: 102, property: "currentState", value: 255)
+        #expect(await eventually { door[.currentDoorState]?.value == 0 })
+
+        let siren = try #require(host.accessory(id(14))?.service(.switch, subtype: "0:siren"))
+        #expect(siren[.on]?.value == false)
+        #expect(await environment.plugin?.deviceKind(of: "\(FakeServer.homeID)-14") == "switch")
+        try await siren[.on]!.write(.bool(true), origin: nil)
+        #expect(server.setValues.last?["valueId"] == ["commandClass": 121, "endpoint": 0, "property": "toneId"])
+        #expect(server.setValues.last?["value"] == 255)
+        server.valueUpdated(node: 14, commandClass: 121, property: "toneId", value: 0)
+        #expect(await eventually { siren[.on]?.value == false })
+        await host.stop()
+    }
+
+    @Test func generalPurposeContactsTamperAndCarbonDioxide() async throws {
+        let host = try await startedWithEveryNode()
+        let server = environment.server
+        let input = try #require(host.accessory(id(15)))
+        let contact = try #require(input.service(.contactSensor, subtype: "0:contact"))
+        #expect(contact[.contactSensorState]?.value == 0 && contact[.statusTampered]?.value == 0)
+        // `Any` beside it is not a second sensor.
+        #expect(input.services.filter { $0.type.uuid == ServiceType.contactSensor.uuid }.count == 1)
+        server.valueUpdated(node: 15, commandClass: 48, property: "General Purpose", value: true)
+        #expect(await eventually { contact[.contactSensorState]?.value == 1 })
+        server.valueUpdated(node: 15, commandClass: 113, property: "Home Security", propertyKey: "Cover status", value: 3)
+        #expect(await eventually { contact[.statusTampered]?.value == 1 })
+
+        let air = try #require(host.accessory(id(16))?.service(.carbonDioxideSensor, subtype: "0:carbonDioxide"))
+        #expect(air[.carbonDioxideDetected]?.value == 0)
+        server.valueUpdated(node: 16, commandClass: 113, property: "CO2 Alarm", propertyKey: "Sensor status", value: 2)
+        #expect(await eventually { air[.carbonDioxideDetected]?.value == 1 })
+        await host.stop()
+    }
+
+    @Test func switchesShowAsAFanOrALightByTheirSetting() async throws {
+        var settings = TestEnvironment.serverSettings
+        settings["_accessories"] = [FakeServer.homeID: ["host": "192.0.2.20"], "\(FakeServer.homeID)-3": ["showAs": "fan"], "\(FakeServer.homeID)-12": ["showAs": "lightbulb"]]
+        let host = try await environment.start(settings: settings)
+        #expect(await eventually { host.accessory(id(12)) != nil })
+        let plug = try #require(host.accessory(id(3))?.service(.fanv2, subtype: "0"))
+        #expect(plug[.active]?.value == 0)
+        try await plug[.active]!.write(.int(1), origin: nil)
+        #expect(environment.server.setValues.last?["value"] == true)
+        #expect(host.accessory(id(12))?.service(.lightbulb, subtype: "0") != nil)
+        await host.stop()
+    }
+
     // MARK: Pieces
 
     @Test func levelsAndColours() {
@@ -615,6 +731,12 @@ struct ZWaveJSTests {
         #expect(ZWaveJSPlugin.url(host: "fd00::1", port: 3000) == URL(string: "ws://[fd00::1]:3000"))
         #expect(ServerVersion.homeID(.number(3967423180)) == "3967423180")
         #expect(NodeBuilder.lockState(mode: 1) == 0 && NodeBuilder.lockState(mode: 255) == 1 && NodeBuilder.lockState(mode: 254) == 3)
+        #expect(WhiteMix.mireds(warm: 0, cold: 255) == 154 && WhiteMix.mireds(warm: 255, cold: 0) == 370 && WhiteMix.mireds(warm: 0, cold: 0) == nil)
+        #expect(WhiteMix.channels(mireds: 100) == (0, 255) && WhiteMix.channels(mireds: 500) == (255, 0))
+        #expect(WhiteMix.mireds(warm: Double(WhiteMix.channels(mireds: 250).warm), cold: Double(WhiteMix.channels(mireds: 250).cold)) == 250)
+        #expect(NodeBuilder.doorState(barrier: 0) == 1 && NodeBuilder.doorState(barrier: 255) == 0 && NodeBuilder.doorState(barrier: 50) == 0)
+        #expect(NodeBuilder.doorState(barrier: 252) == 3 && NodeBuilder.doorState(barrier: 253) == 4 && NodeBuilder.doorState(barrier: 254) == 2)
+        #expect(NodeBuilder.doorState(barrier: 120) == nil)
     }
 
     /// The plugin's directory, from this file's.
