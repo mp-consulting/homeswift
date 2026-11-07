@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "HomeswiftUI", targets: ["HomeswiftUI"]),
         .library(name: "HomeswiftMatter", targets: ["HomeswiftMatter"]),
         .library(name: "HomeswiftNetwork", targets: ["HomeswiftNetwork"]),
+        .library(name: "HomeswiftWebRTC", targets: ["HomeswiftWebRTC"]),
         .library(name: "HomeswiftFFmpeg", targets: ["HomeswiftFFmpeg"]),
         .library(name: "HomeswiftElgatoKeyLights", targets: ["HomeswiftElgatoKeyLights"]),
         .library(name: "HomeswiftPhilipsAmbilightTV", targets: ["HomeswiftPhilipsAmbilightTV"]),
@@ -162,6 +163,16 @@ let package = Package(
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
+        // WebRTC for camera plugins whose clouds stream that way (Ring, Google Nest): STUN and ICE, SRTP and SRTCP, the SDP
+        // offer; vector-tested against RFC 5769, RFC 3711 and libsrtp's reference packets.
+        .target(
+            name: "HomeswiftWebRTC",
+            dependencies: [
+                "HomeswiftNetwork",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "CryptoExtras", package: "swift-crypto"),
             ]
         ),
         // FFmpeg for camera plugins (a port of homebridge-plugin-utils' ffmpeg library): capability probing, encoder arguments per
@@ -675,6 +686,10 @@ let package = Package(
             name: "HomeswiftNetworkTestSupport",
             dependencies: ["HomeswiftNetwork", .product(name: "NIOConcurrencyHelpers", package: "swift-nio")],
             path: "Tests/HomeswiftNetworkTestSupport"
+        ),
+        .testTarget(
+            name: "HomeswiftWebRTCTests",
+            dependencies: ["HomeswiftWebRTC", "HomeswiftNetwork"]
         ),
         .testTarget(
             name: "HomeswiftNetworkTests",
