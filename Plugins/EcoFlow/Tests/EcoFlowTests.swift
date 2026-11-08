@@ -44,6 +44,9 @@ actor FakeAPI: EcoFlowAPI {
     func set(_ write: EcoFlowWrite, on device: EcoFlowDevice) async throws {
         if refusing { throw EcoFlowWriteError.refused("test") }
         sent.append((device.id, write))
+        // The light reports the mode it was set to, as a RIVER 3 Plus does (a refresh while a test runs would otherwise
+        // read the mode it started with). The outputs keep theirs: their tests check the hold and the flip back.
+        if case .lightMode(let mode) = write { update(deviceID: device.id) { $0.lightMode = mode } }
     }
 }
 
