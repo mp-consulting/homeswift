@@ -203,7 +203,8 @@
     const roundedHours = Math.round(total / 60);
     const time = roundedHours >= 24 ? t("{d}d {h}h", { d: Math.floor(roundedHours / 24), h: roundedHours % 24 })
       : hours > 0 ? t("{h}h {m}m", { h: hours, m: minutes }) : t("{m}m", { m: minutes });
-    return el("span", { class: "remaining",
+    // At the card's right edge: its tip opens inward (data-tip-align), or it would widen the page.
+    return el("span", { class: "remaining", "data-tip-align": "end",
       text: device.charging ? t("{time} to full", { time }) : t("{time} left", { time }),
       "data-tip": device.charging ? t("Time until the battery is full at the current power, as the device estimates it")
         : t("Time until the battery is empty at the current power, as the device estimates it") });
@@ -216,7 +217,7 @@
     const battery = el("div", { class: "battery-line" },
       el("div", { class: "figure", "data-tip": t("The battery's state of charge") }, batteryGraphic(level), level === null ? "–" : figure(String(level), "%")),
       el("div", { class: "battery-state" }, remaining(device), silent ? null :
-        el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now") })));
+        el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now"), "data-tip-align": "end" })));
     const shown = (device.series ?? []).filter((key) => flows[key]);
     const flowList = silent ? null : el("div", { class: "flows" }, shown.map((key) => {
       const [label, inWhenPositive, tip, wide] = flows[key];

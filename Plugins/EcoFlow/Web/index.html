@@ -42,7 +42,8 @@
   .serial { margin: 2px 0 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   /* The battery leads: the largest figure on the card, its level beside the graphic and its state after it. */
-  .battery-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  /* The figure, and the time and state beside it; below it when the card is too narrow for both. */
+  .battery-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
   .battery-line .figure { white-space: nowrap; display: flex; align-items: center; gap: 12px; font-size: 2.5rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
   .battery-line .figure small { font-size: 0.5em; font-weight: 500; opacity: 0.7; }
   /* The time to full or to empty, beside the charging state; its own line under it on a narrow card. */
