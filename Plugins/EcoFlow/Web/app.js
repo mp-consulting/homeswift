@@ -152,8 +152,8 @@
   }
 
   // The light's row: its mode, and the choice of the four, one at a time (a segmented control, as the bridge's pages
-  // have: a radio group); the current mode's button does nothing. Where the card is narrow each choice is its glyph
-  // alone (`icon-on-phone`), its name its label. The caption marks the device's writes when they are untested.
+  // have: a radio group); the current mode's button does nothing. Each choice is its glyph, its name its label and tip;
+  // the current one is in the accent colour while the light is lit. The caption marks the device's writes when they are untested.
   function lightRow(device) {
     const light = device.light;
     if (!light) return null;
@@ -161,8 +161,8 @@
     const group = el("div", { class: "group", role: "radiogroup", "aria-label": t("Light mode") });
     for (const [mode, name, icon] of lightModes) {
       const checked = mode === light.mode;
-      const button = el("button", { type: "button", role: "radio", class: checked ? "on icon-on-phone" : "icon-on-phone", actionIcon: icon,
-        disabled: !device.online, "aria-checked": String(checked), "aria-label": t(name) }, el("span", { text: t(name) }));
+      const button = el("button", { type: "button", role: "radio", class: checked ? (mode === 0 ? "on" : "on lit") : "", actionIcon: icon,
+        disabled: !device.online, "aria-checked": String(checked), "aria-label": t(name), "data-tip": t(name) });
       button.addEventListener("click", () => { if (!checked) setLight(device, mode, group); });
       group.append(button);
     }
@@ -171,7 +171,7 @@
       el("span", { class: `pill ${current && current[0] !== 0 ? "on" : ""}`, text: current ? t(current[1]) : "–" }), group);
   }
 
-  // The outputs the plugin switches, each with its state and a button, the light, and the charge and discharge limits
+  // The outputs the plugin switches, each with its state and a round power button (the accent colour while on), the light, and the charge and discharge limits
   // (the device's Settings change them).
   function controls(device) {
     const outputs = device.outputs ?? [];
@@ -180,9 +180,9 @@
     const rows = outputs.map((output) => {
       const port = t(output.name);
       const state = output.on === null ? "–" : output.on ? t("On") : t("Off");
-      const button = el("button", { type: "button", class: "button small", actionIcon: "power", disabled: !device.online,
-        text: output.on === true ? t("Turn off") : t("Turn on"),
-        "aria-label": output.on === true ? t("Turn {port} off", { port }) : t("Turn {port} on", { port }) });
+      const label = output.on === true ? t("Turn {port} off", { port }) : t("Turn {port} on", { port });
+      const button = el("button", { type: "button", class: output.on === true ? "switch primary" : "switch", actionIcon: "power",
+        disabled: !device.online, "aria-pressed": String(output.on === true), "aria-label": label, "data-tip": label });
       button.addEventListener("click", () => switchOutput(device, output, button));
       return el("div", { class: "output", "data-tip": t("This output, as HomeKit's Outlet shows it") },
         el("span", { class: "label", text: port }),
