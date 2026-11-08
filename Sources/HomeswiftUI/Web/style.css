@@ -1747,6 +1747,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumer.nested { position: relative; }
 .consumer.nested .consumer-name { padding-left: var(--space-16); }
 .consumer.nested::after { content: ""; position: absolute; left: calc(var(--space-10) + 3px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
+/* Several meters measure the whole home: a line naming what the rows under it are inside, so the rule down their left
+   reads as the group's and not as the last home meter's. */
+.consumers-inside { padding: var(--space-6) var(--space-10) 0 var(--space-10); font-size: var(--text-2xs); color: var(--muted); }
 /* What no meter measures: the rest of the home, muted, no history to open. */
 .consumer.rest { cursor: default; color: var(--muted); }
 .consumer.rest:hover { background: none; }
