@@ -72,6 +72,7 @@ final class TestEnvironment: Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-EcoFlow-tests-\(UUID().uuidString)")
     let api = FakeAPI()
     private let plugins = NIOLockedValueBox<[EcoFlowPlugin]>([])
+    private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
 
     var plugin: EcoFlowPlugin? { plugins.withLockedValue { $0.last } }
 
@@ -93,7 +94,15 @@ final class TestEnvironment: Sendable {
         }
         let block = try HomeswiftConfiguration.Platform(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name, settings: settings)
         let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
-        let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
+        // Each bridge's storage outlives a host, as its aids and iids do across a restart.
+        let options = PluginHost.Options(advertise: false, logger: testLogger) { name in
+            self.storages.withLockedValue { storages in
+                if let storage = storages[name] { return storage }
+                let storage = MemoryStorage()
+                storages[name] = storage
+                return storage
+            }
+        }
         let host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: directory, options: options)
         try await host.start()
         return host

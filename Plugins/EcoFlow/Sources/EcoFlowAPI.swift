@@ -150,8 +150,9 @@ struct EcoFlowState: Sendable, Equatable {
     var dischargeLimit: Int?
     /// A DELTA Pro's X-Boost, sent back with its AC write.
     var acXboost: Int?
-    /// A RIVER 3 Plus's light: 0 Off, 1 Dim, 2 Bright, 3 SOS (EcoFlowLight); nil while the device has not reported it.
-    var lightMode: Int?
+    /// A RIVER 3 Plus's light's mode (reported 0 Off, 1 Dim, 2 Bright, 3 SOS); nil while the device has not reported it,
+    /// or reported another value.
+    var lightMode: EcoFlowLight?
 
     /// The estimate that applies now: to full while charging, to empty otherwise.
     var minutesRemaining: Double? { battery.chargingState == 1 ? minutesToFull : minutesToEmpty }
@@ -208,7 +209,10 @@ struct EcoFlowState: Sendable, Equatable {
         chargeLimit = percent(keys.chargeLimit)
         dischargeLimit = percent(keys.dischargeLimit)
         acXboost = value(keys.acXboost).flatMap { $0.isFinite && abs($0) < 1000 ? Int($0) : nil }
-        lightMode = value(keys.lightMode).flatMap { $0.isFinite && $0 == $0.rounded() && EcoFlowLight.modes.contains(Int($0)) ? Int($0) : nil }
+        // In steps: Linux's type checker gives up on the one expression.
+        if let mode = value(keys.lightMode), mode.isFinite, mode == mode.rounded(), abs(mode) < 1000 {
+            lightMode = EcoFlowLight(rawValue: Int(mode))
+        }
     }
 
     /// The numbers of a JSON quota, by key: numbers, and numbers sent as text (a DELTA Pro sends some so); other text

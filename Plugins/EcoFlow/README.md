@@ -26,7 +26,7 @@ on a real device: the plugin's page marks them **Untested**.
 | Each device the route reads | A Battery service on its own accessory, named after the device: its level, charging state, low below 10 % | Its power, laid out by kind (below), with the last hour of each reading and its source (MQTT, REST or App) |
 | Each output it switches ([Writes](#writes)) | An Outlet beside the Battery, named after the port (AC1, AC2, AC, DC 12 V, USB) | Its state and a button that switches it |
 | Its charge and discharge limits | Accessory Settings of the device (`chargeLimit`, `dischargeLimit`) | The device's limits |
-| A RIVER 3 Plus's light ([Writes](#writes), untested) | A Lightbulb "Light" (Dim, Bright) and a Switch "SOS" beside the Battery | Its mode and a choice of Off, Dim, Bright and SOS |
+| A RIVER 3 Plus's light ([Writes](#writes)) | A Lightbulb "Light" (Dim, Bright) and a Switch "SOS" beside the Battery | Its mode and a choice of Off, Dim, Bright and SOS |
 
 HomeKit has no characteristic for watts, so the power is on the plugin's page only, a card per device, two to a row
 on a wide screen; a card's grip drags it to another place (or moves it with the arrow keys), and the plugin keeps the
@@ -113,13 +113,16 @@ The plugin switches a device's outputs and sets its charge limit (the maximum st
   limit the device already has is not sent; one refused is not sent again until the settings change.
 - **Light:** a RIVER 3 Plus's LED (R631, R634, R635), on the app's route only (`cfg_led_mode`, field 89 of the
   ConfigWrite; read back from `led_mode`, field 357 of the status message), spec section 8. It takes a mode: Off, Dim,
-  Bright or SOS, and no other value is sent. It appears once the device's status has carried its mode, and only with
-  **Writes to untested models**: the RIVER 3 Plus's other writes were checked on a device, its light was not, so the page
-  marks it **Untested**. The plain RIVER 3 has none, and the developer API has no such write. In HomeKit, a Lightbulb
-  (subtype `light`, Brightness in steps of 50 %) shows Dim as on at 50 % and Bright as on at 100 %, Off and SOS as off; a
-  Brightness up to 50 % sends Dim, above it Bright, 0 % Off; On sends the last Dim or Bright the device had (else
-  Bright), and off sends Off; the Home app's On and Brightness of one change go as one write. A Switch "SOS" (subtype
-  `light-sos`) is on in SOS, and switches to SOS and back to Off. The page's Light row shows the mode and sets it.
+  Bright or SOS, and no other value is sent. It was checked with the RIVER 3 Plus's other writes (written and read back
+  on a device), so it needs no **Writes to untested models**. It appears once the device's status has carried its mode,
+  and stays from then on, across restarts too, though a report lacks the mode (a partial push, an offline reading, the
+  developer API's): HomeKit would drop the scenes and automations using a service that went away. Until the mode is
+  reported again it shows what it showed, and its writes wait. The plain RIVER 3 has none, and the developer API has no
+  such write. In HomeKit, a Lightbulb (subtype `light`, Brightness in steps of 50 %) shows Dim as on at 50 % and Bright
+  as on at 100 %, Off and SOS as off; a Brightness up to 50 % sends Dim, above it Bright, 0 % Off; On sends the last Dim
+  or Bright the device had (else Bright), and off sends Off; the Home app's On and Brightness of one change go as one
+  write. A Switch "SOS" (subtype `light-sos`) is on in SOS, and switches to SOS and back to Off. The page's Light row
+  shows the mode and sets it: one of four choices, each its glyph alone where the card is narrow.
 - **Failures:** a write refused, or not answered within a few seconds, fails in the Home app (the device is not
   responding), is logged, and the device is read again.
 
@@ -146,8 +149,12 @@ Home Panel, a RAPID) gets none.
 - The developer API's AC write on a DELTA 2 or RIVER 2 Pro carries the X-Boost and the frequency, which it has no
   documented "unchanged" value or key for, and a DELTA Pro Ultra's AC carries values whose meaning is not documented:
   their AC goes by the app's route, or not at all.
-- The app's stream has no documented read-back of a protobuf model's outputs: a STREAM's (on the app's route alone), a
-  RIVER 3's or a DELTA 3's On is what the device last acknowledged. A STREAM read from the developer API shows its relays.
+- The app's stream has no documented read-back of a protobuf model's outputs: a DELTA 3's On is what the device last
+  acknowledged. A STREAM's relays (fields 980 and 982) and a RIVER 3's 12 V (field 33) were seen in its status.
+- A RIVER 3's AC flag was not observed: its On comes from the AC output's power (field 368), on while it delivers power,
+  and nothing is said at 0 W (an AC on with nothing plugged in looks the same as off). So switching the AC off on the unit
+  itself, or in the EcoFlow app, leaves HomeKit's Outlet on until the plugin writes it or power flows again; an Outlet
+  switched off is not turned on until power flows.
 - Which header fields the devices check, a JSON reply's shape, and whether a limit sent to a STREAM system's secondary
   unit applies.
 - The DELTA 3's 12 V output on models other than the Classic, Max and Max Plus; the RIVER 3's and the DELTA Pro 3's USB;
@@ -165,7 +172,7 @@ the serial number's first four characters only.
 |---|---|---|---|---|---|
 | STREAM Ultra, AC Pro | BK11, BK31 | Protobuf, as above | STREAM keys, as above | AC1, AC2, limits (app; checked) | Both routes |
 | STREAM Ultra X, Pro, Max, AC | BK61, BK12, BK41, BK51 | As the Ultra | As the Ultra | AC1, AC2, limits (app); the STREAM Max one AC, the STREAM AC its limits only | No |
-| RIVER 3, RIVER 3 Plus | R65x, R63x | The status message, as above | `cmsBattSoc`, `powInSumW`, `powOutSumW`, `powGetAcIn`, `powGetAcOut` | AC, DC 12 V, limits (app; checked); the Plus's light (app; untested) | App route |
+| RIVER 3, RIVER 3 Plus | R65x, R63x | The status message, as above | `cmsBattSoc`, `powInSumW`, `powOutSumW`, `powGetAcIn`, `powGetAcOut` | AC, DC 12 V, limits (app; checked); the Plus's light (app; checked) | App route |
 | DELTA 3 (Plus, Classic, Air, Max, Max Plus, Ultra, Ultra Plus), DELTA Pro 3, DELTA Pro Ultra X, GLACIER Classic | P231, P351, P32x, PR1x, D3N1, D3M1, D751, D511, MR5x, P101, RF45 | As the RIVER 3 | As the RIVER 3; a DELTA 3 Max's and a DELTA Pro 3's outputs and limits too | DELTA 3: AC, USB (not the Air), DC 12 V (Classic, Max, Max Plus), AC2 (Max Plus, Ultra Plus), limits; DELTA Pro 3: HV and LV AC, DC 12 V, limits (app); none for the Ultra X and the GLACIER Classic | No |
 | RAPID Pro X; RAPID Pro | P513; P521 | The status message: input, output, the percentage (262) | Not read | None | RAPID Pro X, app route |
 | DELTA 2, 2 Max, 2 Plus; RIVER 2, 2 Max, 2 Pro; DELTA Pro, Max, Mini; GLACIER | R33x, R35x, D36x, R60x, R61x, R62x, DC…, DAEB, DBAB, BX11 | JSON quotas, asked with `latestQuotas` | The same keys | AC, DC 12 V, limits, and USB on a DELTA 2, 2 Max and Max (app); 12 V, USB and limits of a DELTA 2 and 2 Max, a RIVER 2 Pro's 12 V and limits, a DELTA Pro's AC, 12 V and limits (developer); none for a DELTA 2 Plus or a GLACIER | No |

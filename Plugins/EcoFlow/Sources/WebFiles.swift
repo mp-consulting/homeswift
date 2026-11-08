@@ -160,21 +160,23 @@ extension EcoFlowPlugin {
     }
   }
 
-  // The light's row: its mode, and a choice of the four. Its writes are not confirmed on a device yet: marked so.
+  // The light's row: its mode, and the choice of the four, one at a time (a segmented control, as the bridge's pages
+  // have: a radio group); the current mode's button does nothing. Where the card is narrow each choice is its glyph
+  // alone (`icon-on-phone`), its name its label. The caption marks the device's writes when they are untested.
   function lightRow(device) {
     const light = device.light;
     if (!light) return null;
     const current = lightModes.find(([mode]) => mode === light.mode);
-    const group = el("div", { class: "group", role: "group", "aria-label": t("Light mode") });
+    const group = el("div", { class: "group", role: "radiogroup", "aria-label": t("Light mode") });
     for (const [mode, name, icon] of lightModes) {
-      const button = el("button", { type: "button", class: mode === light.mode ? "on" : "", actionIcon: icon, text: t(name),
-        disabled: !device.online, "aria-pressed": String(mode === light.mode) });
-      button.addEventListener("click", () => { if (mode !== light.mode) setLight(device, mode, group); });
+      const checked = mode === light.mode;
+      const button = el("button", { type: "button", role: "radio", class: checked ? "on icon-on-phone" : "icon-on-phone", actionIcon: icon,
+        disabled: !device.online, "aria-checked": String(checked), "aria-label": t(name) }, el("span", { text: t(name) }));
+      button.addEventListener("click", () => { if (!checked) setLight(device, mode, group); });
       group.append(button);
     }
     return el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") },
       el("span", { class: "label", text: t("Light") }),
-      light.tested === false ? untestedWrites() : null,
       el("span", { class: `pill ${current && current[0] !== 0 ? "on" : ""}`, text: current ? t(current[1]) : "–" }), group);
   }
 
@@ -957,9 +959,21 @@ HomeswiftI18n.add({
     background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
   .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
   .output .button { flex: none; }
-  /* The light's row: its four modes in one segmented control, under the name at phone width. */
+  /* The light's row: its four modes in one segmented control, under the name when they do not fit beside it. Where
+     the card is too narrow for their names (a phone, two columns of cards), each mode is its glyph alone, as the
+     bridge's `.icon-on-phone` makes it at phone width: a 40px circle (width, height and min-height alike, so a touch
+     screen's 40px minimum keeps it round), its name its aria-label. */
+  .controls { container-type: inline-size; }
   .output.light { flex-wrap: wrap; }
-  .output.light .group { flex: none; max-width: 100%; overflow-x: auto; }
+  .output.light .group { flex: none; max-width: 100%; }
+  @media (max-width: 640px) {
+    .output.light .group button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; justify-content: center; }
+    .output.light .group button > span { display: none; }
+  }
+  @container (max-width: 460px) {
+    .output.light .group button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; justify-content: center; }
+    .output.light .group button > span { display: none; }
+  }
   .limits { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */

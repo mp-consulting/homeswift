@@ -44,7 +44,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         /// Accessory Settings.
         public var devices: [Device]?
         /// Whether the outputs and the limits of models whose writes nobody has confirmed on a real device are written
-        /// (EcoFlowWrites.checked), and a RIVER 3 Plus's light (seen working on no device yet); false by default.
+        /// (EcoFlowWrites.checked); false by default.
         public var untestedWrites: Bool?
     }
 
@@ -132,13 +132,12 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private(set) var latest: [EcoFlowDevice] = []
     /// The page's order, each serial number's place, read from `orderFile` once and kept as it is saved.
     private var orderPlaces: [String: Int]?
-    /// The state each output was last switched to, kept until the instant given while the device's readings catch up:
-    /// a reading in that window that still shows the old state does not flip it back. By `<serial>:<output>`.
-    private var holds: [String: (on: Bool, until: ContinuousClock.Instant)] = [:]
-    /// The light's mode last written, kept likewise, by serial number.
-    private var lightHolds: [String: (mode: Int, until: ContinuousClock.Instant)] = [:]
+    /// The write last sent to each output and light, kept until the instant given while the device's readings catch up:
+    /// a reading in that window that still shows the old state does not flip it back. By `holdKey`: `<serial>:<output>`,
+    /// `<serial>:light`.
+    private var holds: [String: (write: EcoFlowWrite, until: ContinuousClock.Instant)] = [:]
     /// Each light's last Dim or Bright, which On turns it back to; by serial number.
-    private var lastLightMode: [String: Int] = [:]
+    private var lastLightMode: [String: EcoFlowLight] = [:]
     /// Each light's HomeKit writes, gathered: the Home app sends On and Brightness of one change together.
     private var lightWriters: [String: LightChangeBatcher] = [:]
     /// The limits that were refused, or are being sent: not sent again until the settings change.
@@ -383,7 +382,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             if let services = devices[device.id] {
                 // The light's services come once its status carried the light's mode (spec 8.1): the accessory again,
                 // with them; its aid and iids stay.
-                if services.light == nil, allowedWrites(device).light != nil {
+                if services.light == nil, hasLight(device) {
                     do {
                         try add(device)
                     } catch {
@@ -463,7 +462,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             return PluginWebResponse(.object(["id": .string(id), "output": .string(output.rawValue), "on": .bool(on)]))
         case ("POST", "light"):
             guard let id = (request.body["deviceId"] ?? request.body["id"])?.stringValue,
-                  let mode = request.body["mode"]?.saturatingIntValue, EcoFlowLight.modes.contains(mode) else {
+                  let mode = request.body["mode"]?.saturatingIntValue.flatMap(EcoFlowLight.init(rawValue:)) else {
                 return .error(400, "deviceId and mode (0 to 3) say which light to set")
             }
             guard let device = latest.first(where: { $0.id == id }), allowedWrites(device).light != nil else {
@@ -474,7 +473,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             } catch {
                 return .error(502, "The device did not set the light")
             }
-            return PluginWebResponse(.object(["id": .string(id), "mode": .number(Double(mode))]))
+            return PluginWebResponse(.object(["id": .string(id), "mode": .number(Double(mode.rawValue))]))
         case ("POST", "order"):
             guard let ids = request.body["ids"]?.arrayValue?.compactMap(\.stringValue), ids.count <= Self.maximumOrdered else {
                 return .error(400, "ids must list the devices' serial numbers")
@@ -564,55 +563,80 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         Self.show(device.state, on: services)
         let now = ContinuousClock.now
         for (output, outlet) in services.outlets {
-            let key = "\(device.id):\(output.rawValue)"
+            let key = Self.holdKey(device.id, output)
             if let hold = holds[key] {
                 if now < hold.until { continue }
                 holds[key] = nil
             }
             if let on = device.state.outputs[output] { outlet.characteristic(.on).value = .bool(on) }
         }
-        if let mode = device.state.lightMode, mode == EcoFlowLight.dim || mode == EcoFlowLight.bright { lastLightMode[device.id] = mode }
-        if let hold = lightHolds[device.id] {
+        if let mode = device.state.lightMode, mode.isLit { lastLightMode[device.id] = mode }
+        let key = Self.lightHoldKey(device.id)
+        if let hold = holds[key] {
             if now < hold.until { return }
-            lightHolds[device.id] = nil
+            holds[key] = nil
         }
         if let mode = device.state.lightMode { Self.showLight(mode, on: services) }
     }
 
     /// The light's mode on its services: the Lightbulb on at 50 % for Dim and 100 % for Bright, off for Off and SOS
     /// (its Brightness kept); the SOS Switch on for SOS alone.
-    static func showLight(_ mode: Int, on services: DeviceServices) {
+    static func showLight(_ mode: EcoFlowLight, on services: DeviceServices) {
         if let light = services.light {
-            let lit = mode == EcoFlowLight.dim || mode == EcoFlowLight.bright
-            light.characteristic(.on).value = .bool(lit)
-            if lit { light.characteristic(.brightness).value = .int(mode == EcoFlowLight.dim ? 50 : 100) }
+            light.characteristic(.on).value = .bool(mode.isLit)
+            if mode.isLit { light.characteristic(.brightness).value = .int(mode == .dim ? 50 : 100) }
         }
-        services.sos?.characteristic(.on).value = .bool(mode == EcoFlowLight.sos)
+        services.sos?.characteristic(.on).value = .bool(mode == .sos)
     }
 
     // MARK: - Writes (EcoFlowWrites.md)
 
     /// The writes the plugin sends for the device: the API's, those on a route where its model's writes were seen
     /// working, and the others only with `untestedWrites`.
+    /// The light's are written once the device's status carried its mode (8.1: offered only then).
     func allowedWrites(_ device: EcoFlowDevice) -> EcoFlowCapabilities {
-        guard let api = dependencies.api else { return EcoFlowCapabilities() }
-        let untested = configuration.untestedWrites == true
-        var allowed = api.writes(for: device).filter({ untested || EcoFlowWrites.isChecked(serial: device.id, route: $0) },
-                                                     light: { untested || EcoFlowWrites.isLightChecked(serial: device.id, route: $0) })
-        // The light once the device's status carried its mode (8.1: offered only then).
+        var allowed = checkedWrites(device)
         if device.state.lightMode == nil { allowed.light = nil }
         return allowed
     }
 
+    /// The API's writes for the device that the plugin may send, whatever the device reported.
+    private func checkedWrites(_ device: EcoFlowDevice) -> EcoFlowCapabilities {
+        guard let api = dependencies.api else { return EcoFlowCapabilities() }
+        let untested = configuration.untestedWrites == true
+        return api.writes(for: device).filter { untested || EcoFlowWrites.isChecked(serial: device.id, route: $0) }
+    }
+
+    /// Whether the device's accessory has the light's services: once its status carried the mode, and from then on,
+    /// though a report lacks it (a partial push, an offline reading, the developer API's): a service that went away
+    /// would take the scenes and automations using it out of HomeKit. The accessory it had, cached or live, says so.
+    private func hasLight(_ device: EcoFlowDevice) -> Bool {
+        guard checkedWrites(device).light != nil else { return false }
+        if device.state.lightMode != nil { return true }
+        if devices[device.id]?.light != nil { return true }
+        return context.accessory(id: Self.accessoryID(deviceID: device.id))?.service(.lightbulb, subtype: Self.lightSubtype) != nil
+    }
+
+    static let lightSubtype = "light"
+    static let sosSubtype = "light-sos"
+
+    /// The key of an output's hold, and of a light's.
+    static func holdKey(_ serial: String, _ output: EcoFlowOutput) -> String { "\(serial):\(output.rawValue)" }
+    static func lightHoldKey(_ serial: String) -> String { "\(serial):light" }
+
     /// The light's mode, from the device's readings or the one last written.
-    private func lightState(_ device: EcoFlowDevice) -> Int? {
-        if let hold = lightHolds[device.id], ContinuousClock.now < hold.until { return hold.mode }
+    private func lightState(_ device: EcoFlowDevice) -> EcoFlowLight? {
+        if let hold = holds[Self.lightHoldKey(device.id)], ContinuousClock.now < hold.until, case let .lightMode(mode) = hold.write {
+            return mode
+        }
         return device.state.lightMode
     }
 
     /// The output's state, from the device's readings or the Outlet's.
     private func outputState(_ device: EcoFlowDevice, _ output: EcoFlowOutput) -> Bool? {
-        if let hold = holds["\(device.id):\(output.rawValue)"], ContinuousClock.now < hold.until { return hold.on }
+        if let hold = holds[Self.holdKey(device.id, output)], ContinuousClock.now < hold.until, case let .output(_, on) = hold.write {
+            return on
+        }
         return device.state.outputs[output] ?? devices[device.id]?.outlets[output]?.characteristic(.on).value.boolValue
     }
 
@@ -625,8 +649,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             .object(["id": .string(output.rawValue), "name": .string(names[output] ?? output.rawValue.uppercased()),
                      "on": outputState(device, output).map(JSONValue.bool) ?? .null])
         }
-        // The light has its own mark (`light.tested`), from the models it was seen working on.
-        let routes = Array(allowed.outputs.values) + (allowed.limits.map { [$0] } ?? [])
+        let routes = Array(allowed.outputs.values) + [allowed.limits, allowed.light].compactMap { $0 }
         let settings = context.accessorySettings(for: device.id).plugin
         var fields: [String: JSONValue] = [
             "outputs": .array(outputs),
@@ -642,65 +665,71 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             let discharge: Int? = device.state.dischargeLimit ?? settings[Self.dischargeLimitKey]?.saturatingIntValue
             fields["limits"] = .object(["charge": percent(charge), "discharge": percent(discharge)])
         }
-        if let route = allowed.light {
-            let mode: JSONValue = lightState(device).map { .number(Double($0)) } ?? .null
-            fields["light"] = .object(["mode": mode, "tested": .bool(EcoFlowWrites.isLightChecked(serial: device.id, route: route))])
+        if allowed.light != nil {
+            let mode: JSONValue = lightState(device).map { .number(Double($0.rawValue)) } ?? .null
+            fields["light"] = .object(["mode": mode])
         }
         return fields
     }
 
-    /// Switches an output, from HomeKit or the page. The state asked for shows at once and is kept for `holdFor` once
-    /// the device took it; a refusal or no answer within `writeTimeout` fails the write (the Home app says the device
-    /// is not responding) and the device is read again.
+    /// Switches an output, from HomeKit or the page (`perform`).
     func switchOutput(_ output: EcoFlowOutput, on: Bool, deviceID: String) async throws {
-        guard let api = dependencies.api, let device = latest.first(where: { $0.id == deviceID }),
-              allowedWrites(device).outputs[output] != nil else {
-            throw HAPStatusError(.serviceCommunicationFailure)
-        }
-        let key = "\(deviceID):\(output.rawValue)"
-        // Held while the write is on its way too: a reading from before it does not flip the Outlet back.
-        let hold = (on: on, until: ContinuousClock.now + dependencies.writeTimeout + dependencies.holdFor)
-        holds[key] = hold
-        let name = EcoFlowWrites.table(device.model)?.names[output] ?? output.rawValue
-        do {
-            try await withTimeout(dependencies.writeTimeout, error: { EcoFlowWriteError.unanswered }) {
-                try await api.set(.output(output, on), on: device)
-            }
-        } catch {
-            // A newer write to the same output keeps its own hold.
-            if let current = holds[key], current.on == hold.on, current.until == hold.until { holds[key] = nil }
-            logger.warning("Could not switch \(name) of \(displayName(device)) \(on ? "on" : "off"): \(error)")
-            tasks.add { [weak self] in await self?.refresh() }
-            throw HAPStatusError(.serviceCommunicationFailure)
-        }
-        holds[key] = (on, ContinuousClock.now + dependencies.holdFor)
-        devices[deviceID]?.outlets[output]?.characteristic(.on).value = .bool(on)
-        logger.info("Switched \(name) of \(displayName(device)) \(on ? "on" : "off")")
+        try await perform(.output(output, on), key: Self.holdKey(deviceID, output), deviceID: deviceID)
     }
 
-    /// Sets the light's mode, from HomeKit or the page, as `switchOutput` switches an output: shown at once and held for
-    /// `holdFor` once the device took it; a refusal or no answer fails the write and the device is read again.
-    func setLight(_ mode: Int, deviceID: String) async throws {
-        guard EcoFlowLight.modes.contains(mode), let api = dependencies.api, let device = latest.first(where: { $0.id == deviceID }),
-              allowedWrites(device).light != nil else {
+    /// Sets the light's mode, from HomeKit or the page (`perform`).
+    func setLight(_ mode: EcoFlowLight, deviceID: String) async throws {
+        try await perform(.lightMode(mode), key: Self.lightHoldKey(deviceID), deviceID: deviceID)
+    }
+
+    /// Sends an output's or the light's write. The state asked for shows at once and is held under `key` for `holdFor`
+    /// once the device took it; a refusal or no answer within `writeTimeout` fails the write (the Home app says the
+    /// device is not responding) and the device is read again.
+    func perform(_ write: EcoFlowWrite, key: String, deviceID: String) async throws {
+        guard let api = dependencies.api, let device = latest.first(where: { $0.id == deviceID }),
+              allowedWrites(device).route(for: write) != nil else {
             throw HAPStatusError(.serviceCommunicationFailure)
         }
-        let hold = (mode: mode, until: ContinuousClock.now + dependencies.writeTimeout + dependencies.holdFor)
-        lightHolds[deviceID] = hold
+        // Held while the write is on its way too: a reading from before it does not flip the service back.
+        let hold = (write: write, until: ContinuousClock.now + dependencies.writeTimeout + dependencies.holdFor)
+        holds[key] = hold
+        let what = describe(write, of: device)
         do {
             try await withTimeout(dependencies.writeTimeout, error: { EcoFlowWriteError.unanswered }) {
-                try await api.set(.lightMode(mode), on: device)
+                try await api.set(write, on: device)
             }
         } catch {
-            if let current = lightHolds[deviceID], current.mode == hold.mode, current.until == hold.until { lightHolds[deviceID] = nil }
-            logger.warning("Could not set the light of \(displayName(device)) to \(EcoFlowLight.name(mode)): \(error)")
+            // A newer write to the same output or light keeps its own hold.
+            if let current = holds[key], current.write == hold.write, current.until == hold.until { holds[key] = nil }
+            logger.warning("Could not \(what.attempt): \(error)")
             tasks.add { [weak self] in await self?.refresh() }
             throw HAPStatusError(.serviceCommunicationFailure)
         }
-        lightHolds[deviceID] = (mode, ContinuousClock.now + dependencies.holdFor)
-        if mode == EcoFlowLight.dim || mode == EcoFlowLight.bright { lastLightMode[deviceID] = mode }
-        if let services = devices[deviceID] { Self.showLight(mode, on: services) }
-        logger.info("Set the light of \(displayName(device)) to \(EcoFlowLight.name(mode))")
+        holds[key] = (write, ContinuousClock.now + dependencies.holdFor)
+        switch write {
+        case let .output(output, on):
+            devices[deviceID]?.outlets[output]?.characteristic(.on).value = .bool(on)
+        case let .lightMode(mode):
+            if mode.isLit { lastLightMode[deviceID] = mode }
+            if let services = devices[deviceID] { Self.showLight(mode, on: services) }
+        case .chargeLimit, .dischargeLimit: break
+        }
+        logger.info("\(what.done)")
+    }
+
+    /// A write in the log's words: what was done, and what could not be.
+    private func describe(_ write: EcoFlowWrite, of device: EcoFlowDevice) -> (done: String, attempt: String) {
+        let name = displayName(device)
+        switch write {
+        case let .output(output, on):
+            let port = EcoFlowWrites.table(device.model)?.names[output] ?? output.rawValue
+            let state = on ? "on" : "off"
+            return ("Switched \(port) of \(name) \(state)", "switch \(port) of \(name) \(state)")
+        case let .lightMode(mode):
+            return ("Set the light of \(name) to \(mode.name)", "set the light of \(name) to \(mode.name)")
+        case .chargeLimit, .dischargeLimit:
+            return ("Set the \(write) of \(name)", "set the \(write) of \(name)")
+        }
     }
 
     /// A Lightbulb's On and Brightness of one change, as one mode; nothing is sent when they ask for none.
@@ -782,16 +811,22 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             }
             services.outlets[output] = outlet
         }
-        // A RIVER 3 Plus's light (8.1): a Lightbulb whose two steps are Dim and Bright, and a Switch for SOS.
-        if allowedWrites(device).light != nil {
+        // A RIVER 3 Plus's light (8.1): a Lightbulb whose two steps are Dim and Bright, and a Switch for SOS. Kept once
+        // the accessory had them (`hasLight`); until the device reports the mode, they show what the accessory showed.
+        if hasLight(device) {
+            let previous = context.accessory(id: Self.accessoryID(deviceID: deviceID))
             let writer = lightWriter(deviceID)
-            let light = Service(.lightbulb, name: "Light", subtype: "light",
+            let light = Service(.lightbulb, name: "Light", subtype: Self.lightSubtype,
                                 optional: [.brightness.with(minValue: 0, maxValue: 100, minStep: 50)])
             light.characteristic(.on).onWrite { value in try await writer.set(.on(value.boolValue == true)) }
             light.characteristic(.brightness).onWrite { value in try await writer.set(.brightness(value.doubleValue ?? 0)) }
-            let sos = Service(.switch, name: "SOS", subtype: "light-sos")
+            let sos = Service(.switch, name: "SOS", subtype: Self.sosSubtype)
             sos.characteristic(.on).onWrite { [weak self] value in
-                try await self?.setLight(value.boolValue == true ? EcoFlowLight.sos : EcoFlowLight.off, deviceID: deviceID)
+                try await self?.setLight(value.boolValue == true ? .sos : .off, deviceID: deviceID)
+            }
+            if device.state.lightMode == nil {
+                Self.copyValues(from: previous?.service(.lightbulb, subtype: Self.lightSubtype), to: light, [.on, .brightness])
+                Self.copyValues(from: previous?.service(.switch, subtype: Self.sosSubtype), to: sos, [.on])
             }
             services.light = light
             services.sos = sos
@@ -803,5 +838,13 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             serialNumber: device.id, category: .other,
             services: [battery] + services.outlets.sorted { $0.key < $1.key }.map(\.value) + lightServices))
         devices[device.id] = services
+    }
+
+    /// The values of `types` that `old` has, on `new`.
+    private static func copyValues(from old: Service?, to new: Service, _ types: [CharacteristicType]) {
+        guard let old else { return }
+        for type in types {
+            if let value = old[type]?.value, let characteristic = new[type] { characteristic.value = value }
+        }
     }
 }

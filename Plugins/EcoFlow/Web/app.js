@@ -151,21 +151,23 @@
     }
   }
 
-  // The light's row: its mode, and a choice of the four. Its writes are not confirmed on a device yet: marked so.
+  // The light's row: its mode, and the choice of the four, one at a time (a segmented control, as the bridge's pages
+  // have: a radio group); the current mode's button does nothing. Where the card is narrow each choice is its glyph
+  // alone (`icon-on-phone`), its name its label. The caption marks the device's writes when they are untested.
   function lightRow(device) {
     const light = device.light;
     if (!light) return null;
     const current = lightModes.find(([mode]) => mode === light.mode);
-    const group = el("div", { class: "group", role: "group", "aria-label": t("Light mode") });
+    const group = el("div", { class: "group", role: "radiogroup", "aria-label": t("Light mode") });
     for (const [mode, name, icon] of lightModes) {
-      const button = el("button", { type: "button", class: mode === light.mode ? "on" : "", actionIcon: icon, text: t(name),
-        disabled: !device.online, "aria-pressed": String(mode === light.mode) });
-      button.addEventListener("click", () => { if (mode !== light.mode) setLight(device, mode, group); });
+      const checked = mode === light.mode;
+      const button = el("button", { type: "button", role: "radio", class: checked ? "on icon-on-phone" : "icon-on-phone", actionIcon: icon,
+        disabled: !device.online, "aria-checked": String(checked), "aria-label": t(name) }, el("span", { text: t(name) }));
+      button.addEventListener("click", () => { if (!checked) setLight(device, mode, group); });
       group.append(button);
     }
     return el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") },
       el("span", { class: "label", text: t("Light") }),
-      light.tested === false ? untestedWrites() : null,
       el("span", { class: `pill ${current && current[0] !== 0 ? "on" : ""}`, text: current ? t(current[1]) : "–" }), group);
   }
 
