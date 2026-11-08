@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Home Assistant** plugin (experimental, tested against a fake server): a Home Assistant server's lights, switches,
+  covers, locks, thermostats, sensors, fans, media players' power, scenes, scripts, buttons, valves, alarm panels and
+  humidifiers over its WebSocket API, one accessory per HA device; set up from Add accessories with a long-lived access
+  token, entities that come back from this bridge through HA's HomeKit Controller skipped, and a `mirror` setting for
+  entities HA's own HomeKit bridge already publishes.
+- **EcoFlow** switches outputs and sets charge limits: an Outlet per controllable output (AC, AC2, DC 12 V, USB) beside
+  the Battery, the charge and discharge limits as Accessory Settings, on the app's route and the developer API. Writes
+  go to the models confirmed first (STREAM Ultra and AC Pro, RIVER 3 and 3 Plus) unless **Writes on untested models**
+  is on; the plugin's page shows each output with a toggle.
+- **Roborock**: the suction is the Fan's Rotation Speed, a **Mop** switch sets the water, Identify makes the robot
+  speak, and the plugin's actions (MCP, the Assistant) list and clean rooms by name, set the suction, water and mop
+  route by name, find the robot and clear the robot's or the dock's error.
+- **SwitchBot over Bluetooth**: `connectionType` `BLE`, `OpenAPI` or `BLE/OpenAPI` (Bluetooth, then the cloud). Meters,
+  contact and motion sensors read from their advertisements with no request; Bots, Curtains, Plug Minis, bulbs, strips,
+  Blind Tilts and Smart Locks take commands locally.
+- Plugins share one Bluetooth adapter (`HomeswiftNetwork`'s `Bluetooth`), and a `HomeswiftWebRTC` target begins the
+  WebRTC stack for Ring and Nest cameras: STUN, ICE, SRTP and SRTCP, vector-tested (DTLS comes next).
+- `PluginContext.forgetImportedEnergy()` drops everything a plugin imported with `importEnergy`, for one that moves
+  to importing the same history through its Meters, and `PluginContext.forgetImportedHours(ofMeter:deviceID:)` what it
+  imported onto one Meter, for a history that moves to another device's Meters. `EnergyRole.meterHour(of:)` and
+  `flows(of:)` turn an hour of the home's flows into a Meter's and back (docs/plugins.md).
+
 ### Changed
 
 - **EcoFlow** imports the cloud's energy history through the STREAM's meters (solar, home, grid, battery) rather than
@@ -30,13 +54,6 @@ All notable changes to this project are documented here. The format follows
   the sources together, instead of being left unsplit or missing the other source's solar.
 - A meter whose plugin only imports its hours, or whose device is offline after a restart, keeps its Energy Role on
   **Consumption by device**: the role its plugin suggests is kept with the meter's history.
-
-### Added
-
-- `PluginContext.forgetImportedEnergy()` drops everything a plugin imported with `importEnergy`, for one that moves
-  to importing the same history through its Meters, and `PluginContext.forgetImportedHours(ofMeter:deviceID:)` what it
-  imported onto one Meter, for a history that moves to another device's Meters. `EnergyRole.meterHour(of:)` and
-  `flows(of:)` turn an hour of the home's flows into a Meter's and back (docs/plugins.md).
 
 ## [0.25.0] - 2026-11-07
 

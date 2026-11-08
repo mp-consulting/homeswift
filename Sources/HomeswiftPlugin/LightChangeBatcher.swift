@@ -1,4 +1,5 @@
 import Foundation
+import NIOConcurrencyHelpers
 
 /// Gathers a light's changes for a moment and hands them over together: the Home app writes a light's brightness,
 /// hue and saturation of one change at the same time, and a bridge or hub takes them best as one command. Each write
@@ -55,12 +56,17 @@ public actor LightChangeBatcher {
     private var pending = Changes()
     private var batch: Task<Void, any Error>?
     /// When the last command went: a poll or an event right after it may still carry the old values.
-    public private(set) var lastSent: ContinuousClock.Instant?
+    public var lastSent: ContinuousClock.Instant? { sent.withLockedValue { $0 } }
+    /// Behind a lock, so a state update can ask without a hop to the actor (`settling(within:)`).
+    private nonisolated let sent = NIOLockedValueBox<ContinuousClock.Instant?>(nil)
 
     /// Whether a command went within `window`: a poll or an event right after it may still carry the old values, so a
     /// plugin leaves those alone for that long.
-    public func isSettling(within window: Duration) -> Bool {
-        lastSent.map { ContinuousClock.now - $0 < window } ?? false
+    public func isSettling(within window: Duration) -> Bool { settling(within: window) }
+
+    /// `isSettling`, synchronously: for a state update that must decide in order, as the reports come.
+    public nonisolated func settling(within window: Duration) -> Bool {
+        sent.withLockedValue { $0 }.map { ContinuousClock.now - $0 < window } ?? false
     }
 
     public init(window: Duration = defaultWindow, send: @escaping @Sendable (Changes) async throws -> Void) {
@@ -89,7 +95,7 @@ public actor LightChangeBatcher {
         pending = Changes()
         batch = nil
         guard !changes.isEmpty else { return }
-        lastSent = .now
+        sent.withLockedValue { $0 = .now }
         try await send(changes)
     }
 }

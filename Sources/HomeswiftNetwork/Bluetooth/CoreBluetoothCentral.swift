@@ -3,14 +3,14 @@
 import Foundation
 import Logging
 
-/// The Mac's Bluetooth adapter. CoreBluetooth hides MAC addresses, so a device is found by the name it
-/// advertises (Govee's `bleName`, e.g. `ihoment_H6199_1A2B`) or, failing that, by a name ending in the last two
-/// bytes of its MAC; sensor readings carry their name too.
+/// The Mac's Bluetooth adapter. CoreBluetooth hides MAC addresses, so a device is found by the identifier a scan
+/// reported, by the name it advertises (Govee's `bleName`, e.g. `ihoment_H6199_1A2B`) or, failing that, by a name
+/// ending in the last two bytes of its MAC; sensor readings carry their name too.
 final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate, @unchecked Sendable {
     /// How long a command looks for a device it has not seen advertise yet.
     static let searchTime: Duration = .seconds(6)
 
-    private let queue = DispatchQueue(label: "homeswift.govee.ble")
+    private let queue = DispatchQueue(label: "homeswift.ble")
     private var manager: CBCentralManager!
     private let logger: Logger
 
@@ -116,7 +116,7 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
     func startScanning(services: [String], allowDuplicates: Bool, onDiscover: @escaping @Sendable (BLEAdvertisement) -> Void) async throws {
         await queue.run {
             self.onDiscover = onDiscover
-            self.scanServices = services.map { CBUUID(string: $0) }
+            self.scanServices = services.isEmpty ? nil : services.map { CBUUID(string: $0) }
             // A device search (find) scans for every peripheral, and goes back to this scan when it ends: starting
             // this one now would hide the device it looks for.
             guard self.searching == nil else { return }
@@ -131,8 +131,6 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
             if self.searching == nil { self.manager.stopScan() }
         }
     }
-
-    func reset() async {}
 
     func connect(_ target: BLETarget) async throws -> any BLEConnection {
         let found = try await find(target)
@@ -160,13 +158,19 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
 
     /// A peripheral seen advertising the target's name, or one found by scanning for it.
     private func find(_ target: BLETarget) async throws -> Found {
+        // A remembered identifier finds the peripheral among those seen advertising, or by the search below: one the
+        // system merely remembers may be out of range, and CoreBluetooth would wait for it forever.
+        let identifier = target.identifier.flatMap(UUID.init(uuidString:))
         let suffix = target.address.replacingOccurrences(of: ":", with: "").suffix(4).uppercased()
-        let match: @Sendable (CBPeripheral, String?) -> Bool = { _, name in
+        let match: @Sendable (CBPeripheral, String?) -> Bool = { peripheral, name in
+            if let identifier, peripheral.identifier == identifier { return true }
             guard let name else { return false }
             if let wanted = target.name, !wanted.isEmpty { return name.caseInsensitiveCompare(wanted) == .orderedSame }
             return suffix.count == 4 && name.uppercased().hasSuffix(suffix)
         }
-        if let known = await queue.run({ self.seen.values.first { match($0.peripheral, $0.name) }.map { Found($0.peripheral) } }) { return known }
+        if let known = await queue.run({
+            identifier.flatMap { self.seen[$0].map { Found($0.peripheral) } } ?? self.seen.values.first { match($0.peripheral, $0.name) }.map { Found($0.peripheral) }
+        }) { return known }
         return try await withThrowingTaskGroup(of: Found.self) { group in
             group.addTask {
                 try await withTaskCancellationHandler {
@@ -227,7 +231,14 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
         }
         guard let onDiscover else { return }
         let data = (advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data).map(Array.init)
-        onDiscover(BLEAdvertisement(identifier: peripheral.identifier.uuidString, address: nil, localName: name, manufacturerData: data, rssi: RSSI.intValue))
+        let services = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []).map(CoreBluetoothConnection.key)
+        var serviceData: [String: [UInt8]] = [:]
+        for (uuid, value) in advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data] ?? [:] {
+            serviceData[CoreBluetoothConnection.key(uuid)] = Array(value)
+        }
+        onDiscover(BLEAdvertisement(
+            identifier: peripheral.identifier.uuidString, address: nil, localName: name, manufacturerData: data, serviceUUIDs: services,
+            serviceData: serviceData, rssi: RSSI.intValue))
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -267,6 +278,9 @@ final class CoreBluetoothConnection: NSObject, BLEConnection, CBPeripheralDelega
     private var characteristics: [String: CBCharacteristic] = [:]
     private var readyWaiter: CheckedContinuation<Void, Never>?
     private var disconnectWaiter: CheckedContinuation<Void, any Error>?
+    private var writeWaiters: [String: CheckedContinuation<Void, any Error>] = [:]
+    private var notifyWaiters: [String: CheckedContinuation<Void, any Error>] = [:]
+    private var streams: [String: AsyncStream<Data>.Continuation] = [:]
 
     init(peripheral: CBPeripheral, queue: DispatchQueue, cancel: @escaping (CBPeripheral) -> Void) {
         self.peripheral = peripheral
@@ -315,6 +329,57 @@ final class CoreBluetoothConnection: NSObject, BLEConnection, CBPeripheralDelega
         await queue.run { self.peripheral.writeValue(data, for: target.value, type: .withoutResponse) }
     }
 
+    func writeWithResponse(_ data: Data, to characteristic: String) async throws {
+        let key = characteristic.lowercased()
+        try await acknowledged(key, in: \.writeWaiters) { target in
+            self.peripheral.writeValue(data, for: target, type: .withResponse)
+        }
+    }
+
+    func notifications(of characteristic: String) async throws -> AsyncStream<Data> {
+        let key = characteristic.lowercased()
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(64))
+        await queue.run {
+            self.streams[key]?.finish()
+            self.streams[key] = continuation
+        }
+        do {
+            try await acknowledged(key, in: \.notifyWaiters) { target in self.peripheral.setNotifyValue(true, for: target) }
+        } catch {
+            await queue.run { self.streams.removeValue(forKey: key)?.finish() }
+            throw error
+        }
+        return stream
+    }
+
+    /// Starts an operation on the characteristic and waits for the delegate callback that ends it (one at a time
+    /// per characteristic); cancelling the task ends the wait.
+    private func acknowledged(
+        _ key: String, in waiters: ReferenceWritableKeyPath<CoreBluetoothConnection, [String: CheckedContinuation<Void, any Error>]>,
+        start: @escaping (CBCharacteristic) -> Void
+    ) async throws {
+        let waiters = Unchecked(value: waiters)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                queue.async {
+                    guard let target = self.characteristics[key] else {
+                        continuation.resume(throwing: BLEError.noCharacteristic)
+                        return
+                    }
+                    guard self.peripheral.state == .connected else {
+                        continuation.resume(throwing: BLEError.unavailable("disconnected"))
+                        return
+                    }
+                    self[keyPath: waiters.value].removeValue(forKey: key)?.resume(throwing: CancellationError())
+                    self[keyPath: waiters.value][key] = continuation
+                    start(target)
+                }
+            }
+        } onCancel: {
+            queue.async { self[keyPath: waiters.value].removeValue(forKey: key)?.resume(throwing: CancellationError()) }
+        }
+    }
+
     func disconnect() async throws {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -343,9 +408,31 @@ final class CoreBluetoothConnection: NSObject, BLEConnection, CBPeripheralDelega
         discovery = nil
         readyWaiter?.resume()
         readyWaiter = nil
+        let failure = error ?? BLEError.unavailable("disconnected")
+        for waiter in writeWaiters.values { waiter.resume(throwing: failure) }
+        for waiter in notifyWaiters.values { waiter.resume(throwing: failure) }
+        writeWaiters.removeAll()
+        notifyWaiters.removeAll()
+        for stream in streams.values { stream.finish() }
+        streams.removeAll()
     }
 
     // MARK: CBPeripheralDelegate (on `queue`)
+
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: (any Error)?) {
+        let waiter = writeWaiters.removeValue(forKey: Self.key(characteristic.uuid))
+        if let error { waiter?.resume(throwing: error) } else { waiter?.resume() }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: (any Error)?) {
+        let waiter = notifyWaiters.removeValue(forKey: Self.key(characteristic.uuid))
+        if let error { waiter?.resume(throwing: error) } else { waiter?.resume() }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: (any Error)?) {
+        guard error == nil, let value = characteristic.value else { return }
+        streams[Self.key(characteristic.uuid)]?.yield(value)
+    }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: (any Error)?) {
         let services = peripheral.services ?? []

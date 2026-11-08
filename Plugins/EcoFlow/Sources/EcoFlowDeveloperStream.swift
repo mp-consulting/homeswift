@@ -214,6 +214,12 @@ actor EcoFlowDeveloperStream {
                     index += 1
                 }
                 if index == valueStart {
+                    // A wanted boolean (a STREAM's `relay2Onoff`) reads 1 or 0.
+                    if let name, wanted.contains(name), let literal = [("true", 1.0), ("false", 0.0)].first(where: { bytes[index...].starts(with: $0.0.utf8) }) {
+                        numbers[name] = literal.1
+                        index += literal.0.utf8.count
+                        continue
+                    }
                     guard skipValue() else { return nil }
                 } else if let name, wanted.contains(name) {
                     guard let value = Double(String(decoding: UnsafeRawBufferPointer(rebasing: bytes[valueStart..<index]), as: UTF8.self)) else { return nil }

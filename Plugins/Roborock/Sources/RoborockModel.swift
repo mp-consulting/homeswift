@@ -23,6 +23,8 @@ struct RoborockHome: Sendable {
         var online: Bool?
         var serialNumber: String?
         var featureSet: UInt64?
+        /// `newFeatureSet`, a hex string (RoborockModes.md section 3).
+        var newFeatureSet: String?
         /// Schema id → value.
         var status: [String: Double]
         /// From `receivedDevices`: another account's, shared with this one.
@@ -63,7 +65,7 @@ struct RoborockHome: Sendable {
                     duid: duid, name: device["name"]?.stringValue ?? "", localKey: device["localKey"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 },
                     productID: Self.text(device["productId"]) ?? "", firmware: device["fv"]?.stringValue, protocolVersion: device["pv"]?.stringValue,
                     online: device["online"]?.boolValue, serialNumber: device["sn"]?.stringValue,
-                    featureSet: Self.unsigned(device["featureSet"]),
+                    featureSet: Self.unsigned(device["featureSet"]), newFeatureSet: device["newFeatureSet"]?.stringValue,
                     status: status, isShared: shared, fieldNames: device.objectValue?.keys.sorted() ?? [])
             }
         }

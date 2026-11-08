@@ -24,6 +24,9 @@ on a real device: the plugin's page marks them **Untested**.
 | Device | HomeKit | The plugin's page |
 |---|---|---|
 | Each device the route reads | A Battery service on its own accessory, named after the device: its level, charging state, low below 10 % | Its power, laid out by kind (below), with the last hour of each reading and its source (MQTT, REST or App) |
+| Each output it switches ([Writes](#writes)) | An Outlet beside the Battery, named after the port (AC1, AC2, AC, DC 12 V, USB) | Its state and a button that switches it |
+| Its charge and discharge limits | Accessory Settings of the device (`chargeLimit`, `dischargeLimit`) | The device's limits |
+| A RIVER 3 Plus's light ([Writes](#writes)) | A Lightbulb "Light" (Dim, Bright) and a Switch "SOS" beside the Battery | Its mode and a choice of Off, Dim, Bright and SOS |
 
 HomeKit has no characteristic for watts, so the power is on the plugin's page only, a card per device, two to a row
 on a wide screen; a card's grip drags it to another place (or moves it with the arrow keys), and the plugin keeps the
@@ -102,6 +105,71 @@ stays at 100 whatever the level). A RAPID shows Input and Output only.
   ha-ef-ble names them, unconfirmed.
 - The RIVER's 12V DC output and Solar/Car input: they read 0 W in every capture so far.
 
+## Writes
+
+The plugin switches a device's outputs and sets its charge limit (the maximum state of charge) and discharge limit
+(the minimum), as `docs/clean-room/EcoFlowWrites.md` specifies them on each route:
+
+- **Outputs:** an Outlet per output the model has, beside the Battery, its subtype stable (`ac`, `ac2`, `dc12v`, `usb`):
+  a STREAM's AC1 and AC2 sockets (a STREAM Max's one AC), a RIVER 3's AC and 12 V, a DELTA 3's AC, AC2, 12 V and USB as
+  each model has them, a DELTA Pro 3's high-voltage and low-voltage AC and 12 V, a DELTA 2's AC, 12 V and USB, a RIVER 2's
+  AC and 12 V, a DELTA Pro's, Max's and Mini's AC and 12 V (USB on a DELTA Max), a DELTA Pro Ultra's DC. Outlet In Use is
+  always on. On is the device's where it reports it; a switched output keeps the state asked for two seconds while the
+  device catches up. The page shows each output's state with a button that switches it the same way.
+- **Limits:** the device's Accessory Settings `chargeLimit` and `dischargeLimit` (its Settings sheet, or
+  `update_settings`), clamped to the model's range (50 to 100 % and 0 to 30 %; a PowerStream's 70 to 100 and 1 to 30),
+  the charge limit kept above the discharge limit, and sent once when they change (`limits.json` keeps what was sent). A
+  limit the device already has is not sent; one refused is not sent again until the settings change.
+- **Light:** a RIVER 3 Plus's LED (R631, R634, R635), on the app's route only (`cfg_led_mode`, field 89 of the
+  ConfigWrite; read back from `led_mode`, field 357 of the status message), spec section 8. It takes a mode: Off, Dim,
+  Bright or SOS, and no other value is sent. It was checked with the RIVER 3 Plus's other writes (written and read back
+  on a device), so it needs no **Writes to untested models**. It appears once the device's status has carried its mode,
+  and stays from then on, across restarts too, though a report lacks the mode (a partial push, an offline reading, the
+  developer API's): HomeKit would drop the scenes and automations using a service that went away. Until the mode is
+  reported again it shows what it showed, and its writes wait. The plain RIVER 3 has none, and the developer API has no
+  such write. In HomeKit, a Lightbulb (subtype `light`, Brightness in steps of 50 %) shows Dim as on at 50 % and Bright
+  as on at 100 %, Off and SOS as off; a Brightness up to 50 % sends Dim, above it Bright, 0 % Off; On sends the last Dim
+  or Bright the device had (else Bright), and off sends Off; the Home app's On and Brightness of one change go as one
+  write. A Switch "SOS" (subtype `light-sos`) is on in SOS, and switches to SOS and back to Off. The page's Light row
+  shows the mode and sets it: one of four choices, each its glyph alone where the card is narrow.
+- **Failures:** a write refused, or not answered within a few seconds, fails in the Home app (the device is not
+  responding), is logged, and the device is read again.
+
+| Route | How | Models |
+|---|---|---|
+| EcoFlow app | Protobuf to `/app/<user>/<serial>/thing/property/set`, the device's `set_reply` (a ConfigWriteAck) confirming it | STREAM (its own header), RIVER 3, DELTA 3, DELTA Pro 3, PowerStream (limits) |
+| EcoFlow app | JSON (`moduleType`/`operateType`, or `operateType` `TCP`), confirmed by the reply or by the readings that follow | DELTA 2, RIVER 2, DELTA Pro, Max, Mini |
+| Developer API | `PUT /iot-open/sign/device/quota`, the body flattened and signed | DELTA 2, 2 Max (12 V, USB, limits), RIVER 2 Pro (12 V, limits), DELTA Pro (AC, 12 V, limits), DELTA Pro Ultra (DC, limits), PowerStream (limits) |
+
+With both routes, each write goes by the developer API when it has it, else by the app's route; a route where the
+model's writes were seen working wins.
+
+**Gating.** A write that changes the wrong field could change a setting nobody asked for, so writes go only to the models
+whose writes were seen working on a real device (`EcoFlowWrites.checked`): the STREAM Ultra (BK11), the STREAM AC Pro
+(BK31), the RIVER 3 (R65x) and the RIVER 3 Plus (R63x), on the app's route. Every other model's writes, and every
+developer API write, are sent only with **Writes to untested models** (`untestedWrites`, off by default): its Outlets
+appear then, and the page marks its writes **Untested**. A model with no fitting writes (a GLACIER, a PowerOcean, a Smart
+Home Panel, a RAPID) gets none.
+
+**Not known yet** (the spec's open questions, left out rather than guessed):
+
+- How the developer API signs a JSON boolean: the STREAM's, the DELTA 3 Max's and the DELTA Pro 3's developer bodies
+  carry booleans, so those models write over the app's route only, and with the developer API alone they have no writes.
+- The developer API's AC write on a DELTA 2 or RIVER 2 Pro carries the X-Boost and the frequency, which it has no
+  documented "unchanged" value or key for, and a DELTA Pro Ultra's AC carries values whose meaning is not documented:
+  their AC goes by the app's route, or not at all.
+- The app's stream has no documented read-back of a protobuf model's outputs: a DELTA 3's On is what the device last
+  acknowledged. A STREAM's relays (fields 980 and 982) and a RIVER 3's 12 V (field 33) were seen in its status.
+- A RIVER 3's AC flag was not observed: its On comes from the AC output's power (field 368), on while it delivers power,
+  and nothing is said at 0 W (an AC on with nothing plugged in looks the same as off). So switching the AC off on the unit
+  itself, or in the EcoFlow app, leaves HomeKit's Outlet on until the plugin writes it or power flows again; an Outlet
+  switched off is not turned on until power flows.
+- Which header fields the devices check, a JSON reply's shape, and whether a limit sent to a STREAM system's secondary
+  unit applies.
+- The DELTA 3's 12 V output on models other than the Classic, Max and Max Plus; the RIVER 3's and the DELTA Pro 3's USB;
+  the RAPID's ports; RIVER 2, RIVER 2 Max, DELTA Max and Mini on the developer API; DELTA 2 Plus, DELTA Pro Ultra X and
+  GLACIER Classic anywhere.
+
 ## Models
 
 The plugin knows a model by the first characters of its serial number. A model it does not know, or one with no
@@ -109,19 +177,19 @@ battery for HomeKit (a Smart Plug, EcoFlow's Shelly plug and meter, a microinver
 an Alternator Charger, a WAVE, a PowerPulse, the first Smart Home Panel), is left out, and the log says so once, with
 the serial number's first four characters only.
 
-| Model | Serial | App route | Developer API | Checked on a device |
-|---|---|---|---|---|
-| STREAM Ultra, AC Pro | BK11, BK31 | Protobuf, as above | STREAM keys, as above | Both routes |
-| STREAM Ultra X, Pro, Max, AC | BK61, BK12, BK41, BK51 | As the Ultra | As the Ultra | No |
-| RIVER 3, RIVER 3 Plus | R65x, R63x | The status message, as above | `cmsBattSoc`, `powInSumW`, `powOutSumW`, `powGetAcIn`, `powGetAcOut` | App route |
-| DELTA 3 (Plus, Classic, Air, Max, Max Plus, Ultra, Ultra Plus), DELTA Pro 3, DELTA Pro Ultra X, GLACIER Classic | P231, P351, P32x, PR1x, D3N1, D3M1, D751, D511, MR5x, P101, RF45 | As the RIVER 3 | As the RIVER 3 | No |
-| RAPID Pro X; RAPID Pro | P513; P521 | The status message: input, output, the percentage (262) | Not read | RAPID Pro X, app route |
-| DELTA 2, 2 Max, 2 Plus; RIVER 2, 2 Max, 2 Pro; DELTA Pro, Max, Mini; GLACIER | R33x, R35x, D36x, R60x, R61x, R62x, DC…, DAEB, DBAB, BX11 | JSON quotas, asked with `latestQuotas` | The same keys | No |
-| DELTA Pro Ultra | Y711 | Not read | `hs_yj751_pd_appshow_addr.soc`, `.wattsInSum`, `.wattsOutSum` | No |
-| PowerStream | HW51 | 20/1, tenths of a watt | `20_1.*` | No |
-| PowerOcean; PowerOcean Fit | HJ31; HC31 | 96/33 | `bpSoc`, `mpptPwr`, `sysLoadPwr`, `sysGridPwr`, `bpPwr`; Fit not read | No |
-| Smart Home Panel 3 | HR62, HR63, HR6C | The status message's system flows | Not read | No |
-| Smart Home Panel 2 | HD31 | Not read | `backupIncreInfo.backupBatPer`, `wattInfo.gridWatt`, `wattInfo.allHallWatt` | No |
+| Model | Serial | App route | Developer API | Writes ([Writes](#writes)) | Checked on a device |
+|---|---|---|---|---|---|
+| STREAM Ultra, AC Pro | BK11, BK31 | Protobuf, as above | STREAM keys, as above | AC1, AC2, limits (app; checked) | Both routes |
+| STREAM Ultra X, Pro, Max, AC | BK61, BK12, BK41, BK51 | As the Ultra | As the Ultra | AC1, AC2, limits (app); the STREAM Max one AC, the STREAM AC its limits only | No |
+| RIVER 3, RIVER 3 Plus | R65x, R63x | The status message, as above | `cmsBattSoc`, `powInSumW`, `powOutSumW`, `powGetAcIn`, `powGetAcOut` | AC, DC 12 V, limits (app; checked); the Plus's light (app; checked) | App route |
+| DELTA 3 (Plus, Classic, Air, Max, Max Plus, Ultra, Ultra Plus), DELTA Pro 3, DELTA Pro Ultra X, GLACIER Classic | P231, P351, P32x, PR1x, D3N1, D3M1, D751, D511, MR5x, P101, RF45 | As the RIVER 3 | As the RIVER 3; a DELTA 3 Max's and a DELTA Pro 3's outputs and limits too | DELTA 3: AC, USB (not the Air), DC 12 V (Classic, Max, Max Plus), AC2 (Max Plus, Ultra Plus), limits; DELTA Pro 3: HV and LV AC, DC 12 V, limits (app); none for the Ultra X and the GLACIER Classic | No |
+| RAPID Pro X; RAPID Pro | P513; P521 | The status message: input, output, the percentage (262) | Not read | None | RAPID Pro X, app route |
+| DELTA 2, 2 Max, 2 Plus; RIVER 2, 2 Max, 2 Pro; DELTA Pro, Max, Mini; GLACIER | R33x, R35x, D36x, R60x, R61x, R62x, DC…, DAEB, DBAB, BX11 | JSON quotas, asked with `latestQuotas` | The same keys | AC, DC 12 V, limits, and USB on a DELTA 2, 2 Max and Max (app); 12 V, USB and limits of a DELTA 2 and 2 Max, a RIVER 2 Pro's 12 V and limits, a DELTA Pro's AC, 12 V and limits (developer); none for a DELTA 2 Plus or a GLACIER | No |
+| DELTA Pro Ultra | Y711 | Not read | `hs_yj751_pd_appshow_addr.soc`, `.wattsInSum`, `.wattsOutSum` | DC, limits (developer) | No |
+| PowerStream | HW51 | 20/1, tenths of a watt | `20_1.*` | Limits (both) | No |
+| PowerOcean; PowerOcean Fit | HJ31; HC31 | 96/33 | `bpSoc`, `mpptPwr`, `sysLoadPwr`, `sysGridPwr`, `bpPwr`; Fit not read | None | No |
+| Smart Home Panel 3 | HR62, HR63, HR6C | The status message's system flows | Not read | None | No |
+| Smart Home Panel 2 | HD31 | Not read | `backupIncreInfo.backupBatPer`, `wattInfo.gridWatt`, `wattInfo.allHallWatt` | None | No |
 
 The older stations' JSON keys: the display's percentage (`bms_emsStatus.lcdShowSoc`, `ems.lcdShowSoc` on a DELTA
 Pro or Max, `pd.soc`), the totals (`pd.wattsInSum`, `pd.wattsOutSum`; a GLACIER's `bms_bmsStatus.inWatts` and
@@ -155,6 +223,8 @@ and the password are kept in the bridge's vault; the rest is on the plugin's Set
 - **Email:** your EcoFlow account's, for the app; its password is in the vault (**Set up again** changes it).
 - **Import the energy history:** `importHistory`, on by default; it needs the email and password (above, [What it
   does](#what-it-does)).
+- **Writes to untested models:** `untestedWrites`, off by default: the outputs and limits of models whose writes nobody
+  has confirmed on a real device ([Writes](#writes)).
 - **Interval** (under Developer API): `pollingInterval`, the seconds between reads of the developer API's REST values, 60 by
   default, 30 at least; the form shows it when the route uses the developer API. Both routes also use MQTT, which is
   live whatever the interval: the developer API's pushes for a STREAM, and the app's stream for every device it reads (a
@@ -163,8 +233,8 @@ and the password are kept in the bridge's vault; the rest is on the plugin's Set
   (region, interval), each shown when the route uses it.
 
 Each device comes with the account, by its serial number, of the Device Kind of its model (`stream`, `home`, `portable`,
-`powerBank`); its Accessory Settings (its Name, room, Excluded) are in `_accessories` and its Settings sheet, with no
-settings of the plugin's own. The app reads the account's devices from its device list (EcoFlow's broker refuses a
+`powerBank`); its Accessory Settings (its Name, room, Excluded) are in `_accessories` and its Settings sheet, with the
+plugin's own `chargeLimit` and `dischargeLimit` ([Writes](#writes)). The app reads the account's devices from its device list (EcoFlow's broker refuses a
 subscription to every device at once).
 
 A block written before still runs: `accessKey`, `secretKey` and `password` in it (sealed), and `devices`, serial numbers
@@ -211,6 +281,12 @@ the devices; the field numbers, keys and serial prefixes are facts taken from th
 - [MichelFR/ha-ecoflow-iot](https://github.com/MichelFR/ha-ecoflow-iot) and [evcc](https://github.com/evcc-io/evcc)
   (MIT): the developer API's keys and signs per model, with EcoFlow's own developer documentation.
 
+The writes were implemented in a clean room from `docs/clean-room/EcoFlowWrites.md`, a specification written by another
+author from EcoFlow's developer documentation, tolwi/hassio-ecoflow-cloud, rabits/ha-ef-ble and
+foxthefox/ioBroker.ecoflow-mqtt (its section 0 lists the commits): the implementer never read those projects, and no code
+was copied. The spec's test vectors (the messages byte for byte, both signatures) are in the tests. The RIVER 3 Plus's
+light comes from the spec's section 8 (its addendum), its vectors in the tests likewise.
+
 It learned the developer API's request format and the field names from:
 
 - [TarasKhust/ecoflow-api-mqtt](https://github.com/TarasKhust/ecoflow-api-mqtt), a Home Assistant integration. Its
@@ -232,7 +308,10 @@ Mickael Palma ([@mp-consulting](https://github.com/mp-consulting)), who has the 
   signature against a value computed independently, the state read from a quota and from MQTT pushes, the read
   request's bytes, a RIVER's and a RAPID's answers built message by message, a STREAM's backup state kept apart from
   its battery, a DELTA 2's JSON quotas, a PowerStream's tenths of a watt, the models left out, the decryption, the route setting, the
-  schema checks, the energy history import, and the accessories the plugin publishes. Run them with
+  schema checks, the energy history import, and the accessories the plugin publishes. The writes: the spec's messages
+  and signatures byte for byte, both routes against fake transports (acknowledged, refused, unanswered, a JSON write
+  confirmed by its readings), the Outlets and their two-second hold, a refused write failing in HomeKit, the limits from
+  the Accessory Settings, and the gating. Run them with
   `swift test --filter EcoFlow`.
 - **Recorded data:** nothing recorded from a real account is in the repository; each test builds the bytes it needs.
 - **On a bridge:** both routes ran on a throwaway bridge with the five devices above, and their readings were compared

@@ -145,6 +145,22 @@ extension SwitchBotPlugin {
         "title": "Write debounce (5.x)",
         "description": "Milliseconds HomeKit's writes are gathered, from the plugin's 5.x block, read when options.pushRate is not set",
         "minimum": 0
+      },
+      "enableBLE": {
+        "type": "boolean",
+        "title": "Bluetooth",
+        "description": "Turn Bluetooth off for every device with false; devices on BLE/OpenAPI then use the cloud"
+      },
+      "blePollingEnabled": {
+        "type": "boolean",
+        "title": "Bluetooth status reads",
+        "description": "Read the state of plugs, lights and locks on Bluetooth every interval, besides their advertisements (on by default)"
+      },
+      "blePollIntervalMs": {
+        "type": "number",
+        "title": "Bluetooth read interval",
+        "description": "Milliseconds between two Bluetooth status reads (600000, at least 60000)",
+        "minimum": 60000
       }
     }
   },
@@ -179,7 +195,7 @@ extension SwitchBotPlugin {
       "connectionType": {
         "type": "string",
         "title": "Connection",
-        "description": "How the device is reached. Bluetooth is not supported: only the cloud works",
+        "description": "How the device is reached: Bluetooth only, the cloud only, or Bluetooth with the cloud when Bluetooth fails. Bluetooth reaches Bots, Curtains, Meters, Contact and Motion Sensors, Plug Minis (US, JP), Color Bulbs, Strip Lights, Blind Tilts and Smart Locks (with their key); other devices use the cloud",
         "oneOf": [
           {
             "enum": [
@@ -205,6 +221,70 @@ extension SwitchBotPlugin {
             ],
             "title": "Disabled"
           }
+        ]
+      },
+      "customBLEaddress": {
+        "type": "string",
+        "title": "Bluetooth address",
+        "description": "The device's MAC address, when it is not its device id",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "sensor",
+          "lock",
+          "light"
+        ]
+      },
+      "maxRetry": {
+        "type": "integer",
+        "title": "Bluetooth attempts",
+        "description": "Attempts of a Bluetooth command (5)",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "lock",
+          "light"
+        ],
+        "minimum": 1,
+        "maximum": 10
+      },
+      "blePollingEnabled": {
+        "type": "boolean",
+        "title": "Bluetooth status reads",
+        "description": "Read its state on Bluetooth every interval, besides its advertisements",
+        "x-kinds": [
+          "plug",
+          "lock",
+          "light"
+        ]
+      },
+      "blePollIntervalMs": {
+        "type": "number",
+        "title": "Bluetooth read interval",
+        "description": "Milliseconds between two Bluetooth status reads (600000, at least 60000)",
+        "x-kinds": [
+          "plug",
+          "lock",
+          "light"
+        ],
+        "minimum": 60000
+      },
+      "disablePlatformBLE": {
+        "type": "boolean",
+        "title": "No Bluetooth",
+        "description": "Never reach this device over Bluetooth",
+        "x-kinds": [
+          "bot",
+          "plug",
+          "curtain",
+          "blindTilt",
+          "sensor",
+          "lock",
+          "light"
         ]
       },
       "refreshRate": {
@@ -980,7 +1060,6 @@ extension SwitchBotPlugin {
       "Highest lux": "Lux maximum",
       "How much the plugin logs": "Ce que le plugin écrit dans le journal",
       "How the blind's tilt becomes a HomeKit position": "Comment l'inclinaison du store devient une position dans HomeKit",
-      "How the device is reached. Bluetooth is not supported: only the cloud works": "Comment l'appareil est joint. Le Bluetooth n'est pas pris en charge : seul le cloud fonctionne",
       "Hub 2": "Hub 2",
       "Hub Mini 2": "Hub Mini 2",
       "Humidifier": "Humidificateur",
@@ -1107,7 +1186,26 @@ extension SwitchBotPlugin {
       "Window": "Fenêtre",
       "Window covering": "Store",
       "WoIOSensor": "WoIOSensor",
-      "Write debounce (5.x)": "Regroupement des changements (5.x)"
+      "Write debounce (5.x)": "Regroupement des changements (5.x)",
+      "Turn Bluetooth off for every device with false; devices on BLE/OpenAPI then use the cloud": "Désactiver le Bluetooth pour tous les appareils avec false ; les appareils en BLE/OpenAPI passent alors par le cloud",
+      "Bluetooth status reads": "Lectures d'état en Bluetooth",
+      "Read the state of plugs, lights and locks on Bluetooth every interval, besides their advertisements (on by default)": "Lire l'état des prises, lampes et serrures en Bluetooth à chaque intervalle, en plus de leurs annonces (activé par défaut)",
+      "Bluetooth read interval": "Intervalle des lectures Bluetooth",
+      "Milliseconds between two Bluetooth status reads (600000, at least 60000)": "Millisecondes entre deux lectures d'état en Bluetooth (600000, au moins 60000)",
+      "How the device is reached: Bluetooth only, the cloud only, or Bluetooth with the cloud when Bluetooth fails. Bluetooth reaches Bots, Curtains, Meters, Contact and Motion Sensors, Plug Minis (US, JP), Color Bulbs, Strip Lights, Blind Tilts and Smart Locks (with their key); other devices use the cloud": "Comment l'appareil est joint : en Bluetooth seulement, par le cloud seulement, ou en Bluetooth avec le cloud quand le Bluetooth échoue. Le Bluetooth joint les Bots, rideaux, Meters, capteurs de contact et de mouvement, Plug Mini (US, JP), Color Bulb, Strip Light, Blind Tilt et Smart Lock (avec leur clé) ; les autres appareils passent par le cloud",
+      "Bluetooth address": "Adresse Bluetooth",
+      "The device's MAC address, when it is not its device id": "L'adresse MAC de l'appareil, quand ce n'est pas son identifiant",
+      "Bluetooth attempts": "Tentatives Bluetooth",
+      "Attempts of a Bluetooth command (5)": "Tentatives d'une commande Bluetooth (5)",
+      "Encryption key": "Clé de chiffrement",
+      "32 hex digits from the SwitchBot app's device information page; a lock needs it on Bluetooth": "32 chiffres hexadécimaux de la page d'informations de l'appareil dans l'app SwitchBot ; une serrure en a besoin en Bluetooth",
+      "Key ID": "ID de clé",
+      "2 hex digits beside the encryption key in the SwitchBot app (keyId in a Homebridge block)": "2 chiffres hexadécimaux à côté de la clé de chiffrement dans l'app SwitchBot (keyId dans un bloc Homebridge)",
+      "Bot password": "Mot de passe du Bot",
+      "The 4 letters or digits set in the SwitchBot app, for a Bot on Bluetooth": "Les 4 lettres ou chiffres choisis dans l'app SwitchBot, pour un Bot en Bluetooth",
+      "Read its state on Bluetooth every interval, besides its advertisements": "Lire son état en Bluetooth à chaque intervalle, en plus de ses annonces",
+      "No Bluetooth": "Sans Bluetooth",
+      "Never reach this device over Bluetooth": "Ne jamais joindre cet appareil en Bluetooth"
     },
     "es": {
       "4.x's conversion of the webhook's temperatures; Fahrenheit is converted to Celsius anyway": "La conversión de las temperaturas del webhook de la versión 4.x; los Fahrenheit se convierten a Celsius de todos modos",
@@ -1162,7 +1260,6 @@ extension SwitchBotPlugin {
       "Highest lux": "Lux máximo",
       "How much the plugin logs": "Cuánto registra el plugin",
       "How the blind's tilt becomes a HomeKit position": "Cómo la inclinación del estor se convierte en una posición de HomeKit",
-      "How the device is reached. Bluetooth is not supported: only the cloud works": "Cómo se llega al dispositivo. Bluetooth no es compatible: solo funciona la nube",
       "Hub 2": "Hub 2",
       "Hub Mini 2": "Hub Mini 2",
       "Humidifier": "Humidificador",
@@ -1289,7 +1386,26 @@ extension SwitchBotPlugin {
       "Window": "Ventana",
       "Window covering": "Estor",
       "WoIOSensor": "WoIOSensor",
-      "Write debounce (5.x)": "Agrupación de cambios (5.x)"
+      "Write debounce (5.x)": "Agrupación de cambios (5.x)",
+      "Turn Bluetooth off for every device with false; devices on BLE/OpenAPI then use the cloud": "Desactivar Bluetooth para todos los dispositivos con false; los dispositivos en BLE/OpenAPI usan entonces la nube",
+      "Bluetooth status reads": "Lecturas de estado por Bluetooth",
+      "Read the state of plugs, lights and locks on Bluetooth every interval, besides their advertisements (on by default)": "Leer el estado de enchufes, luces y cerraduras por Bluetooth en cada intervalo, además de sus anuncios (activado por defecto)",
+      "Bluetooth read interval": "Intervalo de lecturas por Bluetooth",
+      "Milliseconds between two Bluetooth status reads (600000, at least 60000)": "Milisegundos entre dos lecturas de estado por Bluetooth (600000, al menos 60000)",
+      "How the device is reached: Bluetooth only, the cloud only, or Bluetooth with the cloud when Bluetooth fails. Bluetooth reaches Bots, Curtains, Meters, Contact and Motion Sensors, Plug Minis (US, JP), Color Bulbs, Strip Lights, Blind Tilts and Smart Locks (with their key); other devices use the cloud": "Cómo se llega al dispositivo: solo por Bluetooth, solo por la nube, o por Bluetooth con la nube cuando Bluetooth falla. Bluetooth llega a Bots, cortinas, Meters, sensores de contacto y de movimiento, Plug Mini (US, JP), Color Bulb, Strip Light, Blind Tilt y Smart Lock (con su clave); los demás dispositivos usan la nube",
+      "Bluetooth address": "Dirección Bluetooth",
+      "The device's MAC address, when it is not its device id": "La dirección MAC del dispositivo, cuando no es su identificador",
+      "Bluetooth attempts": "Intentos por Bluetooth",
+      "Attempts of a Bluetooth command (5)": "Intentos de un comando por Bluetooth (5)",
+      "Encryption key": "Clave de cifrado",
+      "32 hex digits from the SwitchBot app's device information page; a lock needs it on Bluetooth": "32 dígitos hexadecimales de la página de información del dispositivo en la app SwitchBot; una cerradura la necesita por Bluetooth",
+      "Key ID": "ID de clave",
+      "2 hex digits beside the encryption key in the SwitchBot app (keyId in a Homebridge block)": "2 dígitos hexadecimales junto a la clave de cifrado en la app SwitchBot (keyId en un bloque de Homebridge)",
+      "Bot password": "Contraseña del Bot",
+      "The 4 letters or digits set in the SwitchBot app, for a Bot on Bluetooth": "Las 4 letras o cifras elegidas en la app SwitchBot, para un Bot por Bluetooth",
+      "Read its state on Bluetooth every interval, besides its advertisements": "Leer su estado por Bluetooth en cada intervalo, además de sus anuncios",
+      "No Bluetooth": "Sin Bluetooth",
+      "Never reach this device over Bluetooth": "No llegar nunca a este dispositivo por Bluetooth"
     },
     "pt": {
       "4.x's conversion of the webhook's temperatures; Fahrenheit is converted to Celsius anyway": "A conversão das temperaturas do webhook da versão 4.x; os Fahrenheit são convertidos em Celsius de qualquer forma",
@@ -1344,7 +1460,6 @@ extension SwitchBotPlugin {
       "Highest lux": "Lux máximo",
       "How much the plugin logs": "Quanto o plugin regista",
       "How the blind's tilt becomes a HomeKit position": "Como a inclinação do estore se torna uma posição do HomeKit",
-      "How the device is reached. Bluetooth is not supported: only the cloud works": "Como se chega ao dispositivo. O Bluetooth não é suportado: só a nuvem funciona",
       "Hub 2": "Hub 2",
       "Hub Mini 2": "Hub Mini 2",
       "Humidifier": "Humidificador",
@@ -1471,7 +1586,26 @@ extension SwitchBotPlugin {
       "Window": "Janela",
       "Window covering": "Estore",
       "WoIOSensor": "WoIOSensor",
-      "Write debounce (5.x)": "Agrupamento de alterações (5.x)"
+      "Write debounce (5.x)": "Agrupamento de alterações (5.x)",
+      "Turn Bluetooth off for every device with false; devices on BLE/OpenAPI then use the cloud": "Desligar o Bluetooth para todos os dispositivos com false; os dispositivos em BLE/OpenAPI usam então a nuvem",
+      "Bluetooth status reads": "Leituras de estado por Bluetooth",
+      "Read the state of plugs, lights and locks on Bluetooth every interval, besides their advertisements (on by default)": "Ler o estado de tomadas, luzes e fechaduras por Bluetooth em cada intervalo, além dos seus anúncios (ligado por predefinição)",
+      "Bluetooth read interval": "Intervalo das leituras por Bluetooth",
+      "Milliseconds between two Bluetooth status reads (600000, at least 60000)": "Milissegundos entre duas leituras de estado por Bluetooth (600000, pelo menos 60000)",
+      "How the device is reached: Bluetooth only, the cloud only, or Bluetooth with the cloud when Bluetooth fails. Bluetooth reaches Bots, Curtains, Meters, Contact and Motion Sensors, Plug Minis (US, JP), Color Bulbs, Strip Lights, Blind Tilts and Smart Locks (with their key); other devices use the cloud": "Como se chega ao dispositivo: só por Bluetooth, só pela nuvem, ou por Bluetooth com a nuvem quando o Bluetooth falha. O Bluetooth chega a Bots, cortinas, Meters, sensores de contacto e de movimento, Plug Mini (US, JP), Color Bulb, Strip Light, Blind Tilt e Smart Lock (com a sua chave); os outros dispositivos usam a nuvem",
+      "Bluetooth address": "Endereço Bluetooth",
+      "The device's MAC address, when it is not its device id": "O endereço MAC do dispositivo, quando não é o seu identificador",
+      "Bluetooth attempts": "Tentativas por Bluetooth",
+      "Attempts of a Bluetooth command (5)": "Tentativas de um comando por Bluetooth (5)",
+      "Encryption key": "Chave de encriptação",
+      "32 hex digits from the SwitchBot app's device information page; a lock needs it on Bluetooth": "32 dígitos hexadecimais da página de informações do dispositivo na app SwitchBot; uma fechadura precisa dela por Bluetooth",
+      "Key ID": "ID da chave",
+      "2 hex digits beside the encryption key in the SwitchBot app (keyId in a Homebridge block)": "2 dígitos hexadecimais ao lado da chave de encriptação na app SwitchBot (keyId num bloco do Homebridge)",
+      "Bot password": "Palavra-passe do Bot",
+      "The 4 letters or digits set in the SwitchBot app, for a Bot on Bluetooth": "As 4 letras ou algarismos definidos na app SwitchBot, para um Bot por Bluetooth",
+      "Read its state on Bluetooth every interval, besides its advertisements": "Ler o seu estado por Bluetooth em cada intervalo, além dos seus anúncios",
+      "No Bluetooth": "Sem Bluetooth",
+      "Never reach this device over Bluetooth": "Nunca chegar a este dispositivo por Bluetooth"
     }
   }
 }

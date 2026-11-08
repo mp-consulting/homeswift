@@ -1071,6 +1071,12 @@
     "Door", "Window", "Valve", "Fanv2", "Fan", "Lightbulb", "Outlet", "Switch", ...Object.keys(readings)];
   function primaryOf(ctx) {
     const candidates = ctx.services.filter((service) => !quietServices.has(service.type));
+    // A power station stands on its battery in the Home app, but its outputs are what a tile controls: the first of
+    // them (its sockets before its light); a station with none is drawn by its battery.
+    if (isStation(ctx)) {
+      const outputs = groupMembers(ctx);
+      if (outputs.length) return outputs.find((service) => service.type !== "Lightbulb");
+    }
     const flagged = candidates.find((service) => service.primary);
     if (flagged) return flagged;
     const order = (service) => { const index = rank.indexOf(service.type); return index < 0 ? rank.length : index; };
@@ -1104,22 +1110,38 @@
     return list.length || filter ? node : null;
   }
 
+  /// A power station: an accessory that stands on its battery (its primary service) and switches outputs.
+  const isStation = (ctx) => ctx.services.some((s) => s.type === "Battery" && s.primary);
+
+  /// The services a group of switches shows: switches and outlets, and a power station's light with its battery left
+  /// out; none when something else is there.
+  function groupMembers(ctx) {
+    const station = isStation(ctx);
+    const shown = ctx.services.filter((s) => !quietServices.has(s.type) && !(station && s.type === "Battery"));
+    const member = (s) => s.type === "Switch" || s.type === "Outlet" || (station && s.type === "Lightbulb");
+    return shown.every(member) && shown.some((s) => s.type !== "Lightbulb") ? shown : [];
+  }
+
   register({
     name: "switch-group", types: ["Switch", "Outlet"], icon: "switch", tone: "green", size: "medium",
-    // An accessory of switches only (a chime's speakers, a remote's buttons): chips, or a tile each.
+    // An accessory of switches (a chime's speakers, a remote's buttons), or a power station's outputs (one standing on
+    // its battery: its sockets and its light): chips, or a tile each, and the battery's level on the status line.
     match: (ctx) => {
-      const shown = ctx.services.filter((s) => !quietServices.has(s.type));
-      return shown.length >= 2 && shown.every((s) => (s.type === "Switch" || s.type === "Outlet") && canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
+      const shown = groupMembers(ctx);
+      return shown.length >= 2 && shown.every((s) => canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
     },
     build(ctx, primary, size) {
-      const switches = ctx.services.filter((s) => !quietServices.has(s.type));
+      const switches = groupMembers(ctx);
       const ons = switches.map((s) => ctx.char(s, "On"));
       const count = () => ons.filter(isOn).length;
+      const level = isStation(ctx) ? ctx.take(ctx.find("Battery"), "Battery Level") : null;
+
       const body = size === "large" || size === "full"
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
-        body, hero: () => `${count()}/${ons.length}`,
+        // A power station's figure is its battery; a group's, how many are on.
+        body, hero: () => level ? `${Math.round(numberOf(level))} %` : `${count()}/${ons.length}`,
         status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };

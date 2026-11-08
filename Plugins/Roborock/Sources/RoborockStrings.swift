@@ -26,6 +26,13 @@ enum RoborockStrings {
         "side_brush_life": ["en": "Side brush", "fr": "Brosse latérale", "es": "Cepillo lateral", "pt": "Escova lateral", "de": "Seitenbürste", "it": "Spazzola laterale", "nl": "Zijborstel"],
     ]
 
+    /// The mop switch: the Roborock app's "Mop" in the web UI's languages and German, Italian and Dutch.
+    static let mop: [String: String] = [
+        "en": "Mop", "fr": "Serpillière", "es": "Fregado", "pt": "Esfregona", "de": "Wischen", "it": "Lavaggio", "nl": "Dweilen",
+    ]
+
+    static func mopName(_ language: String) -> String { mop[language] ?? mop["en"]! }
+
     static func dockWashName(_ language: String) -> String { dockWash[language] ?? dockWash["en"]! }
 
     static func consumableName(_ field: String, _ language: String) -> String {

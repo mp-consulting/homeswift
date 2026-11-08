@@ -8,8 +8,9 @@ extension EcoFlowPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The EcoFlow page: each device the plugin reads, its battery, and its power as IN and OUT, laid out by kind as the
-// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin. It writes no
-// settings: the devices come with the account (Setup), and each one's name is its Settings'.
+// app does, with the outputs it switches and its charge limits. The page refreshes every few seconds while it is
+// visible; it reads `GET power` from the plugin and switches an output with `POST output`, as HomeKit does. It writes no
+// settings: the devices come with the account (Setup), and each one's name and limits are its Settings'.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
@@ -126,6 +127,88 @@ extension EcoFlowPlugin {
   const untested = () => el("span", { class: "way untested", text: t("Untested"),
     "data-tip": t("This model's readings come from open-source projects and have not been checked on a real device yet") });
 
+  // A model whose writes nobody has confirmed on a real device: sent only with the plugin's "Writes to untested models".
+  const untestedWrites = () => el("span", { class: "way untested", text: t("Untested"),
+    "data-tip": t("This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet") });
+
+  // Switches an output as HomeKit does; the next answer shows the device's state.
+  async function switchOutput(device, output, button) {
+    button.disabled = true;
+    try {
+      await request("output", { method: "POST", body: { id: device.id, output: output.id, on: output.on !== true } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // A RIVER 3 Plus's light: its lit modes, each with its icon, and Off (EcoFlowWrites.md, section 8).
+  const lightModes = [[1, "Dim", "bulb"], [2, "Bright", "sun"], [3, "SOS", "warning"]];
+
+  // Sets the light's mode as HomeKit does; the next answer shows the device's.
+  async function setLight(device, mode, row) {
+    row.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      await request("light", { method: "POST", body: { deviceId: device.id, mode } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // The light's row: its lit modes, one at a time (a segmented control, as the bridge's pages have: a radio group),
+  // the current one in the accent colour while the light is lit; then its power button, where the outputs have theirs,
+  // turning it off, or on again in its last lit mode (`last`, as HomeKit's On does). Each choice is its glyph, its name
+  // its label and tip.
+  function lightRow(device) {
+    const light = device.light;
+    if (!light) return null;
+    const lit = light.mode != null && light.mode !== 0;
+    const row = el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") });
+    const group = el("div", { class: "group", role: "radiogroup", "aria-label": t("Light mode") });
+    for (const [mode, name, icon] of lightModes) {
+      const checked = mode === light.mode;
+      const button = el("button", { type: "button", role: "radio", class: checked ? "on lit" : "", actionIcon: icon,
+        disabled: !device.online, "aria-checked": String(checked), "aria-label": t(name), "data-tip": t(name) });
+      button.addEventListener("click", () => { if (!checked) setLight(device, mode, row); });
+      group.append(button);
+    }
+    const port = t("Light");
+    const label = lit ? t("Turn {port} off", { port }) : t("Turn {port} on", { port });
+    const power = el("button", { type: "button", class: lit ? "switch primary" : "switch", actionIcon: "power",
+      disabled: !device.online || light.mode == null, "aria-pressed": String(lit), "aria-label": label, "data-tip": label });
+    power.addEventListener("click", () => setLight(device, lit ? 0 : light.last ?? 2, row));
+    row.append(el("span", { class: "label", text: port }), group, power);
+    return row;
+  }
+
+  // The outputs the plugin switches, each its name and a round power button, in the accent colour while on (its state), the light, and the charge and discharge limits
+  // (the device's Settings change them).
+  function controls(device) {
+    const outputs = device.outputs ?? [];
+    if (outputs.length === 0 && !device.limits && !device.light) return null;
+    const percent = (value) => value == null ? "–" : `${Math.round(value)} %`;
+    const rows = outputs.map((output) => {
+      const port = t(output.name);
+      const label = output.on === true ? t("Turn {port} off", { port }) : t("Turn {port} on", { port });
+      const button = el("button", { type: "button", class: output.on === true ? "switch primary" : "switch", actionIcon: "power",
+        disabled: !device.online, "aria-pressed": String(output.on === true), "aria-label": label, "data-tip": label });
+      button.addEventListener("click", () => switchOutput(device, output, button));
+      return el("div", { class: "output", "data-tip": t("This output, as HomeKit's Outlet shows it") },
+        el("span", { class: "label", text: port }), button);
+    });
+    const limits = device.limits ? el("p", { class: "limits", "data-tip": t("The device's Settings change its limits") },
+      el("span", { text: t("Charge limit {value}", { value: percent(device.limits.charge) }) }),
+      el("span", { text: t("Discharge limit {value}", { value: percent(device.limits.discharge) }) })) : null;
+    return el("div", { class: "controls" },
+      el("div", { class: "caption" }, el("span", { text: t("Outputs and limits") }), device.writesTested === false ? untestedWrites() : null),
+      rows.length || device.light ? el("div", { class: "output-list" }, rows, lightRow(device)) : null, limits);
+  }
+
   // The device's estimate of the time to full while charging, to empty otherwise, as the EcoFlow app shows it: days
   // and hours (rounded to the hour) from a day up, else hours and minutes, or minutes.
   function remaining(device) {
@@ -135,7 +218,8 @@ extension EcoFlowPlugin {
     const roundedHours = Math.round(total / 60);
     const time = roundedHours >= 24 ? t("{d}d {h}h", { d: Math.floor(roundedHours / 24), h: roundedHours % 24 })
       : hours > 0 ? t("{h}h {m}m", { h: hours, m: minutes }) : t("{m}m", { m: minutes });
-    return el("span", { class: "remaining",
+    // At the card's right edge: its tip opens inward (data-tip-align), or it would widen the page.
+    return el("span", { class: "remaining", "data-tip-align": "end",
       text: device.charging ? t("{time} to full", { time }) : t("{time} left", { time }),
       "data-tip": device.charging ? t("Time until the battery is full at the current power, as the device estimates it")
         : t("Time until the battery is empty at the current power, as the device estimates it") });
@@ -148,7 +232,7 @@ extension EcoFlowPlugin {
     const battery = el("div", { class: "battery-line" },
       el("div", { class: "figure", "data-tip": t("The battery's state of charge") }, batteryGraphic(level), level === null ? "–" : figure(String(level), "%")),
       el("div", { class: "battery-state" }, remaining(device), silent ? null :
-        el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now") })));
+        el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now"), "data-tip-align": "end" })));
     const shown = (device.series ?? []).filter((key) => flows[key]);
     const flowList = silent ? null : el("div", { class: "flows" }, shown.map((key) => {
       const [label, inWhenPositive, tip, wide] = flows[key];
@@ -169,7 +253,7 @@ extension EcoFlowPlugin {
           el("span", { class: "way source", text: sourceLabel(device.source), "data-tip": sourceTip(device.source) }),
           device.tested === false ? untested() : null, known.length > 1 ? handle(device) : null),
         el("p", { class: "serial", text: device.model ? `${device.model} · ${device.id}` : device.id })),
-      battery, flowList, panels, status);
+      battery, flowList, panels, controls(device), status);
   }
 
   // MARK: Packing. In two columns each card spans the rows its height takes (the CSS's `--pack-row` rows, the gap
@@ -483,6 +567,28 @@ extension EcoFlowPlugin {
 // The EcoFlow page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Les écritures de ce modèle viennent de projets open source et de la documentation d'EcoFlow et n'ont pas encore été confirmées sur un vrai appareil",
+    "Turn {port} on": "Allumer {port}",
+    "Turn {port} off": "Éteindre {port}",
+    "This output, as HomeKit's Outlet shows it": "Cette sortie, comme la prise HomeKit la montre",
+    "The device's Settings change its limits": "Les réglages de l'appareil changent ses limites",
+    "Charge limit {value}": "Limite de charge {value}",
+    "Discharge limit {value}": "Limite de décharge {value}",
+    "Outputs and limits": "Sorties et limites",
+    "The device did not switch the output": "L'appareil n'a pas commuté la sortie",
+    "Light": "Lumière",
+    "Light mode": "Mode de la lumière",
+    "Dim": "Faible",
+    "Bright": "Intense",
+    "SOS": "SOS",
+    "The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it": "La lumière, comme l'ampoule HomeKit (Faible, Intense) et l'interrupteur SOS la montrent",
+    "The device did not set the light": "L'appareil n'a pas réglé la lumière",
+    "AC": "AC",
+    "DC": "DC",
+    "DC 12 V": "DC 12 V",
+    "USB": "USB",
+    "AC (high voltage)": "AC (haute tension)",
+    "AC (low voltage)": "AC (basse tension)",
     "Developer API": "API développeur",
     "EcoFlow app": "Application EcoFlow",
     "Live, from the developer API's MQTT pushes": "En direct, par les envois MQTT de l'API développeur",
@@ -548,6 +654,28 @@ HomeswiftI18n.add({
     "Power the USB-C ports supply": "Puissance fournie par les ports USB-C"
   },
   "es": {
+    "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Las escrituras de este modelo vienen de proyectos de código abierto y de la documentación de EcoFlow y aún no se han confirmado en un dispositivo real",
+    "Turn {port} on": "Encender {port}",
+    "Turn {port} off": "Apagar {port}",
+    "This output, as HomeKit's Outlet shows it": "Esta salida, como la muestra el enchufe de HomeKit",
+    "The device's Settings change its limits": "Los ajustes del dispositivo cambian sus límites",
+    "Charge limit {value}": "Límite de carga {value}",
+    "Discharge limit {value}": "Límite de descarga {value}",
+    "Outputs and limits": "Salidas y límites",
+    "The device did not switch the output": "El dispositivo no conmutó la salida",
+    "Light": "Luz",
+    "Light mode": "Modo de la luz",
+    "Dim": "Tenue",
+    "Bright": "Intensa",
+    "SOS": "SOS",
+    "The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it": "La luz, como la muestran la bombilla de HomeKit (Tenue, Intensa) y el interruptor SOS",
+    "The device did not set the light": "El dispositivo no ajustó la luz",
+    "AC": "CA",
+    "DC": "CC",
+    "DC 12 V": "CC 12 V",
+    "USB": "USB",
+    "AC (high voltage)": "CA (alta tensión)",
+    "AC (low voltage)": "CA (baja tensión)",
     "Developer API": "API para desarrolladores",
     "EcoFlow app": "App de EcoFlow",
     "Live, from the developer API's MQTT pushes": "En directo, por los envíos MQTT de la API para desarrolladores",
@@ -613,6 +741,28 @@ HomeswiftI18n.add({
     "Power the USB-C ports supply": "Potencia que entregan los puertos USB-C"
   },
   "pt": {
+    "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "As escritas deste modelo vêm de projetos de código aberto e da documentação da EcoFlow e ainda não foram confirmadas num dispositivo real",
+    "Turn {port} on": "Ligar {port}",
+    "Turn {port} off": "Desligar {port}",
+    "This output, as HomeKit's Outlet shows it": "Esta saída, tal como a tomada do HomeKit a mostra",
+    "The device's Settings change its limits": "As definições do dispositivo alteram os seus limites",
+    "Charge limit {value}": "Limite de carga {value}",
+    "Discharge limit {value}": "Limite de descarga {value}",
+    "Outputs and limits": "Saídas e limites",
+    "The device did not switch the output": "O dispositivo não comutou a saída",
+    "Light": "Luz",
+    "Light mode": "Modo da luz",
+    "Dim": "Fraca",
+    "Bright": "Intensa",
+    "SOS": "SOS",
+    "The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it": "A luz, como a mostram a lâmpada do HomeKit (Fraca, Intensa) e o interruptor SOS",
+    "The device did not set the light": "O dispositivo não ajustou a luz",
+    "AC": "CA",
+    "DC": "CC",
+    "DC 12 V": "CC 12 V",
+    "USB": "USB",
+    "AC (high voltage)": "CA (alta tensão)",
+    "AC (low voltage)": "CA (baixa tensão)",
     "Developer API": "API para programadores",
     "EcoFlow app": "Aplicação EcoFlow",
     "Live, from the developer API's MQTT pushes": "Em direto, pelos envios MQTT da API para programadores",
@@ -738,7 +888,8 @@ HomeswiftI18n.add({
   .serial { margin: 2px 0 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   /* The battery leads: the largest figure on the card, its level beside the graphic and its state after it. */
-  .battery-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  /* The figure, and the time and state beside it; below it when the card is too narrow for both. */
+  .battery-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
   .battery-line .figure { white-space: nowrap; display: flex; align-items: center; gap: 12px; font-size: 2.5rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
   .battery-line .figure small { font-size: 0.5em; font-weight: 500; opacity: 0.7; }
   /* The time to full or to empty, beside the charging state; its own line under it on a narrow card. */
@@ -791,6 +942,27 @@ HomeswiftI18n.add({
   @media (max-width: 359px) { .panel-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
   .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
+
+  /* The outputs the plugin switches, one row each (its port, its state, its button), and the limits under them. */
+  .controls { display: grid; gap: 8px; }
+  .controls > .caption { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--muted); }
+  .output-list { display: grid; gap: 8px; }
+  .output { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 14px;
+    background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
+  .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  /* A switch is its power glyph alone, a circle (width, height and min-height alike, so a touch screen's 40px minimum
+     keeps it round): 36px, 40px at phone width; filled with the accent colour while its output is on. The light's
+     modes are circles too, the current one in the accent colour while the light is lit, before its power button. */
+  .output .switch, .output.light .group button { flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+    padding: 0; border-radius: 50%; justify-content: center; }
+  .output.light .group button.lit { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill));
+    color: var(--accent-text); }
+  .output.light .group button.lit svg { color: var(--accent-text); }
+  .output.light .group { flex: none; }
+  @media (max-width: 640px) {
+    .output .switch, .output.light .group button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+  }
+  .limits { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
 

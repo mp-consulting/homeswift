@@ -1,19 +1,8 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
-
-/// An advertisement a scan saw.
-struct BLEAdvertisement: Sendable, Equatable {
-    /// The system's identifier for the peripheral (CoreBluetooth's UUID, the MAC address on Linux).
-    var identifier: String
-    /// The MAC address, where the system gives it (Linux; not macOS).
-    var address: String?
-    var localName: String?
-    /// Company id first, as the Govee app and noble see it.
-    var manufacturerData: [UInt8]?
-    var rssi: Int
-}
 
 /// A sensor reading decoded from an advertisement.
 struct BLESensorReading: Sendable, Equatable {
@@ -25,54 +14,6 @@ struct BLESensorReading: Sendable, Equatable {
     var tempInC: Double
     var tempInF: Double
     var rssi: Int
-}
-
-/// Where a BLE device is: its MAC (from Govee's device settings), which Linux connects to as the Homebridge plugin
-/// did, and the name it advertises (`bleName`), which is how macOS, which hides MAC addresses, finds it.
-struct BLETarget: Sendable, Equatable {
-    var address: String
-    var name: String?
-}
-
-/// The Bluetooth adapter: CoreBluetooth on macOS, a raw HCI socket on Linux, a fake in tests.
-protocol BLECentral: Sendable {
-    /// `poweredOn`, `poweredOff`, `unauthorized`, `unsupported`…
-    var state: String { get async }
-    func waitForPoweredOn(timeout: Duration) async -> Bool
-    /// Starts scanning for peripherals advertising any of these 16-bit service UUIDs; every advertisement
-    /// goes to `onDiscover`.
-    func startScanning(services: [String], allowDuplicates: Bool, onDiscover: @escaping @Sendable (BLEAdvertisement) -> Void) async throws
-    func stopScanning() async
-    /// Connects to the peripheral, finding it by address or advertised name.
-    func connect(_ target: BLETarget) async throws -> any BLEConnection
-    func reset() async
-}
-
-/// A connection to one peripheral.
-protocol BLEConnection: Sendable {
-    /// Discovers services and characteristics; whether the one with this UUID (128-bit, no dashes) exists.
-    func discoverCharacteristic(_ uuid: String) async throws -> Bool
-    /// Writes without response.
-    func write(_ data: Data, to characteristic: String) async throws
-    func disconnect() async throws
-}
-
-enum BLEError: Error, CustomStringConvertible, Equatable {
-    case timeout(String)
-    case wrongState(String)
-    case notFound
-    case noCharacteristic
-    case unavailable(String)
-
-    var description: String {
-        switch self {
-        case .timeout(let message): message
-        case .wrongState(let state): "\(Lang.bleWrongState) [\(state)]"
-        case .notFound: "device not found nearby"
-        case .noCharacteristic: "Control characteristic not found"
-        case .unavailable(let reason): reason
-        }
-    }
 }
 
 /// Govee's BLE control and sensor scanning (`connection/ble.ts`). Commands connect, find the control
@@ -137,7 +78,6 @@ actor BLEClient {
 
         var connection: (any BLEConnection)?
         do {
-            await central.reset()
             log.debug("connecting to device at \(target.address)")
             let central = central
             let connected = try await withTimeout(timing.connection, error: { BLEError.timeout("Connection timeout") }) { try await central.connect(target) }
@@ -280,48 +220,6 @@ actor BLEClient {
         discoverCallback = nil
         isScanning = false
         isConnecting = false
-        await central.reset()
         logger.info("[BLE] shutdown complete.")
-    }
-}
-
-/// A wait for a callback that arrives on a serial queue (CoreBluetooth's delegate), which cancelling the waiting
-/// task ends with `cancelled`, also when the task was cancelled before the wait was parked: then
-/// `withTaskCancellationHandler` runs its handler before the operation, and a wait parked after it would never end.
-final class QueueWait<Value: Sendable>: @unchecked Sendable {
-    private let queue: DispatchQueue
-    // On `queue` only.
-    private var continuation: CheckedContinuation<Value, Never>?
-    private var result: Value?
-
-    init(queue: DispatchQueue) { self.queue = queue }
-
-    /// Waits until `resume(_:)`. `park` runs on the queue first, to register the wait where the callback finds it,
-    /// or to resume it at once; it is skipped when the wait already ended.
-    func wait(cancelled: Value, park: @escaping @Sendable (QueueWait<Value>) -> Void) async -> Value {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                queue.async {
-                    if let result = self.result {
-                        continuation.resume(returning: result)
-                    } else {
-                        self.continuation = continuation
-                        park(self)
-                    }
-                }
-            }
-        } onCancel: {
-            queue.async { self.resume(cancelled) }
-        }
-    }
-
-    /// Ends the wait with `value`, on the queue; later calls change nothing.
-    func resume(_ value: Value) {
-        if let continuation {
-            self.continuation = nil
-            continuation.resume(returning: value)
-        } else if result == nil {
-            result = value
-        }
     }
 }

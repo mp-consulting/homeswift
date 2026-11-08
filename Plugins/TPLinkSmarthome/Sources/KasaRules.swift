@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftPlugin
 
 /// The colour temperatures each bulb takes, by model (docs/clean-room/TPLinkSmarthome.md, section 4.5.1).
 enum KasaColorTemperature {
@@ -56,30 +57,8 @@ struct KasaMACFilter: Sendable {
         String(String.UnicodeScalarView(text.unicodeScalars.filter { KasaSysinfo.isLetterOrDigit($0) || extra.unicodeScalars.contains($0) })).uppercased()
     }
 
-    /// The whole of `text` against the pattern.
-    static func matches(_ text: String, pattern: String) -> Bool {
-        let text = Array(text), pattern = Array(pattern)
-        // The classic two-pointer glob, backtracking to the last `*`.
-        var t = 0, p = 0, star = -1, mark = 0
-        while t < text.count {
-            if p < pattern.count, pattern[p] == "?" || pattern[p] == text[t] {
-                t += 1
-                p += 1
-            } else if p < pattern.count, pattern[p] == "*" {
-                star = p
-                mark = t
-                p += 1
-            } else if star >= 0 {
-                p = star + 1
-                mark += 1
-                t = mark
-            } else {
-                return false
-            }
-        }
-        while p < pattern.count, pattern[p] == "*" { p += 1 }
-        return p == pattern.count
-    }
+    /// The whole of `text` against the pattern (both upper case already).
+    static func matches(_ text: String, pattern: String) -> Bool { Glob.matches(pattern, text) }
 }
 
 extension KasaSysinfo {

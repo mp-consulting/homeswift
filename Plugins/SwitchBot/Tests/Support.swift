@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftNetwork
+import HomeswiftNetworkTestSupport
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
@@ -86,6 +87,8 @@ final class FakeCloud: HTTPSending {
 final class TestEnvironment: Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-SwitchBot-tests-\(UUID().uuidString)")
     let cloud = FakeCloud()
+    /// The Bluetooth adapter the plugin gets, in memory.
+    let central = FakeBLECentral()
     private let plugins = NIOLockedValueBox<[SwitchBotPlugin]>([])
 
     var plugin: SwitchBotPlugin? { plugins.withLockedValue { $0.last } }
@@ -97,7 +100,7 @@ final class TestEnvironment: Sendable {
         registry.register(platform: SwitchBotPlugin.platform, name: SwitchBotPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(SwitchBotPlugin.Configuration.self, from: json)
             let plugin = SwitchBotPlugin(configuration: configuration, context: context, dependencies: .init(
-                http: self.cloud, timeScale: timeScale, webhookHost: "127.0.0.1", webhookPort: 0))
+                http: self.cloud, timeScale: timeScale, webhookHost: "127.0.0.1", webhookPort: 0, bleCentral: { _ in self.central }))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }

@@ -24,7 +24,7 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Forty-four plugins come with it, from Elgato Key
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Forty-five plugins come with it, from Elgato Key
 Lights to UniFi Protect cameras, Shelly, Zigbee2MQTT and Sonos, Philips Hue and IKEA DIRIGERA straight from their bridges, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
 lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. See
@@ -177,6 +177,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Google Nest](Plugins/GoogleNestSDM) | `homebridge-google-nest-sdm` | Experimental: Nest thermostats, cameras, doorbells and displays through Google's Device Access (SDM API, Pub/Sub events, RTSP live view, HomeKit Secure Video) |
 | [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
 | [Helpers](Plugins/Helpers) | `Helpers` | Sensors the bridge works out from other accessories: a threshold with hysteresis, the lowest, highest or average of several sensors, something left in a state too long. Added with Add a Helper… |
+| [Home Assistant](Plugins/HomeAssistant) | `HomeAssistant` | Experimental: a Home Assistant server's lights, switches, covers, locks, thermostats, sensors, fans, scenes and more, over its WebSocket API, one accessory per HA device; entities HA's own HomeKit bridge publishes can be mirrored rather than published twice |
 | [HTTP Webhooks](Plugins/HTTPWebhooks) | `HttpWebHooks` | Experimental virtual sensors, switches, lights, locks, blinds, fans and more, set by webhooks and calling URLs on HomeKit writes (homebridge-http-webhooks' block) |
 | [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired on Add accessories) |
 | [IMOU](Plugins/Imou) | `Imou` | Experimental: IMOU cameras and doorbells, local first (RTSP video, CGI snapshots, Dahua event stream, HomeKit Secure Video), with the IMOU cloud's privacy mode, siren and spotlight |
@@ -197,7 +198,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [SmartThings](Plugins/SmartThings) | `HomeBridgeSmartThings` | Experimental: Samsung SmartThings through its cloud, signed in with your own app (a SmartThings Developer plan is needed): lights, switches, climate, locks, sensors, Samsung appliances, TVs and scenes, live by server-sent events |
 | [Somfy TaHoma](Plugins/Tahoma) | `Tahoma` | Experimental: Somfy TaHoma and Connexoon (cloud or the gateway's local API), Atlantic Cozytouch and other Overkiz setups: shutters, blinds, awnings, garage doors, gates, locks, alarms, lights, sensors, heaters and water heaters, and scenarios |
 | [Sonos](Plugins/Sonos) | `ZP` | Experimental Sonos zones over UPnP: play, volume and groups, a Speakers service per zone, LEDs, alarms, and a TV per zone with the favourites as inputs |
-| [SwitchBot](Plugins/SwitchBot) | `SwitchBot` | Experimental SwitchBot Bots, curtains, blinds, meters, sensors, locks, lights, plugs and IR remotes, through SwitchBot's cloud and its webhook |
+| [SwitchBot](Plugins/SwitchBot) | `SwitchBot` | Experimental SwitchBot Bots, curtains, blinds, meters, sensors, locks, lights, plugs and IR remotes, through SwitchBot's cloud and its webhook, or locally over Bluetooth LE (meters and sensors from their advertisements, with no request) |
 | [tado°](Plugins/Tado) | `TadoPlatform` | Experimental tado° thermostats, radiator valves, hot water and air conditioners through tado's cloud, within its daily request limit |
 | [TP-Link Kasa](Plugins/TPLinkSmarthome) | `TplinkSmarthome` | Experimental: Kasa plugs, switches, dimmers, power strips and bulbs on the local network, with energy in Eve |
 | [TP-Link Tapo](Plugins/Tapo) | `TapoP100` | Experimental: Tapo P100, P105 and P110 plugs (with energy) and L510E, L520E and L530E bulbs, on the local network (KLAP, or securePassthrough on older firmware) |

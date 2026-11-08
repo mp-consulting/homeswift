@@ -95,8 +95,6 @@ final class LinuxBluetoothCentral: BLECentral, @unchecked Sendable {
         await disableScan()
     }
 
-    func reset() async {}
-
     /// Disable, set the parameters, enable, as noble's `startScanning`; with the extended commands when the
     /// controller refuses the legacy ones.
     private func enableScan(filterDuplicates: Bool) async throws {
@@ -197,7 +195,8 @@ final class LinuxBluetoothCentral: BLECentral, @unchecked Sendable {
                     guard let onDiscover, entry.data.advertises(anyOf: scanServices) else { return nil }
                     return (onDiscover, BLEAdvertisement(
                         identifier: report.address, address: report.address, localName: entry.data.localName,
-                        manufacturerData: entry.data.manufacturerData, rssi: entry.rssi))
+                        manufacturerData: entry.data.manufacturerData, serviceUUIDs: entry.data.services,
+                        serviceData: entry.data.serviceData, rssi: entry.rssi))
                 }
                 if let delivery { delivery.0(delivery.1) }
             }
@@ -299,7 +298,7 @@ final class HCISocket: @unchecked Sendable {
             }
             Glibc.close(descriptor)
         }
-        thread.name = "homeswift.govee.hci"
+        thread.name = "homeswift.hci"
         thread.start()
     }
 
@@ -329,13 +328,19 @@ private final class Cancellation: @unchecked Sendable {
 }
 
 /// An LE connection: the kernel's L2CAP socket on the ATT channel (the kernel creates the LE link when it
-/// connects), and ATT on it: characteristic discovery and write commands. The peripheral's own PDUs are answered
-/// (MTU requests, indications) or dropped (notifications) while reading a response and before each write.
+/// connects), and ATT on it: characteristic discovery, write commands and requests, notifications. The peripheral's
+/// own PDUs are answered (MTU requests, indications) while reading a response, before each write, and every
+/// `pollInterval` while a characteristic is notifying; values go to its stream.
 final class L2CAPConnection: BLEConnection, @unchecked Sendable {
+    static let pollInterval: Duration = .milliseconds(50)
+
     private let descriptor: Int32
-    private let queue = DispatchQueue(label: "homeswift.govee.att")
+    private let queue = DispatchQueue(label: "homeswift.att")
     // On `queue`.
     private var handles: [String: UInt16] = [:]
+    private var characteristics: [ATT.Characteristic] = []
+    private var streams: [UInt16: AsyncStream<Data>.Continuation] = [:]
+    private var poller: Task<Void, Never>?
     private var closed = false
 
     private init(descriptor: Int32) { self.descriptor = descriptor }
@@ -371,6 +376,7 @@ final class L2CAPConnection: BLEConnection, @unchecked Sendable {
                 try self.send(request, cancellation)
                 try discovery.receive(self.response(cancellation))
             }
+            self.characteristics = discovery.characteristics
             for characteristic in discovery.characteristics { self.handles[characteristic.uuid] = characteristic.valueHandle }
             return self.handles[uuid.lowercased()] != nil
         }
@@ -386,15 +392,96 @@ final class L2CAPConnection: BLEConnection, @unchecked Sendable {
         }
     }
 
+    func writeWithResponse(_ data: Data, to characteristic: String) async throws {
+        try await run { cancellation in
+            guard let handle = self.handles[characteristic.lowercased()] else { throw BLEError.noCharacteristic }
+            guard data.count <= ATT.defaultMTU - 3 else { throw BLEError.unavailable("frame of \(data.count) bytes exceeds the ATT MTU") }
+            try self.request(ATT.writeRequest(handle: handle, value: Array(data)), expecting: ATT.writeResponse, cancellation)
+        }
+    }
+
+    func notifications(of characteristic: String) async throws -> AsyncStream<Data> {
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(64))
+        try await run { cancellation in
+            guard let handle = self.handles[characteristic.lowercased()],
+                  let index = self.characteristics.firstIndex(where: { $0.valueHandle == handle }) else { throw BLEError.noCharacteristic }
+            // The descriptors sit between the value and the next characteristic's declaration.
+            let end = index + 1 < self.characteristics.count ? self.characteristics[index + 1].declaration - 1 : 0xffff
+            guard let configuration = try self.descriptor(ATT.clientCharacteristicConfiguration, from: handle + 1, to: end, cancellation) else {
+                throw BLEError.unavailable("the characteristic does not notify")
+            }
+            // Notifications (0x0001) or, for a characteristic that only indicates, indications (0x0002).
+            let properties = self.characteristics[index].properties
+            let value: UInt16 = properties & 0x10 != 0 ? 0x0001 : 0x0002
+            self.streams[handle]?.finish()
+            self.streams[handle] = continuation
+            do {
+                try self.request(ATT.writeRequest(handle: configuration, value: HCI.le16(value)), expecting: ATT.writeResponse, cancellation)
+            } catch {
+                self.streams.removeValue(forKey: handle)?.finish()
+                throw error
+            }
+            if self.poller == nil { self.poller = Task { [weak self] in await self?.poll() } }
+        }
+        return stream
+    }
+
     func disconnect() async throws {
         try await run(open: false) { _ in
-            guard !self.closed else { return }
-            self.closed = true
-            Glibc.close(self.descriptor)
+            self.close()
+        }
+    }
+
+    /// Reads what the peripheral sends while characteristics notify, until the connection closes.
+    private func poll() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.pollInterval)
+            let open = try? await run { cancellation in
+                try self.drain(cancellation)
+                return !self.streams.isEmpty
+            }
+            guard open == true else { return }
         }
     }
 
     // MARK: On `queue`
+
+    private func close() {
+        guard !closed else { return }
+        closed = true
+        poller?.cancel()
+        poller = nil
+        for stream in streams.values { stream.finish() }
+        streams.removeAll()
+        Glibc.close(descriptor)
+    }
+
+    /// Sends a request and reads its response, which must be `expecting` (an error response throws).
+    @discardableResult
+    private func request(_ pdu: [UInt8], expecting opcode: UInt8, _ cancellation: Cancellation) throws -> [UInt8] {
+        try send(pdu, cancellation)
+        let response = try response(cancellation)
+        if let code = ATT.errorCode(response, request: pdu[0]) { throw CharacteristicDiscovery.Failure.error(request: pdu[0], code: code) }
+        guard response.first == opcode else { throw CharacteristicDiscovery.Failure.unexpected(response) }
+        return response
+    }
+
+    /// The handle of the descriptor with this UUID between `start` and `end`, by Find Information requests.
+    private func descriptor(_ uuid: String, from start: UInt16, to end: UInt16, _ cancellation: Cancellation) throws -> UInt16? {
+        var next = start
+        while next <= end, next != 0 {
+            try send(ATT.findInformation(start: next, end: end), cancellation)
+            let response = try response(cancellation)
+            if ATT.errorCode(response, request: ATT.findInformationRequest) == ATT.attributeNotFound { return nil }
+            guard let found = ATT.information(response), let last = found.last, last.handle >= next else {
+                throw CharacteristicDiscovery.Failure.unexpected(response)
+            }
+            if let match = found.first(where: { $0.uuid == uuid }) { return match.handle }
+            guard last.handle < end else { return nil }
+            next = last.handle + 1
+        }
+        return nil
+    }
 
     /// Runs blocking socket work on the connection's queue, on an open socket unless `open` is false; cancelling
     /// the task ends its waits.
@@ -440,7 +527,10 @@ final class L2CAPConnection: BLEConnection, @unchecked Sendable {
         while true {
             let count = buffer.withUnsafeMutableBytes { Glibc.recv(descriptor, $0.baseAddress, $0.count, 0) }
             if count > 0 { return Array(buffer.prefix(count)) }
-            if count == 0 { throw BLEError.unavailable("disconnected") }
+            if count == 0 {
+            close()
+            throw BLEError.unavailable("disconnected")
+        }
             guard errno == EAGAIN || errno == EINTR else { throw SocketError(call: "recv") }
             guard block else { return nil }
             try wait(for: Int16(POLLIN), cancellation)
@@ -467,8 +557,10 @@ final class L2CAPConnection: BLEConnection, @unchecked Sendable {
         switch ATT.classify(pdu) {
         case .response(let response)?: return response
         case .request(let answer)?: try send(answer, cancellation)
-        case .value(_, _, let confirm?)?: try send(confirm, cancellation)
-        case .value?, nil: break
+        case .value(let handle, let value, let confirm)?:
+            streams[handle]?.yield(Data(value))
+            if let confirm { try send(confirm, cancellation) }
+        case nil: break
         }
         return nil
     }
