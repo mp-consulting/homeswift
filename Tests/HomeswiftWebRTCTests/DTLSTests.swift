@@ -46,6 +46,27 @@ import Glibc
         #expect(DTLSCertificate.fingerprintBytes("AA:BB") == nil)
     }
 
+    /// `Character.isHexDigit` takes fullwidth digits, which `UInt8(_:radix:)` does not: a remote SDP's value is read
+    /// as ASCII or not at all, and never traps.
+    @Test func aFullwidthFingerprintIsRefused() throws {
+        let fullwidth = String(repeating: "\u{FF10}\u{FF21}:", count: 32).dropLast()
+        #expect(DTLSCertificate.fingerprintBytes(String(fullwidth)) == nil)
+        let mixed = try DTLSCertificate.generate().fingerprint.replacingOccurrences(of: "A", with: "\u{FF21}")
+        #expect(DTLSCertificate.fingerprintBytes(mixed) == nil)
+        #expect(DTLSCertificate.fingerprintBytes(String(repeating: "\u{0660}", count: 64)) == nil)  // Arabic-Indic zeros
+    }
+
+    @Test func listsOf16BitValuesRoundTrip() throws {
+        var writer = TLSWriter()
+        writer.u16Vector([0xc02b, 0x0403, 1])
+        #expect(writer.bytes == [0, 6, 0xc0, 0x2b, 0x04, 0x03, 0, 1])
+        var reader = TLSReader(writer.bytes)
+        #expect(try reader.u16List() == [0xc02b, 0x0403, 1])
+        var odd = TLSReader([0, 3, 1, 2, 3])
+        #expect(throws: DTLSError.decodeError) { try odd.u16List() }
+        #expect(try TLSExtensions.srtpProfiles(TLSExtensions.useSRTP([1, 2])) == [1, 2])
+    }
+
     @Test func ourCertificateCarriesItsKey() throws {
         let certificate = try DTLSCertificate.generate()
         guard case .p256(let key) = try PeerPublicKey(certificate: certificate.der) else {
@@ -164,11 +185,105 @@ import Glibc
         let other = try DTLSCertificate.generate()
         let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [])
         let client = DTLSTransport(role: .client, certificate: clientCertificate, remoteFingerprint: other.fingerprint, transport: a)
-        let server = DTLSTransport(role: .server, certificate: serverCertificate, remoteFingerprint: clientCertificate.fingerprint, transport: b)
+        let server = DTLSTransport(role: .server, certificate: serverCertificate, remoteFingerprint: clientCertificate.fingerprint, transport: b,
+                                   retransmitTimeout: .milliseconds(100))
         let serverResult = Task { try await server.handshake(timeout: .seconds(10)) }
         await #expect(throws: DTLSError.fingerprintMismatch) { try await client.handshake(timeout: .seconds(10)) }
-        // The client's bad_certificate alert ends the server's handshake.
+        // The client's bad_certificate alert (epoch 0, unauthenticated) ends the server's handshake at its next
+        // retransmission, the alert being the reason given.
+        let clock = ContinuousClock(), start = clock.now
         await #expect(throws: DTLSError.alert(level: 2, description: DTLSConstants.Alert.badCertificate)) { try await serverResult.value }
+        #expect(clock.now - start < .seconds(5))
+    }
+
+    /// The client packs Certificate, ClientKeyExchange, CertificateVerify, ChangeCipherSpec and Finished into one
+    /// datagram: the server reads the ChangeCipherSpec with the keys the ClientKeyExchange before it derived, and the
+    /// handshake ends without waiting out a retransmission.
+    @Test func aPackedClientFlightCompletesWithoutARetransmission() async throws {
+        let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [])
+        let clock = ContinuousClock(), start = clock.now
+        let (client, server) = try await Self.connect(a, b, retransmitTimeout: .seconds(5))
+        #expect(clock.now - start < .seconds(2))
+        // ClientHello, ClientHello with the cookie, the whole flight; HelloVerifyRequest, ServerHello to
+        // ServerHelloDone, ChangeCipherSpec and Finished.
+        #expect(a.sent == 3)
+        #expect(b.sent == 3)
+        await client.close()
+        await server.close()
+    }
+
+    @Test func applicationDataIsAtMostOneTLSRecord() async throws {
+        let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [])
+        let (client, server) = try await Self.connect(a, b)
+        await #expect(throws: DTLSError.recordTooLarge) { try await client.send(application: [UInt8](repeating: 1, count: 16385)) }
+        await #expect(throws: DTLSError.recordTooLarge) { try await client.send(application: [UInt8](repeating: 1, count: 70000)) }
+        let largest = [UInt8](repeating: 2, count: 16384)
+        try await client.send(application: largest)
+        var iterator = server.received.makeAsyncIterator()
+        #expect(await iterator.next() == largest)
+        await client.close()
+        await server.close()
+    }
+
+    /// Before the cookie the server keeps no state: a ClientHello it cannot read is dropped, and the real one after it
+    /// is answered.
+    @Test func anUnreadableClientHelloIsDropped() async throws {
+        let garbage = HandshakeFragment(type: DTLSConstants.HandshakeType.clientHello, length: 3, messageSeq: 0, offset: 0, body: [1, 2, 3])
+        let record = DTLSRecord(type: DTLSConstants.ContentType.handshake, version: DTLSConstants.version, epoch: 0, sequence: 0, fragment: garbage.encode())
+        let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [], injectFromA: [0: record.encode()])
+        let (client, server) = try await Self.connect(a, b)
+        await client.close()
+        await server.close()
+    }
+
+    /// An epoch-0 alert is unauthenticated: one forged into the handshake does not end it when the peer goes on.
+    @Test func aForgedPlaintextAlertDoesNotEndTheHandshake() async throws {
+        let alert = DTLSRecord(type: DTLSConstants.ContentType.alert, version: DTLSConstants.version, epoch: 0, sequence: 9,
+                               fragment: [2, DTLSConstants.Alert.handshakeFailure])
+        // Before the ClientHello with the cookie, and before the client's last flight.
+        let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [], injectFromA: [1: alert.encode(), 2: alert.encode()])
+        let (client, server) = try await Self.connect(a, b, retransmitTimeout: .milliseconds(500))
+        await client.close()
+        await server.close()
+    }
+
+    /// The phase is failed before the alert goes out: while that send is stuck, every caller already has the error.
+    @Test func aFailureIsFinalBeforeItsAlertIsSent() async throws {
+        let clientCertificate = try DTLSCertificate.generate(), serverCertificate = try DTLSCertificate.generate()
+        // The client's third datagram is its bad_certificate alert: held until released.
+        let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [], holdFromA: [2])
+        let client = DTLSTransport(role: .client, certificate: clientCertificate, remoteFingerprint: try DTLSCertificate.generate().fingerprint,
+                                   transport: a)
+        let server = DTLSTransport(role: .server, certificate: serverCertificate, remoteFingerprint: clientCertificate.fingerprint, transport: b)
+        let first = Task { try await client.handshake(timeout: .seconds(10)) }
+        let serverResult = Task { try await server.handshake(timeout: .seconds(10)) }
+        // Released anyway after a while, so that a regression fails on time rather than hanging.
+        let fallback = Task {
+            try? await Task.sleep(for: .seconds(5))
+            a.release()
+        }
+        try await eventually { a.held == 1 }
+        let clock = ContinuousClock(), start = clock.now
+        await #expect(throws: DTLSError.fingerprintMismatch) { try await first.value }
+        await #expect(throws: DTLSError.fingerprintMismatch) { try await client.handshake(timeout: .seconds(10)) }
+        #expect(clock.now - start < .seconds(2))
+        a.release()
+        fallback.cancel()
+        serverResult.cancel()
+        await server.close()
+    }
+
+    /// Both roles over a pipe, handshaken.
+    static func connect(_ a: MemoryPipe, _ b: MemoryPipe, retransmitTimeout: Duration = .milliseconds(100)) async throws -> (DTLSTransport, DTLSTransport) {
+        let clientCertificate = try DTLSCertificate.generate(), serverCertificate = try DTLSCertificate.generate()
+        let client = DTLSTransport(role: .client, certificate: clientCertificate, remoteFingerprint: serverCertificate.fingerprint, transport: a,
+                                   retransmitTimeout: retransmitTimeout)
+        let server = DTLSTransport(role: .server, certificate: serverCertificate, remoteFingerprint: clientCertificate.fingerprint, transport: b,
+                                   retransmitTimeout: retransmitTimeout)
+        async let serverKeys = server.handshake(timeout: .seconds(20))
+        let clientKeys = try await client.handshake(timeout: .seconds(20))
+        #expect(try await serverKeys.material == clientKeys.material)
+        return (client, server)
     }
 
     @Test func aSilentPeerTimesOut() async throws {
@@ -298,6 +413,12 @@ import Glibc
         ])
         defer { client.stop() }
         let exported = try await keys
+        if dropFirst == 0, let first = transport.firstReceived {
+            // s_client packs its last flight; its first retransmission would come a second after it.
+            let elapsed = ContinuousClock.now - first
+            print("DTLS s_client handshake: \(elapsed) from the first datagram, \(transport.received) datagrams in")
+            #expect(elapsed < .milliseconds(800), "the handshake took \(elapsed): s_client retransmitted")
+        }
         let printed = try #require(await client.waitFor("Keying material: "), "\(client.output)")
         #expect(printed.prefix { $0.isHexDigit } == hex(exported.material).uppercased())
         #expect(client.output.contains("ECDHE-ECDSA-AES128-GCM-SHA256"))
@@ -343,36 +464,75 @@ final class MemoryPipe: DatagramTransport, @unchecked Sendable {
     private let continuation: AsyncStream<[UInt8]>.Continuation
     private weak var peer: MemoryPipe?
     private let drop: Set<Int>
+    private let inject: [Int: [UInt8]]
+    private let hold: Set<Int>
     private let lock = NSLock()
     private var count = 0
     private var droppedCount = 0
     private var largestDatagram = 0
+    private var holding: [CheckedContinuation<Void, Never>] = []
+    private var released = false
 
     var sent: Int { lock.withLock { count } }
     var dropped: Int { lock.withLock { droppedCount } }
     var largest: Int { lock.withLock { largestDatagram } }
+    /// Sends suspended by `hold` until `release()`.
+    var held: Int { lock.withLock { holding.count } }
 
-    private init(drop: Set<Int>) {
+    private init(drop: Set<Int>, inject: [Int: [UInt8]] = [:], hold: Set<Int> = []) {
         self.drop = drop
+        self.inject = inject
+        self.hold = hold
         (incoming, continuation) = AsyncStream<[UInt8]>.makeStream()
     }
 
-    static func pair(dropFromA: Set<Int>, dropFromB: Set<Int>) -> (MemoryPipe, MemoryPipe) {
-        let a = MemoryPipe(drop: dropFromA), b = MemoryPipe(drop: dropFromB)
+    /// `injectFromA` delivers a datagram to B before A's send of that index; `holdFromA` suspends those sends of A's.
+    static func pair(dropFromA: Set<Int>, dropFromB: Set<Int>, injectFromA: [Int: [UInt8]] = [:], holdFromA: Set<Int> = []) -> (MemoryPipe, MemoryPipe) {
+        let a = MemoryPipe(drop: dropFromA, inject: injectFromA, hold: holdFromA), b = MemoryPipe(drop: dropFromB)
         a.peer = b
         b.peer = a
         return (a, b)
     }
 
+    func release() {
+        let waiting = lock.withLock {
+            released = true
+            defer { holding = [] }
+            return holding
+        }
+        for waiter in waiting { waiter.resume() }
+    }
+
     func send(_ datagram: [UInt8]) async throws {
-        let deliver = lock.withLock {
+        let (deliver, injected, suspend) = lock.withLock {
             defer { count += 1 }
             largestDatagram = max(largestDatagram, datagram.count)
-            if drop.contains(count) { droppedCount += 1; return false }
-            return true
+            let suspend = hold.contains(count) && !released
+            if drop.contains(count) { droppedCount += 1; return (false, inject[count], suspend) }
+            return (true, inject[count], suspend)
+        }
+        if let injected { peer?.continuation.yield(injected) }
+        if suspend {
+            await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+                let resumeNow = lock.withLock {
+                    if released { return true }
+                    holding.append(waiter)
+                    return false
+                }
+                if resumeNow { waiter.resume() }
+            }
         }
         if deliver { peer?.continuation.yield(datagram) }
     }
+}
+
+/// Waits for `condition`, checking every 10 ms for 5 s at most.
+func eventually(_ condition: () async -> Bool) async throws {
+    for _ in 0..<500 {
+        if await condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    Issue.record("the condition never held")
 }
 
 /// A transport that loses the sends whose index (from 0) it is given.
@@ -384,13 +544,35 @@ final class LossyTransport: DatagramTransport, @unchecked Sendable {
     private var droppedCount = 0
     private var largestDatagram = 0
 
-    var incoming: AsyncStream<[UInt8]> { base.incoming }
+    let incoming: AsyncStream<[UInt8]>
+    private var receivedCount = 0
+    private var firstReceivedAt: ContinuousClock.Instant?
     var dropped: Int { lock.withLock { droppedCount } }
     var largest: Int { lock.withLock { largestDatagram } }
+    /// Datagrams received, and when the first came.
+    var received: Int { lock.withLock { receivedCount } }
+    var firstReceived: ContinuousClock.Instant? { lock.withLock { firstReceivedAt } }
 
     init(_ base: any DatagramTransport, drop: Set<Int>) {
         self.base = base
         self.drop = drop
+        let (stream, continuation) = AsyncStream<[UInt8]>.makeStream(of: [UInt8].self)
+        incoming = stream
+        let source = base.incoming
+        Task { [weak self] in
+            for await datagram in source {
+                self?.noteReceived()
+                continuation.yield(datagram)
+            }
+            continuation.finish()
+        }
+    }
+
+    private func noteReceived() {
+        lock.withLock {
+            receivedCount += 1
+            if firstReceivedAt == nil { firstReceivedAt = .now }
+        }
     }
 
     func send(_ datagram: [UInt8]) async throws {

@@ -41,13 +41,23 @@ public struct DTLSCertificate: Sendable {
     }
 
     /// A fingerprint as SDP or a person writes it, reduced to its bytes: an optional `sha-256 ` prefix, any case,
-    /// colons or not. Nil when it is not 32 bytes of hex.
+    /// colons or not. Nil when it is not 32 bytes of hex. ASCII only: `Character.isHexDigit` also takes fullwidth
+    /// digits, which the value comes from a remote SDP to carry.
     static func fingerprintBytes(_ text: String) -> [UInt8]? {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.lowercased().hasPrefix("sha-256") { text = String(text.dropFirst("sha-256".count)) }
-        let digits = Array(text.filter { $0.isHexDigit })
-        guard digits.count == 64, text.allSatisfy({ $0.isHexDigit || $0 == ":" || $0 == " " }) else { return nil }
-        return stride(from: 0, to: 64, by: 2).map { UInt8(String(digits[$0...$0 + 1]), radix: 16)! }
+        var nibbles: [UInt8] = []
+        for unit in text.utf8 {
+            switch unit {
+            case UInt8(ascii: "0")...UInt8(ascii: "9"): nibbles.append(unit - UInt8(ascii: "0"))
+            case UInt8(ascii: "a")...UInt8(ascii: "f"): nibbles.append(unit - UInt8(ascii: "a") + 10)
+            case UInt8(ascii: "A")...UInt8(ascii: "F"): nibbles.append(unit - UInt8(ascii: "A") + 10)
+            case UInt8(ascii: ":"), UInt8(ascii: " "): continue
+            default: return nil
+            }
+        }
+        guard nibbles.count == 64 else { return nil }
+        return stride(from: 0, to: 64, by: 2).map { nibbles[$0] << 4 | nibbles[$0 + 1] }
     }
 }
 

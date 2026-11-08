@@ -20,6 +20,7 @@ public enum DTLSError: Error, Equatable, CustomStringConvertible {
     case noSharedCipherSuite
     case noSRTPProfile
     case missingCertificate
+    case recordTooLarge
     case alert(level: UInt8, description: UInt8)
     case unexpectedMessage(UInt8)
 
@@ -38,6 +39,7 @@ public enum DTLSError: Error, Equatable, CustomStringConvertible {
         case .noSharedCipherSuite: "the peer offers no cipher suite this side speaks"
         case .noSRTPProfile: "the peer does not negotiate SRTP_AES128_CM_HMAC_SHA1_80"
         case .missingCertificate: "the peer sent no certificate"
+        case .recordTooLarge: "the data is more than a DTLS record carries (16384 bytes)"
         case .alert(let level, let description): "the peer sent alert \(description) (level \(level))"
         case .unexpectedMessage(let type): "unexpected DTLS handshake message \(type)"
         }
@@ -99,6 +101,8 @@ enum DTLSConstants {
     }
 
     static let recordHeaderLength = 13
+    /// TLS's largest plaintext in a record (RFC 5246 section 6.2.1).
+    static let maximumPlaintextLength = 16384
     static let handshakeHeaderLength = 12
 }
 
@@ -114,6 +118,11 @@ struct TLSWriter {
     mutating func vector8(_ value: [UInt8]) { u8(UInt8(value.count)); raw(value) }
     mutating func vector16(_ value: [UInt8]) { u16(UInt16(value.count)); raw(value) }
     mutating func vector24(_ value: [UInt8]) { u24(value.count); raw(value) }
+    /// A list of 16-bit values in a vector16 (cipher suites, groups, signature schemes, SRTP profiles).
+    mutating func u16Vector(_ values: [UInt16]) {
+        u16(UInt16(values.count * 2))
+        for value in values { u16(value) }
+    }
 }
 
 /// Big-endian reads that fail with `decodeError` past the end.
@@ -142,6 +151,13 @@ struct TLSReader {
     mutating func vector8() throws -> [UInt8] { try take(Int(try u8())) }
     mutating func vector16() throws -> [UInt8] { try take(Int(try u16())) }
     mutating func vector24() throws -> [UInt8] { try take(try u24()) }
+    /// A vector16 read as 16-bit values; an odd length is a decode error.
+    mutating func u16List() throws -> [UInt16] {
+        var list = TLSReader(try vector16())
+        var values: [UInt16] = []
+        while !list.isAtEnd { values.append(try list.u16()) }
+        return values
+    }
 }
 
 /// One DTLS record (RFC 6347 section 4.1): type, version, epoch, 48-bit sequence number, fragment.
@@ -308,35 +324,27 @@ struct TLSExtensions {
     /// use_srtp's profiles (RFC 5764 section 4.1.1).
     static func srtpProfiles(_ data: [UInt8]) throws -> [UInt16] {
         var reader = TLSReader(data)
-        var profiles = TLSReader(try reader.vector16())
-        var list: [UInt16] = []
-        while !profiles.isAtEnd { list.append(try profiles.u16()) }
+        let profiles = try reader.u16List()
         _ = try reader.vector8()  // srtp_mki
-        return list
+        return profiles
     }
 
     static func useSRTP(_ profiles: [UInt16]) -> [UInt8] {
-        var list = TLSWriter()
-        for profile in profiles { list.u16(profile) }
         var writer = TLSWriter()
-        writer.vector16(list.bytes)
+        writer.u16Vector(profiles)
         writer.vector8([])
         return writer.bytes
     }
 
+    /// An extension that is one vector16 of 16-bit values (supported_groups, signature_algorithms).
     static func u16List(_ data: [UInt8]) throws -> [UInt16] {
         var reader = TLSReader(data)
-        var list = TLSReader(try reader.vector16())
-        var values: [UInt16] = []
-        while !list.isAtEnd { values.append(try list.u16()) }
-        return values
+        return try reader.u16List()
     }
 
     static func u16Vector(_ values: [UInt16]) -> [UInt8] {
-        var list = TLSWriter()
-        for value in values { list.u16(value) }
         var writer = TLSWriter()
-        writer.vector16(list.bytes)
+        writer.u16Vector(values)
         return writer.bytes
     }
 }
@@ -357,7 +365,7 @@ struct ClientHello {
         writer.raw(random)
         writer.vector8(sessionID)
         writer.vector8(cookie)
-        writer.vector16(cipherSuites.flatMap { STUNMessage.be16($0) })
+        writer.u16Vector(cipherSuites)
         writer.vector8(compressionMethods)
         writer.raw(extensions.encode())
         return writer.bytes
@@ -376,9 +384,7 @@ struct ClientHello {
         random = try reader.take(32)
         sessionID = try reader.vector8()
         cookie = try reader.vector8()
-        var suites = TLSReader(try reader.vector16())
-        cipherSuites = []
-        while !suites.isAtEnd { cipherSuites.append(try suites.u16()) }
+        cipherSuites = try reader.u16List()
         compressionMethods = try reader.vector8()
         extensions = try TLSExtensions(reading: &reader)
     }

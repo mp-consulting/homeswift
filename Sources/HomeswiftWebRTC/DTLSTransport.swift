@@ -18,7 +18,10 @@ public protocol DatagramTransport: Sendable {
 /// Records carry an epoch and a 48-bit sequence number, several to a datagram; handshake messages are fragmented to
 /// the MTU and reassembled; the last flight is sent again when the timer runs out (1 s, doubling, a bounded number of
 /// times) or when the peer repeats its own; a server answers the first ClientHello with a stateless HelloVerifyRequest
-/// cookie (an HMAC of the hello). No anti-replay window. Keys, secrets and handshake bodies never reach a log.
+/// cookie (an HMAC of the hello), and drops a ClientHello it cannot read, keeping no state before the cookie. A fatal
+/// alert in epoch 0 is unauthenticated: during the handshake it ends it only when nothing else arrives before the next
+/// retransmission (or the deadline), and it is then the error reported. No anti-replay window. Keys, secrets and
+/// handshake bodies never reach a log.
 public actor DTLSTransport {
     public let role: DTLSRole
     public let certificate: DTLSCertificate
@@ -29,7 +32,7 @@ public actor DTLSTransport {
     private let transport: any DatagramTransport
     private let remoteFingerprint: [UInt8]?
     private let mtu: Int
-    private let retransmitTimeout: Duration
+    private let retransmissions: Backoff
     private let maximumRetransmissions: Int
 
     private enum Phase {
@@ -79,6 +82,8 @@ public actor DTLSTransport {
     private var masterSecret: [UInt8] = []
     private var lastClientHelloRecordSeq: UInt64 = 0
     private let cookieSecret = SymmetricKey(size: .bits256)
+    /// A fatal alert (or close_notify) the peer sent in epoch 0 during the handshake, until a message makes progress.
+    private var peerAlert: DTLSError?
 
     // Retransmission
     private var lastFlight: [FlightItem] = []
@@ -101,7 +106,7 @@ public actor DTLSTransport {
         self.remoteFingerprint = DTLSCertificate.fingerprintBytes(remoteFingerprint)
         self.transport = transport
         self.mtu = max(mtu, 128)
-        self.retransmitTimeout = retransmitTimeout
+        retransmissions = Backoff(initial: retransmitTimeout, maximum: .seconds(60))
         self.maximumRetransmissions = maximumRetransmissions
         step = role == .client ? .awaitServerHello : .awaitClientHello
         (received, receivedContinuation) = AsyncStream<[UInt8]>.makeStream(bufferingPolicy: .bufferingNewest(512))
@@ -123,7 +128,7 @@ public actor DTLSTransport {
             }
             deadline = Task { [weak self] in
                 do { try await Task.sleep(for: timeout) } catch { return }
-                await self?.fail(.timeout, alert: nil)
+                await self?.timedOut()
             }
             if role == .client { await sendClientHello(cookie: []) }
         }
@@ -145,6 +150,7 @@ public actor DTLSTransport {
     /// Sends application data (one record) once the handshake has completed.
     public func send(application data: [UInt8]) async throws {
         guard case .connected = phase else { throw DTLSError.notConnected }
+        guard data.count <= DTLSConstants.maximumPlaintextLength else { throw DTLSError.recordTooLarge }
         let record = try makeRecord(type: DTLSConstants.ContentType.applicationData, epoch: 1, plaintext: data)
         try await transport.send(record)
     }
@@ -154,8 +160,7 @@ public actor DTLSTransport {
         if case .connected = phase, let alert = try? makeRecord(type: DTLSConstants.ContentType.alert, epoch: 1, plaintext: [1, DTLSConstants.Alert.closeNotify]) {
             try? await transport.send(alert)
         }
-        finish(.closed)
-        phase = .closed
+        shutDown()
     }
 
     // MARK: Ending
@@ -165,11 +170,26 @@ public actor DTLSTransport {
             if case .idle = phase { phase = .failed(error) }
             return
         }
+        // The phase and the waiters before the alert's await: nothing processed meanwhile completes the handshake, and
+        // nobody waits on the send. The reader, which may be this task, is cancelled once the alert is out.
+        phase = .failed(error)
+        let reading = reader
+        reader = nil
+        finish(error)
         if let alert, let record = try? makeRecord(type: DTLSConstants.ContentType.alert, epoch: writeEpoch, plaintext: [2, alert]) {
             try? await transport.send(record)
         }
-        phase = .failed(error)
-        finish(error)
+        reading?.cancel()
+    }
+
+    /// The deadline or the last retransmission passed: the peer's epoch-0 alert, when it sent one, says why.
+    private func timedOut() async {
+        await fail(peerAlert ?? .timeout, alert: nil)
+    }
+
+    private func shutDown() {
+        finish(.closed)
+        phase = .closed
     }
 
     private func finish(_ error: DTLSError) {
@@ -182,6 +202,7 @@ public actor DTLSTransport {
     }
 
     private func complete() {
+        guard case .handshaking = phase else { return }
         let material = TLSPRF.prf(secret: masterSecret, label: SRTPKeys.exporterLabel, seed: clientRandom + serverRandom, length: SRTPKeys.length)
         let exported = SRTPKeys(material: material, role: role)
         keys = exported
@@ -237,16 +258,14 @@ public actor DTLSTransport {
         lastFlight = flight
         timer?.cancel()
         if retransmit {
-            let initial = retransmitTimeout, maximum = maximumRetransmissions
+            let backoff = retransmissions, maximum = maximumRetransmissions
             timer = Task { [weak self] in
-                var wait = initial
-                for _ in 0..<maximum {
-                    do { try await Task.sleep(for: wait) } catch { return }
+                for attempt in 0..<maximum {
+                    do { try await Task.sleep(for: backoff.delay(attempt: attempt)) } catch { return }
                     guard let self, await self.retransmitIfWaiting() else { return }
-                    wait = min(wait * 2, .seconds(60))
                 }
-                do { try await Task.sleep(for: wait) } catch { return }
-                await self?.fail(.timeout, alert: nil)
+                do { try await Task.sleep(for: backoff.delay(attempt: maximum)) } catch { return }
+                await self?.timedOut()
             }
         }
         await send(flight: flight)
@@ -254,6 +273,10 @@ public actor DTLSTransport {
 
     private func retransmitIfWaiting() async -> Bool {
         guard case .handshaking = phase else { return false }
+        if peerAlert != nil {
+            await timedOut()
+            return false
+        }
         await send(flight: lastFlight)
         return true
     }
@@ -269,8 +292,11 @@ public actor DTLSTransport {
         // RFC 7983: only 20-63 is DTLS.
         guard let first = datagram.first, (20...63).contains(first) else { return }
         var duplicate = false
+        // Each record's messages are processed before the next record is read: a ChangeCipherSpec packed after the
+        // ClientKeyExchange needs the keys that message derives.
         for record in DTLSRecord.decodeAll(datagram) {
             if await handle(record: record) { duplicate = true }
+            await processMessages()
         }
         if duplicate {
             switch phase {
@@ -279,7 +305,6 @@ public actor DTLSTransport {
             default: break
             }
         }
-        await processMessages()
     }
 
     /// Takes one record in; true when it repeats a handshake message already processed (the peer lost this side's flight).
@@ -310,13 +335,19 @@ public actor DTLSTransport {
             return duplicate
         case DTLSConstants.ContentType.alert:
             guard plaintext.count >= 2 else { return false }
-            if plaintext[1] == DTLSConstants.Alert.closeNotify {
-                if case .handshaking = phase { await fail(.closed, alert: nil) } else { finish(.closed); phase = .closed }
-            } else if plaintext[0] == 2 {
-                if case .handshaking = phase { await fail(.alert(level: plaintext[0], description: plaintext[1]), alert: nil) } else {
-                    finish(.closed)
-                    phase = .closed
-                }
+            let level = plaintext[0], description = plaintext[1]
+            let closing = description == DTLSConstants.Alert.closeNotify
+            guard closing || level == 2 else { return false }  // a warning
+            guard case .handshaking = phase else {
+                shutDown()
+                return false
+            }
+            let error: DTLSError = closing ? .closed : .alert(level: level, description: description)
+            if record.epoch == 0 {
+                // Unauthenticated: anyone who sees the 5-tuple can forge it, so it waits for the retransmission timer.
+                peerAlert = error
+            } else {
+                await fail(error, alert: nil)
             }
             return false
         case DTLSConstants.ContentType.handshake:
@@ -350,6 +381,7 @@ public actor DTLSTransport {
             if step != .awaitClientHello { nextReceiveSeq = message.messageSeq &+ 1 }
             do {
                 try await process(message)
+                peerAlert = nil
             } catch let error as DTLSError {
                 await fail(error, alert: Self.alert(for: error))
             } catch {
@@ -564,7 +596,11 @@ public actor DTLSTransport {
 
     private func receiveClientHello(_ message: HandshakeMessage) async throws {
         typealias H = DTLSConstants.HandshakeType
-        let hello = try ClientHello(message.body)
+        guard let hello = try? ClientHello(message.body) else {
+            // Before the cookie a server keeps no state (RFC 6347 section 4.2.1): a hello it cannot read is dropped.
+            reassembler.removeAll()
+            return
+        }
         let expected = cookie(for: hello)
         guard Secrets.constantTimeEqual(hello.cookie, expected) else {
             // Stateless: answer with a cookie and forget the hello. The HelloVerifyRequest takes the ClientHello's
@@ -620,7 +656,7 @@ public actor DTLSTransport {
 
         var request = TLSWriter()
         request.vector8([64, 1])  // ecdsa_sign, rsa_sign
-        request.vector16(DTLSConstants.signatureSchemes.flatMap { STUNMessage.be16($0) })
+        request.u16Vector(DTLSConstants.signatureSchemes)
         request.vector16([])
         let certificateRequest = self.message(H.certificateRequest, request.bytes)
         let done = self.message(H.serverHelloDone, [])
@@ -639,32 +675,32 @@ public actor UDPPeerTransport: DatagramTransport {
     private let socket: UDPSocket
     private var remote: (host: String, port: Int)?
     public nonisolated let incoming: AsyncStream<[UInt8]>
-    private var forwarder: Task<Void, Never>?
+    private nonisolated let continuation: AsyncStream<[UInt8]>.Continuation
+    private var closed = false
     private var remoteWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// `socket` must be bound with `senderPorts: true`.
     public init(socket: UDPSocket, remoteHost: String? = nil, remotePort: Int? = nil) {
         self.socket = socket
         if let remoteHost, let remotePort { remote = (remoteHost, remotePort) }
-        let (stream, continuation) = AsyncStream<[UInt8]>.makeStream(bufferingPolicy: .bufferingNewest(512))
+        let (stream, continuation) = AsyncStream<[UInt8]>.makeStream(of: [UInt8].self, bufferingPolicy: .bufferingNewest(512))
         incoming = stream
+        self.continuation = continuation
         let datagrams = socket.datagramsWithPorts
+        // One forwarder: it ends with the socket's stream (closing the socket finishes it), when this transport is
+        // gone, or at its first datagram after `close()`, which may come before the task has even started.
         Task { [weak self] in
-            await self?.start(datagrams: datagrams, continuation: continuation)
-        }
-    }
-
-    private func start(datagrams: AsyncStream<UDPSocket.Datagram>, continuation: AsyncStream<[UInt8]>.Continuation) {
-        forwarder = Task { [weak self] in
             for await datagram in datagrams {
-                guard let self else { break }
-                if await self.accept(from: datagram.address, port: datagram.port) { continuation.yield(Array(datagram.data)) }
+                guard let self, let accepted = await self.accept(from: datagram.address, port: datagram.port) else { break }
+                if accepted { continuation.yield(Array(datagram.data)) }
             }
             continuation.finish()
         }
     }
 
-    private func accept(from host: String, port: Int) -> Bool {
+    /// Whether a datagram from this address is the peer's; nil once closed.
+    private func accept(from host: String, port: Int) -> Bool? {
+        guard !closed else { return nil }
         guard let remote else {
             remote = (host, port)
             for waiter in remoteWaiters { waiter.resume() }
@@ -675,13 +711,14 @@ public actor UDPPeerTransport: DatagramTransport {
     }
 
     public func send(_ datagram: [UInt8]) async throws {
-        if remote == nil { await withCheckedContinuation { remoteWaiters.append($0) } }
-        guard let remote else { throw DTLSError.notConnected }
+        if remote == nil, !closed { await withCheckedContinuation { remoteWaiters.append($0) } }
+        guard !closed, let remote else { throw DTLSError.notConnected }
         try await socket.send(Data(datagram), to: remote.host, port: remote.port)
     }
 
     public func close() async {
-        forwarder?.cancel()
+        closed = true
+        continuation.finish()
         for waiter in remoteWaiters { waiter.resume() }
         remoteWaiters = []
         await socket.close()
