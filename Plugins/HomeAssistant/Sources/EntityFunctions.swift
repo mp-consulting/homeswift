@@ -26,7 +26,12 @@ struct EntityLink: Sendable {
 
     /// Calls a service on this entity; a refused or failed call is HomeKit's Service Communication Failure (section 6).
     func call(_ domain: String, _ service: String, _ data: [String: JSONValue] = [:]) async throws {
-        try await send(ServiceCall(domain: domain, service: service, data: data, entityID: entityID))
+        try await deliver(ServiceCall(domain: domain, service: service, data: data, entityID: entityID))
+    }
+
+    /// Sends a call as it is (a script's own service); a refused or failed call is HomeKit's Service Communication Failure.
+    func deliver(_ call: ServiceCall) async throws {
+        do { try await send(call) } catch { throw communicationFailure(error) }
     }
 }
 
@@ -51,7 +56,7 @@ class EntityFunction: @unchecked Sendable {
 }
 
 /// Characteristic writes gathered for `window` and handed over in arrival order (section 6); each write waits for the call
-/// that carries it, so its error reaches HomeKit.
+/// that carries it, so its error reaches HomeKit. Lights gather theirs with the shared `LightChangeBatcher`.
 actor WriteBatch {
     private let window: Duration
     private let commit: @Sendable ([(String, HAPValue)]) async throws -> Void
@@ -121,10 +126,9 @@ final class LightFunction: EntityFunction, @unchecked Sendable {
     /// A fixed white (rgbw or white without `color_temp`): Color Temperature min = max, written as rgbw or white.
     let fixedWhite: String?
     let mireds: ClosedRange<Int>
-    private let link: EntityLink
-    private var batch: WriteBatch!
-    /// When this bridge last wrote: a colour report right after is its echo, not a change made elsewhere.
-    private let lastWrite = LockedInstant()
+    /// The writes of one change, gathered into one call (section 6); when it last sent, a colour report right after is its
+    /// echo, not a change made elsewhere.
+    private let writer: LightChangeBatcher
     private(set) weak var adaptiveLighting: AdaptiveLightingController?
 
     override var category: AccessoryCategory { .lightbulb }
@@ -147,7 +151,6 @@ final class LightFunction: EntityFunction, @unchecked Sendable {
         if low > high { swap(&low, &high) }
         if fixedWhite != nil { high = low }
         mireds = low...high
-        self.link = link
         var optional: [CharacteristicType] = []
         if hasBrightness { optional.append(.brightness) }
         if hasColor { optional += [.hue, .saturation] }
@@ -155,14 +158,33 @@ final class LightFunction: EntityFunction, @unchecked Sendable {
             optional.append(.colorTemperature.with(minValue: Double(mireds.lowerBound), maxValue: Double(mireds.upperBound)))
         }
         let service = Service(.lightbulb, name: state.friendlyName, subtype: key, optional: optional, isPrimary: isPrimary)
+        let (hasColorTemperature, fixedWhite) = (hasColorTemperature, fixedWhite)
+        let writer = LightChangeBatcher(window: link.batchWindow) { [weak service] changes in
+            guard let service else { return }
+            try await Self.commit(changes, link: link, service: service, hasColorTemperature: hasColorTemperature, fixedWhite: fixedWhite)
+        }
+        self.writer = writer
         super.init(entityID: state.entityID, service: service)
-        batch = WriteBatch(window: link.batchWindow) { [weak self] entries in try await self?.commit(entries) }
-        let batch = self.batch!
-        service.characteristic(.on).onWrite { value in try await batch.set("on", value) }
-        service[.brightness]?.onWrite { value in try await batch.set("brightness", value) }
-        service[.hue]?.onWrite { value in try await batch.set("hue", value) }
-        service[.saturation]?.onWrite { value in try await batch.set("saturation", value) }
-        service[.colorTemperature]?.onWrite { value in try await batch.set("ct", value) }
+        service.characteristic(.on).onWrite { value in
+            guard let on = value.boolValue else { return }
+            try await writer.set(.on(on))
+        }
+        service[.brightness]?.onWrite { value in
+            guard let level = value.intValue ?? value.doubleValue.flatMap({ Int(saturating: $0) }) else { return }
+            try await writer.set(.brightness(Double(level)))
+        }
+        service[.hue]?.onWrite { value in
+            guard let hue = value.doubleValue else { return }
+            try await writer.set(.hue(hue))
+        }
+        service[.saturation]?.onWrite { value in
+            guard let saturation = value.doubleValue else { return }
+            try await writer.set(.saturation(saturation))
+        }
+        service[.colorTemperature]?.onWrite { value in
+            guard let mired = value.intValue else { return }
+            try await writer.set(.mirek(mired))
+        }
     }
 
     var canHaveAdaptiveLighting: Bool { hasBrightness && hasColorTemperature }
@@ -200,72 +222,51 @@ final class LightFunction: EntityFunction, @unchecked Sendable {
             }
         }
         // A colour or white set elsewhere (HA's own UI, a remote) ends Adaptive Lighting; this bridge's echo does not.
-        if let adaptiveLighting, on, !lastWrite.within(.seconds(2)) {
+        if let adaptiveLighting, on {
+            let changed: Int??
             if let mode, Self.colorModes.contains(mode) {
-                adaptiveLighting.disableIfChangedElsewhere(mireds: nil)
+                changed = .some(nil)
             } else if mode == "color_temp", let kelvin = state.double("color_temp_kelvin"), kelvin > 0 {
-                adaptiveLighting.disableIfChangedElsewhere(mireds: Int((1_000_000 / kelvin).rounded(.down)))
+                changed = Int((1_000_000 / kelvin).rounded(.down))
+            } else {
+                changed = nil
             }
-        }
-    }
-
-    /// One call per batch (7.1): off, or `turn_on` with what was written.
-    func commit(_ entries: [(String, HAPValue)]) async throws {
-        var on: Bool?, brightness: Int?, hue: Double?, saturation: Double?, mired: Int?
-        for (key, value) in entries {
-            switch key {
-            case "on": on = value.boolValue
-            case "brightness": brightness = value.intValue ?? value.doubleValue.flatMap { Int(saturating: $0) }
-            case "hue": hue = value.doubleValue; mired = nil
-            case "saturation": saturation = value.doubleValue; mired = nil
-            case "ct": mired = value.intValue; hue = nil; saturation = nil
-            default: break
-            }
-        }
-        lastWrite.mark()
-        do {
-            if on == false || brightness == 0 {
-                try await link.call("light", "turn_off")
-                return
-            }
-            var data: [String: JSONValue] = [:]
-            if let mired, mired > 0 {
-                if hasColorTemperature {
-                    data["color_temp_kelvin"] = .number((1_000_000 / Double(mired)).rounded(.down))
-                } else if let fixedWhite {
-                    let current = brightness ?? service[.brightness]?.value.intValue ?? 100
-                    let level = JSONValue.number((Double(current) * 255 / 100).rounded())
-                    data[fixedWhite == "rgbw" ? "rgbw_color" : "white"] = fixedWhite == "rgbw" ? .array([0, 0, 0, level]) : level
+            if let changed {
+                let writer = writer
+                Task {
+                    guard await !writer.isSettling(within: .seconds(2)) else { return }
+                    adaptiveLighting.disableIfChangedElsewhere(mireds: changed)
                 }
             }
-            if hue != nil || saturation != nil {
-                let h = hue ?? service[.hue]?.value.doubleValue ?? 0
-                let s = saturation ?? service[.saturation]?.value.doubleValue ?? 0
-                data["hs_color"] = .array([.number(h), .number(s)])
-            }
-            if let brightness, data["rgbw_color"] == nil, data["white"] == nil { data["brightness_pct"] = .number(Double(brightness)) }
-            try await link.call("light", "turn_on", data)
-        } catch {
-            throw communicationFailure(error)
         }
     }
-}
 
-/// An instant behind a lock, for a class that a closure and a state update both reach.
-final class LockedInstant: @unchecked Sendable {
-    private let lock = NSLock()
-    private var instant: ContinuousClock.Instant?
-
-    func mark() {
-        lock.lock()
-        instant = .now
-        lock.unlock()
-    }
-
-    func within(_ duration: Duration) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return instant.map { ContinuousClock.now - $0 < duration } ?? false
+    /// One call per batch (7.1): off, or `turn_on` with what was written; a colour and a white replace each other.
+    static func commit(
+        _ changes: LightChangeBatcher.Changes, link: EntityLink, service: Service, hasColorTemperature: Bool, fixedWhite: String?
+    ) async throws {
+        let brightness = changes.brightness.map { Int($0) }
+        if changes.on == false || brightness == 0 {
+            try await link.call("light", "turn_off")
+            return
+        }
+        var data: [String: JSONValue] = [:]
+        if let mired = changes.mirek, mired > 0 {
+            if hasColorTemperature {
+                data["color_temp_kelvin"] = .number((1_000_000 / Double(mired)).rounded(.down))
+            } else if let fixedWhite {
+                let current = brightness ?? service[.brightness]?.value.intValue ?? 100
+                let level = JSONValue.number((Double(current) * 255 / 100).rounded())
+                data[fixedWhite == "rgbw" ? "rgbw_color" : "white"] = fixedWhite == "rgbw" ? .array([0, 0, 0, level]) : level
+            }
+        }
+        if changes.hue != nil || changes.saturation != nil {
+            let h = changes.hue ?? service[.hue]?.value.doubleValue ?? 0
+            let s = changes.saturation ?? service[.saturation]?.value.doubleValue ?? 0
+            data["hs_color"] = .array([.number(h), .number(s)])
+        }
+        if let brightness, data["rgbw_color"] == nil, data["white"] == nil { data["brightness_pct"] = .number(Double(brightness)) }
+        try await link.call("light", "turn_on", data)
     }
 }
 
@@ -282,7 +283,7 @@ final class SwitchFunction: EntityFunction, @unchecked Sendable {
         if isOutlet { service.characteristic(.outletInUse).value = .bool(true) }
         let domain = state.domain
         service.characteristic(.on).onWrite { value in
-            do { try await link.call(domain, value.boolValue == true ? "turn_on" : "turn_off") } catch { throw communicationFailure(error) }
+            try await link.call(domain, value.boolValue == true ? "turn_on" : "turn_off")
         }
     }
 
@@ -305,14 +306,10 @@ final class MomentaryFunction: EntityFunction, @unchecked Sendable {
         on.onWrite { [weak on] value in
             // Off is ignored: the switch turns itself off.
             guard value.boolValue == true else { return }
-            do {
-                switch domain {
-                case "scene": try await link.call("scene", "turn_on")
-                case "script": try await link.send(ServiceCall(domain: "script", service: objectID, data: [:], entityID: nil))
-                default: try await link.call(domain, "press")
-                }
-            } catch {
-                throw communicationFailure(error)
+            switch domain {
+            case "scene": try await link.call("scene", "turn_on")
+            case "script": try await link.deliver(ServiceCall(domain: "script", service: objectID, data: [:], entityID: nil))
+            default: try await link.call(domain, "press")
             }
             on?.revert(to: .bool(false), after: link.momentaryReset)
         }
@@ -376,7 +373,7 @@ final class CoverFunction: EntityFunction, @unchecked Sendable {
             let current = service.characteristic(.currentDoorState)
             service.characteristic(.targetDoorState).onWrite { [weak current] value in
                 let open = value.intValue == 0
-                do { try await link.call("cover", open ? "open_cover" : "close_cover") } catch { throw communicationFailure(error) }
+                try await link.call("cover", open ? "open_cover" : "close_cover")
                 // HA shows the door moving at once (opening 2, closing 3) when it is not there yet.
                 if let current, current.value.intValue != (open ? 0 : 1) { current.value = .int(open ? 2 : 3) }
             }
@@ -392,7 +389,7 @@ final class CoverFunction: EntityFunction, @unchecked Sendable {
                 } else {
                     (call, position) = wanted >= 50 ? ("open_cover", 100) : ("close_cover", 0)
                 }
-                do { try await link.call("cover", call) } catch { throw communicationFailure(error) }
+                try await link.call("cover", call)
                 currentPosition?.value = .int(position)
                 targetPosition?.revert(to: .int(position), after: .zero)
             }
@@ -400,20 +397,20 @@ final class CoverFunction: EntityFunction, @unchecked Sendable {
             break
         default:
             service.characteristic(.targetPosition).onWrite { value in
-                do { try await link.call("cover", "set_cover_position", ["position": .number(Double(value.intValue ?? 0))]) } catch { throw communicationFailure(error) }
+                try await link.call("cover", "set_cover_position", ["position": .number(Double(value.intValue ?? 0))])
             }
         }
         if hasStop, kind != .garage, kind != .tiltOnly {
             service[.holdPosition]?.onWrite { value in
                 guard value.boolValue == true else { return }
-                do { try await link.call("cover", "stop_cover") } catch { throw communicationFailure(error) }
+                try await link.call("cover", "stop_cover")
             }
         }
         if hasTilt {
             service[.targetHorizontalTiltAngle]?.onWrite { value in
                 let angle = Double(value.intValue ?? 0)
                 let tilt = ((angle + 90) / 180 * 100).rounded()
-                do { try await link.call("cover", "set_cover_tilt_position", ["tilt_position": .number(tilt)]) } catch { throw communicationFailure(error) }
+                try await link.call("cover", "set_cover_tilt_position", ["tilt_position": .number(tilt)])
             }
         }
     }
@@ -474,7 +471,7 @@ final class LockFunction: EntityFunction, @unchecked Sendable {
         service.characteristic(.lockTargetState).securityControl().onWrite { value in
             var data: [String: JSONValue] = [:]
             if let code = link.lockCode { data["code"] = .string(code) }
-            do { try await link.call("lock", value.intValue == 1 ? "lock" : "unlock", data) } catch { throw communicationFailure(error) }
+            try await link.call("lock", value.intValue == 1 ? "lock" : "unlock", data)
         }
     }
 
@@ -501,7 +498,6 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
     let modes: [Int: String]
     let range: ClosedRange<Double>
     private let link: EntityLink
-    private var batch: WriteBatch!
     override var category: AccessoryCategory { .thermostat }
 
     static func shape(_ state: EntityState) -> String {
@@ -555,8 +551,7 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
         super.init(entityID: state.entityID, service: service)
         service.characteristic(.temperatureDisplayUnits).value = .int(fahrenheit ? 1 : 0)
         service.characteristic(.targetTemperature).value = .double(min(maximum, max(minimum, 20)))
-        batch = WriteBatch(window: link.batchWindow) { [weak self] entries in try await self?.commit(entries) }
-        let batch = self.batch!
+        let batch = WriteBatch(window: link.batchWindow) { [weak self] entries in try await self?.commit(entries) }
         service.characteristic(.targetHeatingCoolingState).onWrite { try await batch.set("mode", $0) }
         service.characteristic(.targetTemperature).onWrite { try await batch.set("target", $0) }
         service[.coolingThresholdTemperature]?.onWrite { try await batch.set("cool", $0) }
@@ -610,44 +605,40 @@ final class ClimateFunction: EntityFunction, @unchecked Sendable {
             if written[key] == nil { order.append(key) }
             written[key] = value.doubleValue ?? value.intValue.map(Double.init)
         }
-        do {
-            for key in order {
-                switch key {
-                case "mode":
-                    guard let value = written["mode"].map({ Int($0) }) else { continue }
-                    var mode = modes[value]
-                    if mode == nil {
-                        // A mode the device lacks (Siri's Auto on a heater): heat first, cool first when the target is below now.
-                        let current = service.characteristic(.currentTemperature).value.doubleValue ?? 0
-                        let fallback = (written["target"].map { $0 < current } ?? false) ? [3, 2, 1, 0] : [3, 1, 2, 0]
-                        if let first = fallback.first(where: { modes[$0] != nil }) {
-                            mode = modes[first]
-                            service.characteristic(.targetHeatingCoolingState).revert(to: .int(first), after: .zero)
-                        }
+        for key in order {
+            switch key {
+            case "mode":
+                guard let value = written["mode"].map({ Int($0) }) else { continue }
+                var mode = modes[value]
+                if mode == nil {
+                    // A mode the device lacks (Siri's Auto on a heater): heat first, cool first when the target is below now.
+                    let current = service.characteristic(.currentTemperature).value.doubleValue ?? 0
+                    let fallback = (written["target"].map { $0 < current } ?? false) ? [3, 2, 1, 0] : [3, 1, 2, 0]
+                    if let first = fallback.first(where: { modes[$0] != nil }) {
+                        mode = modes[first]
+                        service.characteristic(.targetHeatingCoolingState).revert(to: .int(first), after: .zero)
                     }
-                    if let mode { try await link.call("climate", "set_hvac_mode", ["hvac_mode": .string(mode)]) }
-                case "target":
-                    guard let value = written["target"] else { continue }
-                    let mode = modes[Int(written["mode"] ?? Double(service.characteristic(.targetHeatingCoolingState).value.intValue ?? 0))]
-                    if hasTarget {
-                        try await link.call("climate", "set_temperature", ["temperature": toServer(value)])
-                    } else if hasRange, mode == "heat" {
-                        try await setThresholds(heat: value, cool: nil)
-                    } else if hasRange, mode == "cool" {
-                        try await setThresholds(heat: nil, cool: value)
-                    }
-                case "cool", "heat":
-                    guard written["cool"] != nil || written["heat"] != nil, order.firstIndex(of: key) == order.firstIndex(where: { $0 == "cool" || $0 == "heat" }) else { continue }
-                    try await setThresholds(heat: written["heat"], cool: written["cool"])
-                case "humidity":
-                    guard let value = written["humidity"] else { continue }
-                    try await link.call("climate", "set_humidity", ["humidity": .number(value.rounded())])
-                default:
-                    break
                 }
+                if let mode { try await link.call("climate", "set_hvac_mode", ["hvac_mode": .string(mode)]) }
+            case "target":
+                guard let value = written["target"] else { continue }
+                let mode = modes[Int(written["mode"] ?? Double(service.characteristic(.targetHeatingCoolingState).value.intValue ?? 0))]
+                if hasTarget {
+                    try await link.call("climate", "set_temperature", ["temperature": toServer(value)])
+                } else if hasRange, mode == "heat" {
+                    try await setThresholds(heat: value, cool: nil)
+                } else if hasRange, mode == "cool" {
+                    try await setThresholds(heat: nil, cool: value)
+                }
+            case "cool", "heat":
+                guard written["cool"] != nil || written["heat"] != nil, order.firstIndex(of: key) == order.firstIndex(where: { $0 == "cool" || $0 == "heat" }) else { continue }
+                try await setThresholds(heat: written["heat"], cool: written["cool"])
+            case "humidity":
+                guard let value = written["humidity"] else { continue }
+                try await link.call("climate", "set_humidity", ["humidity": .number(value.rounded())])
+            default:
+                break
             }
-        } catch {
-            throw communicationFailure(error)
         }
     }
 
@@ -831,7 +822,6 @@ final class FanFunction: EntityFunction, @unchecked Sendable {
     let presets: [String]
     private var presetSwitches: [String: Service] = [:]
     private let link: EntityLink
-    private var batch: WriteBatch!
     override var extraServices: [Service] { presets.count > 1 ? presets.compactMap { presetSwitches[$0] } : [] }
     override var category: AccessoryCategory { .fan }
 
@@ -859,17 +849,14 @@ final class FanFunction: EntityFunction, @unchecked Sendable {
         for (preset, switchService) in zip(presets, switches) {
             presetSwitches[preset] = switchService
             switchService.characteristic(.on).onWrite { value in
-                do {
-                    if value.boolValue == true {
-                        try await link.call("fan", "set_preset_mode", ["preset_mode": .string(preset)])
-                    } else {
-                        try await link.call("fan", "turn_on")
-                    }
-                } catch { throw communicationFailure(error) }
+                if value.boolValue == true {
+                    try await link.call("fan", "set_preset_mode", ["preset_mode": .string(preset)])
+                } else {
+                    try await link.call("fan", "turn_on")
+                }
             }
         }
-        batch = WriteBatch(window: link.batchWindow) { [weak self] entries in try await self?.commit(entries) }
-        let batch = self.batch!
+        let batch = WriteBatch(window: link.batchWindow) { [weak self] entries in try await self?.commit(entries) }
         service.characteristic(.active).onWrite { try await batch.set("active", $0) }
         service[.rotationSpeed]?.onWrite { try await batch.set("speed", $0) }
         service[.swingMode]?.onWrite { try await batch.set("swing", $0) }
@@ -894,30 +881,26 @@ final class FanFunction: EntityFunction, @unchecked Sendable {
     func commit(_ entries: [(String, HAPValue)]) async throws {
         var written: [String: HAPValue] = [:]
         for (key, value) in entries { written[key] = value }
-        do {
-            if written["active"]?.intValue == 0 {
-                try await link.call("fan", "turn_off")
-                return
+        if written["active"]?.intValue == 0 {
+            try await link.call("fan", "turn_off")
+            return
+        }
+        if let speed = written["speed"]?.doubleValue ?? written["speed"]?.intValue.map(Double.init) {
+            try await link.call("fan", "set_percentage", ["percentage": .number(speed.rounded())])
+        } else if written["active"]?.intValue == 1 {
+            try await link.call("fan", "turn_on")
+        }
+        if let swing = written["swing"]?.intValue { try await link.call("fan", "oscillate", ["oscillating": .bool(swing == 1)]) }
+        if let direction = written["direction"]?.intValue {
+            try await link.call("fan", "set_direction", ["direction": .string(direction == 1 ? "reverse" : "forward")])
+        }
+        if let preset = written["preset"]?.intValue, let only = presets.first {
+            if preset == 1 {
+                try await link.call("fan", "set_preset_mode", ["preset_mode": .string(only)])
+            } else {
+                let current = service[.rotationSpeed]?.value.doubleValue ?? 50
+                try await link.call("fan", "turn_on", ["percentage": .number(current > 0 ? current : 50)])
             }
-            if let speed = written["speed"]?.doubleValue ?? written["speed"]?.intValue.map(Double.init) {
-                try await link.call("fan", "set_percentage", ["percentage": .number(speed.rounded())])
-            } else if written["active"]?.intValue == 1 {
-                try await link.call("fan", "turn_on")
-            }
-            if let swing = written["swing"]?.intValue { try await link.call("fan", "oscillate", ["oscillating": .bool(swing == 1)]) }
-            if let direction = written["direction"]?.intValue {
-                try await link.call("fan", "set_direction", ["direction": .string(direction == 1 ? "reverse" : "forward")])
-            }
-            if let preset = written["preset"]?.intValue, let only = presets.first {
-                if preset == 1 {
-                    try await link.call("fan", "set_preset_mode", ["preset_mode": .string(only)])
-                } else {
-                    let current = service[.rotationSpeed]?.value.doubleValue ?? 50
-                    try await link.call("fan", "turn_on", ["percentage": .number(current > 0 ? current : 50)])
-                }
-            }
-        } catch {
-            throw communicationFailure(error)
         }
     }
 }
@@ -933,7 +916,7 @@ final class MediaPowerFunction: EntityFunction, @unchecked Sendable {
         let service = Service(.switch, name: "\(state.friendlyName ?? state.objectID) Power", subtype: key, isPrimary: isPrimary)
         super.init(entityID: state.entityID, service: service)
         service.characteristic(.on).onWrite { value in
-            do { try await link.call("media_player", value.boolValue == true ? "turn_on" : "turn_off") } catch { throw communicationFailure(error) }
+            try await link.call("media_player", value.boolValue == true ? "turn_on" : "turn_off")
         }
     }
 
@@ -957,7 +940,7 @@ final class ValveFunction: EntityFunction, @unchecked Sendable {
         let inUse = service.characteristic(.inUse)
         active.onWrite { [weak inUse] value in
             let open = value.intValue == 1
-            do { try await link.call("valve", open ? "open_valve" : "close_valve") } catch { throw communicationFailure(error) }
+            try await link.call("valve", open ? "open_valve" : "close_valve")
             inUse?.value = .int(open ? 1 : 0)
         }
     }
@@ -998,7 +981,7 @@ final class AlarmFunction: EntityFunction, @unchecked Sendable {
             guard let call = calls[value.intValue ?? -1] else { throw HAPStatusError(.invalidValueInRequest) }
             var data: [String: JSONValue] = [:]
             if let code = link.alarmCode { data["code"] = .string(code) }
-            do { try await link.call("alarm_control_panel", call, data) } catch { throw communicationFailure(error) }
+            try await link.call("alarm_control_panel", call, data)
         }
     }
 
@@ -1035,12 +1018,12 @@ final class HumidifierFunction: EntityFunction, @unchecked Sendable {
         super.init(entityID: state.entityID, service: service)
         service.characteristic(.targetHumidifierDehumidifierState).value = .int(target)
         service.characteristic(.active).onWrite { value in
-            do { try await link.call("humidifier", value.intValue == 1 ? "turn_on" : "turn_off") } catch { throw communicationFailure(error) }
+            try await link.call("humidifier", value.intValue == 1 ? "turn_on" : "turn_off")
         }
         let bounds = self.bounds
         service.characteristic(thresholdType).onWrite { value in
             let humidity = min(bounds.upperBound, max(bounds.lowerBound, (value.doubleValue ?? 0).rounded()))
-            do { try await link.call("humidifier", "set_humidity", ["humidity": .number(humidity)]) } catch { throw communicationFailure(error) }
+            try await link.call("humidifier", "set_humidity", ["humidity": .number(humidity)])
         }
     }
 
