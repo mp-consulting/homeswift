@@ -633,16 +633,18 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             "writesTested": .bool(routes.allSatisfy { EcoFlowWrites.isChecked(serial: device.id, route: $0) }),
         ]
         if allowed.limits != nil {
-            fields["limits"] = .object([
-                "charge": (device.state.chargeLimit ?? settings[Self.chargeLimitKey]?.saturatingIntValue).map { .number(Double($0)) } ?? .null,
-                "discharge": (device.state.dischargeLimit ?? settings[Self.dischargeLimitKey]?.saturatingIntValue).map { .number(Double($0)) } ?? .null,
-            ])
+            // In steps: Linux's compiler gives up on the one expression.
+            func percent(_ value: Int?) -> JSONValue {
+                guard let value else { return .null }
+                return .number(Double(value))
+            }
+            let charge: Int? = device.state.chargeLimit ?? settings[Self.chargeLimitKey]?.saturatingIntValue
+            let discharge: Int? = device.state.dischargeLimit ?? settings[Self.dischargeLimitKey]?.saturatingIntValue
+            fields["limits"] = .object(["charge": percent(charge), "discharge": percent(discharge)])
         }
         if let route = allowed.light {
-            fields["light"] = .object([
-                "mode": lightState(device).map { .number(Double($0)) } ?? .null,
-                "tested": .bool(EcoFlowWrites.isLightChecked(serial: device.id, route: route)),
-            ])
+            let mode: JSONValue = lightState(device).map { .number(Double($0)) } ?? .null
+            fields["light"] = .object(["mode": mode, "tested": .bool(EcoFlowWrites.isLightChecked(serial: device.id, route: route))])
         }
         return fields
     }
