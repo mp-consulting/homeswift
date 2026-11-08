@@ -270,7 +270,51 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         }
     }
 
+    /// The hub's events the plugin acts on; any other is logged at debug.
+    static let handledEvents: Set<String> = [
+        "deviceStateChanged", "remotePressEvent", "deviceAdded", "deviceRemoved", "sceneCreated", "sceneUpdated",
+        "sceneDeleted", "deviceConfigurationChanged",
+    ]
+
+    /// A remote's attributes that say nothing about its buttons: their changes stay out of the log.
+    static let remoteHousekeeping: Set<String> = [
+        "otaStatus", "otaState", "otaProgress", "otaPolicy", "otaScheduleStart", "otaScheduleEnd", "batteryPercentage",
+        "firmwareVersion", "hardwareVersion", "customName", "permittingJoin",
+    ]
+
+    /// Whether the event is worth a line at info: a press, or what the hub says about a remote (beyond its battery
+    /// and firmware), or about a device it never listed (a remote's part the hub keeps to itself). A remote whose
+    /// presses do not reach HomeKit can then be read in the log as the hub sends it.
+    static func isRemoteTraffic(_ event: JSONValue, devices: [String: DirigeraDevice]) -> Bool {
+        let type = event["type"]?.stringValue ?? ""
+        if type == "remotePressEvent" { return true }
+        guard type == "deviceStateChanged" || !handledEvents.contains(type), let id = event["data"]?["id"]?.stringValue
+        else { return false }
+        // The hub names the type in its events; a speaker or the hub itself stays out.
+        guard let device = devices[id] else { return event["data"]?["type"]?.stringValue.map { $0 == "controller" } ?? true }
+        guard device.kind == .controller else { return false }
+        guard type == "deviceStateChanged" else { return true }
+        let attributes = Set((event["data"]?["attributes"]?.objectValue ?? [:]).keys)
+        return !attributes.isSubset(of: remoteHousekeeping)
+    }
+
+    private func log(_ event: JSONValue, from hub: Hub) {
+        let type = event["type"]?.stringValue ?? "?"
+        let devices = hub.devices
+        if Self.isRemoteTraffic(event, devices: devices) {
+            let id = event["data"]?["id"]?.stringValue
+            let device = id.flatMap { devices[$0] }
+            logger.info("Remote event from the DIRIGERA hub", metadata: [
+                "event": "\(type)", "remote": "\(device?.name ?? "unknown device")", "model": "\(device?.model ?? "?")",
+                "data": "\(event["data"]?.text() ?? "null")",
+            ])
+        } else if !Self.handledEvents.contains(type) {
+            logger.debug("DIRIGERA hub event the plugin does not use", metadata: ["event": "\(type)", "data": "\(event["data"]?.text() ?? "null")"])
+        }
+    }
+
     private func handle(_ event: JSONValue, from hub: Hub) async {
+        log(event, from: hub)
         switch event["type"]?.stringValue {
         case "deviceStateChanged":
             guard let id = event["data"]?["id"]?.stringValue, var device = hub.devices[id] else { return }

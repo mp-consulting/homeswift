@@ -76,6 +76,11 @@ Devices that are parts of one product (`relationId`: a VALLHORN's motion and lig
 one accessory, `Dirigera:<relationId>`, Excluded by that id; the others keep `Dirigera:<device id>`. A remote's button keeps working with what it controls on the hub; in the Home app it can run
 scenes and automations too.
 
+What the hub says about remotes is logged at info (`Remote event from the DIRIGERA hub`, with the event, the remote,
+its model and the event's data): every press with its pattern, even one HomeKit has no event for, a remote's state
+beyond its battery and firmware, and events about remote parts the hub never listed. A remote that does nothing in the Home
+app can be checked there.
+
 ## The web page
 
 With the web UI on, the plugin's page lists the hubs (their state, devices and scenes, and **Pair again** in a hub's ⋯

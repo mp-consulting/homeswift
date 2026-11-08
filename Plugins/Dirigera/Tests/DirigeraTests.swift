@@ -562,6 +562,22 @@ struct DirigeraSensorTests {
         #expect(groups.first { $0.id == "styrbar-1" }?.devices.count == 2)
     }
 
+    @Test func remoteTrafficIsLogged() {
+        let devices = Dictionary(uniqueKeysWithValues: (FakeHub.devices.arrayValue ?? []).compactMap(DirigeraDevice.init).map { ($0.id, $0) })
+        func logged(_ event: JSONValue) -> Bool { DirigeraPlugin.isRemoteTraffic(event, devices: devices) }
+        // Presses, whatever their pattern, and a remote's state beyond its battery and firmware.
+        #expect(logged(["type": "remotePressEvent", "data": ["id": "styrbar-up", "clickPattern": "rotateUp"]]))
+        #expect(logged(["type": "deviceStateChanged", "data": ["id": "styrbar-up", "attributes": ["currentPosition": 3]]]))
+        #expect(!logged(["type": "deviceStateChanged", "data": ["id": "styrbar-up", "attributes": ["otaStatus": "upToDate", "batteryPercentage": 69]]]))
+        // A device the hub never listed (a remote's part it keeps to itself), and an event the plugin has no use for.
+        #expect(logged(["type": "deviceStateChanged", "data": ["id": "bilresa_2", "type": "controller", "attributes": ["switchCount": 4]]]))
+        #expect(!logged(["type": "deviceStateChanged", "data": ["id": "speaker-1", "type": "speaker", "attributes": ["volume": 20]]]))
+        #expect(logged(["type": "genericSwitchEvent", "data": ["id": "styrbar-down"]]))
+        // Lights and sensors stay out.
+        #expect(!logged(["type": "deviceStateChanged", "data": ["id": "bulb-1", "attributes": ["lightLevel": 40]]]))
+        #expect(!logged(["type": "deviceAdded", "data": ["id": "new-remote"]]))
+    }
+
     @Test func sensorsBlindsPurifiersAndRemotesBecomeAccessories() async throws {
         let host = try await environment.start()
         let vallhorn = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "vallhorn-1"))

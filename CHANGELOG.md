@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **IKEA DIRIGERA** logs what the hub says about remotes, at info: every press with its pattern, a remote's state
+  beyond its battery and firmware, and events about remote parts the hub never listed, so a remote whose presses do not
+  reach HomeKit (BILRESA's scroll wheel) can be read in the log. Hub events the plugin has no use for are logged at
+  debug.
+
 ## [0.26.0] - 2026-11-08
 
 ### Added
