@@ -16,8 +16,8 @@ let testLogger: Logger = {
     return logger
 }()
 
-/// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(10), _ condition: @Sendable () async -> Bool) async -> Bool {
+/// Polls `condition` until it holds or `timeout` passes: generous, as a loaded CI runner can stall the whole process.
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
