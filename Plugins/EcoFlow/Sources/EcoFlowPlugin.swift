@@ -625,7 +625,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             .object(["id": .string(output.rawValue), "name": .string(names[output] ?? output.rawValue.uppercased()),
                      "on": outputState(device, output).map(JSONValue.bool) ?? .null])
         }
-        // The light has its own mark (`light.tested`): it is not checked on any model yet.
+        // The light has its own mark (`light.tested`), from the models it was seen working on.
         let routes = Array(allowed.outputs.values) + (allowed.limits.map { [$0] } ?? [])
         let settings = context.accessorySettings(for: device.id).plugin
         var fields: [String: JSONValue] = [

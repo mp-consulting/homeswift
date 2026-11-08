@@ -71,13 +71,17 @@ struct EcoFlowModel: Sendable, Equatable {
     struct OutputState: Sendable, Equatable {
         enum Rule: Sendable, Equatable {
             case nonZero, not(Int), equals(Int), bit(Int)
+            /// A power reading: on while it flows; none says nothing (an output on with nothing plugged in reads 0 W).
+            case onWhileFlowing
         }
 
         var keys: [String]
         var rule: Rule = .nonZero
 
-        func isOn(_ value: Double) -> Bool {
+        /// The output's state from its reading; nil when the reading says nothing about it.
+        func isOn(_ value: Double) -> Bool? {
             switch rule {
+            case .onWhileFlowing: value.isFinite && abs(value) >= 1 ? true : nil
             case .nonZero: value != 0
             case .not(let off): Int(value) != off
             case .equals(let on): Int(value) == on
@@ -153,9 +157,18 @@ struct EcoFlowModel: Sendable, Equatable {
         usbA: ["254_21.9"], usbC: ["254_21.11"],
         timeToFull: ["254_21.269", "32_2.1.12"], timeToEmpty: ["254_21.268", "32_2.1.13"])
 
-    /// A RIVER 3 Plus's: the status message, with its light's mode (`led_mode`, field 357; EcoFlowWrites.md 8.1).
-    static let river3Plus: Keys = {
+    /// A RIVER 3's: the status message, with its 12 V output's state (field 33: 2 on, 0 off) and its AC on while it
+    /// delivers power (field 368). Seen on the author's RIVER 3 Plus on 2026-11-08 (EcoFlowWrites.md section 9); the AC's
+    /// own flag was not seen, as its load could not be switched off.
+    static let river3: Keys = {
         var keys = display
+        keys.outputs = [.dc12v: OutputState(keys: ["254_21.33"]), .ac: OutputState(keys: ["254_21.368"], rule: .onWhileFlowing)]
+        return keys
+    }()
+
+    /// A RIVER 3 Plus's: a RIVER 3's, with its light's mode (`led_mode`, field 357; EcoFlowWrites.md 8.1).
+    static let river3Plus: Keys = {
+        var keys = river3
         keys.lightMode = ["254_21.357"]
         return keys
     }()
@@ -199,7 +212,9 @@ struct EcoFlowModel: Sendable, Equatable {
         solar: ["254_21.517"], home: ["254_21.516"], grid: ["254_21.515"], battery: ["254_21.518"],
         ac: ["254_21.616"], ac1: ["254_21.1210"], ac2: ["254_21.1211"],
         panels: ["254_21.361", "254_21.70", "254_21.996", "254_21.997"],
-        timeToFull: ["254_21.255", "254_21.269"], timeToEmpty: ["254_21.254", "254_21.268"])
+        timeToFull: ["254_21.255", "254_21.269"], timeToEmpty: ["254_21.254", "254_21.268"],
+        // AC1 and AC2's relays (1 on, 0 off), seen on the author's STREAM Ultra on 2026-11-08 (EcoFlowWrites.md section 9).
+        outputs: [.ac: OutputState(keys: ["254_21.980"]), .ac2: OutputState(keys: ["254_21.982"])])
 
     /// A STREAM on the developer API: `f32ShowSoc` is this unit's percentage as the app shows it (the MQTT pushes).
     /// The REST quota has no unit's percentage: its `cmsBattSoc` is the system's, on the unit that leads it (an Ultra's
@@ -281,7 +296,7 @@ struct EcoFlowModel: Sendable, Equatable {
 
         // The status message's portable stations: the RIVER 3 and RIVER 3 Plus checked on the app's stream.
         EcoFlowModel(name: "RIVER 3", prefixes: ["R651", "R653", "R654", "R655"], kind: .portable, format: .protobuf,
-                     app: display, developer: displayDeveloper, tested: [.app]),
+                     app: river3, developer: displayDeveloper, tested: [.app]),
         EcoFlowModel(name: "RIVER 3 Plus", prefixes: ["R631", "R634", "R635"], kind: .portable, format: .protobuf,
                      app: river3Plus, developer: displayDeveloper, tested: [.app]),
         EcoFlowModel(name: "DELTA 3", prefixes: ["P231"], kind: .portable, format: .protobuf,

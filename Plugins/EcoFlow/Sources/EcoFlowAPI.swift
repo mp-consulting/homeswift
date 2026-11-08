@@ -200,7 +200,7 @@ struct EcoFlowState: Sendable, Equatable {
         minutesToFull = minutes(keys.timeToFull)
         minutesToEmpty = minutes(keys.timeToEmpty)
         for (output, state) in keys.outputs {
-            if let reading = value(state.keys) { outputs[output] = state.isOn(reading) }
+            if let reading = value(state.keys), let on = state.isOn(reading) { outputs[output] = on }
         }
         func percent(_ candidates: [String]) -> Int? {
             value(candidates).flatMap { $0.isFinite && $0 >= 0 && $0 <= 100 ? Int($0.rounded()) : nil }

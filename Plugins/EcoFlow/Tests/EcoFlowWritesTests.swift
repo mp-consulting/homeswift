@@ -383,7 +383,8 @@ struct EcoFlowWritesTests {
         #expect(EcoFlowWrites.capabilities(model, route: .app).light == .app)
         #expect(EcoFlowWrites.capabilities(model, route: .developer).light == nil)
         #expect(EcoFlowWrites.capabilities(river3, route: .app).light == nil)
-        #expect(!EcoFlowWrites.isLightChecked(serial: plus, route: .app), "not seen working on a device")
+        #expect(EcoFlowWrites.isLightChecked(serial: plus, route: .app), "seen working on the author's RIVER 3 Plus")
+        #expect(!EcoFlowWrites.isLightChecked(serial: plus, route: .developer))
     }
 
     @Test func theLightsAckIsRead() throws {
@@ -397,6 +398,11 @@ struct EcoFlowWritesTests {
     @Test func theStatusCarriesTheLightsMode() throws {
         let keys = try #require(EcoFlowModel.model(serial: plus)?.app)
         #expect(EcoFlowState(readings: ["254_21.357": 2], keys: keys).lightMode == 2)
+        // The outputs as the author's devices reported them on 2026-11-08: a RIVER 3's 12 V (33: 2 on, 0 off) and its AC on
+        // while it delivers power, nothing said at 0 W; a STREAM's AC1 and AC2 relays (980, 982).
+        #expect(EcoFlowState(readings: ["254_21.33": 2, "254_21.368": -158], keys: keys).outputs == [.dc12v: true, .ac: true])
+        #expect(EcoFlowState(readings: ["254_21.33": 0, "254_21.368": 0], keys: keys).outputs == [.dc12v: false])
+        #expect(EcoFlowState(readings: ["254_21.980": 1, "254_21.982": 0], keys: EcoFlowModel.streamApp).outputs == [.ac: true, .ac2: false])
         #expect(EcoFlowState(readings: ["254_21.357": 0], keys: keys).lightMode == 0)
         #expect(EcoFlowState(readings: ["254_21.357": 7], keys: keys).lightMode == nil, "an unknown mode")
         #expect(EcoFlowState(readings: [:], keys: keys).lightMode == nil)
@@ -436,15 +442,14 @@ struct EcoFlowWritesTests {
         return unit
     }
 
-    /// The light was not seen working: without `untestedWrites`, the RIVER 3 Plus has its Outlets and no light.
-    @Test func theLightNeedsUntestedWrites() async throws {
+    /// The light was seen working on a RIVER 3 Plus: it comes without `untestedWrites`, marked tested.
+    @Test func theLightOfAConfirmedPlusNeedsNoUntestedWrites() async throws {
         await environment.api.add(lit("R631-TEST-1", mode: 2))
         let host = try await environment.start()
-        #expect(await eventually { outlet(host, "R631-TEST-1", "ac") != nil })
-        #expect(service(host, "R631-TEST-1", .lightbulb, "light") == nil)
-        #expect(service(host, "R631-TEST-1", .switch, "light-sos") == nil)
+        #expect(await eventually { service(host, "R631-TEST-1", .lightbulb, "light") != nil })
+        #expect(service(host, "R631-TEST-1", .switch, "light-sos") != nil)
         let listed = try await environment.plugin?.handleWebRequest(PluginWebRequest(method: "GET", path: "power", user: "admin")).json["devices"]?.arrayValue ?? []
-        #expect(listed.first { $0["id"]?.stringValue == "R631-TEST-1" }?["light"] == nil)
+        #expect(listed.first { $0["id"]?.stringValue == "R631-TEST-1" }?["light"]?["tested"] == .bool(true))
         #expect(listed.first { $0["id"]?.stringValue == "R631-TEST-1" }?["writesTested"] == .bool(true))
         await host.stop()
     }
@@ -526,7 +531,7 @@ struct EcoFlowWritesTests {
         let listed = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "power", user: "admin")).json["devices"]?.arrayValue ?? []
         let card = try #require(listed.first { $0["id"]?.stringValue == "R631-TEST-1" })
         #expect(card["light"]?["mode"] == .number(1))
-        #expect(card["light"]?["tested"] == .bool(false))
+        #expect(card["light"]?["tested"] == .bool(true))
         let set = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "light", body: ["deviceId": "R631-TEST-1", "mode": 3], user: "admin"))
         #expect(set.status == 200)
         #expect(await environment.api.sent.map(\.write) == [.lightMode(3)])

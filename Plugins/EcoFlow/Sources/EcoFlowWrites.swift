@@ -130,9 +130,9 @@ enum EcoFlowWrites {
         EcoFlowModel.model(serial: serial).map { checked[route]?.contains($0.name) ?? false } ?? false
     }
 
-    /// The models whose light was seen working, likewise: none yet. The RIVER 3 Plus's other writes were checked, its
-    /// light was not (spec 8.1), so it is written only with `untestedWrites`.
-    static let checkedLight: [EcoFlowModel.Route: Set<String>] = [:]
+    /// The models whose light was seen working, likewise: the author's RIVER 3 Plus on 2026-11-08, written and read back
+    /// over the app's stream (EcoFlowWrites.md section 9).
+    static let checkedLight: [EcoFlowModel.Route: Set<String>] = [.app: ["RIVER 3 Plus"]]
 
     static func isLightChecked(serial: String, route: EcoFlowModel.Route) -> Bool {
         EcoFlowModel.model(serial: serial).map { checkedLight[route]?.contains($0.name) ?? false } ?? false

@@ -548,3 +548,24 @@ Off is sent as an explicit `c80500` (the fields are `optional`, so a 0 is presen
   ambient-light key in `[HA]`, `[IOB]` or `[BLE]` for them (the GLACIER's `pd.ambientTmp` is a temperature).
 - STREAM, PowerStream, PowerOcean, Smart Home Panels, RAPID: none found.
 - `lcd_light` / `cfg_lcd_light` (field 14 in the RIVER 3 and DELTA 3 protos) is the screen's brightness, not a lamp.
+
+## 9. Observed on the author's devices (2026-11-08)
+
+Captured from the app's stream (`/app/device/property/<sn>` and `set_reply`) of the author's own STREAM Ultra and RIVER
+3 Plus while each output was switched, from the EcoFlow app and from the plugin. These are observations, not sources: no
+upstream code was read for them.
+
+| Device | Output | Write (254/17 `pdata`) | Ack (254/18) | Read-back in the status message (254/21) |
+|---|---|---|---|---|
+| STREAM Ultra (BK11) | AC1 | field 380 | `config_ok` 1, 380 echoed | field 980: 1 on, 0 off |
+| STREAM Ultra (BK11) | AC2 | field 381 | `config_ok` 1, 381 echoed | field 982: 1 on, 0 off |
+| RIVER 3 Plus (R631) | DC 12 V | field 18 | `config_ok` 1, 18 echoed | field 33: 2 on, 0 off |
+| RIVER 3 Plus (R631) | Light | field 89 (section 8) | `config_ok` 1, 89 echoed | field 357: 0, 1, 2, 3 as in 8.1, also for changes made in the app |
+
+- The status followed each acknowledged write within about two seconds, as a push carrying the changed field only.
+- The STREAM's field 281 moved (0, 1, 2) while a relay switched; its meaning is not known and it is not read.
+- The RIVER's AC flag was not seen (its load could not be switched off). Its output power (field 368, negative) shows
+  the AC on while it delivers power; at 0 W it says nothing about the switch.
+- The RIVER 3 Plus's light was written by the plugin and turned off on the device, which the EcoFlow app showed: the
+  write of section 8 works through EcoFlow's broker.
+
