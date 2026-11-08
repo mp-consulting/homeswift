@@ -56,11 +56,13 @@ struct EcoFlowModel: Sendable, Equatable {
         var dischargeLimit: [String] = []
         /// A DELTA Pro's X-Boost, sent back with its AC write on the developer API.
         var acXboost: [String] = []
+        /// A RIVER 3 Plus's light mode (EcoFlowWrites.md 8.1).
+        var lightMode: [String] = []
 
         /// Every key read: the app's route keeps only these of a device's readings.
         var all: Set<String> {
             Set([stateOfCharge, solar, home, grid, battery, input, output, acIn, acOut, usbA, usbC, ac, ac1, ac2, panels,
-                 timeToFull, timeToEmpty, chargeLimit, dischargeLimit, acXboost].joined()).union(outputs.values.flatMap(\.keys))
+                 timeToFull, timeToEmpty, chargeLimit, dischargeLimit, acXboost, lightMode].joined()).union(outputs.values.flatMap(\.keys))
         }
     }
 
@@ -150,6 +152,13 @@ struct EcoFlowModel: Sendable, Equatable {
         input: ["254_21.3"], output: ["254_21.4"], acIn: ["254_21.54"], acOut: ["254_21.368"],
         usbA: ["254_21.9"], usbC: ["254_21.11"],
         timeToFull: ["254_21.269", "32_2.1.12"], timeToEmpty: ["254_21.268", "32_2.1.13"])
+
+    /// A RIVER 3 Plus's: the status message, with its light's mode (`led_mode`, field 357; EcoFlowWrites.md 8.1).
+    static let river3Plus: Keys = {
+        var keys = display
+        keys.lightMode = ["254_21.357"]
+        return keys
+    }()
 
     /// A power bank's status message: the totals and the percentage.
     static let powerBank = Keys(stateOfCharge: ["254_21.262"], input: ["254_21.3"], output: ["254_21.4"],
@@ -274,7 +283,7 @@ struct EcoFlowModel: Sendable, Equatable {
         EcoFlowModel(name: "RIVER 3", prefixes: ["R651", "R653", "R654", "R655"], kind: .portable, format: .protobuf,
                      app: display, developer: displayDeveloper, tested: [.app]),
         EcoFlowModel(name: "RIVER 3 Plus", prefixes: ["R631", "R634", "R635"], kind: .portable, format: .protobuf,
-                     app: display, developer: displayDeveloper, tested: [.app]),
+                     app: river3Plus, developer: displayDeveloper, tested: [.app]),
         EcoFlowModel(name: "DELTA 3", prefixes: ["P231"], kind: .portable, format: .protobuf,
                      app: display, developer: displayDeveloper, tested: []),
         EcoFlowModel(name: "DELTA 3 Plus", prefixes: ["P351"], kind: .portable, format: .protobuf,

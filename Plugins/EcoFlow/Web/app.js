@@ -135,11 +135,45 @@
     }
   }
 
-  // The outputs the plugin switches, each with its state and a button, and the charge and discharge limits (the
-  // device's Settings change them).
+  // A RIVER 3 Plus's light: its four modes, each with its icon (EcoFlowWrites.md, section 8).
+  const lightModes = [[0, "Off", "power"], [1, "Dim", "bulb"], [2, "Bright", "sun"], [3, "SOS", "warning"]];
+
+  // Sets the light's mode as HomeKit does; the next answer shows the device's.
+  async function setLight(device, mode, group) {
+    group.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      await request("light", { method: "POST", body: { deviceId: device.id, mode } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // The light's row: its mode, and a choice of the four. Its writes are not confirmed on a device yet: marked so.
+  function lightRow(device) {
+    const light = device.light;
+    if (!light) return null;
+    const current = lightModes.find(([mode]) => mode === light.mode);
+    const group = el("div", { class: "group", role: "group", "aria-label": t("Light mode") });
+    for (const [mode, name, icon] of lightModes) {
+      const button = el("button", { type: "button", class: mode === light.mode ? "on" : "", actionIcon: icon, text: t(name),
+        disabled: !device.online, "aria-pressed": String(mode === light.mode) });
+      button.addEventListener("click", () => { if (mode !== light.mode) setLight(device, mode, group); });
+      group.append(button);
+    }
+    return el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") },
+      el("span", { class: "label", text: t("Light") }),
+      light.tested === false ? untestedWrites() : null,
+      el("span", { class: `pill ${current && current[0] !== 0 ? "on" : ""}`, text: current ? t(current[1]) : "–" }), group);
+  }
+
+  // The outputs the plugin switches, each with its state and a button, the light, and the charge and discharge limits
+  // (the device's Settings change them).
   function controls(device) {
     const outputs = device.outputs ?? [];
-    if (outputs.length === 0 && !device.limits) return null;
+    if (outputs.length === 0 && !device.limits && !device.light) return null;
     const percent = (value) => value == null ? "–" : `${Math.round(value)} %`;
     const rows = outputs.map((output) => {
       const port = t(output.name);
@@ -157,7 +191,7 @@
       el("span", { text: t("Discharge limit {value}", { value: percent(device.limits.discharge) }) })) : null;
     return el("div", { class: "controls" },
       el("div", { class: "caption" }, el("span", { text: t("Outputs and limits") }), device.writesTested === false ? untestedWrites() : null),
-      rows.length ? el("div", { class: "output-list" }, rows) : null, limits);
+      rows.length || device.light ? el("div", { class: "output-list" }, rows, lightRow(device)) : null, limits);
   }
 
   // The device's estimate of the time to full while charging, to empty otherwise, as the EcoFlow app shows it: days

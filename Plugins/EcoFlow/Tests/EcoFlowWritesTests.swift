@@ -352,4 +352,189 @@ struct EcoFlowWritesTests {
         #expect(await environment.api.sent.count == 1, "sent once")
         await host.stop()
     }
+
+    // MARK: - A RIVER 3 Plus's light (section 8)
+
+    let plus = "R631ZZZZ00000001"
+
+    @Test func theLightVectorsMatch() throws {
+        func pdata(_ mode: Int) throws -> String {
+            let field = try #require(EcoFlowWrites.configField(.lightMode(mode), family: .river3))
+            return hex(EcoFlowProtobuf.varintField(field.number, field.value))
+        }
+        #expect(try pdata(0) == "c80500", "Off is an explicit 0")
+        #expect(try pdata(1) == "c80501")
+        #expect(try pdata(2) == "c80502")
+        #expect(try pdata(3) == "c80503")
+        #expect(EcoFlowWrites.configField(.lightMode(4), family: .river3) == nil, "no other value is sent")
+        #expect(EcoFlowWrites.configField(.lightMode(-1), family: .river3) == nil)
+        #expect(EcoFlowWrites.configField(.lightMode(2), family: .delta3) == nil, "left out (8.3)")
+
+        let model = try #require(EcoFlowModel.model(serial: plus))
+        let on = try #require(EcoFlowWrites.appPayload(.lightMode(2), model: model, serial: plus, seq: 1000, now: Date()))
+        #expect(hex(on) == "0a340a03c80502102018022001280140fe0148115003580170e8077801800113880101ca0110523633315a5a5a5a3030303030303031")
+        let off = try #require(EcoFlowWrites.appPayload(.lightMode(0), model: model, serial: plus, seq: 1000, now: Date()))
+        #expect(hex(off) == "0a340a03c80500102018022001280140fe0148115003580170e8077801800113880101ca0110523633315a5a5a5a3030303030303031")
+
+        // The plain RIVER 3 has no light; nor has the developer API.
+        let river3 = try #require(EcoFlowModel.model(serial: "R651ZZZZ00000001"))
+        #expect(EcoFlowWrites.appPayload(.lightMode(2), model: river3, serial: "R651ZZZZ00000001", seq: 1000, now: Date()) == nil)
+        #expect(EcoFlowWrites.developerBody(.lightMode(2), model: model, serial: plus, id: 1) == nil)
+        #expect(EcoFlowWrites.capabilities(model, route: .app).light == .app)
+        #expect(EcoFlowWrites.capabilities(model, route: .developer).light == nil)
+        #expect(EcoFlowWrites.capabilities(river3, route: .app).light == nil)
+        #expect(!EcoFlowWrites.isLightChecked(serial: plus, route: .app), "not seen working on a device")
+    }
+
+    @Test func theLightsAckIsRead() throws {
+        let body = Array(bytes("08051001c80502"))
+        let reply = EcoFlowWrites.message(pdata: body, header: EcoFlowWrites.Header(cmdID: 18, seq: 7, version: 19))
+        #expect(EcoFlowWrites.reply(reply) == .accepted)
+        let fields = try #require(EcoFlowProtobuf.fields(Data(body)))
+        #expect(fields.last { $0.number == 89 }?.value == .varint(2), "the mode echoed")
+    }
+
+    @Test func theStatusCarriesTheLightsMode() throws {
+        let keys = try #require(EcoFlowModel.model(serial: plus)?.app)
+        #expect(EcoFlowState(readings: ["254_21.357": 2], keys: keys).lightMode == 2)
+        #expect(EcoFlowState(readings: ["254_21.357": 0], keys: keys).lightMode == 0)
+        #expect(EcoFlowState(readings: ["254_21.357": 7], keys: keys).lightMode == nil, "an unknown mode")
+        #expect(EcoFlowState(readings: [:], keys: keys).lightMode == nil)
+        let river3 = try #require(EcoFlowModel.model(serial: "R651ZZZZ00000001")?.app)
+        #expect(EcoFlowState(readings: ["254_21.357": 2], keys: river3).lightMode == nil, "the plain RIVER 3's is not read")
+    }
+
+    /// The status message's field 357 on the app's stream, and the light's write and its ack there.
+    @Test func theAppRouteReadsAndWritesTheLight() async throws {
+        let broker = FakeMQTTConnection()
+        let options = EcoFlowAppAPI.WriteOptions(seq: { 1000 }, now: { Date(timeIntervalSince1970: 1_700_000_000) })
+        let api = EcoFlowAppAPI(email: "owner@example.test", password: "pw", serials: [plus], transport: FakeTransport(answers: appSignIn),
+                                writes: options) { _ in broker }
+        _ = try await api.devices()
+        let status = EcoFlowProtobuf.varintField(262, 60) + EcoFlowProtobuf.varintField(357, 1)
+        broker.receive("/app/device/property/\(plus)", payload: Data(EcoFlowProtobuf.bytesField(1, EcoFlowProtobuf.bytesField(1, status)
+            + EcoFlowProtobuf.varintField(8, 254) + EcoFlowProtobuf.varintField(9, 21))))
+        #expect(await eventually { (try? await api.devices())?.first { $0.id == plus }?.state.lightMode == 1 })
+
+        let ackBody = Array(bytes("08051001c80502"))
+        let replying = answer(broker, serial: plus, with: EcoFlowWrites.message(pdata: ackBody, header: EcoFlowWrites.Header(cmdID: 18, seq: 1, version: 19)))
+        var unit = device(plus)
+        unit.state.lightMode = 1
+        try await api.set(.lightMode(2), on: unit)
+        await replying.value
+        let sent = try #require(broker.published.first { $0.topic == "/app/42/\(plus)/thing/property/set" })
+        #expect(hex(sent.payload) == "0a340a03c80502102018022001280140fe0148115003580170e8077801800113880101ca0110523633315a5a5a5a3030303030303031")
+    }
+
+    private func service(_ host: PluginHost, _ serial: String, _ type: ServiceType, _ subtype: String) -> Service? {
+        host.mainBridge.server.accessories.first { $0.id == EcoFlowPlugin.accessoryID(deviceID: serial) }?.service(type, subtype: subtype)
+    }
+
+    private func lit(_ serial: String, mode: Int?) -> EcoFlowDevice {
+        var unit = device(serial)
+        unit.state.lightMode = mode
+        return unit
+    }
+
+    /// The light was not seen working: without `untestedWrites`, the RIVER 3 Plus has its Outlets and no light.
+    @Test func theLightNeedsUntestedWrites() async throws {
+        await environment.api.add(lit("R631-TEST-1", mode: 2))
+        let host = try await environment.start()
+        #expect(await eventually { outlet(host, "R631-TEST-1", "ac") != nil })
+        #expect(service(host, "R631-TEST-1", .lightbulb, "light") == nil)
+        #expect(service(host, "R631-TEST-1", .switch, "light-sos") == nil)
+        let listed = try await environment.plugin?.handleWebRequest(PluginWebRequest(method: "GET", path: "power", user: "admin")).json["devices"]?.arrayValue ?? []
+        #expect(listed.first { $0["id"]?.stringValue == "R631-TEST-1" }?["light"] == nil)
+        #expect(listed.first { $0["id"]?.stringValue == "R631-TEST-1" }?["writesTested"] == .bool(true))
+        await host.stop()
+    }
+
+    /// Only a RIVER 3 Plus whose status carried the mode: not the plain RIVER 3, and the Plus once 357 arrives.
+    @Test func theLightComesWithItsMode() async throws {
+        await environment.api.add(lit("R631-TEST-1", mode: nil))
+        await environment.api.add(lit("R651-TEST-1", mode: 2))
+        let host = try await environment.start(settings: ["untestedWrites": true])
+        #expect(await eventually { outlet(host, "R631-TEST-1", "ac") != nil && outlet(host, "R651-TEST-1", "ac") != nil })
+        #expect(service(host, "R631-TEST-1", .lightbulb, "light") == nil)
+        #expect(service(host, "R651-TEST-1", .lightbulb, "light") == nil)
+        #expect(service(host, "R651-TEST-1", .switch, "light-sos") == nil)
+
+        await environment.api.update(deviceID: "R631-TEST-1") { $0.lightMode = 3 }
+        await environment.plugin?.refresh()
+        #expect(await eventually { service(host, "R631-TEST-1", .lightbulb, "light") != nil })
+        let accessory = try #require(host.mainBridge.server.accessories.first { $0.id == EcoFlowPlugin.accessoryID(deviceID: "R631-TEST-1") })
+        #expect(accessory.services.first { $0.isPrimary }?.type == .battery, "the Battery stays primary")
+        #expect(outlet(host, "R631-TEST-1", "dc12v") != nil)
+        let light = try #require(service(host, "R631-TEST-1", .lightbulb, "light"))
+        let sos = try #require(service(host, "R631-TEST-1", .switch, "light-sos"))
+        #expect(light.characteristic(.name).value == .string("Light"))
+        #expect(sos.characteristic(.name).value == .string("SOS"))
+        #expect(light.characteristic(.on).value == .bool(false), "SOS is not the lamp on")
+        #expect(sos.characteristic(.on).value == .bool(true))
+        #expect(light.characteristic(.brightness).type.minStep == 50)
+        await host.stop()
+    }
+
+    @Test func theLightsWritesAreModes() async throws {
+        await environment.api.add(lit("R631-TEST-1", mode: 2))
+        let host = try await environment.start(settings: ["untestedWrites": true], configure: { $0.holdFor = .milliseconds(200) })
+        #expect(await eventually { service(host, "R631-TEST-1", .lightbulb, "light") != nil })
+        let light = try #require(service(host, "R631-TEST-1", .lightbulb, "light"))
+        let sos = try #require(service(host, "R631-TEST-1", .switch, "light-sos"))
+        #expect(light.characteristic(.on).value == .bool(true))
+        #expect(light.characteristic(.brightness).value == .int(100), "Bright")
+
+        try await light.characteristic(.brightness).write(.int(50))
+        #expect(await environment.api.sent.map(\.write) == [.lightMode(1)])
+        #expect(light.characteristic(.brightness).value == .int(50))
+        try await light.characteristic(.on).write(.bool(false))
+        #expect(await environment.api.sent.map(\.write).last == .lightMode(0))
+        #expect(light.characteristic(.on).value == .bool(false))
+        // On again: the last Dim or Bright written.
+        try await light.characteristic(.on).write(.bool(true))
+        #expect(await environment.api.sent.map(\.write).last == .lightMode(1))
+        try await sos.characteristic(.on).write(.bool(true))
+        #expect(await environment.api.sent.map(\.write).last == .lightMode(3))
+        #expect(light.characteristic(.on).value == .bool(false))
+        try await sos.characteristic(.on).write(.bool(false))
+        #expect(await environment.api.sent.map(\.write).last == .lightMode(0))
+
+        // The Home app's On and Brightness of one change: one write.
+        let count = await environment.api.sent.count
+        async let on: Void = light.characteristic(.on).write(.bool(true))
+        async let brightness: Void = light.characteristic(.brightness).write(.int(100))
+        _ = try await (on, brightness)
+        #expect(await environment.api.sent.count == count + 1)
+        #expect(await environment.api.sent.map(\.write).last == .lightMode(2))
+
+        // A refused write fails in HomeKit.
+        await environment.api.refuse(true)
+        await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) {
+            try await light.characteristic(.brightness).write(.int(50))
+        }
+        await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) {
+            try await sos.characteristic(.on).write(.bool(true))
+        }
+        await host.stop()
+    }
+
+    @Test func thePageSetsTheLight() async throws {
+        await environment.api.add(lit("R631-TEST-1", mode: 1))
+        let host = try await environment.start(settings: ["untestedWrites": true])
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { service(host, "R631-TEST-1", .lightbulb, "light") != nil })
+        let listed = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "power", user: "admin")).json["devices"]?.arrayValue ?? []
+        let card = try #require(listed.first { $0["id"]?.stringValue == "R631-TEST-1" })
+        #expect(card["light"]?["mode"] == .number(1))
+        #expect(card["light"]?["tested"] == .bool(false))
+        let set = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "light", body: ["deviceId": "R631-TEST-1", "mode": 3], user: "admin"))
+        #expect(set.status == 200)
+        #expect(await environment.api.sent.map(\.write) == [.lightMode(3)])
+        #expect(service(host, "R631-TEST-1", .switch, "light-sos")?.characteristic(.on).value == .bool(true))
+        let bad = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "light", body: ["deviceId": "R631-TEST-1", "mode": 4], user: "admin"))
+        #expect(bad.status == 400)
+        let none = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "light", body: ["deviceId": .string(stream), "mode": 1], user: "admin"))
+        #expect(none.status == 404)
+        await host.stop()
+    }
 }

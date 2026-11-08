@@ -164,6 +164,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         state.outputs.merge(known.outputs) { read, _ in read }
         state.chargeLimit = state.chargeLimit ?? known.chargeLimit
         state.dischargeLimit = state.dischargeLimit ?? known.dischargeLimit
+        state.lightMode = state.lightMode ?? known.lightMode
     }
 
     // MARK: Writes (EcoFlowWrites.md, 4 and 5)
@@ -214,6 +215,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         case let .output(output, on): known.outputs[output] = on
         case let .chargeLimit(value): known.chargeLimit = value
         case let .dischargeLimit(value): known.dischargeLimit = value
+        case let .lightMode(mode): known.lightMode = mode
         }
         acknowledged[serial] = known
     }
@@ -273,6 +275,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
             case let .output(output, on): state.outputs[output] == on
             case let .chargeLimit(value): state.chargeLimit == value
             case let .dischargeLimit(value): state.dischargeLimit == value
+            case let .lightMode(mode): state.lightMode == mode
             }
             if shown { resolve(serial: serial, id: id, .accepted) }
         }

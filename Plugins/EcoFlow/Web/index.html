@@ -104,6 +104,9 @@
     background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
   .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
   .output .button { flex: none; }
+  /* The light's row: its four modes in one segmented control, under the name at phone width. */
+  .output.light { flex-wrap: wrap; }
+  .output.light .group { flex: none; max-width: 100%; overflow-x: auto; }
   .limits { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */

@@ -1,7 +1,7 @@
 import Foundation
 
 // The writes (docs/clean-room/EcoFlowWrites.md): the AC, AC2, DC 12 V and USB outputs, the charge limit and the
-// discharge limit, on the developer API and on the EcoFlow app's route. Each model's writes, how they are encoded on
+// discharge limit, on the developer API and on the EcoFlow app's route; a RIVER 3 Plus's light (section 8). Each model's writes, how they are encoded on
 // each route, and which models' writes were seen working (`EcoFlowWrites.checked`).
 
 /// An output a model can switch: a HomeKit Outlet on the device's accessory, its subtype the raw value. A STREAM's AC1
@@ -21,13 +21,41 @@ enum EcoFlowWrite: Sendable, Equatable, CustomStringConvertible {
     case chargeLimit(Int)
     /// The minimum state of charge, %.
     case dischargeLimit(Int)
+    /// A RIVER 3 Plus's light: one of `EcoFlowLight`'s modes (spec 8.1).
+    case lightMode(Int)
 
     var description: String {
         switch self {
         case let .output(output, on): "\(output.rawValue) \(on ? "on" : "off")"
         case let .chargeLimit(value): "charge limit \(value) %"
         case let .dischargeLimit(value): "discharge limit \(value) %"
+        case let .lightMode(mode): "light \(EcoFlowLight.name(mode))"
         }
+    }
+}
+
+/// A RIVER 3 Plus's light (spec 8): a mode, not a switch. No other value is ever sent (8.1: unknown).
+enum EcoFlowLight {
+    static let off = 0, dim = 1, bright = 2, sos = 3
+    static let modes = 0...3
+
+    static func name(_ mode: Int) -> String {
+        switch mode {
+        case off: "off"
+        case dim: "dim"
+        case bright: "bright"
+        case sos: "SOS"
+        default: "mode \(mode)"
+        }
+    }
+
+    /// The mode a HomeKit change asks for: On false is Off; a Brightness up to 50 % is Dim, above it Bright (0 % Off);
+    /// On true alone is `previous` (the last Dim or Bright the device had), else Bright.
+    static func mode(on: Bool?, brightness: Double?, previous: Int?) -> Int? {
+        if on == false { return off }
+        if let brightness { return brightness <= 0 ? off : brightness <= 50 ? dim : bright }
+        if on == true { return previous.flatMap { $0 == dim || $0 == bright ? $0 : nil } ?? bright }
+        return nil
     }
 }
 
@@ -57,19 +85,23 @@ struct EcoFlowCapabilities: Sendable, Equatable {
     var outputs: [EcoFlowOutput: EcoFlowModel.Route] = [:]
     /// The route of the charge and discharge limits; nil when they cannot be written.
     var limits: EcoFlowModel.Route?
+    /// The route of the light's mode (a RIVER 3 Plus's, spec 8); nil when it cannot be written.
+    var light: EcoFlowModel.Route?
 
-    var isEmpty: Bool { outputs.isEmpty && limits == nil }
+    var isEmpty: Bool { outputs.isEmpty && limits == nil && light == nil }
 
     func route(for write: EcoFlowWrite) -> EcoFlowModel.Route? {
         switch write {
         case .output(let output, _): outputs[output]
         case .chargeLimit, .dischargeLimit: limits
+        case .lightMode: light
         }
     }
 
-    /// Only the writes `allowed` lets through, by route.
-    func filter(_ allowed: (EcoFlowModel.Route) -> Bool) -> EcoFlowCapabilities {
-        EcoFlowCapabilities(outputs: outputs.filter { allowed($0.value) }, limits: limits.flatMap { allowed($0) ? $0 : nil })
+    /// Only the writes `allowed` lets through, by route; the light's by `allowedLight`.
+    func filter(_ allowed: (EcoFlowModel.Route) -> Bool, light allowedLight: ((EcoFlowModel.Route) -> Bool)? = nil) -> EcoFlowCapabilities {
+        EcoFlowCapabilities(outputs: outputs.filter { allowed($0.value) }, limits: limits.flatMap { allowed($0) ? $0 : nil },
+                            light: light.flatMap { route in (allowedLight.map { $0(route) } ?? allowed(route)) ? route : nil })
     }
 
     /// `self`, completed by `other` where it has nothing; a write on a checked route wins over one that is not.
@@ -79,6 +111,7 @@ struct EcoFlowCapabilities: Sendable, Equatable {
             merged.outputs[output] = route
         }
         if let route = other.limits, merged.limits.map({ !checked($0) && checked(route) }) ?? true { merged.limits = route }
+        if let route = other.light, merged.light.map({ !checked($0) && checked(route) }) ?? true { merged.light = route }
         return merged
     }
 }
@@ -95,6 +128,14 @@ enum EcoFlowWrites {
 
     static func isChecked(serial: String, route: EcoFlowModel.Route) -> Bool {
         EcoFlowModel.model(serial: serial).map { checked[route]?.contains($0.name) ?? false } ?? false
+    }
+
+    /// The models whose light was seen working, likewise: none yet. The RIVER 3 Plus's other writes were checked, its
+    /// light was not (spec 8.1), so it is written only with `untestedWrites`.
+    static let checkedLight: [EcoFlowModel.Route: Set<String>] = [:]
+
+    static func isLightChecked(serial: String, route: EcoFlowModel.Route) -> Bool {
+        EcoFlowModel.model(serial: serial).map { checkedLight[route]?.contains($0.name) ?? false } ?? false
     }
 
     // MARK: - Each model's writes
@@ -123,6 +164,8 @@ enum EcoFlowWrites {
         var appLimits = true
         var developer: [EcoFlowOutput] = []
         var developerLimits = false
+        /// Whether the app's route writes the light's mode (spec 8: a RIVER 3 Plus's).
+        var appLight = false
         /// Each output's name, as the port is labelled.
         var names: [EcoFlowOutput: String] = [.ac: "AC", .ac2: "AC2", .dc12v: "DC 12 V", .usb: "USB"]
         /// The limits' ranges.
@@ -139,7 +182,8 @@ enum EcoFlowWrites {
             "STREAM Max": Table(family: .stream, app: [.ac]),
             "STREAM AC": Table(family: .stream),
             "RIVER 3": Table(family: .river3, app: [.ac, .dc12v]),
-            "RIVER 3 Plus": Table(family: .river3, app: [.ac, .dc12v]),
+            // The light on the Plus only (8.1): no source shows the plain RIVER 3 with one.
+            "RIVER 3 Plus": Table(family: .river3, app: [.ac, .dc12v], appLight: true),
             // The 12 V output only where a source writes it on that model (5.2): the Classic, the Max and the Max Plus.
             "DELTA 3": delta3, "DELTA 3 Plus": delta3, "DELTA 3 Ultra": delta3,
             "DELTA 3 Classic": Table(family: .delta3, app: [.ac, .dc12v, .usb]),
@@ -175,7 +219,7 @@ enum EcoFlowWrites {
         case .app:
             guard model.app != nil else { return EcoFlowCapabilities() }
             return EcoFlowCapabilities(outputs: Dictionary(uniqueKeysWithValues: table.app.map { ($0, .app) }),
-                                       limits: table.appLimits ? .app : nil)
+                                       limits: table.appLimits ? .app : nil, light: table.appLight ? .app : nil)
         case .developer:
             guard model.developer != nil else { return EcoFlowCapabilities() }
             return EcoFlowCapabilities(outputs: Dictionary(uniqueKeysWithValues: table.developer.map { ($0, .developer) }),
@@ -255,6 +299,9 @@ enum EcoFlowWrites {
         switch (family, write) {
         case (_, .chargeLimit(let value)): return (33, UInt64(max(value, 0)))
         case (_, .dischargeLimit(let value)): return (34, UInt64(max(value, 0)))
+        // `cfg_led_mode` (8.1), its four modes only; Off is sent as an explicit 0.
+        case (.river3, .lightMode(let mode)): return EcoFlowLight.modes.contains(mode) ? (89, UInt64(mode)) : nil
+        case (_, .lightMode): return nil
         case (.stream, .output(.ac, let on)): return (380, on ? 1 : 0)
         case (.stream, .output(.ac2, let on)): return (381, on ? 1 : 0)
         case (.river3, .output(let output, let on)), (.delta3, .output(let output, let on)):
@@ -286,7 +333,7 @@ enum EcoFlowWrites {
                 return message(pdata: EcoFlowProtobuf.varintField(1, UInt64(max(value, 0))), header: .powerStream(seq: seq, cmdID: 132))
             case .chargeLimit(let value):
                 return message(pdata: EcoFlowProtobuf.varintField(1, UInt64(max(value, 0))), header: .powerStream(seq: seq, cmdID: 133))
-            case .output: return nil
+            case .output, .lightMode: return nil
             }
         default:
             return nil
@@ -336,6 +383,7 @@ enum EcoFlowWrites {
         switch write {
         case .output(let output, _): guard table.app.contains(output) else { return nil }
         case .chargeLimit, .dischargeLimit: guard table.appLimits else { return nil }
+        case .lightMode: guard table.appLight else { return nil }
         }
         return model.format == .json
             ? jsonPayload(write, family: table.family, serial: serial, id: seq)
@@ -416,6 +464,8 @@ enum EcoFlowWrites {
         switch write {
         case .output(let output, _): guard table.developer.contains(output) else { return nil }
         case .chargeLimit, .dischargeLimit: guard table.developerLimits else { return nil }
+        // No source writes the light on the developer API (8: EcoFlow publishes no RIVER 3 page).
+        case .lightMode: return nil
         }
         func module(_ type: Int, _ operation: String, _ params: [String: Body]) -> Body {
             .object(["id": .int(id), "version": .string("1.0"), "sn": .string(serial), "moduleType": .int(type),

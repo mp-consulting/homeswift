@@ -144,11 +144,45 @@ extension EcoFlowPlugin {
     }
   }
 
-  // The outputs the plugin switches, each with its state and a button, and the charge and discharge limits (the
-  // device's Settings change them).
+  // A RIVER 3 Plus's light: its four modes, each with its icon (EcoFlowWrites.md, section 8).
+  const lightModes = [[0, "Off", "power"], [1, "Dim", "bulb"], [2, "Bright", "sun"], [3, "SOS", "warning"]];
+
+  // Sets the light's mode as HomeKit does; the next answer shows the device's.
+  async function setLight(device, mode, group) {
+    group.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      await request("light", { method: "POST", body: { deviceId: device.id, mode } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // The light's row: its mode, and a choice of the four. Its writes are not confirmed on a device yet: marked so.
+  function lightRow(device) {
+    const light = device.light;
+    if (!light) return null;
+    const current = lightModes.find(([mode]) => mode === light.mode);
+    const group = el("div", { class: "group", role: "group", "aria-label": t("Light mode") });
+    for (const [mode, name, icon] of lightModes) {
+      const button = el("button", { type: "button", class: mode === light.mode ? "on" : "", actionIcon: icon, text: t(name),
+        disabled: !device.online, "aria-pressed": String(mode === light.mode) });
+      button.addEventListener("click", () => { if (mode !== light.mode) setLight(device, mode, group); });
+      group.append(button);
+    }
+    return el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") },
+      el("span", { class: "label", text: t("Light") }),
+      light.tested === false ? untestedWrites() : null,
+      el("span", { class: `pill ${current && current[0] !== 0 ? "on" : ""}`, text: current ? t(current[1]) : "–" }), group);
+  }
+
+  // The outputs the plugin switches, each with its state and a button, the light, and the charge and discharge limits
+  // (the device's Settings change them).
   function controls(device) {
     const outputs = device.outputs ?? [];
-    if (outputs.length === 0 && !device.limits) return null;
+    if (outputs.length === 0 && !device.limits && !device.light) return null;
     const percent = (value) => value == null ? "–" : `${Math.round(value)} %`;
     const rows = outputs.map((output) => {
       const port = t(output.name);
@@ -166,7 +200,7 @@ extension EcoFlowPlugin {
       el("span", { text: t("Discharge limit {value}", { value: percent(device.limits.discharge) }) })) : null;
     return el("div", { class: "controls" },
       el("div", { class: "caption" }, el("span", { text: t("Outputs and limits") }), device.writesTested === false ? untestedWrites() : null),
-      rows.length ? el("div", { class: "output-list" }, rows) : null, limits);
+      rows.length || device.light ? el("div", { class: "output-list" }, rows, lightRow(device)) : null, limits);
   }
 
   // The device's estimate of the time to full while charging, to empty otherwise, as the EcoFlow app shows it: days
@@ -539,6 +573,13 @@ HomeswiftI18n.add({
     "Discharge limit {value}": "Limite de décharge {value}",
     "Outputs and limits": "Sorties et limites",
     "The device did not switch the output": "L'appareil n'a pas commuté la sortie",
+    "Light": "Lumière",
+    "Light mode": "Mode de la lumière",
+    "Dim": "Faible",
+    "Bright": "Intense",
+    "SOS": "SOS",
+    "The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it": "La lumière, comme l'ampoule HomeKit (Faible, Intense) et l'interrupteur SOS la montrent",
+    "The device did not set the light": "L'appareil n'a pas réglé la lumière",
     "AC": "AC",
     "DC": "DC",
     "DC 12 V": "DC 12 V",
@@ -623,6 +664,13 @@ HomeswiftI18n.add({
     "Discharge limit {value}": "Límite de descarga {value}",
     "Outputs and limits": "Salidas y límites",
     "The device did not switch the output": "El dispositivo no conmutó la salida",
+    "Light": "Luz",
+    "Light mode": "Modo de la luz",
+    "Dim": "Tenue",
+    "Bright": "Intensa",
+    "SOS": "SOS",
+    "The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it": "La luz, como la muestran la bombilla de HomeKit (Tenue, Intensa) y el interruptor SOS",
+    "The device did not set the light": "El dispositivo no ajustó la luz",
     "AC": "CA",
     "DC": "CC",
     "DC 12 V": "CC 12 V",
@@ -707,6 +755,13 @@ HomeswiftI18n.add({
     "Discharge limit {value}": "Limite de descarga {value}",
     "Outputs and limits": "Saídas e limites",
     "The device did not switch the output": "O dispositivo não comutou a saída",
+    "Light": "Luz",
+    "Light mode": "Modo da luz",
+    "Dim": "Fraca",
+    "Bright": "Intensa",
+    "SOS": "SOS",
+    "The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it": "A luz, como a mostram a lâmpada do HomeKit (Fraca, Intensa) e o interruptor SOS",
+    "The device did not set the light": "O dispositivo não ajustou a luz",
     "AC": "CA",
     "DC": "CC",
     "DC 12 V": "CC 12 V",
@@ -900,6 +955,9 @@ HomeswiftI18n.add({
     background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
   .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
   .output .button { flex: none; }
+  /* The light's row: its four modes in one segmented control, under the name at phone width. */
+  .output.light { flex-wrap: wrap; }
+  .output.light .group { flex: none; max-width: 100%; overflow-x: auto; }
   .limits { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
