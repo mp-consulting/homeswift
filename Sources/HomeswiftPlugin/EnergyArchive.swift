@@ -360,13 +360,18 @@ public final class EnergyArchive: @unchecked Sendable {
         return dropped
     }
 
-    /// The imports of an hour added up: each flow from the sources that have it. Where no source gave `homeFromSolar`,
-    /// it is the lesser of the solar and home use they add up to, so sources that each carry one Energy Role (the
-    /// Meters of a home system, one per role) split the home's use as a single source's flows do.
+    /// The imports of an hour added up: each flow from the sources that have it. `homeFromSolar` is the sources' own
+    /// added up only when every source with solar or home use gave one; otherwise it is the lesser of the solar and
+    /// home use they add up to, so sources that each carry one Energy Role (the Meters of a home system, one per role),
+    /// or a source with both beside one with solar alone, split the home's use as a single source's flows do.
     static func imported(_ sources: [String: EnergyFlows]) -> EnergyFlows {
         var flows = sources.values.reduce(EnergyFlows()) { $0.adding($1) }
-        if flows.homeFromSolar == nil, let solar = flows.solar, let home = flows.home {
+        let split = sources.values.filter { $0.solar != nil || $0.home != nil }
+        guard !split.allSatisfy({ $0.homeFromSolar != nil }) else { return flows }
+        if let solar = flows.solar, let home = flows.home {
             flows.homeFromSolar = max(0, min(solar, home))
+        } else {
+            flows.homeFromSolar = nil
         }
         return flows
     }
