@@ -195,7 +195,11 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   (`energyRoles` in `_accessories`, by the Meter's key: `grid`, `solar`, `home`, `battery` or `none`), live, without
   reloading the plugin. With a role, its power counts in the Status page's Energy section and its imported hours fill
   the Home Energy's long-term history where the bridge recorded nothing: a Meter per role (solar, home, grid, battery)
-  is all a cloud's home history needs, and the hours are then a device's as well as the home's. Forget removes an
+  is all a cloud's home history needs (`EnergyRole.meterHour(of:)` takes each role's part of an `EnergyHourImport`),
+  and the hours are then a device's as well as the home's. A history that moves to another device's Meters (a system
+  now read through another of its units) drops what the old ones imported first, with
+  `context.forgetImportedHours(ofMeter:deviceID:)`, or the same hours count on both. The suggested role is kept with the
+  Meter's history, so a Meter whose device is offline after a restart, or that only ever imported hours, keeps it. Forget removes an
   accessory's Meters. Shelly's energy meters (imports from the device and from Shelly Cloud) and EcoFlow's flows,
   live and imported from the app's cloud, are examples.
   ```swift

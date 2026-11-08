@@ -3,9 +3,17 @@ import Homeswift
 import NIOConcurrencyHelpers
 
 extension Metrics {
-    /// What a Meter is to the Home Energy, as its last power reading said; nil for one with no power yet.
+    /// What a Meter is to the Home Energy, as its last power reading said (else its imported hours, until one does);
+    /// nil for one that has said nothing since the bridge started.
     public func meterDescription(of id: MeterID) -> MeterDescription? {
         meterDescriptions.withLockedValue { $0[id] }
+    }
+
+    /// The Energy Role a Meter's plugin suggests: what it said this run, else what it said before (kept in the Meter's
+    /// files), so a Meter whose device is offline, or that only ever imported hours, keeps its role after a restart.
+    public func suggestedRole(of id: MeterID) -> EnergyRole? {
+        if let description = meterDescription(of: id) { return description.suggestedRole }
+        return meters.suggestedRole(of: id)
     }
 
     /// A Meter's power (its signs: above zero drawn) in the Home Energy, under its Energy Role: the one a person gave it
@@ -13,6 +21,7 @@ extension Metrics {
     /// count as amounts, whichever way the Meter measures them; the grid and a battery keep their direction.
     func recordHomeEnergy(_ id: MeterID, watts: Double, _ description: MeterDescription, role given: EnergyRole??) {
         meterDescriptions.withLockedValue { if $0[id] != description { $0[id] = description } }
+        meters.setSuggestedRole(description.suggestedRole, meter: id)
         guard let role = given ?? description.suggestedRole else { return }
         let value = role == .solar || role == .home ? abs(watts) : watts
         // A role other than the suggestion is a series of its own: what was recorded under another role stays as it was.
@@ -25,17 +34,13 @@ extension Metrics {
     /// Meter that measures production as use), the home's use, what the batteries charged and discharged.
     func importHomeEnergy(_ id: MeterID, _ hours: [MeterHourImport], _ description: MeterDescription, role given: EnergyRole??) {
         guard let role = given ?? description.suggestedRole else { return }
-        let flows = hours.map { hour -> EnergyHourImport in
-            let flows: EnergyFlows = switch role {
-            case .grid: EnergyFlows(gridImport: hour.consumption, gridExport: hour.returned)
-            case .solar: EnergyFlows(solar: hour.returned ?? hour.consumption)
-            case .home: EnergyFlows(home: hour.consumption)
-            case .battery: EnergyFlows(batteryCharge: hour.consumption, batteryDischarge: hour.returned)
-            case .batteryLevel: EnergyFlows()
-            }
-            return EnergyHourImport(start: hour.start, flows: flows)
-        }
-        archive.importHours(flows, source: "meter:\(id)")
+        archive.importHours(hours.map { EnergyHourImport(start: $0.start, flows: role.flows(of: $0)) }, source: "meter:\(id)")
+    }
+
+    /// Drops a Meter's imported hours, on the Meter and in the Home Energy (`importHomeEnergy`'s source).
+    func forgetImportedHours(_ id: MeterID) {
+        meters.forgetImports(meter: id)
+        archive.forgetImports(source: "meter:\(id)")
     }
 
     /// The Meter of a service with Total Consumption or Current Consumption, by the service's type and subtype (the
@@ -79,8 +84,12 @@ extension Metrics {
             case let .counter(id, wattHours, direction, at): meters.recordCounter(wattHours, direction: direction, meter: id, at: at)
             case let .claim(id): claimed.withLockedValue { _ = $0.insert(id) }
             case let .kind(id, kind): meters.setKind(kind, meter: id)
+            case let .forgetHistory(id): forgetImportedHours(id)
             case let .history(id, hours, description):
                 meters.importHours(hours, meter: id)
+                // What the Meter is, until a power reading says it (which wins: the live reading knows the device best).
+                meterDescriptions.withLockedValue { if $0[id] == nil { $0[id] = description } }
+                if meterDescription(of: id) == description { meters.setSuggestedRole(description.suggestedRole, meter: id) }
                 // Gas and water never count in the Home Energy, which is electricity's.
                 guard meters.kind(of: id) == .electricity else { return }
                 importHomeEnergy(id, hours, description, role: host?.energyRole(of: id))
@@ -111,5 +120,36 @@ extension Metrics {
         }
         scan()
         return Observation { changes.cancel(); structure.cancel(); declared.cancel() }
+    }
+}
+
+extension EnergyRole {
+    /// An hour of a Meter of this role as the Home Energy's flows (`Metrics.importHomeEnergy`): what the grid imported
+    /// and exported, what solar produced (its Returned, or what it drew for a Meter that measures production as use), the
+    /// home's use, what the batteries charged and discharged.
+    public func flows(of hour: MeterHourImport) -> EnergyFlows {
+        switch self {
+        case .grid: EnergyFlows(gridImport: hour.consumption, gridExport: hour.returned)
+        case .solar: EnergyFlows(solar: hour.returned ?? hour.consumption)
+        case .home: EnergyFlows(home: hour.consumption)
+        case .battery: EnergyFlows(batteryCharge: hour.consumption, batteryDischarge: hour.returned)
+        case .batteryLevel: EnergyFlows()
+        }
+    }
+
+    /// The other way: the part of an hour of the home's flows a Meter of this role measures, for a plugin that has a
+    /// home's history and a Meter per role (`PluginMeter.importHours`); nil when the hour has none of it. Solar is
+    /// production, which the Meter sends back.
+    public func meterHour(of hour: EnergyHourImport) -> MeterHourImport? {
+        let flows = hour.flows
+        let (consumption, returned): (Double?, Double?) = switch self {
+        case .grid: (flows.gridImport, flows.gridExport)
+        case .solar: (nil, flows.solar)
+        case .home: (flows.home, nil)
+        case .battery: (flows.batteryCharge, flows.batteryDischarge)
+        case .batteryLevel: (nil, nil)
+        }
+        guard consumption != nil || returned != nil else { return nil }
+        return MeterHourImport(start: hour.start, consumption: consumption, returned: returned)
     }
 }

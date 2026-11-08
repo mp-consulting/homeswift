@@ -242,10 +242,11 @@ public final class PluginHost: @unchecked Sendable {
     private let values = ValueFeed()
     // A plugin dropping what it imported is never the import a full queue lets go: the old source would stay for good.
     private let energyImports = EnergyImportFeed(keeping: { $0.forget })
-    // A plugin's takeover of a Meter (`.claim`) or what it measures (`.kind`) is never the reading a full queue lets go.
+    // A plugin's takeover of a Meter (`.claim`), what it measures (`.kind`) or its dropping a Meter's imported hours
+    // (`.forgetHistory`) is never the reading a full queue lets go.
     private let meterReadings = MeterFeed(keeping: {
         switch $0 {
-        case .claim, .kind: true
+        case .claim, .kind, .forgetHistory: true
         default: false
         }
     })

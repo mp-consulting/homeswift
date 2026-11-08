@@ -119,6 +119,9 @@ public final class MeterArchive: @unchecked Sendable {
         var counters: [MeterDirection: Reading]
         /// Gas or water; nil for electricity, as the files written before there were kinds have it.
         var kind: MeterKind?
+        /// The Energy Role its plugin suggests (`MeterDescription.suggestedRole`), so a Meter that has not reported
+        /// since a restart still reads under it; nil for none, as older files have it.
+        var role: EnergyRole?
     }
 
     private struct Meter {
@@ -139,6 +142,8 @@ public final class MeterArchive: @unchecked Sendable {
         var dirty: [MeterID: Set<Int>] = [:]
         /// The gas and water Meters' kinds, declared or read back; any other Meter is electricity's.
         var kinds: [MeterID: MeterKind] = [:]
+        /// The Energy Roles plugins suggested for their Meters, declared or read back.
+        var roles: [MeterID: EnergyRole] = [:]
     }
 
     /// The longest time a counter's gain is spread over; a longer one sets the counter's reading again and is lost.
@@ -168,15 +173,18 @@ public final class MeterArchive: @unchecked Sendable {
         guard let directory, let folders = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
         var meters: [MeterID: Meter] = [:]
         var kinds: [MeterID: MeterKind] = [:]
+        var roles: [MeterID: EnergyRole] = [:]
         for folder in folders {
             guard let data = try? Data(contentsOf: folder.appendingPathComponent("meter.json")),
                   let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.version == Self.version else { continue }
             meters[stored.id] = Meter(counters: stored.counters)
             if let kind = stored.kind, kind != .electricity { kinds[stored.id] = kind }
+            if let role = stored.role { roles[stored.id] = role }
         }
         state.withLockedValue { state in
             state.meters = meters
             state.kinds = kinds
+            state.roles = roles
         }
     }
 
@@ -201,6 +209,23 @@ public final class MeterArchive: @unchecked Sendable {
             guard (state.kinds[id] ?? .electricity) != kind else { return false }
             state.kinds[id] = kind == .electricity ? nil : kind
             // A Meter with a history writes its meter.json, with no year; one that never read shows nowhere until it does.
+            guard state.meters[id] != nil else { return false }
+            state.dirty[id, default: []].formUnion([])
+            return true
+        }
+        if changed { scheduleSave() }
+    }
+
+    /// The Energy Role a Meter's plugin last suggested for it, kept in its `meter.json`; nil for none.
+    public func suggestedRole(of id: MeterID) -> EnergyRole? {
+        state.withLockedValue { $0.roles[id] }
+    }
+
+    /// Keeps the Energy Role a Meter's plugin suggests (its description's, with each reading), for after a restart.
+    public func setSuggestedRole(_ role: EnergyRole?, meter id: MeterID) {
+        let changed = state.withLockedValue { state -> Bool in
+            guard state.roles[id] != role else { return false }
+            state.roles[id] = role
             guard state.meters[id] != nil else { return false }
             state.dirty[id, default: []].formUnion([])
             return true
@@ -280,6 +305,36 @@ public final class MeterArchive: @unchecked Sendable {
         }
     }
 
+    /// Drops what was imported for a Meter (`importHours`), every year of it, and keeps what the bridge measured: for a
+    /// plugin whose history moved to another Meter (a system now read through another unit). Returns how many hours
+    /// lost their import.
+    @discardableResult
+    public func forgetImports(meter id: MeterID) -> Int {
+        // The years on disk as well as those in memory: an import goes back further than readings reach.
+        let onDisk: [Int] = directory.flatMap { directory in
+            try? FileManager.default.contentsOfDirectory(atPath: Self.folder(of: id, in: directory).path)
+        }?.compactMap { $0.hasSuffix(".json") ? Int($0.dropLast(5)) : nil } ?? []
+        guard state.withLockedValue({ $0.meters[id] != nil }) else { return 0 }
+        var dropped = 0
+        changing(id) { meter, years in
+            for year in Set(onDisk).union(meter.years.keys) {
+                load(year, of: id, into: &meter)
+                guard var hours = meter.years[year] else { continue }
+                let imported = hours.filter { $0.value.ic != nil || $0.value.ir != nil }.keys
+                guard !imported.isEmpty else { continue }
+                for offset in imported {
+                    hours[offset]?.ic = nil
+                    hours[offset]?.ir = nil
+                    if hours[offset]?.isEmpty == true { hours[offset] = nil }
+                }
+                dropped += imported.count
+                meter.years[year] = hours
+                years.insert(year)
+            }
+        }
+        return dropped
+    }
+
     /// The Meters of one accessory, by key.
     public func meters(of accessory: String) -> [MeterID] {
         state.withLockedValue { $0.meters.keys.filter { $0.accessory == accessory } }.sorted { $0.meter < $1.meter }
@@ -302,6 +357,7 @@ public final class MeterArchive: @unchecked Sendable {
             for id in gone {
                 state.meters[id] = nil
                 state.kinds[id] = nil
+                state.roles[id] = nil
                 state.holding.remove(id)
                 state.dirty[id] = nil
             }
@@ -495,7 +551,7 @@ public final class MeterArchive: @unchecked Sendable {
             defer { state.dirty = [:] }
             return state.dirty.compactMap { id, years in
                 guard let meter = state.meters[id] else { return nil }
-                return (Stored(version: Self.version, id: id, counters: meter.counters, kind: state.kinds[id]), years.compactMap { year in meter.years[year].map { (year, $0) } })
+                return (Stored(version: Self.version, id: id, counters: meter.counters, kind: state.kinds[id], role: state.roles[id]), years.compactMap { year in meter.years[year].map { (year, $0) } })
             }
         }
         let encoder = JSONEncoder()

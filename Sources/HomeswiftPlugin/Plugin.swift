@@ -1046,4 +1046,7 @@ public enum MeterReading: Sendable, Equatable {
     case claim(MeterID)
     /// A plugin declares a Meter of gas or water (`PluginContext.meter(_:deviceID:device:kind:)`): its figures are litres.
     case kind(MeterID, MeterKind)
+    /// A plugin drops what it imported for a Meter (`PluginContext.forgetImportedHours(ofMeter:deviceID:)`), there and in
+    /// the Home Energy; what the bridge measured stays.
+    case forgetHistory(MeterID)
 }
