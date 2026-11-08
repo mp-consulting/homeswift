@@ -157,7 +157,7 @@ actor SwitchBotBluetooth {
             var exchanges: [Exchange] = []
             for request in requests {
                 guard !request.encrypted || cipher != nil else {
-                    throw BLEUnsupported(reason: "\(device.name) needs its encryption key and key id (Accessory Settings)")
+                    throw BLEUnsupported(reason: "\(device.name) needs its encryption key and key id (Setup)")
                 }
                 var lastStatus = BLEStatus(code: 0)
                 var answered: [UInt8]?

@@ -91,11 +91,15 @@ that name their `configDeviceType` are added and reached over Bluetooth alone. D
 requests; one on `BLE/OpenAPI` spends them only when Bluetooth fails.
 
 - **Keys.** A Smart Lock needs its **encryption key** (32 hex digits) and **key id** (2) from the SwitchBot app's device
-  information page; SwitchBot publishes no API that gives them. They are credentials, so no form shows them: put them in
-  config.json under the lock's entry in `_accessories` (`encryptionKey`, `encryptionKeyId`; a Homebridge block's `keyId`
-  and a Bot's `botPassword` are read the same way). The bridge seals them in the vault at its next start, masks them and
-  never logs them. A lock without them stays on the cloud. A Strip Light given a key talks encrypted too. Setup asking
-  for them is not done yet (see Gaps).
+  information page; SwitchBot publishes no API that gives them. A lock on Bluetooth (`BLE` or `BLE/OpenAPI`) without
+  them Needs Authorization in Add accessories, whose step asks for both (checked: 2 and 32 hex digits); **Set up again**
+  changes them. A Bot with a password set in the SwitchBot app asks for it the same way (4 letters or digits; left
+  empty for none): every Bot on Bluetooth offers Set up again, and one that refused a command for its password Needs
+  Authorization. Setup keeps them in the vault under the device's Device Id, where the Bluetooth layer reads them first.
+  Keys already in config.json under the device's entry in `_accessories` (`encryptionKey`, `encryptionKeyId`, a
+  Homebridge block's `keyId`, a Bot's `botPassword`) still work: the bridge seals them at its next start, and a Setup of
+  the device takes them out. Neither is ever logged. A lock without them stays on the cloud. A Strip Light given a key
+  (in config.json) talks encrypted too.
 - **Options.** `maxRetry` (5) attempts per command, with a backoff; `blePollingEnabled` (on) and `blePollIntervalMs`
   (600000, at least 60000) read the state of plugs, lights and locks besides their advertisements. A device read from its
   advertisements alone that is not heard for its `refreshRate` shows No Response (`BLE`) or is asked of the cloud
@@ -132,7 +136,6 @@ Webhook events match `deviceMac` whatever its spelling.
 
 ## Gaps
 
-- Setup does not ask for a lock's encryption key and key id or a Bot's password yet: they go in config.json (above).
 - **Bluetooth** is experimental and tested only against a fake adapter. Open points of the spec: the Smart Lock's
   advertisement offsets disagree on SwitchBot's page, so its state comes from the connected read only; AES-GCM locks follow
   the protocol but no published vector checks them (they are checked against swift-crypto's AES-GCM); the Plug Mini's
@@ -140,8 +143,8 @@ Webhook events match `deviceMac` whatever its spelling.
   manufacturer-data forms and the Bot password come from node-switchbot, not the published documentation. Where the
   sources disagree (the Bot's state bit, the Curtain's flags, the plug, bulb and lock frames, status `0x05`) the published
   documentation is followed.
-- Bluetooth is one connection per command batch (no connection kept for 8.5 s), lock status notifications are not
-  subscribed, and Setup does not ask for a lock's key: it is entered in the Accessory Settings.
+- Bluetooth is one connection per command batch (no connection kept for 8.5 s), and lock status notifications are not
+  subscribed. Setup checks the form of a lock's key, not the key itself: a wrong one shows when the lock refuses it.
 - The MQTT relay of webhook events (`mqttURL`) is not implemented.
 - Eve history (`history`) is not wired, as in 4.x.
 - The Humidifier2's own commands, the Battery Circulator Fan's night light, the air purifiers' speed and mode, and the

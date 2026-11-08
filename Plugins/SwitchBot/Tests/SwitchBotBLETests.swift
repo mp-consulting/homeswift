@@ -351,4 +351,100 @@ struct SwitchBotBLEPluginTests {
         #expect(environment.central.connectionCount == 0)
         await host.stop()
     }
+
+    /// A lock on Bluetooth without its key Needs Authorization; Setup refuses a key of the wrong form, keeps a good one in
+    /// the vault, and the lock's commands are encrypted with it (§11.5).
+    @Test func setupKeepsALocksKey() async throws {
+        let settings: [String: Any] = ["options": ["devices": [
+            ["deviceId": "C0FFEE123456", "configDeviceType": "Smart Lock", "configDeviceName": "Front Door"],
+            ["deviceId": "C271111EC0AB", "configDeviceType": "Meter", "configDeviceName": "Office"],
+        ]]]
+        environment.central.respond(to: "c0:ff:ee:12:34:56", Self.lockResponder)
+        let host = try await environment.start(settings)
+        let deviceID = "C0FFEE123456-Smart Lock", id = "SwitchBot:\(deviceID)"
+        #expect(await eventually { host.accessory(id) != nil })
+        let plugin = try #require(environment.plugin)
+        let found = try await plugin.discover()
+        let lock = try #require(found.first { $0.deviceID == deviceID })
+        #expect(lock.authorization == .apiKey && !lock.isSetUp)
+        #expect(found.first { $0.deviceID == "C271111EC0AB-Meter" }?.authorization == AuthorizationMethod.none)
+        #expect(environment.central.connectionCount == 0)
+
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .device(lock))) else {
+            Issue.record("no prompt")
+            return
+        }
+        #expect(prompt.fields.map(\.key) == ["encryptionKeyId", "encryptionKey"] && prompt.fields.allSatisfy { $0.kind == .secret })
+        #expect(prompt.values["name"] == "Front Door")
+        for answers in [["encryptionKeyId": "1", "encryptionKey": Self.key], ["encryptionKeyId": "01", "encryptionKey": "0001"],
+                        ["encryptionKeyId": "01", "encryptionKey": String(Self.key.dropLast()) + "G"]] {
+            await #expect(throws: SetupError.self) { try await plugin.authorize(SetupRequest(target: .device(lock), answers: answers)) }
+        }
+        guard case .done(let outcome) = try await plugin.authorize(
+            SetupRequest(target: .device(lock), answers: ["encryptionKeyId": " 01 ", "encryptionKey": Self.key.lowercased()])) else {
+            Issue.record("not done")
+            return
+        }
+        #expect(outcome.settings["encryptionKey"] == .null && outcome.settings["encryptionKeyId"] == .null && outcome.settings["keyId"] == .null)
+        let credentials = try #require(outcome.credentials)
+        #expect(credentials == ["encryptionKey": .string(Self.key), "encryptionKeyId": "01"])
+
+        // What the bridge does with it: the vault, then a reload.
+        try await plugin.context.saveCredentials(credentials, for: deviceID)
+        await host.stop()
+        let restarted = try await environment.start(settings)
+        let reloaded = try #require(environment.plugin)
+        // The plugin's own accessory, not the one the cache restored.
+        #expect(await eventually { await reloaded.entries[deviceID] != nil })
+        #expect(try await reloaded.discover().first { $0.deviceID == deviceID }?.isSetUp == true)
+        let mechanism = try #require(restarted.accessory(id)?.service(.lockMechanism))
+        #expect(await eventually { mechanism[.lockCurrentState]?.value == .int(1) })
+        try await mechanism[.lockTargetState]!.write(.int(0))
+        #expect(await eventually { environment.central.writes(to: "c0:ff:ee:12:34:56").map(\.value).contains(hex("57 01 F0 F1 69 E9 C6 E9 24 D2")) })
+        #expect(environment.central.writes(to: "c0:ff:ee:12:34:56").first?.value == hex("57 00 00 00 0F 21 03 01"))
+        #expect(environment.cloud.state.withLockedValue { $0.requests.isEmpty })
+        await restarted.stop()
+    }
+
+    /// A Bot that asks for its password Needs Authorization; Setup keeps a password of 4 letters or digits, which its
+    /// presses carry (§11.3).
+    @Test func setupKeepsABotsPassword() async throws {
+        let settings: [String: Any] = ["options": ["devices": [["deviceId": "D1A2B3C4D5E6", "configDeviceType": "Bot", "configDeviceName": "Kettle", "maxRetry": 1]]]]
+        environment.central.respond(to: "d1:a2:b3:c4:d5:e6") { written in written[1] == 0x11 ? hex("01 FF 00") : [0x07] }
+        let host = try await environment.start(settings)
+        let deviceID = "D1A2B3C4D5E6-Bot", id = "SwitchBot:\(deviceID)"
+        #expect(await eventually { host.accessory(id) != nil })
+        let plugin = try #require(environment.plugin)
+        let bot = try #require(try await plugin.discover().first { $0.deviceID == deviceID })
+        #expect(bot.authorization == .apiKey && bot.isSetUp)
+        _ = try? await host.accessory(id)!.service(.switch)![.on]!.write(.bool(true))
+        #expect(await eventually { environment.central.writes(to: "d1:a2:b3:c4:d5:e6").map(\.value) == [hex("57 01 01")] })
+        #expect(await eventually { (try? await plugin.discover().first { $0.deviceID == deviceID }?.isSetUp) == false })
+
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .device(bot))) else {
+            Issue.record("no prompt")
+            return
+        }
+        #expect(prompt.fields.map(\.key) == ["botPassword"] && prompt.fields.first?.kind == .secret)
+        for password in ["12345", "12 4", "ab-c"] {
+            await #expect(throws: SetupError.self) {
+                try await plugin.authorize(SetupRequest(target: .device(bot), answers: ["botPassword": password], state: state))
+            }
+        }
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(bot), answers: ["botPassword": "1234"], state: state)) else {
+            Issue.record("not done")
+            return
+        }
+        #expect(outcome.settings["botPassword"] == .null && outcome.credentials == ["botPassword": "1234"])
+        try await plugin.context.saveCredentials(try #require(outcome.credentials), for: deviceID)
+        await host.stop()
+        let restarted = try await environment.start(settings)
+        let reloaded = try #require(environment.plugin)
+        // The plugin's own accessory, not the one the cache restored.
+        #expect(await eventually { await reloaded.entries[deviceID] != nil })
+        try await restarted.accessory(id)!.service(.switch)![.on]!.write(.bool(true))
+        #expect(await eventually { environment.central.writes(to: "d1:a2:b3:c4:d5:e6").map(\.value).last == hex("57 11 9B E3 E0 A3 01") })
+        #expect(try await reloaded.discover().first { $0.deviceID == deviceID }?.isSetUp == true)
+        await restarted.stop()
+    }
 }

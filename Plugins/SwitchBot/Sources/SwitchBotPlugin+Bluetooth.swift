@@ -69,9 +69,40 @@ extension SwitchBotPlugin {
         var description: String
     }
 
+    /// What a device reached over Bluetooth asks Setup for: a lock's key, a Bot's password; nil for one that asks nothing
+    /// or is not reached over Bluetooth.
+    func bluetoothSecretKind(_ info: DeviceInfo) -> BluetoothSecrets.Kind? {
+        guard !info.isRemote, ["BLE", "BLE/OpenAPI"].contains(connectionType(info.options)),
+              configuration.enableBLE != false, !info.options.flag("disablePlatformBLE"),
+              let model = BLEModel(deviceType: info.type) else { return nil }
+        return Self.secretKind(model)
+    }
+
+    /// A device's key and key id: Setup's, in the vault, else its options' (`encryptionKey`, `encryptionKeyId` or
+    /// `keyId`). Throws for a key or key id of the wrong form; nil when there is none.
+    func bluetoothKey(_ info: DeviceInfo) throws(BluetoothProblem) -> BLEKey? {
+        let stored = context.credentials(for: info.deviceID, as: BluetoothSecrets.self)
+        let keyText: String?, keyID: String?
+        if let key = stored?.encryptionKey, let id = stored?.encryptionKeyId {
+            (keyText, keyID) = (key, id)
+        } else {
+            (keyText, keyID) = (info.options.string("encryptionKey"), info.options.string("encryptionKeyId", "keyId"))
+        }
+        guard keyText != nil || keyID != nil else { return nil }
+        guard let keyText, let keyID, let parsed = BLEKey(key: keyText, id: keyID) else {
+            throw BluetoothProblem(description: "its encryption key must be 32 hex digits and its key id 2")
+        }
+        return parsed
+    }
+
+    /// A Bot's password: Setup's, in the vault (none when Setup was given none), else its options' `botPassword`.
+    func botPassword(_ info: DeviceInfo) -> String? {
+        if let stored = context.credentials(for: info.deviceID, as: BluetoothSecrets.self) { return stored.botPassword }
+        return info.options.string("botPassword")
+    }
+
     /// The device on Bluetooth, from its options: its model (a type the spec pins), its MAC (`customBLEaddress`, else the
-    /// cloud's id), its key (`encryptionKey`, `keyId` or `encryptionKeyId`: a lock needs them), a Bot's password
-    /// (`botPassword`) and `maxRetry`.
+    /// cloud's id), its key (a lock needs it, `bluetoothKey`), a Bot's password (`botPassword`) and `maxRetry`.
     func bleDevice(_ info: DeviceInfo) -> Result<BLEDevice, BluetoothProblem> {
         let options = info.options
         if configuration.enableBLE == false || options.flag("disablePlatformBLE") {
@@ -84,19 +115,17 @@ extension SwitchBotPlugin {
         guard let mac = bluetoothMAC(address) else {
             return .failure(BluetoothProblem(description: "its Bluetooth address is not a MAC address (customBLEaddress)"))
         }
-        var key: BLEKey?
-        let keyText = options.string("encryptionKey"), keyID = options.string("encryptionKeyId", "keyId")
-        if keyText != nil || keyID != nil {
-            guard let keyText, let keyID, let parsed = BLEKey(key: keyText, id: keyID) else {
-                return .failure(BluetoothProblem(description: "its encryption key must be 32 hex digits and its key id 2"))
-            }
-            key = parsed
+        let key: BLEKey?
+        do {
+            key = try bluetoothKey(info)
+        } catch {
+            return .failure(error)
         }
         if model.isLock && key == nil {
-            return .failure(BluetoothProblem(description: "a lock needs its encryption key and key id from the SwitchBot app (Accessory Settings)"))
+            return .failure(BluetoothProblem(description: "a lock needs its encryption key and key id from the SwitchBot app (Setup, Set up again)"))
         }
         var password: String?
-        if model == .bot, let text = options.string("botPassword") {
+        if model == .bot, let text = botPassword(info) {
             guard validBotPassword(text) else { return .failure(BluetoothProblem(description: "its Bot password must be 4 letters or digits")) }
             password = text
         }
@@ -180,6 +209,10 @@ extension SwitchBotPlugin {
             if ble.model.hasRead { startPolling(info.deviceID, after: scaled(2)) }
             return true
         } catch {
+            // A Bot asking for its password, or refusing the one given: Setup asks for it.
+            if ble.model == .bot, let status = error as? BLEStatus, status.code == 0x07 || status.code == 0x09 {
+                botPasswordRefused.insert(info.deviceID)
+            }
             if cloudAvailable {
                 logger.debug("\(info.type) \(info.name): Bluetooth failed (\(error)); sending through the cloud")
                 return nil

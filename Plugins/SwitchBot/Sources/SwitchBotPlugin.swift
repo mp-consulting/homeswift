@@ -81,6 +81,8 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
     var sequences: [String: UInt8] = [:]
     /// Devices whose Bluetooth problem was logged.
     var bluetoothWarned: Set<String> = []
+    /// Bots that refused a command over Bluetooth for their password (none given, or a wrong one): Setup asks for it.
+    var botPasswordRefused: Set<String> = []
     /// The cloud's last device list, for Setup and the settings.
     private(set) var latest: DeviceList?
     private var webhook: WebhookServer?
