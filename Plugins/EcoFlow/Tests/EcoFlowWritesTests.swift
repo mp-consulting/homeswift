@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftNetworkTestSupport
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
@@ -589,7 +590,9 @@ struct EcoFlowWritesTests {
     @Test func anOutputsHoldAndTheLightsAreKeptApart() async throws {
         let serial = "R631-TEST-1"
         await environment.api.add(lit(serial, mode: .bright))
-        let host = try await environment.start(configure: { $0.holdFor = .seconds(1) })
+        // The holds' clock moves only when the test moves it: a slow machine never outlasts them.
+        let skipped = NIOLockedValueBox<Duration>(.zero)
+        let host = try await environment.start(configure: { $0.holdFor = .seconds(60); $0.now = { .now + skipped.withLockedValue { $0 } } })
         let plugin = try #require(environment.plugin)
         #expect(await eventually { service(host, serial, .lightbulb, "light") != nil })
         let ac = try #require(outlet(host, serial, "ac"))
@@ -614,6 +617,7 @@ struct EcoFlowWritesTests {
         let card = try #require(listed.first { $0["id"]?.stringValue == serial })
         #expect(card["light"]?["mode"] == .number(3))
         #expect(card["outputs"]?.arrayValue?.first { $0["id"]?.stringValue == "ac" }?["on"] == .bool(true))
+        skipped.withLockedValue { $0 = .seconds(600) }
         #expect(await eventually {
             await plugin.refresh()
             return ac.characteristic(.on).value == .bool(false) && light.characteristic(.on).value == .bool(true)

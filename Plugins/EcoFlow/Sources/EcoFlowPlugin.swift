@@ -72,6 +72,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         /// the device's readings catch up.
         var writeTimeout: Duration = .seconds(8)
         var holdFor: Duration = .seconds(2)
+        /// The time holds are measured by; tests move it on rather than wait a hold out.
+        var now: @Sendable () -> ContinuousClock.Instant = { .now }
     }
 
     /// How far the energy history was imported, in the plugin's storage.
@@ -561,7 +563,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// the state it was switched to, and one whose state the device does not report keeps its own.
     private func show(_ device: EcoFlowDevice, on services: DeviceServices) {
         Self.show(device.state, on: services)
-        let now = ContinuousClock.now
+        let now = dependencies.now()
         for (output, outlet) in services.outlets {
             let key = Self.holdKey(device.id, output)
             if let hold = holds[key] {
@@ -626,7 +628,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
 
     /// The light's mode, from the device's readings or the one last written.
     private func lightState(_ device: EcoFlowDevice) -> EcoFlowLight? {
-        if let hold = holds[Self.lightHoldKey(device.id)], ContinuousClock.now < hold.until, case let .lightMode(mode) = hold.write {
+        if let hold = holds[Self.lightHoldKey(device.id)], dependencies.now() < hold.until, case let .lightMode(mode) = hold.write {
             return mode
         }
         return device.state.lightMode
@@ -634,7 +636,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
 
     /// The output's state, from the device's readings or the Outlet's.
     private func outputState(_ device: EcoFlowDevice, _ output: EcoFlowOutput) -> Bool? {
-        if let hold = holds[Self.holdKey(device.id, output)], ContinuousClock.now < hold.until, case let .output(_, on) = hold.write {
+        if let hold = holds[Self.holdKey(device.id, output)], dependencies.now() < hold.until, case let .output(_, on) = hold.write {
             return on
         }
         return device.state.outputs[output] ?? devices[device.id]?.outlets[output]?.characteristic(.on).value.boolValue
@@ -691,7 +693,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             throw HAPStatusError(.serviceCommunicationFailure)
         }
         // Held while the write is on its way too: a reading from before it does not flip the service back.
-        let hold = (write: write, until: ContinuousClock.now + dependencies.writeTimeout + dependencies.holdFor)
+        let hold = (write: write, until: dependencies.now() + dependencies.writeTimeout + dependencies.holdFor)
         holds[key] = hold
         let what = describe(write, of: device)
         do {
@@ -705,7 +707,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             tasks.add { [weak self] in await self?.refresh() }
             throw HAPStatusError(.serviceCommunicationFailure)
         }
-        holds[key] = (write, ContinuousClock.now + dependencies.holdFor)
+        holds[key] = (write, dependencies.now() + dependencies.holdFor)
         switch write {
         case let .output(output, on):
             devices[deviceID]?.outlets[output]?.characteristic(.on).value = .bool(on)

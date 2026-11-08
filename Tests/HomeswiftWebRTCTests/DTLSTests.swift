@@ -198,14 +198,12 @@ import Glibc
 
     /// The client packs Certificate, ClientKeyExchange, CertificateVerify, ChangeCipherSpec and Finished into one
     /// datagram: the server reads the ChangeCipherSpec with the keys the ClientKeyExchange before it derived, and the
-    /// handshake ends without waiting out a retransmission.
+    /// handshake ends without waiting out a retransmission: a timer longer than any test, and three datagrams each way.
     @Test func aPackedClientFlightCompletesWithoutARetransmission() async throws {
         let (a, b) = MemoryPipe.pair(dropFromA: [], dropFromB: [])
-        let clock = ContinuousClock(), start = clock.now
-        let (client, server) = try await Self.connect(a, b, retransmitTimeout: .seconds(5))
-        #expect(clock.now - start < .seconds(2))
+        let (client, server) = try await Self.connect(a, b, retransmitTimeout: .seconds(600))
         // ClientHello, ClientHello with the cookie, the whole flight; HelloVerifyRequest, ServerHello to
-        // ServerHelloDone, ChangeCipherSpec and Finished.
+        // ServerHelloDone, ChangeCipherSpec and Finished. A retransmission would be a fourth.
         #expect(a.sent == 3)
         #expect(b.sent == 3)
         await client.close()
@@ -414,10 +412,9 @@ import Glibc
         defer { client.stop() }
         let exported = try await keys
         if dropFirst == 0, let first = transport.firstReceived {
-            // s_client packs its last flight; its first retransmission would come a second after it.
-            let elapsed = ContinuousClock.now - first
-            print("DTLS s_client handshake: \(elapsed) from the first datagram, \(transport.received) datagrams in")
-            #expect(elapsed < .milliseconds(800), "the handshake took \(elapsed): s_client retransmitted")
+            // s_client packs its last flight (aPackedClientFlightCompletesWithoutARetransmission checks it without a
+            // clock); the time is printed, not checked, as a loaded machine can take longer than s_client's timer.
+            print("DTLS s_client handshake: \(ContinuousClock.now - first) from the first datagram, \(transport.received) datagrams in")
         }
         let printed = try #require(await client.waitFor("Keying material: "), "\(client.output)")
         #expect(printed.prefix { $0.isHexDigit } == hex(exported.material).uppercased())
