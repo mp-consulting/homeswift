@@ -1767,6 +1767,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumers > li.sources-start, .consumers > li.unmeasured-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
 /* The meters with nothing for the period, together at the end: muted, still opening their history. */
 .consumer.unmeasured, .consumer.unmeasured .consumer-value b { color: var(--muted); font-weight: inherit; }
+/* No bar for them: an empty track would read as nothing used. */
+.consumer.unmeasured .consumer-track { visibility: hidden; }
 @media (max-width: 640px) {
   /* A phone: the name and its figure on the first line, its role and cost under them, the bar across the whole row
      under both, so a name keeps its width and the bars still read against one another. */
@@ -1783,8 +1785,10 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .consumer-spacer, .consumer.action-with-icon::before { grid-area: icon; align-self: center; }
   .consumer.nested .consumer-name { padding-left: 0; }
   .consumer.nested .consumer-name > * { padding-left: var(--space-16); }
-  /* The rule beside a device's words, stopping above its bar. */
-  .consumer.nested::after { left: calc(var(--space-8) + 3px); top: var(--space-10); bottom: calc(var(--space-10) + 8px + var(--space-8)); }
+  /* The rule beside a device's words and its bar, both indented by it. */
+  .consumer.nested .consumer-track { margin-left: var(--space-16); }
+  .consumer.nested::after { left: calc(var(--space-8) + 3px); top: var(--space-10); bottom: var(--space-10); }
+  .consumer.unmeasured .consumer-track { display: none; }
   /* In line with the rows' words, at their captions' size. */
   .consumers-inside { padding: var(--space-6) var(--space-8) 0; font-size: var(--text-xs); }
 }
