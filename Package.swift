@@ -166,8 +166,10 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
-        // WebRTC for camera plugins whose clouds stream that way (Ring, Google Nest): STUN and ICE, SRTP and SRTCP, the SDP
-        // offer; vector-tested against RFC 5769, RFC 3711 and libsrtp's reference packets.
+        // WebRTC for camera plugins whose clouds stream that way (Ring, Google Nest): STUN and ICE, DTLS 1.2 with DTLS-SRTP
+        // (both roles, in Swift: swift-nio-ssl does not expose DTLS), SRTP and SRTCP, the SDP offer; vector-tested against
+        // RFC 5769, RFC 3711, libsrtp's reference packets and the TLS 1.2 PRF vector, and DTLS against OpenSSL's s_server
+        // and s_client when OpenSSL is installed.
         .target(
             name: "HomeswiftWebRTC",
             dependencies: [

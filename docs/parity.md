@@ -81,7 +81,7 @@ understands:
 | Piece | Notes |
 |---|---|
 | ICE agent | Candidate gathering on the host's interfaces (`NetworkInterfaces`), STUN binding requests and responses, connectivity checks, trickle ICE. `UDPSocket` is already in `HomeswiftNetwork`. No TURN at first: both services offer host and server-reflexive candidates. |
-| DTLS 1.2 client | With `use_srtp` so the SRTP keys are exported from the handshake. BoringSSL (already a dependency through `swift-nio-ssl`) speaks DTLS, but `NIOSSL` does not expose it, so a small C target over BoringSSL's DTLS and `SSL_export_keying_material`, following the `CHAPMath` and `CDNSSD` precedent. A Swift DTLS implementation is the fallback if the shim proves awkward to build on both platforms. |
+| DTLS 1.2 | Client and server, with `use_srtp` so the SRTP keys are exported from the handshake. Written in Swift over swift-crypto: neither swift-nio-ssl nor swift-crypto exposes BoringSSL's DTLS, and a Swift implementation avoids a C target. Checked against OpenSSL's `s_server` and `s_client`. **Done.** |
 | SRTP and SRTCP | AES-CM-128-HMAC-SHA1-80 at least. `Sources/Homeswift/Camera/RTPStreamManagement.swift` already does SRTP for HAP in the other direction; the key derivation is shared. |
 | SCTP over DTLS | Only for the data channel Nest's signalling needs. Not required for Ring. Last, and skippable at first. |
 | Signalling | Per plugin, not here: Ring's session over its own socket with trickle ICE; Nest's `GenerateWebRtcStream` SDP offer and answer, with `ExtendRtspStream`'s sibling to keep the session past Google's five minutes. |

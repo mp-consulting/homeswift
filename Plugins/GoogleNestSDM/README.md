@@ -80,8 +80,8 @@ Ids, names and options are the same. These differ, on purpose:
 ## Gaps
 
 - **WebRTC cameras and doorbells** (the 2021 and later Nest Cam and Nest Doorbell) have no live view nor HomeKit Secure
-  Video: it needs a WebRTC stack (ICE, DTLS-SRTP, SCTP), which Homeswift does not have. Their motion, doorbell and
-  clip-preview snapshots work.
+  Video: it needs a WebRTC stack. `HomeswiftWebRTC` has ICE, DTLS-SRTP and SRTP; SCTP for the data channel and the
+  plugin's signalling are still missing. Their motion, doorbell and clip-preview snapshots work.
 - Snapshots are the latest event image (less than 10 seconds old) or a placeholder: SDM has no snapshot, and a stream for
   one would spend the quota.
 - Two-way audio.

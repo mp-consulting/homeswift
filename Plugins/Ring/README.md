@@ -67,7 +67,8 @@ Assistant change them only after you confirm.
 ## Not done
 
 - Live video and two-way audio (WebRTC with trickle ICE, DTLS-SRTP, Opus): the cameras advertise streams so the Home app
-  shows them, but a stream request is refused.
+  shows them, but a stream request is refused. `HomeswiftWebRTC` now has ICE, DTLS-SRTP and SRTP; the plugin's
+  signalling to Ring is what is left.
 - Hub devices that appear after start-up show at the next restart.
 
 ## How it was tested
