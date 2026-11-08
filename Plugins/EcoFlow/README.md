@@ -37,8 +37,12 @@ month and year views (**Import the energy history**, `importHistory`, on by defa
 home use since the system was set up, from the app's Space dashboard (home use from the system's smart meter when it has
 one), and the STREAM system's battery charge and discharge and grid import and export, from its Battery and Grid pages,
 for the home of the account's first STREAM (one that reports, else one configured, else the app's device list's). With
-all four, the Status page splits each day's home use by source. The first import takes everything (a request per month
-and chart); then the last two days are taken again every 6 hours, as the cloud fills hours in late. The battery and
+all four, the Status page splits each day's home use by source. Each hour goes to the meter of its Energy Role on that
+STREAM — solar, home, grid, battery, the same four the device reports live — so the Status page's **Consumption by
+device** has the cloud's past as well, and the runtime fills the Home Energy from them. The first import takes
+everything (a request per month and chart); then the last two days are taken again every 6 hours, as the cloud fills
+hours in late. A bridge that imported the history before 0.26.0, when it went in as the home's flows under the plugin's
+own name, drops that import and reads the whole history again the first time it runs: the two would be added together. The battery and
 grid charts' codes are the ones the app's dashboard lists for the system (`/iot-service/dashboard/platform/getPageListById`
 with page type 4, then `getPageChartByPageId`), asked for by a unit's serial number; a system whose cloud refuses them
 keeps its solar and home history. The space's answers carry the home's address: only its id and time zone are read,

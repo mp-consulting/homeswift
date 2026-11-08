@@ -72,6 +72,10 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         var importedThrough: Date
         /// The history's first hour (absent from files of the first version).
         var from: Date?
+        /// Whether the history was imported through the STREAM's Meters. A file written before it was (`false`, and
+        /// absent from the older files) has the home's flows in the archive under the plugin's own key, which the
+        /// first import of the new kind drops: the two would be added to one another.
+        var meters: Bool?
     }
 
     /// Between two imports of the history's last days; and the days each one takes again (the cloud fills hours in late).
@@ -271,6 +275,25 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             ?? Self.configuredSerials(configuration, context).first { EcoFlowModel.model(serial: $0.id)?.kind == .stream }?.id
     }
 
+    /// The cloud's hours as the STREAM's Meters measure them: each Energy Role's figures to the Meter of that role, so
+    /// the Consumption by device card has the cloud's past too. The runtime puts a Meter's hours in the Home Energy
+    /// itself (`Metrics.importHomeEnergy`), so importing the home's flows beside them would count every hour twice.
+    /// Solar is production, which a Meter sends back; the grid and the battery keep both of their ways.
+    static func meterHours(_ hours: [EnergyHourImport]) -> [String: [MeterHourImport]] {
+        var byKey: [String: [MeterHourImport]] = [:]
+        for hour in hours {
+            let flows = hour.flows
+            let split: [(key: String, consumption: Double?, returned: Double?)] = [
+                ("solar", nil, flows.solar), ("home", flows.home, nil),
+                ("grid", flows.gridImport, flows.gridExport), ("battery", flows.batteryCharge, flows.batteryDischarge),
+            ]
+            for one in split where one.consumption != nil || one.returned != nil {
+                byKey[one.key, default: []].append(MeterHourImport(start: hour.start, consumption: one.consumption, returned: one.returned))
+            }
+        }
+        return byKey
+    }
+
     /// One import: from where the last one stopped (`historyOverlap` before it), or from the start. Each month goes into
     /// the archive as it arrives, with its progress; the Status page shows both. Returns whether it succeeded.
     @discardableResult
@@ -278,16 +301,30 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         let file = context.jsonFile(Self.historyFile, as: HistoryState.self)
         let previous = file.load()
         let context = context
+        // A history imported as the home's flows before: dropped, so the Meters' hours are not added to it, and read
+        // again from the start, since what was dropped went back further than a top-up reaches.
+        let again = previous.map { $0.meters != true } ?? false
+        if again {
+            context.forgetImportedEnergy()
+            logger.info("The energy history is imported through the STREAM's meters now: reading it again from the EcoFlow cloud, from the start")
+        }
+        // The names the devices report, for the Meters the import declares; a device that has not reported yet is
+        // named by its serial number, which only the Status page's series would show.
+        let names = Dictionary(latest.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
         // The progress shows from the first month's report on: an account without a STREAM has no import to show.
         do {
-            let hours = try await history.hours(serial: serial, since: previous.map { $0.importedThrough.addingTimeInterval(-Self.historyOverlap) }, now: now) { batch, done, total in
-                if !batch.isEmpty { context.importEnergy(batch) }
+            let since = again ? nil : previous.map { $0.importedThrough.addingTimeInterval(-Self.historyOverlap) }
+            let hours = try await history.hours(serial: serial, since: since, now: now) { batch, stream, done, total in
+                for (key, rows) in Self.meterHours(batch) {
+                    context.meter(key, deviceID: stream, device: names[stream] ?? stream,
+                                  suggestedRole: EcoFlowDevice.role(ofFlow: key)).importHours(rows)
+                }
                 context.reportEnergyImport(EnergyImportProgress(state: .running, done: done, total: total, from: previous?.from ?? batch.first?.start,
                                                                 through: batch.last?.start ?? previous?.importedThrough))
             }
             // The history's start: the first import's first hour, kept across top-ups.
             let from = previous?.from ?? hours.first?.start
-            try? file.save(HistoryState(importedThrough: now, from: from))
+            try? file.save(HistoryState(importedThrough: now, from: from, meters: true))
             context.reportEnergyImport(EnergyImportProgress(state: .done, from: from, through: now))
             if previous == nil, let first = hours.first?.start {
                 logger.info("Imported \(hours.count) hours of energy history (solar, home use, and the battery and grid where the cloud has them) from the EcoFlow cloud, since \(Timestamp.iso8601(first).prefix(10))")

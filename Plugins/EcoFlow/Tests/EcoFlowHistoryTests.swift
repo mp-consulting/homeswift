@@ -193,19 +193,26 @@ struct EcoFlowHistoryTests {
         #expect(points.first?.0 == local("2026-10-26 08:00:00"))
     }
 
-    @Test func thePluginHandsTheHistoryToTheArchiveAndRemembersWhere() async throws {
+    @Test func thePluginHandsTheHistoryToTheStreamsMetersAndRemembersWhere() async throws {
         let environment = TestEnvironment()
         let host = try await environment.start()
         defer { Task { await host.stop() } }
-        let received = NIOLockedValueBox<[(String, Int)]>([])
-        let observation = host.observeEnergyImports { source, hours in received.withLockedValue { $0.append((source, hours.count)) } }
+        let received = NIOLockedValueBox<[(MeterID, Int)]>([])
+        let observation = host.observeMeterReadings { reading in
+            guard case let .history(id, hours, _) = reading else { return }
+            received.withLockedValue { $0.append((id, hours.count)) }
+        }
         defer { observation.cancel() }
         let cloud = FakeCloud()
         let plugin = try #require(environment.plugin)
         await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud), serial: "BK11", now: local("2026-10-02 12:30:00"))
-        // A month at a time, as it arrives.
-        #expect(received.withLockedValue { $0.map(\.1) } == [24, 36])
-        #expect(received.withLockedValue { $0.first?.0 }?.hasPrefix("EcoFlow") == true)
+        // A month at a time, as it arrives, and each Energy Role on the Meter of that role.
+        let first = received.withLockedValue { $0 }
+        #expect(Set(first.map { $0.0.meter }) == ["solar", "home", "grid", "battery"])
+        #expect(first.allSatisfy { $0.0.accessory == "EcoFlow:BK11" })
+        // September's 24 hours, then October's 36, on each of the four.
+        #expect(Dictionary(grouping: first, by: { $0.0.meter }).mapValues { $0.map { $0.1 } } ==
+                ["solar": [24, 36], "home": [24, 36], "grid": [24, 36], "battery": [24, 36]])
         let done = try #require(host.energyImportProgress.first)
         #expect(done.state == .done)
         #expect(done.name == "EcoFlow")
@@ -213,10 +220,40 @@ struct EcoFlowHistoryTests {
         #expect(done.through == local("2026-10-02 12:30:00"))
 
         // The next import starts two days before the last one ended: from 30 September, so September is asked again.
+        received.withLockedValue { $0 = [] }
         await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud), serial: "BK11", now: local("2026-10-02 13:30:00"))
-        #expect(received.withLockedValue { $0.map(\.1) } == [24, 36, 24, 37])
+        #expect(Dictionary(grouping: received.withLockedValue { $0 }, by: { $0.0.meter }).mapValues { $0.map { $0.1 } } ==
+                ["solar": [24, 37], "home": [24, 37], "grid": [24, 37], "battery": [24, 37]])
         // The history's start is kept across top-ups.
         #expect(host.energyImportProgress.first?.from == local("2026-09-30 00:00:00"))
+    }
+
+    /// A bridge that imported the history as the home's flows, before the Meters carried it: the old import is dropped
+    /// (the two would be added to one another) and the whole history read again, not just the last days.
+    @Test func aHistoryImportedTheOldWayIsDroppedAndReadAgain() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let forgotten = NIOLockedValueBox<[String]>([])
+        let observation = host.observeEnergyImports { source, _, forget in
+            if forget { forgotten.withLockedValue { $0.append(source) } }
+        }
+        defer { observation.cancel() }
+        let plugin = try #require(environment.plugin)
+        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
+        let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
+        // A file of the old kind: imported up to the 2nd, with no `meters`.
+        try file.save(EcoFlowPlugin.HistoryState(importedThrough: local("2026-10-02 12:30:00"), from: local("2026-09-30 00:00:00")))
+        await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud()), serial: "BK11", now: local("2026-10-02 13:30:00"))
+        #expect(forgotten.withLockedValue { $0 }.count == 1)
+        #expect(forgotten.withLockedValue { $0 }.first?.hasPrefix("EcoFlow") == true)
+        // Read from the start, not from two days before the old import ended.
+        #expect(file.load()?.meters == true)
+        #expect(host.energyImportProgress.first?.from == local("2026-09-30 00:00:00"))
+
+        // The next import is a top-up again: nothing more is dropped.
+        await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud()), serial: "BK11", now: local("2026-10-02 14:30:00"))
+        #expect(forgotten.withLockedValue { $0 }.count == 1)
     }
 
     @Test func theProgressGoesMonthByMonthAndAFailureSaysWhy() async throws {
@@ -225,10 +262,10 @@ struct EcoFlowHistoryTests {
         defer { Task { await host.stop() } }
         let steps = NIOLockedValueBox<[String]>([])
         let history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud())
-        try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00")) { batch, done, total in
-            steps.withLockedValue { $0.append("\(done)/\(total):\(batch.count)") }
+        try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00")) { batch, serial, done, total in
+            steps.withLockedValue { $0.append("\(serial) \(done)/\(total):\(batch.count)") }
         }
-        #expect(steps.withLockedValue { $0 } == ["0/2:0", "1/2:24", "2/2:36"])
+        #expect(steps.withLockedValue { $0 } == ["BK11 0/2:0", "BK11 1/2:24", "BK11 2/2:36"])
 
         final class Refusing: HTTPSending, Sendable {
             func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {

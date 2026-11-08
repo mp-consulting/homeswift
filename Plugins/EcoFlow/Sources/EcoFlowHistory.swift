@@ -63,12 +63,13 @@ struct EcoFlowHistory: Sendable {
     }
 
     /// Each whole hour from the month `since` is in (the system's set-up without it) to now, oldest first: solar, home
-    /// use, and the battery's and the grid's both ways when the cloud has them, in watt-hours. The hour under way is left out. `month` hears each month as it arrives, with how many
-    /// are done of how many, so the history fills in while the import runs. Without a serial number, the account's
-    /// first STREAM in the app's device list is the one.
+    /// use, and the battery's and the grid's both ways when the cloud has them, in watt-hours. The hour under way is left out. `month` hears each month as it arrives, with the
+    /// serial number of the STREAM whose home it is and how many months are done of how many, so the history fills in
+    /// while the import runs. Without a serial number, the account's first STREAM in the app's device list is the one,
+    /// and `month` is where the caller hears which.
     @discardableResult
     func hours(serial: String?, since: Date?, now: Date = Date(),
-               month report: @Sendable ([EnergyHourImport], _ done: Int, _ total: Int) async -> Void = { _, _, _ in }) async throws -> [EnergyHourImport] {
+               month report: @Sendable ([EnergyHourImport], _ serial: String, _ done: Int, _ total: Int) async -> Void = { _, _, _, _ in }) async throws -> [EnergyHourImport] {
         let token = try await signIn()
         let serial = if let serial { serial } else { try await stream(token: token) }
         let space = try await space(serial: serial, token: token)
@@ -89,7 +90,7 @@ struct EcoFlowHistory: Sendable {
         // The battery and grid charts, until the cloud refuses one: a system without those pages keeps its solar and
         // home history.
         var twoWay = true
-        await report([], 0, months.count)
+        await report([], serial, 0, months.count)
         for (index, start) in months.enumerated() {
             let end = min(calendar.date(byAdding: .month, value: 1, to: start)!.addingTimeInterval(-1), now)
             let (from, to) = (format.string(from: start), format.string(from: end))
@@ -126,7 +127,7 @@ struct EcoFlowHistory: Sendable {
             }
             let batch = hours.keys.sorted().map { EnergyHourImport(start: $0, flows: hours[$0]!) }
             all += batch
-            await report(batch, index + 1, months.count)
+            await report(batch, serial, index + 1, months.count)
         }
         return all
     }
