@@ -2945,6 +2945,8 @@ HomeswiftI18n.add("pt", {
   "Show fewer": "Mostrar menos",
   "Show all {count}": "Mostrar os {count}",
   "Not measured": "Não medido",
+  "Home use": "Consumo da casa",
+  "inside the whole home": "dentro de toda a casa",
   "Nothing measured in this period": "Nada medido neste período",
   "The energy the bridge measured": "A energia que a ponte mediu",
   "Consumption · {meter}": "Consumo · {meter}",

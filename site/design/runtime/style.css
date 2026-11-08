@@ -1764,7 +1764,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
 .consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* The sources apart from the home (the grid, solar, batteries): a rule above the first. */
-.consumers > li.sources-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
+.consumers > li.sources-start, .consumers > li.unmeasured-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
+/* The meters with nothing for the period, together at the end: muted, still opening their history. */
+.consumer.unmeasured, .consumer.unmeasured .consumer-value b { color: var(--muted); font-weight: inherit; }
 @media (max-width: 640px) {
   /* A phone: the name and its figure on the first line, its role and cost under them, the bar across the whole row
      under both, so a name keeps its width and the bars still read against one another. */
@@ -1783,6 +1785,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .consumer.nested .consumer-name > * { padding-left: var(--space-16); }
   /* The rule beside a device's words, stopping above its bar. */
   .consumer.nested::after { left: calc(var(--space-8) + 3px); top: var(--space-10); bottom: calc(var(--space-10) + 8px + var(--space-8)); }
+  /* In line with the rows' words, at their captions' size. */
+  .consumers-inside { padding: var(--space-6) var(--space-8) 0; font-size: var(--text-xs); }
 }
 .energy-days .chart-table thead th.time { text-align: left; }
 /* The History sheet's note under its charts, apart from them. */

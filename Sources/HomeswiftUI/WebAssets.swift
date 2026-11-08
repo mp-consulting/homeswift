@@ -4142,24 +4142,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       consumers.node.hidden = !meters.length;
       // What a meter measured in this period; one that measured nothing (a device added since, a history that does not
       // reach this far back) takes no part in how the card is read, or a home meter with no figures would make the
-      // whole home nothing while the devices inside it drew kWh. It is still shown, with nothing against it.
+      // whole home nothing while the devices inside it drew kWh. It is still shown, last and muted, with nothing
+      // against it.
       const measured = (one) => one.consumption != null || one.returned != null;
       const withFigures = meters.filter(measured);
+      const unmeasured = meters.filter((one) => !measured(one));
       // The whole home (meters of the home's use, else the grid's), the devices measured on their own inside it (meters
       // of no role), and the sources apart (solar, batteries). Without a whole, the devices alone.
       const homes = withFigures.filter((one) => one.role === "home");
       // A grid meter is the whole home only without solar or batteries: with them, it measures what came from the grid.
       const sourced = withFigures.some((one) => one.role === "solar" || one.role === "battery");
       const wholes = homes.length ? homes : sourced ? [] : withFigures.filter((one) => one.role === "grid");
-      const devices = meters.filter((one) => !one.role);
-      const sources = meters.filter((one) => one.role && !wholes.includes(one));
+      const devices = withFigures.filter((one) => !one.role);
+      const sources = withFigures.filter((one) => one.role && !wholes.includes(one));
       const sum = (list, field = "consumption") => list.reduce((total, one) => total + (one[field] ?? 0), 0);
       const whole = wholes.length ? sum(wholes) : null;
       // What no device measures: the home less its devices, never below zero.
       const unmetered = whole != null && devices.length ? Math.max(0, whole - sum(devices)) : null;
       const scale = whole ?? Math.max(0, ...devices.map((one) => one.consumption ?? 0));
       const share = (value) => scale > 0 ? Math.max(value / scale * 100, value > 0 ? 1 : 0) : 0;
-      const roleNames = { home: t("Whole home"), solar: t("Solar"), battery: t("Battery") };
+      // A home meter that is not the whole home (one with no figures for the period) measures the home's use.
+      const roleNames = { home: t("Home use"), solar: t("Solar"), battery: t("Battery") };
+      // Inside the whole home, as a screen reader hears a nested row: the indent says it only to the eye.
+      const inWhole = t("inside the whole home");
       const row = (one, nested, first = false) => {
         const name = one.label ? `${one.name} · ${one.label}` : one.name;
         // The whole home is named so; a grid meter beside a meter of the home's use is the grid.
@@ -4174,8 +4179,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const known = measured(one);
         const note = known ? [cost, returned].filter(Boolean).join(" · ") || null : t("Not measured");
         const value = known ? formatKWh(figure) : "—";
-        return el("li", { class: first ? "sources-start" : null }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}`, actionIcon: "chart",
-          "aria-label": [t("{name}: {value}", { name, value: known ? value : t("Not measured") }), caption, known ? cost : null, returned].filter(Boolean).join(", "),
+        return el("li", { class: first ? (known ? "sources-start" : "unmeasured-start") : null }, el("button", { type: "button", class: `consumer${nested ? " nested" : ""}${known ? "" : " unmeasured"}`, actionIcon: "chart",
+          "aria-label": [t("{name}: {value}", { name, value: known ? value : t("Not measured") }), caption, nested ? inWhole : null, known ? cost : null, returned].filter(Boolean).join(", "),
           onclick: () => HomeswiftAdmin.history({ id: one.accessory, name: one.name, consumption: true }) },
           el("span", { class: "consumer-name" }, el("span", { text: name }), caption ? el("small", { text: caption }) : null),
           el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(known ? figure : 0)}%` })),
@@ -4183,28 +4188,36 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
       const shown = consumersAll ? devices : devices.slice(0, 8);
       // Several meters measure the whole home (a system of two units): what is inside it is nested under a line of its
-      // own, or the indent would read as the last of them holding the devices.
+      // own, or the indent would read as the last of them holding the devices. Not a row of the list: each nested row
+      // says it is inside the whole home itself.
       const inside = wholes.length > 1 && (shown.length || unmetered != null)
-        ? el("li", { class: "consumers-inside" }, el("span", { text: t("Inside the whole home") })) : null;
+        ? el("li", { class: "consumers-inside", role: "presentation" }, el("span", { text: t("Inside the whole home") })) : null;
+      const before = wholes.length + shown.length + (unmetered != null ? 1 : 0);
+      // Nothing measured in the period: the message alone, no list of meters without figures.
       // A list of rows, none empty: replaceChildren writes a null as the text "null".
-      consumerList.replaceChildren(...[
+      consumerList.replaceChildren(...(!withFigures.length ? [] : [
         ...wholes.map((one) => row(one, false)),
         inside,
         ...shown.map((one) => row(one, wholes.length > 0)),
         // The rest of the home: no history of its own to open.
-        unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group", "aria-label": t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }) },
+        unmetered != null ? el("li", {}, el("div", { class: "consumer nested rest", role: "group",
+          "aria-label": [t("{name}: {value}", { name: t("Unmetered"), value: formatKWh(unmetered) }), inWhole].join(", ") },
           el("span", { class: "consumer-name" }, el("span", { text: t("Unmetered") }), el("small", { text: t("What no meter measures on its own") })),
           el("span", { class: "consumer-track", "aria-hidden": "true" }, el("i", { style: `width: ${share(unmetered)}%` })),
           el("span", { class: "consumer-value" }, el("b", { text: formatKWh(unmetered) })),
           el("span", { class: "consumer-spacer", "aria-hidden": "true" }))) : null,
-        ...sources.map((one, index) => row(one, false, index === 0 && wholes.length + shown.length > 0))].filter(Boolean));
-      consumersMore.hidden = devices.length <= 8;
+        ...sources.map((one, index) => row(one, false, index === 0 && before > 0)),
+        // The meters with no figures for the period, together at the end.
+        ...unmeasured.map((one, index) => row(one, false, index === 0 && before + sources.length > 0))].filter(Boolean)));
+      // The measured devices are the ones counted, and kept to eight.
+      consumersMore.hidden = !withFigures.length || devices.length <= 8;
       consumersMore.replaceChildren(HomeswiftCommon.icon(consumersAll ? "up" : "down"),
         el("span", { text: consumersAll ? t("Show fewer") : t("Show all {count}", { count: devices.length }) }));
-      // The card's figure and cost: the whole home's when a meter measures it, else the devices' together.
+      // The card's figure and cost: the whole home's when a meter measures it, else the devices' together; nothing
+      // when only solar or batteries measured (they are no one's use).
       const counted = wholes.length ? wholes : devices;
-      consumers.figure.textContent = withFigures.length ? formatKWh(whole ?? sum(devices)) : "";
-      consumers.figure.title = wholes.length ? t("The whole home") : t("All meters together");
+      consumers.figure.textContent = counted.length ? formatKWh(whole ?? sum(devices)) : "";
+      consumers.figure.title = !counted.length ? "" : wholes.length ? t("The whole home") : t("All meters together");
       const costs = counted.filter((one) => one.cost != null);
       consumers.detail.textContent = !withFigures.length ? t("Nothing measured in this period")
         : found.currency && costs.length ? t("{cost} at the grid's price, hour by hour", { cost: formatMoney(sum(costs, "cost"), found.currency) }) : "";
@@ -21198,6 +21211,8 @@ HomeswiftI18n.add("es", {
   "Show fewer": "Mostrar menos",
   "Show all {count}": "Mostrar los {count}",
   "Not measured": "Sin medir",
+  "Home use": "Consumo de la casa",
+  "inside the whole home": "dentro de toda la casa",
   "Nothing measured in this period": "Nada medido en este periodo",
   "The energy the bridge measured": "La energía que midió el puente",
   "Consumption · {meter}": "Consumo · {meter}",
@@ -24677,6 +24692,8 @@ HomeswiftI18n.add("fr", {
   "Show fewer": "Afficher moins",
   "Show all {count}": "Afficher les {count}",
   "Not measured": "Non mesuré",
+  "Home use": "Consommation de la maison",
+  "inside the whole home": "dans toute la maison",
   "Nothing measured in this period": "Rien de mesuré sur cette période",
   "The energy the bridge measured": "L'énergie mesurée par le pont",
   "Consumption · {meter}": "Consommation · {meter}",
@@ -28156,6 +28173,8 @@ HomeswiftI18n.add("pt", {
   "Show fewer": "Mostrar menos",
   "Show all {count}": "Mostrar os {count}",
   "Not measured": "Não medido",
+  "Home use": "Consumo da casa",
+  "inside the whole home": "dentro de toda a casa",
   "Nothing measured in this period": "Nada medido neste período",
   "The energy the bridge measured": "A energia que a ponte mediu",
   "Consumption · {meter}": "Consumo · {meter}",
@@ -34006,7 +34025,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .consumers-more { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-6); }
 .consumers-more svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* The sources apart from the home (the grid, solar, batteries): a rule above the first. */
-.consumers > li.sources-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
+.consumers > li.sources-start, .consumers > li.unmeasured-start { margin-top: var(--space-6); padding-top: var(--space-8); border-top: 1px solid var(--line); }
+/* The meters with nothing for the period, together at the end: muted, still opening their history. */
+.consumer.unmeasured, .consumer.unmeasured .consumer-value b { color: var(--muted); font-weight: inherit; }
 @media (max-width: 640px) {
   /* A phone: the name and its figure on the first line, its role and cost under them, the bar across the whole row
      under both, so a name keeps its width and the bars still read against one another. */
@@ -34025,6 +34046,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .consumer.nested .consumer-name > * { padding-left: var(--space-16); }
   /* The rule beside a device's words, stopping above its bar. */
   .consumer.nested::after { left: calc(var(--space-8) + 3px); top: var(--space-10); bottom: calc(var(--space-10) + 8px + var(--space-8)); }
+  /* In line with the rows' words, at their captions' size. */
+  .consumers-inside { padding: var(--space-6) var(--space-8) 0; font-size: var(--text-xs); }
 }
 .energy-days .chart-table thead th.time { text-align: left; }
 /* The History sheet's note under its charts, apart from them. */
