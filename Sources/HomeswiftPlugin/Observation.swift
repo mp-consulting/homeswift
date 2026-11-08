@@ -131,10 +131,12 @@ final class QueuedFeed<Payload: Sendable>: Sendable {
     }
 }
 
-/// An energy history a plugin imported, with its key as the source.
+/// An energy history a plugin imported, with its key as the source; `forget` instead drops everything it imported
+/// (`PluginContext.forgetImportedEnergy`), and carries no hours.
 struct EnergyImport: Sendable {
     var source: String
     var hours: [EnergyHourImport]
+    var forget = false
 }
 
 typealias EnergyImportFeed = QueuedFeed<EnergyImport>

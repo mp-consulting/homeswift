@@ -202,6 +202,32 @@ struct MetricsTests {
         await host.stop()
     }
 
+    /// A Meter that only ever imported hours (a cloud's history, its device offline) still has its plugin's Energy
+    /// Role, and keeps it in its files for after a restart; dropping its imported hours drops them from the Home Energy too.
+    @Test func importedHoursGiveAMeterItsRoleAndCanBeForgotten() async throws {
+        let environment = TestEnvironment()
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Plugs" }] }"#)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("metrics-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let metrics = Metrics(directory: directory, interval: .seconds(60))
+        metrics.start(following: host)
+        try await host.start()
+        let context = try #require(host.context(platform: "Recording", name: "Plugs"))
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let id = MeterID(accessory: "Recording:system", meter: "home")
+        context.meter("home", deviceID: "system", device: "System", suggestedRole: .home).importHours([MeterHourImport(start: start, consumption: 800)])
+        #expect(await meterEventually { metrics.suggestedRole(of: id) == .home })
+        #expect(metrics.archive.importedHours(from: start, to: start).first?.flows.home == 800)
+        metrics.meters.flush()
+        #expect(MeterArchive(directory: directory.appendingPathComponent("meters")).suggestedRole(of: id) == .home)
+
+        context.forgetImportedHours(ofMeter: "home", deviceID: "system")
+        #expect(await meterEventually { metrics.meters.hours(of: id, from: start, to: start).isEmpty })
+        #expect(metrics.archive.importedHours(from: start, to: start).isEmpty)
+        metrics.stop()
+        await host.stop()
+    }
+
     /// A gas Meter a plugin declares: read in m³ and kept in litres, its kind kept; never in the Home Energy, whatever
     /// role was suggested, and no power.
     @Test func aGasMeterIsKeptInCubicMetresApartFromTheHomeEnergy() async throws {

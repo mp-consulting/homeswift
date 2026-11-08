@@ -80,14 +80,8 @@ struct EcoFlowDevice: Sendable, Equatable {
     /// (they balance: home = solar + grid - battery) and the AC Pro reports 0 for each, so a figure counted once (an
     /// average) would halve them. A RIVER's or a RAPID's flows have no role: they are a station's ports, not the home's.
     func energyTag(_ key: String) -> EnergyTag? {
-        let role: EnergyRole
-        switch key {
-        case "solar": role = .solar
-        case "battery": role = .battery
-        case "home": role = .home
-        case "grid": role = .grid
-        default: return nil
-        }
+        // The flows' keys are the roles' names; the level is no flow.
+        guard let role = EnergyRole(rawValue: key), role.isPower else { return nil }
         // A STREAM always has the four; a home system only those its model reports.
         guard kind == .stream || (kind == .home && series.contains { $0.key == key }) else { return nil }
         return EnergyTag(role: role, device: name)

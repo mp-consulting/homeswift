@@ -86,4 +86,11 @@ extension PluginContext {
                                           series: self.series(series ?? "\(deviceID):\(key)").name),
             readings: meterSink)
     }
+
+    /// Drops every hour imported for the Meter `key` of the device `deviceID` (`PluginMeter.importHours`), on the Meter
+    /// and in the Home Energy, and keeps what the bridge measured: for a history that moves to another device's Meters
+    /// (a system now read through another of its units), which would otherwise be counted on both. It declares no Meter.
+    public func forgetImportedHours(ofMeter key: String, deviceID: String) {
+        meterSink(.forgetHistory(MeterID(accessory: "\(platform):\(deviceID)", meter: key)))
+    }
 }

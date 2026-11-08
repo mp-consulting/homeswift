@@ -189,7 +189,9 @@ public final class Metrics: @unchecked Sendable {
     public func start(following host: PluginHost) {
         let timings = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
         let readings = host.observeReadings { [weak self] series, value, tag in self?.record(value, series: series, tag: tag) }
-        let imports = host.observeEnergyImports { [archive] source, hours in archive.importHours(hours, source: source) }
+        let imports = host.observeEnergyImports { [archive] source, hours, forget in
+            if forget { archive.forgetImports(source: source) } else { archive.importHours(hours, source: source) }
+        }
         let meters = followMeters(of: host)
         let observation = Observation { timings.cancel(); readings.cancel(); imports.cancel(); meters.cancel() }
         let interval = interval

@@ -62,15 +62,33 @@ struct EcoFlowHistory: Sendable {
         var created: Date?
     }
 
+    /// One month of the history as it arrives (and a first report, `done` 0 with no hours, before any).
+    struct Month: Sendable {
+        var hours: [EnergyHourImport]
+        /// The STREAM whose home it is.
+        var serial: String
+        /// The month's first moment, and the next month's (nil for the last, the month under way).
+        var start: Date
+        var next: Date?
+        /// How many months are done, of how many.
+        var done: Int
+        var total: Int
+        /// Whether the battery and grid charts answered for the month: false when the cloud refused them, this month or
+        /// one before, so the month has solar and home use alone. A system without those pages is refused every time;
+        /// a refusal of one that answered before is a partial month, to be read again.
+        var twoWay: Bool
+    }
+
     /// Each whole hour from the month `since` is in (the system's set-up without it) to now, oldest first: solar, home
-    /// use, and the battery's and the grid's both ways when the cloud has them, in watt-hours. The hour under way is left out. `month` hears each month as it arrives, with how many
-    /// are done of how many, so the history fills in while the import runs. Without a serial number, the account's
-    /// first STREAM in the app's device list is the one.
+    /// use, and the battery's and the grid's both ways when the cloud has them, in watt-hours. The hour under way is
+    /// left out. `month` hears each month as it arrives, so the history fills in while the import runs, and says which
+    /// months lack the battery and the grid. Without a serial number, the account's first STREAM in the app's device
+    /// list that `excluding` keeps is the one (`stream(token:excluding:)`).
     @discardableResult
-    func hours(serial: String?, since: Date?, now: Date = Date(),
-               month report: @Sendable ([EnergyHourImport], _ done: Int, _ total: Int) async -> Void = { _, _, _ in }) async throws -> [EnergyHourImport] {
+    func hours(serial: String?, since: Date?, now: Date = Date(), month report: @Sendable (Month) async -> Void = { _ in },
+               excluding: @Sendable (String) -> Bool = { _ in false }) async throws -> [EnergyHourImport] {
         let token = try await signIn()
-        let serial = if let serial { serial } else { try await stream(token: token) }
+        let serial = if let serial { serial } else { try await stream(token: token, excluding: excluding) }
         let space = try await space(serial: serial, token: token)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = space.timeZone
@@ -82,14 +100,15 @@ struct EcoFlowHistory: Sendable {
             month = calendar.date(byAdding: .month, value: 1, to: month)!
         }
         let format = Self.formatter(space.timeZone)
-        // The history starts the day of `since`, or the day the system was set up: the battery and grid charts fill the
-        // days of that first month before it with zeros.
-        let firstDay = (since ?? space.created).map { calendar.startOfDay(for: $0) } ?? .distantPast
+        // The history starts the day of `since`, or the day the system was set up (the later: an import going on from a
+        // month's start may be before it): the battery and grid charts fill the days of that first month before it with
+        // zeros.
+        let firstDay = [since, space.created].compactMap { $0 }.max().map { calendar.startOfDay(for: $0) } ?? .distantPast
         var all: [EnergyHourImport] = []
         // The battery and grid charts, until the cloud refuses one: a system without those pages keeps its solar and
         // home history.
         var twoWay = true
-        await report([], 0, months.count)
+        await report(Month(hours: [], serial: serial, start: months[0], next: months.dropFirst().first, done: 0, total: months.count, twoWay: true))
         for (index, start) in months.enumerated() {
             let end = min(calendar.date(byAdding: .month, value: 1, to: start)!.addingTimeInterval(-1), now)
             let (from, to) = (format.string(from: start), format.string(from: end))
@@ -126,7 +145,8 @@ struct EcoFlowHistory: Sendable {
             }
             let batch = hours.keys.sorted().map { EnergyHourImport(start: $0, flows: hours[$0]!) }
             all += batch
-            await report(batch, index + 1, months.count)
+            await report(Month(hours: batch, serial: serial, start: start, next: months.indices.contains(index + 1) ? months[index + 1] : nil,
+                               done: index + 1, total: months.count, twoWay: twoWay))
         }
         return all
     }
@@ -147,11 +167,17 @@ struct EcoFlowHistory: Sendable {
         return token
     }
 
-    /// The account's first STREAM, from the app's device list.
-    func stream(token: String) async throws -> String {
+    /// The STREAM whose home's history is read: `serial`, else the account's first in the app's device list.
+    func serial(_ serial: String?, excluding: @Sendable (String) -> Bool = { _ in false }) async throws -> String {
+        if let serial { return serial }
+        return try await stream(token: signIn(), excluding: excluding)
+    }
+
+    /// The account's first STREAM in the app's device list, an Excluded one (`excluding`) left out.
+    func stream(token: String, excluding: @Sendable (String) -> Bool = { _ in false }) async throws -> String {
         let list = try await send("/app/user/device/list", method: "GET", body: nil, token: token)
         await schemas.record(EcoFlowSchema.historyDevices, problems: EcoFlowSchema.historyDevices.problems(in: list["data"]))
-        guard let stream = EcoFlowAppAPI.listedDevices(list["data"]).first(where: { EcoFlowModel.model(serial: $0.serial)?.kind == .stream }) else {
+        guard let stream = EcoFlowAppAPI.listedDevices(list["data"]).first(where: { EcoFlowModel.model(serial: $0.serial)?.kind == .stream && !excluding($0.serial) }) else {
             throw Failure.noStream
         }
         return stream.serial

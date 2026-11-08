@@ -342,10 +342,44 @@ public final class EnergyArchive: @unchecked Sendable {
         scheduleSave()
     }
 
+    /// Drops everything `source` imported, and the hours left with nothing. A plugin that imported the home's flows
+    /// and now imports the same history through its Meters calls it once (`PluginContext.forgetImportedEnergy`), so the
+    /// old import is not added to the new one. Returns how many hours it dropped.
+    @discardableResult
+    public func forgetImports(source: String) -> Int {
+        let dropped = hours.withLockedValue { hours -> Int in
+            let keys = Array(hours.filter { $0.value.imported?[source] != nil }.keys)
+            for key in keys {
+                hours[key]?.imported?[source] = nil
+                if hours[key]?.imported?.isEmpty == true { hours[key]?.imported = nil }
+                if hours[key] == Hour() { hours[key] = nil }
+            }
+            return keys.count
+        }
+        if dropped > 0 { scheduleSave() }
+        return dropped
+    }
+
+    /// The imports of an hour added up: each flow from the sources that have it. `homeFromSolar` is the sources' own
+    /// added up only when every source with solar or home use gave one; otherwise it is the lesser of the solar and
+    /// home use they add up to, so sources that each carry one Energy Role (the Meters of a home system, one per role),
+    /// or a source with both beside one with solar alone, split the home's use as a single source's flows do.
+    static func imported(_ sources: [String: EnergyFlows]) -> EnergyFlows {
+        var flows = sources.values.reduce(EnergyFlows()) { $0.adding($1) }
+        let split = sources.values.filter { $0.solar != nil || $0.home != nil }
+        guard !split.allSatisfy({ $0.homeFromSolar != nil }) else { return flows }
+        if let solar = flows.solar, let home = flows.home {
+            flows.homeFromSolar = max(0, min(solar, home))
+        } else {
+            flows.homeFromSolar = nil
+        }
+        return flows
+    }
+
     /// An hour as the archive reads it: the bridge's own figures for an hour it recorded most of, else each flow from
     /// the imports where they have it (the sources added up), else whatever the bridge recorded.
     static func merged(_ hour: Hour) -> (flows: EnergyFlows, recorded: Bool) {
-        let imported = (hour.imported ?? [:]).values.reduce(EnergyFlows()) { $0.adding($1) }
+        let imported = Self.imported(hour.imported ?? [:])
         guard let recorded = hour.recorded else { return (imported, false) }
         let whole = (hour.minutes ?? 0) >= wholeHour
         var flows = EnergyFlows()
@@ -363,7 +397,7 @@ public final class EnergyArchive: @unchecked Sendable {
         return hours.withLockedValue { hours in
             stride(from: first, through: last, by: 3600).compactMap { key -> (start: Date, flows: EnergyFlows)? in
                 guard let imported = hours[key]?.imported, !imported.isEmpty else { return nil }
-                return (Date(timeIntervalSince1970: TimeInterval(key)), imported.values.reduce(EnergyFlows()) { $0.adding($1) })
+                return (Date(timeIntervalSince1970: TimeInterval(key)), Self.imported(imported))
             }
         }
     }

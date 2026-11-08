@@ -437,6 +437,7 @@ public final class PluginContext: @unchecked Sendable {
     private let assistantBackground: String?
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
     private let energyImportSink: @Sendable ([EnergyHourImport]) -> Void
+    private let energyForgetSink: @Sendable () -> Void
     private let energyProgressSink: @Sendable (EnergyImportProgress) -> Void
     /// Where the readings of the Meters it declares go (`meter(_:deviceID:device:suggestedRole:)`).
     let meterSink: @Sendable (MeterReading) -> Void
@@ -465,6 +466,14 @@ public final class PluginContext: @unchecked Sendable {
     /// the bridge recorded itself keeps its own figures. Watt-hours; leave out (nil) what the history does not have.
     public func importEnergy(_ hours: [EnergyHourImport]) {
         energyImportSink(hours)
+    }
+
+    /// Drops every hour this plugin imported with `importEnergy`: for one that now imports the same history through
+    /// its Meters (`PluginMeter.importHours`), whose hours the runtime puts in the Home Energy itself, so what it
+    /// imported the old way is not added to the new. Called once, when the plugin changes the way it imports; an
+    /// import that is made again every so often never needs it.
+    public func forgetImportedEnergy() {
+        energyForgetSink()
     }
 
     /// Says where an energy import stands, for the Status page's history: as it runs (`done` of `total`), when it is done
@@ -520,6 +529,7 @@ public final class PluginContext: @unchecked Sendable {
         vaultStorage: URL, assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
         recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
         energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
+        energyForgetSink: @escaping @Sendable () -> Void = { },
         energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in },
         meterSink: @escaping @Sendable (MeterReading) -> Void = { _ in },
         location: @escaping @Sendable () -> Location? = { nil }
@@ -529,6 +539,7 @@ public final class PluginContext: @unchecked Sendable {
         self.meterSink = meterSink
         self.recordSink = recordSink
         self.energyImportSink = energyImportSink
+        self.energyForgetSink = energyForgetSink
         self.assistantBackground = assistantBackground
         self.platform = platform
         self.name = name
@@ -1035,4 +1046,7 @@ public enum MeterReading: Sendable, Equatable {
     case claim(MeterID)
     /// A plugin declares a Meter of gas or water (`PluginContext.meter(_:deviceID:device:kind:)`): its figures are litres.
     case kind(MeterID, MeterKind)
+    /// A plugin drops what it imported for a Meter (`PluginContext.forgetImportedHours(ofMeter:deviceID:)`), there and in
+    /// the Home Energy; what the bridge measured stays.
+    case forgetHistory(MeterID)
 }

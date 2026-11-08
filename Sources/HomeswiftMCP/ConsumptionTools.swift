@@ -95,7 +95,7 @@ extension HomeswiftCatalog {
             }
             // Its Energy Role (the person's, else its plugin's suggestion): a grid or home meter holds the devices measured
             // on their own, which the web UI nests under it with what no meter measures (Unmetered).
-            let role: EnergyRole? = kind != .electricity ? nil : host.energyRole(of: id) ?? metrics.meterDescription(of: id)?.suggestedRole
+            let role: EnergyRole? = kind != .electricity ? nil : host.energyRole(of: id) ?? metrics.suggestedRole(of: id)
             json["role"] = role.map { .string($0.rawValue) } ?? .null
             // A device with several Meters (a relay's channels): each is named by its service.
             if let located, (byAccessory[id.accessory]?.count ?? 0) > 1 { json["label"] = .string(Self.meterLabel(id, of: located.accessory)) }

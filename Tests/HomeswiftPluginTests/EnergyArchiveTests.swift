@@ -101,6 +101,54 @@ struct EnergyArchiveTests {
         #expect(archive.earliest == hour)
     }
 
+    /// A home history imported a role at a time, as a system's Meters carry it: solar and home come from sources of
+    /// their own, and the share of the home solar covered is worked out from what they add up to.
+    @Test func sourcesOfOneRoleEachStillSplitTheHomesUse() {
+        let archive = EnergyArchive(url: nil)
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(solar: 500))], source: "meter:EcoFlow:BK11/solar")
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(home: 800))], source: "meter:EcoFlow:BK11/home")
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(gridImport: 300))], source: "meter:EcoFlow:BK11/grid")
+        let day = archive.periods(.day, from: hour, to: hour, timeZone: utc)[0]
+        #expect(near(day.flows.homeFromSolar, 500))
+        #expect(near(day.homeFromGrid, 300))
+        #expect(day.homeNotSplit == nil)
+        #expect(day.solarShare == 0.625)
+        // One source giving its own while the solar source gives none: its figure knew nothing of that solar, so the
+        // share still comes from what they add up to.
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(home: 800, homeFromSolar: 100))], source: "meter:EcoFlow:BK11/home")
+        #expect(near(archive.periods(.day, from: hour, to: hour, timeZone: utc)[0].flows.homeFromSolar, 500))
+    }
+
+    /// A source with solar and home use beside one with solar alone: the share solar covered comes from what they add
+    /// up to, not from the first source's own, which knew nothing of the second's solar.
+    @Test func aSourceWithSolarAloneStillCountsInTheHomesShare() {
+        let archive = EnergyArchive(url: nil)
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(solar: 300, home: 800))], source: "Inverter")
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(solar: 400))], source: "Other inverter")
+        let day = archive.periods(.day, from: hour, to: hour, timeZone: utc)[0]
+        #expect(near(day.flows.homeFromSolar, 700))
+        // Each source with solar or home giving its own: theirs, added up.
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(solar: 400, home: 100, homeFromSolar: 50))], source: "Other inverter")
+        #expect(near(archive.periods(.day, from: hour, to: hour, timeZone: utc)[0].flows.homeFromSolar, 350))
+    }
+
+    @Test func aSourceIsForgottenWholeAndLeavesTheOthers() {
+        let archive = EnergyArchive(url: nil)
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(home: 100)),
+                             EnergyHourImport(start: hour.addingTimeInterval(3600), flows: EnergyFlows(home: 200))], source: "EcoFlow")
+        archive.importHours([EnergyHourImport(start: hour, flows: EnergyFlows(home: 10))], source: "Other")
+        archive.addRecorded(hour.addingTimeInterval(7200), watts: [.home: 60])
+        #expect(archive.forgetImports(source: "EcoFlow") == 2)
+        let day = archive.periods(.day, from: hour, to: hour, timeZone: utc)[0]
+        #expect(near(day.flows.home, 11))
+        #expect(day.importedHours == 1)
+        // The hour the other source did not have is gone; the bridge's own minute stays.
+        #expect(archive.importedHours(from: hour, to: hour.addingTimeInterval(7200)).map { $0.start } == [hour])
+        #expect(archive.earliest == hour)
+        // Nothing left to drop.
+        #expect(archive.forgetImports(source: "EcoFlow") == 0)
+    }
+
     @Test func daysAndMonthsFollowTheTimeZone() {
         let archive = EnergyArchive(url: nil)
         // 22:00 and 23:00 UTC are the next day in Athens (UTC+2).

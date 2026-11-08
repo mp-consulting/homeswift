@@ -301,7 +301,7 @@ extension HomeswiftCatalog {
         if meters.isEmpty, (answer["settings"]?["energyRoles"]).map({ $0.isNull }) ?? true { fields.removeValue(forKey: "energyRoles"); answer["fields"] = .object(fields) }
         if !meters.isEmpty {
             answer["meters"] = .array(meters.map { id in
-                var meter: [String: JSONValue] = ["key": .string(id.meter), "suggestedRole": metrics?.meterDescription(of: id)?.suggestedRole.map { .string($0.rawValue) } ?? .null]
+                var meter: [String: JSONValue] = ["key": .string(id.meter), "suggestedRole": metrics?.suggestedRole(of: id).map { .string($0.rawValue) } ?? .null]
                 if meters.count > 1, let located = target.located { meter["label"] = .string(Self.meterLabel(id, of: located.accessory)) }
                 return .object(meter)
             })

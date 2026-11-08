@@ -209,6 +209,42 @@ struct MeterArchiveTests {
         #expect(MeterKind.gas.unit == "m³" && MeterKind.electricity.unit == "kWh")
     }
 
+    /// A Meter's imported hours go, in every year, those on disk only included; what the bridge measured stays.
+    @Test func forgettingImportsKeepsWhatTheBridgeMeasured() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lastYear = hour.addingTimeInterval(-200 * 86_400)
+        let before = MeterArchive(directory: directory, now: { hour })
+        before.importHours([MeterHourImport(start: lastYear, consumption: 40), MeterHourImport(start: hour, consumption: 999, returned: 5)], meter: plug)
+        before.recordCounter(0, meter: plug, at: hour)
+        before.recordCounter(80, meter: plug, at: hour.addingTimeInterval(600))
+        before.flush()
+
+        let after = MeterArchive(directory: directory, now: { hour })
+        #expect(after.forgetImports(meter: plug) == 2)
+        #expect(after.hours(of: plug, from: lastYear, to: lastYear).isEmpty)
+        let measured = after.hours(of: plug, from: hour, to: hour).first
+        #expect(near(measured?.consumption, 80))
+        #expect(measured?.returned == nil)
+        after.flush()
+        #expect(MeterArchive(directory: directory, now: { hour }).hours(of: plug, from: lastYear, to: lastYear).isEmpty)
+        #expect(after.forgetImports(meter: MeterID(accessory: "Nothing:here", meter: "x")) == 0)
+        #expect(!after.meters.contains(MeterID(accessory: "Nothing:here", meter: "x")))
+    }
+
+    @Test func aSuggestedRoleIsKeptInItsFile() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let before = MeterArchive(directory: directory, now: { hour })
+        before.importHours([MeterHourImport(start: hour, consumption: 10)], meter: plug)
+        before.setSuggestedRole(.grid, meter: plug)
+        before.flush()
+        #expect(MeterArchive(directory: directory, now: { hour }).suggestedRole(of: plug) == .grid)
+        before.setSuggestedRole(nil, meter: plug)
+        before.flush()
+        #expect(MeterArchive(directory: directory, now: { hour }).suggestedRole(of: plug) == nil)
+    }
+
     /// A declared Meter shows nowhere before its first reading, takes its kind then, and goes back to electricity when
     /// its plugin says so.
     @Test func aDeclaredKindWaitsForTheFirstReadingAndCanGoBack() {
