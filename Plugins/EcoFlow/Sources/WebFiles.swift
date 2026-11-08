@@ -965,6 +965,7 @@ HomeswiftI18n.add({
      screen's 40px minimum keeps it round), its name its aria-label. */
   .controls { container-type: inline-size; }
   .output.light { flex-wrap: wrap; }
+  .output.light .label { flex: 1 0 auto; }
   .output.light .group { flex: none; max-width: 100%; }
   @media (max-width: 640px) {
     .output.light .group button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; justify-content: center; }
