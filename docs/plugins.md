@@ -158,7 +158,12 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   import replaces what the plugin imported for those hours; an hour the bridge recorded itself keeps its own figures.
   `context.reportEnergyImport(EnergyImportProgress(state: .running, done: 3, total: 10))` shows the import's progress
   on the Status page (then `.done` with `from` and `through`, or `.failed` with a `message` a person can act on);
-  import in parts and report after each, so the history fills in as it goes.
+  import in parts and report after each, so the history fills in as it goes. A history whose hours belong to devices
+  the plugin has Meters for goes in through those Meters instead (`PluginMeter.importHours`, below): the runtime fills
+  the Home Energy from them, and the Status page's Consumption by device has the past too, which `importEnergy` alone
+  never reaches. Import one way or the other, never both — the archive adds its sources up, so the same hour would
+  count twice. A plugin that moves from one to the other calls `context.forgetImportedEnergy()` once, which drops
+  everything it imported with `importEnergy`, and reads its history again from the start.
   `Metrics.energy(from:to:)` and `Metrics.archive.periods(_:from:to:timeZone:)` give the same figures
   (charted power, levels, each day's kWh) to other code, such as the Assistant.
   ```swift
@@ -189,8 +194,10 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   `.solar`, `.home`, `.battery`, nil for a single device's use); a person may change it in the accessory's settings
   (`energyRoles` in `_accessories`, by the Meter's key: `grid`, `solar`, `home`, `battery` or `none`), live, without
   reloading the plugin. With a role, its power counts in the Status page's Energy section and its imported hours fill
-  the Home Energy's long-term history where the bridge recorded nothing. Forget removes an accessory's Meters. Shelly's
-  energy meters (imports from the device and from Shelly Cloud) and EcoFlow's flows are examples.
+  the Home Energy's long-term history where the bridge recorded nothing: a Meter per role (solar, home, grid, battery)
+  is all a cloud's home history needs, and the hours are then a device's as well as the home's. Forget removes an
+  accessory's Meters. Shelly's energy meters (imports from the device and from Shelly Cloud) and EcoFlow's flows,
+  live and imported from the app's cloud, are examples.
   ```swift
   let solar = context.meter("solar", deviceID: serial, device: name, suggestedRole: .solar)
   solar.record(watts: production)

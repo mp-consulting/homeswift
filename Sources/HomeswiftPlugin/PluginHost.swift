@@ -240,7 +240,8 @@ public final class PluginHost: @unchecked Sendable {
     // How long requests and handlers take on every server, for the Status page's charts.
     private let timings: TimingFeed
     private let values = ValueFeed()
-    private let energyImports = EnergyImportFeed()
+    // A plugin dropping what it imported is never the import a full queue lets go: the old source would stay for good.
+    private let energyImports = EnergyImportFeed(keeping: { $0.forget })
     // A plugin's takeover of a Meter (`.claim`) or what it measures (`.kind`) is never the reading a full queue lets go.
     private let meterReadings = MeterFeed(keeping: {
         switch $0 {
@@ -473,9 +474,11 @@ public final class PluginHost: @unchecked Sendable {
     }
 
     /// Calls `observer` with each energy history a plugin imports (`PluginContext.importEnergy`), with the plugin's key
-    /// as its source; imports made before anyone followed come first. The metrics store's archive follows these.
-    public func observeEnergyImports(_ observer: @escaping @Sendable (String, [EnergyHourImport]) -> Void) -> Observation {
-        energyImports.add { observer($0.source, $0.hours) }
+    /// as its source; imports made before anyone followed come first. `forget` says the plugin dropped everything it
+    /// imported (`PluginContext.forgetImportedEnergy`), and then no hours come with it. The metrics store's archive
+    /// follows these.
+    public func observeEnergyImports(_ observer: @escaping @Sendable (_ source: String, _ hours: [EnergyHourImport], _ forget: Bool) -> Void) -> Observation {
+        energyImports.add { observer($0.source, $0.hours, $0.forget) }
     }
 
     /// The Energy Role a person gave a Meter in its accessory's settings (`_accessories.<key>.energyRoles`): nil when
@@ -828,6 +831,7 @@ public final class PluginHost: @unchecked Sendable {
             vaultStorage: storageDirectory, assistant: assistant, externals: externals, assistantBackground: assistantBackground,
             recordSink: { series, value, tag in values.publish(series, value, tag) },
             energyImportSink: { hours in energyImports.publish(EnergyImport(source: key, hours: hours)) },
+            energyForgetSink: { energyImports.publish(EnergyImport(source: key, hours: [], forget: true)) },
             energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } },
             meterSink: { reading in meterReadings.publish(reading) }, location: location)
     }

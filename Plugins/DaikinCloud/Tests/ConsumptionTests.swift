@@ -123,7 +123,7 @@ struct ConsumptionTests {
         let imports = NIOLockedValueBox<[[EnergyHourImport]]>([])
         let values = NIOLockedValueBox<[String]>([])
         let observations = [
-            host.observeEnergyImports { _, hours in imports.withLockedValue { $0.append(hours) } },
+            host.observeEnergyImports { _, hours, _ in imports.withLockedValue { $0.append(hours) } },
             host.observeValues { series, _ in values.withLockedValue { $0.append(series) } },
         ]
         try await host.start()
