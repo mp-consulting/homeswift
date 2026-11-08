@@ -231,12 +231,9 @@ final class LightFunction: EntityFunction, @unchecked Sendable {
             } else {
                 changed = nil
             }
-            if let changed {
-                let writer = writer
-                Task {
-                    guard await !writer.isSettling(within: .seconds(2)) else { return }
-                    adaptiveLighting.disableIfChangedElsewhere(mireds: changed)
-                }
+            // In order, as the reports come: our own change's echo within 2 s is no change made elsewhere.
+            if let changed, !writer.settling(within: .seconds(2)) {
+                adaptiveLighting.disableIfChangedElsewhere(mireds: changed)
             }
         }
     }
