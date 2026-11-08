@@ -158,17 +158,19 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
 
     /// A peripheral seen advertising the target's name, or one found by scanning for it.
     private func find(_ target: BLETarget) async throws -> Found {
-        if let identifier = target.identifier.flatMap(UUID.init(uuidString:)),
-           let known = await queue.run({ self.manager.retrievePeripherals(withIdentifiers: [identifier]).first.map(Found.init) }) {
-            return known
-        }
+        // A remembered identifier finds the peripheral among those seen advertising, or by the search below: one the
+        // system merely remembers may be out of range, and CoreBluetooth would wait for it forever.
+        let identifier = target.identifier.flatMap(UUID.init(uuidString:))
         let suffix = target.address.replacingOccurrences(of: ":", with: "").suffix(4).uppercased()
-        let match: @Sendable (CBPeripheral, String?) -> Bool = { _, name in
+        let match: @Sendable (CBPeripheral, String?) -> Bool = { peripheral, name in
+            if let identifier, peripheral.identifier == identifier { return true }
             guard let name else { return false }
             if let wanted = target.name, !wanted.isEmpty { return name.caseInsensitiveCompare(wanted) == .orderedSame }
             return suffix.count == 4 && name.uppercased().hasSuffix(suffix)
         }
-        if let known = await queue.run({ self.seen.values.first { match($0.peripheral, $0.name) }.map { Found($0.peripheral) } }) { return known }
+        if let known = await queue.run({
+            identifier.flatMap { self.seen[$0].map { Found($0.peripheral) } } ?? self.seen.values.first { match($0.peripheral, $0.name) }.map { Found($0.peripheral) }
+        }) { return known }
         return try await withThrowingTaskGroup(of: Found.self) { group in
             group.addTask {
                 try await withTaskCancellationHandler {
