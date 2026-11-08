@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **EcoFlow** imports the cloud's energy history through the STREAM's meters (solar, home, grid, battery) rather than
+  as the home's flows, so the Status page's **Consumption by device** has the cloud's past as well, not only the
+  month and year views. A bridge that already imported it drops that import and reads the whole history again, once:
+  the two would be added together.
+- The Status page's **Consumption by device** reads a period by the meters that measured something in it. A home
+  meter with no figures for the period (a system added since, a history that does not reach back that far) no longer
+  makes the whole home nothing while the devices inside it drew kWh; the grid's meter stands for the whole home when
+  solar and the batteries have nothing to say about those days.
+
+### Fixed
+
+- The Status page's **Consumption by device** no longer reads as though the devices inside the home belonged to the
+  last meter that measures the whole home: where several do, a line names what the rows under them are inside.
+- An hour whose energy was imported a role at a time (a system's meters, one per Energy Role) has the share of the
+  home's use that solar covered worked out from the roles together, instead of being left unsplit.
+
+### Added
+
+- `PluginContext.forgetImportedEnergy()` drops everything a plugin imported with `importEnergy`, for one that moves
+  to importing the same history through its Meters (docs/plugins.md).
+
 ## [0.25.0] - 2026-11-07
 
 ### Added
