@@ -1081,6 +1081,7 @@ HomeswiftI18n.add("es", {
   "Fifteen minutes from a dim red glow to bright warm white, to wake up.": "Quince minutos de un tenue brillo rojo a un blanco cálido y brillante, para despertarte.",
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
+  "battery {percent} %": "batería {percent} %",
   "Filter by client": "Filtrar por cliente",
   "Filter by tool": "Filtrar por herramienta",
   "Filter Change Indication": "Cambio de filtro",

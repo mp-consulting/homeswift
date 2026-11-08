@@ -1071,7 +1071,9 @@
     "Door", "Window", "Valve", "Fanv2", "Fan", "Lightbulb", "Outlet", "Switch", ...Object.keys(readings)];
   function primaryOf(ctx) {
     const candidates = ctx.services.filter((service) => !quietServices.has(service.type));
-    const flagged = candidates.find((service) => service.primary);
+    // A battery stands for the accessory in the Home app (a power station's), but its outputs are what a tile controls.
+    const controls = rank.slice(0, rank.indexOf("Switch") + 1);
+    const flagged = candidates.find((service) => service.primary && !(service.type === "Battery" && candidates.some((other) => controls.includes(other.type))));
     if (flagged) return flagged;
     const order = (service) => { const index = rank.indexOf(service.type); return index < 0 ? rank.length : index; };
     return [...candidates].sort((a, b) => order(a) - order(b))[0];
@@ -1106,21 +1108,24 @@
 
   register({
     name: "switch-group", types: ["Switch", "Outlet"], icon: "switch", tone: "green", size: "medium",
-    // An accessory of switches only (a chime's speakers, a remote's buttons): chips, or a tile each.
+    // An accessory of switches (a chime's speakers, a remote's buttons, a power station's outputs), with its battery at
+    // most: chips, or a tile each, and the battery's level on the status line.
     match: (ctx) => {
-      const shown = ctx.services.filter((s) => !quietServices.has(s.type));
+      const shown = ctx.services.filter((s) => !quietServices.has(s.type) && s.type !== "Battery");
       return shown.length >= 2 && shown.every((s) => (s.type === "Switch" || s.type === "Outlet") && canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
     },
     build(ctx, primary, size) {
-      const switches = ctx.services.filter((s) => !quietServices.has(s.type));
+      const switches = ctx.services.filter((s) => !quietServices.has(s.type) && s.type !== "Battery");
       const ons = switches.map((s) => ctx.char(s, "On"));
       const count = () => ons.filter(isOn).length;
+      const level = ctx.take(ctx.find("Battery"), "Battery Level");
+      const battery = () => level ? [t("battery {percent} %", { percent: Math.round(numberOf(level)) })] : [];
       const body = size === "large" || size === "full"
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
         body, hero: () => `${count()}/${ons.length}`,
-        status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
+        status: () => [[count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off"), ...battery()].join(" · ")],
         on: () => count() > 0,
       };
     },
