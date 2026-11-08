@@ -255,16 +255,16 @@ import Glibc
         let server = DTLSTransport(role: .server, certificate: serverCertificate, remoteFingerprint: clientCertificate.fingerprint, transport: b)
         let first = Task { try await client.handshake(timeout: .seconds(10)) }
         let serverResult = Task { try await server.handshake(timeout: .seconds(10)) }
-        // Released anyway after a while, so that a regression fails on time rather than hanging.
+        // Released anyway after a while, so that a regression fails rather than hanging: the alert is then no longer
+        // held when the errors come.
         let fallback = Task {
-            try? await Task.sleep(for: .seconds(5))
+            try? await Task.sleep(for: .seconds(30))
             a.release()
         }
         try await eventually { a.held == 1 }
-        let clock = ContinuousClock(), start = clock.now
         await #expect(throws: DTLSError.fingerprintMismatch) { try await first.value }
         await #expect(throws: DTLSError.fingerprintMismatch) { try await client.handshake(timeout: .seconds(10)) }
-        #expect(clock.now - start < .seconds(2))
+        #expect(a.held == 1, "the errors waited for the alert's send")
         a.release()
         fallback.cancel()
         serverResult.cancel()
