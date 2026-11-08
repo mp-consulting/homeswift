@@ -36,16 +36,21 @@ With the EcoFlow app's email and password, the plugin also imports the cloud's e
 month and year views (**Import the energy history**, `importHistory`, on by default): each hour's solar production and
 home use since the system was set up, from the app's Space dashboard (home use from the system's smart meter when it has
 one), and the STREAM system's battery charge and discharge and grid import and export, from its Battery and Grid pages,
-for the home of the account's first STREAM (one that reports, else one configured, else the app's device list's). With
+for the home of one STREAM: one the block's `devices` names, else the one earlier imports used, else the first by serial
+number of those that report, else the app's device list's first; never an Excluded one. The one chosen is kept in
+`energy-history.json`: when it changes, the old one's imported hours are dropped and the whole history is read onto the
+new one's meters. With
 all four, the Status page splits each day's home use by source. Each hour goes to the meter of its Energy Role on that
 STREAM — solar, home, grid, battery, the same four the device reports live — so the Status page's **Consumption by
 device** has the cloud's past as well, and the runtime fills the Home Energy from them. The first import takes
-everything (a request per month and chart); then the last two days are taken again every 6 hours, as the cloud fills
-hours in late. A bridge that imported the history before 0.26.0, when it went in as the home's flows under the plugin's
+everything (a request per month and chart), saving where it is after each month, so one that fails goes on from there;
+then the last two days are taken again every 6 hours, as the cloud fills hours in late. A bridge that imported the history before 0.26.0, when it went in as the home's flows under the plugin's
 own name, drops that import and reads the whole history again the first time it runs: the two would be added together. The battery and
 grid charts' codes are the ones the app's dashboard lists for the system (`/iot-service/dashboard/platform/getPageListById`
-with page type 4, then `getPageChartByPageId`), asked for by a unit's serial number; a system whose cloud refuses them
-keeps its solar and home history. The space's answers carry the home's address: only its id and time zone are read,
+with page type 4, then `getPageChartByPageId`), asked for by a unit's serial number. When the cloud refuses them, the
+import is not done and is made again from the refused month 10 minutes later; after three imports refused in a row the
+history goes on without them (a system without those pages keeps its solar and home history), and they are asked for
+again each time, taken up as soon as they answer. The space's answers carry the home's address: only its id and time zone are read,
 and no answer is logged.
 
 ### STREAM

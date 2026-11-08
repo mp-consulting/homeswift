@@ -11,6 +11,8 @@ final class FakeCloud: HTTPSending, Sendable {
     let requests = NIOLockedValueBox<[HomeswiftNetwork.HTTPRequest]>([])
     /// Whether the system's battery and grid charts answer; refused ("query fail") otherwise.
     let twoWay: Bool
+    /// The month (`2026-10`) from which they are refused, for as long as it is set.
+    let refusedFrom = NIOLockedValueBox<String?>(nil)
 
     init(twoWay: Bool = true) { self.twoWay = twoWay }
 
@@ -43,7 +45,8 @@ final class FakeCloud: HTTPSending, Sendable {
             let begin = params["beginTime"] as? String ?? ""
             let code = json["code"] as? String
             if code == EcoFlowHistory.batteryCode || code == EcoFlowHistory.gridCode {
-                guard twoWay, (json["sn"] as? String)?.hasPrefix("BK11") == true, params["sn"] as? String == json["sn"] as? String else {
+                let refused = refusedFrom.withLockedValue { $0 }.map { begin >= $0 } ?? false
+                guard twoWay, !refused, (json["sn"] as? String)?.hasPrefix("BK1") == true, params["sn"] as? String == json["sn"] as? String else {
                     body = #"{"code":"1","message":"query fail"}"#
                     break
                 }
@@ -248,7 +251,7 @@ struct EcoFlowHistoryTests {
         #expect(forgotten.withLockedValue { $0 }.count == 1)
         #expect(forgotten.withLockedValue { $0 }.first?.hasPrefix("EcoFlow") == true)
         // Read from the start, not from two days before the old import ended.
-        #expect(file.load()?.meters == true)
+        #expect(file.load()?.version == EcoFlowPlugin.historyVersion)
         #expect(host.energyImportProgress.first?.from == local("2026-09-30 00:00:00"))
 
         // The next import is a top-up again: nothing more is dropped.
@@ -262,8 +265,8 @@ struct EcoFlowHistoryTests {
         defer { Task { await host.stop() } }
         let steps = NIOLockedValueBox<[String]>([])
         let history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud())
-        try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00")) { batch, serial, done, total in
-            steps.withLockedValue { $0.append("\(serial) \(done)/\(total):\(batch.count)") }
+        try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00")) { month in
+            steps.withLockedValue { $0.append("\(month.serial) \(month.done)/\(month.total):\(month.hours.count)") }
         }
         #expect(steps.withLockedValue { $0 } == ["BK11 0/2:0", "BK11 1/2:24", "BK11 2/2:36"])
 
@@ -293,9 +296,126 @@ struct EcoFlowHistoryTests {
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
+        let forgotten = NIOLockedValueBox(0)
+        let observation = host.observeEnergyImports { _, _, forget in if forget { forgotten.withLockedValue { $0 += 1 } } }
+        defer { observation.cancel() }
         let imported = await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: NoStream()), serial: nil)
         #expect(imported, "nothing failed")
         #expect(host.energyImportProgress.isEmpty, "no import to show")
+        // What an older version imported (its file lost, or never written) is dropped once, not on every look.
+        await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: NoStream()), serial: nil)
+        #expect(forgotten.withLockedValue { $0 } == 1)
+    }
+
+    /// The STREAM the history went onto is kept and chosen again whatever reports first; when it does change (another
+    /// configured), the old one's imported hours go and the whole history is read onto the new one's Meters.
+    @Test func theStreamIsKeptAndAnotherOneTakesTheWholeHistory() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let readings = NIOLockedValueBox<[String]>([])
+        let observation = host.observeMeterReadings { reading in
+            switch reading {
+            case let .history(id, hours, _): readings.withLockedValue { $0.append("\(id.accessory)#\(id.meter) \(hours.count)") }
+            case let .forgetHistory(id): readings.withLockedValue { $0.append("forget \(id.accessory)#\(id.meter)") }
+            default: break
+            }
+        }
+        defer { observation.cancel() }
+        let plugin = try #require(environment.plugin)
+        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
+        let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
+        let cloud = FakeCloud()
+        #expect(await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud), serial: "BK11", now: local("2026-10-02 12:30:00")))
+        #expect(file.load()?.serial == "BK11")
+        #expect(await plugin.historySerial(remembered: "BK11") == "BK11")
+        #expect(await plugin.historySerial(remembered: nil) == nil, "nothing reported nor configured: the app's list chooses")
+
+        readings.withLockedValue { $0 = [] }
+        #expect(await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud), serial: "BK12", now: local("2026-10-02 13:30:00")))
+        let after = readings.withLockedValue { $0 }
+        #expect(Set(after.filter { $0.hasPrefix("forget") }) == Set(["solar", "home", "grid", "battery"].map { "forget EcoFlow:BK11#\($0)" }))
+        // From the start onto the new one: September's 24 hours too, not a top-up's last two days.
+        #expect(after.contains("EcoFlow:BK12#home 24"))
+        #expect(!after.contains { $0.hasPrefix("EcoFlow:BK11#") && !$0.hasPrefix("forget") })
+        #expect(file.load()?.serial == "BK12")
+        #expect(file.load()?.importedThrough == local("2026-10-02 13:30:00"))
+    }
+
+    /// An Excluded STREAM has no Meters made for its history, chosen neither by the plugin nor from the app's list.
+    @Test func anExcludedStreamIsNeverTheHistorys() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start(settings: ["devices": [["id": "BK11-STREAM"]], "_accessories": ["BK11-STREAM": ["excluded": true]]])
+        defer { Task { await host.stop() } }
+        let made = NIOLockedValueBox(0)
+        let observation = host.observeMeterReadings { reading in if case .history = reading { made.withLockedValue { $0 += 1 } } }
+        defer { observation.cancel() }
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.historySerial(remembered: "BK11-STREAM") == nil)
+        #expect(await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud()), serial: nil, now: local("2026-10-02 12:30:00")))
+        #expect(made.withLockedValue { $0 } == 0)
+        #expect(host.energyImportProgress.isEmpty)
+    }
+
+    /// The battery and grid charts refused part way through a full import: the months before are kept and the import
+    /// is not done, so the next one goes on from the refused month rather than from the start or not at all.
+    @Test func aRefusedChartLeavesTheImportToGoOnFromThatMonth() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let forgotten = NIOLockedValueBox(0)
+        let observation = host.observeEnergyImports { _, _, forget in if forget { forgotten.withLockedValue { $0 += 1 } } }
+        defer { observation.cancel() }
+        let plugin = try #require(environment.plugin)
+        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
+        let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
+        // A file of the first version, whose import is dropped before the new one.
+        try file.save(EcoFlowPlugin.HistoryState(importedThrough: local("2026-10-02 12:30:00"), from: local("2026-09-30 00:00:00")))
+        let cloud = FakeCloud()
+        cloud.refusedFrom.withLockedValue { $0 = "2026-10" }
+        var history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud)
+        history.retryDelays = []
+        #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 13:30:00")) == false)
+        let stopped = try #require(file.load())
+        #expect(stopped.importedThrough == nil, "not done")
+        #expect(stopped.resumeFrom == local("2026-10-01 00:00:00"))
+        #expect(stopped.twoWay == true && stopped.refusals == 1, "September answered")
+        #expect(host.energyImportProgress.first?.state == .failed)
+
+        cloud.refusedFrom.withLockedValue { $0 = nil }
+        cloud.requests.withLockedValue { $0 = [] }
+        #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 14:30:00")))
+        // October alone was asked again, and the old import was dropped only the once.
+        let begins = cloud.requests.withLockedValue { $0 }.compactMap { request -> String? in
+            guard request.url.path == "/app/commonQuery/query", let body = request.body,
+                  let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+            return (json["params"] as? [String: Any])?["beginTime"] as? String
+        }
+        #expect(!begins.isEmpty && begins.allSatisfy { $0.hasPrefix("2026-10") })
+        #expect(forgotten.withLockedValue { $0 } == 1)
+        let done = try #require(file.load())
+        #expect(done.importedThrough == local("2026-10-02 14:30:00") && done.resumeFrom == nil)
+        #expect(done.twoWay == true && done.refusals == nil)
+        #expect(done.from == local("2026-09-30 00:00:00"))
+    }
+
+    /// A system whose cloud never answers the battery and grid charts: a few imports try them again, then the history
+    /// goes on without them and the top-ups that follow do not stop at them.
+    @Test func chartsThatNeverAnswerAreGivenUpAfterAFewImports() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let context = try #require(host.context(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name))
+        let file = context.jsonFile(EcoFlowPlugin.historyFile, as: EcoFlowPlugin.HistoryState.self)
+        var history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud(twoWay: false))
+        history.retryDelays = []
+        for _ in 0..<EcoFlowPlugin.historyRefusals {
+            #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 13:30:00")) == false)
+        }
+        #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 13:30:00")))
+        #expect(file.load()?.twoWay == false)
+        #expect(await plugin.importHistory(history, serial: "BK11", now: local("2026-10-02 14:30:00")))
     }
 
     @Test func aRefusedSignInSaysSo() async {
