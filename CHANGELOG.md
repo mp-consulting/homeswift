@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-08
+
 ### Added
 
 - **Home Assistant** plugin (experimental, tested against a fake server): a Home Assistant server's lights, switches,
@@ -16,7 +18,9 @@ All notable changes to this project are documented here. The format follows
 - **EcoFlow** switches outputs and sets charge limits: an Outlet per controllable output (AC, AC2, DC 12 V, USB) beside
   the Battery, the charge and discharge limits as Accessory Settings, on the app's route and the developer API. Writes
   go to the models confirmed first (STREAM Ultra and AC Pro, RIVER 3 and 3 Plus) unless **Writes on untested models**
-  is on; the plugin's page shows each output with a toggle.
+  is on. A STREAM's AC1 and AC2 and a RIVER 3's 12 V are read back from the device. A RIVER 3 Plus's light is a
+  Lightbulb (Dim, Bright) and an SOS switch. The plugin's page shows each output as a power button, in the accent
+  colour while on, and the light's modes beside its own.
 - **Roborock**: the suction is the Fan's Rotation Speed, a **Mop** switch sets the water, Identify makes the robot
   speak, and the plugin's actions (MCP, the Assistant) list and clean rooms by name, set the suction, water and mop
   route by name, find the robot and clear the robot's or the dock's error.
@@ -24,7 +28,8 @@ All notable changes to this project are documented here. The format follows
   contact and motion sensors read from their advertisements with no request; Bots, Curtains, Plug Minis, bulbs, strips,
   Blind Tilts and Smart Locks take commands locally.
 - Plugins share one Bluetooth adapter (`HomeswiftNetwork`'s `Bluetooth`), and a `HomeswiftWebRTC` target begins the
-  WebRTC stack for Ring and Nest cameras: STUN, ICE, SRTP and SRTCP, vector-tested (DTLS comes next).
+  WebRTC stack for Ring and Nest cameras: STUN, ICE, SRTP and SRTCP, vector-tested, and DTLS 1.2 with DTLS-SRTP as
+  client and server, checked against OpenSSL. The plugins' signalling comes next.
 - `PluginContext.forgetImportedEnergy()` drops everything a plugin imported with `importEnergy`, for one that moves
   to importing the same history through its Meters, and `PluginContext.forgetImportedHours(ofMeter:deviceID:)` what it
   imported onto one Meter, for a history that moves to another device's Meters. `EnergyRole.meterHour(of:)` and
@@ -2299,7 +2304,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/mp-consulting/homeswift/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/mp-consulting/homeswift/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/mp-consulting/homeswift/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/mp-consulting/homeswift/compare/v0.22.0...v0.23.0

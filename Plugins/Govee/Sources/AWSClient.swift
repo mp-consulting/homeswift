@@ -83,7 +83,14 @@ actor AWSClient {
         let connection = connection
         let timeout = publishTimeout
         try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { try await connection.publish(topic, payload: payload) }
+            // A broker that dropped the connection since the check fails the publish as not being connected.
+            group.addTask {
+                do {
+                    try await connection.publish(topic, payload: payload)
+                } catch is MQTTError {
+                    throw GoveeAPIError.message(Lang.notAWSConn)
+                }
+            }
             group.addTask {
                 try await Task.sleep(for: timeout)
                 throw GoveeAPIError.message(Lang.notAWSConn)

@@ -272,8 +272,10 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
 // MARK: AWS
 
 @Suite struct AWSClientTests {
-    func client(_ connection: FakeAWSBroker, received: Collector<JSONValue> = Collector()) async -> AWSClient {
-        let client = AWSClient(accountTopic: "account-topic", connection: connection, publishTimeout: .milliseconds(200), debug: quietDebug) { received.append($0) }
+    /// The publish timeout is short only where a test waits it out (a broker that never acknowledges): elsewhere a
+    /// loaded runner could outlast it.
+    func client(_ connection: FakeAWSBroker, received: Collector<JSONValue> = Collector(), publishTimeout: Duration = .seconds(30)) async -> AWSClient {
+        let client = AWSClient(accountTopic: "account-topic", connection: connection, publishTimeout: publishTimeout, debug: quietDebug) { received.append($0) }
         await client.start()
         try? await client.connect()
         _ = await eventually { await client.connected }
@@ -299,7 +301,7 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
     @Test func failsAPublishTheBrokerNeverAcknowledges() async {
         let connection = FakeAWSBroker()
         connection.hangs = true
-        let client = await client(connection)
+        let client = await client(connection, publishTimeout: .milliseconds(200))
         await #expect(throws: GoveeAPIError.message(Lang.notAWSConn)) { try await client.updateDevice(topic: "t", params: AWSParams(cmd: "turn", data: [:]), log: testDeviceLog) }
     }
 
