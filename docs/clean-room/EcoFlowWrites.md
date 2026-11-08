@@ -471,3 +471,80 @@ Developer API signature vectors: section 2.2.
 - DELTA 2 Plus (D36x): no source.
 - The boolean spelling in a developer signature (section 2.2) and the "unchanged" values of `acOutCfg` on the
   developer route (section 3.3).
+
+## 8. Addendum: the RIVER's light
+
+**Answer.** The RIVER 3 Plus has an LED that its app sets to one of four modes; the sources call it only "LED" /
+"LED mode" and describe no hardware. No source shows the plain RIVER 3 (R651, R653, R654, R655) using it. No source
+gives it a developer API write: EcoFlow publishes no RIVER 3 page (section 7), and the developer pages read for
+section 0 have no LED or lamp key.
+
+### 8.1 The write and its read-back (app route, cmd 254/17, section 5.1's `[HA]` header)
+
+| Direction | Message | Field | No. | Wire | Values |
+|---|---|---|---|---|---|
+| Write | ConfigWrite (`pdata` of 254/17) | `cfg_led_mode` | 89 | varint (uint32) | 0 Off, 1 Dim, 2 Bright, 3 SOS |
+| Reply | ConfigWriteAck (254/18) | `cfg_led_mode` | 89 | varint | the mode echoed (section 5.6) |
+| Read-back | DisplayPropertyUpload (254/21, the status message) | `led_mode` | 357 | varint (uint32) | the same four values |
+
+Sources, each field:
+
+- `[BLE] custom_components/ef_ble/eflib/devices/river3_plus.py`: `LedMode` OFF 0, DIM 1, BRIGHT 2, SOS 3; reads
+  `led_mode` and writes `ConfigWrite(cfg_led_mode=…)` for R631, R634, R635. **Observed over BLE** on the RIVER 3 Plus.
+  `[BLE] README.md` lists "Led Mode" for the River 3 family with "Only available on Plus variant", and
+  `eflib/devices/river3.py` (R651/R653/R654/R655) has no LED control.
+- `[BLE] proto/pr705.proto`: `cfg_led_mode = 89` in ConfigWrite and ConfigWriteAck, `led_mode = 357` in
+  DisplayPropertyUpload (declared).
+- `[HA] custom_components/ecoflow_cloud/devices/internal/river3.py`: a "LED Mode" select reading `led_mode` and
+  sending `_create_river3_proto_command("cfg_led_mode", value, sn)` (the header of section 5.1, `data_len` the real
+  length), options from `devices/const.py` `LED_MODE_OPTIONS` = Off 0, Dim 1, Bright 2, SOS 3. One class serves
+  both `RIVER_3` and `RIVER_3_PLUS` (`devices/registry.py`), so `[HA]` offers it on both; `docs/devices/RIVER_3.md`
+  and `RIVER_3_PLUS.md` list it. **Declared** (no test recorded; the generated docs are not a test).
+- `[HA] …/devices/internal/proto/ef_river3.proto`: `led_mode = 357` in River3DisplayPropertyUpload ("cmdFunc=254,
+  cmdId=21"), `cfg_led_mode = 89` in River3SetCommand and River3SetReply (declared).
+- `[IOB] lib/dict_data/ef_river3_data.js`, `ef_river3plus_data.js`: `ledMode` as a read-only diagnostic text whose
+  value map is only `0: 'OK?'`; `cfg_led_mode = 89` declared in their embedded protos; no write. `ledOutTime`
+  (statistics object 26, `STATISTICS_OBJECT_LED_OUT_TIME`, also in `[BLE] pr705.proto` and `[HA] ef_river3.proto`) is
+  a time counter, not a switch.
+
+**Gating.** Offer it on R631/R634/R635 only, and only once the status message has carried field 357 (as section
+5.2 does for 12 V). The RIVER 3 (R65x): **unknown** whether it has the LED; `[HA]`'s declaration is not evidence of
+the hardware, and `[BLE]` says Plus only. The writes of section 5.2 were checked on a RIVER 3 Plus; this one was not:
+it belongs behind `untestedWrites` until it is seen working on a device.
+
+**No single "on".** The device takes a mode, not a boolean. No source maps on/off to a mode: Off is 0, and which of
+Dim, Bright or SOS an "on" means is the implementer's choice (for example the last non-zero mode the device
+reported). Values above 3: **unknown**, do not send.
+
+### 8.2 Test vectors (computed by the spec writer, python3, checked with `protoc --decode_raw`)
+
+Single-field `pdata` (tag 89 << 3 = 712 = varint `c8 05`):
+
+| Mode | `pdata` |
+|---|---|
+| Off (0), "light off" | `c80500` |
+| Dim (1) | `c80501` |
+| Bright (2), "light on" in these vectors | `c80502` |
+| SOS (3) | `c80503` |
+
+Full message, `[HA]` header, `seq` 1000, `device_sn` "R631ZZZZ00000001" (fake), the same encoder reproducing
+section 6's RIVER 3 AC vector byte for byte:
+
+```
+light on (Bright)  0a340a03c80502102018022001280140fe0148115003580170e8077801800113880101ca0110523633315a5a5a5a3030303030303031
+light off          0a340a03c80500102018022001280140fe0148115003580170e8077801800113880101ca0110523633315a5a5a5a3030303030303031
+```
+
+Off is sent as an explicit `c80500` (the fields are `optional`, so a 0 is present on the wire, as `[HA]` and
+`[BLE]` serialise it). Reply example: `action_id` 5, `config_ok` 1, Bright echoed: `08051001c80502`.
+
+### 8.3 Other models in the README's table
+
+- DELTA 3 family: `cfg_led_mode = 89` and `led_mode = 357` are **declared** in `[HA] …/proto/ef_delta3.proto` and
+  `[IOB] ef_delta3_data.js`, `ef_delta3plus_data.js`, `ef_delta3classic_data.js`, `ef_delta3maxplus_data.js`, with no
+  value meanings; no device class of any source reads or writes them, and `[BLE] proto/pd335_sys.proto` has neither.
+  `[HA] ef_dp3_iobroker.proto` (DELTA Pro 3) has none. **Left out.**
+- RIVER 2, 2 Max, 2 Pro; DELTA 2, 2 Max; DELTA Pro, Max, Mini; GLACIER (BX11) and GLACIER Classic: no LED, lamp or
+  ambient-light key in `[HA]`, `[IOB]` or `[BLE]` for them (the GLACIER's `pd.ambientTmp` is a temperature).
+- STREAM, PowerStream, PowerOcean, Smart Home Panels, RAPID: none found.
+- `lcd_light` / `cfg_lcd_light` (field 14 in the RIVER 3 and DELTA 3 protos) is the screen's brightness, not a lamp.
