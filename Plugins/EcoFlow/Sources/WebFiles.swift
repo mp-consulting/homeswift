@@ -160,13 +160,12 @@ extension EcoFlowPlugin {
     }
   }
 
-  // The light's row: its mode, and the choice of the four, one at a time (a segmented control, as the bridge's pages
+  // The light's row: the choice of the four, one at a time (a segmented control, as the bridge's pages
   // have: a radio group); the current mode's button does nothing. Each choice is its glyph, its name its label and tip;
   // the current one is in the accent colour while the light is lit. The caption marks the device's writes when they are untested.
   function lightRow(device) {
     const light = device.light;
     if (!light) return null;
-    const current = lightModes.find(([mode]) => mode === light.mode);
     const group = el("div", { class: "group", role: "radiogroup", "aria-label": t("Light mode") });
     for (const [mode, name, icon] of lightModes) {
       const checked = mode === light.mode;
@@ -176,11 +175,10 @@ extension EcoFlowPlugin {
       group.append(button);
     }
     return el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") },
-      el("span", { class: "label", text: t("Light") }),
-      el("span", { class: `pill ${current && current[0] !== 0 ? "on" : ""}`, text: current ? t(current[1]) : "–" }), group);
+      el("span", { class: "label", text: t("Light") }), group);
   }
 
-  // The outputs the plugin switches, each with its state and a round power button (the accent colour while on), the light, and the charge and discharge limits
+  // The outputs the plugin switches, each its name and a round power button, in the accent colour while on (its state), the light, and the charge and discharge limits
   // (the device's Settings change them).
   function controls(device) {
     const outputs = device.outputs ?? [];
@@ -188,14 +186,12 @@ extension EcoFlowPlugin {
     const percent = (value) => value == null ? "–" : `${Math.round(value)} %`;
     const rows = outputs.map((output) => {
       const port = t(output.name);
-      const state = output.on === null ? "–" : output.on ? t("On") : t("Off");
       const label = output.on === true ? t("Turn {port} off", { port }) : t("Turn {port} on", { port });
       const button = el("button", { type: "button", class: output.on === true ? "switch primary" : "switch", actionIcon: "power",
         disabled: !device.online, "aria-pressed": String(output.on === true), "aria-label": label, "data-tip": label });
       button.addEventListener("click", () => switchOutput(device, output, button));
       return el("div", { class: "output", "data-tip": t("This output, as HomeKit's Outlet shows it") },
-        el("span", { class: "label", text: port }),
-        el("span", { class: `pill ${output.on ? "on" : ""}`, text: state }), button);
+        el("span", { class: "label", text: port }), button);
     });
     const limits = device.limits ? el("p", { class: "limits", "data-tip": t("The device's Settings change its limits") },
       el("span", { text: t("Charge limit {value}", { value: percent(device.limits.charge) }) }),
@@ -564,7 +560,6 @@ extension EcoFlowPlugin {
 HomeswiftI18n.add({
   "fr": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Les écritures de ce modèle viennent de projets open source et de la documentation d'EcoFlow et n'ont pas encore été confirmées sur un vrai appareil",
-    "On": "Allumé",
     "Off": "Éteint",
     "Turn {port} on": "Allumer {port}",
     "Turn {port} off": "Éteindre {port}",
@@ -653,7 +648,6 @@ HomeswiftI18n.add({
   },
   "es": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Las escrituras de este modelo vienen de proyectos de código abierto y de la documentación de EcoFlow y aún no se han confirmado en un dispositivo real",
-    "On": "Encendido",
     "Off": "Apagado",
     "Turn {port} on": "Encender {port}",
     "Turn {port} off": "Apagar {port}",
@@ -742,7 +736,6 @@ HomeswiftI18n.add({
   },
   "pt": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "As escritas deste modelo vêm de projetos de código aberto e da documentação da EcoFlow e ainda não foram confirmadas num dispositivo real",
-    "On": "Ligado",
     "Off": "Desligado",
     "Turn {port} on": "Ligar {port}",
     "Turn {port} off": "Desligar {port}",
