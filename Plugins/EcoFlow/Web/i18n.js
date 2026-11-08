@@ -2,7 +2,6 @@
 HomeswiftI18n.add({
   "fr": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Les écritures de ce modèle viennent de projets open source et de la documentation d'EcoFlow et n'ont pas encore été confirmées sur un vrai appareil",
-    "Off": "Éteint",
     "Turn {port} on": "Allumer {port}",
     "Turn {port} off": "Éteindre {port}",
     "This output, as HomeKit's Outlet shows it": "Cette sortie, comme la prise HomeKit la montre",
@@ -90,7 +89,6 @@ HomeswiftI18n.add({
   },
   "es": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Las escrituras de este modelo vienen de proyectos de código abierto y de la documentación de EcoFlow y aún no se han confirmado en un dispositivo real",
-    "Off": "Apagado",
     "Turn {port} on": "Encender {port}",
     "Turn {port} off": "Apagar {port}",
     "This output, as HomeKit's Outlet shows it": "Esta salida, como la muestra el enchufe de HomeKit",
@@ -178,7 +176,6 @@ HomeswiftI18n.add({
   },
   "pt": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "As escritas deste modelo vêm de projetos de código aberto e da documentação da EcoFlow e ainda não foram confirmadas num dispositivo real",
-    "Off": "Desligado",
     "Turn {port} on": "Ligar {port}",
     "Turn {port} off": "Desligar {port}",
     "This output, as HomeKit's Outlet shows it": "Esta saída, tal como a tomada do HomeKit a mostra",

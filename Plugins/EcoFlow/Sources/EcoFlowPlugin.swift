@@ -669,7 +669,9 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         }
         if allowed.light != nil {
             let mode: JSONValue = lightState(device).map { .number(Double($0.rawValue)) } ?? .null
-            fields["light"] = .object(["mode": mode])
+            // The lit mode the page's power button turns the light back on in, as HomeKit's On does.
+            let last = EcoFlowLight.mode(on: true, brightness: nil, previous: lastLightMode[device.id]) ?? .bright
+            fields["light"] = .object(["mode": mode, "last": .number(Double(last.rawValue))])
         }
         return fields
     }

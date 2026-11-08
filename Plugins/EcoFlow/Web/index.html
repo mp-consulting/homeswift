@@ -106,15 +106,13 @@
   .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
   /* A switch is its power glyph alone, a circle (width, height and min-height alike, so a touch screen's 40px minimum
      keeps it round): 36px, 40px at phone width; filled with the accent colour while its output is on. The light's
-     modes are circles too, the current one in the accent colour while the light is lit. */
+     modes are circles too, the current one in the accent colour while the light is lit, before its power button. */
   .output .switch, .output.light .group button { flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px;
     padding: 0; border-radius: 50%; justify-content: center; }
   .output.light .group button.lit { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill));
     color: var(--accent-text); }
   .output.light .group button.lit svg { color: var(--accent-text); }
-  .output.light { flex-wrap: wrap; }
-  .output.light .label { flex: 1 0 auto; }
-  .output.light .group { flex: none; max-width: 100%; }
+  .output.light .group { flex: none; }
   @media (max-width: 640px) {
     .output .switch, .output.light .group button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
   }

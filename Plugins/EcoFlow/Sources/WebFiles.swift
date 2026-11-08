@@ -144,12 +144,12 @@ extension EcoFlowPlugin {
     }
   }
 
-  // A RIVER 3 Plus's light: its four modes, each with its icon (EcoFlowWrites.md, section 8).
-  const lightModes = [[0, "Off", "power"], [1, "Dim", "bulb"], [2, "Bright", "sun"], [3, "SOS", "warning"]];
+  // A RIVER 3 Plus's light: its lit modes, each with its icon, and Off (EcoFlowWrites.md, section 8).
+  const lightModes = [[1, "Dim", "bulb"], [2, "Bright", "sun"], [3, "SOS", "warning"]];
 
   // Sets the light's mode as HomeKit does; the next answer shows the device's.
-  async function setLight(device, mode, group) {
-    group.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+  async function setLight(device, mode, row) {
+    row.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     try {
       await request("light", { method: "POST", body: { deviceId: device.id, mode } });
     } catch (error) {
@@ -160,22 +160,30 @@ extension EcoFlowPlugin {
     }
   }
 
-  // The light's row: the choice of the four, one at a time (a segmented control, as the bridge's pages
-  // have: a radio group); the current mode's button does nothing. Each choice is its glyph, its name its label and tip;
-  // the current one is in the accent colour while the light is lit. The caption marks the device's writes when they are untested.
+  // The light's row: its lit modes, one at a time (a segmented control, as the bridge's pages have: a radio group),
+  // the current one in the accent colour while the light is lit; then its power button, where the outputs have theirs,
+  // turning it off, or on again in its last lit mode (`last`, as HomeKit's On does). Each choice is its glyph, its name
+  // its label and tip.
   function lightRow(device) {
     const light = device.light;
     if (!light) return null;
+    const lit = light.mode != null && light.mode !== 0;
+    const row = el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") });
     const group = el("div", { class: "group", role: "radiogroup", "aria-label": t("Light mode") });
     for (const [mode, name, icon] of lightModes) {
       const checked = mode === light.mode;
-      const button = el("button", { type: "button", role: "radio", class: checked ? (mode === 0 ? "on" : "on lit") : "", actionIcon: icon,
+      const button = el("button", { type: "button", role: "radio", class: checked ? "on lit" : "", actionIcon: icon,
         disabled: !device.online, "aria-checked": String(checked), "aria-label": t(name), "data-tip": t(name) });
-      button.addEventListener("click", () => { if (!checked) setLight(device, mode, group); });
+      button.addEventListener("click", () => { if (!checked) setLight(device, mode, row); });
       group.append(button);
     }
-    return el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") },
-      el("span", { class: "label", text: t("Light") }), group);
+    const port = t("Light");
+    const label = lit ? t("Turn {port} off", { port }) : t("Turn {port} on", { port });
+    const power = el("button", { type: "button", class: lit ? "switch primary" : "switch", actionIcon: "power",
+      disabled: !device.online || light.mode == null, "aria-pressed": String(lit), "aria-label": label, "data-tip": label });
+    power.addEventListener("click", () => setLight(device, lit ? 0 : light.last ?? 2, row));
+    row.append(el("span", { class: "label", text: port }), group, power);
+    return row;
   }
 
   // The outputs the plugin switches, each its name and a round power button, in the accent colour while on (its state), the light, and the charge and discharge limits
@@ -560,7 +568,6 @@ extension EcoFlowPlugin {
 HomeswiftI18n.add({
   "fr": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Les écritures de ce modèle viennent de projets open source et de la documentation d'EcoFlow et n'ont pas encore été confirmées sur un vrai appareil",
-    "Off": "Éteint",
     "Turn {port} on": "Allumer {port}",
     "Turn {port} off": "Éteindre {port}",
     "This output, as HomeKit's Outlet shows it": "Cette sortie, comme la prise HomeKit la montre",
@@ -648,7 +655,6 @@ HomeswiftI18n.add({
   },
   "es": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "Las escrituras de este modelo vienen de proyectos de código abierto y de la documentación de EcoFlow y aún no se han confirmado en un dispositivo real",
-    "Off": "Apagado",
     "Turn {port} on": "Encender {port}",
     "Turn {port} off": "Apagar {port}",
     "This output, as HomeKit's Outlet shows it": "Esta salida, como la muestra el enchufe de HomeKit",
@@ -736,7 +742,6 @@ HomeswiftI18n.add({
   },
   "pt": {
     "This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet": "As escritas deste modelo vêm de projetos de código aberto e da documentação da EcoFlow e ainda não foram confirmadas num dispositivo real",
-    "Off": "Desligado",
     "Turn {port} on": "Ligar {port}",
     "Turn {port} off": "Desligar {port}",
     "This output, as HomeKit's Outlet shows it": "Esta saída, tal como a tomada do HomeKit a mostra",
@@ -947,15 +952,13 @@ HomeswiftI18n.add({
   .output .label { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
   /* A switch is its power glyph alone, a circle (width, height and min-height alike, so a touch screen's 40px minimum
      keeps it round): 36px, 40px at phone width; filled with the accent colour while its output is on. The light's
-     modes are circles too, the current one in the accent colour while the light is lit. */
+     modes are circles too, the current one in the accent colour while the light is lit, before its power button. */
   .output .switch, .output.light .group button { flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px;
     padding: 0; border-radius: 50%; justify-content: center; }
   .output.light .group button.lit { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill));
     color: var(--accent-text); }
   .output.light .group button.lit svg { color: var(--accent-text); }
-  .output.light { flex-wrap: wrap; }
-  .output.light .label { flex: 1 0 auto; }
-  .output.light .group { flex: none; max-width: 100%; }
+  .output.light .group { flex: none; }
   @media (max-width: 640px) {
     .output .switch, .output.light .group button { width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
   }
