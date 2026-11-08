@@ -5,7 +5,11 @@ Roborock robot vacuums in HomeKit. Each robot is an accessory with:
 - a **Fan** (the primary service) whose Active starts a clean, and stops it and sends the robot to its dock when turned
   off; it is on while the robot cleans, returns or washes its mop, with Status Fault on a robot error and Status Active
   while the robot answers. It stands for a cleaning robot, so the bridge's Matter bridge shows it as a Robotic Vacuum
-  Cleaner (start, stop, pause and go home; its battery from the Battery);
+  Cleaner (start, stop, pause and go home; its battery from the Battery). Its **Rotation Speed** is the suction: the
+  robot's levels, weakest first (Gentle where the robot has it, Quiet, Balanced, Turbo, Max, Max+), spread over 0–100 %;
+  Custom and Smart show as the level they were last, until the robot reports a level again;
+- **Mop**, a switch, on robots with a water box: on mops with the robot's usual water flow (Medium, or the middle of a
+  water slide), off vacuums only;
 - its **Battery**: level, low below 20 %, charging (an off-peak robot waiting on its dock is not charging);
 - **Start Mop Washing**, a switch, on docks that wash the mop: on while the dock washes, also for washes started
   elsewhere;
@@ -14,7 +18,23 @@ Roborock robot vacuums in HomeKit. Each robot is an accessory with:
 - **Filter**, **Main brush** and **Side brush** as Filter Maintenance: the life left (from the robot's work times and
   the rated 150, 300 and 200 hours), and Change Filter at 5 % or less.
 
-The names of the mop-washing switch and of the brushes and filter follow `language`. Renaming a switch in the Home app
+**Identify** (in the Home app's accessory settings) makes the robot say where it is. The names of the mop-washing and
+mop switches and of the brushes and filter follow `language`.
+
+## Clean modes, rooms and errors
+
+HomeKit has no service for a room or a mop route, so these are actions of the plugin, for the MCP server, the Assistant
+and the web UI's chat (`list_robots`, `list_rooms`, `clean_rooms`, `set_clean_mode`, `find_robot`, `clear_error`):
+
+- **Suction, water and route** by name or code, from those the robot offers: its family (the model) and its feature
+  flags decide (Max+, mopping without suction, Smart, a water slide, the deep and fast routes), as the Roborock app does.
+- **Rooms** of the current map: the robot's segments, named from the Roborock app's rooms (a room without a name is
+  "Room 17"); `clean_rooms` cleans them by name, one to three passes.
+- **Errors** with their meaning, the robot's and the dock's; `clear_error` clears the dock's first, then the robot's,
+  once the cause is fixed (some dock errors, an empty water tank, stay until cleared).
+
+These follow [RoborockModes.md](../../docs/clean-room/RoborockModes.md), a clean-room specification written from
+homebridge-roborock-vacuum (MIT) and python-roborock (Apache-2.0); no code was copied. Renaming a switch in the Home app
 keeps the name; a scene renamed in the Roborock app renames its switch unless you renamed it.
 
 ## How it reaches the robots
@@ -75,8 +95,12 @@ Untested on hardware: written and tested against fakes only. Known gaps:
   plugin shows them without controlling them. Whether the cloud accepts it is not known.
 - **The current room to MQTT** (`currentRoomMqtt`) is not implemented; the block's option is read and ignored.
 - The Homebridge plugin's optional polls (carpet, dust collection, dryer settings) change nothing HomeKit shows and are
-  not sent. Matter-only features (rooms, multi-floor maps, clean modes) are not ported: the bridge's Matter bridge works
-  from the HomeKit services. There the fan's Active is the robot's state: it shows running while the robot returns or
+  not sent.
+- **Rooms over Matter** (the ServiceArea cluster) and **switching floors** (`load_multi_map`) are not done: the Matter
+  bridge has no ServiceArea server yet, and rooms are cleaned on the map the robot has loaded. Floors' rooms are listed
+  only for the loaded map.
+- Older robots' percentage suction codes (38, 60, 75…) are shown as "Level n" and never written: no source says which
+  robots use them. There the fan's Active is the robot's state: it shows running while the robot returns or
   washes its mop, and Pause, like Stop, sends it to its dock.
 - An L01 robot reached through the cloud needs the nonces of a LAN handshake; without a LAN connection its cloud
   requests fail.

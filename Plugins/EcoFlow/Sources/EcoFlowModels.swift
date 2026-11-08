@@ -49,11 +49,44 @@ struct EcoFlowModel: Sendable, Equatable {
         var timeToFull: [String] = []
         var timeToEmpty: [String] = []
         var scales: [String: Double] = [:]
+        /// Where each output's state is read back (docs/clean-room/EcoFlowWrites.md, each write's "Read back").
+        var outputs: [EcoFlowOutput: OutputState] = [:]
+        /// The charge limit (maximum state of charge) and the discharge limit (minimum), %.
+        var chargeLimit: [String] = []
+        var dischargeLimit: [String] = []
+        /// A DELTA Pro's X-Boost, sent back with its AC write on the developer API.
+        var acXboost: [String] = []
+        /// A RIVER 3 Plus's light mode (EcoFlowWrites.md 8.1).
+        var lightMode: [String] = []
 
         /// Every key read: the app's route keeps only these of a device's readings.
         var all: Set<String> {
             Set([stateOfCharge, solar, home, grid, battery, input, output, acIn, acOut, usbA, usbC, ac, ac1, ac2, panels,
-                 timeToFull, timeToEmpty].joined())
+                 timeToFull, timeToEmpty, chargeLimit, dischargeLimit, acXboost, lightMode].joined()).union(outputs.values.flatMap(\.keys))
+        }
+    }
+
+    /// An output's state, read from a number: on when it is not 0, not a value (a DELTA 3's 4 is off), a value (a DELTA
+    /// Pro 3's 2 is on), or when one bit is set (a DELTA Pro Ultra's `showFlag`, bit 0 the lowest).
+    struct OutputState: Sendable, Equatable {
+        enum Rule: Sendable, Equatable {
+            case nonZero, not(Int), equals(Int), bit(Int)
+            /// A power reading: on while it flows; none says nothing (an output on with nothing plugged in reads 0 W).
+            case onWhileFlowing
+        }
+
+        var keys: [String]
+        var rule: Rule = .nonZero
+
+        /// The output's state from its reading; nil when the reading says nothing about it.
+        func isOn(_ value: Double) -> Bool? {
+            switch rule {
+            case .onWhileFlowing: value.isFinite && abs(value) >= 1 ? true : nil
+            case .nonZero: value != 0
+            case .not(let off): Int(value) != off
+            case .equals(let on): Int(value) == on
+            case .bit(let bit): value.isFinite && (Int64(value) >> Int64(bit)) & 1 == 1
+            }
         }
     }
 
@@ -124,6 +157,22 @@ struct EcoFlowModel: Sendable, Equatable {
         usbA: ["254_21.9"], usbC: ["254_21.11"],
         timeToFull: ["254_21.269", "32_2.1.12"], timeToEmpty: ["254_21.268", "32_2.1.13"])
 
+    /// A RIVER 3's: the status message, with its 12 V output's state (field 33: 2 on, 0 off) and its AC on while it
+    /// delivers power (field 368). Seen on the author's RIVER 3 Plus on 2026-11-08 (EcoFlowWrites.md section 9); the AC's
+    /// own flag was not seen, as its load could not be switched off.
+    static let river3: Keys = {
+        var keys = display
+        keys.outputs = [.dc12v: OutputState(keys: ["254_21.33"]), .ac: OutputState(keys: ["254_21.368"], rule: .onWhileFlowing)]
+        return keys
+    }()
+
+    /// A RIVER 3 Plus's: a RIVER 3's, with its light's mode (`led_mode`, field 357; EcoFlowWrites.md 8.1).
+    static let river3Plus: Keys = {
+        var keys = river3
+        keys.lightMode = ["254_21.357"]
+        return keys
+    }()
+
     /// A power bank's status message: the totals and the percentage.
     static let powerBank = Keys(stateOfCharge: ["254_21.262"], input: ["254_21.3"], output: ["254_21.4"],
                                 timeToFull: ["254_21.269"], timeToEmpty: ["254_21.268"])
@@ -132,6 +181,27 @@ struct EcoFlowModel: Sendable, Equatable {
     static let displayDeveloper = Keys(
         stateOfCharge: ["cmsBattSoc"], input: ["powInSumW"], output: ["powOutSumW"], acIn: ["powGetAcIn"],
         acOut: ["powGetAcOut", "powGetAc"], timeToFull: ["cmsChgRemTime"], timeToEmpty: ["cmsDsgRemTime"])
+
+    /// A DELTA 3 Max and Max Plus on the developer API: the status message's names, with their outputs' flows (on when
+    /// not 4) and the limits (3.2).
+    static let delta3Developer: Keys = {
+        var keys = displayDeveloper
+        keys.outputs = [.ac: OutputState(keys: ["flowInfoAcOut"], rule: .not(4)), .ac2: OutputState(keys: ["flowInfoAc2Out"], rule: .not(4)),
+                        .dc12v: OutputState(keys: ["flowInfo12v"], rule: .not(4))]
+        keys.chargeLimit = ["cmsMaxChgSoc"]
+        keys.dischargeLimit = ["cmsMinDsgSoc"]
+        return keys
+    }()
+
+    /// A DELTA Pro 3 on the developer API: its high-voltage and low-voltage AC and its 12 V (0 off, 2 on) and the limits.
+    static let deltaPro3Developer: Keys = {
+        var keys = displayDeveloper
+        keys.outputs = [.ac: OutputState(keys: ["flowInfoAcHvOut"], rule: .equals(2)), .ac2: OutputState(keys: ["flowInfoAcLvOut"], rule: .equals(2)),
+                        .dc12v: OutputState(keys: ["flowInfo12v"], rule: .equals(2))]
+        keys.chargeLimit = ["cmsMaxChgSoc"]
+        keys.dischargeLimit = ["cmsMinDsgSoc"]
+        return keys
+    }()
 
     /// A STREAM on the app's stream: the status message (254/21) has the system's flows, the battery pack's message
     /// (32/50) this unit's own percentage (25, precise; 6, whole). The status message's field 6 is the backup state, and
@@ -142,7 +212,9 @@ struct EcoFlowModel: Sendable, Equatable {
         solar: ["254_21.517"], home: ["254_21.516"], grid: ["254_21.515"], battery: ["254_21.518"],
         ac: ["254_21.616"], ac1: ["254_21.1210"], ac2: ["254_21.1211"],
         panels: ["254_21.361", "254_21.70", "254_21.996", "254_21.997"],
-        timeToFull: ["254_21.255", "254_21.269"], timeToEmpty: ["254_21.254", "254_21.268"])
+        timeToFull: ["254_21.255", "254_21.269"], timeToEmpty: ["254_21.254", "254_21.268"],
+        // AC1 and AC2's relays (1 on, 0 off), seen on the author's STREAM Ultra on 2026-11-08 (EcoFlowWrites.md section 9).
+        outputs: [.ac: OutputState(keys: ["254_21.980"]), .ac2: OutputState(keys: ["254_21.982"])])
 
     /// A STREAM on the developer API: `f32ShowSoc` is this unit's percentage as the app shows it (the MQTT pushes).
     /// The REST quota has no unit's percentage: its `cmsBattSoc` is the system's, on the unit that leads it (an Ultra's
@@ -152,12 +224,16 @@ struct EcoFlowModel: Sendable, Equatable {
         solar: ["powGetPvSum"], home: ["powGetSysLoad"], grid: ["powGetSysGrid"], battery: ["powGetBpCms"],
         ac: ["gridConnectionPower"], ac1: ["powGetSchuko1"], ac2: ["powGetSchuko2"],
         panels: ["powGetPv", "powGetPv2", "powGetPv3", "powGetPv4"],
-        timeToFull: ["bmsChgRemTime", "cmsChgRemTime"], timeToEmpty: ["bmsDsgRemTime", "cmsDsgRemTime"])
+        timeToFull: ["bmsChgRemTime", "cmsChgRemTime"], timeToEmpty: ["bmsDsgRemTime", "cmsDsgRemTime"],
+        // The sockets' relays and the limits, read back after a write (3.1).
+        outputs: [.ac: OutputState(keys: ["relay2Onoff"]), .ac2: OutputState(keys: ["relay3Onoff"])],
+        chargeLimit: ["cmsMaxChgSoc"], dischargeLimit: ["cmsMinDsgSoc"])
 
     /// The older portable stations' JSON quotas, the same on the app's stream and the developer API: the display's
     /// percentage (`lcdShowSoc`, the overall one with extra batteries), the totals, the inverter's AC and the solar
     /// charger. A DELTA Pro or a DELTA Max reports its solar in tenths of a watt.
-    static func json(solarInTenths: Bool = false) -> Keys {
+    /// `readBack`: where the model's outputs and limits are read back (3.3, 3.4), the same keys on both routes.
+    static func json(solarInTenths: Bool = false, readBack: (inout Keys) -> Void = { _ in }) -> Keys {
         var keys = Keys(
             stateOfCharge: ["bms_emsStatus.f32LcdShowSoc", "bms_emsStatus.lcdShowSoc", "ems.f32LcdShowSoc", "ems.lcdShowSoc",
                             "pd.soc", "bms_bmsStatus.f32ShowSoc", "bms_bmsStatus.soc", "bmsMaster.soc"],
@@ -167,15 +243,38 @@ struct EcoFlowModel: Sendable, Equatable {
             timeToFull: ["bms_emsStatus.chgRemainTime", "ems.chgRemainTime"],
             timeToEmpty: ["bms_emsStatus.dsgRemainTime", "ems.dsgRemainTime"])
         if solarInTenths { keys.scales["mppt.inWatts"] = 0.1 }
+        readBack(&keys)
         return keys
+    }
+
+    /// The DELTA 2 family's and the RIVER 2 Pro's read-back (3.3): the AC (`mppt.cfgAcEnabled`, a DELTA 2 Max's
+    /// `inv.cfgAcEnabled`), the car socket, the USB and the limits.
+    static func delta2ReadBack(ac: String, car: String, usb: Bool) -> (inout Keys) -> Void {
+        { keys in
+            keys.outputs = [.ac: OutputState(keys: [ac]), .dc12v: OutputState(keys: [car])]
+            if usb { keys.outputs[.usb] = OutputState(keys: ["pd.dcOutState"]) }
+            keys.chargeLimit = ["bms_emsStatus.maxChargeSoc"]
+            keys.dischargeLimit = ["bms_emsStatus.minDsgSoc"]
+        }
+    }
+
+    /// The DELTA Pro's read-back (3.4), and its X-Boost.
+    static func deltaProReadBack(_ keys: inout Keys) {
+        keys.outputs = [.ac: OutputState(keys: ["inv.cfgAcEnabled"]), .dc12v: OutputState(keys: ["mppt.carState"])]
+        keys.acXboost = ["inv.cfgAcXboost"]
+        keys.chargeLimit = ["ems.maxChargeSoc"]
+        keys.dischargeLimit = ["ems.minDsgSoc"]
     }
 
     /// A PowerStream microinverter: its heartbeat (20/1, `20_1.` on the developer API) in tenths of a watt: the panels
     /// (19, 24), the battery's percentage (31) and power (29, positive while the battery supplies the inverter) and the
     /// inverter's output to the home (38). It has no grid reading; its solar is its panels'.
-    static func powerStream(pv1: String, pv2: String, soc: String, battery: String, home: String) -> Keys {
+    /// `upper`, `lower`: its limits where they are read back (the developer API's `20_1.upperLimit`, 3.6).
+    static func powerStream(pv1: String, pv2: String, soc: String, battery: String, home: String,
+                            upper: String? = nil, lower: String? = nil) -> Keys {
         Keys(stateOfCharge: [soc], home: [home], battery: [battery], panels: [pv1, pv2],
-             scales: [pv1: 0.1, pv2: 0.1, battery: -0.1, home: 0.1])
+             scales: [pv1: 0.1, pv2: 0.1, battery: -0.1, home: 0.1],
+             chargeLimit: upper.map { [$0] } ?? [], dischargeLimit: lower.map { [$0] } ?? [])
     }
 
     // MARK: - The models
@@ -197,9 +296,9 @@ struct EcoFlowModel: Sendable, Equatable {
 
         // The status message's portable stations: the RIVER 3 and RIVER 3 Plus checked on the app's stream.
         EcoFlowModel(name: "RIVER 3", prefixes: ["R651", "R653", "R654", "R655"], kind: .portable, format: .protobuf,
-                     app: display, developer: displayDeveloper, tested: [.app]),
+                     app: river3, developer: displayDeveloper, tested: [.app]),
         EcoFlowModel(name: "RIVER 3 Plus", prefixes: ["R631", "R634", "R635"], kind: .portable, format: .protobuf,
-                     app: display, developer: displayDeveloper, tested: [.app]),
+                     app: river3Plus, developer: displayDeveloper, tested: [.app]),
         EcoFlowModel(name: "DELTA 3", prefixes: ["P231"], kind: .portable, format: .protobuf,
                      app: display, developer: displayDeveloper, tested: []),
         EcoFlowModel(name: "DELTA 3 Plus", prefixes: ["P351"], kind: .portable, format: .protobuf,
@@ -209,15 +308,15 @@ struct EcoFlowModel: Sendable, Equatable {
         EcoFlowModel(name: "DELTA 3 Air", prefixes: ["PR11", "PR12", "PR21"], kind: .portable, format: .protobuf,
                      app: display, developer: displayDeveloper, tested: []),
         EcoFlowModel(name: "DELTA 3 Max", prefixes: ["D3N1"], kind: .portable, format: .protobuf,
-                     app: display, developer: displayDeveloper, tested: []),
+                     app: display, developer: delta3Developer, tested: []),
         EcoFlowModel(name: "DELTA 3 Max Plus", prefixes: ["D3M1"], kind: .portable, format: .protobuf,
-                     app: display, developer: displayDeveloper, tested: []),
+                     app: display, developer: delta3Developer, tested: []),
         EcoFlowModel(name: "DELTA 3 Ultra", prefixes: ["D751"], kind: .portable, format: .protobuf,
                      app: display, developer: displayDeveloper, tested: []),
         EcoFlowModel(name: "DELTA 3 Ultra Plus", prefixes: ["D511"], kind: .portable, format: .protobuf,
                      app: display, developer: displayDeveloper, tested: []),
         EcoFlowModel(name: "DELTA Pro 3", prefixes: ["MR51", "MR54"], kind: .portable, format: .protobuf,
-                     app: display, developer: displayDeveloper, tested: []),
+                     app: display, developer: deltaPro3Developer, tested: []),
         EcoFlowModel(name: "DELTA Pro Ultra X", prefixes: ["P101"], kind: .portable, format: .protobuf,
                      app: display, developer: displayDeveloper, tested: []),
         EcoFlowModel(name: "GLACIER Classic", prefixes: ["RF45"], kind: .portable, format: .protobuf,
@@ -233,9 +332,11 @@ struct EcoFlowModel: Sendable, Equatable {
 
         // The older portable stations, in JSON on both routes.
         EcoFlowModel(name: "DELTA 2", prefixes: ["R331", "R335"], kind: .portable, format: .json,
-                     app: json(), developer: json(), tested: []),
+                     app: json(readBack: delta2ReadBack(ac: "mppt.cfgAcEnabled", car: "mppt.carState", usb: true)),
+                     developer: json(readBack: delta2ReadBack(ac: "mppt.cfgAcEnabled", car: "mppt.carState", usb: true)), tested: []),
         EcoFlowModel(name: "DELTA 2 Max", prefixes: ["R351", "R354"], kind: .portable, format: .json,
-                     app: json(), developer: json(), tested: []),
+                     app: json(readBack: delta2ReadBack(ac: "inv.cfgAcEnabled", car: "mppt.carState", usb: true)),
+                     developer: json(readBack: delta2ReadBack(ac: "inv.cfgAcEnabled", car: "mppt.carState", usb: true)), tested: []),
         EcoFlowModel(name: "DELTA 2 Plus", prefixes: ["D361", "D365"], kind: .portable, format: .json,
                      app: json(), developer: json(), tested: []),
         EcoFlowModel(name: "RIVER 2", prefixes: ["R601", "R603"], kind: .portable, format: .json,
@@ -243,9 +344,11 @@ struct EcoFlowModel: Sendable, Equatable {
         EcoFlowModel(name: "RIVER 2 Max", prefixes: ["R611", "R613"], kind: .portable, format: .json,
                      app: json(), developer: json(), tested: []),
         EcoFlowModel(name: "RIVER 2 Pro", prefixes: ["R621", "R623"], kind: .portable, format: .json,
-                     app: json(), developer: json(), tested: []),
+                     app: json(readBack: delta2ReadBack(ac: "mppt.cfgAcEnabled", car: "pd.carState", usb: false)),
+                     developer: json(readBack: delta2ReadBack(ac: "mppt.cfgAcEnabled", car: "pd.carState", usb: false)), tested: []),
         EcoFlowModel(name: "DELTA Pro", prefixes: ["DCA", "DCK", "DCE", "DCC", "DCU", "DCT", "DCG", "DCS", "DCF", "DCJ", "R511"],
-                     kind: .portable, format: .json, app: json(solarInTenths: true), developer: json(solarInTenths: true), tested: []),
+                     kind: .portable, format: .json, app: json(solarInTenths: true, readBack: deltaProReadBack),
+                     developer: json(solarInTenths: true, readBack: deltaProReadBack), tested: []),
         EcoFlowModel(name: "DELTA Max", prefixes: ["DAEB"], kind: .portable, format: .json,
                      app: json(solarInTenths: true), developer: json(solarInTenths: true), tested: []),
         EcoFlowModel(name: "DELTA Mini", prefixes: ["DBAB"], kind: .portable, format: .json,
@@ -256,14 +359,19 @@ struct EcoFlowModel: Sendable, Equatable {
         // DELTA Pro Ultra: its own message on the app's stream, which is not mapped; the developer API documents it.
         EcoFlowModel(name: "DELTA Pro Ultra", prefixes: ["Y711"], kind: .portable, format: .protobuf, app: nil,
                      developer: Keys(stateOfCharge: ["hs_yj751_pd_appshow_addr.soc"],
-                                     input: ["hs_yj751_pd_appshow_addr.wattsInSum"], output: ["hs_yj751_pd_appshow_addr.wattsOutSum"]),
+                                     input: ["hs_yj751_pd_appshow_addr.wattsInSum"], output: ["hs_yj751_pd_appshow_addr.wattsOutSum"],
+                                     // The DC is bit 5 of `showFlag`; the limits (3.5).
+                                     outputs: [.dc12v: OutputState(keys: ["hs_yj751_pd_appshow_addr.showFlag"], rule: .bit(5))],
+                                     chargeLimit: ["hs_yj751_pd_app_set_info_addr.chgMaxSoc"],
+                                     dischargeLimit: ["hs_yj751_pd_app_set_info_addr.dsgMinSoc"]),
                      tested: []),
 
         // Home systems: solar, home, grid and battery.
         EcoFlowModel(name: "PowerStream", prefixes: ["HW51"], kind: .home, format: .protobuf,
                      app: powerStream(pv1: "20_1.19", pv2: "20_1.24", soc: "20_1.31", battery: "20_1.29", home: "20_1.38"),
                      developer: powerStream(pv1: "20_1.pv1InputWatts", pv2: "20_1.pv2InputWatts", soc: "20_1.batSoc",
-                                            battery: "20_1.batInputWatts", home: "20_1.invOutputWatts"),
+                                            battery: "20_1.batInputWatts", home: "20_1.invOutputWatts",
+                                            upper: "20_1.upperLimit", lower: "20_1.lowerLimit"),
                      tested: []),
         // PowerOcean: its energy flows (96/33), the battery positive while charging.
         EcoFlowModel(name: "PowerOcean", prefixes: ["HJ31", "HJ37"], kind: .home, format: .protobuf,

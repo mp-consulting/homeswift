@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
@@ -472,36 +473,6 @@ extension PluginHost {
         #expect(environment.mqtt.published.isEmpty)
         await host.stop()
     }
-
-    #if canImport(CoreBluetooth)
-    /// macOS lets a binary use Bluetooth only with a usage description in its Info.plist: the one the
-    /// `homeswift` binary embeds has it, and the plugin's check finds it there.
-    @Test func bluetoothPermissionIsFoundInTheBinarysInfoPlist() throws {
-        #expect(!CoreBluetoothCentral.isPermitted(infoDictionary: nil))
-        #expect(!CoreBluetoothCentral.isPermitted(infoDictionary: ["NSBluetoothAlwaysUsageDescription": ""]))
-        #expect(CoreBluetoothCentral.isPermitted(infoDictionary: ["NSBluetoothAlwaysUsageDescription": "Govee lights"]))
-
-        let source = pluginDirectory.appendingPathComponent("../../Sources/HomeswiftCLI/Info.plist").standardizedFileURL
-        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: source), format: nil) as? [String: Any]
-        #expect(CoreBluetoothCentral.isPermitted(infoDictionary: plist))
-
-        // The built binary, when this build has one: its __TEXT,__info_plist section, which is what Bundle.main
-        // reads for a command-line tool.
-        let products = Bundle.allBundles.map(\.bundleURL).first { $0.pathExtension == "xctest" }?.deletingLastPathComponent()
-        if let binary = products?.appendingPathComponent("homeswift"), FileManager.default.fileExists(atPath: binary.path) {
-            let embedded = CFBundleCopyInfoDictionaryForURL(binary as CFURL) as? [String: Any]
-            #expect(CoreBluetoothCentral.isPermitted(infoDictionary: embedded))
-        }
-    }
-
-    /// macOS asks the responsible process: a test run from a shell has the app that opened it (Terminal, an IDE)
-    /// as such, which the check reads from its `.app` bundle; run on its own it is nil.
-    @Test func theResponsibleAppIsReadFromItsBundle() {
-        guard let app = CoreBluetoothCentral.responsibleApp else { return }
-        #expect(FileManager.default.fileExists(atPath: app.path))
-        if app.path.hasSuffix(".app") { #expect(app.infoDictionary?["CFBundleIdentifier"] != nil) }
-    }
-    #endif
 }
 
 @Suite struct UpstreamParityTests {

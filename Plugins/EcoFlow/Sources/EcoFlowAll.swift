@@ -92,4 +92,22 @@ struct EcoFlowAll: EcoFlowAPI {
     func stop() async {
         for api in apis { await api.stop() }
     }
+
+    /// Each write by the first API that sends it, unless a later one sends it on a route where the model's writes were
+    /// seen working (EcoFlowWrites.checked): a STREAM's sockets go by the app's route, a DELTA 2's USB by the developer
+    /// API.
+    func writes(for device: EcoFlowDevice) -> EcoFlowCapabilities {
+        apis.reduce(EcoFlowCapabilities()) { merged, api in
+            merged.merging(api.writes(for: device)) { EcoFlowWrites.isChecked(serial: device.id, route: $0) }
+        }
+    }
+
+    /// The write, by the API `writes(for:)` picks for it.
+    func set(_ write: EcoFlowWrite, on device: EcoFlowDevice) async throws {
+        guard let route = writes(for: device).route(for: write),
+              let api = apis.first(where: { $0.writes(for: device).route(for: write) == route }) else {
+            throw EcoFlowWriteError.unsupported("\(write)")
+        }
+        try await api.set(write, on: device)
+    }
 }

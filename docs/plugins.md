@@ -14,7 +14,7 @@ builds, and `brew install` ships them all.
 
 ```
 Plugins/<Name>/
-  README.md             what it does, the configuration options
+  README.md             what it does, the configuration options, the upstream and the gaps against it
   config.schema.json    the block's JSON schema (Homebridge's format; a UI will render it)
   Sources/              the target `Homeswift<Name>`
   Tests/                the target `<Name>Tests`
@@ -30,6 +30,12 @@ adds the two targets to `Package.swift` and the library to the `HomeswiftCLI` ex
 registers the type in `Sources/HomeswiftCLI/Plugins.swift`. `swift run homeswift plugins` then lists it.
 [CONTRIBUTING.md](../CONTRIBUTING.md) has what a plugin needs before its pull request, and the
 `homeswift-plugin` skill (`.claude/skills`) walks a coding agent through a port.
+
+**A plugin's README names the upstream it ports or competes with, and states its gaps against it**: the Homebridge
+plugin or Home Assistant integration people would otherwise run, at the version it was compared with, and what that
+one does which this one does not (a section headed "What differs", "Gaps" or "Not done"). That is where a reader
+looks, and the only place that stays true when the upstream ships: parity is never kept in a hand-maintained table
+elsewhere. A plugin with no upstream says so.
 
 ### The protocol
 

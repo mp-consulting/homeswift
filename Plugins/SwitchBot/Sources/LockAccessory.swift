@@ -40,15 +40,23 @@ final class LockAccessory: DeviceAccessory, @unchecked Sendable {
     override func show(_ status: [String: JSONValue], webhook: Bool) {
         showBattery(status, on: battery)
         if let state = status["lockState"]?.stringValue?.lowercased() {
-            // Jammed shows as jammed (4.x shows it unlocked); the target stays where it was.
-            let current = state == "locked" ? 1 : state == "jammed" ? 2 : 0
+            // Jammed shows as jammed (4.x shows it unlocked) and a lock that is not calibrated as unknown (Bluetooth's
+            // lock info); the target stays where it was. Locking and unlocking (Bluetooth) show where it goes.
+            let (current, target): (Int, Int?) = switch state {
+            case "locked": (1, 1)
+            case "jammed": (2, nil)
+            case "unknown": (3, nil)
+            case "locking": (0, 1)
+            case "unlocking": (1, 0)
+            default: (0, 0)
+            }
             mechanism.characteristic(.lockCurrentState).value = .int(current)
-            if current != 2 {
+            if let target {
                 lock.withLock {
-                    target = current
-                    reported = current
+                    self.target = target
+                    reported = target
                 }
-                mechanism.characteristic(.lockTargetState).value = .int(current)
+                mechanism.characteristic(.lockTargetState).value = .int(target)
             }
         }
         if let door = status["doorState"]?.stringValue {

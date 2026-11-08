@@ -12,6 +12,7 @@ import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftHelpers
+import HomeswiftHomeAssistant
 import HomeswiftHueSyncBox
 import HomeswiftIPCameras
 import HomeswiftImou
@@ -96,5 +97,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(ZWaveJSPlugin.self)
     registry.register(XiaomiMiotPlugin.self)
     registry.register(SmartThingsPlugin.self)
+    registry.register(HomeAssistantPlugin.self)
     return registry
 }

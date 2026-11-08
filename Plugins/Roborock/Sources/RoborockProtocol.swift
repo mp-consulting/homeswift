@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import HomeswiftNetwork
 import Homeswift
 import _CryptoExtras
 
@@ -149,21 +150,6 @@ struct RoborockFrame: Sendable, Equatable {
         bytes.append(UInt8((value >> 16) & 0xFF))
         bytes.append(UInt8((value >> 8) & 0xFF))
         bytes.append(UInt8(value & 0xFF))
-    }
-}
-
-/// The standard IEEE CRC-32 (zlib's): reflected polynomial 0xEDB88320, init and xorout 0xFFFFFFFF.
-enum CRC32 {
-    private static let table: [UInt32] = (0..<256).map { index in
-        var value = UInt32(index)
-        for _ in 0..<8 { value = value & 1 == 1 ? 0xEDB8_8320 ^ (value >> 1) : value >> 1 }
-        return value
-    }
-
-    static func checksum(_ bytes: some Sequence<UInt8>) -> UInt32 {
-        var crc: UInt32 = 0xFFFF_FFFF
-        for byte in bytes { crc = table[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8) }
-        return crc ^ 0xFFFF_FFFF
     }
 }
 

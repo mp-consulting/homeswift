@@ -35,12 +35,17 @@ extension SwitchBotPlugin {
     }
 
     /// The device keys `_accessories` takes, as `accessorySchema` declares them.
+    /// The device keys that are credentials: moved with the rest, sealed by the runtime (secret-named), never declared in
+    /// the form (no schema declares a secret).
+    static let secretDeviceKeys: Set<String> = ["encryptionKey", "encryptionKeyId", "botPassword"]
+
     static let deviceKeys: Set<String> = [
         "configDeviceType", "connectionType", "refreshRate", "updateRate", "pushRate", "webhook", "offline",
         "external", "firmware", "logging", "disableCaching", "type", "mode", "doublePress", "pushRatePress", "allowPush", "hide_temperature",
         "hide_humidity", "hide_co2", "convertUnitTo", "hide_lightsensor", "set_minLux", "set_maxLux", "hide_motionsensor", "hide_contactsensor",
         "activate_latchbutton", "hide_leak", "dry", "set_min", "set_max", "set_minStep", "setOpenMode", "setCloseMode", "silentModeSwitch",
-        "disable_group", "mapping", "adaptiveLightingShift",
+        "disable_group", "mapping", "adaptiveLightingShift", "customBLEaddress", "maxRetry", "encryptionKey", "encryptionKeyId", "botPassword",
+        "blePollingEnabled", "blePollIntervalMs", "disablePlatformBLE",
     ]
     static let remoteKeys: Set<String> = [
         "configRemoteType", "connectionType", "external", "firmware", "logging", "customize", "customOn", "customOff", "commandType",
@@ -48,7 +53,8 @@ extension SwitchBotPlugin {
         "stateless", "hide_automode", "set_max_heat", "set_min_heat", "set_max_cool", "set_min_cool", "meterType", "meterId",
     ]
     /// Spellings read as another key.
-    static let renamed = ["set_minlux": "set_minLux", "set_maxlux": "set_maxLux", "botDisplay": "type"]
+    /// `keyId` moves under a secret-named key, sealed as the encryption key is.
+    static let renamed = ["set_minlux": "set_minLux", "set_maxlux": "set_maxLux", "botDisplay": "type", "keyId": "encryptionKeyId"]
 
     /// The block with its device lists moved into `_accessories` (`list`: the cloud's devices, which give each its
     /// type; without it the lists stay). An entry's keys the schema does not declare (Bluetooth's, MQTT's) stay in the
@@ -82,6 +88,11 @@ extension SwitchBotPlugin {
                     case "hide_device": if DeviceOptions(entry).flag("hide_device") { entries.exclude(deviceID) }
                     case "enabled": if value.boolValue == false { entries.exclude(deviceID) }
                     case "type": entries.setIfAbsent("type", value.stringValue.map { .string($0.lowercased()) } ?? value, on: deviceID)
+                    // 5.x's transport, as the connectionType it means.
+                    case "connectionPreference" where !remote && entry["connectionType"] == nil:
+                        if let type = ["ble": "BLE", "openapi": "OpenAPI", "auto": "BLE/OpenAPI"][value.stringValue?.lowercased() ?? ""] {
+                            entries.setIfAbsent("connectionType", .string(type), on: deviceID)
+                        }
                     case _ where (remote ? remoteKeys : deviceKeys).contains(key): entries.setIfAbsent(key, value, on: deviceID)
                     default: rest[key] = value
                     }

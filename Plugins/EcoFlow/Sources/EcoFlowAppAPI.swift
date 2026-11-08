@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftNetwork
+import HomeswiftPlugin
 
 /// The EcoFlow app's own route: it signs in with your EcoFlow email and password, as the app does, and reads the
 /// devices from the same live stream the app shows. Unofficial and undocumented: EcoFlow can change or stop it at
@@ -75,12 +76,37 @@ actor EcoFlowAppAPI: EcoFlowAPI {
 
     func schemaChanges() async -> [String] { await schemas.drain() }
 
-    init(email: String, password: String, serials: [String], transport: any HTTPSending, mqtt: @escaping MQTTFactory) {
+    /// How the writes are sent: how long a reply is waited for, each message's sequence number (positive, below 2^31:
+    /// 5.1) and the time a STREAM's write carries. The tests fix them.
+    struct WriteOptions: Sendable {
+        var timeout: Duration = .seconds(5)
+        var seq: @Sendable () -> Int = { Int.random(in: 1..<Int(Int32.max)) }
+        var now: @Sendable () -> Date = { Date() }
+    }
+
+    private let writeOptions: WriteOptions
+    /// The writes waiting for their reply, by id: a device's `set_reply` answers its oldest one.
+    private var waiters: [Int: Waiter] = [:]
+    private var nextWaiter = 0
+    /// What each device acknowledged it applied, for what its readings do not report: the app's stream has no
+    /// read-back of a RIVER 3's or a STREAM's outputs (EcoFlowWrites.md, 5.6).
+    private var acknowledged: [String: EcoFlowState] = [:]
+
+    private struct Waiter {
+        let serial: String
+        let write: EcoFlowWrite
+        var result: EcoFlowWrites.Reply?
+        var continuation: CheckedContinuation<EcoFlowWrites.Reply?, Never>?
+    }
+
+    init(email: String, password: String, serials: [String], transport: any HTTPSending, writes: WriteOptions = WriteOptions(),
+         mqtt: @escaping MQTTFactory) {
         self.email = email
         self.password = password
         self.serials = serials
         self.configuredSerials = serials
         self.transport = transport
+        self.writeOptions = writes
         self.makeConnection = mqtt
     }
 
@@ -124,6 +150,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
             var device = EcoFlowDevice(id: serial, name: names[serial] ?? serial,
                                        online: now < (read.updated ?? now) + Self.staleAfter, model: model)
             device.state = EcoFlowState(keys: keys) { key in read.slots[key].flatMap { read.values[$0] } }
+            if let known = acknowledged[serial] { Self.complete(&device.state, with: known) }
             device.source = .app
             if device.state.hasReadings { devices.append(device) }
         }
@@ -131,6 +158,128 @@ actor EcoFlowAppAPI: EcoFlowAPI {
     }
 
     nonisolated var name: String { "EcoFlow app" }
+
+    /// What the device acknowledged, where its readings say nothing.
+    static func complete(_ state: inout EcoFlowState, with known: EcoFlowState) {
+        state.outputs.merge(known.outputs) { read, _ in read }
+        state.chargeLimit = state.chargeLimit ?? known.chargeLimit
+        state.dischargeLimit = state.dischargeLimit ?? known.dischargeLimit
+        state.lightMode = state.lightMode ?? known.lightMode
+    }
+
+    // MARK: Writes (EcoFlowWrites.md, 4 and 5)
+
+    nonisolated func writes(for device: EcoFlowDevice) -> EcoFlowCapabilities {
+        EcoFlowWrites.capabilities(device.model ?? EcoFlowModel.model(serial: device.id), route: .app)
+    }
+
+    /// Publishes the write to `/app/<user>/<serial>/thing/property/set` and waits for the device's `set_reply`: a
+    /// protobuf ConfigWriteAck, or for a JSON model its reply or readings that show the write (its replies' shape is not
+    /// known: 4.4), which it is asked for at once. A refusal, or no answer within the timeout, throws.
+    func set(_ write: EcoFlowWrite, on device: EcoFlowDevice) async throws {
+        let serial = device.id
+        guard let model = device.model ?? EcoFlowModel.model(serial: serial),
+              let payload = EcoFlowWrites.appPayload(write, model: model, serial: serial, seq: writeOptions.seq(), now: writeOptions.now()) else {
+            throw EcoFlowWriteError.unsupported("\(write)")
+        }
+        guard let connection, !userID.isEmpty else { throw EcoFlowWriteError.notConnected }
+        if !replyTopics.contains(serial) {
+            try await connection.subscribe("/app/\(userID)/\(serial)/thing/property/set_reply")
+            replyTopics.insert(serial)
+        }
+        let id = register(serial, write)
+        do {
+            try await connection.publish("/app/\(userID)/\(serial)/thing/property/set", payload: payload)
+        } catch {
+            cancelWaiter(id)
+            throw error
+        }
+        if model.format == .json { await requestProperties(serial, model: model) }
+        let reply: EcoFlowWrites.Reply
+        do {
+            reply = try await withTimeout(writeOptions.timeout, error: { EcoFlowWriteError.unanswered }) { [self] in
+                guard let reply = await wait(id) else { throw EcoFlowWriteError.unanswered }
+                return reply
+            }
+        } catch {
+            // The device is read again, so its state shows what it did.
+            await requestProperties(serial, model: model)
+            throw error
+        }
+        if case .refused(let reason) = reply {
+            await requestProperties(serial, model: model)
+            throw EcoFlowWriteError.refused(reason)
+        }
+        var known = acknowledged[serial] ?? EcoFlowState()
+        switch write {
+        case let .output(output, on): known.outputs[output] = on
+        case let .chargeLimit(value): known.chargeLimit = value
+        case let .dischargeLimit(value): known.dischargeLimit = value
+        case let .lightMode(mode): known.lightMode = mode
+        }
+        acknowledged[serial] = known
+    }
+
+    /// The serial numbers whose `set_reply` is subscribed to.
+    private var replyTopics: Set<String> = []
+
+    private func register(_ serial: String, _ write: EcoFlowWrite) -> Int {
+        nextWaiter += 1
+        waiters[nextWaiter] = Waiter(serial: serial, write: write)
+        return nextWaiter
+    }
+
+    /// The waiter's reply once it comes; nil when the wait is cancelled (its timeout).
+    private func wait(_ id: Int) async -> EcoFlowWrites.Reply? {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard var waiter = waiters[id], !Task.isCancelled else { return continuation.resume(returning: nil) }
+                if let result = waiter.result {
+                    waiters[id] = nil
+                    return continuation.resume(returning: result)
+                }
+                waiter.continuation = continuation
+                waiters[id] = waiter
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
+    }
+
+    private func cancelWaiter(_ id: Int) {
+        guard let waiter = waiters.removeValue(forKey: id) else { return }
+        waiter.continuation?.resume(returning: nil)
+    }
+
+    /// Answers a waiter: the device's oldest unanswered one, or `id`.
+    private func resolve(serial: String, id: Int? = nil, _ reply: EcoFlowWrites.Reply) {
+        guard let id = id ?? waiters.filter({ $0.value.serial == serial && $0.value.result == nil }).keys.min(),
+              var waiter = waiters[id] else { return }
+        if let continuation = waiter.continuation {
+            waiters[id] = nil
+            continuation.resume(returning: reply)
+        } else {
+            waiter.result = reply
+            waiters[id] = waiter
+        }
+    }
+
+    /// A JSON model's write is done once its readings show it (4.4).
+    private func checkReadBack(_ index: Int) {
+        guard let serial = readingIndex.first(where: { $0.value == index })?.key,
+              let keys = EcoFlowModel.model(serial: serial)?.app else { return }
+        let read = readings[index]
+        let state = EcoFlowState(keys: keys) { key in read.slots[key].flatMap { read.values[$0] } }
+        for (id, waiter) in waiters where waiter.serial == serial && waiter.result == nil {
+            let shown = switch waiter.write {
+            case let .output(output, on): state.outputs[output] == on
+            case let .chargeLimit(value): state.chargeLimit == value
+            case let .dischargeLimit(value): state.dischargeLimit == value
+            case let .lightMode(mode): state.lightMode == mode
+            }
+            if shown { resolve(serial: serial, id: id, .accepted) }
+        }
+    }
 
     /// Ends the listener and the poller and closes the connection, when the plugin stops.
     func stop() async {
@@ -140,6 +289,8 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         poller = nil
         await connection?.disconnect()
         connection = nil
+        replyTopics = []
+        for id in waiters.keys { cancelWaiter(id) }
     }
 
     private func connect() async throws {
@@ -164,6 +315,11 @@ actor EcoFlowAppAPI: EcoFlowAPI {
                 try await connection.subscribe("/app/device/property/\(serial)")
                 // The answer to the read request: a portable station's full state comes only here.
                 try await connection.subscribe("/app/\(session.userID)/\(serial)/thing/property/get_reply")
+                // The answers to the writes, for a model that has some.
+                if !EcoFlowWrites.capabilities(EcoFlowModel.model(serial: serial), route: .app).isEmpty {
+                    try await connection.subscribe("/app/\(session.userID)/\(serial)/thing/property/set_reply")
+                    replyTopics.insert(serial)
+                }
             }
         } catch {
             // Not kept: the next attempt opens a connection of its own.
@@ -200,6 +356,14 @@ actor EcoFlowAppAPI: EcoFlowAPI {
             let payload = model.format == .json ? Self.quotaRequest(seq: requestSeq) : EcoFlowProtobuf.propertyRequest(seq: requestSeq)
             try? await connection.publish("/app/\(userID)/\(serial)/thing/property/get", payload: payload)
         }
+    }
+
+    /// Asks one device for its full state.
+    private func requestProperties(_ serial: String, model: EcoFlowModel) async {
+        guard let connection, !userID.isEmpty else { return }
+        requestSeq += 1
+        let payload = model.format == .json ? Self.quotaRequest(seq: requestSeq) : EcoFlowProtobuf.propertyRequest(seq: requestSeq)
+        try? await connection.publish("/app/\(userID)/\(serial)/thing/property/get", payload: payload)
     }
 
     /// The JSON read request of the older devices, as the app sends it: their latest quotas, answered on `get_reply`.
@@ -260,6 +424,12 @@ actor EcoFlowAppAPI: EcoFlowAPI {
             serial = String(message.topic.dropFirst(prefix.count))
             guard serials.contains(serial) else { return }
             complete = false
+        } else if message.topic.hasSuffix("/set_reply") {
+            // /app/<user>/<serial>/thing/property/set_reply: the answer to a write.
+            let parts = message.topic.split(separator: "/")
+            guard parts.count == 6, parts[0] == "app" else { return }
+            if let reply = EcoFlowWrites.reply(message.payload) { resolve(serial: String(parts[2]), reply) }
+            return
         } else {
             // /app/<user>/<serial>/thing/property/get_reply: the answer to the read request, the device's full state.
             guard message.topic.hasSuffix("/get_reply") else { return }
@@ -283,6 +453,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
     private func receive(at index: Int, _ payload: Data, complete: Bool) {
         if readings[index].receive(payload, complete: complete) {
             readings[index].updated = ContinuousClock.now
+            if !waiters.isEmpty { checkReadBack(index) }
         }
     }
 

@@ -24,6 +24,11 @@ extension SwitchBotPlugin {
         public var dailyApiResetLocalMidnight: Bool?
         public var co2AbnormalThreshold: Double?
         public var writeDebounceMs: Double?
+        /// 5.x: `false` turns Bluetooth off for every device.
+        public var enableBLE: Bool?
+        /// 5.x: a connected status read of the devices on Bluetooth every `blePollIntervalMs` (10 minutes, at least 1).
+        public var blePollingEnabled: Bool?
+        public var blePollIntervalMs: Double?
 
         var token: String? { (openApiToken?.nonEmpty) ?? credentials?.token?.nonEmpty }
         var secret: String? { (openApiSecret?.nonEmpty) ?? credentials?.secret?.nonEmpty }

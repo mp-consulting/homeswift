@@ -140,9 +140,9 @@ enum HCI {
 }
 
 /// MAC addresses: text, most significant byte first, against HCI's little-endian bytes.
-enum BluetoothAddress {
+public enum BluetoothAddress {
     /// `a4:c1:38:00:00:11`, `A4-C1-38-00-00-11` or `A4C138000011`; nil for anything else.
-    static func normalized(_ text: String) -> String? {
+    public static func normalized(_ text: String) -> String? {
         let hex = text.lowercased().filter { $0 != ":" && $0 != "-" }
         guard hex.count == 12, hex.allSatisfy(\.isHexDigit) else { return nil }
         return stride(from: 0, to: 12, by: 2).map { offset in
@@ -177,6 +177,8 @@ struct AdvertisingData: Equatable {
     /// Service UUIDs listed or carrying service data: four hex digits for 16-bit ones (and 128-bit ones on the
     /// Bluetooth base), 32 for the others, lower case.
     var services: [String] = []
+    /// Service data by service UUID, written as `services` are.
+    var serviceData: [String: [UInt8]] = [:]
 
     mutating func merge(_ data: [UInt8]) {
         var offset = 0
@@ -192,9 +194,11 @@ struct AdvertisingData: Equatable {
             case 0x08, 0x09:
                 localName = String(decoding: value, as: UTF8.self)
             case 0x16:
-                if value.count >= 2 { add(ATT.uuidString(value[0..<2])) }
+                if value.count >= 2 { addData(ATT.uuidString(value[0..<2]), value.dropFirst(2)) }
+            case 0x20:
+                if value.count >= 4 { addData(ATT.uuidString(value[0..<4]), value.dropFirst(4)) }
             case 0x21:
-                if value.count >= 16 { add(ATT.uuidString(value[0..<16])) }
+                if value.count >= 16 { addData(ATT.uuidString(value[0..<16]), value.dropFirst(16)) }
             case 0xff:
                 manufacturerData = value
             default:
@@ -206,6 +210,11 @@ struct AdvertisingData: Equatable {
 
     private mutating func add(_ uuid: String) {
         if !services.contains(uuid) { services.append(uuid) }
+    }
+
+    private mutating func addData(_ uuid: String, _ value: ArraySlice<UInt8>) {
+        add(uuid)
+        serviceData[uuid] = Array(value)
     }
 
     /// Whether it lists one of these services (any, when there are none), as noble's scan filter.
@@ -251,6 +260,10 @@ enum ATT {
     static let error: UInt8 = 0x01
     static let mtuRequest: UInt8 = 0x02
     static let mtuResponse: UInt8 = 0x03
+    static let findInformationRequest: UInt8 = 0x04
+    static let findInformationResponse: UInt8 = 0x05
+    static let writeRequest: UInt8 = 0x12
+    static let writeResponse: UInt8 = 0x13
     static let readByTypeRequest: UInt8 = 0x08
     static let readByTypeResponse: UInt8 = 0x09
     static let notification: UInt8 = 0x1b
@@ -261,6 +274,7 @@ enum ATT {
     static let attributeNotFound: UInt8 = 0x0a
     static let requestNotSupported: UInt8 = 0x06
     static let characteristicDeclaration: UInt16 = 0x2803
+    static let clientCharacteristicConfiguration = "2902"
 
     static func readByType(start: UInt16, end: UInt16 = 0xffff, type: UInt16 = characteristicDeclaration) -> [UInt8] {
         [readByTypeRequest] + HCI.le16(start) + HCI.le16(end) + HCI.le16(type)
@@ -268,6 +282,32 @@ enum ATT {
 
     static func write(handle: UInt16, value: [UInt8]) -> [UInt8] {
         [writeCommand] + HCI.le16(handle) + value
+    }
+
+    static func writeRequest(handle: UInt16, value: [UInt8]) -> [UInt8] {
+        [writeRequest] + HCI.le16(handle) + value
+    }
+
+    static func findInformation(start: UInt16, end: UInt16) -> [UInt8] {
+        [findInformationRequest] + HCI.le16(start) + HCI.le16(end)
+    }
+
+    /// A Find Information Response's handles and UUIDs; nil for any other PDU.
+    static func information(_ pdu: [UInt8]) -> [(handle: UInt16, uuid: String)]? {
+        guard pdu.count >= 2, pdu[0] == findInformationResponse, pdu[1] == 1 || pdu[1] == 2 else { return nil }
+        let size = pdu[1] == 1 ? 4 : 18
+        var found: [(handle: UInt16, uuid: String)] = []
+        var offset = 2
+        while offset + size <= pdu.count {
+            found.append((UInt16(pdu[offset]) | UInt16(pdu[offset + 1]) << 8, uuidString(pdu[(offset + 2)..<(offset + size)])))
+            offset += size
+        }
+        return found
+    }
+
+    /// An error response's code, for the request it answers.
+    static func errorCode(_ pdu: [UInt8], request: UInt8) -> UInt8? {
+        pdu.count >= 5 && pdu[0] == error && pdu[1] == request ? pdu[4] : nil
     }
 
     static func errorResponse(request: UInt8, handle: UInt16 = 0, code: UInt8) -> [UInt8] {

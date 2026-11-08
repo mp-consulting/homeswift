@@ -143,6 +143,17 @@ struct EcoFlowState: Sendable, Equatable {
     var minutesToFull: Double?
     var minutesToEmpty: Double?
 
+    /// The outputs' states the device reports (on or off); an output whose state is not read back is absent.
+    var outputs: [EcoFlowOutput: Bool] = [:]
+    /// The charge limit (maximum state of charge) and the discharge limit (minimum), %, where the device reports them.
+    var chargeLimit: Int?
+    var dischargeLimit: Int?
+    /// A DELTA Pro's X-Boost, sent back with its AC write.
+    var acXboost: Int?
+    /// A RIVER 3 Plus's light's mode (reported 0 Off, 1 Dim, 2 Bright, 3 SOS); nil while the device has not reported it,
+    /// or reported another value.
+    var lightMode: EcoFlowLight?
+
     /// The estimate that applies now: to full while charging, to empty otherwise.
     var minutesRemaining: Double? { battery.chargingState == 1 ? minutesToFull : minutesToEmpty }
     /// Whether the battery's level is known. The app's stream sends it only now and then, so a state from the
@@ -189,6 +200,19 @@ struct EcoFlowState: Sendable, Equatable {
         func minutes(_ candidates: [String]) -> Double? { value(candidates).flatMap { $0 > 0 && $0 < 5939 ? $0 : nil } }
         minutesToFull = minutes(keys.timeToFull)
         minutesToEmpty = minutes(keys.timeToEmpty)
+        for (output, state) in keys.outputs {
+            if let reading = value(state.keys), let on = state.isOn(reading) { outputs[output] = on }
+        }
+        func percent(_ candidates: [String]) -> Int? {
+            value(candidates).flatMap { $0.isFinite && $0 >= 0 && $0 <= 100 ? Int($0.rounded()) : nil }
+        }
+        chargeLimit = percent(keys.chargeLimit)
+        dischargeLimit = percent(keys.dischargeLimit)
+        acXboost = value(keys.acXboost).flatMap { $0.isFinite && abs($0) < 1000 ? Int($0) : nil }
+        // In steps: Linux's type checker gives up on the one expression.
+        if let mode = value(keys.lightMode), mode.isFinite, mode == mode.rounded(), abs(mode) < 1000 {
+            lightMode = EcoFlowLight(rawValue: Int(mode))
+        }
     }
 
     /// The numbers of a JSON quota, by key: numbers, and numbers sent as text (a DELTA Pro sends some so); other text
@@ -231,6 +255,11 @@ protocol EcoFlowAPI: Sendable {
     func stop() async
     /// The API's name in the log.
     var name: String { get }
+    /// The writes this API sends for the device (EcoFlowWrites), each with its route; none by default.
+    func writes(for device: EcoFlowDevice) -> EcoFlowCapabilities
+    /// Sends one write to the device and returns once it is accepted; throws when it is refused or not answered. A
+    /// route that cannot write refuses (`EcoFlowWriteError.unsupported`), as it does by default.
+    func set(_ write: EcoFlowWrite, on device: EcoFlowDevice) async throws
 }
 
 extension EcoFlowAPI {
@@ -238,6 +267,10 @@ extension EcoFlowAPI {
     var readsElsewhere: Bool { false }
     func stop() async {}
     var name: String { "EcoFlow API" }
+    func writes(for device: EcoFlowDevice) -> EcoFlowCapabilities { EcoFlowCapabilities() }
+    func set(_ write: EcoFlowWrite, on device: EcoFlowDevice) async throws {
+        throw EcoFlowWriteError.unsupported("\(write)")
+    }
 }
 
 /// The EcoFlow developer API (https://developer.ecoflow.com): the device list and each device's quota, with a
@@ -267,6 +300,8 @@ struct EcoFlowCloud: EcoFlowAPI {
     /// Injected so the tests can fix the nonce and the time; the defaults are a random six digits and now.
     var nonce: @Sendable () -> String = { (0..<6).map { _ in String(Int.random(in: 0...9)) }.joined() }
     var timestamp: @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }
+    /// The `id` of a write's body (3.3); a random number by default, fixed by the tests.
+    var writeID: @Sendable () -> Int = { Int.random(in: 100_000_000..<999_999_999) }
     /// The MQTT pushes of the devices, read first when they are available; nil reads the REST quota alone.
     var stream: EcoFlowDeveloperStream?
     /// Checks each answer's shape against its schema, so a change in the API is logged.
@@ -403,22 +438,46 @@ struct EcoFlowCloud: EcoFlowAPI {
         return EcoFlowState(readings: live, keys: EcoFlowModel.streamDeveloper)
     }
 
+    /// The writes of the model on the developer API: integer bodies only (3.3–3.6). A STREAM's, a DELTA 3 Max's and a
+    /// DELTA Pro 3's carry JSON booleans, whose spelling in the signature is not known (2.2): none of them here.
+    func writes(for device: EcoFlowDevice) -> EcoFlowCapabilities {
+        EcoFlowWrites.capabilities(device.model ?? EcoFlowModel.model(serial: device.id), route: .developer)
+    }
+
+    /// `PUT /iot-open/sign/device/quota` with the write's body, signed over its flattened fields (2.1, 2.2). The answer
+    /// says the cloud took it, not that the device applied it: the device's next readings say that.
+    func set(_ write: EcoFlowWrite, on device: EcoFlowDevice) async throws {
+        guard let model = device.model ?? EcoFlowModel.model(serial: device.id),
+              let body = EcoFlowWrites.developerBody(write, model: model, serial: device.id, id: writeID(), xboost: device.state.acXboost) else {
+            throw EcoFlowWriteError.unsupported("\(write)")
+        }
+        _ = try await send("/iot-open/sign/device/quota", method: "PUT", signed: body.flattened(), body: body.json)
+    }
+
     /// A signed GET; returns the `data` of a successful answer.
     private func get(_ path: String, query: [(name: String, value: String)] = []) async throws -> Any {
+        try await send(path, method: "GET", signed: query, query: query, body: nil)
+    }
+
+    /// A signed request: `signed`, the parameters the signature covers (the query, or a body's flattened fields).
+    private func send(_ path: String, method: String, signed: [(name: String, value: String)],
+                      query: [(name: String, value: String)] = [], body: Data?) async throws -> Any {
         let nonce = nonce()
         let timestamp = timestamp()
-        let signature = Self.signature(query: query, accessKey: accessKey, secretKey: secretKey,
+        let signature = Self.signature(query: signed, accessKey: accessKey, secretKey: secretKey,
                                        nonce: nonce, timestamp: timestamp)
         var components = URLComponents(string: baseURL.absoluteString + path)!
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.name, value: $0.value) }
         }
-        let request = HTTPRequest(url: components.url!, headers: [
+        var headers: [(name: String, value: String)] = [
             (name: "accessKey", value: accessKey),
             (name: "nonce", value: nonce),
             (name: "timestamp", value: String(timestamp)),
             (name: "sign", value: signature),
-        ], timeout: .seconds(15))
+        ]
+        if body != nil { headers.append((name: "Content-Type", value: "application/json;charset=UTF-8")) }
+        let request = HTTPRequest(method: method, url: components.url!, headers: headers, body: body, timeout: .seconds(15))
         let response = try await transport.send(request)
         guard response.isSuccess else { throw Failure.http(response.status) }
         guard let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {

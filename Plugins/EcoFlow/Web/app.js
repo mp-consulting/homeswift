@@ -1,6 +1,7 @@
 // The EcoFlow page: each device the plugin reads, its battery, and its power as IN and OUT, laid out by kind as the
-// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin. It writes no
-// settings: the devices come with the account (Setup), and each one's name is its Settings'.
+// app does, with the outputs it switches and its charge limits. The page refreshes every few seconds while it is
+// visible; it reads `GET power` from the plugin and switches an output with `POST output`, as HomeKit does. It writes no
+// settings: the devices come with the account (Setup), and each one's name and limits are its Settings'.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
@@ -117,6 +118,88 @@
   const untested = () => el("span", { class: "way untested", text: t("Untested"),
     "data-tip": t("This model's readings come from open-source projects and have not been checked on a real device yet") });
 
+  // A model whose writes nobody has confirmed on a real device: sent only with the plugin's "Writes to untested models".
+  const untestedWrites = () => el("span", { class: "way untested", text: t("Untested"),
+    "data-tip": t("This model's writes come from open-source projects and EcoFlow's documentation and have not been confirmed on a real device yet") });
+
+  // Switches an output as HomeKit does; the next answer shows the device's state.
+  async function switchOutput(device, output, button) {
+    button.disabled = true;
+    try {
+      await request("output", { method: "POST", body: { id: device.id, output: output.id, on: output.on !== true } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // A RIVER 3 Plus's light: its lit modes, each with its icon, and Off (EcoFlowWrites.md, section 8).
+  const lightModes = [[1, "Dim", "bulb"], [2, "Bright", "sun"], [3, "SOS", "warning"]];
+
+  // Sets the light's mode as HomeKit does; the next answer shows the device's.
+  async function setLight(device, mode, row) {
+    row.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      await request("light", { method: "POST", body: { deviceId: device.id, mode } });
+    } catch (error) {
+      HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+    } finally {
+      lastAnswer = "";
+      refresh();
+    }
+  }
+
+  // The light's row: its lit modes, one at a time (a segmented control, as the bridge's pages have: a radio group),
+  // the current one in the accent colour while the light is lit; then its power button, where the outputs have theirs,
+  // turning it off, or on again in its last lit mode (`last`, as HomeKit's On does). Each choice is its glyph, its name
+  // its label and tip.
+  function lightRow(device) {
+    const light = device.light;
+    if (!light) return null;
+    const lit = light.mode != null && light.mode !== 0;
+    const row = el("div", { class: "output light", "data-tip": t("The light, as HomeKit's Lightbulb (Dim, Bright) and SOS switch show it") });
+    const group = el("div", { class: "group", role: "radiogroup", "aria-label": t("Light mode") });
+    for (const [mode, name, icon] of lightModes) {
+      const checked = mode === light.mode;
+      const button = el("button", { type: "button", role: "radio", class: checked ? "on lit" : "", actionIcon: icon,
+        disabled: !device.online, "aria-checked": String(checked), "aria-label": t(name), "data-tip": t(name) });
+      button.addEventListener("click", () => { if (!checked) setLight(device, mode, row); });
+      group.append(button);
+    }
+    const port = t("Light");
+    const label = lit ? t("Turn {port} off", { port }) : t("Turn {port} on", { port });
+    const power = el("button", { type: "button", class: lit ? "switch primary" : "switch", actionIcon: "power",
+      disabled: !device.online || light.mode == null, "aria-pressed": String(lit), "aria-label": label, "data-tip": label });
+    power.addEventListener("click", () => setLight(device, lit ? 0 : light.last ?? 2, row));
+    row.append(el("span", { class: "label", text: port }), group, power);
+    return row;
+  }
+
+  // The outputs the plugin switches, each its name and a round power button, in the accent colour while on (its state), the light, and the charge and discharge limits
+  // (the device's Settings change them).
+  function controls(device) {
+    const outputs = device.outputs ?? [];
+    if (outputs.length === 0 && !device.limits && !device.light) return null;
+    const percent = (value) => value == null ? "–" : `${Math.round(value)} %`;
+    const rows = outputs.map((output) => {
+      const port = t(output.name);
+      const label = output.on === true ? t("Turn {port} off", { port }) : t("Turn {port} on", { port });
+      const button = el("button", { type: "button", class: output.on === true ? "switch primary" : "switch", actionIcon: "power",
+        disabled: !device.online, "aria-pressed": String(output.on === true), "aria-label": label, "data-tip": label });
+      button.addEventListener("click", () => switchOutput(device, output, button));
+      return el("div", { class: "output", "data-tip": t("This output, as HomeKit's Outlet shows it") },
+        el("span", { class: "label", text: port }), button);
+    });
+    const limits = device.limits ? el("p", { class: "limits", "data-tip": t("The device's Settings change its limits") },
+      el("span", { text: t("Charge limit {value}", { value: percent(device.limits.charge) }) }),
+      el("span", { text: t("Discharge limit {value}", { value: percent(device.limits.discharge) }) })) : null;
+    return el("div", { class: "controls" },
+      el("div", { class: "caption" }, el("span", { text: t("Outputs and limits") }), device.writesTested === false ? untestedWrites() : null),
+      rows.length || device.light ? el("div", { class: "output-list" }, rows, lightRow(device)) : null, limits);
+  }
+
   // The device's estimate of the time to full while charging, to empty otherwise, as the EcoFlow app shows it: days
   // and hours (rounded to the hour) from a day up, else hours and minutes, or minutes.
   function remaining(device) {
@@ -126,7 +209,8 @@
     const roundedHours = Math.round(total / 60);
     const time = roundedHours >= 24 ? t("{d}d {h}h", { d: Math.floor(roundedHours / 24), h: roundedHours % 24 })
       : hours > 0 ? t("{h}h {m}m", { h: hours, m: minutes }) : t("{m}m", { m: minutes });
-    return el("span", { class: "remaining",
+    // At the card's right edge: its tip opens inward (data-tip-align), or it would widen the page.
+    return el("span", { class: "remaining", "data-tip-align": "end",
       text: device.charging ? t("{time} to full", { time }) : t("{time} left", { time }),
       "data-tip": device.charging ? t("Time until the battery is full at the current power, as the device estimates it")
         : t("Time until the battery is empty at the current power, as the device estimates it") });
@@ -139,7 +223,7 @@
     const battery = el("div", { class: "battery-line" },
       el("div", { class: "figure", "data-tip": t("The battery's state of charge") }, batteryGraphic(level), level === null ? "–" : figure(String(level), "%")),
       el("div", { class: "battery-state" }, remaining(device), silent ? null :
-        el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now") })));
+        el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now"), "data-tip-align": "end" })));
     const shown = (device.series ?? []).filter((key) => flows[key]);
     const flowList = silent ? null : el("div", { class: "flows" }, shown.map((key) => {
       const [label, inWhenPositive, tip, wide] = flows[key];
@@ -160,7 +244,7 @@
           el("span", { class: "way source", text: sourceLabel(device.source), "data-tip": sourceTip(device.source) }),
           device.tested === false ? untested() : null, known.length > 1 ? handle(device) : null),
         el("p", { class: "serial", text: device.model ? `${device.model} · ${device.id}` : device.id })),
-      battery, flowList, panels, status);
+      battery, flowList, panels, controls(device), status);
   }
 
   // MARK: Packing. In two columns each card spans the rows its height takes (the CSS's `--pack-row` rows, the gap

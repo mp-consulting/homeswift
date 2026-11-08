@@ -118,7 +118,9 @@ final class CoveringAccessory: DeviceAccessory, @unchecked Sendable {
 
     override func show(_ status: [String: JSONValue], webhook: Bool) {
         showBattery(status, on: battery)
-        showBrightness(status["lightLevel"] ?? status["brightness"], on: lightSensor)
+        // The cloud says `bright` or `dim`; Bluetooth a level of 1 to 10.
+        let light = status["lightLevel"] ?? status["brightness"]
+        if case .number = light { showLightLevel(light, steps: 9, on: lightSensor) } else { showBrightness(light, on: lightSensor) }
         guard let slide = status["slidePosition"].flatMap(number).flatMap({ Int(saturating: $0, in: 0...100) }) else { return }
         var position: Int
         var angle: Int?

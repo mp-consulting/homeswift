@@ -83,6 +83,8 @@ says why).
 - **Credit:** the README names the plugin it ports, its authors and its license, and its copyright and permission
   notice goes in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). A translation into Swift is still a copy for
   copyright: the notice is owed even when no line is the same.
+- **Gaps against the upstream:** the README names the Homebridge plugin or Home Assistant integration it ports or
+  competes with, and what that one does which this one does not ([plugins.md](docs/plugins.md#layout)).
 - **A maintainer:** the README names who maintains the plugin, and says how it was tested on real devices.
 
 ## Maintaining a plugin

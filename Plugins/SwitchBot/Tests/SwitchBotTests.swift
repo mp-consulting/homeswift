@@ -120,7 +120,7 @@ import Testing
         let block = try JSONValue(string: """
             {"platform":"SwitchBot","options":{"refreshRate":300,
               "devices":[{"deviceId":"C271111EC0AB","configDeviceType":"Meter","webhook":true,"configDeviceName":"Office","set_minlux":2},
-                         {"deviceId":"d1a2b3c4d5e6","type":"Switch","mode":"press","encryptionKey":"k"}],
+                         {"deviceId":"d1a2b3c4d5e6","type":"Switch","mode":"press","mqttURL":"mqtt://broker"}],
               "irdevices":[{"deviceId":"02-202008110034-13","configRemoteType":"TV","external":true}]}}
             """)
         let list = DeviceList(specList["body"]!)
@@ -131,7 +131,7 @@ import Testing
         #expect(entries["C271111EC0AB-Meter"]?["set_minLux"] == 2)
         // The listed spelling stays the Device Id; a value the schema has no key for stays listed.
         #expect(entries["d1a2b3c4d5e6-Bot"]?["type"] == "switch")
-        #expect(canonical["options"]?["devices"] == [["deviceId": "d1a2b3c4d5e6", "encryptionKey": "k"]])
+        #expect(canonical["options"]?["devices"] == [["deviceId": "d1a2b3c4d5e6", "mqttURL": "mqtt://broker"]])
         #expect(entries["02-202008110034-13-TV"]?["external"] == true)
         #expect(canonical["options"]?["irdevices"] == nil)
         // The list exposed only what it named.
@@ -151,8 +151,8 @@ import Testing
             "run: swift Scripts/embed-assets.swift plugin Plugins/SwitchBot SwitchBotPlugin")
         let schema = try JSONValue(string: try #require(SwitchBotPlugin.configurationSchemaJSON))
         #expect(schema["pluginAlias"] == "SwitchBot")
-        // Every key canonicalSettings moves is declared.
+        // Every key canonicalSettings moves is declared, but the credentials, which no form shows.
         let declared = Set(schema["accessorySchema"]?["properties"]?.objectValue?.keys.map { $0 } ?? [])
-        #expect(SwitchBotPlugin.deviceKeys.union(SwitchBotPlugin.remoteKeys).subtracting(declared).isEmpty)
+        #expect(SwitchBotPlugin.deviceKeys.union(SwitchBotPlugin.remoteKeys).subtracting(declared) == SwitchBotPlugin.secretDeviceKeys)
     }
 }

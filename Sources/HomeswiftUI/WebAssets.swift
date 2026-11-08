@@ -18314,9 +18314,15 @@ HomeswiftI18n.add("es", {
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Aires acondicionados y bombas de calor Altherma a través de la nube Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luces, enchufes, sensores, persianas, purificadores y escenas, en local",
   "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luces, sensores, persianas y mandos Zigbee de Zigbee2MQTT, por MQTT",
+  "Lights, sensors, climate and more from a Home Assistant server": "Luces, sensores, climatización y más desde un servidor Home Assistant",
+  "Enter the address of Home Assistant (http://homeassistant.local:8123) and a long-lived access token, made in Home Assistant under your profile, Security.": "Introduzca la dirección de Home Assistant (http://homeassistant.local:8123) y un token de acceso de larga duración, creado en Home Assistant en su perfil, Seguridad.",
+  "Choose your Home Assistant server, or enter its address, and a long-lived access token, made in Home Assistant under your profile, Security.": "Elija su servidor Home Assistant, o introduzca su dirección, y un token de acceso de larga duración, creado en Home Assistant en su perfil, Seguridad.",
+  "Long-lived access token": "Token de acceso de larga duración",
+  "Home Assistant refused this access token: make a new long-lived access token and paste it whole.": "Home Assistant ha rechazado este token de acceso: cree un nuevo token de acceso de larga duración y péguelo completo.",
+  "Home Assistant's devices come with the server: they need no setup of their own": "Los dispositivos de Home Assistant vienen con el servidor: no necesitan configuración propia",
   "Z-Wave lights, switches, sensors, locks and thermostats from Z-Wave JS": "Luces, interruptores, sensores, cerraduras y termostatos Z-Wave de Z-Wave JS",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscina: iniciar y detener la limpieza, temperatura del agua y filtro",
-  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robots aspiradores: limpieza, vuelta a la base, batería, lavado de la mopa, escenas y cepillos",
+  "Robot vacuums: clean, suction and mop, rooms, dock, battery, mop washing, scenes and brushes": "Robots aspiradores: limpieza, succión y fregado, habitaciones, vuelta a la base, batería, lavado de la mopa, escenas y cepillos",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
@@ -20957,6 +20963,12 @@ HomeswiftI18n.add("es", {
   "That is not a bindkey: it is 32 hexadecimal characters": "No es una bindkey: tiene 32 caracteres hexadecimales",
   "The sensor's advertisements do not open with that bindkey": "Los anuncios del sensor no se abren con esa bindkey",
   "The sensor sends a frame the plugin cannot read": "El sensor envía una trama que el plugin no sabe leer",
+  "Enter the key id and encryption key of {name}, from the SwitchBot app's device information page: the bridge reaches the lock over Bluetooth with them.": "Introduzca el ID de clave y la clave de cifrado de {name}, de la página de información del dispositivo en la app SwitchBot: el puente llega a la cerradura por Bluetooth con ellos.",
+  "Key id": "ID de clave",
+  "The key id is 2 hexadecimal digits and the encryption key 32": "El ID de clave tiene 2 dígitos hexadecimales y la clave de cifrado 32",
+  "Enter the password of {name}, set in the SwitchBot app: 4 letters or digits. Leave it empty for a Bot without one.": "Introduzca la contraseña de {name}, definida en la app SwitchBot: 4 letras o dígitos. Déjela vacía para un Bot sin contraseña.",
+  "Bot password": "Contraseña del Bot",
+  "A Bot's password is 4 letters or digits": "La contraseña de un Bot tiene 4 letras o dígitos",
   "Enter the password of {name}: the one set in its web interface or the Shelly app, under Settings, Authentication.": "Introduce la contraseña de {name}: la definida en su interfaz web o en la app Shelly, en Ajustes, Autenticación.",
   "Enter the user name and password of {name}'s login, set in its web interface under Internet & Security, Restricted login.": "Introduce el nombre de usuario y la contraseña del acceso restringido de {name}, definidos en su interfaz web en Internet y seguridad, Acceso restringido.",
   "The password is not right": "La contraseña no es correcta",
@@ -21791,9 +21803,15 @@ HomeswiftI18n.add("fr", {
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Climatiseurs et pompes à chaleur Altherma via le cloud Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Lumières, prises, capteurs, stores, purificateurs et scènes, en local",
   "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Lumières, capteurs, stores et télécommandes Zigbee de Zigbee2MQTT, par MQTT",
+  "Lights, sensors, climate and more from a Home Assistant server": "Lumières, capteurs, climatisation et plus depuis un serveur Home Assistant",
+  "Enter the address of Home Assistant (http://homeassistant.local:8123) and a long-lived access token, made in Home Assistant under your profile, Security.": "Saisissez l’adresse de Home Assistant (http://homeassistant.local:8123) et un jeton d’accès de longue durée, créé dans Home Assistant sous votre profil, Sécurité.",
+  "Choose your Home Assistant server, or enter its address, and a long-lived access token, made in Home Assistant under your profile, Security.": "Choisissez votre serveur Home Assistant, ou saisissez son adresse, et un jeton d’accès de longue durée, créé dans Home Assistant sous votre profil, Sécurité.",
+  "Long-lived access token": "Jeton d’accès de longue durée",
+  "Home Assistant refused this access token: make a new long-lived access token and paste it whole.": "Home Assistant a refusé ce jeton d’accès : créez un nouveau jeton d’accès de longue durée et collez-le en entier.",
+  "Home Assistant's devices come with the server: they need no setup of their own": "Les appareils de Home Assistant viennent avec le serveur : ils n’ont pas de configuration propre",
   "Z-Wave lights, switches, sensors, locks and thermostats from Z-Wave JS": "Lumières, interrupteurs, capteurs, serrures et thermostats Z-Wave de Z-Wave JS",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscine : lancer et arrêter le nettoyage, température de l'eau et filtre",
-  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robots aspirateurs : nettoyage, retour à la base, batterie, lavage de la serpillière, scènes et brosses",
+  "Robot vacuums: clean, suction and mop, rooms, dock, battery, mop washing, scenes and brushes": "Robots aspirateurs : nettoyage, aspiration et serpillière, pièces, retour à la base, batterie, lavage de la serpillière, scènes et brosses",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
@@ -24434,6 +24452,12 @@ HomeswiftI18n.add("fr", {
   "That is not a bindkey: it is 32 hexadecimal characters": "Ce n'est pas une bindkey : elle compte 32 caractères hexadécimaux",
   "The sensor's advertisements do not open with that bindkey": "Les annonces du capteur ne s'ouvrent pas avec cette bindkey",
   "The sensor sends a frame the plugin cannot read": "Le capteur envoie une trame que le plugin ne sait pas lire",
+  "Enter the key id and encryption key of {name}, from the SwitchBot app's device information page: the bridge reaches the lock over Bluetooth with them.": "Saisissez l'ID de clé et la clé de chiffrement de {name}, depuis la page d'informations de l'appareil dans l'app SwitchBot : le pont joint la serrure en Bluetooth avec elles.",
+  "Key id": "ID de clé",
+  "The key id is 2 hexadecimal digits and the encryption key 32": "L'ID de clé compte 2 chiffres hexadécimaux et la clé de chiffrement 32",
+  "Enter the password of {name}, set in the SwitchBot app: 4 letters or digits. Leave it empty for a Bot without one.": "Saisissez le mot de passe de {name}, défini dans l'app SwitchBot : 4 lettres ou chiffres. Laissez-le vide pour un Bot sans mot de passe.",
+  "Bot password": "Mot de passe du Bot",
+  "A Bot's password is 4 letters or digits": "Le mot de passe d'un Bot compte 4 lettres ou chiffres",
   "Enter the password of {name}: the one set in its web interface or the Shelly app, under Settings, Authentication.": "Saisissez le mot de passe de {name} : celui défini dans son interface web ou l'app Shelly, sous Réglages, Authentification.",
   "Enter the user name and password of {name}'s login, set in its web interface under Internet & Security, Restricted login.": "Saisissez le nom d'utilisateur et le mot de passe de l'accès restreint de {name}, définis dans son interface web sous Internet et sécurité, Accès restreint.",
   "The password is not right": "Le mot de passe n'est pas le bon",
@@ -25268,9 +25292,15 @@ HomeswiftI18n.add("pt", {
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Ares condicionados e bombas de calor Altherma através da nuvem Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luzes, tomadas, sensores, estores, purificadores e cenas, localmente",
   "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luzes, sensores, estores e comandos Zigbee do Zigbee2MQTT, por MQTT",
+  "Lights, sensors, climate and more from a Home Assistant server": "Luzes, sensores, climatização e mais a partir de um servidor Home Assistant",
+  "Enter the address of Home Assistant (http://homeassistant.local:8123) and a long-lived access token, made in Home Assistant under your profile, Security.": "Introduza o endereço do Home Assistant (http://homeassistant.local:8123) e um token de acesso de longa duração, criado no Home Assistant no seu perfil, Segurança.",
+  "Choose your Home Assistant server, or enter its address, and a long-lived access token, made in Home Assistant under your profile, Security.": "Escolha o seu servidor Home Assistant, ou introduza o seu endereço, e um token de acesso de longa duração, criado no Home Assistant no seu perfil, Segurança.",
+  "Long-lived access token": "Token de acesso de longa duração",
+  "Home Assistant refused this access token: make a new long-lived access token and paste it whole.": "O Home Assistant recusou este token de acesso: crie um novo token de acesso de longa duração e cole-o inteiro.",
+  "Home Assistant's devices come with the server: they need no setup of their own": "Os dispositivos do Home Assistant vêm com o servidor: não precisam de configuração própria",
   "Z-Wave lights, switches, sensors, locks and thermostats from Z-Wave JS": "Luzes, interruptores, sensores, fechaduras e termóstatos Z-Wave do Z-Wave JS",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robôs de piscina: iniciar e parar a limpeza, temperatura da água e filtro",
-  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robôs aspiradores: limpeza, regresso à base, bateria, lavagem da esfregona, cenas e escovas",
+  "Robot vacuums: clean, suction and mop, rooms, dock, battery, mop washing, scenes and brushes": "Robôs aspiradores: limpeza, sucção e esfregona, divisões, regresso à base, bateria, lavagem da esfregona, cenas e escovas",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
@@ -27911,6 +27941,12 @@ HomeswiftI18n.add("pt", {
   "That is not a bindkey: it is 32 hexadecimal characters": "Isto não é uma bindkey: tem 32 caracteres hexadecimais",
   "The sensor's advertisements do not open with that bindkey": "Os anúncios do sensor não abrem com essa bindkey",
   "The sensor sends a frame the plugin cannot read": "O sensor envia uma trama que o plugin não consegue ler",
+  "Enter the key id and encryption key of {name}, from the SwitchBot app's device information page: the bridge reaches the lock over Bluetooth with them.": "Introduza o ID da chave e a chave de encriptação de {name}, da página de informações do dispositivo na app SwitchBot: a ponte chega à fechadura por Bluetooth com eles.",
+  "Key id": "ID da chave",
+  "The key id is 2 hexadecimal digits and the encryption key 32": "O ID da chave tem 2 dígitos hexadecimais e a chave de encriptação 32",
+  "Enter the password of {name}, set in the SwitchBot app: 4 letters or digits. Leave it empty for a Bot without one.": "Introduza a palavra-passe de {name}, definida na app SwitchBot: 4 letras ou dígitos. Deixe-a vazia para um Bot sem palavra-passe.",
+  "Bot password": "Palavra-passe do Bot",
+  "A Bot's password is 4 letters or digits": "A palavra-passe de um Bot tem 4 letras ou dígitos",
   "Enter the password of {name}: the one set in its web interface or the Shelly app, under Settings, Authentication.": "Introduza a palavra-passe de {name}: a definida na sua interface web ou na app Shelly, em Definições, Autenticação.",
   "Enter the user name and password of {name}'s login, set in its web interface under Internet & Security, Restricted login.": "Introduza o nome de utilizador e a palavra-passe do acesso restrito de {name}, definidos na sua interface web em Internet e segurança, Acesso restrito.",
   "The password is not right": "A palavra-passe não está certa",
@@ -38811,6 +38847,12 @@ self.addEventListener("notificationclick", (event) => {
     "Door", "Window", "Valve", "Fanv2", "Fan", "Lightbulb", "Outlet", "Switch", ...Object.keys(readings)];
   function primaryOf(ctx) {
     const candidates = ctx.services.filter((service) => !quietServices.has(service.type));
+    // A power station stands on its battery in the Home app, but its outputs are what a tile controls: the first of
+    // them (its sockets before its light); a station with none is drawn by its battery.
+    if (isStation(ctx)) {
+      const outputs = groupMembers(ctx);
+      if (outputs.length) return outputs.find((service) => service.type !== "Lightbulb");
+    }
     const flagged = candidates.find((service) => service.primary);
     if (flagged) return flagged;
     const order = (service) => { const index = rank.indexOf(service.type); return index < 0 ? rank.length : index; };
@@ -38844,22 +38886,38 @@ self.addEventListener("notificationclick", (event) => {
     return list.length || filter ? node : null;
   }
 
+  /// A power station: an accessory that stands on its battery (its primary service) and switches outputs.
+  const isStation = (ctx) => ctx.services.some((s) => s.type === "Battery" && s.primary);
+
+  /// The services a group of switches shows: switches and outlets, and a power station's light with its battery left
+  /// out; none when something else is there.
+  function groupMembers(ctx) {
+    const station = isStation(ctx);
+    const shown = ctx.services.filter((s) => !quietServices.has(s.type) && !(station && s.type === "Battery"));
+    const member = (s) => s.type === "Switch" || s.type === "Outlet" || (station && s.type === "Lightbulb");
+    return shown.every(member) && shown.some((s) => s.type !== "Lightbulb") ? shown : [];
+  }
+
   register({
     name: "switch-group", types: ["Switch", "Outlet"], icon: "switch", tone: "green", size: "medium",
-    // An accessory of switches only (a chime's speakers, a remote's buttons): chips, or a tile each.
+    // An accessory of switches (a chime's speakers, a remote's buttons), or a power station's outputs (one standing on
+    // its battery: its sockets and its light): chips, or a tile each, and the battery's level on the status line.
     match: (ctx) => {
-      const shown = ctx.services.filter((s) => !quietServices.has(s.type));
-      return shown.length >= 2 && shown.every((s) => (s.type === "Switch" || s.type === "Outlet") && canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
+      const shown = groupMembers(ctx);
+      return shown.length >= 2 && shown.every((s) => canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
     },
     build(ctx, primary, size) {
-      const switches = ctx.services.filter((s) => !quietServices.has(s.type));
+      const switches = groupMembers(ctx);
       const ons = switches.map((s) => ctx.char(s, "On"));
       const count = () => ons.filter(isOn).length;
+      const level = isStation(ctx) ? ctx.take(ctx.find("Battery"), "Battery Level") : null;
+
       const body = size === "large" || size === "full"
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
-        body, hero: () => `${count()}/${ons.length}`,
+        // A power station's figure is its battery; a group's, how many are on.
+        body, hero: () => level ? `${Math.round(numberOf(level))} %` : `${count()}/${ons.length}`,
         status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };
