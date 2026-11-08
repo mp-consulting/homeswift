@@ -19321,7 +19321,6 @@ HomeswiftI18n.add("es", {
   "Fifteen minutes from a dim red glow to bright warm white, to wake up.": "Quince minutos de un tenue brillo rojo a un blanco cálido y brillante, para despertarte.",
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
-  "battery {percent} %": "batería {percent} %",
   "Filter by client": "Filtrar por cliente",
   "Filter by tool": "Filtrar por herramienta",
   "Filter Change Indication": "Cambio de filtro",
@@ -22805,7 +22804,6 @@ HomeswiftI18n.add("fr", {
   "Fifteen minutes from a dim red glow to bright warm white, to wake up.": "Quinze minutes d'une faible lueur rouge à un blanc chaud et lumineux, pour se réveiller.",
   "Filter": "Filtre",
   "filter {percent} %": "filtre {percent} %",
-  "battery {percent} %": "batterie {percent} %",
   "Filter by client": "Filtrer par client",
   "Filter by tool": "Filtrer par outil",
   "Filter Change Indication": "Changement de filtre",
@@ -26289,7 +26287,6 @@ HomeswiftI18n.add("pt", {
   "Fifteen minutes from a dim red glow to bright warm white, to wake up.": "Quinze minutos de um ténue brilho vermelho até um branco quente e intenso, para acordar.",
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
-  "battery {percent} %": "bateria {percent} %",
   "Filter by client": "Filtrar por cliente",
   "Filter by tool": "Filtrar por ferramenta",
   "Filter Change Indication": "Substituição do filtro",
@@ -38832,9 +38829,14 @@ self.addEventListener("notificationclick", (event) => {
     "Door", "Window", "Valve", "Fanv2", "Fan", "Lightbulb", "Outlet", "Switch", ...Object.keys(readings)];
   function primaryOf(ctx) {
     const candidates = ctx.services.filter((service) => !quietServices.has(service.type));
-    // A battery stands for the accessory in the Home app (a power station's), but its outputs are what a tile controls.
+    // A battery stands for the accessory in the Home app (a power station's), but its outputs are what a tile controls:
+    // its sockets first (a station's light is one more output), else any other control.
     const controls = rank.slice(0, rank.indexOf("Switch") + 1);
     const flagged = candidates.find((service) => service.primary && !(service.type === "Battery" && candidates.some((other) => controls.includes(other.type))));
+    if (!flagged && candidates.some((service) => service.type === "Battery" && service.primary)) {
+      const socket = candidates.find((service) => service.type === "Outlet" || service.type === "Switch");
+      if (socket) return socket;
+    }
     if (flagged) return flagged;
     const order = (service) => { const index = rank.indexOf(service.type); return index < 0 ? rank.length : index; };
     return [...candidates].sort((a, b) => order(a) - order(b))[0];
@@ -38867,26 +38869,36 @@ self.addEventListener("notificationclick", (event) => {
     return list.length || filter ? node : null;
   }
 
+  /// The services a group of switches shows: switches and outlets, and a power station's light (an accessory standing
+  /// on its battery); null when something else is there.
+  function groupMembers(ctx) {
+    const station = ctx.services.some((s) => s.type === "Battery" && s.primary);
+    const shown = ctx.services.filter((s) => !quietServices.has(s.type) && s.type !== "Battery");
+    const member = (s) => s.type === "Switch" || s.type === "Outlet" || (station && s.type === "Lightbulb");
+    return shown.every(member) && shown.some((s) => s.type !== "Lightbulb") ? shown : [];
+  }
+
   register({
     name: "switch-group", types: ["Switch", "Outlet"], icon: "switch", tone: "green", size: "medium",
-    // An accessory of switches (a chime's speakers, a remote's buttons, a power station's outputs), with its battery at
-    // most: chips, or a tile each, and the battery's level on the status line.
+    // An accessory of switches (a chime's speakers, a remote's buttons), or a power station's outputs (one standing on
+    // its battery: its sockets and its light): chips, or a tile each, and the battery's level on the status line.
     match: (ctx) => {
-      const shown = ctx.services.filter((s) => !quietServices.has(s.type) && s.type !== "Battery");
-      return shown.length >= 2 && shown.every((s) => (s.type === "Switch" || s.type === "Outlet") && canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
+      const shown = groupMembers(ctx);
+      return shown.length >= 2 && shown.every((s) => canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
     },
     build(ctx, primary, size) {
-      const switches = ctx.services.filter((s) => !quietServices.has(s.type) && s.type !== "Battery");
+      const switches = groupMembers(ctx);
       const ons = switches.map((s) => ctx.char(s, "On"));
       const count = () => ons.filter(isOn).length;
       const level = ctx.take(ctx.find("Battery"), "Battery Level");
-      const battery = () => level ? [t("battery {percent} %", { percent: Math.round(numberOf(level)) })] : [];
+
       const body = size === "large" || size === "full"
         ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
-        body, hero: () => `${count()}/${ons.length}`,
-        status: () => [[count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off"), ...battery()].join(" · ")],
+        // A power station's figure is its battery; a group's, how many are on.
+        body, hero: () => level ? `${Math.round(numberOf(level))} %` : `${count()}/${ons.length}`,
+        status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };
     },
