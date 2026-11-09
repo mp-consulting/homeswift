@@ -116,7 +116,10 @@ struct HTTPSTests {
         defer { Task { await environment.stop() } }
         #expect(base.scheme == "https")
         let client = HTTPClient(tls: .any)
-        let page = try await client.send(HTTPRequest(url: base.appendingPathComponent("/")))
+        // 30 s a request rather than the client's 10: the server shares NIO's event loops with every test running at once,
+        // which on a loaded runner held a request past 10 s.
+        let patient: Duration = .seconds(30)
+        let page = try await client.send(HTTPRequest(url: base.appendingPathComponent("/"), timeout: patient))
         #expect(page.status == 200)
         let fingerprint = try #require(environment.server.certificateFingerprint)
         #expect(page.certificateFingerprint.map(HTTPClient.normalizeFingerprint) == HTTPClient.normalizeFingerprint(fingerprint))
@@ -124,7 +127,7 @@ struct HTTPSTests {
         let icon = try #require(WebAssets.files["apple-touch-icon.png"]).data.base64EncodedString()
         #expect(String(decoding: page.body, as: UTF8.self).contains(#"<link rel="apple-touch-icon" href="data:image/png;base64,\#(icon)">"#))
 
-        let certificate = try await client.send(HTTPRequest(url: base.appendingPathComponent("homeswift-ui.crt")))
+        let certificate = try await client.send(HTTPRequest(url: base.appendingPathComponent("homeswift-ui.crt"), timeout: patient))
         #expect(certificate.status == 200)
         #expect(certificate.header("content-type") == "application/x-x509-ca-cert")
         #expect(HTTPClient.fingerprint(der: Array(certificate.body)) == HTTPClient.normalizeFingerprint(fingerprint))
@@ -133,7 +136,7 @@ struct HTTPSTests {
         let code = try #require(environment.server.setupCode)
         let setup = try await client.send(HTTPRequest(
             method: "POST", url: base.appendingPathComponent("api/auth/setup"), headers: [("Content-Type", "application/json")],
-            body: JSONValue.object(["username": "rosaly", "password": "staple-copper-violet-lantern", "setupCode": .string(code)]).encoded()))
+            body: JSONValue.object(["username": "rosaly", "password": "staple-copper-violet-lantern", "setupCode": .string(code)]).encoded(), timeout: patient))
         #expect(setup.status == 200)
         #expect(setup.header("set-cookie")?.contains("; Secure") == true)
     }

@@ -15,7 +15,7 @@ extension PhilipsHuePlugin {
         guard let client else { throw PluginRoomError("the Hue Bridge is not paired") }
         guard snapshot.groups.contains(where: { $0.id == id && $0.kind == "room" }) else { throw PluginRoomError("no such room") }
         try await client.put("room", id: id, ["metadata": ["name": .string(Self.roomName(name))]])
-        await refresh()
+        await refreshApplied()
     }
 
     static func roomName(_ name: String) -> String { String(name.trimmingCharacters(in: .whitespaces).prefix(32)) }

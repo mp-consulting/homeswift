@@ -104,7 +104,9 @@ struct TestFailure: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
-func eventually(timeout: Duration = .seconds(10), _ condition: @Sendable () async -> Bool) async -> Bool {
+/// Polls `condition` until it holds or `timeout` passes: generous, as a loaded CI runner can stall the whole process
+/// (a CASE session in a debug build takes seconds there), and a condition that holds returns at once.
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -142,7 +144,9 @@ struct MatterDevicesTests {
         let bulb = try #require(lamp.services.first { $0.type == .lightbulb })
         #expect(bulb[.brightness] != nil)
 
-        // Reports reach HomeKit.
+        // Reports reach HomeKit once the plugin's session and subscription are up (CASE takes a while in a debug build on
+        // a loaded runner).
+        #expect(await eventually { await environment.plugin?.nodes[deviceID]?.link.status == .connected })
         await light.update(.on(true))
         await light.update(.level(127))
         #expect(await eventually { bulb[.on]?.value.boolValue == true && bulb[.brightness]?.value.intValue == 50 })
@@ -159,7 +163,6 @@ struct MatterDevicesTests {
 
         // A double press is a double press in HomeKit, once subscribed.
         let remote = try await accessory(host, "MatterDevices:\(deviceID):\(button.endpoint)")
-        #expect(await eventually { await environment.plugin?.nodes[deviceID]?.link.status == .connected })
         let event = try #require(remote.services.first { $0.type == .statelessProgrammableSwitch }?[.programmableSwitchEvent])
         await button.press(.double)
         #expect(await eventually { event.value.intValue == HAPConstants.ProgrammableSwitchEvent.doublePress })

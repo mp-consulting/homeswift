@@ -289,6 +289,16 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     /// Reads every resource in one request, adds the lights and scenes that are new, shows the values of the others
     /// and drops what is gone.
+    /// Reads the bridge until a read is applied, a few times at most: a read the plugin's own poll or an event overtook is
+    /// dropped as stale, and returns before the newer one is applied. What a write waits for, so its caller (the Home
+    /// app's, a scene editor's) sees what it wrote.
+    func refreshApplied() async {
+        for _ in 0..<3 {
+            await refresh()
+            if !lastReadDropped { return }
+        }
+    }
+
     func refresh() async {
         guard let client, stored.applicationKey != nil else { return }
         refreshes += 1
@@ -666,7 +676,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     func recall(sceneID: String, dynamic: Bool? = nil) async throws {
         guard let client, let scene = snapshot.scenes.first(where: { $0.id == sceneID }) else { throw HueClient.Failure.status(404, "no such scene") }
         try await client.put(scene.smart ? "smart_scene" : "scene", id: scene.id, Self.recallBody(scene, dynamic: dynamic ?? (configuration.dynamicScenes == true ? true : nil), transitionMs: transitionMs(for: scene)))
-        await refresh()
+        await refreshApplied()
     }
 
     /// Turns a scene's Autoplay on or off on the bridge (`auto_dynamic`): it then plays, or stays still, whenever it
@@ -674,14 +684,14 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     func setAutoplay(sceneID: String, _ on: Bool) async throws {
         guard let client, let scene = snapshot.scenes.first(where: { $0.id == sceneID }), !scene.smart else { throw HueClient.Failure.status(404, "no such scene") }
         try await client.put("scene", id: scene.id, ["auto_dynamic": .bool(on)])
-        await refresh()
+        await refreshApplied()
     }
 
     /// Switches a scene off by id (an active tile tapped again).
     func switchOff(sceneID: String) async throws {
         guard let client, let scene = snapshot.scenes.first(where: { $0.id == sceneID }) else { throw HueClient.Failure.status(404, "no such scene") }
         try await Self.switchOff(scene, groupedLight: snapshot.groups.first { $0.id == scene.groupID }?.groupedLightID, client: client)
-        await refresh()
+        await refreshApplied()
     }
 
     // MARK: State for the page
@@ -699,6 +709,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     func lightAction(id: String, _ body: JSONValue) async throws {
         guard let client else { throw HueClient.Failure.unauthorized }
         try await client.put("light", id: id, body)
-        await refresh()
+        await refreshApplied()
     }
 }

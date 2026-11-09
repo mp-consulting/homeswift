@@ -183,12 +183,14 @@ struct EventTests {
         let cloud = FakeSmartThings()
         cloud.answer("GET", "/v1/devices/d/status", status: 429, headers: [("X-RateLimit-Reset", "60")])
         cloud.answer("GET", "/v1/devices/d/status", ["components": [:]])
-        let api = try await TestAPI.make(cloud)
+        // The API's clock stands still until the test moves it: a loaded runner cannot let the 60 s (60 ms here) pass early.
+        let ahead = NIOLockedValueBox<Duration>(.zero)
+        let api = try await TestAPI.make(cloud, ahead: ahead)
         await #expect(throws: SmartThingsError.self) { _ = try await api.status(deviceID: "d") }
         await #expect(throws: SmartThingsError.rateLimited(path: "devices/d/status")) { _ = try await api.status(deviceID: "d") }
         #expect(cloud.sent("GET", "/v1/devices/d/status").count == 1)
-        // 60 s are 60 ms here.
-        #expect(await eventually { (try? await api.status(deviceID: "d")) != nil })
+        ahead.withLockedValue { $0 = .seconds(1) }
+        #expect((try? await api.status(deviceID: "d")) != nil)
     }
 
     @Test func a401IsRefreshedOnceAndRetried() async throws {

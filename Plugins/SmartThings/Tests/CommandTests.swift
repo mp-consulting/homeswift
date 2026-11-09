@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
@@ -119,12 +120,19 @@ struct CommandTests {
 
 enum TestAPI {
     /// An API client on `cloud` with an access token that is good for a day.
-    static func make(_ cloud: FakeSmartThings, limiter: RateLimiter? = nil, refresh: TokenStore.Refresh? = nil) async throws -> SmartThingsAPI {
+    /// `ahead`: the API's clock stands still, this far past the moment it was made, until the test moves it on.
+    static func make(_ cloud: FakeSmartThings, limiter: RateLimiter? = nil, refresh: TokenStore.Refresh? = nil,
+                     ahead: NIOLockedValueBox<Duration>? = nil) async throws -> SmartThingsAPI {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-SmartThings-api-\(UUID().uuidString)")
         let file = SecretFile<StoredTokens>(vault: CredentialVault(storage: directory), entryName: "plugin.test.smartthings_tokens.json", owner: "HomeBridgeSmartThings/test")
         let tokens = TokenStore(file: file, refresh: refresh, now: Date.init, logger: testLogger, onRefused: { _ in })
         try await tokens.seed(StoredTokens(accessToken: "access", refreshToken: "refresh", expiresIn: 86400, now: Date()))
-        return SmartThingsAPI(base: SmartThingsSettings.defaultBaseURL, http: cloud, streaming: cloud, tokens: tokens, timing: SmartThingsTiming(scale: 0.001),
+        var timing = SmartThingsTiming(scale: 0.001)
+        if let ahead {
+            let start = ContinuousClock.now
+            timing.now = { start + ahead.withLockedValue { $0 } }
+        }
+        return SmartThingsAPI(base: SmartThingsSettings.defaultBaseURL, http: cloud, streaming: cloud, tokens: tokens, timing: timing,
                               logger: testLogger, deviceLimiter: limiter)
     }
 }

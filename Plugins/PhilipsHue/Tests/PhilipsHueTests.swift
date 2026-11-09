@@ -216,8 +216,9 @@ final class TestEnvironment: Sendable {
     }
 }
 
-/// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+/// Polls `condition` until it holds or `timeout` passes: generous for a loaded CI runner, and a condition that holds
+/// returns at once.
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -357,7 +358,8 @@ struct PhilipsHueTests {
         // The bridge's own changes reach it, once a command has settled.
         environment.bridge.change("group-2") { $0["on"] = ["on": true]; $0["dimming"] = ["brightness": 25.0] }
         await environment.plugin?.refresh()
-        #expect(zone.service(.lightbulb, subtype: "room")?[.brightness]?.value == .int(25))
+        // A read the plugin's own poll overtook is dropped (the newer one applies): waited for, not read at once.
+        #expect(await eventually { zone.service(.lightbulb, subtype: "room")?[.brightness]?.value == .int(25) })
         await host.stop()
     }
 

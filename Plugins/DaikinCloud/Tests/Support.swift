@@ -239,10 +239,13 @@ func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () asyn
     return await condition()
 }
 
-/// A port the system just handed out and nothing holds: for a test whose port has to be known before the server binds it (it
-/// goes into a redirect URI). A random pick in 40000...60000 overlaps the ephemeral range and collides under a parallel run.
+/// A port nothing holds, for a test whose port has to be known before the server binds it (it goes into a redirect URI):
+/// one outside every system's ephemeral range (`listenerOutsideEphemeralRange`), held a moment and let go. A port the
+/// system handed out for port 0 is no good: once let go, a test running in parallel can be given it by its own
+/// `bind(port: 0)` before the server binds it, and the redirect reaches that test's server (a TLS handshake failing
+/// with WRONG_VERSION_NUMBER on CI).
 func freePort() async throws -> Int {
-    let channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: 0).get()
+    let channel = try await listenerOutsideEphemeralRange()
     let port = channel.localAddress?.port ?? 0
     try await channel.close()
     return port

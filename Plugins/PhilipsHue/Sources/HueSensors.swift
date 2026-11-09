@@ -356,10 +356,7 @@ extension PhilipsHuePlugin {
 
     /// A read an event asked for, again when an event overtook it (it was dropped as stale), a few times at most.
     private func runScheduledRefresh() async {
-        for _ in 0..<3 {
-            await refresh()
-            if !lastReadDropped { break }
-        }
+        await refreshApplied()
         pendingRefresh = nil
     }
 }

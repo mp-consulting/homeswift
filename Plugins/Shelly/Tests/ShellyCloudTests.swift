@@ -15,7 +15,11 @@ struct ShellyCloudTests {
     let credentials = ShellyCloudCredentials(email: "Me@Example.com", password: "s3cret")
 
     /// A JWT whose claims name the server and an expiry an hour on (no signature: the client does not check one).
-    func token(server: String = "https://shelly-238-eu.shelly.cloud", expires: Date = Date().addingTimeInterval(3600)) -> String {
+    /// An hour from the run's start, the same for every token made: a test that compares the token it answered with the one
+    /// sent would see two different ones when a second ticked between them.
+    static let anHourAhead = Date().addingTimeInterval(3600)
+
+    func token(server: String = "https://shelly-238-eu.shelly.cloud", expires: Date = Self.anHourAhead) -> String {
         let claims = #"{"user_api_url":"\#(server)","exp":\#(Int(expires.timeIntervalSince1970))}"#
         let encoded = Data(claims.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         return "eyJhbGciOiJIUzI1NiJ9.\(encoded).signature"

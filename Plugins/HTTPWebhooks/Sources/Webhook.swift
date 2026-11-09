@@ -129,6 +129,8 @@ struct KindEnvironment: Sendable {
         var slowCallTimeout: Duration = .seconds(35)
         /// Multiplies `autoReleaseTime`, for tests.
         var autoReleaseScale: Double = 1
+        /// How an auto release waits its time: tests hold it and let it go themselves.
+        var releaseWait: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     }
 
     /// Makes `call`, when there is one: the HomeKit write waits for it and fails with it.
