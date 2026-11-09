@@ -75,7 +75,7 @@ again from the event after the last one delivered, so presses are never replayed
 A Linux kernel built without Route Information Options (`CONFIG_IPV6_ROUTE_INFO`; a Synology NAS's has none, and
 `/proc/sys/net/ipv6/conf/*/accept_ra_rt_info_max_plen` is then missing) never learns the Thread network's route: the
 device's address goes to the default route, and nothing answers. Setup then says the server has no route to the Thread
-network and names its prefix. Add the route by hand, through the border routers, as root (the interface is the one on
+network and names its prefix, as the plugin's page does for a device it already has that stops answering. Add the route by hand, through the border routers, as root (the interface is the one on
 the border routers' network; `append` adds the others as fallbacks):
 
 ```sh
