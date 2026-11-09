@@ -32,6 +32,8 @@ All notable changes to this project are documented here. The format follows
 - **Energy**: the house's battery charge averaged every battery the bridge records, a portable power station's too
   (an EcoFlow River's 99 % with the STREAM system's 27 %). It is now the home battery's alone: the units whose power is the
   home's battery, on the house and on the Status page's battery tile. The Battery level chart still shows each device's.
+- **Matter Devices**: a Thread device it already has that stops answering on such a host (after a restart, or a new
+  Thread prefix) says the same on the plugin's page, rather than only that it does not answer.
 - A history chart built before it was shown (an accessory's Consumption by day) stayed at its smallest width; its
   value labels lost their first digit ("12.5 kWh"), the last two day labels overlapped, and months of days read as
   hatching.

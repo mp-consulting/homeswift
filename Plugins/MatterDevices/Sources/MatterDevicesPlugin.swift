@@ -87,7 +87,7 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
     static func deviceID(nodeID: NodeID) -> String { String(format: "%016llX", nodeID) }
 
     var network: MatterNodeLink.Network {
-        MatterNodeLink.Network(discovery: dependencies.discovery, peer: dependencies.peer, timing: dependencies.timing)
+        MatterNodeLink.Network(discovery: dependencies.discovery, peer: dependencies.peer, timing: dependencies.timing, missingRoute: dependencies.missingRoute)
     }
 
     // MARK: - Storage
