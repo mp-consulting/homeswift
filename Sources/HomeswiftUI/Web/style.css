@@ -1430,8 +1430,6 @@ textarea.short { min-height: 220px; }
 /* A Group's members, under its row: set in as a list's children, a rule along them. */
 .menu .menu-nested { padding-left: calc(var(--space-12) + var(--space-16)); position: relative; }
 .menu .menu-nested::before { content: ""; position: absolute; left: calc(var(--space-12) + 5px); top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--line); }
-/* A dialog under a phone's menu sheet drops its glass, which would make it the box the sheet is placed in (menu()). */
-.admin-dialog.under-sheet-menu { -webkit-backdrop-filter: none; backdrop-filter: none; }
 @keyframes menu-sheet-in { from { transform: translateY(calc(100% + 12px)); } }
 @keyframes menu-sheet-out { to { transform: translateY(calc(100% + 12px)); } }
 @media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
@@ -2962,7 +2960,10 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
-.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+/* Opaque, so no glass: a backdrop filter would show nothing through it, and would make the dialog the box its fixed
+   children (a menu, a phone's sheet of choices) are placed in, scrolled and shrunk with it. */
+.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid);
+  -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
 .admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
 .admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }

@@ -428,6 +428,10 @@
       const checkedNow = () => typeof item.checked === "function" ? item.checked() : item.checked;
       const choice = typeof item.checked === "boolean" || typeof item.checked === "function";
       const mark = (state) => state === "mixed" ? "–" : state ? "✓" : "";
+      const paint = (state) => {
+        node.setAttribute("aria-checked", String(state));
+        if (tick?.classList.contains("menu-check")) tick.textContent = mark(state);
+      };
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
         : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: mark(checkedNow()) }) : null;
@@ -438,11 +442,7 @@
       if (item.clearFilters) node.classList.add("clear-filters-menu");
       // A Group's member, under its row.
       if (item.nested) node.classList.add("menu-nested");
-      if (typeof item.checked === "function") refreshChecked.push(() => {
-        const state = checkedNow();
-        node.setAttribute("aria-checked", String(state));
-        if (tick?.classList.contains("menu-check")) tick.textContent = mark(state);
-      });
+      if (typeof item.checked === "function") refreshChecked.push(() => paint(checkedNow()));
       const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
       const updateDisabled = () => {
         if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
@@ -508,17 +508,14 @@
         node.setAttribute("aria-busy", "true");
         try {
           const checked = await item.onSelect?.();
-          if (typeof checked === "boolean") {
-            node.setAttribute("aria-checked", String(checked));
-            if (tick?.classList.contains("menu-check")) tick.textContent = mark(checked);
-          }
+          if (typeof checked === "boolean") paint(checked);
           refreshChecked.forEach((update) => update());
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
       // A room heading's name is searched too ("kitchen" finds its lights), and an item's `search` words (a Group's
       // members, a member's Group). A Group's row (`aggregate`) is no more of its kind in the pills' counts.
       const words = [item.label, item.filter ? item.group : null, item.search].filter(Boolean).join(" ");
-      if (search && !item.pinned && item.label) searchable.push([node, fold(words), item.group ?? null, item.filter ?? item.group ?? null, Boolean(item.aggregate)]);
+      if (search && !item.pinned && item.label) searchable.push({ node, words: fold(words), group: item.group ?? null, kind: item.filter ?? item.group ?? null, aggregate: Boolean(item.aggregate) });
       return node;
     });
     // Items of several kinds (`group`: a home's lights, blinds and scenes) get a heading each, and pills above them
@@ -550,8 +547,8 @@
       const query = fold(field.value.trim());
       let shown = 0;
       const seen = new Set();
-      for (const [node, label, group, kind] of searchable) {
-        const match = (!query || label.includes(query)) && (!shownGroup || kind === shownGroup);
+      for (const { node, words, group, kind } of searchable) {
+        const match = (!query || words.includes(query)) && (!shownGroup || kind === shownGroup);
         node.classList.toggle("hidden", !match);
         if (match) { shown++; seen.add(group); }
       }
@@ -561,10 +558,11 @@
     let pills = null;
     if (field) {
       field.addEventListener("input", filter);
+      // A Group's row is no more of its kind in the counts.
+      const counted = searchable.filter((entry) => !entry.aggregate);
       pills = filters.length > 1 ? el("div", { class: "menu-filters", role: "group", "aria-label": t("Show") },
         [null, ...filters].map((group) => {
-          const counted = searchable.filter(([, , , , aggregate]) => !aggregate);
-          const count = group ? counted.filter(([, , , kind]) => kind === group).length : counted.length;
+          const count = group ? counted.filter((entry) => entry.kind === group).length : counted.length;
           // Each kind with its icon, as the wall draws it; All, the filter's.
           const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Scenes: "play" }[group] ?? "filter";
           const pill = el("button", { type: "button", class: "menu-filter", actionIcon: glyph, "aria-pressed": String(group === null) },
@@ -596,19 +594,8 @@
       dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
     }
     const host = layerHost(trigger);
-    // A sheet over a dialog (a remote's editor): the dialog's glass (its backdrop filter) would make it the box the
-    // sheet is placed in, scrolled and shrunk with it, the sheet's top (its search) then out of reach. The dialog drops
-    // its glass while the sheet is up, under the scrim anyway: the sheet sits on the window, as anywhere else.
-    const flattened = sheet && host !== document.body ? host : null;
-    flattened?.classList.add("under-sheet-menu");
     // While a keyboard is up (the search), the sheet keeps to what is still visible, as openSheet's dialogs do.
-    const viewport = sheet ? window.visualViewport : null;
-    const fit = () => {
-      list.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
-      list.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
-    };
-    viewport?.addEventListener("resize", fit);
-    viewport?.addEventListener("scroll", fit);
+    const stopFollowing = sheet ? followKeyboard(list) : () => {};
     if (scrim) host.append(scrim);
     host.append(list);
     if (!sheet) {
@@ -659,13 +646,8 @@
       trigger.setAttribute("aria-expanded", "false");
       list.classList.add("closing");
       scrim?.classList.add("closing");
-      viewport?.removeEventListener("resize", fit);
-      viewport?.removeEventListener("scroll", fit);
-      setTimeout(() => {
-        list.remove();
-        scrim?.remove();
-        if (!flattened?.querySelector(".menu.sheet-menu:not(.closing)")) flattened?.classList.remove("under-sheet-menu");
-      }, 200);
+      stopFollowing();
+      setTimeout(() => { list.remove(); scrim?.remove(); }, 200);
       if (!quietly) trigger.focus({ preventScroll: true });
     }
     // A phone's keyboard may change the window's height: only a new width puts a sheet away.
@@ -830,16 +812,8 @@
     // sheet takes the focus itself there, and a field the person taps brings the keyboard.
     const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
     if (touch) dialog.autofocus = true;
-    // While a keyboard is up, the sheet keeps to what is still visible (the visual viewport) rather than the page
-    // scrolling to show the field.
-    const viewport = window.visualViewport;
-    const fit = () => {
-      dialog.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
-      dialog.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
-    };
-    viewport?.addEventListener("resize", fit);
-    viewport?.addEventListener("scroll", fit);
-    dialog.addEventListener("close", () => { viewport?.removeEventListener("resize", fit); viewport?.removeEventListener("scroll", fit); });
+    // While a keyboard is up, the sheet keeps to what is still visible rather than the page scrolling to show the field.
+    dialog.addEventListener("close", followKeyboard(dialog));
     document.body.append(dialog);
     dialog.showModal();
     if (!touch) $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
@@ -863,6 +837,21 @@
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: plainMessage(text) }; }
     if (!response.ok) throw Object.assign(new Error(window.HomeswiftI18n?.message((json && json.error) || `HTTP ${response.status}`) ?? `HTTP ${response.status}`), { status: response.status });
     return json;
+  }
+
+  /// Keeps `node` to what a phone's keyboard leaves visible (iOS covers the page rather than resizing it): its
+  /// `--viewport-top` and `--keyboard` follow the visual viewport, from now on. Answers what stops it.
+  function followKeyboard(node) {
+    const viewport = window.visualViewport;
+    if (!viewport) return () => {};
+    const fit = () => {
+      node.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
+      node.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    fit();
+    viewport.addEventListener("resize", fit);
+    viewport.addEventListener("scroll", fit);
+    return () => { viewport.removeEventListener("resize", fit); viewport.removeEventListener("scroll", fit); };
   }
 
   /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the

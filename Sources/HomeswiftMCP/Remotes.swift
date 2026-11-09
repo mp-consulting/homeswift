@@ -13,6 +13,8 @@ extension HomeswiftCatalog {
         let all = located()
         var answer = remotesJSON(all).objectValue ?? [:]
         for (key, value) in (await remoteTargetsJSON(all)).objectValue ?? [:] { answer[key] = value }
+        // The rooms in the home's order, which the page lists the targets in.
+        answer["rooms"] = .array(allRoomNames(all).map(JSONValue.string))
         return .object(answer)
     }
 

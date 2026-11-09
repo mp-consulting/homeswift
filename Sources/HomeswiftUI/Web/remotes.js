@@ -138,17 +138,18 @@
     // A part's gestures drive the same lights; one with none yet starts from its Channel's other part.
     const driving = mine.find((control) => control.targets?.length)
       ?? remote.controls.find((control) => control.targets?.length && remote.parts.some((other) => other.id === control.part && other.channel != null && other.channel === part.channel));
-    // Listed by room (no room last), the pills keeping one kind; a chosen one's chip names its room. A light without
-    // brightness says so: it only turns on and off.
-    const byRoom = (list) => list.slice().sort((a, b) => (a.room == null) - (b.room == null)
+    // Listed by room in the home's order (no room last), the pills keeping one kind; a chosen one's chip names its room.
+    // A light without brightness says so: it only turns on and off.
+    const roomRank = (room) => { const at = (data.rooms ?? []).indexOf(room); return room == null ? Infinity : at < 0 ? (data.rooms ?? []).length : at; };
+    const byRoom = (list) => list.slice().sort((a, b) => roomRank(a.room) - roomRank(b.room)
       || (a.room ?? "").localeCompare(b.room ?? "") || a.name.localeCompare(b.name, undefined, { numeric: true }));
     const choice = (one, kind) => {
       const only = one.onOffOnly ? t("On and off only") : null;
       return { value: one.id, group: one.room ?? t("No room"), filter: kind,
         label: [one.name, only].filter(Boolean).join(" · "), title: [one.name, one.room, only].filter(Boolean).join(" · ") };
     };
-    // A Group's members under its row, in the room most of them are in; its row ticks them all. A Group with one member
-    // left here (the others drive nothing) lists it on its own.
+    // A Group's members under its row, in its first member's room as on the wall; its row ticks them all. A Group with
+    // one member left here (the others drive nothing) lists it on its own.
     const listed = (list, kindOf) => {
       const groups = new Map();
       for (const one of list.filter((one) => one.group)) {
@@ -157,12 +158,7 @@
       }
       const whole = [...groups.values()].filter((group) => group.members.length > 1);
       const inGroup = new Set(whole.flatMap((group) => group.members.map((one) => one.id)));
-      const roomOf = (members) => {
-        const counts = new Map();
-        for (const one of members) counts.set(one.room ?? null, (counts.get(one.room ?? null) ?? 0) + 1);
-        return [...counts].sort((a, b) => b[1] - a[1])[0][0];
-      };
-      const rows = [...list.filter((one) => !inGroup.has(one.id)), ...whole.map((group) => ({ ...group, room: roomOf(group.members) }))];
+      const rows = [...list.filter((one) => !inGroup.has(one.id)), ...whole.map((group) => ({ ...group, room: group.members[0].room ?? null }))];
       return byRoom(rows).flatMap((row) => {
         if (!row.members) return [choice(row, kindOf(row))];
         const heading = row.room ?? t("No room");
@@ -171,6 +167,7 @@
         ...byRoom(row.members).map((one) => ({ ...choice(one, kindOf(one)), group: heading, nested: true, search: row.name }))];
       });
     };
+    const sceneChoices = byRoom(data.scenes).map((scene) => choice(scene, "Scenes"));
     const targetPicker = HomeswiftForms.searchSet(listed(data.targets, (one) => one.kind === "shutter" ? "Blinds" : "Lights"), driving?.targets ?? []);
     const powerPicker = HomeswiftForms.searchSet(listed(data.power, (one) => one.kind === "outlet" ? "Outlets" : "Switches"), driving?.power ?? []);
     const options = driving ?? mine[0] ?? {};
@@ -183,7 +180,7 @@
     const gestureFields = part.gestures.map((gesture) => {
       const control = mine.find((one) => one.gesture === gesture);
       const select = el("select", { "aria-label": gestureNames[gesture]() });
-      const scenePicker = HomeswiftForms.searchSelect(byRoom(data.scenes).map((scene) => choice(scene, "Scenes")), control?.scene, t("Choose a scene"));
+      const scenePicker = HomeswiftForms.searchSelect(sceneChoices, control?.scene, t("Choose a scene"));
       const sceneRow = el("div", { class: "remote-scene" }, scenePicker.button);
       const fill = () => {
         const current = select.value || (control ? valueOf(control) : "");
