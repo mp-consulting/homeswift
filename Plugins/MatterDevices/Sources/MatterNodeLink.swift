@@ -40,6 +40,8 @@ actor MatterNodeLink {
         var discovery: any MatterDiscovery
         var peer: @Sendable (NodeAddress) throws -> PeerAddress
         var timing: Timing
+        /// The Thread network's prefix when the host has no route to an address (`HostRoutes`).
+        var missingRoute: @Sendable (String) -> String? = { _ in nil }
     }
 
     let deviceID: String
@@ -113,6 +115,10 @@ actor MatterNodeLink {
             } catch {
                 failures += 1
                 lastError = Self.describe(error)
+                // A Thread device the host has no route to: the host's routes to blame, as Setup says.
+                if let address, let prefix = network.missingRoute(address.host) {
+                    lastError = "this host has no route to its Thread network (\(prefix)): add one through a Thread border router (the plugin's README, Network)"
+                }
                 session = nil
                 connectedSince = nil
                 // One failed attempt may be a sleepy device between polls: say it does not answer from the second.
