@@ -315,7 +315,8 @@ actor DummyEngine {
         case .brightness(let value): setBrightness(device, value, source: .homeKit)
         case .lock(let value): setPrimary(device, value == 0 ? 0 : 1, source: .homeKit)
         case .targetPosition(let value):
-            let position = value == 0 ? 0 : 100
+            // homebridge-dummy's open or closed, unless the accessory keeps exact positions (Homeswift's `exactPosition`).
+            let position = device.config.exactPosition ? min(max(value, 0), 100) : value == 0 ? 0 : 100
             setPrimary(device, position, source: .homeKit)
             return position == value ? nil : .int(position)
         case .targetDoor(let value): setPrimary(device, value == 0 ? 0 : 1, source: .homeKit)

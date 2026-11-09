@@ -109,14 +109,17 @@ final class TestEnvironment: @unchecked Sendable {
     let directory: URL
     private let plugins = NIOLockedValueBox<[RecordingPlugin]>([])
     private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
+    /// The plugin's `appliesAccessorySettingsLive`.
+    let appliesAccessorySettingsLive: Bool
 
-    init() {
+    init(appliesAccessorySettingsLive: Bool = false) {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-tests-\(UUID().uuidString)")
+        self.appliesAccessorySettingsLive = appliesAccessorySettingsLive
     }
 
     var registry: PluginRegistry {
         var registry = PluginRegistry()
-        registry.register(platform: RecordingPlugin.platform, name: RecordingPlugin.name) { json, context in
+        registry.register(platform: RecordingPlugin.platform, name: RecordingPlugin.name, appliesAccessorySettingsLive: appliesAccessorySettingsLive) { json, context in
             let plugin = try RecordingPlugin(configuration: try JSONDecoder().decode(RecordingPlugin.Configuration.self, from: json), context: context)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -599,6 +602,30 @@ struct PluginHostTests {
         #expect(!lamp.isUnavailable)
         #expect(host.platforms.map(\.paused) == [false])
         await host.stop()
+    }
+
+    /// A plugin that reads its Plugin Accessory Settings on each use keeps running when only they change, with the new
+    /// ones; a Core one (Excluded) still reloads it, as does any change for a plugin that does not.
+    @Test func appliesPluginAccessorySettingsLive() async throws {
+        func configuration(_ settings: String) throws -> HomeswiftConfiguration {
+            try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1"], "_accessories": { "lamp-1": \#(settings) } }] }"#.utf8))
+        }
+        let live = TestEnvironment(appliesAccessorySettingsLive: true)
+        let host = try PluginHost(configuration: try configuration(#"{ "dimStep": 5 }"#), registry: live.registry, storageDirectory: live.directory, options: live.options)
+        try await host.start()
+        let report = await host.apply(try configuration(#"{ "dimStep": 10, "light1": ["Other:lamp"] }"#))
+        #expect(report == PluginHost.ReloadReport())
+        #expect(live.createdPlugins.count == 1)
+        let context = try #require(host.instances.first?.context)
+        #expect(context.accessorySettings(for: "lamp-1").plugin["dimStep"] == .number(10))
+        #expect(await host.apply(try configuration(#"{ "dimStep": 10, "light1": ["Other:lamp"], "excluded": true }"#)) == PluginHost.ReloadReport(reloaded: ["Lamps"]))
+        await host.stop()
+
+        let other = TestEnvironment()
+        let reloading = try PluginHost(configuration: try configuration(#"{ "dimStep": 5 }"#), registry: other.registry, storageDirectory: other.directory, options: other.options)
+        try await reloading.start()
+        #expect(await reloading.apply(try configuration(#"{ "dimStep": 10 }"#)) == PluginHost.ReloadReport(reloaded: ["Lamps"]))
+        await reloading.stop()
     }
 
     @Test func runsChildBridges() async throws {

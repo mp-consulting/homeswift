@@ -199,9 +199,7 @@ extension PluginHost {
     }
 
     private func automationPlugin(platform: String, name: String) throws -> any HomeswiftPlugin {
-        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else {
-            throw PluginAutomationError("\(name) is not running")
-        }
-        return running.plugin
+        guard let plugin = running(platform: platform, name: name) else { throw PluginAutomationError("\(name) is not running") }
+        return plugin
     }
 }

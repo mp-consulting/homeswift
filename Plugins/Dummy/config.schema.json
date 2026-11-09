@@ -292,6 +292,11 @@
                 }
               ]
             },
+            "exactPosition": {
+              "title": "Exact position",
+              "type": "boolean",
+              "description": "Homeswift only: keeps the position set (0 to 100 %), as a real shutter does, rather than open or closed"
+            },
             "temperatureUnits": {
               "title": "Temperature units",
               "type": "string",
@@ -1594,7 +1599,9 @@
       "Whether it adds or removes humidity": "S'il ajoute ou retire de l'humidité",
       "Whether the host must answer or not": "Si l'hôte doit répondre ou non",
       "Window": "Fenêtre",
-      "Window covering": "Store"
+      "Window covering": "Store",
+      "Exact position": "Position exacte",
+      "Homeswift only: keeps the position set (0 to 100 %), as a real shutter does, rather than open or closed": "Homeswift seulement : garde la position réglée (de 0 à 100 %), comme un vrai volet, plutôt qu'ouvert ou fermé"
     },
     "es": {
       "A delay, a repeating interval, a cron expression or a time of the sun": "Un retraso, un intervalo repetido, una expresión cron o una hora del sol",
@@ -1817,7 +1824,9 @@
       "Whether it adds or removes humidity": "Si añade o quita humedad",
       "Whether the host must answer or not": "Si el host debe responder o no",
       "Window": "Ventana",
-      "Window covering": "Persiana"
+      "Window covering": "Persiana",
+      "Exact position": "Posición exacta",
+      "Homeswift only: keeps the position set (0 to 100 %), as a real shutter does, rather than open or closed": "Solo Homeswift: mantiene la posición fijada (de 0 a 100 %), como una persiana real, en lugar de abierta o cerrada"
     },
     "pt": {
       "A delay, a repeating interval, a cron expression or a time of the sun": "Um atraso, um intervalo repetido, uma expressão cron ou uma hora do sol",
@@ -2040,7 +2049,9 @@
       "Whether it adds or removes humidity": "Se adiciona ou retira humidade",
       "Whether the host must answer or not": "Se o anfitrião tem de responder ou não",
       "Window": "Janela",
-      "Window covering": "Estore"
+      "Window covering": "Estore",
+      "Exact position": "Posição exata",
+      "Homeswift only: keeps the position set (0 to 100 %), as a real shutter does, rather than open or closed": "Só Homeswift: mantém a posição definida (de 0 a 100 %), como um estore real, em vez de aberto ou fechado"
     }
   }
 }

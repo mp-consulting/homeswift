@@ -19,6 +19,7 @@ import HomeswiftImou
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
 import HomeswiftMagicHome
+import HomeswiftMatterDevices
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
@@ -98,5 +99,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(XiaomiMiotPlugin.self)
     registry.register(SmartThingsPlugin.self)
     registry.register(HomeAssistantPlugin.self)
+    registry.register(MatterDevicesPlugin.self)
     return registry
 }

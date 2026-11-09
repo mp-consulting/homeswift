@@ -83,6 +83,9 @@ then the bridge seals and masks the secret-named ones in config.json. They are n
 
 ## What differs from homebridge-dummy
 
+- **Exact positions** (Homeswift only): a Door, Window or Window Covering with `exactPosition` keeps the position written
+  (0 to 100 %) and moves its current position there, as a real shutter does; without it, as in homebridge-dummy, any
+  position but 0 is open (100).
 - **No shell commands.** `commandOn`, `commandOff`, `commandSync` and the other `command…` options are not run (the
   configuration can be edited from the web UI and over MCP, so running them would let those run any program on the
   machine). An accessory that has them says so once at launch; `syncSchedule` does nothing without `commandSync`.

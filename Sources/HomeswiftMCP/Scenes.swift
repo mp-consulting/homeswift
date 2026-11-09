@@ -60,6 +60,9 @@ public struct SceneTrigger: Codable, Sendable, Equatable {
     /// `presence`: true when the Person in `id` comes home, false when they leave; for Anyone Home (`Presence:anyone`),
     /// true when the first Person comes home, false once the last has left.
     public var arriving: Bool?
+    /// `press`: `single`, `double` or `long`, a press of the button `service` (a Stateless Programmable Switch) of
+    /// accessory `id`. Every press fires, the same one twice in a row too: a press is an event, not a value.
+    public var press: String?
 
     public var isEnabled: Bool { enabled != false }
 }
@@ -539,6 +542,19 @@ extension HomeswiftCatalog {
     }
 
     // MARK: Running
+
+    /// Lends the plugins the home's Scenes (`PluginContext.homeScenes`): Homeswift's and its hubs', run as an
+    /// Automation's step runs one (locks, garage doors and alarms left as they are).
+    func lendScenes() {
+        let catalog = self
+        host.homeScenes = HomeScenes(list: {
+            let own = catalog.home.scenes.value.scenes.map { HomeScene(id: $0.id, name: $0.name) }
+            let hubs = await catalog.foundPluginScenes().map { HomeScene(id: $0.id, name: $0.scene.name, room: $0.scene.room) }
+            return own + hubs
+        }, run: { id in
+            _ = try await catalog.runScene(id, trigger: .automation)
+        })
+    }
 
     /// Sets every value of a scene in order; an action that fails is reported and the rest still run. A security
     /// control runs only with `allowSecurity` (a person confirmed); otherwise it is skipped and reported. An

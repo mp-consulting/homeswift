@@ -69,24 +69,37 @@ extension PluginHost {
 
     /// Renames a room of the instance `name` of `platform` (`HomeswiftPlugin.renameRoom(id:name:)`).
     public func renameRoom(platform: String, name: String, id: String, to roomName: String) async throws {
-        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else {
+        guard let plugin = running(platform: platform, name: name) else {
             throw PluginRoomError("\(name) is not running")
         }
-        try await running.plugin.renameRoom(id: id, name: roomName)
+        try await plugin.renameRoom(id: id, name: roomName)
     }
 
     /// The Device Kind the running instance gives one of its devices (`HomeswiftPlugin.deviceKind(of:)`); nil when it
     /// does not run or does not say.
     public func deviceKind(platform: String, name: String, deviceID: String) async -> String? {
-        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else { return nil }
-        return await running.plugin.deviceKind(of: deviceID)
+        guard let plugin = running(platform: platform, name: name) else { return nil }
+        return await plugin.deviceKind(of: deviceID)
     }
 
     /// The choices the running instance gives one of its Plugin Accessory Settings for a device
     /// (`HomeswiftPlugin.accessorySettingChoices`); nil when it gives none, or does not run.
     public func accessorySettingChoices(platform: String, name: String, key: String, deviceID: String) async -> [SetupOption]? {
-        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else { return nil }
-        return await running.plugin.accessorySettingChoices(key, deviceID: deviceID)
+        guard let plugin = running(platform: platform, name: name) else { return nil }
+        return await plugin.accessorySettingChoices(key, deviceID: deviceID)
+    }
+
+    /// The Plugin Accessory Settings the running instance says apply to a device (`HomeswiftPlugin.accessorySettingKeys`);
+    /// nil when it says nothing, or does not run.
+    public func accessorySettingKeys(platform: String, name: String, deviceID: String) async -> Set<String>? {
+        guard let plugin = running(platform: platform, name: name) else { return nil }
+        return await plugin.accessorySettingKeys(deviceID: deviceID)
+    }
+
+    /// A setting's words for a device, as the running instance gives them (`HomeswiftPlugin.accessorySettingWording`).
+    public func accessorySettingWording(platform: String, name: String, key: String, deviceID: String) async -> SettingWording? {
+        guard let plugin = running(platform: platform, name: name) else { return nil }
+        return await plugin.accessorySettingWording(key, deviceID: deviceID)
     }
 
     /// The block in its canonical shape, as its running instance writes it (`HomeswiftPlugin.canonicalSettings`), and what
@@ -95,9 +108,9 @@ extension PluginHost {
     /// not run.
     @_disfavoredOverload
     public func canonicalSettings(platform: String, name: String, block: JSONValue) async -> (block: JSONValue, whenWritten: SettingsWrite.Effects) {
-        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else { return (block, SettingsWrite.Effects()) }
+        guard let plugin = running(platform: platform, name: name) else { return (block, SettingsWrite.Effects()) }
         let effects = SettingsWrite.Effects()
-        let canonical = await SettingsWrite.$pending.withValue(effects) { await running.plugin.canonicalSettings(block) }
+        let canonical = await SettingsWrite.$pending.withValue(effects) { await plugin.canonicalSettings(block) }
         return (canonical, effects)
     }
 

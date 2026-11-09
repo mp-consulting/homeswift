@@ -486,12 +486,17 @@ public struct HomeswiftCatalog: Sendable {
         characteristic.isConfidential ? .null : json(characteristic.value)
     }
 
+    /// Whether a service is the one a person or a tool names: by its type's name, its subtype or its Name.
+    static func service(_ service: Service, isNamed name: String) -> Bool {
+        let wanted = normalized(name)
+        return self.name(service.type.name, normalizesTo: wanted) || service.subtype.map { self.name($0, normalizesTo: wanted) } == true
+            || service[.name]?.value.stringValue.map { self.name($0, normalizesTo: wanted) } == true
+    }
+
     func characteristic(in located: Located, service serviceName: String?, characteristic characteristicName: String) throws -> Characteristic {
         let services = located.accessory.services.filter { service in
             guard let serviceName else { return service.type.uuid != ServiceType.accessoryInformation.uuid }
-            let wanted = Self.normalized(serviceName)
-            return Self.name(service.type.name, normalizesTo: wanted) || service.subtype.map { Self.name($0, normalizesTo: wanted) } == true
-                || service[.name]?.value.stringValue.map { Self.name($0, normalizesTo: wanted) } == true
+            return Self.service(service, isNamed: serviceName)
         }
         let wanted = Self.normalized(characteristicName)
         let matches = services.flatMap { $0.characteristics.filter { Self.name($0.type.name, normalizesTo: wanted) } }

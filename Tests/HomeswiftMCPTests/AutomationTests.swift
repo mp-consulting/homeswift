@@ -122,6 +122,47 @@ struct AutomationTests {
         #expect(AutomationRules.crosses(SceneTrigger(type: "threshold", value: 50, direction: "below"), previous: 60, next: 40) == true)
     }
 
+    /// The home's scenes lent to plugins (`PluginContext.homeScenes`): listed by id and name, and run as an Automation's
+    /// step runs one.
+    @Test func thePluginsSeeAndRunTheHomesScenes() async throws {
+        let environment = try await environment()
+        let catalog = environment.catalog
+        catalog.startHome(restarted: true)
+        defer { Task { await catalog.stopHome(restarting: true); await environment.stop() } }
+        try catalog.home.scenes.update { file in
+            file.scenes.append(Scene(id: "dim", name: "Dim", actions: [SceneAction(id: "Devices:lamp", characteristic: "Brightness", value: 15)],
+                                     triggers: [], conditions: [], lastRun: nil, lastSkipped: nil))
+        }
+        let scenes = try #require(environment.host.homeScenes)
+        let dim = try #require(await scenes.list().first { $0.name == "Dim" })
+        try await scenes.run(dim.id)
+        #expect(await eventually { lampWrites(environment, "lamp.brightness") == [.int(15)] })
+    }
+
+    /// A button's press: every one fires, the same press twice in a row too (an event, not a value), only for its button
+    /// and its kind of press.
+    @Test func aButtonPressRunsItsAutomationEveryTime() async throws {
+        let environment = try await environment()
+        let catalog = environment.catalog
+        catalog.startHome(restarted: true)
+        defer { Task { await catalog.stopHome(restarting: true); await environment.stop() } }
+        let one = Service(.statelessProgrammableSwitch, name: "Channel 1 button", subtype: "button:3")
+        let two = Service(.statelessProgrammableSwitch, name: "Channel 2 button", subtype: "button:6")
+        let remote = Accessory(id: "Remote:1", name: "Remote", category: .programmableSwitch, services: [one, two])
+        _ = try catalog.saveAutomation(["name": "Lamp off", "triggers": [["type": "press", "id": "Remote:1", "service": "Channel 1 button", "press": "double"]],
+            "steps": [["type": "set", "id": "Devices:lamp", "characteristic": "Brightness", "value": 10]]])
+        let press = { (service: Service, kind: Int) in
+            catalog.characteristicChanged(remote, service.characteristic(.programmableSwitchEvent), .int(kind))
+        }
+        press(one, 0)   // a single press: not this trigger's
+        press(two, 1)   // another button
+        press(one, 1)
+        #expect(await eventually { lampWrites(environment, "lamp.brightness").count == 1 })
+        press(one, 1)   // the same press again
+        #expect(await eventually { lampWrites(environment, "lamp.brightness").count == 2 })
+        #expect(throws: CatalogError.self) { try AutomationRules.trigger(["type": "press", "id": "Remote:1", "press": "triple"], index: 0) }
+    }
+
     @Test func scenesTriggersMoveIntoAutomationsOnce() async throws {
         let environment = try MCPTestEnvironment()
         let catalog = environment.catalog

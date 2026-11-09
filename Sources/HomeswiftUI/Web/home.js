@@ -822,6 +822,11 @@
           const vars = { who: names.get(trigger.id) || trigger.id, characteristic: characteristicName(trigger.characteristic), value: String(trigger.value) };
           return trigger.direction === "below" ? t("When {who} {characteristic} falls below {value}", vars) : t("When {who} {characteristic} rises above {value}", vars);
         }
+        case "press": {
+          const vars = { who: names.get(trigger.id) || trigger.id, button: trigger.service || t("its button") };
+          return trigger.press === "double" ? t("When {button} of {who} is double-pressed", vars)
+            : trigger.press === "long" ? t("When {button} of {who} is held", vars) : t("When {button} of {who} is pressed", vars);
+        }
         case "presence": {
           if (trigger.id === anyoneHome) return trigger.arriving ? t("When the first Person comes home") : t("When the last Person leaves");
           const vars = { who: names.get(trigger.id) || trigger.id };
@@ -850,7 +855,7 @@
     return scene.lastRun.ok ? t("Last run {date} ({trigger})", vars) : t("Last run {date} ({trigger}), with errors", vars);
   }
   /// What a trigger shows as: a clock for a time or a cron, the sun, a sensor for an accessory's value.
-  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor", stays: "sensor", threshold: "sensor", presence: "user" };
+  const triggerIcons = { time: "history", cron: "history", sun: "sun", characteristic: "sensor", stays: "sensor", threshold: "sensor", presence: "user", press: "switch" };
   /// Anyone Home's accessory (Presence): a `presence` trigger on it fires at the first arrival or the last departure.
   const anyoneHome = "Presence:anyone";
 
@@ -1128,6 +1133,10 @@
     const people = accessories.filter((one) => one.platform === "Presence")
       .sort((a, b) => (a.id === anyoneHome) - (b.id === anyoneHome) || displayName(a).localeCompare(displayName(b)));
     if (people.length || trigger.type === "presence") type.insertBefore(el("option", { value: "presence", text: t("When someone comes home or leaves") }), type.querySelector('[value="cron"]'));
+    // Accessories with buttons (a remote's, a wall switch's): their Stateless Programmable Switches.
+    const isButton = (service) => service.type === "StatelessProgrammableSwitch";
+    const withButtons = accessories.filter((one) => one.services?.some(isButton)).sort((a, b) => displayName(a).localeCompare(displayName(b)));
+    if (withButtons.length || trigger.type === "press") type.insertBefore(el("option", { value: "press", text: t("When a button is pressed") }), type.querySelector('[value="cron"]'));
     type.value = trigger.type;
     // Whether the trigger counts, in the row's head with its kind: apart from a Value switch in its fields.
     const enabled = el("input", { type: "checkbox", role: "switch", checked: trigger.enabled !== false });
@@ -1178,6 +1187,25 @@
         const value = el("input", { type: "number", step: "any", value: shown.value ?? 0, "aria-label": t("Value") });
         body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Direction"), direction), field(t("Value"), value));
         row.readBody = () => ({ ...pick.read(), direction: direction.value, value: Number(value.value) });
+      } else if (shown.type === "press") {
+        const accessory = el("select", { "aria-label": t("Accessory") }, withButtons.map((one) => el("option", { value: one.id, text: displayName(one) })));
+        if (shown.id && !withButtons.some((one) => one.id === shown.id)) accessory.append(el("option", { value: shown.id, text: shown.id }));
+        accessory.value = shown.id ?? withButtons[0]?.id ?? "";
+        const button = el("select", { "aria-label": t("Button") });
+        // Its buttons by the name their plugin gives them ("Channel 1 button"), which the trigger keeps.
+        const buttons = () => {
+          const services = (withButtons.find((one) => one.id === accessory.value)?.services ?? []).filter(isButton);
+          button.replaceChildren(...services.map((s) => el("option", { value: s.name || s.subtype, text: s.name || s.subtype })));
+          if (shown.service && ![...button.options].some((o) => o.value === shown.service)) button.append(el("option", { value: shown.service, text: shown.service }));
+        };
+        buttons();
+        if (shown.service) button.value = shown.service;
+        accessory.addEventListener("change", buttons);
+        const press = el("select", { "aria-label": t("Press") }, el("option", { value: "single", text: t("Single press") }),
+          el("option", { value: "double", text: t("Double press") }), el("option", { value: "long", text: t("Long press") }));
+        press.value = shown.press || "single";
+        body.replaceChildren(field(t("Accessory"), accessory), field(t("Button"), button), field(t("Press"), press));
+        row.readBody = () => ({ id: accessory.value, service: button.value || undefined, press: press.value });
       } else if (shown.type === "presence") {
         const who = el("select", { "aria-label": t("Who") }, people.map((one) => el("option", { value: one.id, text: one.id === anyoneHome ? t("Anyone") : displayName(one) })));
         if (shown.id && !people.some((one) => one.id === shown.id)) who.append(el("option", { value: shown.id, text: shown.id }));

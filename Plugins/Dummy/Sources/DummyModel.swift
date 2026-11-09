@@ -277,6 +277,8 @@ struct AccessoryConfig: Sendable {
     var isDimmer = false
     var defaultLocked = true
     var defaultOpen = false
+    /// Homeswift only: a Door, Window or Window Covering keeps the position written (0–100 %) rather than open or closed.
+    var exactPosition = false
     var fahrenheit = false
     var defaultThermostatState = 0
     var defaultTemperature = 20.0
@@ -420,6 +422,7 @@ struct ConfigReader {
                 }
             }
         case .door, .window, .windowCovering, .garageDoor:
+            if config.type != .garageDoor { config.exactPosition = json["exactPosition"]?.boolValue ?? false }
             if let position = json["defaultPosition"] {
                 switch position.stringValue {
                 case "open": config.defaultOpen = true

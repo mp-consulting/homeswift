@@ -563,6 +563,16 @@ public final class PluginHost: @unchecked Sendable {
                     old.context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
                     continue
                 }
+                // Only Plugin Accessory Settings changed, which the plugin reads on each use: it keeps running with them.
+                // (The JSON holds `_bridge` and `_paused` too; a plugin that failed to start still reloads.)
+                if old.entry.appliesAccessorySettingsLive, old.plugin.withLockedValue({ $0 }) != nil,
+                   let before = HomeswiftConfiguration.withoutPluginAccessorySettings(old.block.json),
+                   before == HomeswiftConfiguration.withoutPluginAccessorySettings(block.json) {
+                    old.adopt(block)
+                    old.context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
+                    old.context.logger.debug("Applied its Accessory Settings without reloading")
+                    continue
+                }
                 // Only its canonical shape changed, from the block its plugin runs: it keeps running on the new one.
                 if moves.contains(CanonicalMove(platform: block.platform, name: block.name, from: old.block.json)),
                    old.block.childBridge == block.childBridge, old.block.paused == block.paused, old.plugin.withLockedValue({ $0 }) != nil {
@@ -787,8 +797,16 @@ public final class PluginHost: @unchecked Sendable {
         return Instance(entry: entry, block: block, context: context)
     }
 
+    /// The home's Scenes, lent to plugins (`PluginContext.homeScenes`): set by whoever runs the catalog (the CLI, a test).
+    public var homeScenes: HomeScenes? {
+        get { homeScenesBox.withLockedValue { $0 } }
+        set { homeScenesBox.withLockedValue { $0 = newValue } }
+    }
+    private let homeScenesBox = NIOLockedValueBox<HomeScenes?>(nil)
+
     /// Gives a context the host's servers: what they publish (`hostAccessories`) and their changes.
     func attachHost(_ context: PluginContext) {
+        context.homeScenesSource = { [weak self] in self?.homeScenes }
         context.publishedServers = { [weak self] in
             self?.bridges.map { PluginContext.PublishedServer(deviceID: $0.server.deviceID, isExternal: $0.isExternal, accessories: $0.server.accessories) } ?? []
         }
