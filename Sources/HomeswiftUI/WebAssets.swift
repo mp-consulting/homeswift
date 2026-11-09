@@ -36385,7 +36385,13 @@ textarea.short { min-height: 220px; }
   animation: menu-sheet-in 280ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .menu.sheet-menu.closing { animation: menu-sheet-out 180ms var(--ease-out) forwards; }
-.menu.sheet-menu { padding-top: 22px; }
+/* Its grabber is the first row, pinned to the top as the items scroll under it (absolute, it would scroll away with
+   them and leave the sheet nothing to drag down by). */
+.menu.sheet-menu { padding-top: 0; }
+.menu.sheet-menu > .sheet-grabber {
+  display: block; position: sticky; top: 0; z-index: 1; height: 22px; margin: 0 calc(-1 * var(--space-8)) 2px;
+  touch-action: none; cursor: grab;
+}
 /* A menu with a search or a Done: they stay put, the items between them scroll. */
 .menu.framed-menu { display: flex; flex-direction: column; overflow: hidden; }
 .menu-items { display: grid; gap: 1px; grid-auto-rows: max-content; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y; }
