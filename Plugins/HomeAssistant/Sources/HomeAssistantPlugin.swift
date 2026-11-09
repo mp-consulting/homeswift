@@ -217,8 +217,9 @@ public actor HomeAssistantPlugin: HomeswiftPlugin {
             let version = await session.version ?? config.version ?? ""
             logger.info("Connected to Home Assistant \(version) (\(config.locationName ?? "home")): \(states.count) entities")
             connectedNow()
-            sync()
+            // Connected before the accessories are built, so a new one is added answering, not No Response.
             setConnected(true)
+            sync()
             consumer = Task { [weak self] in
                 for await event in events { await self?.handle(event) }
             }
@@ -478,6 +479,18 @@ public actor HomeAssistantPlugin: HomeswiftPlugin {
                 }
             }
         }
+        // Whole before it is added: its entities' states, its battery and whether it answers, so neither HomeKit nor a
+        // reader of the bridge sees it a moment with the services' defaults (a lock unsecured, a plug off) or No Response.
+        let sources = Set(part.entities.map(\.entityID))
+        for function in made where !(function is BatteryFunction) {
+            if let state = states[function.entityID], state.hasValue { function.update(state) }
+        }
+        if let battery = made.first(where: { $0 is BatteryFunction }) {
+            for entity in part.entities where entity.feedsBattery {
+                if let state = states[entity.entityID], state.hasValue { battery.update(state) }
+            }
+        }
+        accessory.isUnavailable = !connected || (!sources.isEmpty && sources.allSatisfy { states[$0]?.isUnavailable ?? true })
         let isNew = built[part.accessoryID] == nil && context.accessory(id: part.accessoryID) == nil
         do {
             try context.add(accessory)
@@ -486,7 +499,7 @@ public actor HomeAssistantPlugin: HomeswiftPlugin {
             return
         }
         if isNew { logger.info("New accessory: \(device.name)\(part.mirrored ? " (mirrored, not in HomeKit)" : "")") }
-        let item = Built(accessory: accessory, signature: part.signature, functions: made, sources: Set(part.entities.map(\.entityID)), controllers: controllers)
+        let item = Built(accessory: accessory, signature: part.signature, functions: made, sources: sources, controllers: controllers)
         built[part.accessoryID] = item
     }
 }

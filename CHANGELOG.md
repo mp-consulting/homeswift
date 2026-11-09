@@ -37,6 +37,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Home Assistant**: a new accessory is added with its entities' states, its battery and its availability already
+  applied, so HomeKit never sees it a moment with the services' defaults (a lock unsecured, a plug off) or No Response.
 - A light restored from the accessory cache, before its plugin found it again, was not a Lightbulb to what looked for
   one (a remote's dimmer, its light choices): a service type is now its UUID.
 
