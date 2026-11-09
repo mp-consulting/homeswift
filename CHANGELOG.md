@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows
 - **Matter Devices**: adding a Thread device on a host that has no route to its Thread network (a Linux kernel that
   does not learn the border routers' routes, as on a Synology NAS) now says so and names the network's prefix, instead
   of asking for a new code. The plugin's README explains how to add the route.
+- **Web UI**: on a phone, a card's menu sheet that is taller than the screen (the Accessories filter) keeps its grabber
+  at the top as it scrolls, instead of scrolling it under the sheet's edge where it could not be dragged.
 - **Matter Devices**: a Thread device it already has that stops answering on such a host (after a restart, or a new
   Thread prefix) says the same on the plugin's page, rather than only that it does not answer.
 
