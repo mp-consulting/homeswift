@@ -178,6 +178,75 @@
         ],
         "x-default": "gradientPoints"
       },
+      "powerOn": {
+        "title": "Power On",
+        "type": "string",
+        "oneOf": [
+          {
+            "title": "Default · warm white, full brightness",
+            "enum": [
+              "default"
+            ]
+          },
+          {
+            "title": "Last on · its last colour and brightness",
+            "enum": [
+              "lastOn"
+            ]
+          },
+          {
+            "title": "Power loss recovery · off or on, as it was",
+            "enum": [
+              "powerLoss"
+            ]
+          },
+          {
+            "title": "Custom · the brightness and white below",
+            "enum": [
+              "custom"
+            ]
+          }
+        ],
+        "description": "What this light does when its power comes on, from a wall switch or after a power cut, as the Hue app's Power on. Empty leaves it as the Hue Bridge has it.",
+        "x-kinds": [
+          "light"
+        ]
+      },
+      "powerOnBrightness": {
+        "title": "Power On Brightness (%)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "With Custom: its brightness when its power comes on. Empty keeps its last.",
+        "x-kinds": [
+          "light"
+        ],
+        "x-schema-form": {
+          "type": "slider",
+          "track": "brightness",
+          "unit": "%",
+          "condition": "model.powerOn === 'custom'"
+        }
+      },
+      "powerOnTemperature": {
+        "title": "Power On White (K)",
+        "type": "integer",
+        "minimum": 2000,
+        "maximum": 6500,
+        "description": "With Custom: its white when its power comes on, 2000 to 6500 K. Empty keeps its last colour.",
+        "x-kinds": [
+          "light"
+        ],
+        "x-schema-form": {
+          "type": "slider",
+          "track": "white",
+          "unit": "K",
+          "min": 2000,
+          "max": 6500,
+          "step": 50,
+          "condition": "model.powerOn === 'custom'"
+        }
+      },
       "transitionMs": {
         "title": "Transition",
         "type": "integer",
@@ -331,7 +400,17 @@
       "A switch for each effect this light has. Empty takes the plugin's setting.": "Un interrupteur pour chaque effet de cette lampe. Vide prend le réglage du plugin.",
       "A switch that makes this light flash for a few seconds. Empty takes the plugin's setting.": "Un interrupteur qui fait clignoter cette lampe quelques secondes. Vide prend le réglage du plugin.",
       "On a gradient lightstrip or lamp, a light for each colour point. Empty takes the plugin's setting.": "Sur un ruban ou une lampe à dégradé, une lampe pour chaque point de couleur. Vide prend le réglage du plugin.",
-      "How long the lights take to reach this scene. Empty takes the plugin's transition.": "Le temps que mettent les lampes pour atteindre cette scène. Vide prend la transition du plugin."
+      "How long the lights take to reach this scene. Empty takes the plugin's transition.": "Le temps que mettent les lampes pour atteindre cette scène. Vide prend la transition du plugin.",
+      "Power On": "Mise sous tension",
+      "Default · warm white, full brightness": "Par défaut · blanc chaud, pleine luminosité",
+      "Last on · its last colour and brightness": "Dernier état · ses dernières couleur et luminosité",
+      "Power loss recovery · off or on, as it was": "Après une coupure · éteinte ou allumée, comme avant",
+      "Custom · the brightness and white below": "Personnalisé · la luminosité et le blanc ci-dessous",
+      "What this light does when its power comes on, from a wall switch or after a power cut, as the Hue app's Power on. Empty leaves it as the Hue Bridge has it.": "Ce que fait cette lumière quand le courant revient, par un interrupteur mural ou après une coupure, comme le réglage Mise sous tension de l'app Hue. Vide, elle reste comme le pont Hue la règle.",
+      "Power On Brightness (%)": "Luminosité à la mise sous tension (%)",
+      "With Custom: its brightness when its power comes on. Empty keeps its last.": "Avec Personnalisé : sa luminosité quand le courant revient. Vide, elle garde la dernière.",
+      "Power On White (K)": "Blanc à la mise sous tension (K)",
+      "With Custom: its white when its power comes on, 2000 to 6500 K. Empty keeps its last colour.": "Avec Personnalisé : son blanc quand le courant revient, de 2000 à 6500 K. Vide, elle garde sa dernière couleur."
     },
     "es": {
       "Sensors and Switches": "Sensores e interruptores",
@@ -373,7 +452,17 @@
       "A switch for each effect this light has. Empty takes the plugin's setting.": "Un interruptor para cada efecto de esta luz. Vacío toma el ajuste del plugin.",
       "A switch that makes this light flash for a few seconds. Empty takes the plugin's setting.": "Un interruptor que hace parpadear esta luz unos segundos. Vacío toma el ajuste del plugin.",
       "On a gradient lightstrip or lamp, a light for each colour point. Empty takes the plugin's setting.": "En una tira o lámpara degradada, una luz para cada punto de color. Vacío toma el ajuste del plugin.",
-      "How long the lights take to reach this scene. Empty takes the plugin's transition.": "Lo que tardan las luces en llegar a esta escena. Vacío toma la transición del plugin."
+      "How long the lights take to reach this scene. Empty takes the plugin's transition.": "Lo que tardan las luces en llegar a esta escena. Vacío toma la transición del plugin.",
+      "Power On": "Al encenderse",
+      "Default · warm white, full brightness": "Predeterminado · blanco cálido, brillo máximo",
+      "Last on · its last colour and brightness": "Último estado · su último color y brillo",
+      "Power loss recovery · off or on, as it was": "Tras un corte · apagada o encendida, como estaba",
+      "Custom · the brightness and white below": "Personalizado · el brillo y el blanco de abajo",
+      "What this light does when its power comes on, from a wall switch or after a power cut, as the Hue app's Power on. Empty leaves it as the Hue Bridge has it.": "Lo que hace esta luz cuando le llega la corriente, desde un interruptor de pared o tras un corte, como el ajuste Al encenderse de la app Hue. Vacío, la deja como la tiene el puente Hue.",
+      "Power On Brightness (%)": "Brillo al encenderse (%)",
+      "With Custom: its brightness when its power comes on. Empty keeps its last.": "Con Personalizado: su brillo cuando le llega la corriente. Vacío, conserva el último.",
+      "Power On White (K)": "Blanco al encenderse (K)",
+      "With Custom: its white when its power comes on, 2000 to 6500 K. Empty keeps its last colour.": "Con Personalizado: su blanco cuando le llega la corriente, de 2000 a 6500 K. Vacío, conserva su último color."
     },
     "pt": {
       "Sensors and Switches": "Sensores e interruptores",
@@ -415,7 +504,17 @@
       "A switch for each effect this light has. Empty takes the plugin's setting.": "Um interruptor para cada efeito desta luz. Vazio usa a definição do plugin.",
       "A switch that makes this light flash for a few seconds. Empty takes the plugin's setting.": "Um interruptor que faz piscar esta luz durante alguns segundos. Vazio usa a definição do plugin.",
       "On a gradient lightstrip or lamp, a light for each colour point. Empty takes the plugin's setting.": "Numa fita ou candeeiro com gradiente, uma luz para cada ponto de cor. Vazio usa a definição do plugin.",
-      "How long the lights take to reach this scene. Empty takes the plugin's transition.": "O tempo que as luzes demoram a chegar a esta cena. Vazio usa a transição do plugin."
+      "How long the lights take to reach this scene. Empty takes the plugin's transition.": "O tempo que as luzes demoram a chegar a esta cena. Vazio usa a transição do plugin.",
+      "Power On": "Ao ligar",
+      "Default · warm white, full brightness": "Predefinido · branco quente, brilho máximo",
+      "Last on · its last colour and brightness": "Último estado · a sua última cor e brilho",
+      "Power loss recovery · off or on, as it was": "Após um corte · desligada ou ligada, como estava",
+      "Custom · the brightness and white below": "Personalizado · o brilho e o branco abaixo",
+      "What this light does when its power comes on, from a wall switch or after a power cut, as the Hue app's Power on. Empty leaves it as the Hue Bridge has it.": "O que esta luz faz quando a corrente volta, num interruptor de parede ou após um corte, como a definição Ao ligar da app Hue. Vazio, fica como a ponte Hue a tem.",
+      "Power On Brightness (%)": "Brilho ao ligar (%)",
+      "With Custom: its brightness when its power comes on. Empty keeps its last.": "Com Personalizado: o seu brilho quando a corrente volta. Vazio, mantém o último.",
+      "Power On White (K)": "Branco ao ligar (K)",
+      "With Custom: its white when its power comes on, 2000 to 6500 K. Empty keeps its last colour.": "Com Personalizado: o seu branco quando a corrente volta, de 2000 a 6500 K. Vazio, mantém a sua última cor."
     }
   }
 }

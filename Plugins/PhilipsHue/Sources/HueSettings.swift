@@ -5,15 +5,20 @@ import HomeswiftPlugin
 // `pollingInterval`, `scenes`, `roomLights`, `dynamicScenes`, `effects`, `flashSwitch`, `gradientPoints`, `sensors`).
 // Each light (Device Id: its light id), sensor or switch (`device:<id>`) and scene (its scene id) has its Accessory
 // Settings in `_accessories`: Excluded, and the plugin's own (a light's `effects`, `flashSwitch` and `gradientPoints`, a
-// scene's `transitionMs`), whose plugin-wide defaults are the options of the same names. The Homebridge-shaped lists
+// scene's `transitionMs`), whose plugin-wide defaults are the options of the same names, and a light's Power on
+// (`powerOn`, `powerOnBrightness`, `powerOnTemperature`, `HuePowerUp.swift`), which has none. The Homebridge-shaped lists
 // (`excludeLights`, `excludeSensors`, `excludeScenes` by name or id, `sceneTransitions` by "Room/Scene" or name) still
 // load, and `canonicalSettings` moves what the bridge's names resolve into `_accessories`.
 extension PhilipsHuePlugin {
-    /// A light's own Plugin Accessory Settings; nil takes the plugin-wide option.
+    /// A light's own Plugin Accessory Settings; nil takes the plugin-wide option. Its Power on (`HuePowerUp.swift`) has
+    /// none: empty leaves the light as the bridge has it.
     struct LightOptions: Decodable, Sendable {
         var effects: Bool?
         var flashSwitch: Bool?
         var gradientPoints: Bool?
+        var powerOn: String?
+        var powerOnBrightness: Int?
+        var powerOnTemperature: Int?
     }
 
     /// A scene's own Plugin Accessory Settings.
