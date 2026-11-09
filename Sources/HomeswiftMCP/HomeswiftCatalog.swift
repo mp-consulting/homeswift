@@ -577,6 +577,9 @@ public struct HomeswiftCatalog: Sendable {
                     "external": .bool(bridge.isExternal),
                     "accessories": .number(Double(bridge.isExternal ? 1 : max(0, server.accessories.count - 1))),
                     "platforms": .array(bridge.isExternal ? [bridge.owner.map { .string($0) } ?? .null] : platforms.filter { $0.bridge === bridge }.map { .string($0.name) }),
+                    // How many accessories each of its plugins has there, which the Status page sizes its tags by.
+                    "platformAccessories": .object(Dictionary(platforms.filter { $0.bridge === bridge }.map { ($0.name, JSONValue.number(Double($0.accessoryIDs.count))) },
+                                                              uniquingKeysWith: { first, _ in first })),
                 ]
                 if includePairing, !server.isPaired {
                     entry["setupCode"] = .string(server.setupCode.description)

@@ -806,6 +806,25 @@
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
+    // A bridge's plugins as a cloud: each tag as large as its share of the accessories there (by its square root, so a
+    // plugin of many does not crowd out the rest), in one of the charts' colours chosen by its name, the largest in the
+    // middle.
+    const pluginCloud = (bridge) => {
+      const counts = bridge.platformAccessories ?? {};
+      const most = Math.max(1, ...bridge.platforms.map((name) => counts[name] ?? 0));
+      const tone = (name) => [...name].reduce((sum, letter) => (sum * 31 + letter.charCodeAt(0)) % 997, 7) % 7 + 1;
+      const arranged = [];
+      bridge.platforms.slice().sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0) || a.localeCompare(b))
+        .forEach((name, index) => { if (index % 2) arranged.push(name); else arranged.unshift(name); });
+      return el("div", { class: "chips plugin-cloud" }, arranged.map((name) => {
+        const count = counts[name] ?? 0;
+        const tag = el("span", { class: `chip cloud-tag tone-${tone(name)}`, "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
+          el("span", { text: name }), el("span", { class: "cloud-count", "aria-hidden": "true", text: String(count) }));
+        tag.style.setProperty("--weight", Math.sqrt(count / most).toFixed(3));
+        return tag;
+      }));
+    };
+
     // A server's heading (icon, name, role, state) and the rest of its card: a bridge's card shows both; an accessory of
     // its own is a row of the devices list, its heading the row and the rest unfolded.
     const bridgeParts = (bridge, index) => {
@@ -818,7 +837,7 @@
           el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })],
         body: () => [el("div", { class: "facts lead" },
           fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
-        !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
+        !bridge.external && bridge.platforms.length ? pluginCloud(bridge) : null,
         bridge.setupCode ? el("div", { class: "setup" },
           el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
           el("div", {},

@@ -630,16 +630,11 @@
       return select;
     }
     if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {
-      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, "aria-label": typeName(characteristic.type) });
-      const value = el("span", { class: "value" });
-      let timer = null;
-      input.addEventListener("input", () => {
-        value.textContent = withUnit(Number(input.value), characteristic);
-        clearTimeout(timer);
-        timer = setTimeout(() => { timer = null; write(Number(input.value)); }, 250);
-      });
-      ctx.watch(() => { if (!timer) { input.value = characteristic.value ?? 0; value.textContent = formatValue(characteristic); } });
-      return el("span", { class: "range" }, input, value);
+      // The widgets' slider, as a light's brightness: a TV's contrast, a fan's level, any number in a range.
+      const control = level({ label: typeName(characteristic.type), showLabel: false, min: characteristic.minValue, max: characteristic.maxValue,
+        step: characteristic.minStep || 1, format: (v) => withUnit(v, characteristic), thin: true }, (v) => write(v));
+      ctx.watch(() => control.set(characteristic.value ?? 0));
+      return control.node;
     }
     if (writable && characteristic.format === "string") {
       const input = el("input", { type: "text", "aria-label": typeName(characteristic.type) });
@@ -2494,6 +2489,10 @@
     level,
     /// A colour temperature track from `low` to `high` kelvin, warm to cool, as a light's white slider has.
     whiteTrack,
+    /// The hues round the colour wheel, red to red, as a hue slider's track.
+    hueTrack: () => `linear-gradient(90deg, ${[0, 60, 120, 180, 240, 300, 360].map((h) => `${wheelColor(h, 100)} ${(h / 3.6).toFixed(1)}%`).join(", ")})`,
+    /// A hue from white to its fullest, as a saturation slider's track.
+    saturationTrack: (h) => `linear-gradient(90deg, ${wheelColor(h, 0)}, ${wheelColor(h, 100)})`,
     /// A brightness slider's fill in a neutral white, for a light the form has no colour of.
     brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a

@@ -1433,6 +1433,21 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A bridge's plugins as a cloud (app.js pluginCloud): a tag's size and weight grow with its share of the accessories
+   (--weight, 0 to 1), each tinted with a series colour. */
+.plugin-cloud { justify-content: center; align-items: center; gap: var(--space-6) var(--space-8); }
+.cloud-tag { --tag: var(--series-1); display: inline-flex; align-items: center; gap: 0.4em; font-size: calc(var(--text-xs) + var(--weight, 0) * 0.95rem); font-weight: calc(480 + var(--weight, 0) * 260);
+  padding: calc(2px + var(--weight, 0) * 5px) calc(var(--space-8) + var(--weight, 0) * 8px); line-height: 1.25;
+  color: color-mix(in srgb, var(--tag) 78%, var(--text)); background: color-mix(in srgb, var(--tag) 13%, transparent); border-color: color-mix(in srgb, var(--tag) 32%, transparent); }
+/* Its accessories, as a badge in the tag's colour. */
+.cloud-count { min-width: 1.5em; padding: 0.1em 0.45em; border-radius: var(--radius-pill); font-size: 0.72em; font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums; text-align: center; line-height: 1.3; color: #fff; background: var(--tag); }
+.cloud-tag.tone-2 { --tag: var(--series-2); }
+.cloud-tag.tone-3 { --tag: var(--series-3); }
+.cloud-tag.tone-4 { --tag: var(--series-4); }
+.cloud-tag.tone-5 { --tag: var(--series-5); }
+.cloud-tag.tone-6 { --tag: var(--series-6); }
+.cloud-tag.tone-7 { --tag: var(--series-7); }
 /* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
 .chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
 /* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
@@ -2796,7 +2811,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
 }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
-.animation-colours { display: flex; gap: var(--space-10); }
+.animation-colours { display: grid; gap: var(--space-12); }
 .animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
@@ -3888,25 +3903,13 @@ fieldset > button,
 .group-box .help + .actions { margin-top: var(--space-14); }
 fieldset > .help { margin-bottom: var(--space-10); }
 
-.scene-value-slider { display: flex; flex-direction: column; gap: var(--space-10); width: 100%; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
-.scene-slider-value { align-self: flex-end; font-size: var(--text-base); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-.scene-value-slider input[type=range] { width: 100%; min-height: 24px; padding: 0; }
-.scene-value-slider.temperature input[type=range] { background: linear-gradient(90deg, #b9d9ff, #fff5df, #ffb64c); border-radius: var(--radius-md); }
-.scene-value-slider.brightness input[type=range] { accent-color: var(--accent); }
-
-/* Color belongs to the slider track, not the surrounding input box. */
-.scene-value-slider { --scene-track: linear-gradient(90deg, #665c45, #f6d77e, #fff6d7); }
-.scene-value-slider.temperature { --scene-track: linear-gradient(90deg, #a8ceff, #e1edff, #fff4de, #ffd180, #ff9f36); }
-.scene-value-slider input[type=range],
-.scene-value-slider.temperature input[type=range] {
-  -webkit-appearance: none; appearance: none; background: transparent; border: 0; box-shadow: none;
-  height: 32px; cursor: pointer;
-}
-.scene-value-slider input[type=range]::-webkit-slider-runnable-track { height: 12px; border-radius: var(--radius-pill); background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
-.scene-value-slider input[type=range]::-moz-range-track { height: 12px; border-radius: var(--radius-pill); background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
-.scene-value-slider input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -6px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
-.scene-value-slider input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
-.scene-value-slider input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
+/* A scene's values on the wall's sliders (home.js valueInput, colorInput): coloured as a light's, as wide as their row; a
+   colour is its swatch beside its hue and saturation. */
+.scene-value-slider { display: block; width: 100%; }
+.scene-value-slider > .level, .scene-color-sliders > .level, .animation-settings .level { width: 100%; }
+.scene-color { display: flex; align-items: center; gap: var(--space-10); width: 100%; }
+.scene-color-swatch { flex: none; width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--edge), var(--shadow-control); }
+.scene-color-sliders { display: grid; gap: var(--space-6); flex: 1; min-width: 0; }
 
 .dashboard-quick-actions { gap: var(--space-12) var(--space-20); flex-wrap: wrap; }
 .dashboard-quick-actions > .link { display: inline-flex; align-items: center; gap: var(--space-8); }
@@ -4917,7 +4920,6 @@ select option:disabled { color: var(--muted); }
 .appearance-card-title svg { width: 22px; height: 22px; color: var(--accent-ink); flex: none; }
 .appearance .group .menu-flag { margin-right: var(--space-6); }
 
-.scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
 .template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }

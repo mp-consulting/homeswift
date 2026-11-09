@@ -6,11 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The Status page's bridge card shows its plugins as a cloud: each tag as large as its share of the accessories, in its
+  own colour, with its count as a badge.
+- The scene editor's values, a scene animation's speed and brightness, and an accessory's number controls (a TV's
+  contrast) use the wall's sliders: a light's warm fill, its whites, the colour wheel's hues. A colour is a hue and a
+  saturation on those sliders beside a swatch, rather than the browser's colour picker.
+
 ### Fixed
 
 - **Matter Devices**: adding a Thread device on a host that has no route to its Thread network (a Linux kernel that
   does not learn the border routers' routes, as on a Synology NAS) now says so and names the network's prefix, instead
   of asking for a new code. The plugin's README explains how to add the route.
+- A history chart built before it was shown (an accessory's Consumption by day) stayed at its smallest width; its
+  value labels lost their first digit ("12.5 kWh"), the last two day labels overlapped, and months of days read as
+  hatching.
 
 ## [0.27.0] - 2026-11-09
 
