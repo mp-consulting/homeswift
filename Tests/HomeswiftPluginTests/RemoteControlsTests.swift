@@ -23,7 +23,7 @@ struct RemoteControlsTests {
         let environment = TestEnvironment()
         let host = try PluginHost(configuration: try Self.configuration("""
             [{ "part": "b1", "gesture": "press", "action": "toggle", "targets": ["Recording:lamp"] },
-             { "part": "b1", "gesture": "hold", "action": "dim", "direction": "up", "targets": ["Recording:lamp"], "step": 10 }]
+             { "part": "b1", "gesture": "hold", "action": "dim", "direction": "up", "targets": ["Recording:lamp"], "step": 5 }]
             """), registry: environment.registry, storageDirectory: environment.directory, options: environment.options)
         try await host.start()
         let lamp = try Self.lamp(host)
@@ -38,12 +38,13 @@ struct RemoteControlsTests {
         await plugin.press("remote", "b1", HAPConstants.ProgrammableSwitchEvent.singlePress)
         #expect(await eventually { lamp[.on]?.value.boolValue == true })
         #expect(sources.withLockedValue { $0 }.contains(.remote("remote · remote b1")))
-        // HomeKit's long press, whose end never comes: a timed hold, brightening a while, then stopping on its own.
+        // HomeKit's long press, whose end never comes: a timed hold, its steps (`timedHold` / `holdInterval`, 6 of 5 %)
+        // brightening from 50 %, then stopping on its own however slowly they come.
         await plugin.press("remote", "b1", HAPConstants.ProgrammableSwitchEvent.longPress)
-        #expect(await eventually { (lamp[.brightness]?.value.intValue ?? 0) >= 80 })
-        let held = lamp[.brightness]?.value.intValue ?? 0
-        try await Task.sleep(for: ControlRunner.holdInterval * 4)
-        #expect(lamp[.brightness]?.value.intValue == held || (lamp[.brightness]?.value.intValue ?? 0) == 100)
+        let steps = Int(RemoteControls.timedHold / ControlRunner.holdInterval)
+        #expect(await eventually { lamp[.brightness]?.value.intValue == 50 + steps * 5 })
+        try await Task.sleep(for: ControlRunner.holdInterval * 3)
+        #expect(lamp[.brightness]?.value.intValue == 50 + steps * 5)
         // A Button without a Control does nothing.
         await plugin.press("remote", "b2", HAPConstants.ProgrammableSwitchEvent.singlePress)
         await host.stop()
