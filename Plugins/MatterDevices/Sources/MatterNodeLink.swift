@@ -183,6 +183,14 @@ actor MatterNodeLink {
         subscriptionID = id
         defer { Task { [client = commissioner.client] in await client.cancelSubscription(id) } }
 
+        // Connected once the priming report is in and handled: from then on what the node reports is acted on, so
+        // whatever waits for the link (a remote's next press) is not taken for the priming report's past.
+        try await follow(reports, maxInterval: maxInterval) { [weak self] in
+            await self?.connected(at: reached.description, maxInterval: maxInterval)
+        }
+    }
+
+    private func connected(at address: String, maxInterval: UInt16) async {
         status = .connected
         failures = 0
         // A reconnect asked for while this session was being opened is done: it is not the next failure's.
@@ -190,13 +198,13 @@ actor MatterNodeLink {
         lastError = nil
         connectedSince = Date()
         await handlers.status(.connected, nil)
-        logger.info("Matter node \(deviceID) connected", metadata: ["address": "\(reached.description)", "maxInterval": "\(maxInterval)"])
-        try await follow(reports, maxInterval: maxInterval)
+        logger.info("Matter node \(deviceID) connected", metadata: ["address": "\(address)", "maxInterval": "\(maxInterval)"])
     }
 
     /// Reads the subscription's reports until it goes silent for longer than the node promised (its max interval and
     /// a grace), or the link is asked to reconnect: either ends the subscription, which ends its stream.
-    private func follow(_ reports: AsyncStream<InteractionClient.SubscriptionReport>, maxInterval: UInt16) async throws {
+    private func follow(_ reports: AsyncStream<InteractionClient.SubscriptionReport>, maxInterval: UInt16,
+                        primed: () async -> Void) async throws {
         // A subscriber SHALL end a subscription that sent no report within its max interval (Core §8.5); as
         // connectedhomeip does, the time the node's own retransmissions take to deliver a report is added.
         let deadline = Duration.seconds(Int(maxInterval)) + max(timing.grace, Self.deliveryTime(address?.parameters ?? .default))
@@ -218,6 +226,7 @@ actor MatterNodeLink {
             let records = report.events.compactMap { if case .data(let record) = $0 { record } else { nil } }
             if let last = records.map(\.number).max(), last < .max { eventMin = max(eventMin ?? 0, last + 1) }
             await handlers.report(report.attributes, records, priming)
+            if priming { await primed() }
             priming = false
         }
         if Task.isCancelled { throw CancellationError() }
