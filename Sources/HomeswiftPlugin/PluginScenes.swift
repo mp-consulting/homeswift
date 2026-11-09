@@ -180,9 +180,12 @@ extension PluginHost {
     }
 
     private func runningPlugin(platform: String, name: String) throws -> any HomeswiftPlugin {
-        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else {
-            throw PluginSceneError("\(name) is not running")
-        }
-        return running.plugin
+        guard let plugin = running(platform: platform, name: name) else { throw PluginSceneError("\(name) is not running") }
+        return plugin
+    }
+
+    /// The plugin of the instance `name` of `platform`, while it runs.
+    func running(platform: String, name: String) -> (any HomeswiftPlugin)? {
+        runningPlugins().first { $0.instance.context.platform == platform && $0.instance.context.name == name }?.plugin
     }
 }

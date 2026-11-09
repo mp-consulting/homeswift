@@ -591,6 +591,24 @@ Two hooks, both optional, help the settings editor and the writers:
   depend on the home rather than on the schema (the accessories a Helper reads), for one device. The settings editor
   shows them as the field's choices, a menu or, for a list, checkboxes; the writers still check the schema's own
   declaration, so the plugin checks what it reads. nil (the default) leaves the schema's.
+- **`context.homeScenes`** (`HomeScenes?`): the home's Scenes, Homeswift's own and its hubs' (`list()`: id, name, room),
+  and `run(id)`, which runs one as an Automation's step does (locks, garage doors and alarms left as they are). For a
+  plugin that offers a scene as a setting's choice (a remote's double press, `SetupOption.group` "Scenes") and runs it.
+  nil in a context no host runs.
+- **`SetupOption.group`**: what sort of choice it is ("Lights", "Blinds", "Switches", "Scenes"); the settings editor
+  groups a list by it, and a long list's searchable menu filters by it.
+- **`accessorySettingWording(_ key:deviceID:) async -> SettingWording?`**: a setting's title and description for one
+  device, when they depend on what its other settings chose (a remote channel's shutters: Opens rather than Brightens),
+  in English, translated by the schema's `i18n`. The editor fetches the fields again after each change of the plugin's
+  settings and redraws them when their words or choices changed. A choice whose label is the plugin's own words rather
+  than a name from the home is `SetupOption(…, isWording: true)`, translated the same way.
+- **`accessorySettingKeys(deviceID:) async -> Set<String>?`**: which Plugin Accessory Settings apply to one device, when
+  that depends on the device rather than on its Device Kind (a remote's `light<N>`, one per channel it has). The editor
+  shows only those, and one that has a value saved, so it can be cleared. nil (the default) shows every field of its kind.
+- **`static var appliesAccessorySettingsLive: Bool`**: true when the plugin reads its Plugin Accessory Settings
+  (`context.accessorySettings(for:).plugin`) each time it uses them rather than once at start: a change to them then
+  keeps the plugin running with the new values instead of reloading it (a Matter remote's channels, saved while every
+  node stays connected). A change to the Core Accessory Settings it reads (Excluded, parts) still reloads it. False by default.
 - **`canonicalSettings(_ block: JSONValue) async -> JSONValue`**: the block in its canonical shape. The bridge asks the
   running instance just before each settings write to the block (`update_settings` and the web UI's settings, Setup's
   last step, Exclude and Include) and writes what it answers. Turn the plugin's Homebridge shapes (a `devices` list,

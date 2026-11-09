@@ -187,6 +187,16 @@ actor DevicesPlugin: HomeswiftPlugin {
         ["lamp": "light", "lock": "lock"][deviceID]
     }
 
+    /// The lock's Show as has words of its own.
+    func accessorySettingWording(_ key: String, deviceID: String) async -> SettingWording? {
+        deviceID == "lock" && key == "showAs" ? SettingWording(title: "Shown in the Home app as") : nil
+    }
+
+    /// Of its Plugin Accessory Settings, only Show as means anything to the lock; the others say nothing.
+    func accessorySettingKeys(deviceID: String) async -> Set<String>? {
+        deviceID == "lock" ? ["showAs"] : nil
+    }
+
     /// The Homebridge shape it reads: `legacyExcluded`, a list of Device Ids, becomes Excluded in `_accessories`, and is
     /// kept in the account's vault entry once the block is written (as a plugin moves a legacy token there).
     func canonicalSettings(_ block: JSONValue) async -> JSONValue {

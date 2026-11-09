@@ -405,15 +405,11 @@ struct ServiceMapping: Sendable {
 
     // MARK: - Conversions
 
-    /// HAP Brightness 0–100 % to Matter CurrentLevel 1–254.
-    static func level(percent: Double) -> UInt8 {
-        UInt8(max(1, min(254, (min(max(percent, 0), 100) * 254 / 100).rounded())))
-    }
+    /// HAP Brightness 0–100 % to Matter CurrentLevel 1–254 (swift-matter's, which the Matter Devices plugin uses too).
+    static func level(percent: Double) -> UInt8 { LevelControlCluster.level(percent: percent) }
 
     /// Matter CurrentLevel 1–254 to HAP Brightness, at least 1 % so a dimmed light stays on.
-    static func percent(level: UInt8) -> Int {
-        max(1, Int((Double(min(level, 254)) * 100 / 254).rounded()))
-    }
+    static func percent(level: UInt8) -> Int { LevelControlCluster.percent(level: UInt64(level)) }
 
     /// A value in 0...range (hue's degrees, saturation's percent) to Matter's 0–254.
     static func scale(_ value: Double, from range: Double) -> UInt8 {

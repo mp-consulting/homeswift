@@ -237,8 +237,17 @@ public struct SetupOption: Sendable, Codable, Equatable {
     public var country: String?
     /// The language tag the option is (`fr-FR`).
     public var language: String?
+    /// What sort of choice it is, for people, in English ("Lights", "Blinds", "Scenes"): a long list's menu filters and
+    /// groups by it.
+    public var group: String?
+    /// Its label is the plugin's own words, in English, which its schema's `i18n` translates ("Opens"), rather than a name
+    /// from the home kept as it is (an accessory's).
+    public var isWording: Bool
 
-    public init(_ value: String, label: String, detail: String? = nil, badge: String? = nil, country: String? = nil, language: String? = nil) {
+    public init(_ value: String, label: String, detail: String? = nil, badge: String? = nil, country: String? = nil, language: String? = nil,
+                group: String? = nil, isWording: Bool = false) {
+        self.group = group
+        self.isWording = isWording
         self.value = value
         self.label = label
         self.detail = detail
@@ -272,6 +281,20 @@ public struct SetupOption: Sendable, Codable, Equatable {
         return tags.compactMap { tag in
             english.localizedString(forIdentifier: tag.replacingOccurrences(of: "-", with: "_")).map { SetupOption(tag, label: $0, language: tag) }
         }.sorted { $0.label < $1.label }
+    }
+}
+
+extension SetupOption {
+    private enum CodingKeys: String, CodingKey { case value, label, detail, badge, country, language, group, isWording }
+
+    /// Older JSON (without `group` or `isWording`) still reads: no group, a name kept as it is.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(try container.decode(String.self, forKey: .value), label: try container.decode(String.self, forKey: .label),
+                  detail: try container.decodeIfPresent(String.self, forKey: .detail), badge: try container.decodeIfPresent(String.self, forKey: .badge),
+                  country: try container.decodeIfPresent(String.self, forKey: .country),
+                  language: try container.decodeIfPresent(String.self, forKey: .language), group: try container.decodeIfPresent(String.self, forKey: .group),
+                  isWording: try container.decodeIfPresent(Bool.self, forKey: .isWording) ?? false)
     }
 }
 

@@ -66,8 +66,11 @@ extension HomeswiftCatalog {
         guard var object = field.objectValue else { return field }
         let oneOf = JSONValue.array(choices.map { choice in
             // The title as it is (an accessory's name), the detail words the web UI's catalogs translate: "title · detail".
-            var option: [String: JSONValue] = ["enum": [.string(choice.value)], "title": .string(choice.label), "x-catalog": true]
+            // A name from the home kept as it is (`x-catalog`), or the plugin's own words, which its schema's i18n translates.
+            var option: [String: JSONValue] = ["enum": [.string(choice.value)], "title": .string(choice.label)]
+            if !choice.isWording { option["x-catalog"] = true }
             if let detail = choice.detail { option["x-detail"] = .string(detail) }
+            if let group = choice.group { option["x-group"] = .string(group) }
             return .object(option)
         })
         if object["type"] == "array" {
@@ -258,13 +261,24 @@ extension HomeswiftCatalog {
             name["readOnly"] = true
             fields["name"] = .object(name)
         }
+        let applicable = await host.accessorySettingKeys(platform: target.platform, name: target.instance, deviceID: target.deviceKey)
+        let stored = block["_accessories"]?[target.deviceKey]?.objectValue ?? [:]
         for (key, field) in accessoryFields(for: target.platform) {
             if let kind, let kinds = Self.kinds(of: field), !kinds.contains(kind) { continue }
-            if kind == nil, Self.kinds(of: field) != nil, !(block["_accessories"]?[target.deviceKey]?[key].map { !$0.isNull } ?? false) { continue }
+            // Those the plugin says apply to this device, and any with a value saved (so it can be cleared).
+            if let applicable, !applicable.contains(key), stored[key].map({ $0.isNull }) ?? true { continue }
+            if kind == nil, Self.kinds(of: field) != nil, !(stored[key].map { !$0.isNull } ?? false) { continue }
             // Its choices for this device's kind only (`x-kinds` on a choice), or those the plugin gives for this device.
             var schema = kind.map { Self.forKind(field, kind: $0) } ?? field
             if let choices = await host.accessorySettingChoices(platform: target.platform, name: target.instance, key: key, deviceID: target.deviceKey) {
                 schema = Self.withChoices(schema, choices)
+            }
+            // Its words for this device (Opens rather than Brightens, for a remote channel's shutters).
+            if let wording = await host.accessorySettingWording(platform: target.platform, name: target.instance, key: key, deviceID: target.deviceKey),
+               var object = schema.objectValue {
+                if let title = wording.title { object["title"] = .string(title) }
+                if let description = wording.description { object["description"] = .string(description) }
+                schema = .object(object)
             }
             var entry: [String: JSONValue] = ["core": false, "schema": schema]
             if let setting = field["x-default"]?.stringValue {
@@ -280,6 +294,8 @@ extension HomeswiftCatalog {
         if let located = target.located { answer["name"] = .string(located.accessory.name) }
         // A plugin that makes its devices rather than finds them (a Helper): forgetting one deletes it for good.
         if let added = host.registry.entry(for: target.platform)?.newDevices, added.isMade, let label = added.label { answer["addLabel"] = .string(label) }
+        // Its Plugin Accessory Settings apply without reloading it (`HomeswiftPlugin.appliesAccessorySettingsLive`).
+        if host.registry.entry(for: target.platform)?.appliesAccessorySettingsLive == true { answer["appliesLive"] = true }
         if let source = target.located?.accessory.mirroredFrom { answer["mirroredFrom"] = .string(source) }
         // Separate Functions: offered for an accessory doing several things; a separated Function names its accessory.
         if let located = target.located {

@@ -1,17 +1,19 @@
 // Settings (docs/adr/0002-schema-declares-every-setting.md): an accessory's Accessory Settings in one view, drawn from
 // GET /api/settings/accessories/<id> (the sheet the wall's ⋯ opens, the plugin's Devices, Setup's last step), and a
 // plugin instance's Settings page (/plugins/<slug>/settings): its Plugin Settings form, its account and its devices.
-// Both draw the plugin's fields with app.js's one schema renderer (HomeswiftApp.buildForm). app.js lends its helpers
-// once the first view is drawn.
+// Both draw the plugin's fields with the one schema renderer (forms.js). app.js lends its helpers to the Settings page;
+// the accessory's sheet needs only common.js and forms.js, so a plugin page opens it over itself too
+// (plugin.js's openAccessorySettings).
 (() => {
   "use strict";
 
   const { el, tile } = HomeswiftCommon;
   const { t, tn } = HomeswiftI18n;
   const app = () => window.HomeswiftApp;
-  const api = (...args) => app().api(...args);
+  // The web UI's requests (its sign-in handling) under app.js; common.js's on a plugin page.
+  const api = (...args) => (app()?.api ?? HomeswiftCommon.api)(...args);
   const enc = encodeURIComponent;
-  const confirmAction = (options) => HomeswiftAdmin.confirmAction(options);
+  const confirmAction = (options) => HomeswiftCommon.confirmAction(options);
   /// An accessory's settings route, with the block it is in for one that is not on the bridge.
   const accessoryPath = (id, instance) => `/api/settings/accessories/${enc(id)}${instance ? `?instance=${enc(instance)}` : ""}`;
 
@@ -136,8 +138,30 @@
     node.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.isComposing && event.target.matches?.("input:not([type=checkbox])")) { event.preventDefault(); event.target.blur(); }
     });
+    /// What was drawn last: its fields, rooms and the plugin's schema file, for a redraw after a change.
+    let shown = null;
     const ready = load();
     return { node, ready };
+
+    /// After a change to one of the plugin's own settings, its other fields' words and choices may follow it (a remote
+    /// channel's shutters: Opens rather than Brightens): fetched again, and drawn again only when they changed, the open
+    /// groups kept open and the sheet where it was.
+    async function refreshFields() {
+      let next;
+      try { next = await api(accessoryPath(accessoryID, instance)); } catch { return; }
+      if (!shown || JSON.stringify(next.fields) === JSON.stringify(shown.answer.fields)) return;
+      const groupName = (details) => details.dataset.section || details.querySelector(":scope > summary")?.textContent;
+      const open = new Set([...node.querySelectorAll("details")].filter((details) => details.open).map(groupName));
+      const scroller = node.closest("dialog") ?? document.scrollingElement;
+      const top = scroller.scrollTop;
+      // The control that had the focus, by its place among the editor's controls: the redraw keeps their order.
+      const controls = () => [...node.querySelectorAll("input, select, textarea, button, summary, [tabindex]")];
+      const focused = controls().indexOf(document.activeElement);
+      draw(next, shown.home, shown.schemaFile);
+      for (const details of node.querySelectorAll("details")) details.open = open.has(groupName(details));
+      scroller.scrollTop = top;
+      if (focused >= 0) controls()[focused]?.focus({ preventScroll: true });
+    }
 
     async function load() {
       let answer, rooms, schemaFile;
@@ -155,6 +179,7 @@
     }
 
     function draw(answer, home, schemaFile) {
+      shown = { answer, home, schemaFile };
       node.removeAttribute("aria-busy");
       const settings = answer.settings ?? {};
       if (settings.name || answer.name) onTitle(settings.name || answer.name);
@@ -179,6 +204,7 @@
             }
           }
           onChange(key);
+          if (fields[key] && !fields[key].core) refreshFields();
           return true;
         } catch (e) {
           // The schema's words without their place in config.json (`_accessories.<id>.<key> must be…`): the field is the place.
@@ -313,13 +339,14 @@
         const declared = (setting) => schemaFile?.schema?.properties?.[setting]?.default ?? null;
         const defaults = Object.fromEntries(own.filter(([, field]) => field.default).map(([key, field]) => [key, field.default.value ?? declared(field.default.setting)]));
         const values = Object.fromEntries(own.filter(([key]) => key in settings).map(([key]) => [key, settings[key]]));
-        const form = app().buildForm({ schema: { type: "object", properties }, layout: accessoryLayout(schemaFile?.layout, properties, schemaFile?.schema), i18n: schemaFile?.i18n }, values, {
+        const form = HomeswiftForms.buildForm({ schema: { type: "object", properties }, layout: accessoryLayout(schemaFile?.layout, properties, schemaFile?.schema), i18n: schemaFile?.i18n }, values, {
           defaults,
           // Cleared, a field takes the plugin-wide default again (null clears the key); a map's entry taken out is a null
           // in it, as the bridge merges objects key by key.
           onCommit: (key, value, state) => save({ [key]: value === undefined ? null : mergePatch(settings[key], value) }, state, key),
         });
-        pluginSection = section(t("Plugin settings"), t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
+        pluginSection = section(t("Plugin settings"), answer.appliesLive ? t("Declared by {plugin} for it. A change applies at once.", { plugin })
+          : t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
       }
 
       // Exclude (or Include) and Forget, set apart at the end.
@@ -380,9 +407,10 @@
 
   /// The editor in a side sheet, from the wall's ⋯, a plugin's Devices or Setup: its name and plugin at the top, Done
   /// at the bottom. `after(changed)` runs once it has gone, with whether anything was saved (or it was forgotten).
-  function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null }) {
+  /// `section`: a group of the plugin's layout to open and show first (its title as a slug, `channel-2`).
+  function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null, section = null }) {
     let changed = false, gone = false;
-    app().openSheet((done) => {
+    HomeswiftCommon.openSheet((done) => {
       const title = el("h2", { id: "accessory-settings-title", tabIndex: -1, text: name ?? device?.name ?? accessoryID });
       const editor = accessoryEditor({ accessoryID, instance, device,
         onChange: () => { changed = true; },
@@ -390,7 +418,11 @@
         onTitle: (text) => { title.textContent = text; } });
       // Once drawn, the title takes the focus (rather than Done, or a field whose keyboard would cover a phone's sheet),
       // unless the person already moved into the editor; Tab goes on to the Name.
-      editor.ready.then(() => { if (!editor.node.contains(document.activeElement)) title.focus({ preventScroll: true }); });
+      editor.ready.then(() => {
+        const group = section && editor.node.querySelector(`details[data-section="${CSS.escape(section)}"]`);
+        if (group) { group.open = true; group.scrollIntoView({ block: "nearest" }); }
+        if (!editor.node.contains(document.activeElement)) title.focus({ preventScroll: true });
+      });
       return el("div", { class: "account-form accessory-settings-sheet" },
         el("div", { class: "setup-sheet-head" }, tile(glyph, "blue"),
           el("div", {}, title, el("p", { class: "muted setup-method", text: t("Settings") }))),
@@ -400,7 +432,7 @@
       returnFocus: trigger,
       onClose: () => {
         if (after) after(changed, gone);
-        else if (changed) app().route();
+        else if (changed) app()?.route();
         if (!gone && trigger?.isConnected) trigger.focus();
       },
     });
@@ -437,7 +469,7 @@
       for (const key of Object.keys(properties)) if (kit.isSecretKey(key)) delete properties[key];
     }
     const build = (value) => {
-      form = app().buildForm(root, value);
+      form = HomeswiftForms.buildForm(root, value);
       formBox.replaceChildren(form.element);
       getValue = form.getValue;
     };

@@ -140,3 +140,19 @@ and 5353 from All.
 `homeswift-demo --matter` runs the demo bridge (a lamp, a switch, a temperature sensor) over HAP and Matter at once and
 prints the Matter pairing codes; the Matter node's state is kept in `~/.homeswift/homeswift-demo-matter/`, which you
 delete to start over.
+
+## Matter devices: Homeswift as a controller
+
+The other way round, the Matter Devices plugin (`Plugins/MatterDevices`, platform `MatterDevices`) makes Homeswift one
+more controller of Matter devices other apps already have: the app that has a device opens a pairing window (Apple Home:
+the accessory's settings, **Turn On Pairing Mode**), and **Add a Matter device…** on Add accessories takes its code. The
+device joins a fabric of Homeswift's own (its keys in the vault), and the plugin follows it over CASE with a
+subscription, as Home Assistant's Matter integration does. Its README has the mapping, the wheel dimming of remotes and
+what differs.
+
+The controller side is swift-matter's `Commissioner` (PASE, device attestation against the Matter registry's roots
+with `AttestationVerifier`, CSR and operational certificates, CASE), its `InteractionClient` (reads, invokes, subscriptions from an event number) and its DNS-SD records
+(`CommissionableNodeInfo`, `OperationalInstanceName`, `PairingCode`). A Thread device answers through a Thread border
+router: the bridge's host needs IPv6 routes to the Thread network (`netstat -rn -f inet6` on macOS, `ip -6 route` on
+Linux show the prefix a border router announces). A device the plugin controls is a plugin's accessory like any other, so
+the Matter bridge publishes it to its controllers too unless `exclude` names it (`"exclude": ["MatterDevices"]`).

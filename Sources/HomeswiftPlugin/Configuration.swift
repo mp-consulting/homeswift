@@ -314,6 +314,21 @@ public struct HomeswiftConfiguration: Sendable {
         return try? platform(from: object, index: 0).json
     }
 
+    /// `json` without the Plugin Accessory Settings (each device's keys outside `AccessorySettings.coreKeys`), for a plugin
+    /// that applies them live (`HomeswiftPlugin.appliesAccessorySettingsLive`): two blocks with the same answer differ only
+    /// in those. nil when the JSON does not decode.
+    static func withoutPluginAccessorySettings(_ json: Data) -> Data? {
+        guard var block = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
+        if let byDevice = block["_accessories"] as? [String: Any] {
+            let core = byDevice.compactMapValues { fields -> [String: Any]? in
+                let kept = (fields as? [String: Any])?.filter { AccessorySettings.coreKeys.contains($0.key) } ?? [:]
+                return kept.isEmpty ? nil : kept
+            }
+            block["_accessories"] = core.isEmpty ? nil : core
+        }
+        return try? JSONSerialization.data(withJSONObject: block, options: [.sortedKeys])
+    }
+
     public static func decode(_ data: Data) throws -> HomeswiftConfiguration {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ConfigurationError.notAnObject

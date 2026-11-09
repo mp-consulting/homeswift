@@ -227,6 +227,17 @@ struct DummyFeatureTests {
     }
 
     /// TV4: the alarm follows the door and the lock.
+    /// Homeswift's `exactPosition`: a shutter keeps 0 to 100 % (open when above 0); without it, open or closed.
+    @Test func aShutterWithExactPositionsKeepsThePositionSet() async {
+        let harness = await Harness([
+            ["id": "exact", "name": "Shutter", "type": "WindowCovering", "exactPosition": true],
+            ["id": "plain", "name": "Blind", "type": "WindowCovering"],
+        ], now: parisDate(2026, 11, 4, 10))
+        await check(await harness.engine.write("exact", .targetPosition(35)) == nil)
+        #expect(harness.value("exact", .targetPosition) == .int(35) && harness.value("exact", .currentPosition) == .int(35))
+        await check(await harness.engine.write("plain", .targetPosition(35)) == .int(100))
+    }
+
     @Test func conditionsFollowOtherAccessories() async {
         let harness = await Harness([
             ["id": "door", "name": "Front Door", "type": "Door"],

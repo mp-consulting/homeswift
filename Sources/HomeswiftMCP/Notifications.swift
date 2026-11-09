@@ -664,6 +664,7 @@ extension HomeswiftCatalog {
     /// homeswift made itself). `stopHome` ends them.
     public func startHome(restarted: Bool = false) {
         guard home.running.withLockedValue({ $0 == nil }) else { return }
+        lendScenes()
         migrateSceneAutomations()
         seedWatchedValues()
         seedStaysTimers()
@@ -707,6 +708,7 @@ extension HomeswiftCatalog {
     /// (each request gives up after 10 seconds).
     public func stopHome(restarting: Bool = false) async {
         guard let running = home.running.withLockedValue({ state -> RunningHome? in defer { state = nil }; return state }) else { return }
+        host.homeScenes = nil   // the scenes lent to plugins (lendScenes) go with the home
         running.ticker.cancel()
         running.observations.forEach { $0.cancel() }
         stopAutomations()

@@ -22,29 +22,8 @@
   const subnav = (current) => HomeswiftCommon.subnav(t("Settings pages"), "/settings",
     pages.map(([path, text, glyph]) => [path, text, glyph === "sparkle" ? HomeswiftCommon.sparkle() : glyph]), current);
 
-  /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
-  /// Resolves true when confirmed.
-  function confirmAction({ title, text, confirmLabel = t("Continue"), typed = null, danger = true, confirmIcon = "check" }) {
-    return new Promise((resolve) => {
-      const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": t("Type {text} to confirm", { text: typed }) }) : null;
-      const ok = el("button", { class: danger ? "danger" : "primary", actionIcon: confirmIcon, text: confirmLabel, disabled: Boolean(typed), value: "ok" });
-      const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
-      // The sentence around the word to type, in the page's language: the word goes where {text} stands.
-      const [typeBefore, typeAfter = ""] = t("Type {text} to confirm").split("{text}");
-      const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "confirm-title" },
-        el("form", { method: "dialog" },
-          el("h2", { id: "confirm-title", text: title }),
-          ...[text].flat().filter(Boolean).map((paragraph) => el("p", { text: paragraph })),
-          input ? el("label", { class: "field" }, el("span", { class: "field-title" }, typeBefore, el("strong", { class: "mono", text: typed }), typeAfter), input) : null,
-          el("div", { class: "actions" }, cancel, ok)));
-      input?.addEventListener("input", () => { ok.disabled = input.value.trim() !== typed; });
-      cancel.addEventListener("click", () => dialog.close("cancel"));
-      dialog.addEventListener("close", () => { dialog.remove(); resolve(dialog.returnValue === "ok"); });
-      document.body.append(dialog);
-      dialog.showModal();
-      (input ?? cancel).focus();
-    });
-  }
+  /// A modal question for what cannot be undone (common.js's confirmAction, which plugin pages load too).
+  const confirmAction = (options) => HomeswiftCommon.confirmAction(options);
 
   /// Runs `work` with the button pressed: disabled, a spinner; errors go to `report`.
   const busy = (button, work, report) => HomeswiftCommon.busyButton(button, work, { report });

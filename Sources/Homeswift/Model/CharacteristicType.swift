@@ -166,6 +166,11 @@ public struct ServiceType: Sendable, Hashable {
         self.required = required
         self.optional = optional
     }
+
+    /// A service type is its UUID, as HAP identifies it: one the accessory cache rebuilds, without its characteristic
+    /// lists, is the same type as the definition (`.lightbulb`).
+    public static func == (lhs: ServiceType, rhs: ServiceType) -> Bool { lhs.uuid == rhs.uuid }
+    public func hash(into hasher: inout Hasher) { hasher.combine(uuid) }
 }
 
 extension CharacteristicType {

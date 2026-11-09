@@ -127,7 +127,7 @@ struct BridgeFixture {
                                                  reliability: Self.fast, logger: testLogger)
         try await matter.start()
         let layer = MessageLayer(transport: await network.transport(named: "controller"), reliability: Self.fast)
-        commissioner = try Commissioner(layer: layer, fabricID: 0xFAB, nodeID: 0x1122)
+        commissioner = try Commissioner(layer: layer, fabricID: 0xFAB, nodeID: 0x1122, trustStore: .test)
         try await commissioner.start()
         // Without the bridge, a test commissions the accessories' own nodes itself.
         session = configuration.bridge

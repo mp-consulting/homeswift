@@ -102,7 +102,12 @@ struct AutomationRunning: Sendable {
 enum AutomationRules {
     static let maxAutomations = 200
     static let maxSteps = 30
-    static let triggerKinds: Set<String> = ["time", "sun", "cron", "characteristic", "stays", "threshold", "presence"]
+    static let triggerKinds: Set<String> = ["time", "sun", "cron", "characteristic", "stays", "threshold", "presence", "press"]
+    /// A `press` trigger's kinds, as Programmable Switch Event's values.
+    static let presses: [String: Int] = [
+        "single": HAPConstants.ProgrammableSwitchEvent.singlePress, "double": HAPConstants.ProgrammableSwitchEvent.doublePress,
+        "long": HAPConstants.ProgrammableSwitchEvent.longPress,
+    ]
     /// Anyone Home's accessory id, a `presence` trigger's `id` for the first arrival or the last departure.
     static let anyoneHome = "Presence:anyone"
     static let stepKinds: Set<String> = ["scene", "set", "wait", "waitUntil", "notify", "tool"]
@@ -143,6 +148,19 @@ enum AutomationRules {
             var trigger = SceneTrigger(type: "presence")
             trigger.id = id
             trigger.arriving = arriving
+            trigger.enabled = object["enabled"]?.boolValue == false ? false : nil
+            return trigger
+        case "press":
+            // A button of an accessory (a remote's, a wall switch's): its Stateless Programmable Switch, by its name or
+            // subtype when the accessory has several.
+            guard let id = object["id"]?.stringValue?.nonEmpty, id.count <= 128 else { throw CatalogError("\(label): id is the accessory with the button") }
+            guard let press = object["press"]?.stringValue, let code = presses[press] else { throw CatalogError("\(label): press is single, double or long") }
+            var trigger = SceneTrigger(type: "press")
+            trigger.id = id
+            trigger.service = object["service"]?.stringValue?.nonEmpty
+            trigger.characteristic = CharacteristicType.programmableSwitchEvent.name
+            trigger.press = press
+            trigger.value = .number(Double(code))
             trigger.enabled = object["enabled"]?.boolValue == false ? false : nil
             return trigger
         default:
@@ -624,6 +642,12 @@ extension HomeswiftCatalog {
         for automation in home.automations.value.automations where automation.isEnabled {
             for (index, trigger) in automation.triggers.enumerated() where trigger.isEnabled && trigger.id == accessory.id && Self.normalized(trigger.characteristic ?? "") == name {
                 let next = Self.json(value), before = previous.map(Self.json)
+                // A button's press: every one fires (the same twice in a row too), with no cooldown, for its button only.
+                if trigger.type == "press" {
+                    guard next.doubleValue == trigger.value?.doubleValue, Self.service(of: characteristic, in: accessory, is: trigger.service) else { continue }
+                    start(automation, trigger: trigger.type)
+                    break
+                }
                 switch trigger.type {
                 case "characteristic":
                     guard SceneRules.fires(trigger, previous: before, next: next) else { continue }
@@ -646,6 +670,13 @@ extension HomeswiftCatalog {
                 break
             }
         }
+    }
+
+    /// Whether `characteristic` is on the service a trigger names (`service(_:isNamed:)`); any service when it names none.
+    static func service(of characteristic: Characteristic, in accessory: Accessory, is name: String?) -> Bool {
+        guard let name else { return true }
+        guard let service = accessory.services.first(where: { $0.characteristics.contains { $0 === characteristic } }) else { return false }
+        return Self.service(service, isNamed: name)
     }
 
     /// Someone came or went (the host's `PresenceBoard`): starts the Automations whose `presence` trigger it is.
@@ -776,7 +807,8 @@ extension HomeswiftCatalog {
                 "Any of them starts it. {type: time, at: HH:mm, days: [0-6, 0 Sunday]}; {type: sun, event: sunrise|sunset, offsetMinutes, days}; {type: cron, cron}; "
                 + "{type: characteristic, id, characteristic, operator: changes|eq|neq|gt|gte|lt|lte, value}; {type: stays, id, characteristic, operator, value, forSeconds}; "
                 + "{type: threshold, id, characteristic, direction: above|below, value}; "
-                + "{type: presence, id: a Person's accessory id (Presence:person-…) or Presence:anyone (Anyone Home), arriving: true|false}")],
+                + "{type: presence, id: a Person's accessory id (Presence:person-…) or Presence:anyone (Anyone Home), arriving: true|false}; "
+                + "{type: press, id, service: the button (its name or subtype, e.g. button:3, for an accessory with several), press: single|double|long}: a button pressed, every press")],
             "conditions": ["type": "array", "maxItems": 10, "items": ["type": "object"], "description": .string(
                 "All must hold when a trigger fires. {type: time, after, before: HH:mm|sunrise|sunset}; {type: characteristic, id, characteristic, operator, value}")],
             "steps": ["type": "array", "minItems": 1, "maxItems": 30, "items": ["type": "object"], "description": .string(
@@ -790,7 +822,7 @@ extension HomeswiftCatalog {
         return [
             MCPTool(
                 name: "list_automations", title: "List automations",
-                description: "What the bridge does on its own: each Automation's triggers (a time, the sun, cron, an accessory's change, a value that stays so for a while, a number crossing a threshold), "
+                description: "What the bridge does on its own: each Automation's triggers (a time, the sun, cron, an accessory's change, a value that stays so for a while, a number crossing a threshold, someone arriving or leaving, a button pressed), "
                     + "conditions, steps (apply a scene, set a value, wait, wait until, notify, a plugin's action), mode (restart or single), whether it is on, whether it touches a lock, "
                     + "garage door or alarm (security), and its last run with each step's result. Also the plugins' actions a step may call (tools).",
                 outputSchema: Output.object(["automations": ["type": "array"]], required: ["automations"]),

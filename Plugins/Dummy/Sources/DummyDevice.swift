@@ -177,7 +177,7 @@ final class DummyDevice {
     func primary(fromStored value: JSONValue) -> Int? {
         if let bool = value.boolValue { return bool ? 1 : 0 }
         guard let number = value.doubleValue, number.isFinite else { return nil }
-        if config.family == .position { return number == 0 ? 0 : 100 }
+        if config.family == .position { return config.exactPosition ? Int(min(max(number, 0), 100)) : number == 0 ? 0 : 100 }
         return number == 0 ? 0 : 1
     }
 
@@ -218,6 +218,7 @@ final class DummyDevice {
             return "\(name) is \(primary == 1 ? "on" : "off")"
         case .valve, .humidifier: return "\(name) is \(primary == 1 ? "on" : "off")"
         case .lock: return "\(name) is \(primary == 1 ? "locked" : "unlocked")"
+        case .position where config.exactPosition && primary > 0 && primary < 100: return "\(name) is \(primary)% open"
         case .position, .garage: return "\(name) is \(isOpen ? "open" : "closed")"
         case .binarySensor:
             let words = config.type.sensorWords

@@ -436,7 +436,8 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
   compare with a value (the motion sensor turns on); a value that **stays** so for a while (the door open for ten
   minutes); a number that **crosses a threshold** (the temperature rises above 26). Timed triggers run on the minute;
   one on a value fires at most once per 5 seconds. With the Presence plugin, a Person who **comes home** or **leaves**, or
-  Anyone Home: the first Person coming home, the last one leaving.
+  Anyone Home: the first Person coming home, the last one leaving. A **button pressed** (a remote's, a wall switch's: its
+  single, double or long press) fires at every press, the same one twice in a row too.
 - **Conditions**: a time window (`sunset` to `23:00`, across midnight too) or an accessory's value. **Run now** ignores
   them. Sunrise and sunset are for the Location, a Bridge Setting under [Settings](#settings); without one, the
   Triggers' help links to it.
@@ -1095,8 +1096,12 @@ Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test checks 
 - **Its settings.** A page shows views, diagnostics and actions, and writes no settings
   (docs/adr/0002-schema-declares-every-setting.md): its schema declares them and the Settings page edits them. It links
   there: `homeswift.settingsAddress` is the instance's Settings, `homeswift.accessorySettings(accessoryID)` one
-  accessory's there (`?accessory=`, its Accessory Settings over the page: its Name, room, Excluded and the plugin's own),
-  and `homeswift.scenePictures({ settings })` gives a scene tile's menu the link. `poll(refresh)` refreshes while the
+  accessory's there (`?accessory=`, its Accessory Settings over the page: its Name, room, Excluded and the plugin's own).
+  `homeswift.openAccessorySettings({ accessoryID, name, glyph, trigger, after, section })` opens that same editor in the
+  side sheet over the plugin's own page instead (it loads `forms.js` and `settings.js` the first time; `after(changed)`
+  once it has gone; `section` opens one group of the schema's `layout` and shows it first, by its title as a slug), so a
+  "Settings" action need not send the person away; the page itself still writes nothing. A field with more than ten
+  choices (a home's lights) shows what is chosen and a searchable menu of the rest. And `homeswift.scenePictures({ settings })` gives a scene tile's menu the link. `poll(refresh)` refreshes while the
   page is visible, `renderKeyed` redraws only the cards whose item changed, and `canonicalMAC` spells a MAC address as the
   server does.
 - **Setup.** A page signs in and pairs nowhere: `homeswift.setupCard({ title, text, glyph, tone, start })` is a card

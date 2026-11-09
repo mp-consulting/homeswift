@@ -12,6 +12,33 @@
   /// Accessory Settings, over the page): a page links to them and writes no settings itself.
   const settingsAddress = `${address}/settings`;
   const accessorySettings = (accessoryID) => `${settingsAddress}?accessory=${encodeURIComponent(accessoryID)}`;
+
+  /// Loads one of the UI's scripts once (forms.js, settings.js), for what a page opens only now and then.
+  const scripts = new Map();
+  const loadScript = (src) => {
+    if (!scripts.has(src)) {
+      scripts.set(src, new Promise((resolve, reject) => {
+        document.head.append(el("script", { src, onload: resolve, onerror: () => { scripts.delete(src); reject(new Error(src)); } }));
+      }));
+    }
+    return scripts.get(src);
+  };
+
+  /// An accessory's Settings in the UI's side sheet, over this page (the generic editor settings.js draws on the wall's
+  /// ⋯ and the Settings page): a page shows it rather than sending the person away, and still writes no settings itself.
+  /// `after(changed)` runs once it has gone, with whether anything was saved. Falls back to the Settings page when the
+  /// editor cannot load.
+  async function openAccessorySettings({ accessoryID, name: title = null, glyph = "accessory", trigger = null, after = null, section = null }) {
+    try {
+      await loadScript("/forms.js");
+      await loadScript("/settings.js");
+      await HomeswiftForms.loadSecretRule();
+    } catch {
+      location.href = accessorySettings(accessoryID);
+      return;
+    }
+    HomeswiftSettings.openAccessory({ accessoryID, instance: name, name: title, glyph, trigger, section, after: (changed) => after?.(changed) });
+  }
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
@@ -682,7 +709,7 @@
   }
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
-    settingsAddress, accessorySettings, drawHidden, poll, renderKeyed,
+    settingsAddress, accessorySettings, openAccessorySettings, drawHidden, poll, renderKeyed,
     canonicalMAC, tabs, textStyle, scenePictures, finder,
     setupAddress, setupCard,
   };

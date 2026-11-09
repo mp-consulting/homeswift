@@ -403,7 +403,8 @@
     let pending = false, cancelDrag = null;
     const refreshDisabled = [];
     const searchable = [];
-    const nodes = items.filter(Boolean).map((item) => {
+    const given = items.filter(Boolean);
+    const nodes = given.map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
         const choices = item.choices.map((choice) => {
@@ -495,25 +496,62 @@
           if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
-      if (search && !item.pinned && item.label) searchable.push([node, fold(item.label)]);
+      if (search && !item.pinned && item.label) searchable.push([node, fold(item.label), item.group ?? null]);
       return node;
     });
+    // Items of several kinds (`group`: a home's lights, blinds and scenes) get a heading each, and pills above them
+    // that keep only one kind, with the search.
+    const groups = search ? [...new Set(given.map((item) => item.group).filter(Boolean))] : [];
+    let shownGroup = null;
+    const headings = new Map();
+    if (groups.length > 1) {
+      const grouped = [];
+      nodes.forEach((node, index) => {
+        const group = given[index]?.group;
+        if (group && !headings.has(group)) {
+          const heading = el("div", { class: "menu-group-heading", role: "presentation", text: t(group) });
+          headings.set(group, heading);
+          grouped.push(heading);
+        }
+        grouped.push(node);
+      });
+      nodes.splice(0, nodes.length, ...grouped);
+    }
     const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"]):not(.hidden)')];
     // The search field: what is typed, without case or accents, against each item's label.
     const field = search ? el("input", { type: "search", class: "menu-search", placeholder: search, "aria-label": search, autocomplete: "off" }) : null;
     const nothing = search ? el("p", { class: "menu-empty muted hidden", text: t("Nothing matches.") }) : null;
+    const filter = () => {
+      const query = fold(field.value.trim());
+      let shown = 0;
+      const seen = new Set();
+      for (const [node, label, group] of searchable) {
+        const match = (!query || label.includes(query)) && (!shownGroup || group === shownGroup);
+        node.classList.toggle("hidden", !match);
+        if (match) { shown++; seen.add(group); }
+      }
+      for (const [group, heading] of headings) heading.classList.toggle("hidden", !seen.has(group) || Boolean(shownGroup));
+      nothing.classList.toggle("hidden", !searchable.length || shown > 0);
+    };
     if (field) {
-      field.addEventListener("input", () => {
-        const query = fold(field.value.trim());
-        let shown = 0;
-        for (const [node, label] of searchable) {
-          const match = !query || label.includes(query);
-          node.classList.toggle("hidden", !match);
-          if (match) shown++;
-        }
-        nothing.classList.toggle("hidden", !searchable.length || shown > 0);
-      });
-      nodes.unshift(field, nothing);
+      field.addEventListener("input", filter);
+      const pills = groups.length > 1 ? el("div", { class: "menu-filters", role: "group", "aria-label": t("Show") },
+        [null, ...groups].map((group) => {
+          const count = group ? searchable.filter(([, , g]) => g === group).length : searchable.length;
+          // Each kind with its icon, as the wall draws it; All, the filter's.
+          const glyph = { Lights: "bulb", Blinds: "blind", Switches: "switch", Outlets: "outlet", Scenes: "play" }[group] ?? "filter";
+          const pill = el("button", { type: "button", class: "menu-filter", actionIcon: glyph, "aria-pressed": String(group === null) },
+            el("span", { text: group ? t(group) : t("All") }), el("span", { class: "menu-filter-count", text: String(count) }));
+          pill.addEventListener("click", (event) => {
+            event.stopPropagation();
+            shownGroup = group;
+            for (const other of pill.parentElement.children) other.setAttribute("aria-pressed", String(other === pill));
+            filter();
+            field.focus();
+          });
+          return pill;
+        })) : null;
+      nodes.unshift(...[field, pills, nothing].filter(Boolean));
     }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
@@ -665,7 +703,97 @@
   /// The message of a reply that is not JSON: its text, unless it is a page (HTML), which says nothing in an alert.
   const plainMessage = (text) => (text.trimStart().startsWith("<") ? "" : text);
 
-  async function api(path, { method = "GET", body, stream = false } = {}) {
+  /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
+  /// Resolves true when confirmed.
+  function confirmAction({ title, text, confirmLabel = t("Continue"), typed = null, danger = true, confirmIcon = "check" }) {
+    return new Promise((resolve) => {
+      const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": t("Type {text} to confirm", { text: typed }) }) : null;
+      const ok = el("button", { class: danger ? "danger" : "primary", actionIcon: confirmIcon, text: confirmLabel, disabled: Boolean(typed), value: "ok" });
+      const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
+      // The sentence around the word to type, in the page's language: the word goes where {text} stands.
+      const [typeBefore, typeAfter = ""] = t("Type {text} to confirm").split("{text}");
+      const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "confirm-title" },
+        el("form", { method: "dialog" },
+          el("h2", { id: "confirm-title", text: title }),
+          ...[text].flat().filter(Boolean).map((paragraph) => el("p", { text: paragraph })),
+          input ? el("label", { class: "field" }, el("span", { class: "field-title" }, typeBefore, el("strong", { class: "mono", text: typed }), typeAfter), input) : null,
+          el("div", { class: "actions" }, cancel, ok)));
+      input?.addEventListener("input", () => { ok.disabled = input.value.trim() !== typed; });
+      cancel.addEventListener("click", () => dialog.close("cancel"));
+      dialog.addEventListener("close", () => { dialog.remove(); resolve(dialog.returnValue === "ok"); });
+      document.body.append(dialog);
+      dialog.showModal();
+      (input ?? cancel).focus();
+    });
+  }
+
+  /// A side panel over the page, which is dimmed behind it: a form that is a task of its own (adding or editing a
+  /// user, making a token). `build(done)` makes its content; `done(result)` closes it, as Cancel and Escape do
+  /// (`result` undefined). It arrives from the right, from the bottom on a phone, and leaves the same way; a touch
+  /// can also drag it back out along that edge, as an iOS sheet is swiped away. Once it has gone, `onClose(result)`
+  /// runs, or, with no result, focus goes back to `returnFocus`, the control that opened it.
+  function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
+    const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
+    const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const vertical = () => matchMedia("(max-width: 640px)").matches;   // a phone: a sheet from the bottom edge
+    let result, leaving = false;
+    // Out along the edge it came from, from wherever it is now (a drag may have moved it), faster than it came.
+    const dismiss = (value) => {
+      if (leaving) return;
+      leaving = true;
+      result = value;
+      const from = getComputedStyle(dialog).transform;
+      const to = vertical() ? "translateY(calc(100% + 12px))" : "translateX(calc(100% + 12px))";
+      const duration = reduce() ? 140 : 220;
+      dialog.classList.add("leaving");
+      const motion = reduce() ? [{ opacity: 1 }, { opacity: 0 }] : [{ transform: from === "none" ? "none" : from }, { transform: to }];
+      const done = () => dialog.close();
+      try {
+        dialog.animate(motion, { duration, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }).finished.then(done, done);
+      } catch { done(); }
+    };
+    dialog.append(el("div", { class: "sheet-grabber", "aria-hidden": "true" }), build(dismiss));
+    dialog.addEventListener("cancel", (event) => { event.preventDefault(); dismiss(); });   // Escape
+    // A click on the dimmed page around it closes it as Escape does: pressed and let go there, so a selection dragged
+    // out of the sheet does not.
+    const outside = (event) => {
+      if (event.target !== dialog) return false;
+      const box = dialog.getBoundingClientRect();
+      return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    };
+    let pressedOutside = false;
+    dialog.addEventListener("pointerdown", (event) => { pressedOutside = outside(event); });
+    dialog.addEventListener("click", (event) => {
+      if (pressedOutside && outside(event)) dismiss();
+      pressedOutside = false;
+    });
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (onClose) onClose(result);
+      else if (returnFocus?.isConnected) returnFocus.focus();
+    });
+    dragToDismiss(dialog, { vertical, dismiss, handle: ".sheet-grabber, .account-form > h2" });
+    // A touch screen's keyboard would rise over a field focused as the sheet opens, the page scrolling under it: the
+    // sheet takes the focus itself there, and a field the person taps brings the keyboard.
+    const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
+    if (touch) dialog.autofocus = true;
+    // While a keyboard is up, the sheet keeps to what is still visible (the visual viewport) rather than the page
+    // scrolling to show the field.
+    const viewport = window.visualViewport;
+    const fit = () => {
+      dialog.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
+      dialog.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    dialog.addEventListener("close", () => { viewport?.removeEventListener("resize", fit); viewport?.removeEventListener("scroll", fit); });
+    document.body.append(dialog);
+    dialog.showModal();
+    if (!touch) $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
+    return dialog;
+  }
+
+  async function api(path, { method = "GET", body, stream = false, raw = false } = {}) {
     if (method !== "GET") lastChange = Date.now();
     // The Assistant answers in the page's language.
     const options = { method, credentials: "same-origin", headers: { "Accept-Language": window.HomeswiftI18n?.locale || "en" } };
@@ -676,6 +804,8 @@
     const text = await response.text();
     const gone = gatewayError(response.status, text);
     if (gone) throw gone;
+    // `raw`: the body as text (a schema file, config.json), when the request went through.
+    if (raw && response.ok) return text;
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: plainMessage(text) }; }
     if (!response.ok) throw Object.assign(new Error(window.HomeswiftI18n?.message((json && json.error) || `HTTP ${response.status}`) ?? `HTTP ${response.status}`), { status: response.status });
@@ -1867,6 +1997,7 @@
 
   window.HomeswiftCommon = {
     foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, kWh, cubicMetres, money, statusLine, say, field, isoDay, parseDay, homeTimeTitle, homeTimeNote, homeTimeNoteText, lastChange: () => lastChange,
+    openSheet, confirmAction,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
