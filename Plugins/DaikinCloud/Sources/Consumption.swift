@@ -13,6 +13,8 @@ enum DaikinConsumption {
         struct Slot: Sendable, Equatable { var kWh: Double; var end: Date }
         var slots: [Date: Slot] = [:]
         var days: [Date: Double] = [:]
+        /// Each month's kWh, by its first day.
+        var months: [Date: Double] = [:]
     }
 
     /// The unit's calendar: its gateway's `timeZone`, else the bridge's.
@@ -32,7 +34,8 @@ enum DaikinConsumption {
         let weekday = calendar.component(.weekday, from: today)
         let sinceMonday = (weekday + 5) % 7
         guard let monday = calendar.date(byAdding: .day, value: -sinceMonday, to: today),
-              let lastMonday = calendar.date(byAdding: .day, value: -7, to: monday) else { return totals }
+              let lastMonday = calendar.date(byAdding: .day, value: -7, to: monday),
+              let lastJanuary = calendar.date(from: DateComponents(year: calendar.component(.year, from: today) - 1, month: 1, day: 1)) else { return totals }
         // The 24 slots' bounds on the wall clock: each slot ends where the next starts, today's midnight included.
         let bounds = [yesterday, today].flatMap { day in
             (0..<12).map { calendar.date(bySettingHour: $0 * 2, minute: 0, second: 0, of: day) }
@@ -52,12 +55,17 @@ enum DaikinConsumption {
                           let day = calendar.date(byAdding: .day, value: index, to: lastMonday) else { continue }
                     totals.days[day, default: 0] += kWh
                 }
+                for (index, value) in (series["m"]?.arrayValue ?? []).prefix(24).enumerated() {
+                    guard let kWh = value.doubleValue, kWh.isFinite, kWh >= 0,
+                          let month = calendar.date(byAdding: .month, value: index, to: lastJanuary), month <= today else { continue }
+                    totals.months[month, default: 0] += kWh
+                }
             }
         }
         return totals
     }
 
-    /// The hours the Energy section takes as the home's use, in watt-hours, and the days they cover from the slots:
+    /// The hours of the unit's Meter, in watt-hours, and the days they cover from the slots:
     /// yesterday's and today's two-hour slots split evenly over their hours, the other days of the two weeks over
     /// their 24; only slots and days already over. A day in `detailed` (its slots were imported before) is left out
     /// of the days: its hours in the Energy section are already the slots', which a flat day would replace.
@@ -76,6 +84,34 @@ enum DaikinConsumption {
         return (hours, covered)
     }
 
+    /// The hours of the months before the two weeks' days, in watt-hours: each month's use spread evenly over its days
+    /// (and each day over its hours), the month the days start in over its days before them, less what those days used.
+    /// A month without use adds nothing. Coarse, but what the cloud keeps of the unit's past: up to two years.
+    static func monthHours(_ totals: Totals, now: Date, calendar: Calendar) -> [Date: Double] {
+        guard let first = totals.days.keys.min() else { return [:] }
+        var hours: [Date: Double] = [:]
+        for (month, kWh) in totals.months where month < first && kWh > 0 {
+            guard let next = calendar.date(byAdding: .month, value: 1, to: month) else { continue }
+            // The month's days the two weeks do not have, and what the ones they have used.
+            let end = min(next, first)
+            let known = totals.days.filter { $0.key >= month && $0.key < next }.values.reduce(0, +)
+            let rest = max(kWh - known, 0)
+            var days: [Date] = []
+            var day = month
+            while day < end {
+                days.append(day)
+                guard let following = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+                day = following
+            }
+            guard !days.isEmpty, rest > 0 else { continue }
+            for day in days {
+                guard let following = calendar.date(byAdding: .day, value: 1, to: day), following <= now else { continue }
+                spread(rest * 1000 / Double(days.count), from: day, to: following, into: &hours)
+            }
+        }
+        return hours
+    }
+
     /// `wh` split evenly over the hours from `start` to `end` (23 or 25 in a day the clocks change).
     private static func spread(_ wh: Double, from start: Date, to end: Date, into hours: inout [Date: Double]) {
         let count = max(Int((end.timeIntervalSince(start) / 3600).rounded()), 1)
@@ -84,9 +120,9 @@ enum DaikinConsumption {
         }
     }
 
-    /// The hours as the Energy section's imports, in order.
-    static func imports(_ hours: [Date: Double]) -> [EnergyHourImport] {
-        hours.keys.sorted().map { EnergyHourImport(start: $0, flows: EnergyFlows(home: hours[$0])) }
+    /// The hours as the unit's Meter's imports (watt-hours drawn), in order.
+    static func imports(_ hours: [Date: Double]) -> [MeterHourImport] {
+        hours.keys.sorted().map { MeterHourImport(start: $0, consumption: hours[$0]) }
     }
 
     /// Today's kWh so far: the slots of today.

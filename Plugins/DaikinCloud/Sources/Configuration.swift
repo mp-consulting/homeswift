@@ -91,8 +91,6 @@ struct DaikinSettings: Sendable {
     /// Each device's own `show*` switches (its Plugin Accessory Settings), by Device Id: they overrule `features`.
     var deviceFeatures: [String: [FeatureKey: Bool]]
     var webSocketEnabled: Bool
-    /// The units' `consumptionData` as the home's use in the Status page's Energy section (`energyHistory`).
-    var energyHistory: Bool
     /// The block with the account's credentials from the vault in place of its own (`merging`): what is validated.
     var raw: [String: JSONValue]
 
@@ -125,7 +123,6 @@ struct DaikinSettings: Sendable {
         for key in FeatureKey.standalone { features[key] = raw[key.rawValue]?.boolValue == true }
         self.features = features
         webSocketEnabled = raw["enableWebSocket"]?.boolValue != false
-        energyHistory = raw["energyHistory"]?.boolValue == true
     }
 
     func isEnabled(_ feature: FeatureKey) -> Bool { features[feature] ?? false }

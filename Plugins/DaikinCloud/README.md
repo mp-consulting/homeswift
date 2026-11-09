@@ -78,7 +78,6 @@ secret and the password are entered by the person.
 | `updateIntervalInMinutes` | number | `15` | Polling interval, 1-60 (Developer Portal: 15+, Mobile App: 1-5), stretched as above |
 | `forceUpdateDelay` | number | `60000` | Milliseconds (5000-300000) before the poll after a change from HomeKit |
 | `enableWebSocket` | boolean | `true` | Real-time updates (Mobile App only) |
-| `energyHistory` | boolean | `false` | The units' electricity use as the home's use in the Status page's Energy section (see below) |
 | `httpTransport` | string | `node` | `node` (the built-in client) or `curl` (the curl binary, for networks whose firewall drops the built-in client's TLS fingerprint). `DAIKIN_HTTP_TRANSPORT` overrides it |
 | `showPowerfulMode` | boolean | `false` | Powerful mode switch (climate control and hot water tank) |
 | `showEconoMode` | boolean | `false` | Econo mode switch |
@@ -109,17 +108,28 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
 
 ## Energy
 
-Each poll reads the units' `consumptionData` (kWh, heating and cooling of each management point added up), which
-the device list carries already: no call is added. Each unit's kWh so far today goes into the Status page's history
-(`<Device Id>:energyToday`). With `energyHistory`, the units' use also goes into the Energy section as the home's use,
-by `importEnergy`: yesterday's and today's two-hour slots split over their hours, and the other days of the last two
-weeks (`w`) spread evenly over their 24 hours, so the day and month views have each day's kWh. The slots and days are the
-unit's wall clock, in its gateway's time zone (`timeZone`, the bridge's when it has none), so the night the clocks change
-has a one- or three-hour slot. A day imported from its slots keeps them once it leaves the cloud's two days: the plugin
-remembers those days (`daikin-energy-days.json`) and does not replace them with the week's flat figure. Only slots and
-days that are over are imported; the hours the bridge recorded itself keep their own figures. It is off by default: a meter that
-already reports the home's use would count the units twice. The months (`m`) are not imported, and the weeks are taken
-to start on Monday (ISO weeks, the Onecta app's).
+Each poll reads the units' `consumptionData` (kWh, heating and cooling of each management point added up), which the
+device list carries already: no call is added. Each unit's kWh so far today goes into the Status page's history
+(`<Device Id>:energyToday`), and its hours go on a Meter of its own (`DaikinCloud:<Device Id>`, key `consumption`)
+through the runtime's energy history import (`context.energyHistory`, a pass for each poll that brings new hours):
+yesterday's and today's two-hour slots split over their hours, the other days of the last two weeks (`w`) spread
+evenly over their 24 hours, and before them the cloud's 24 months (`m`, last year's January to December then this
+year's): each month's use spread evenly over its days, the month the two weeks start in over its days before them, less
+what those days used. So each unit is one of the devices measured on their own on the Energy page (By accessory, Where
+it goes, Consumption by device, the Energy log), with up to two years of its past from the start: by the day for the
+last two weeks, by the month before. Its use is never the home's:
+a meter at the grid or on the home already counts it.
+
+The slots and days are the unit's wall clock, in its gateway's time zone (`timeZone`, the bridge's when it has none),
+so the night the clocks change has a one- or three-hour slot. A day imported from its slots keeps them once it leaves
+the cloud's two days: the plugin remembers each unit's days (its history's note `detailedDays`, in
+`energy-history-daikin-cloud.json`) and does not replace them with the week's flat figure. Only slots and days that
+are over are imported. The months (`m`) are not imported, and the weeks are taken to start on Monday (ISO weeks, the
+Onecta app's).
+
+Earlier versions' `energyHistory` setting added every unit's use to the Energy section as the home's. A bridge that
+had it on has those hours dropped once, at the first poll (`daikin-energy-days.json` says it imported them); the
+setting is no longer read.
 
 ## What differs from Homebridge
 
@@ -136,7 +146,7 @@ to start on Monday (ISO weeks, the Onecta app's).
   cipher list, as the Homebridge plugin asks Node for OpenSSL's, and `DAIKIN_TLS_CIPHERS` overrides it for both the
   requests and the WebSocket; the ClientHello is BoringSSL's, so it is not byte for byte the same as Node's.
 - The Assistant's Explain buttons are the web UI's (`HomeswiftAiKit`).
-- The units' energy use reaches the Status page (`energyHistory`, above); the Homebridge plugin did not read
+- Each unit's energy use reaches the Energy page on a Meter of its own (above); the Homebridge plugin did not read
   `consumptionData`.
 - Accessory ids are `DaikinCloud:<Daikin device id>`; feature switches always carry the management point in their
   subtype (`climateControl:powerful_mode`): there are no cached Homebridge switches to adopt.
