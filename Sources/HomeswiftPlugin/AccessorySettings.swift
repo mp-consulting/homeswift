@@ -40,10 +40,13 @@ public struct AccessorySettings: Sendable, Equatable {
 
     /// A Remote's Controls (`RemoteControl`), run by the bridge.
     public var controls: [RemoteControl] = []
+    /// Natural Light (`PowerOn.swift`): a light that can have it does, unless a person gave it one of its device's own
+    /// Power On (false).
+    public var naturalLight = true
 
-    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts", "energyRoles", "separateFunctions", "controls"]
+    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts", "energyRoles", "separateFunctions", "controls", "naturalLight"]
     /// The Core Accessory Settings that apply without reloading the plugin: they never reach it.
-    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome", "energyRoles", "separateFunctions", "controls"]
+    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome", "energyRoles", "separateFunctions", "controls", "naturalLight"]
     /// What `energyRoles` holds for a Meter: a power role's name, or `none`.
     public static let energyRoleChoices = ["solar", "home", "grid", "battery", "none"]
 
@@ -84,6 +87,7 @@ public struct AccessorySettings: Sendable, Equatable {
         energyRoles = Self.energyRoles(from: fields["energyRoles"])
         separateFunctions = fields["separateFunctions"]?.boolValue ?? false
         controls = RemoteControl.readable(from: fields["controls"])
+        naturalLight = fields["naturalLight"]?.boolValue ?? true
         plugin = fields.filter { !Self.coreKeys.contains($0.key) }
     }
 
@@ -98,6 +102,7 @@ public struct AccessorySettings: Sendable, Equatable {
         if !energyRoles.isEmpty { fields["energyRoles"] = .object(energyRoles.mapValues { .string($0?.rawValue ?? "none") }) }
         if separateFunctions { fields["separateFunctions"] = true }
         if !controls.isEmpty { fields["controls"] = RemoteControl.json(controls) }
+        if !naturalLight { fields["naturalLight"] = false }
         return .object(fields)
     }
 

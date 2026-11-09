@@ -28,9 +28,6 @@ Settings:
 | Option | Default | What it does |
 |---|---|---|
 | `pollingRate` | `1000` | Milliseconds between polls of each light; `250` at least |
-| `powerOnBehavior` | the light's | `1` restores the last settings when the light is switched on, `2` the defaults below |
-| `powerOnBrightness` | the light's | Brightness in percent for `powerOnBehavior: 2` |
-| `powerOnTemperature` | the light's | Colour temperature in kelvin (2900 to 7000) for `powerOnBehavior: 2`; `0` keeps the light's |
 | `switchOnDurationMs` | the light's | Fade-in when switching on |
 | `switchOffDurationMs` | the light's | Fade-out when switching off |
 | `colorChangeDurationMs` | the light's | Transition between colour temperatures |
@@ -38,9 +35,13 @@ Settings:
 | `addresses` | `[]` | Lights Bonjour does not reach (a container without multicast, another network): `host` (an IP address or a host name), `port` (9123 by default) and `mac`. Without a MAC the plugin asks the light for it, and writes it there at the next settings change. Announcements never move such a light |
 
 Each light's Accessory Settings sit in the block's `_accessories`, by its MAC (the Device Id; the accessory id is
-`ElgatoKeyLights:<MAC>`): the Core ones (its Name, room, Excluded…) and `powerOnBehavior`, `powerOnBrightness` and
-`powerOnTemperature`, which overrule the Plugin Settings of the same names for that light (`powerOnTemperature: 0`
-keeps the light's own), and `host` and `port` for a light added by its address.
+`ElgatoKeyLights:<MAC>`): the Core ones (its Name, room, Excluded…), and `host` and `port` for a light added by its address.
+
+What a light does when its power comes back is its Power On, on its settings sheet (or `set_power_on`), kept by the
+light: Last on (its last brightness and white), Custom (a brightness and a white, 2900 to 7000 K), or Natural Light, the
+bridge's, which keeps the light's power-on white the time of day's (at the brightness the light has). A Key Light always
+comes back on. The power-on keys the plugin once applied at each start (`powerOnBehavior`, `powerOnBrightness`,
+`powerOnTemperature`, plugin-wide and per light) are no longer read, and the next settings change writes them out.
 
 **Add by address…** on the instance in the Add accessories page (or `start_setup` with `addByAddress`) asks for a
 light's IP address or host name and its port (9123 by default), asks the light there who it is, and keeps where it
@@ -53,12 +54,9 @@ a light in both is reached where Add by address last found it.
   "platform": "ElgatoKeyLights",
   "name": "Elgato Key Lights",
   "pollingRate": 1000,
-  "powerOnBehavior": 2,
-  "powerOnBrightness": 20,
-  "powerOnTemperature": 4695,
   "addresses": [{ "host": "192.168.1.50", "mac": "3C:6A:9D:04:0A:0C" }],
   "_accessories": {
-    "3C:6A:9D:04:0A:0B": { "name": "Desk Light", "powerOnBrightness": 40 },
+    "3C:6A:9D:04:0A:0B": { "name": "Desk Light" },
     "3C:6A:9D:04:0A:0D": { "excluded": true }
   }
 }
@@ -66,11 +64,10 @@ a light in both is reached where Add by address last found it.
 
 ### A Homebridge block
 
-The Homebridge plugin's `devices` list (by `mac`: `displayName`, `ip`, `host`, `port`, `enabled`, `powerOnBehavior`,
-`powerOnBrightness`, `powerOnTemperature`) still loads, read where `_accessories` and `addresses` say nothing. The first
-settings change written through the bridge moves it: `enabled: false` becomes Excluded, `displayName` the Name, the
-power-on settings the light's own (`powerOnBehavior: 0`, the platform's, is dropped), `ip` or `host` and `port` an
-entry of `addresses`. An entry without a MAC stays as it is.
+The Homebridge plugin's `devices` list (by `mac`: `displayName`, `ip`, `host`, `port`, `enabled`) still loads, read
+where `_accessories` and `addresses` say nothing. The first settings change written through the bridge moves it:
+`enabled: false` becomes Excluded, `displayName` the Name, `ip` or `host` and `port` an entry of `addresses`; its
+power-on keys go (the light's own Power On). An entry without a MAC stays as it is.
 
 ## The web page
 

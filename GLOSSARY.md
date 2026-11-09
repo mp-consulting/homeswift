@@ -330,6 +330,21 @@ A switch or outlet that powers a Control's lights, switched on before they brigh
 their lowest level.
 _Avoid_: Relay, master switch
 
+## Lights
+
+**Power On**:
+What a light does when its power comes back, from a wall switch or after a power cut: come on in its default white,
+come on as it last was, stay as it was before the power went, stay off, come on at a chosen brightness and white, or
+Natural Light. The device keeps it, so a change made in its maker's app shows on the bridge too; each light offers only
+what its device can do.
+_Avoid_: Startup behaviour, power-up, power-on state
+
+**Natural Light**:
+The bridge's Power On: the light comes back as it was, on or off, in the white for the time of day, warm at night and
+coolest at midday by the sun at the Location. It is every light's that can have it until the light is given one of its
+device's own; the bridge keeps the white the device comes back in up to date through the day.
+_Avoid_: Adaptive Lighting (the Home app's, which changes a light that is on), circadian light
+
 ## History
 
 **History**:

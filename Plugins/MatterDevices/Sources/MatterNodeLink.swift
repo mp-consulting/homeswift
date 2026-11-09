@@ -280,6 +280,25 @@ actor MatterNodeLink {
         }
     }
 
+    /// Reads attributes over the open session: each one's value, a path the node refused or does not have left out.
+    func read(_ paths: [AttributePath]) async throws -> [ConcreteAttribute: TLVValue] {
+        guard let session else { throw MatterLinkError("not connected") }
+        let (reports, _) = try await commissioner.client.read(paths, session: session)
+        var values: [ConcreteAttribute: TLVValue] = [:]
+        for case let .data(path, _, value) in reports {
+            guard let endpoint = path.endpoint, let cluster = path.cluster, let attribute = path.attribute else { continue }
+            values[ConcreteAttribute(endpoint, cluster, attribute)] = value
+        }
+        return values
+    }
+
+    /// Writes attributes over the open session; throws with the first one the node refused.
+    func write(_ values: [(AttributePath, TLVValue)]) async throws {
+        guard let session else { throw MatterLinkError("not connected") }
+        let refused = try await commissioner.client.write(values, session: session).first { $0.1.status != .success }
+        if let (path, status) = refused { throw MatterLinkError("refused \(path): \(status.status)") }
+    }
+
     /// Opens a CASE session with a node of the commissioner's fabric: where DNS-SD says it is now (its operational
     /// instance, Core §4.3.2.1), else where it answered last; with its record's MRP intervals for a sleepy device.
     static func openSession(nodeID: NodeID, commissioner: Commissioner, network: Network, known: NodeAddress?) async throws -> (NodeAddress, UInt16) {

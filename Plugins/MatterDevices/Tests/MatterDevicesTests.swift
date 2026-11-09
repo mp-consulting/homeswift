@@ -181,6 +181,17 @@ struct MatterDevicesTests {
         let answer = try await #require(environment.plugin).handleWebRequest(PluginWebRequest(method: "GET", path: "nodes", query: [:], body: .null, user: "test"))
         let listed = try #require(answer.json["nodes"]?.arrayValue?.first)
         #expect(listed["device"]?.stringValue == deviceID && listed["status"]?.stringValue == "connected")
+
+        // Power On: the lamp's StartUp attributes, read and written (a dimmable lamp: no white, so no Natural Light).
+        let plugin = try #require(environment.plugin)
+        let lampID = "MatterDevices:\(deviceID):\(light.endpoint)"
+        let support = try #require(await plugin.powerOnSupport(of: lampID))
+        #expect(support.behaviours == [.lastOn, .powerLoss, .off, .custom] && support.brightness && support.white == nil)
+        #expect(try await plugin.powerOn(of: lampID) == PowerOn(.powerLoss))
+        try await plugin.setPowerOn(PowerOn(.custom, brightness: 50), of: lampID)
+        #expect(try await plugin.powerOn(of: lampID) == PowerOn(.custom, brightness: 50))
+        try await plugin.setPowerOn(PowerOn(.off), of: lampID)
+        #expect(try await plugin.powerOn(of: lampID) == PowerOn(.off))
         await host.stop()
     }
 

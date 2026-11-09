@@ -60,6 +60,14 @@ The plugin page names each channel's Home app buttons ("Button 1 up, 2 down, 3 p
 remote's buttons without names, and opens its Wheel on the Remotes page. Any button's press can also start an Automation
 (**When a button is pressed**).
 
+## Power On
+
+A light keeps what it does when its power comes back in its StartUp attributes (Application Clusters §1.5.6.6,
+§1.6.6.15, §3.2.7.23), on its settings sheet as its Power On (or `set_power_on`): Last on (StartUpOnOff 1, the level
+and white null), Power loss recovery (null), Off (0) and Custom (1 at a level and, with Color Control, a white). A light
+with Color Control also has the bridge's Natural Light: as it was, at the StartUpColorTemperatureMireds the bridge keeps
+the time of day's. Homeswift's fabric is an administrator's, so it may write them (they need Manage).
+
 ## Network
 
 Homeswift reaches its nodes by DNS-SD (`_matter._tcp`, the instance named by its compressed fabric id and the node id) and

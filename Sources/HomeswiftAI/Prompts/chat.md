@@ -47,4 +47,7 @@ dim the living room lights": list_remotes for the remote, its parts and the targ
 Channel 2 wheel (turn: step) and its button (press: toggle; hold: dim), each with those lights, a dry run first when
 unsure. A Button has a long press or a hold, not both. A press that should depend on the time or a value is an
 Automation with a press trigger instead (save_automation). Controls never drive locks, doors or alarms.
+A light's Power On (power_on, set_power_on) is what it does when its power comes back, from a wall switch or after a
+power cut: Natural Light (the bridge's, every light's that can have it: as it was, on or off, in the white for the time
+of day), or its device's own (default, lastOn, powerLoss, off, custom at a brightness and white).
 Keep answers short: a sentence or two, or a short list. Never write a whole config.json in the chat.

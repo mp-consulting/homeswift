@@ -23645,6 +23645,23 @@ HomeswiftI18n.add("es", {
   "No battery is measured": "No se mide ninguna batería",
   "Edit the Energy page": "Editar la página Energía",
   "Something stands out in the energy use": "Algo destaca en el consumo de energía",
+  "Power on": "Al encenderse",
+  "What it does when its power comes back, from a wall switch or after a power cut.": "Lo que hace cuando le vuelve la corriente, desde un interruptor de pared o tras un corte.",
+  "Natural light": "Luz natural",
+  "As it was, on or off, in the white for the time of day: {kelvin} K now": "Como estaba, encendida o apagada, en el blanco de la hora del día: {kelvin} K ahora",
+  "Warm white, full brightness": "Blanco cálido, brillo máximo",
+  "Last on": "Último estado",
+  "On, in its last colour and brightness": "Encendida, en su último color y brillo",
+  "Power loss recovery": "Tras un corte",
+  "Stays off or turns back on, as it was": "Sigue apagada o se vuelve a encender, como estaba",
+  "Stays off": "Sigue apagada",
+  "Custom": "Personalizado",
+  "On, at the brightness and white below": "Encendida, con el brillo y el blanco de abajo",
+  "This light cannot do that when its power comes on.": "Esta luz no puede hacer eso cuando le vuelve la corriente.",
+  "This light takes no brightness to come back at.": "Esta luz no admite un brillo al volver la corriente.",
+  "This light has no white to come back in.": "Esta luz no tiene un blanco en el que volver.",
+  "Keep its last": "Conservar el último",
+  "Its last": "Su último",
 });
 
 """#),
@@ -27342,6 +27359,23 @@ HomeswiftI18n.add("fr", {
   "No battery is measured": "Aucune batterie n'est mesurée",
   "Edit the Energy page": "Modifier la page Énergie",
   "Something stands out in the energy use": "Quelque chose ressort dans la consommation d'énergie",
+  "Power on": "Mise sous tension",
+  "What it does when its power comes back, from a wall switch or after a power cut.": "Ce qu'elle fait quand le courant revient, par un interrupteur mural ou après une coupure.",
+  "Natural light": "Lumière naturelle",
+  "As it was, on or off, in the white for the time of day: {kelvin} K now": "Comme avant, allumée ou éteinte, dans le blanc du moment de la journée : {kelvin} K maintenant",
+  "Warm white, full brightness": "Blanc chaud, pleine luminosité",
+  "Last on": "Dernier état",
+  "On, in its last colour and brightness": "Allumée, dans ses dernières couleur et luminosité",
+  "Power loss recovery": "Après une coupure",
+  "Stays off or turns back on, as it was": "Reste éteinte ou se rallume, comme avant",
+  "Stays off": "Reste éteinte",
+  "Custom": "Personnalisé",
+  "On, at the brightness and white below": "Allumée, à la luminosité et au blanc ci-dessous",
+  "This light cannot do that when its power comes on.": "Cette lumière ne peut pas faire cela quand le courant revient.",
+  "This light takes no brightness to come back at.": "Cette lumière ne prend pas de luminosité au retour du courant.",
+  "This light has no white to come back in.": "Cette lumière n'a pas de blanc dans lequel revenir.",
+  "Keep its last": "Garder la dernière",
+  "Its last": "Sa dernière",
 });
 
 """#),
@@ -31039,6 +31073,23 @@ HomeswiftI18n.add("pt", {
   "No battery is measured": "Nenhuma bateria é medida",
   "Edit the Energy page": "Editar a página Energia",
   "Something stands out in the energy use": "Algo se destaca no consumo de energia",
+  "Power on": "Ao ligar",
+  "What it does when its power comes back, from a wall switch or after a power cut.": "O que faz quando a corrente volta, num interruptor de parede ou após um corte.",
+  "Natural light": "Luz natural",
+  "As it was, on or off, in the white for the time of day: {kelvin} K now": "Como estava, ligada ou desligada, no branco da hora do dia: {kelvin} K agora",
+  "Warm white, full brightness": "Branco quente, brilho máximo",
+  "Last on": "Último estado",
+  "On, in its last colour and brightness": "Ligada, na sua última cor e brilho",
+  "Power loss recovery": "Após um corte",
+  "Stays off or turns back on, as it was": "Fica desligada ou volta a ligar, como estava",
+  "Stays off": "Fica desligada",
+  "Custom": "Personalizado",
+  "On, at the brightness and white below": "Ligada, com o brilho e o branco abaixo",
+  "This light cannot do that when its power comes on.": "Esta luz não pode fazer isso quando a corrente volta.",
+  "This light takes no brightness to come back at.": "Esta luz não aceita um brilho ao voltar a corrente.",
+  "This light has no white to come back in.": "Esta luz não tem um branco em que voltar.",
+  "Keep its last": "Manter o último",
+  "Its last": "O seu último",
 });
 
 """#),
@@ -33851,6 +33902,12 @@ HomeswiftI18n.add("pt", {
         dangerRow(t("Forget"), answer.addLabel ? t("Deletes it and its settings for good: {plugin} cannot find it again.", { plugin })
           : t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
 
+      // Power on: what a light does when its power comes back, its device's own or Natural Light (the bridge's), asked of
+      // the bridge once the rest is drawn; nothing for an accessory whose plugin keeps none.
+      const powerSection = section(t("Power on"), t("What it does when its power comes back, from a wall switch or after a power cut."));
+      powerSection.hidden = true;
+      api(`/api/power-on/${enc(id)}`).then((power) => powerOnRows(powerSection, power, id), () => {});
+
       // A Remote: what its Buttons and Wheels do is set on the Remotes page (its Controls), where this opens it.
       const remoteSection = fields.controls ? section(t("Its buttons"), t("What each button and wheel does is set on the Remotes page."),
         el("a", { class: "button", href: `/remotes/${enc(answer.accessory ?? accessoryID)}`, actionIcon: "remote", text: t("Set what its buttons do") })) : null;
@@ -33860,6 +33917,7 @@ HomeswiftI18n.add("pt", {
         excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
         section(null, null, nameField, roomField),
         section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null, separate?.node ?? null, functionOf),
+        powerSection,
         energySection,
         remoteSection,
         partsSection,
@@ -33872,6 +33930,91 @@ HomeswiftI18n.add("pt", {
       node.setAttribute("aria-busy", "true");
       await load();
     }
+  }
+
+  /// A light's Power on, as the Hue app shows it: one choice of a list, each with what it does, Natural Light first;
+  /// Custom's brightness and white unfold under it, each its light's last until set. A choice applies at once, to the
+  /// device or to the bridge's Natural Light.
+  function powerOnRows(box, power, id) {
+    const words = {
+      natural: [t("Natural light")],
+      default: [t("Default"), t("Warm white, full brightness")],
+      lastOn: [t("Last on"), t("On, in its last colour and brightness")],
+      powerLoss: [t("Power loss recovery"), t("Stays off or turns back on, as it was")],
+      off: [t("Off"), t("Stays off")],
+      custom: [t("Custom"), t("On, at the brightness and white below")],
+    };
+    // Natural Light's words say the white it gives now, which a choice may change.
+    const help = (behaviour) => behaviour === "natural"
+      ? t("As it was, on or off, in the white for the time of day: {kelvin} K now", { kelvin: power.naturalWhite ?? "–" }) : words[behaviour][1];
+    const support = power.support;
+    const offered = Object.keys(words).filter((behaviour) => support.behaviours.includes(behaviour));
+    if (!offered.length) return;
+    const state = stateNode();
+    const group = `power-on-${++ids}`;
+    const custom = power.behaviour === "custom" ? power.current ?? {} : {};
+    /// A value Custom may set, or leave as the light's last: the wall's slider (a light's fill, or its whites), dimmed
+    /// and saying so while it keeps the last; moving it sets one.
+    const setting = (label, { min, max, step = 1, start, unit, look }, value) => {
+      let chosen = value ?? undefined;
+      const keep = el("input", { type: "checkbox", checked: chosen === undefined });
+      const slider = HomeswiftWidgets.level({ label, showLabel: false, min, max, step, format: (v) => `${v} ${unit}`, ...look },
+        (v) => { chosen = v; keep.checked = false; paint(); choose("custom"); });
+      const paint = () => {
+        slider.set(chosen ?? start);
+        slider.node.classList.toggle("unset", keep.checked);
+        if (keep.checked) {
+          slider.node.querySelector(".level-text").textContent = t("Its last");
+          slider.node.setAttribute("aria-valuetext", t("Its last"));
+        }
+      };
+      keep.addEventListener("change", () => { chosen = keep.checked ? undefined : chosen ?? start; paint(); choose("custom"); });
+      paint();
+      return { get: () => keep.checked ? undefined : chosen,
+        node: el("div", { class: "field slider-field" }, el("span", { class: "field-title", text: label }), slider.node,
+          el("label", { class: "power-on-keep" }, keep, el("span", { text: t("Keep its last") }))) };
+    };
+    const level = support.brightness ? setting(t("Brightness"), { min: 1, max: 100, start: 100, unit: "%", look: { fill: HomeswiftWidgets.brightnessFill() } }, custom.brightness) : null;
+    const white = support.white ? setting(t("White"), { min: support.white[0], max: support.white[1], step: 50, start: 2700, unit: "K",
+      look: { gradient: HomeswiftWidgets.whiteTrack(support.white[0], support.white[1]) } }, custom.temperature) : null;
+    // Unfolds under Custom, its height eased (`.unfold`), out of the tab order while folded.
+    const customBox = el("div", { class: "unfold power-on-custom" }, el("div", {}, level?.node ?? null, white?.node ?? null));
+    const choices = offered.map((behaviour) => {
+      const input = el("input", { type: "radio", name: group, value: behaviour, checked: power.behaviour === behaviour });
+      const note = el("span", { class: "help", text: help(behaviour) });
+      input.addEventListener("change", () => { if (input.checked) choose(behaviour); });
+      return { behaviour, input, note, node: el("label", { class: "power-on-choice" }, input,
+        el("span", { class: "power-on-text" }, el("span", { class: "field-title", text: words[behaviour][0] }), note)) };
+    });
+    const showCustom = () => {
+      const open = (level || white) && choices.some((one) => one.behaviour === "custom" && one.input.checked);
+      customBox.classList.toggle("open", Boolean(open));
+      customBox.inert = !open;
+    };
+    const choose = async (behaviour) => {
+      showCustom();
+      setState(state, "busy", t("Saving…"));
+      const body = { behaviour };
+      if (behaviour === "custom") {
+        body.brightness = level?.get();
+        body.temperature = white?.get();
+      }
+      try {
+        power = await api(`/api/power-on/${enc(id)}`, { method: "PUT", body });
+        setState(state, "ok", t("Saved"));
+      } catch (e) {
+        setState(state, "error", e.message);
+      }
+      for (const one of choices) {
+        one.input.checked = one.behaviour === power.behaviour;
+        one.note.textContent = help(one.behaviour);
+      }
+      showCustom();
+    };
+    showCustom();
+    box.querySelector(".settings-section-head h3")?.append(" ", state);
+    box.append(el("div", { class: "power-on-choices", role: "radiogroup", "aria-label": t("Power on") }, choices.map((one) => one.node)), customBox);
+    box.hidden = false;
   }
 
   /// The editor in a side sheet, from the wall's ⋯, a plugin's Devices or Setup: its name and plugin at the top, Done
@@ -40094,6 +40237,21 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .settings-section-head { margin-bottom: var(--space-10); }
 .settings-section-head h3 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .settings-section-head h3 .muted { font-weight: var(--weight-regular); font-size: var(--text-sm); }
+/* A light's Power on (settings.js powerOnRows): its choices as a list, each its name and what it does beside its radio,
+   the chosen one tinted; Custom's sliders under it. */
+.power-on-choices { display: grid; gap: 2px; }
+.power-on-choice { display: flex; align-items: flex-start; gap: var(--space-10); padding: var(--space-8) var(--space-10); border-radius: var(--radius-sm); cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out); }
+.power-on-choice:has(input:checked) { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.power-on-choice input { flex: none; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
+.power-on-text { display: grid; gap: 2px; min-width: 0; }
+.power-on-text .field-title { margin: 0; }
+@media (hover: hover) and (pointer: fine) { .power-on-choice:hover:not(:has(input:checked)) { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.power-on-custom > div { display: grid; gap: var(--space-6); padding-left: calc(var(--space-10) * 2 + 16px); }
+.power-on-custom.open > div { padding-top: var(--space-8); }
+.power-on-keep { display: flex; align-items: center; gap: var(--space-6); margin-top: var(--space-6); font-size: var(--text-sm); color: var(--muted); cursor: pointer; }
+.power-on-keep input { width: auto; margin: 0; accent-color: var(--accent); }
+.power-on-value { color: var(--muted); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
 .settings-section-head .help { margin-top: 2px; }
 .settings-section-head.with-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
 .settings-section-head.with-tools > button { flex: none; }

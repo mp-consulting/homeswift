@@ -49,6 +49,8 @@ public actor MatterDevicesPlugin: HomeswiftPlugin {
     private(set) var commissioner: Commissioner?
     /// The running nodes, by Device Id.
     private(set) var nodes: [String: RunningNode] = [:]
+    /// Each light's Power On as its node first answered: whether it keeps one, and its whites in mirek (`MatterPowerOn`).
+    var powerOnCapabilities: [String: (startUp: Bool, white: ClosedRange<Int>?)] = [:]
     private let tasks = TaskBag()
 
     /// A node the plugin follows: its link, and what its last structure made.

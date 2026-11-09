@@ -41,6 +41,8 @@ extension HomeswiftCatalog {
                         "description": "The Energy Role of each of its Meters in the Home Energy, by the Meter's key (get_settings' meters): solar, home, grid, battery, or none for a single device's use; null gives back its plugin's suggestion"],
         "controls": ["type": "array", "items": ["type": "object"],
                      "description": "A Remote's Controls, what each gesture of its Buttons and Wheels does (list_remotes says its parts and their gestures): {part, gesture: press|double|long|hold|turn, action: toggle|on|off|scene|stop|dim|step, targets: [light or shutter ids], power: [switch or outlet ids], scene, direction: alternate|up|down, step: 1-25, reversed, powerDelay: 1-30}; the Remotes page edits them"],
+        "naturalLight": ["type": "boolean",
+                         "description": "Natural Light: a light that can have it comes back as it was, in the white for the time of day, when its power comes on; false once it has one of its device's own Power On (set_power_on sets both)"],
     ]
 
     /// The Device Kinds a field is for (`x-kinds`); nil for every kind.
@@ -143,6 +145,8 @@ extension HomeswiftCatalog {
                 if value.objectValue?.values.allSatisfy({ $0.isNull || $0.stringValue.map(AccessorySettings.energyRoleChoices.contains) == true }) != true {
                     problems.append(.init(path: at, message: "must be an object of solar, home, grid, battery or none by Meter"))
                 }
+            case "naturalLight":
+                if value.boolValue == nil { problems.append(.init(path: at, message: "must be true or false")) }
             case "controls":
                 if let controls = RemoteControl.list(from: value) {
                     if let problem = RemoteControl.problem(in: controls) { problems.append(.init(path: at, message: problem)) }
@@ -308,6 +312,8 @@ extension HomeswiftCatalog {
             fields.removeValue(forKey: "controls")
             answer["fields"] = .object(fields)
         }
+        // Natural Light is the light's Power On, which set_power_on and the light's sheet set with the device's own.
+        if fields.removeValue(forKey: "naturalLight") != nil { answer["fields"] = .object(fields) }
         // Its Meters, for `energyRoles`: each one's key, its own name on a device with several, and its plugin's suggestion.
         // The electricity Meters: gas and water have no Energy Role.
         let meters = (metrics?.meters.meters(of: target.accessoryID) ?? []).filter { metrics?.meters.kind(of: $0) == .electricity }
