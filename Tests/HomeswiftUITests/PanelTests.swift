@@ -179,6 +179,14 @@ struct PanelTests {
         #expect(try await browser.put("/api/preferences", ["theme": "purple"]).status == 400)
         #expect(try await browser.put("/api/preferences", ["colour": "red"]).status == 400)
         #expect(try await browser.put("/api/preferences", ["dashboard": ["order": ["../etc"]]]).status == 400)
+        // The widgets added to At a glance, in order, kept with the sections' layout.
+        let glance = try await browser.put("/api/preferences", ["dashboard": ["order": ["glance", "energy"], "hidden": [], "widgets": ["energy-now", "energy-cost"]]])
+        #expect(glance.json?["dashboard"]?["widgets"] == ["energy-now", "energy-cost"])
+        #expect(try await browser.put("/api/preferences", ["dashboard": ["widgets": ["energy now"]]]).status == 400)
+        // The Energy page's own layout, checked as the Status page's.
+        let energy = try await browser.put("/api/preferences", ["energyPage": ["order": ["energy-log", "energy-flow"], "hidden": ["energy-power"]]])
+        #expect(energy.json?["energyPage"]?["hidden"] == ["energy-power"])
+        #expect(try await browser.put("/api/preferences", ["energyPage": ["order": ["../etc"]]]).status == 400)
         let url = environment.directory.appendingPathComponent("ui-preferences.json")
         #expect(PreferencesStore(url: url).preferences(for: "local")["temperatureUnit"] == "f")
         #expect((try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) == 0o600)

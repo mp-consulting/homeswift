@@ -23,8 +23,9 @@
   /// Equal modules and gaps, projected onto each roof. The same grid covers every artwork variant and preview.
   function solarPanels(style, night = false) {
     const simple = style === "simple";
-    const [width, height] = simple ? [1600, 1200] : [1536, 1024];
-    const corners = simple ? [[577, 252], [830, 315], [629, 455], [409, 371]]
+    // The Simple style's array as Scripts/energy-house.py renders it (its layout's `panels`), in a 3:2 frame.
+    const [width, height] = simple ? [1600, 1066] : [1536, 1024];
+    const corners = simple ? [[541, 116], [770, 171], [584, 301], [381, 222]]
       : style === "apartment" ? [[322, 144], [1226, 144], [1311, 251], [214, 251]]
       : [[319, 140], [1227, 140], [1293, 253], [241, 253]];
     const project = (u, v) => corners[0].map((_, axis) =>
@@ -32,7 +33,7 @@
         + v * ((1 - u) * corners[3][axis] + u * corners[2][axis]));
     const point = (u, v) => project(u, v).map(n => n.toFixed(2)).join(",");
     const quad = (left, top, right, bottom) => [point(left, top), point(right, top), point(right, bottom), point(left, bottom)].join(" ");
-    const columns = simple ? 4 : 8, rows = 2;
+    const columns = simple ? 7 : 8, rows = 2;
     const modules = [];
     for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
       const left = (column + 0.025) / columns, right = (column + 0.975) / columns;
@@ -127,10 +128,11 @@
   const supplies = (f, has) => [["solar", f.sh], ["battery", f.bh], ["grid", f.gh]].filter(([role]) => has(role));
 
   /// The card. `format` has `watts`, `kWh` and `percent`. `update(report)` takes the Energy section's report: its roles,
-  /// its power points and levels, today, and the day's sunrise and sunset.
-  function card(format) {
+  /// its power points and levels, today, and the day's sunrise and sunset. With `details`, today's biggest users and the
+  /// day's band under it.
+  function card(format, { details: withDetails = false } = {}) {
     const saved = remembered();
-    const state = { view: saved.view === "diagram" ? "diagram" : "house", span: saved.span === "today" ? "today" : "now" };
+    const state = { view: saved.view === "diagram" ? "diagram" : "house", span: saved.span === "today" ? "today" : "now", values: saved.values === true };
     let report = null;
     /// A row of radio buttons for one of the card's choices, kept in this browser.
     const radio = (key, label, options) => {
@@ -156,7 +158,18 @@
     // views, the readings and what powers the home; then today's biggest users and the day's band.
     const note = el("div", { class: "muted" });
     const scene = el("div", { class: "energy-house-scene" });
-    const frame = el("div", { class: "energy-house" }, scene);
+    // Values: the figures on the picture, on or off, kept in this browser; on the house alone.
+    // Round, the icon alone (a pulse: the live figures); its name for whoever cannot see it.
+    const valuesButton = el("button", { type: "button", class: "energy-values-toggle", "aria-label": t("Values"), title: t("Show the figures on the picture"),
+      "aria-pressed": String(state.values), onclick: () => {
+        state.values = !state.values;
+        remember({ values: state.values });
+        valuesButton.setAttribute("aria-pressed", String(state.values));
+        valuesButton.classList.toggle("on", state.values);
+        draw();
+      } }, HomeswiftCommon.icon("pulse"));
+    valuesButton.classList.toggle("on", state.values);
+    const frame = el("div", { class: "energy-house" }, scene, valuesButton);
     const readings = el("div", { class: "energy-house-readings" });
     const supply = el("div", { class: "energy-supply", hidden: true });
     const details = el("div", { class: "energy-house-details" },
@@ -167,24 +180,11 @@
       readings, supply);
     const devices = el("div", { class: "energy-devices", hidden: true });
     const day = el("div", { class: "energy-day", hidden: true });
-    // Today's biggest users and the day's band: folded under the card until asked for, the choice kept in this browser.
-    let open = saved.more === true;
-    const more = el("div", { class: "energy-more", id: `energy-more-${Math.random().toString(36).slice(2, 8)}` }, el("div", {}, devices, day));
-    const moreLabel = el("span");
-    const moreButton = el("button", { type: "button", class: "energy-more-toggle", actionIcon: "down", "aria-controls": more.id, onclick: () => {
-      open = !open;
-      remember({ more: open });
-      fold();
-    } }, moreLabel);
-    const fold = () => {
-      more.classList.toggle("open", open);
-      more.inert = !open;
-      moreButton.setAttribute("aria-expanded", String(open));
-      moreLabel.textContent = open ? t("Fewer details") : t("More details");
-      // Nothing to show (no home use, no meters, no reading today): no button either.
-      moreButton.hidden = devices.hidden && day.hidden;
-    };
-    const node = el("div", { class: "card chart-card energy-flow" }, el("div", { class: "energy-house-story" }, frame, details), more, moreButton);
+    // Today's biggest users and the day's band, under the card in the version with details.
+    const more = el("div", { class: "energy-more" }, devices, day);
+    // Nothing to show (no home use, no meters, no reading today): no space kept for it.
+    const fold = () => { more.hidden = devices.hidden && day.hidden; };
+    const node = el("div", { class: "card chart-card energy-flow" }, el("div", { class: "energy-house-story" }, frame, details), withDetails ? more : null);
     fold();
     // A change of House style on the Appearance page, in this tab or another, draws the house again.
     // The listener goes with the card: the page builds a new card on each visit to Status.
@@ -230,8 +230,7 @@
       else { frame.removeAttribute("role"); frame.removeAttribute("aria-label"); }
       if (state.view === "house") house(figures, has, amount, when);
       // The diagram takes the house picture's frame, so switching views moves nothing below it.
-      else show(`diagram ${diagramKey(figures, has, isLive)}`, () => el("div", { class: "energy-diagram-scene" }, el("div", { class: "energy-diagram-period" }, spans), diagram(figures, has, amount, isLive)),
-        HomeswiftCommon.preferences().energyHouseStyle === "simple" ? "4 / 3" : "3 / 2");
+      else show(`diagram ${diagramKey(figures, has, isLive)}`, () => el("div", { class: "energy-diagram-scene" }, el("div", { class: "energy-diagram-period" }, spans), diagram(figures, has, amount, isLive)));
     }
 
     /// Puts `make()` in the scene unless what it shows (`key`) is there already.
@@ -389,7 +388,7 @@
       // What the overlay draws, roughly: it is drawn again only when this changes, so its pulses keep their pace.
       const step = (value) => Math.round(value / Math.max(figures.home, 1) * 10);
       const key = `house ${src} ${custom ? JSON.stringify(custom) : ""} ${sources.concat("home").filter(has).join()} ${Object.values(f).map(step).join()} ${step(figures.charge + figures.discharge)} ${step(figures.imported + figures.exported)}`;
-      if (key === shown) return;
+      if (key === shown) { placeGauge(figures, has, layout); placeValues(figures, has, layout); return; }
       // A new picture is decoded before it replaces the one shown; the same picture is kept as it is.
       let image = scene.querySelector(":scope > img");
       if (image?.getAttribute("src") !== src) {
@@ -400,8 +399,163 @@
       image.alt = custom ? [custom.name, custom.description].filter(Boolean).join(". ") : "";
       frame.classList.toggle("simple", simple);
       frame.classList.toggle("photo", !simple);
-      show(key, () => [image, custom ? null : solarPanels(style, src.endsWith("-night.webp")), simple ? sky(src.endsWith("-night.webp")) : null, overlay(figures, has, layout, simple)], `${width} / ${height}`);
+      show(key, () => [image, custom ? null : solarPanels(style, src.endsWith("-night.webp")), simple ? sky(src.endsWith("-night.webp")) : null, overlay(figures, has, layout, simple)],
+        `${width} / ${height}`);
+      gaugeShown = null;
+      placeGauge(figures, has, layout);
+      placeValues(figures, has, layout);
     }
+
+    /// What the gauge shows: its level to the percent and whether it charges or gives.
+    const gaugeKey = (figures, has) => has("battery") && figures.level != null
+      ? `${Math.round(figures.level)}${figures.charge > 0.5 ? "+" : figures.discharge > 0.5 ? "-" : ""}` : "";
+    /// The gauge on the house, swapped on its own when its level or state changes: the house and its conduits stay, so
+    /// their pulses keep their pace.
+    let gaugeShown = null;
+    function placeGauge(figures, has, layout) {
+      const key = gaugeKey(figures, has);
+      if (key === gaugeShown) return;
+      gaugeShown = key;
+      scene.querySelector(":scope > .energy-battery-gauge")?.remove();
+      const [gauge] = batteryGauge(figures, has, layout);
+      // Under the figures, over the house.
+      if (gauge) scene.insertBefore(gauge, valuesLayer.isConnected ? valuesLayer : null);
+    }
+
+    /// The battery's charge on the picture's battery (`gauge` in its layout): five small pills stacked like cells, lit
+    /// from the bottom to the level (the top one in part), glowing green, amber under 20 % and red under 10 %, the top
+    /// one breathing while it charges. Each cell is the quad the layout gives (`cells`: the Simple model's, in the
+    /// battery's perspective), else a pill cut from the face's rectangle (`rect`: a photo's battery, seen head on).
+    /// Nothing without a level, or on a picture whose layout has no gauge (a person's own photo).
+    function batteryGauge(figures, has, { width, height, gauge }) {
+      if (!gauge || !has("battery") || figures.level == null) return [];
+      const level = Math.max(0, Math.min(100, figures.level));
+      const tone = level < 10 ? "empty" : level < 20 ? "low" : "ok";
+      const state = figures.charge > 0.5 ? " charging" : figures.discharge > 0.5 ? " giving" : "";
+      const count = gauge.cells?.length ?? 5;
+      const quads = gauge.cells ?? [...Array(count)].map((_, index) => {
+        const [x, y, w, h] = gauge.rect, gap = h * 0.06, pill = (h - gap * (count - 1)) / count;
+        const bottom = y + h - index * (pill + gap), top = bottom - pill;
+        return [[x, bottom], [x + w, bottom], [x + w, top], [x, top]];
+      });
+      // Each cell's share of the level, from the bottom: 1 lit, 0 dark, in between the top one's part.
+      const lit = (index) => Math.max(0, Math.min(1, level / (100 / count) - index));
+      // The highest cell lit, in part or whole (none at 0 %).
+      const top = Math.min(count - 1, Math.ceil(level / (100 / count)) - 1);
+      // Rounded by a stroke of their own colour, so a quad in perspective reads as a pill too.
+      const round = Math.min(...quads.map((quad) => Math.hypot((quad[1][0] - quad[0][0]) * width, (quad[1][1] - quad[0][1]) * height))) * 0.3;
+      return [svg("svg", { viewBox: `0 0 ${width} ${height}`, class: `energy-house-lines energy-battery-gauge ${tone}${state}`, "aria-hidden": "true",
+        style: `--cell-round: ${round.toFixed(2)}px` },
+        quads.map((quad, index) => {
+          const share = lit(index);
+          return svg("polygon", { class: share > 0 ? `cell on${index === top ? " top" : ""}` : "cell",
+            points: quad.map(([x, y]) => `${(x * width).toFixed(1)},${(y * height).toFixed(1)}`).join(" "),
+            style: share > 0 && share < 1 ? `opacity: ${(0.35 + share * 0.65).toFixed(2)}` : null });
+        }))];
+    }
+
+    /// The figures on the picture, when Values is on: each part's power where its conduit lands (solar on the roof, the
+    /// grid at the pole, the home in its rooms) and the battery's charge beside it, as small pills in the page's type.
+    /// Their text is updated in place at each reading, so the conduits' pulses keep their pace and nothing is measured again
+    /// unless a pill's width changed.
+    const valuesLayer = el("div", { class: "energy-values-layer", "aria-hidden": "true" });
+    function placeValues(figures, has, layout) {
+      if (!state.values || !layout) { valuesLayer.remove(); return; }
+      const anchors = layout.markers ?? layout.anchors ?? {};
+      const watts = (value) => format.watts(Math.round(value));
+      const battery = [figures.level != null ? format.percent(figures.level) : null,
+        figures.charge > 0.5 ? `↓ ${watts(figures.charge)}` : figures.discharge > 0.5 ? `↑ ${watts(figures.discharge)}` : null].filter(Boolean).join(" · ");
+      const values = [
+        ["solar", anchors.solar, watts(figures.solar)],
+        ["grid", anchors.grid, figures.exported > 0.5 ? `↑ ${watts(figures.exported)}` : `↓ ${watts(figures.imported)}`],
+        ["home", anchors.home, watts(figures.home)],
+        ["battery", layout.gauge?.label ?? anchors.battery, battery, layout.gauge?.side],
+      ].filter(([role, at, text]) => has(role) && at && text);
+      // The same figures on the same picture: their text changed in place, and placed again only when a pill's width did.
+      const roles = values.map(([role]) => role).join();
+      if (valuesLayer.isConnected && layout === valuesLayout && valuesLayer.dataset.roles === roles) {
+        let resized = false;
+        values.forEach(([, , text], index) => {
+          const pill = valuesLayer.children[index], label = pill?.lastChild;
+          if (!label || label.textContent === text) return;
+          const before = pill.offsetWidth;
+          label.textContent = text;
+          if (pill.offsetWidth !== before) resized = true;
+        });
+        if (resized) arrangeValues();
+        return;
+      }
+      valuesLayer.dataset.roles = roles;
+      valuesLayer.replaceChildren(...values.map(([role, at, text, side]) => {
+        const pill = el("span", { class: `energy-value tone-${tones[role]}` }, el("i"), text);
+        pill.dataset.at = at.join(",");
+        if (side) pill.dataset.side = side;
+        return pill;
+      }));
+      valuesLayout = layout;
+      if (!valuesLayer.isConnected) scene.append(valuesLayer);
+      arrangeValues();
+    }
+
+    /// Each figure in the first place around its point that leaves the conduits (and their glow), the other figures,
+    /// the battery's cells, the Values button and the picture's covered edges clear: its side (the layout's, or the inner
+    /// one near an edge), then above, below, right, left, and the corners. Measured on the page, so again on a resize.
+    let valuesLayout = null;
+    function arrangeValues() {
+      const layout = valuesLayout;
+      const width = scene.clientWidth, height = scene.clientHeight;
+      if (!layout || !valuesLayer.isConnected || !width || !height) return;
+      const px = ([x, y]) => [x * width, y * height];
+      const lines = [...Object.values(layout.cables ?? {})].filter((points) => points?.length > 1).map((points) => points.map(px));
+      // What else a figure must leave clear: the cells, and the button in the top left.
+      const blocked = [{ x: 4, y: 4, w: 52, h: 52 }];
+      for (const cell of layout.gauge?.cells ?? (layout.gauge?.rect ? [[[layout.gauge.rect[0], layout.gauge.rect[1]], [layout.gauge.rect[0] + layout.gauge.rect[2], layout.gauge.rect[1] + layout.gauge.rect[3]]]] : [])) {
+        const xs = cell.map(([x]) => x * width), ys = cell.map(([, y]) => y * height);
+        blocked.push({ x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
+      }
+      // The details panel and its badge where they cover the picture (its right edge beside it on a wide screen, its
+      // foot under it on a narrow one), measured, so the figures follow the stylesheet's layout whatever its widths.
+      const box = scene.getBoundingClientRect();
+      for (const part of [details, details.querySelector(".energy-house-badge")]) {
+        const r = part?.getBoundingClientRect();
+        if (!r?.width) continue;
+        const x = Math.max(r.left, box.left) - box.left, y = Math.max(r.top, box.top) - box.top;
+        const w = Math.min(r.right, box.right) - box.left - x, h = Math.min(r.bottom, box.bottom) - box.top - y;
+        if (w > 0 && h > 0) blocked.push({ x, y, w, h });
+      }
+      const bounds = { left: 6, top: 6, right: width - 6, bottom: height - 6 };
+      const glow = 8;
+      const overlaps = (a, b, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
+      const crossesLine = (box) => lines.some((points) => points.slice(1).some((end, i) => {
+        const start = points[i], length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+        for (let step = 0; step <= length; step += 3) {
+          const t = length ? step / length : 0, x = start[0] + (end[0] - start[0]) * t, y = start[1] + (end[1] - start[1]) * t;
+          if (x > box.x - glow && x < box.x + box.w + glow && y > box.y - glow && y < box.y + box.h + glow) return true;
+        }
+        return false;
+      }));
+      const placed = [];
+      for (const pill of valuesLayer.children) {
+        const [ax, ay] = px(pill.dataset.at.split(",").map(Number)), w = pill.offsetWidth, h = pill.offsetHeight;
+        const spots = (gap) => ({
+          above: [ax - w / 2, ay - gap - h], below: [ax - w / 2, ay + gap], right: [ax + gap, ay - h / 2], left: [ax - gap - w, ay - h / 2],
+          "above-right": [ax + gap / 2, ay - gap - h], "above-left": [ax - gap / 2 - w, ay - gap - h],
+          "below-right": [ax + gap / 2, ay + gap], "below-left": [ax - gap / 2 - w, ay + gap],
+        });
+        const first = pill.dataset.side ?? (ax > width * 0.82 ? "left" : ax < width * 0.18 ? "right" : "above");
+        const order = [first, ...Object.keys(spots(0)).filter((side) => side !== first)];
+        // Close to its point first, then farther out, ring by ring.
+        const boxes = [8, 18, 32].flatMap((gap) => order.map((side) => ({ x: spots(gap)[side][0], y: spots(gap)[side][1], w, h })));
+        const inside = (box) => box.x >= bounds.left && box.y >= bounds.top && box.x + box.w <= bounds.right && box.y + box.h <= bounds.bottom;
+        const clear = (box) => inside(box) && !crossesLine(box) && !placed.some((other) => overlaps(box, other, 4)) && !blocked.some((other) => overlaps(box, other, 4));
+        // Else the first that stays inside and off the other figures; else its own side.
+        const box = boxes.find(clear) ?? boxes.find((one) => inside(one) && !placed.some((other) => overlaps(one, other, 4))) ?? boxes[0];
+        placed.push(box);
+        pill.style.left = `${(box.x / width * 100).toFixed(2)}%`;
+        pill.style.top = `${(box.y / height * 100).toFixed(2)}%`;
+      }
+    }
+    new ResizeObserver(() => arrangeValues()).observe(scene);
 
     /// The conduits over the house, each lit and pulsing while power runs along it.
     function overlay(figures, has, { width, height, cables, markers }, simple) {
@@ -552,7 +706,9 @@
       // One round at a time: a report arriving while one is asked waits for it rather than starting another.
       if (asking) return;
       clearTimeout(following);
-      if (!node.isConnected || document.hidden) return;
+      // A version of the card the page does not show (a section removed in the edit mode) asks nothing; the next
+      // report (`update`) starts it again.
+      if (!node.isConnected || document.hidden || !node.checkVisibility()) return;
       asking = true;
       const to = new Date(), from = new Date(to - 3 * 60000);
       try {

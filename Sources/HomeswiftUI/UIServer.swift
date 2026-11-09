@@ -470,7 +470,7 @@ public final class UIServer: Sendable {
     static func requiredScope(_ method: HTTPMethod, _ route: [String]) -> Scope {
         switch method {
         case .GET:
-            if [["status"], ["presence"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "consumption"], ["events"], ["assistant"], ["logbook"]].contains(route) { return .read }
+            if [["status"], ["presence"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["metrics", "energy", "story"], ["metrics", "consumption"], ["events"], ["assistant"], ["logbook"]].contains(route) { return .read }
             // A camera's pan and tilt: asking may sign in to the camera, so it is for those who may move it.
             if route.count == 3, route[0] == "cameras", route[2] == "controls" { return .control }
             if route.count == 3, route[0] == "cameras" { return .read }
@@ -848,13 +848,26 @@ public final class UIServer: Sendable {
                     history = .object(object)
                 }
                 return .json(history)
+            case ["metrics", "energy", "story"]:
+                // The Energy log's events and what stands out (`HomeswiftCatalog.energyStory`), from `from` to `to` (ISO 8601;
+                // the start of yesterday and now without them), days and nights in `timeZone`: codes and values, which the page words.
+                let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
+                let from = request.query["from"].flatMap(Self.date(iso:)), to = request.query["to"].flatMap(Self.date(iso:))
+                if request.query["from"] != nil && from == nil || request.query["to"] != nil && to == nil { return .error(400, "from and to are ISO 8601 times") }
+                do {
+                    return .json(try catalog.energyStoryJSON(from: from, to: to, timeZone: timeZone))
+                } catch let error as CatalogError {
+                    return .error(error.notFound ? 404 : 400, error.description)
+                }
             case ["metrics", "consumption"]:
                 // Each Meter's Consumption and Returned (`HomeswiftCatalog.consumptionJSON`): `hours` (the last N hours), or
-                // `period` week, month or year around `date`; `accessory` keeps one accessory's Meters.
+                // `period` week, month or year around `date`; `accessory` keeps one accessory's Meters; `step=hour` keeps a bar
+                // per hour up to two weeks of `hours`.
                 let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
                 do {
                     return .json(try catalog.consumptionJSON(period: request.query["period"], date: request.query["date"], hours: request.query["hours"].flatMap(Double.init),
-                                                             timeZone: timeZone, accessory: request.query["accessory"], kind: request.query["kind"].flatMap(MeterKind.init(rawValue:))))
+                                                             timeZone: timeZone, accessory: request.query["accessory"], kind: request.query["kind"].flatMap(MeterKind.init(rawValue:)),
+                                                             hourly: request.query["step"] == "hour"))
                 } catch let error as CatalogError {
                     return .error(error.notFound ? 404 : 400, error.description)
                 }

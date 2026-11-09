@@ -272,6 +272,28 @@ const energyDemo = `(() => {
       utility("demo:gas", "Gas meter", "gas", (back) => 3.1 + 1.2 * Math.sin(back * 1.3)),
       utility("demo:water", "Water meter", "water", (back) => 0.32 + 0.09 * Math.cos(back * 2.1))] };
   };
+  // Each meter's hours for the Energy log: the home and the sun as the power above, the grid the rest, the heat pump
+  // running mornings and evenings, the washing machine one afternoon, the fridge and the office desk steady.
+  const hourly = (count) => {
+    const end = Math.floor(Date.now() / 36e5) * 36e5, first = end - (count - 1) * 36e5, round = (x) => Math.round(x * 1000) / 1000;
+    const bars = (value) => Array.from({ length: count }, (_, i) => {
+      const at = first + i * 36e5, d = new Date(at);
+      const date = d.toLocaleDateString("en-CA") + "T" + String(d.getHours()).padStart(2, "0") + ":00";
+      const [consumption, returned] = value(at, d.getHours());
+      return { date, consumption: consumption == null ? null : round(consumption), returned: returned == null ? null : round(returned), hours: 1, recordedHours: 1 };
+    });
+    const meter = (accessory, name, role, value) => { const list = bars(value), sum = (f) => round(list.reduce((t, b) => t + (b[f] ?? 0), 0));
+      return { accessory, meter: "main", name, role, bars: list, consumption: role === "solar" ? null : sum("consumption"), returned: sum("returned") }; };
+    const heat = (h) => (h >= 5 && h < 8) || (h >= 18 && h < 22) ? 1.25 : 0.03;
+    return { step: "hour", currency: null, meters: [
+      meter("demo:home", "Main meter", "home", (at) => [homeAt(at) / 1000 + 0.35, null]),
+      meter("demo:grid", "Grid connection", "grid", (at) => [Math.max(0, homeAt(at) / 1000 + 0.35 - solarAt(at) / 1000 * 0.62), Math.max(0, solarAt(at) / 1000 * 0.2)]),
+      meter("demo:solar", "Rooftop solar", "solar", (at) => [null, solarAt(at) / 1000]),
+      meter("demo:heat-pump", "Heat pump", null, (at, h) => [heat(h), 0]),
+      meter("demo:washer", "Washing machine", null, (at, h) => [new Date(at).getDate() % 2 && h >= 14 && h < 16 ? 0.95 : 0.002, 0]),
+      meter("demo:fridge", "Kitchen fridge", null, (at, h) => [0.05 + (h % 3 === 0 ? 0.02 : 0), 0]),
+      meter("demo:desk", "Office desk", null, (at, h) => [h >= 9 && h < 18 ? 0.09 : 0.006, 0])] };
+  };
   const utility = (accessory, name, kind, perDay) => {
     const bars = history().bars.map((bar, index, all) => {
       const back = all.length - 1 - index, k = bar.recordedHours / 24;
@@ -287,7 +309,9 @@ const energyDemo = `(() => {
     if (url.pathname === "/api/metrics/energy") return answer(report(Date.parse(url.searchParams.get("from")) || Date.now() - 864e5, Date.parse(url.searchParams.get("to")) || Date.now()));
     if (url.pathname === "/api/metrics/energy/history") return answer(history());
     if (url.pathname === "/api/metrics/consumption") {
-      // As the bridge answers: \`kind\` keeps one kind of Meter; \`hours\` (the Energy flow card's today) scales the week down.
+      // As the bridge answers: \`kind\` keeps one kind of Meter; \`hours\` (the Energy flow card's today) scales the week down,
+      // and more than a day of hours (the Energy log's two days) has a bar per hour.
+      if (Number(url.searchParams.get("hours")) > 30) return answer(hourly(Number(url.searchParams.get("hours"))));
       const found = consumption(), kind = url.searchParams.get("kind"), hours = Number(url.searchParams.get("hours"));
       found.meters = found.meters.filter((one) => !kind || (one.kind ?? "electricity") === kind);
       if (hours > 0) found.meters = found.meters.map((one) => ({ ...one, consumption: Math.round(one.consumption * hours / (8 * 24) * 100) / 100,
@@ -378,8 +402,10 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
     const top = await evaluate("scrollY");
     clip = { x: 0, y: top, width, height, scale: 1 };
   } else if (element) {
-    const box = await evaluate(`(() => { const r = document.querySelector(${literal(element)}).getBoundingClientRect();
-      return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }; })()`);
+    // Every match together: the Energy section is in units, each a section of its own.
+    const box = await evaluate(`(() => { const rs = [...document.querySelectorAll(${literal(element)})].filter((n) => !n.hidden && n.offsetHeight).map((n) => n.getBoundingClientRect());
+      const left = Math.min(...rs.map((r) => r.left)), top = Math.min(...rs.map((r) => r.top)), right = Math.max(...rs.map((r) => r.right)), bottom = Math.max(...rs.map((r) => r.bottom));
+      return { x: left + scrollX, y: top + scrollY, width: right - left, height: bottom - top }; })()`);
     clip = { x: Math.max(0, box.x - 12), y: Math.max(0, box.y - 12), width: box.width + 24, height: Math.min(box.height + 24, tall), scale: 1 };
   } else {
     const full = await evaluate("Math.ceil(document.documentElement.scrollHeight)");
@@ -468,18 +494,18 @@ try {
       form.requestSubmit();` }).then(() => toUI("location-address-search"));
   // The Status page on a phone: the overview and the Quick controls with the scenes.
   await shot("quick-controls-phone", "/status", { ready: ".quick .scene-button, .quick-scenes", width: 390, height: 844, mobile: true, tall: 430 }).then(() => toUI("quick-controls-phone"));
-  // The Energy section, on a day and a week of demonstration figures.
-  await shot("energy", "/status", { ready: '[data-widget="energy"] .chart-card svg', width: 1100, height: 900, element: '[data-widget="energy"]', before: energyDemo })
+  // The Energy page's Overview, on a day and a week of demonstration figures: its sections are there by default.
+  await shot("energy", "/energy", { ready: '[data-widget="energy-days"] .chart-card svg', width: 1100, height: 900, element: "main", tall: 5200, before: energyDemo })
     .then(() => toStatus("energy"));
   // The gas and water cards under it.
-  await shot("energy-flow", "/status", { ready: '[data-widget="energy"] .energy-house img', width: 1100, height: 1100, element: '[data-widget="energy"] .energy-flow', before: energyDemo })
+  await shot("energy-flow", "/status", { ready: '[data-widget="energy-flow"] .energy-house img', width: 1100, height: 1100, element: '[data-widget="energy-flow"] .energy-flow', before: energyDemo })
     .then(() => toStatus("energy-flow"));
-  await shot("energy-flow-phone", "/status", { ready: '[data-widget="energy"] .energy-house img', width: 390, height: 844, mobile: true, element: '[data-widget="energy"] .energy-flow', before: energyDemo })
+  await shot("energy-flow-phone", "/status", { ready: '[data-widget="energy-flow"] .energy-house img', width: 390, height: 844, mobile: true, element: '[data-widget="energy-flow"] .energy-flow', before: energyDemo })
     .then(() => toStatus("energy-flow-phone"));
   // The Appearance page's House style choice, the two houses side by side.
   await shot("house-style", "/appearance", { ready: ".house-style-card img", width: 1100, height: 900, element: ".house-style-card" })
     .then(() => toUI("house-style"));
-  await shot("energy-gas-water", "/status", { ready: '[data-widget="energy"] .energy-utilities .chart-card svg', width: 1100, height: 1400, element: '[data-widget="energy"] .energy-utilities', before: energyDemo })
+  await shot("energy-gas-water", "/energy", { ready: '[data-widget="energy-utilities"] .chart-card svg', width: 1100, height: 1400, element: '[data-widget="energy-utilities"] .energy-utilities', before: energyDemo })
     .then(() => toStatus("energy-gas-water"));
 } finally {
   socket.close();
