@@ -423,8 +423,8 @@
     }
 
     /// The battery's charge on the picture's battery (`gauge` in its layout): five small pills stacked like cells, lit
-    /// from the bottom to the level (the top one in part), glowing green, amber under 20 % and red under 10 %, the top
-    /// one breathing while it charges. Each cell is the quad the layout gives (`cells`: the Simple model's, in the
+    /// from the bottom to the level, the top one lit only up to its share (61 % is three cells and a twentieth of the
+    /// fourth, not four), glowing green, amber under 20 % and red under 10 %, the top one breathing while it charges. Each cell is the quad the layout gives (`cells`: the Simple model's, in the
     /// battery's perspective), else a pill cut from the face's rectangle (`rect`: a photo's battery, seen head on).
     /// Nothing without a level, or on a picture whose layout has no gauge (a person's own photo).
     function batteryGauge(figures, has, { width, height, gauge }) {
@@ -434,7 +434,7 @@
       const state = figures.charge > 0.5 ? " charging" : figures.discharge > 0.5 ? " giving" : "";
       const count = gauge.cells?.length ?? 5;
       const quads = gauge.cells ?? [...Array(count)].map((_, index) => {
-        const [x, y, w, h] = gauge.rect, gap = h * 0.06, pill = (h - gap * (count - 1)) / count;
+        const [x, y, w, h] = gauge.rect, gap = h * 0.1, pill = (h - gap * (count - 1)) / count;
         const bottom = y + h - index * (pill + gap), top = bottom - pill;
         return [[x, bottom], [x + w, bottom], [x + w, top], [x, top]];
       });
@@ -442,15 +442,22 @@
       const lit = (index) => Math.max(0, Math.min(1, level / (100 / count) - index));
       // The highest cell lit, in part or whole (none at 0 %).
       const top = Math.min(count - 1, Math.ceil(level / (100 / count)) - 1);
-      // Rounded by a stroke of their own colour, so a quad in perspective reads as a pill too.
-      const round = Math.min(...quads.map((quad) => Math.hypot((quad[1][0] - quad[0][0]) * width, (quad[1][1] - quad[0][1]) * height))) * 0.3;
+      // Rounded by a stroke of their own colour, so a quad in perspective reads as a pill too: thin against the cell's
+      // shorter side, so the gaps between cells stay open on a small gauge.
+      const side = (from, to) => Math.hypot((to[0] - from[0]) * width, (to[1] - from[1]) * height);
+      const round = Math.min(...quads.flatMap((quad) => [side(quad[0], quad[1]), side(quad[0], quad[3])])) * 0.25;
+      // A point `share` of the way from one corner to another.
+      const along = (from, to, share) => [from[0] + (to[0] - from[0]) * share, from[1] + (to[1] - from[1]) * share];
+      const points = (quad) => quad.map(([x, y]) => `${(x * width).toFixed(1)},${(y * height).toFixed(1)}`).join(" ");
       return [svg("svg", { viewBox: `0 0 ${width} ${height}`, class: `energy-house-lines energy-battery-gauge ${tone}${state}`, "aria-hidden": "true",
         style: `--cell-round: ${round.toFixed(2)}px` },
-        quads.map((quad, index) => {
+        quads.flatMap((quad, index) => {
           const share = lit(index);
-          return svg("polygon", { class: share > 0 ? `cell on${index === top ? " top" : ""}` : "cell",
-            points: quad.map(([x, y]) => `${(x * width).toFixed(1)},${(y * height).toFixed(1)}`).join(" "),
-            style: share > 0 && share < 1 ? `opacity: ${(0.35 + share * 0.65).toFixed(2)}` : null });
+          const on = svg("polygon", { class: `cell on${index === top ? " top" : ""}`,
+            points: points(share >= 1 ? quad : [quad[0], quad[1], along(quad[1], quad[2], share), along(quad[0], quad[3], share)]) });
+          // The top cell in part: dark, its lit share from its bottom edge over it.
+          const dark = share < 1 ? svg("polygon", { class: "cell", points: points(quad) }) : null;
+          return share <= 0 ? [dark] : [dark, on];
         }))];
     }
 

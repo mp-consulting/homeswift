@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Energy**: the battery gauge on the house picture showed more than the battery's charge: its top cell was lit
+  whole, only dimmer, so 61 % looked like four cells of five, and on a small picture the cells' glow ran together. The top
+  cell now fills only to its share, and the cells stay apart.
+
 ## [0.27.0] - 2026-11-09
 
 ### Added
