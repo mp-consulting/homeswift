@@ -22,6 +22,17 @@ All notable changes to this project are documented here. The format follows
 - **Elgato Key Lights**: the plugin no longer applies its power-on settings (`powerOnBehavior`, `powerOnBrightness`,
   `powerOnTemperature`, plugin-wide and per light) at each start; a light's Power On is set on its settings sheet, and the
   legacy keys are written out of the block (a light that had its own keeps what its device has).
+- The full-screen wall's page dots are a smaller pill, its slots narrowing with many rooms so it always fits a phone.
+- The full-screen wall's and graph's Filters, Leave full screen and zoom buttons sit at the bottom right on every
+  screen, in the thumb's reach, rather than over the first widgets; on a phone above the Assistant's button, the page
+  dots on its line. Every floating round button (the Assistant's, the sections', the full-screen ones, the Status page's
+  Edit) is one size, 54 px, on every screen, and the Status page's Edit sits above the Assistant's button on a wide
+  window as on a phone, rather than overlapping it.
+- The Status page's bridge card shows its plugins as a cloud: each tag as large as its share of the accessories, in its
+  own colour, with its count as a badge.
+- The scene editor's values, a scene animation's speed and brightness, and an accessory's number controls (a TV's
+  contrast) use the wall's sliders: a light's warm fill, its whites, the colour wheel's hues. A colour is a hue and a
+  saturation on those sliders beside a swatch, rather than the browser's colour picker.
 - **Remotes**: the lights, blinds and Power Switches a Control drives are listed by room, a Group's lights under its
   row (ticking the Group ticks them all), and the list stays open while several are ticked, with Done on a phone. Its
   search and kind filters stay at the top while the list scrolls.
@@ -41,6 +52,9 @@ All notable changes to this project are documented here. The format follows
   home's battery, on the house and on the Status page's battery tile. The Battery level chart still shows each device's.
 - **Matter Devices**: a Thread device it already has that stops answering on such a host (after a restart, or a new
   Thread prefix) says the same on the plugin's page, rather than only that it does not answer.
+- A history chart built before it was shown (an accessory's Consumption by day) stayed at its smallest width; its
+  value labels lost their first digit ("12.5 kWh"), the last two day labels overlapped, and months of days read as
+  hatching.
 - **Remotes**: Power Switches changed under More were not saved when what the Control drives stayed the same.
 - On a phone, the accessory list opened from a remote's editor could hide its search field (above the screen, or
   behind the keyboard); it now keeps to what is visible.

@@ -3168,6 +3168,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
+    // A bridge's plugins as a cloud: each tag as large as its share of the accessories there (by its square root, so a
+    // plugin of many does not crowd out the rest), in one of the charts' colours chosen by its name, the largest in the
+    // middle.
+    const pluginCloud = (bridge) => {
+      const counts = bridge.platformAccessories ?? {};
+      const most = Math.max(1, ...bridge.platforms.map((name) => counts[name] ?? 0));
+      const tone = (name) => [...name].reduce((sum, letter) => (sum * 31 + letter.charCodeAt(0)) % 997, 7) % 7 + 1;
+      const arranged = [];
+      bridge.platforms.slice().sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0) || a.localeCompare(b))
+        .forEach((name, index) => { if (index % 2) arranged.push(name); else arranged.unshift(name); });
+      return el("div", { class: "chips plugin-cloud" }, arranged.map((name) => {
+        const count = counts[name] ?? 0;
+        const tag = el("span", { class: `chip cloud-tag tone-${tone(name)}`, "aria-label": `${name}, ${tn("{n} accessory", "{n} accessories", count)}` },
+          el("span", { text: name }), el("span", { class: "cloud-count", "aria-hidden": "true", text: String(count) }));
+        tag.style.setProperty("--weight", Math.sqrt(count / most).toFixed(3));
+        return tag;
+      }));
+    };
+
     // A server's heading (icon, name, role, state) and the rest of its card: a bridge's card shows both; an accessory of
     // its own is a row of the devices list, its heading the row and the rest unfolded.
     const bridgeParts = (bridge, index) => {
@@ -3180,7 +3199,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })],
         body: () => [el("div", { class: "facts lead" },
           fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
-        !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
+        !bridge.external && bridge.platforms.length ? pluginCloud(bridge) : null,
         bridge.setupCode ? el("div", { class: "setup" },
           el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
           el("div", {},
@@ -6424,7 +6443,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (now !== page) { page = now; mark(); }
       } : null;
       chrome.replaceChildren(exitButton, optionsButton,
-        ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
+        ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages"), style: `--pages: ${dots.length}` }, dots)] : []));
       mark();
       if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
       wake();
@@ -9525,6 +9544,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
 
   const height = 168, pad = { top: 10, right: 14, bottom: 24, left: 52 };
+  /// The room the value axis needs: its longest label at the ticks' size ("12.5 kWh" is wider than the usual 52px).
+  const labelRoom = (labels) => Math.max(pad.left, Math.ceil(Math.max(0, ...labels.map((label) => label.length)) * 6.4) + 14);
+
+  /// Draws a chart again when its frame's width changes: from its first time on the page (a chart is often built before
+  /// it is put there, at the smallest width) until a page shown in its place takes it out.
+  function redrawOnResize(frame, draw, drawnWidth) {
+    let placed = false;
+    const resize = new ResizeObserver(() => {
+      if (!frame.isConnected) { if (placed) resize.disconnect(); return; }
+      placed = true;
+      if (frame.clientWidth && Math.abs(frame.clientWidth - drawnWidth()) > 1) draw();
+    });
+    resize.observe(frame);
+  }
 
   /// The highest tick at or above `max`, over four steps of 1, 2, 2.5 or 5 times a power of ten of `unit` (bytes
   /// step in whole megabytes).
@@ -9620,7 +9653,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     function draw() {
       const width = Math.max(frame.clientWidth, 240);
       const { points, from, to, step } = state;
-      const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
+      const plotHeight = height - pad.top - pad.bottom;
       const values = points.flatMap((point) => series.map((one) => one.value(point))).filter((v) => v != null);
       const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
       // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
@@ -9643,16 +9676,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
       }
       const scale = Math.max(top, -bottom);
-      const x = (time) => pad.left + (time - from) / Math.max(to - from, 1) * plotWidth;
+      const tickText = axisLabels(ticks, format, scale);
+      const left = labelRoom(tickText), plotWidth = width - left - pad.right;
+      const x = (time) => left + (time - from) / Math.max(to - from, 1) * plotWidth;
       const y = (value) => pad.top + plotHeight - (value - bottom) / (top - bottom) * plotHeight;
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
-      const tickText = axisLabels(ticks, format, scale);
       ticks.forEach((value, index) => {
         const at = y(value);
-        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
-        const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
+        root.append(svg("line", { x1: left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
+        const label = svg("text", { x: left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
         label.textContent = tickText[index];
         root.append(label);
       });
@@ -9691,7 +9725,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (end) root.append(svg("circle", { cx: x(end.time), cy: y(one.value(end)), r: 4, class: `dot tone-${one.tone}` }));
       }
       if (!points.length) {
-        const empty = svg("text", { x: pad.left + plotWidth / 2, y: pad.top + plotHeight / 2, class: "tick", "text-anchor": "middle" });
+        const empty = svg("text", { x: left + plotWidth / 2, y: pad.top + plotHeight / 2, class: "tick", "text-anchor": "middle" });
         empty.textContent = t("Nothing recorded in this range");
         root.append(empty);
       }
@@ -9749,12 +9783,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (chosen != null && chosen < points.length && document.activeElement === root) show(chosen);
     }
 
-    // A page shown in its place takes the chart out of the document: it stops watching then.
-    const resize = new ResizeObserver(() => {
-      if (!frame.isConnected) { resize.disconnect(); return; }
-      if (frame.clientWidth && Math.abs(frame.clientWidth - (drawn ? Number(drawn.root.getAttribute("width")) : 0)) > 1) draw();
-    });
-    resize.observe(frame);
+    redrawOnResize(frame, draw, () => drawn ? Number(drawn.root.getAttribute("width")) : 0);
     draw();
     showLatest(points);
     return {
@@ -9798,7 +9827,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     function draw() {
       const width = Math.max(frame.clientWidth, 240);
       const bars = state;
-      const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
+      const plotHeight = height - pad.top - pad.bottom;
       const known = bars.map((bar) => segments.map((one) => one.value(bar.values)));
       const sums = known.map((values) => values.map((value) => value ?? 0));
       const highest = Math.max(0, usual?.high ?? 0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
@@ -9807,18 +9836,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const step = niceStep((highest - lowest) / 5 || 1, unit(size));
       const top = Math.max(lowest < 0 ? 0 : step, Math.ceil(highest / step) * step), bottom = Math.floor(lowest / step) * step;
       const y = (value) => pad.top + plotHeight - (value - bottom) / Math.max(top - bottom, 1e-9) * plotHeight;
-      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(24, slot * 0.6);
-      const x = (index) => pad.left + slot * index + slot / 2;
-
-      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": hourly ? t("{title}, a bar per hour", { title }) : t("{title}, a bar per day", { title }) });
-      root.setAttribute("tabindex", "0");
       const ticks = [];
       for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
       const tickText = axisLabels(ticks, format, size);
+      const left = labelRoom(tickText), plotWidth = width - left - pad.right;
+      // Bars too narrow for a gap between them (months of days) touch, as one area, rather than read as hatching.
+      const slot = plotWidth / Math.max(bars.length, 1), barWidth = slot < 6 ? slot : Math.min(24, slot * 0.6);
+      const x = (index) => left + slot * index + slot / 2;
+
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": hourly ? t("{title}, a bar per hour", { title }) : t("{title}, a bar per day", { title }) });
+      root.setAttribute("tabindex", "0");
       ticks.forEach((value, index) => {
         const at = y(value);
-        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
-        const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
+        root.append(svg("line", { x1: left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
+        const label = svg("text", { x: left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
         label.textContent = tickText[index];
         root.append(label);
       });
@@ -9826,7 +9857,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       root.append(hover);
       // The usual range behind the bars, across the plot.
       if (usual && usual.high > usual.low) {
-        root.append(svg("rect", { x: pad.left, width: plotWidth, y: y(usual.high), height: Math.max(2, y(usual.low) - y(usual.high)), rx: 4, class: "chart-band" }));
+        root.append(svg("rect", { x: left, width: plotWidth, y: y(usual.high), height: Math.max(2, y(usual.low) - y(usual.high)), rx: 4, class: "chart-band" }));
       }
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
       // rounded corners at its free end, square at the baseline.
@@ -9858,9 +9889,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
           root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
         }
-        // Bars too narrow for every label (a month's days on a phone) label one in `every`, the last always.
+        // Bars too narrow for every label (a month's days on a phone) label one in `every`, counted back from the last,
+        // which is always labelled, so no two labels crowd each other at the end.
         const every = slot < 24 ? Math.ceil(24 / slot) : 1;
-        if (index % every !== 0 && index !== bars.length - 1) return;
+        if ((bars.length - 1 - index) % every !== 0) return;
         const label = svg("text", { x: x(index), y: height - 6, class: bar.current ? "tick current" : "tick", "text-anchor": "middle" });
         // A bar given a narrow label ("" for one to leave bare) shows only that one under a narrow slot.
         label.textContent = slot < 64 && bar.narrow != null ? bar.narrow : bar.label;
@@ -9886,7 +9918,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const px = x(index), left = px + slot / 2 + 8 + tooltip.offsetWidth > width ? px - slot / 2 - 8 - tooltip.offsetWidth : px + slot / 2 + 8;
         tooltip.style.left = `${Math.max(0, left)}px`;
       };
-      const nearest = (clientX) => bars.length ? Math.min(bars.length - 1, Math.max(0, Math.floor((clientX - root.getBoundingClientRect().left - pad.left) / slot))) : null;
+      const nearest = (clientX) => bars.length ? Math.min(bars.length - 1, Math.max(0, Math.floor((clientX - root.getBoundingClientRect().left - left) / slot))) : null;
       root.addEventListener("pointermove", (event) => show(nearest(event.clientX)));
       root.addEventListener("pointerleave", () => { if (document.activeElement !== root) show(null); });
       root.addEventListener("blur", () => show(null));
@@ -9899,11 +9931,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       });
     }
 
-    const resize = new ResizeObserver(() => {
-      if (!frame.isConnected) { resize.disconnect(); return; }
-      if (frame.clientWidth && Math.abs(frame.clientWidth - (drawn ? Number(drawn.root.getAttribute("width")) : 0)) > 1) draw();
-    });
-    resize.observe(frame);
+    redrawOnResize(frame, draw, () => drawn ? Number(drawn.root.getAttribute("width")) : 0);
     draw();
     return { update(bars, band) { state = bars; if (band !== undefined) usual = band; chosen = null; tooltip.classList.add("hidden"); draw(); } };
   }
@@ -9993,11 +10021,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         return item;
       }));
     }
-    const resize = new ResizeObserver(() => {
-      if (!frame.isConnected) { resize.disconnect(); return; }
-      if (frame.clientWidth && Math.abs(frame.clientWidth - drawn) > 1) draw();
-    });
-    resize.observe(frame);
+    redrawOnResize(frame, draw, () => drawn);
     draw();
     return { update(spans, from, to) { state = { spans, from, to }; chosen = null; tooltip.classList.add("hidden"); draw(); } };
   }
@@ -18938,20 +18962,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const temperature = characteristic.type === "Color Temperature";
       const min = characteristic.minValue ?? (temperature ? 140 : 0);
       const max = characteristic.maxValue ?? (temperature ? 500 : characteristic.type === "Hue" ? 360 : 100);
-      const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
-        value: value ?? characteristic.value ?? min, "aria-label": characteristicName(characteristic.type) });
-      const output = el("output", { class: "scene-slider-value" });
+      // The widgets' slider, coloured as the wall's: a white track in kelvin for a colour temperature (mireds run the other
+      // way), the hues for a hue, a light's fill for a brightness.
+      const W = HomeswiftWidgets;
       const format = new Intl.NumberFormat(HomeswiftI18n.numberLocale, { maximumFractionDigits: 0 });
-      const paint = () => {
-        const raw = Number(slider.value);
-        const unit = characteristic.unit === "celsius" ? " °C" : characteristic.type === "Hue" ? "°" : characteristic.unit === "percentage" || ["Brightness", "Saturation", "Rotation Speed", "Target Position", "Volume"].includes(characteristic.type) ? " %" : "";
-        const text = temperature ? `${format.format(Math.round(1000000 / raw))} K` : characteristic.unit === "celsius" ? HomeswiftCommon.formatTemperature(raw) : `${raw}${unit}`;
-        output.textContent = text;
-        slider.setAttribute("aria-valuetext", text);
-      };
-      slider.addEventListener("input", paint); paint();
-      const wrap = el("span", { class: `scene-value-slider${temperature ? " temperature" : " brightness"}` }, output, slider);
-      wrap.read = () => Number(slider.value);
+      const unit = characteristic.unit === "celsius" ? " °C" : characteristic.type === "Hue" ? "°" : characteristic.unit === "percentage" || ["Brightness", "Saturation", "Rotation Speed", "Target Position", "Volume"].includes(characteristic.type) ? " %" : "";
+      const kelvin = (mireds) => Math.round(1e6 / mireds / 50) * 50;
+      let current = Number(value ?? characteristic.value ?? min);
+      const look = temperature ? { min: kelvin(max), max: kelvin(min), step: 50, gradient: W.whiteTrack(kelvin(max), kelvin(min)), format: (k) => `${format.format(k)} K` }
+        : { min, max, step: characteristic.minStep || 1, format: (v) => characteristic.unit === "celsius" ? HomeswiftCommon.formatTemperature(v) : `${v}${unit}`,
+          gradient: characteristic.type === "Hue" ? W.hueTrack() : characteristic.type === "Saturation" ? W.saturationTrack(30) : undefined,
+          fill: characteristic.type === "Brightness" ? W.brightnessFill() : undefined };
+      const control = W.level({ label: characteristicName(characteristic.type), showLabel: false, thin: true, ...look },
+        (v) => { current = temperature ? Math.round(1e6 / v) : v; });
+      control.set(temperature ? kelvin(current) : current);
+      const wrap = el("span", { class: "scene-value-slider" }, control.node);
+      wrap.read = () => current;
       return wrap;
     }
     const labels = app.enumLabels[characteristic?.type];
@@ -18991,19 +19017,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       .map((c) => ({ ...c, type: "Light color", value: { hue: c.value, saturation: chars.find((s) => s.type === "Saturation" && s.service === c.service).value } }))];
   }
 
+  /// A light's colour as the wall's sliders pick one: its hue over the colour wheel's hues, then how much of it, over
+  /// white to that hue; a swatch shows the colour. `.read()` gives `{ hue, saturation }`.
   function colorInput(value = {}) {
-    const h = Number(value.hue || 0), sat = Number(value.saturation ?? 100) / 100;
-    const channel = (n) => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - sat * Math.max(0, Math.min(k, 4 - k, 1)))).toString(16).padStart(2, "0"); };
-    const input = el("input", { type: "color", value: `#${channel(5)}${channel(3)}${channel(1)}`, "aria-label": t("Light color"), class: "scene-color-input" });
-    let selected = { hue: h, saturation: sat * 100 };
-    input.addEventListener("input", () => {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(input.value.slice(i, i + 2), 16) / 255);
-      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-      const hue = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-      selected = { hue: Math.round(hue * 60), saturation: Math.round(max === 0 ? 0 : d / max * 100) };
-    });
-    input.read = () => selected;
-    return input;
+    const W = HomeswiftWidgets;
+    const selected = { hue: Math.round(Number(value.hue || 0)), saturation: Math.round(Number(value.saturation ?? 100)) };
+    const swatch = el("span", { class: "scene-color-swatch", "aria-hidden": "true" });
+    const paint = () => {
+      swatch.style.background = `hsl(${selected.hue} ${selected.saturation}% 60%)`;
+      saturation.node.style.setProperty("--track", W.saturationTrack(selected.hue));
+    };
+    const hue = W.level({ label: t("Hue"), showLabel: false, thin: true, min: 0, max: 360, format: (v) => `${v}°`, gradient: W.hueTrack() },
+      (v) => { selected.hue = v; paint(); });
+    const saturation = W.level({ label: t("Saturation"), showLabel: false, thin: true, min: 0, max: 100, format: (v) => `${v} %`, gradient: W.saturationTrack(selected.hue) },
+      (v) => { selected.saturation = v; paint(); });
+    hue.set(selected.hue);
+    saturation.set(selected.saturation);
+    paint();
+    const node = el("span", { class: "scene-color", role: "group", "aria-label": t("Light color") }, swatch, el("span", { class: "scene-color-sliders" }, hue.node, saturation.node));
+    node.read = () => ({ ...selected });
+    return node;
   }
 
   /// An accessory and one of its characteristics, with a value input after them when `withValue`.
@@ -19349,8 +19382,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         current?.steps ? el("option", { value: "sequence", text: t("Timed sequence") }) : null,
         Object.entries(effectStyleNames).map(([value, label]) => el("option", { value, text: label })));
       style.value = current?.steps ? "sequence" : effect.style || "";
-      const speed = el("input", { type: "range", min: 0, max: 100, value: Math.round((effect.speed ?? 0.5) * 100) });
-      const brightness = el("input", { type: "range", min: 1, max: 100, value: effect.brightness ?? 80 });
+      // The wall's sliders: `.value` what they were set to, as the inputs they replace.
+      const slider = (label, min, max, start, fill) => {
+        const control = HomeswiftWidgets.level({ label, showLabel: false, thin: true, min, max, format: (v) => `${v} %`, fill }, (v) => { control.node.value = v; });
+        control.set(start);
+        control.node.value = start;
+        return control.node;
+      };
+      const speed = slider(t("Speed"), 0, 100, Math.round((effect.speed ?? 0.5) * 100));
+      const brightness = slider(t("Brightness"), 1, 100, effect.brightness ?? 80, HomeswiftWidgets.brightnessFill());
       const minutes = el("input", { type: "number", min: 1, max: 60, value: Math.round((effect.durationSeconds ?? 900) / 60) });
       const tint = el("input", { type: "checkbox", checked: !!effect.colors?.length });
       const first = colorInput(effect.colors?.[0] || { hue: 30, saturation: 100 }), second = colorInput(effect.colors?.[1] || { hue: 280, saturation: 80 });
@@ -35129,6 +35169,8 @@ HomeswiftI18n.add("pt", {
    contrast. */
 :root {
   color-scheme: light dark;
+  /* Every floating round button (the Assistant's, the sections', the full-screen wall's), one size on every screen. */
+  --float-button: 54px;
   /* The backdrop: apricot at the top left to stone at the bottom right, the four stops of a 140° gradient. */
   --bg: #d8c8bf; --bg-warm: #eab08f; --bg-cool: #cfc9c6; --bg-mint: #bdbdbf;
   --backdrop: linear-gradient(140deg, var(--bg-warm) 0%, #dec4b5 30%, var(--bg-cool) 60%, var(--bg-mint) 100%);
@@ -35364,12 +35406,12 @@ header nav a svg { display: none; }
   header .chat-open {
     /* In the frame's bottom right corner: the frame's margin (half what the window has beyond its 1360 px), then 24. */
     --corner: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24));
-    position: fixed; right: var(--corner); bottom: calc(var(--space-24) + var(--space-24)); z-index: var(--layer-tabbar); width: 56px; height: 56px;
+    position: fixed; right: var(--corner); bottom: calc(var(--space-24) + var(--space-24)); z-index: var(--layer-tabbar); width: var(--float-button); height: var(--float-button); min-height: var(--float-button);
     background: var(--control); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
   }
   header .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
-  #app:has(.chat-open) .settings-bar { margin-right: 76px; }
+  #app:has(.chat-open) .settings-bar { margin-right: calc(var(--float-button) + var(--space-20)); }
 }
 .spacer { flex: 1; }
 /* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
@@ -36582,6 +36624,21 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A bridge's plugins as a cloud (app.js pluginCloud): a tag's size and weight grow with its share of the accessories
+   (--weight, 0 to 1), each tinted with a series colour. */
+.plugin-cloud { justify-content: center; align-items: center; gap: var(--space-6) var(--space-8); }
+.cloud-tag { --tag: var(--series-1); display: inline-flex; align-items: center; gap: 0.4em; font-size: calc(var(--text-xs) + var(--weight, 0) * 0.95rem); font-weight: calc(480 + var(--weight, 0) * 260);
+  padding: calc(2px + var(--weight, 0) * 5px) calc(var(--space-8) + var(--weight, 0) * 8px); line-height: 1.25;
+  color: color-mix(in srgb, var(--tag) 78%, var(--text)); background: color-mix(in srgb, var(--tag) 13%, transparent); border-color: color-mix(in srgb, var(--tag) 32%, transparent); }
+/* Its accessories, as a badge in the tag's colour. */
+.cloud-count { min-width: 1.5em; padding: 0.1em 0.45em; border-radius: var(--radius-pill); font-size: 0.72em; font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums; text-align: center; line-height: 1.3; color: #fff; background: var(--tag); }
+.cloud-tag.tone-2 { --tag: var(--series-2); }
+.cloud-tag.tone-3 { --tag: var(--series-3); }
+.cloud-tag.tone-4 { --tag: var(--series-4); }
+.cloud-tag.tone-5 { --tag: var(--series-5); }
+.cloud-tag.tone-6 { --tag: var(--series-6); }
+.cloud-tag.tone-7 { --tag: var(--series-7); }
 /* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
 .chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
 /* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
@@ -37945,7 +38002,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
 }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
-.animation-colours { display: flex; gap: var(--space-10); }
+.animation-colours { display: grid; gap: var(--space-12); }
 .animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
@@ -39040,25 +39097,13 @@ fieldset > button,
 .group-box .help + .actions { margin-top: var(--space-14); }
 fieldset > .help { margin-bottom: var(--space-10); }
 
-.scene-value-slider { display: flex; flex-direction: column; gap: var(--space-10); width: 100%; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
-.scene-slider-value { align-self: flex-end; font-size: var(--text-base); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-.scene-value-slider input[type=range] { width: 100%; min-height: 24px; padding: 0; }
-.scene-value-slider.temperature input[type=range] { background: linear-gradient(90deg, #b9d9ff, #fff5df, #ffb64c); border-radius: var(--radius-md); }
-.scene-value-slider.brightness input[type=range] { accent-color: var(--accent); }
-
-/* Color belongs to the slider track, not the surrounding input box. */
-.scene-value-slider { --scene-track: linear-gradient(90deg, #665c45, #f6d77e, #fff6d7); }
-.scene-value-slider.temperature { --scene-track: linear-gradient(90deg, #a8ceff, #e1edff, #fff4de, #ffd180, #ff9f36); }
-.scene-value-slider input[type=range],
-.scene-value-slider.temperature input[type=range] {
-  -webkit-appearance: none; appearance: none; background: transparent; border: 0; box-shadow: none;
-  height: 32px; cursor: pointer;
-}
-.scene-value-slider input[type=range]::-webkit-slider-runnable-track { height: 12px; border-radius: var(--radius-pill); background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
-.scene-value-slider input[type=range]::-moz-range-track { height: 12px; border-radius: var(--radius-pill); background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
-.scene-value-slider input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -6px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
-.scene-value-slider input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
-.scene-value-slider input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
+/* A scene's values on the wall's sliders (home.js valueInput, colorInput): coloured as a light's, as wide as their row; a
+   colour is its swatch beside its hue and saturation. */
+.scene-value-slider { display: block; width: 100%; }
+.scene-value-slider > .level, .scene-color-sliders > .level, .animation-settings .level { width: 100%; }
+.scene-color { display: flex; align-items: center; gap: var(--space-10); width: 100%; }
+.scene-color-swatch { flex: none; width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--edge), var(--shadow-control); }
+.scene-color-sliders { display: grid; gap: var(--space-6); flex: 1; min-width: 0; }
 
 .dashboard-quick-actions { gap: var(--space-12) var(--space-20); flex-wrap: wrap; }
 .dashboard-quick-actions > .link { display: inline-flex; align-items: center; gap: var(--space-8); }
@@ -39088,16 +39133,16 @@ fieldset > .help { margin-bottom: var(--space-10); }
    moves it to this dock). Hidden while the app is (the sign-in screen). */
 .chat-dock { display: none; }
 @media (max-width: 640px) {
-  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); display: block; }
+  .chat-dock { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); display: block; }
   body:has(#app.hidden) .chat-dock { display: none; }
-  .chat-dock .chat-open { width: 54px; height: 54px; min-width: 54px; min-height: 54px; background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
+  .chat-dock .chat-open { width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick);
     -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); }
   .chat-dock .chat-open .sparkle { width: 26px; height: 26px; }
 }
 /* Compact mobile navigation, anchored within thumb reach. */
 @media (max-width: 640px) {
   .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .mobile-nav-toggle { display: grid; place-items: center; width: 54px; height: 54px; padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
+  .mobile-nav-toggle { display: grid; place-items: center; width: var(--float-button); height: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
   .mobile-nav-toggle svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
   .mobile-nav-toggle[aria-expanded="true"] { color: var(--accent-ink); }
   .mobile-nav-panel { position: absolute; bottom: 66px; right: 0; width: min(240px, calc(100vw - 28px)); max-height: calc(100dvh - 150px); overflow-y: auto; padding: var(--space-8); border-radius: var(--radius); background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
@@ -39159,20 +39204,18 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); background: var(--control); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 .status-footer > .link svg { width: 17px; height: 17px; }
-/* Icon only, a circle: its words stay its accessible name (its aria-label). */
-.status-footer > .link { justify-content: center; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 50%; }
+/* Icon only, a floating round button's circle: its words stay its accessible name (its aria-label). */
+.status-footer > .link { justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; border-radius: 50%; }
 .status-footer > .link span { display: none; }
-.status-footer > .link svg { width: 19px; height: 19px; }
+.status-footer > .link svg { width: 22px; height: 22px; }
 /* On a phone, a round button stacked above the menu button (and above the Assistant's, when it is there), the same
    size, within thumb reach; its words stay its accessible name. */
 @media (max-width: 640px) {
-  .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 54px + var(--space-10)); margin: 0; }
-  body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (54px + var(--space-10))); }
-  .status-footer > .link { justify-content: center; width: 54px; height: 54px; min-width: 54px; min-height: 54px; padding: 0; border-radius: 50%; color: var(--text); box-shadow: var(--shadow-thick); }
-  .status-footer > .link span { display: none; }
-  .status-footer > .link svg { width: 23px; height: 23px; }
+  .status-footer { position: fixed; z-index: var(--layer-tabbar); right: max(14px, env(safe-area-inset-right)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--float-button) + var(--space-10)); margin: 0; }
+  body:has(.chat-dock) .status-footer { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 2 * (var(--float-button) + var(--space-10))); }
+  .status-footer > .link { color: var(--text); box-shadow: var(--shadow-thick); }
   /* Room at the page's end, so its last card scrolls clear of the button. */
-  #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(54px + var(--space-10)); }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; height: calc(var(--float-button) + var(--space-10)); }
 }
 
 /* Homeswift: at the side menu's foot (a wide window), opening upward over it; in a phone's ☰ panel, under Account,
@@ -39243,10 +39286,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .mobile-nav-panel .side-about .side-about-action.accent { color: var(--accent-ink); }
 .mobile-nav-panel .side-about .side-about-action svg { width: 21px; height: 21px; }
 @media (min-width: 1180px) {
-  /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
-     left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
-  .status-footer { bottom: calc(var(--space-24) + var(--space-24) + 10px); }
-  #app:has(.chat-open) .status-footer { padding-right: calc(56px - var(--space-4) + var(--space-16)); }
+  /* Edit floats in the window's bottom right corner as the Assistant's button does, from the same corner, stacked above
+     that button when it is there (as on a phone); the page keeps room for it at its end. */
+  .status-footer { position: fixed; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); bottom: calc(var(--space-24) + var(--space-24)); margin: 0; }
+  #app:has(.chat-open) .status-footer { bottom: calc(var(--space-24) + var(--space-24) + var(--float-button) + var(--space-10)); }
+  #app > main:has(> .status-footer)::after { content: ""; display: block; grid-column: 1 / -1; height: calc(var(--float-button) + var(--space-16)); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
   header .side-about::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
@@ -40068,7 +40112,6 @@ select option:disabled { color: var(--muted); }
 .appearance-card-title svg { width: 22px; height: 22px; color: var(--accent-ink); flex: none; }
 .appearance .group .menu-flag { margin-right: var(--space-6); }
 
-.scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
 .template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
@@ -40228,9 +40271,8 @@ html.wall-full #view {
   animation: wall-full-in 220ms var(--ease-out);
 }
 html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
-html.wall-full .accessory-section > .section-head { padding-right: 56px; }
-/* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom at the foot and the
-   options button in the corner, both faded while nothing happens; the inspector a card over it (a sheet on a phone). */
+/* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom and the full-screen
+   buttons stacked in the bottom right corner, faded while nothing happens; the inspector a card over it (a sheet on a phone). */
 html.wall-full.graph-full #view > .overview-card.graph-full-card { display: flex; }
 /* #view's entrance would make it, while it moves, the box the fixed card is laid out in: the card fades in itself. */
 html.graph-full #view { animation: none; }
@@ -40247,18 +40289,18 @@ html.graph-full #view { animation: none; }
 .graph-full-card .overview-frame { flex: 1; min-height: 0; }
 .graph-full-card .overview-graph { width: 100%; height: 100%; max-width: none; }
 .graph-full-card .overview-detail { max-height: calc(100dvh - var(--space-24) * 2); }
-/* Its zoom as a map's: round glyph buttons stacked in the bottom right corner, as the wall's corner button is drawn. */
+/* Its zoom as a map's: round glyph buttons, the wall's buttons' size, stacked in the bottom right corner above them. */
 .graph-full-card .overview-zoom {
-  position: fixed; right: max(var(--space-16), env(safe-area-inset-right)); bottom: max(var(--space-16), env(safe-area-inset-bottom)); z-index: var(--layer-tabbar);
-  flex-direction: column; flex-wrap: nowrap; gap: var(--space-8); margin: 0; transition: opacity 400ms ease;
+  position: fixed; right: var(--wall-edge); bottom: calc(var(--wall-stack) + 2 * (var(--float-button) + var(--space-10))); z-index: var(--layer-tabbar);
+  flex-direction: column; flex-wrap: nowrap; gap: var(--space-10); margin: 0; transition: opacity 400ms ease;
 }
 .graph-full-card .overview-zoom button {
-  display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 0; min-height: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0; gap: 0; font-size: 0; border-radius: 50%;
   border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 /* Its glyph (the button's ::before) alone in the middle: in a flex row the label's text, at no size, takes no room. */
-.graph-full-card .overview-zoom button::before { width: 20px; height: 20px; margin: 0; }
+.graph-full-card .overview-zoom button::before { width: 22px; height: 22px; margin: 0; }
 .graph-full-card .overview-zoom button:active { transform: scale(0.94); }
 html.graph-full:not(.wall-awake) .overview-zoom { opacity: 0.32; }
 @media (max-width: 640px) {
@@ -40284,19 +40326,30 @@ html.wall-full .accessory-walls.wall-pages {
 html.wall-full .accessory-walls.wall-pages::-webkit-scrollbar { display: none; }
 html.wall-full .wall-pages > .accessory-section {
   flex: 0 0 100%; min-width: 0; margin: 0; scroll-snap-align: start; scroll-snap-stop: always; overflow-y: auto; overscroll-behavior-y: contain;
-  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom)) max(var(--space-24), env(safe-area-inset-left));
+  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) calc(var(--wall-stack) + 2 * (var(--float-button) + var(--space-10))) max(var(--space-24), env(safe-area-inset-left));
 }
 .wall-full-chrome button { transition: opacity 400ms ease, transform 160ms var(--ease-out), background-color var(--fast) ease; }
 html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
 .wall-full-button, .wall-step {
-  position: fixed; z-index: var(--layer-tabbar); display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  position: fixed; z-index: var(--layer-tabbar); display: grid; place-items: center; width: var(--float-button); height: var(--float-button); min-width: var(--float-button); min-height: var(--float-button); padding: 0;
   border-radius: 50%; border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
-.wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
-/* Leave full screen, to the options' left: one button's width and a gap further in. */
-.wall-full-exit { top: max(var(--space-16), env(safe-area-inset-top)); right: calc(max(var(--space-16), env(safe-area-inset-right)) + 44px + var(--space-8)); }
-.wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
+/* At the bottom right on every screen, in the thumb's reach and off the first widgets: Filters, then Leave full screen
+   above it; on a phone the Assistant's button at the bottom and these above it. The page dots sit centred on the
+   bottom button's line. */
+html.wall-full {
+  --wall-edge: max(var(--space-16), env(safe-area-inset-right)); --wall-base: max(var(--space-16), env(safe-area-inset-bottom));
+  --wall-stack: var(--wall-base);
+}
+@media (max-width: 640px) {
+  html.wall-full { --wall-edge: max(14px, env(safe-area-inset-right)); --wall-base: max(14px, env(safe-area-inset-bottom)); }
+  html.wall-full .chat-dock { right: var(--wall-edge); bottom: var(--wall-base); }
+  html.wall-full:has(.chat-dock) { --wall-stack: calc(var(--wall-base) + var(--float-button) + var(--space-10)); }
+}
+.wall-full-options { right: var(--wall-edge); bottom: var(--wall-stack); }
+.wall-full-exit { right: var(--wall-edge); bottom: calc(var(--wall-stack) + var(--float-button) + var(--space-10)); }
+.wall-full-button svg, .wall-step svg { width: 22px; height: 22px; }
 .wall-full-button:active, .wall-step:active { transform: scale(0.94); }
 /* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */
 .wall-full-panel { display: grid; gap: var(--space-16); }
@@ -40307,20 +40360,25 @@ html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
 .wall-full-panel > button { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-8); }
 .wall-full-panel > button > svg { flex: none; width: 18px; height: 18px; }
 .wall-full-panel > .actions { justify-content: space-between; margin-top: var(--space-8); }
-.wall-step { top: 50%; margin-top: -22px; display: none; }
-.wall-step.previous { left: max(var(--space-12), env(safe-area-inset-left)); }
-.wall-step.next { right: max(var(--space-12), env(safe-area-inset-right)); }
+.wall-step { top: 50%; margin-top: calc(var(--float-button) / -2); display: none; }
+.wall-step.previous { left: max(var(--space-16), env(safe-area-inset-left)); }
+.wall-step.next { right: var(--wall-edge); }
 .wall-step:disabled { visibility: hidden; }
 @media (hover: hover) and (pointer: fine) { .wall-step { display: grid; } }
+/* The pages' dots: a small pill of them, iOS's page control; with many pages (a home of twenty rooms) each slot narrows
+   so the pill always fits the screen (--pages, app.js). */
 .wall-dots {
-  position: fixed; z-index: var(--layer-tabbar); left: 50%; bottom: max(var(--space-14), env(safe-area-inset-bottom)); transform: translateX(-50%);
-  display: flex; gap: 0; padding: var(--space-4) var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
+  /* Narrower than the window by the buttons on the right, on both sides so it stays centred. */
+  --dots-room: calc(100vw - 2 * (var(--float-button) + var(--wall-edge, 16px) + var(--space-8)));
+  --slot: min(16px, calc((var(--dots-room) - 32px) / var(--pages, 1)));
+  position: fixed; z-index: var(--layer-tabbar); left: 50%; bottom: calc(var(--wall-base, 16px) + var(--float-button) / 2 - 13px); transform: translateX(-50%);
+  display: flex; gap: 0; max-width: var(--dots-room); padding: 3px var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); box-shadow: var(--shadow-control);
 }
-.wall-dots button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
-.wall-dots button::before { content: ""; width: 7px; height: 7px; border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
-.wall-dots button[aria-current="true"] { width: 30px; }
-.wall-dots button[aria-current="true"]::before { width: 20px; opacity: 1; }
+.wall-dots button { display: grid; place-items: center; width: var(--slot); height: 18px; min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
+.wall-dots button::before { content: ""; width: min(6px, calc(var(--slot) - 4px)); height: min(6px, calc(var(--slot) - 4px)); border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
+.wall-dots button[aria-current="true"] { width: calc(var(--slot) + 8px); }
+.wall-dots button[aria-current="true"]::before { width: calc(min(6px, calc(var(--slot) - 4px)) + 8px); opacity: 1; }
 html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .wall-dots { transition: opacity 400ms ease; }
 @media (prefers-reduced-motion: reduce) {
@@ -41796,16 +41854,11 @@ self.addEventListener("notificationclick", (event) => {
       return select;
     }
     if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {
-      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, "aria-label": typeName(characteristic.type) });
-      const value = el("span", { class: "value" });
-      let timer = null;
-      input.addEventListener("input", () => {
-        value.textContent = withUnit(Number(input.value), characteristic);
-        clearTimeout(timer);
-        timer = setTimeout(() => { timer = null; write(Number(input.value)); }, 250);
-      });
-      ctx.watch(() => { if (!timer) { input.value = characteristic.value ?? 0; value.textContent = formatValue(characteristic); } });
-      return el("span", { class: "range" }, input, value);
+      // The widgets' slider, as a light's brightness: a TV's contrast, a fan's level, any number in a range.
+      const control = level({ label: typeName(characteristic.type), showLabel: false, min: characteristic.minValue, max: characteristic.maxValue,
+        step: characteristic.minStep || 1, format: (v) => withUnit(v, characteristic), thin: true }, (v) => write(v));
+      ctx.watch(() => control.set(characteristic.value ?? 0));
+      return control.node;
     }
     if (writable && characteristic.format === "string") {
       const input = el("input", { type: "text", "aria-label": typeName(characteristic.type) });
@@ -43660,6 +43713,10 @@ self.addEventListener("notificationclick", (event) => {
     level,
     /// A colour temperature track from `low` to `high` kelvin, warm to cool, as a light's white slider has.
     whiteTrack,
+    /// The hues round the colour wheel, red to red, as a hue slider's track.
+    hueTrack: () => `linear-gradient(90deg, ${[0, 60, 120, 180, 240, 300, 360].map((h) => `${wheelColor(h, 100)} ${(h / 3.6).toFixed(1)}%`).join(", ")})`,
+    /// A hue from white to its fullest, as a saturation slider's track.
+    saturationTrack: (h) => `linear-gradient(90deg, ${wheelColor(h, 0)}, ${wheelColor(h, 100)})`,
     /// A brightness slider's fill in a neutral white, for a light the form has no colour of.
     brightnessFill: () => `linear-gradient(90deg, ${whiteColor(4000, 64)}, ${whiteColor(4000, 88)})`,
     /// A discovered device's icon: its accessory's category when it has one on the bridge, else its Device Kind's (a
