@@ -5199,6 +5199,7 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .power-on-custom > div { display: grid; gap: var(--space-6); padding-left: calc(var(--space-10) * 2 + 16px); }
 .power-on-custom.open > div { padding-top: var(--space-8); }
 .power-on-custom .field-title { display: flex; justify-content: space-between; }
+.power-on-custom input[type="range"] { width: 100%; }
 .power-on-keep { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-sm); color: var(--muted); cursor: pointer; }
 .power-on-keep input { width: auto; margin: 0; accent-color: var(--accent); }
 .power-on-value { color: var(--muted); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
