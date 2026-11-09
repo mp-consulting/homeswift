@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-09
+
 ### Added
 
 - **Power On**: every light's settings say what it does when its power comes back, from a wall switch or after a power
@@ -2467,7 +2469,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/mp-consulting/homeswift/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/mp-consulting/homeswift/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/mp-consulting/homeswift/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/mp-consulting/homeswift/compare/v0.24.0...v0.25.0
